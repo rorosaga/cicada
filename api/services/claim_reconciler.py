@@ -827,7 +827,7 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
 
 def _number_question(new: Claim, existing: Claim | None, reason: str) -> dict:
     """One question about a number, through the two-claim answer path (``kind: divergence``, `inbox_service`), in words
-    with no digit and no token: the card opens the conversation it came from, where the app shows the number."""
+    with no digit and no token. The digits are for the app to show (`/people/numbers/reveal`), and only there."""
     name = _entity_name(new)
     if existing is not None:
         question = f"Did {name}'s number change?"

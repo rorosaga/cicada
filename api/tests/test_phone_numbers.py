@@ -777,6 +777,77 @@ def test_the_agent_tools_read_the_token_never_the_digits(memory):
     assert t in reply or "phone" in reply
 
 
+def test_the_handshake_says_nothing_of_a_number(memory, tmp_path):
+    from api.services import handshake
+
+    _bank_with_numbers(memory)
+    reply, _meta = handshake.load_or_build(memory, "claude-code", variant="claude-code", cache_dir=tmp_path / "cache")
+    assert A_DIGITS not in reply and "555 0143" not in reply and "[number:" not in reply
+
+
+def test_the_engine_is_given_the_token_never_the_digits(memory, monkeypatch):
+    """Stage 1's whole prompt, from a real chat's stored body."""
+    import asyncio
+
+    from api.services import entity_extractor
+
+    chat_live.update_settings(memory, SPEC, {"id": CHAT, "name": "Bob Example", "group": False, "ticked": True},
+                              now="2026-08-28T00:00:00+00:00")
+    ingest(memory, [row("AAA1", T0, f"Ana Diaz's number is {A}", me=True), row("AAA2", T0 + 5, f"mine is {B}")])
+    seen: list[str] = []
+
+    async def fake(ep_id, chunk, ci, total, settings, **kw):
+        seen.append(chunk + "\n" + str(kw.get("source_note") or ""))
+        return {"entities": [], "relationships": [], "values": []}
+
+    monkeypatch.setattr(entity_extractor, "_extract_chunk", fake)
+    path = next((memory / "episodes").glob("*.md"))
+    parsed = markdown_parser.parse(path)
+    episode_ = {**parsed.frontmatter, "id": path.stem, "content": parsed.body}
+    asyncio.run(entity_extractor.extract([episode_], settings_for(memory)))
+    prompt = "\n".join(seen)
+    assert "[number:" in prompt and "stands for a phone number" in prompt
+    assert A_DIGITS not in prompt and B_DIGITS not in prompt and "555 0143" not in prompt
+
+
+def test_the_engine_is_given_no_note_when_no_token_is_there(memory, monkeypatch):
+    import asyncio
+
+    from api.services import entity_extractor
+
+    seen: list[str] = []
+
+    async def fake(ep_id, chunk, ci, total, settings, **kw):
+        seen.append(str(kw.get("source_note") or ""))
+        return {"entities": [], "relationships": [], "values": []}
+
+    monkeypatch.setattr(entity_extractor, "_extract_chunk", fake)
+    episode_ = {"id": "ep_2026-08-29_001", "timestamp": "2026-08-29T10:00:00+00:00", "content": "user: hello there", "origin": "x"}
+    asyncio.run(entity_extractor.extract([episode_], settings_for(memory)))
+    assert seen and all("stands for a phone number" not in s for s in seen)
+
+
+def test_the_reveal_is_on_the_mac_only_never_the_remote_listener():
+    """The remote listener serves MCP, `/v1` and its OAuth (G135); the route is on the local app alone."""
+    from pathlib import Path as P
+
+    listener = "\n".join(p.read_text() for p in (P(__file__).parents[1] / "services").glob("remote*.py"))
+    assert "numbers/reveal" not in listener and "local_sources" not in listener
+
+
+def test_messages_tokens_the_persons_words_too(tmp_path, home, on):
+    """The owner's own case: a texted agent, through Messages."""
+    from api.services import messages_source
+
+    memory = tmp_path / "m"
+    (memory / "episodes").mkdir(parents=True)
+    message = messages_source.Message(key="k1", ts="2026-09-01T10:00:00+00:00", from_me=True, text=f"add Ana, {A}")
+    agent = messages_source.Message(key="k2", ts="2026-09-01T10:00:05+00:00", from_me=False, text=f"Added Ana at {A}")
+    phone_numbers.tokenise_batch([message, agent], {}, writer=messages_source.SCRUB_WRITER, bank=memory.name)
+    assert phone_numbers.has_token(message.text) and agent.text.endswith(A)
+    assert "[redacted]" in episode_scrub.scrub_for(agent.text, messages_source.SCRUB_WRITER)[0]
+
+
 def test_the_note_stage_one_is_given_holds_no_digit():
     assert not any(c.isdigit() for c in phone_numbers.NOTE)
 

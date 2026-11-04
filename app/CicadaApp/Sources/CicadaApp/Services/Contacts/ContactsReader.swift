@@ -183,7 +183,7 @@ final class ContactsReader {
 
     private func perform(bank: String) async throws -> String {
         let token = store.historyToken()
-        let records = await store.snapshot()
+        let records = await store.snapshot(numberKey: await api.numberMatchKey())
         try Task.checkCancellation()
         guard !records.isEmpty else { throw ContactsReadError.empty }
         activity?.progressed(Self.channel, detail: Copy.contactsMatching(records.count))

@@ -2733,6 +2733,14 @@ actor APIClient {
     }
 
     /// G154: the whole address book, as names and which facts each card holds (never a value).
+    /// Proposed ruling 55: `GET /people/numbers/match-key` — nothing while the feature is off, or from a client of a
+    /// server elsewhere (403): then no card carries keys.
+    func numberMatchKey() async -> String? {
+        struct Answer: Decodable { let key: String? }
+        let answer: Answer? = try? await get("/people/numbers/match-key")
+        return answer?.key
+    }
+
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
         try await postData("/sources/contacts-local/sync", json: try JSONEncoder().encode(payload))
     }
