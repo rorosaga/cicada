@@ -522,6 +522,15 @@ def write_claim(
             }
 
         settings = _ReconcileSettings(memory_path=memory_path)
+        if phone_numbers.is_number_claim(new_claim) and any(
+                c.predicate == phone_numbers.PREDICATE and c.valid_to is None
+                and not phone_numbers.same_number(c.object, new_claim.object, settings) for c in existing_claims):
+            # Proposed ruling 55: asked here it would wait with no question (this door raises none), and an agent's word
+            # closes no number. Said to the person, their own words change it through Sleep.
+            return {"subject": subject_raw, "entity_id": entity_id, "claim_id": None, "action": "error",
+                    "observer": observer,
+                    "error": "This page holds a different number. A number changes only on the person's own words, so "
+                             "nothing was written: tell them, and what they say will be read."}
         reconciled, nudges, audit = reconcile_stage3(
             [new_claim],
             {entity_id: existing_claims},

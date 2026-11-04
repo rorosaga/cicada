@@ -1410,3 +1410,42 @@ def test_item_12_the_vault_routes_are_refused_on_a_replica():
 
     for route in ("POST /people/numbers/reveal", "PUT /people/numbers/switch", "POST /people/numbers/new-vault"):
         assert replica_routes.ROUTES[route] == replica_routes.REFUSE
+
+
+def test_a_numbers_question_recommends_nothing_because_it_proposes_nothing(memory):
+    _t1, _t2, item = _asked(memory)
+    fm = markdown_parser.parse(item).frontmatter
+    options = inbox_service.inbox_questions.normalize_options(fm.get("options"))
+    assert inbox_service.recommended_key("divergence", fm, options) is None
+
+
+def test_an_answer_after_the_number_was_replaced_never_makes_two_current(memory):
+    t1, t2, item = _asked(memory)
+    t3 = tok(memory, "+1 202 555 0166")
+    _file(memory, "2026-08-28", f"Ana Diaz's new number is {t3}", t3)
+    subprocess.run(["git", "-C", str(memory), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(memory), "commit", "-qm", "later"], check=True)
+    numbers = _answer(memory, item, "1")
+    assert [o for o, c in numbers.items() if c.valid_to is None] == [t3]
+    assert numbers[t2].context == "general" and numbers[t2].source_trust == "user_stated"
+
+
+def test_an_agents_different_number_is_refused_in_words_and_changes_nothing(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    t = tok(memory, A)
+    _file(memory, "2026-08-20", f"Ana Diaz's number is {t}", t)
+    before = (memory / "entities" / "ana-diaz.md").read_text()
+    out = agentic_write.write_claim(memory, "Ana Diaz", "phone", B, observer="external:claude-code", object_kind="literal")
+    assert out["action"] == "error" and "person's own words" in out["error"]
+    assert (memory / "entities" / "ana-diaz.md").read_text() == before
+
+
+def test_an_agent_restating_the_same_number_changes_nothing_new(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    t = tok(memory, A)
+    _file(memory, "2026-08-20", f"Ana Diaz's number is {t}", t)
+    out = agentic_write.write_claim(memory, "Ana Diaz", "phone", "(202) 555-0143", observer="external:claude-code",
+                                    object_kind="literal")
+    assert out["action"] != "error"
+    assert [o for o, c in _phones(memory).items() if c.valid_to is None] == [t]
+
