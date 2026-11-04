@@ -390,24 +390,51 @@ the page the name was weighed against (`includes`, `creates`, `alternative-to`, 
 `different`), moves the question to `settled/` with the record Undo reads, and the claim on the record keeps the pair
 from being asked again. **A check never merges:** "they are the same" settles nothing — the question stays for the
 person's tap. Pairs come after clarifications and before conflicts in a run's eight (`KIND_ORDER`).
-**A public handle and a named person (PROPOSED ruling 54, owner direction 2026-11-04, `public_handle`).** The one
-person pair a lookup may answer: "Is <handle> the same as <full name>?" between two person pages, where one side is a
-handle and the other a full name; neither the owner, a role-only page, the address book or LinkedIn import, or known
-personally on the record (ruling 44's own checks, `web_context.known_personally`); no chat (Messages, WhatsApp,
-Telegram chats, e-mail, LinkedIn, a profile read on request) says either name outside a link, in its title or as its
-correspondent; and each name is said in public content the person read or saved (a saved link, a bookmark, a watched
-video, a read page, a paper, a repository, a tab group). **Sent:** to the plan's own web search, exactly two pinned
-queries — the handle with the one platform word the record links it on (`<handle> twitter`/`github`/`instagram`/
-`linkedin`, else `@<handle>`) and the full name alone — plus the prompt to the engine that already read those
-conversations (at most two scrubbed mention lines, other people's names out); plan runs only, never a metered key
-(`metered_only`). **Settles** only a sure "same" whose quote, checked here, names both: one cited `goes-by` claim on the
-named page ("<Name> goes by “<handle>” online", its object the handle's page, observer `agent`, `external`,
-`web-check`), never a merge; while it stands the pair is not asked again (`pair_evidence.answered_by_check`); undo
-under "Settled by a check". The person's own agent settles it the same way (`cicada_record_check`,
-`proposed_value="same"`). **Off until the owner rules:** Sleep's own lookup runs only with
-`CICADA_PUBLIC_HANDLE_LOOKUP=on`; meanwhile only the person's own local agent, asked by them, may settle one. Measured on a copy of the owner's bank: 1 of the 20 open person pairs qualifies; four real
-lookup calls on the plan with haiku each made exactly two pinned searches and answered "not sure" (nothing written) —
-a disclosed deviation, since they sent a real full name before the owner ruled (TODO.md, ruling 54); no more were run.
+**The settling step (rulings 54, 54a, `settling_agent`, `name_guard`, `public_handle`).** Two kinds of question on the Claude
+plan, on by default (`CICADA_PUBLIC_HANDLE_LOOKUP=off` closes the handle half): "Is <handle> the same as <full name>?" between
+two person pages, one a handle and one a full name, neither the owner or a role-only page; and an open conflict on a page
+with a tracked source Cicada may open, on a predicate the vocabulary knows is single-valued.
+**The model** holds no tool: the pinned argv, `--tools ""`, `CICADA_CAPTURE=off`, `CICADA_RECALL=off`. Each turn it answers one
+JSON object naming calls this process runs: `recall`, `page`, `conversation`, `where_to_check`, `contacts`, `open`, `search`.
+No writing call exists; a call to anything else is told "No such tool". Page text reaches it between fence markers it
+cannot forge.
+**What leaves.** The plan's web tool cannot be intercepted (hooks are off in `--safe-mode`, a permission tool needs MCP, a query
+reaches the provider before the stream reports it), so a model that has read the record never holds it. `name_guard` checks
+each query; a cleared one goes to a search hand, `claude -p` with `WebSearch` alone, whose whole prompt is the cleared queries.
+Its reported queries are audited against them (a stray voids the round and stops the question), and its `searchCount` is what
+counts. A blocked query is dropped, counts, and is never rewritten; two blocks stop the question. An engine with no such
+path skips the step: `metered_only`, or `engine_for`'s reason.
+**The guard** (`name_guard`, built once a run from the whole record, released after). A tie always blocks: Contacts' waiting
+cards and contacts book, LinkedIn connections and slugs, pages carrying either, chat correspondents, group members, speaker
+labels, chat titles, pages `web_context.known_personally` flags, person pages and held names no public content says, the
+owner's names and projects. A mention blocks unless the same run of words is also in public content the person read or saved
+(`PUBLIC_SOURCES`; their own `user:` note on a save counts as private; any source it does not know counts as private).
+Folded, either word order, one-part names, spaces squeezed out, plus contact details and odd shapes. The question's own
+name and handle, once cleared, are taken out first. A store that exists and cannot be read raises `GuardUnreadable`: nothing
+leaves.
+**Pages.** Tracked sources are opened by code before the first turn (54a); after that only a link a search returned, exact,
+passing `check_url`, not removed from the page. All on the link rail (`_stream_html`). A walled source is never requested.
+**By what a question's page holds:**
+
+| Source | What happens | Question |
+|---|---|---|
+| Open tracked page | Opened by Cicada on the link rail, first; the model answers from it | May settle |
+| Walled or blocked tracked page | Never requested; already on ruling 26's listing for the person's agent, under their Reading switches | Stays |
+| Proposed source | Never opened; waits in the grouped review | Stays, or a public handle may search |
+| No source | No model call for a conflict or a private pair | Stays, or a public handle may search |
+
+**What settles a handle** (`public_handle.weigh`, on the bytes opened): one tracked source, encyclopedia article, or own site
+that fits what memory says; otherwise two independent voices, an account's profile and site counting as one; a walled
+profile's search result as that one voice when it is the account's link and its title names the person. A profile alone
+never does. Parody, fan, "formerly", "no longer" around the quote leave it open. It writes one `goes-by` claim on the named
+page ("<Name> goes by “<handle>” online", observer `agent`, `external`, `web-check`), citing every source in one `web-check`
+episode; while it stands the pair is not asked again (`pair_evidence.answered_by_check`).
+**What settles a conflict** (ruling 26's rule, `web_settle.settle(via_source=True)`): the quote on the opened page says the
+option, and every other option was said before today; the same day or undated stays the question. Its record has `scope: source`.
+**Budget:** one question 6 searches, 6 pages, 12 reads, 8 turns, 2 sends-back; a drain or sweep 3 handles, 5 questions, 5 changed
+sources. `Report.questions` keeps each question's numbers and the log line their totals, never a query, link or name.
+**The person's own agent** settles a handle through `cicada_record_check` (`proposed_value="same"`) under the stricter test
+(`_agent_test`): no chat or card touching either name, its two pinned searches, a quote naming both.
 The settled question moves to `inbox/settled/<id>.md` with a `settled:` block naming exactly what it wrote, and is
 served by `GET /inbox/settled` (not a Store domain). **The Inbox shows it under "Settled by a check"** (closed until
 asked for, below the questions and on the empty page): the answer, the quote and the site with when and who
