@@ -85,7 +85,7 @@ STATE_FILENAME = "_state.md"
 # happenings); both absolute, neither today-dependent.
 # 4: G150 — a project row carries backlog_open (items open or doing) when it
 # has any; a bank with no backlog renders as v3 did apart from this number.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5   # 5: ruling 56 — a project row says `started`
 # R10: the handshake primer that embeds this file is budgeted at ~1,800
 # tokens; 6 KiB of cursor leaves room for the contract text around it.
 MAX_BYTES = 6 * 1024
@@ -599,6 +599,21 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _ranked_projects(memory_path: Path, today: date, n: int) -> list[tuple[bank_index.IndexedFile, bool]]:
+    """``(page, started)``: the person's own projects first (ruling 45's list, the same rule), then recent project pages
+    they never started, up to ``n`` together. Ruling 56 keeps those in the note on purpose: a bank whose person has
+    started none (the owner's, 2026-11-04: 0 of 711) would otherwise tell every arriving agent nothing about what they
+    work on. Each row says which it is, so the note never calls a page the person's project when it is not."""
+    from api.services import project_ownership
+
+    ranked = _ranked(memory_path, "project", today, 1 << 30)
+    own = [f for f in ranked if project_ownership.listed(f.frontmatter, f.path)]
+    mine = {f.stem for f in own}
+    rest = [f for f in ranked if f.stem not in mine and not project_ownership.dismissed(f.frontmatter)]
+    top = own[:max(0, n)]
+    return [(f, True) for f in top] + [(f, False) for f in rest[:max(0, n - len(top))]]
+
+
 def _limit(settings, key: str) -> int:
     try:
         return int(getattr(settings, key, _DEFAULTS[key]) or _DEFAULTS[key])
@@ -645,9 +660,9 @@ def build(
         open_backlog = {}
 
     projects = []
-    for f in _ranked(memory_path, "project", today, _limit(settings, "state_projects")):
+    for f, started in _ranked_projects(memory_path, today, _limit(settings, "state_projects")):
         row = {
-            "id": f.stem, "name": _name(f), "one_liner": _one_liner(f),
+            "id": f.stem, "name": _name(f), "one_liner": _one_liner(f), "started": started,
             "confidence": round(float(f.frontmatter.get("confidence", 0.5) or 0.0), 2),
             "last_referenced": str(f.frontmatter.get("last_referenced") or "")[:10] or None,
         }
@@ -717,7 +732,8 @@ def render_body(fm: dict) -> str:
         lines += ["", "## The person",
                   f"- `{fm['owner_id']}`" + (f" — {fm['owner_one_liner']}" if fm.get("owner_one_liner") else "")]
     lines += ["", "## Projects"]
-    for p in fm["projects"]:
+
+    def project_line(p: dict) -> str:
         repo_bits = ", ".join(
             f"{r['path']}@{r['branch']}" + (f" (dirty {r['dirty']})" if r.get("dirty") else "")
             if r.get("state") == "ok"
@@ -725,8 +741,13 @@ def render_body(fm: dict) -> str:
             else f"{r['path']} ({r.get('state')})" for r in p.get("repos", [])
         )
         tail = f" — {p['one_liner']}" if p.get("one_liner") else ""
-        lines.append(f"- [[{p['name']}]] (`{p['id']}`){tail}{_cursor(p)}"
-                     + (f" — repo: {repo_bits}" if repo_bits else ""))
+        return f"- [[{p['name']}]] (`{p['id']}`){tail}{_cursor(p)}" + (f" — repo: {repo_bits}" if repo_bits else "")
+
+    lines += [project_line(p) for p in fm["projects"] if p.get("started", True)]
+    recent = [p for p in fm["projects"] if not p.get("started", True)]
+    if recent:
+        lines += ["", "## Recent project pages, not started as projects"]
+        lines += [project_line(p) for p in recent]
     if not fm["projects"]:
         lines.append("- (no active projects yet)")
     lines += ["", f"## In focus (last {FOCUS_WINDOW_DAYS} days)"]

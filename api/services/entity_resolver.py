@@ -505,14 +505,6 @@ async def resolve(
                         entity, [alias_page], llm_match_cache, settings,
                         gate=lookahead.gate if lookahead is not None else None,
                         connections=connections.get(name_lower, "")))
-                if match is None and project_birth.birth_of(entity, siblings) is not None:
-                    # Owner 2026-10-23 (review of #441): a mention WITH a birth may be the thing a fallback page already
-                    # holds under another spelling ("Canoe restoration" against a page whose name shares no word with
-                    # it). Weighed against every fallback page as `_settle_unborn` weighs a name with no birth —
-                    # aliases count, no shared word needed, the judge decides — so the birth retypes that page in
-                    # place instead of minting a second page beside it.
-                    match = await _fallback_match(entity, siblings, existing, resolved_creates, resolved_updates,
-                                                  llm_match_cache, settings, cancel_check)
             if match is not None and match["decision"] == "same":
                 candidate = match["candidate"]
                 name_to_id[name_lower] = candidate["id"]
@@ -647,27 +639,28 @@ async def resolve(
                 if card_page in existing_ids or card_page in resolved_creates:
                     card = None   # the card's name is already another page's id: an ordinary name, by the usual rule
             should_promote = should_promote or card is not None
-            # Ruling 36 D4 (G141): a project is born from a repository the person works in or their own words calling
-            # it one (`project_birth`), never from the rule above alone; below it, it stays a mention.
+            # Ruling 56 (amends 36 D4): Sleep never makes a project. What it read — a repository, the person's words —
+            # rides as a signal (`project_birth`) to the one fallback page, decided after this loop.
             birth = project_birth.birth_of(entity, siblings)
             # W4: the gate reads the type the create will WRITE — a sibling's "project" overrides a "concept" when the
             # payloads merge (`_merge_entity_payload`), so a page was once written as a project with no birth.
             if _written_type(entity, siblings) == "project" and birth is None and applied is not None:
-                # Ruling 42: an event or program applied to is no project (D4 still holds); its page is the fallback
-                # type, born from the application.
+                # Ruling 42: an event or program applied to is no project; its page is the fallback type, born from
+                # the application.
                 for e in (entity, *siblings):
                     if e.get("type") == "project":
                         e["type"] = project_birth.FALLBACK_TYPE
             if _written_type(entity, siblings) == "project":
-                if birth is None and not ambiguous_match:
-                    # Owner 2026-10-23 (amends D4): no birth, so never a project page — but one thing said under
-                    # several names is one thing. Decided after this loop, over every spelling the judge joins
-                    # (`_settle_unborn`): a fallback page over the bar, a held mention below it.
+                if not ambiguous_match:
+                    # One thing said under several names is one thing: decided after this loop, over every spelling
+                    # the judge joins (`_settle_unborn`): a fallback page over the bar, a held mention below it. The
+                    # person's own words calling it a project clear the bar; a repository alone never does.
+                    said = isinstance(birth, dict) and birth.get("origin") == project_birth.WORDS
                     unborn.append(_Unborn(name=name, key=name_lower, entity=entity, siblings=siblings,
                                           pending=pending_entry, heard=heard_now | heard_before,
-                                          passes=should_promote))
+                                          passes=should_promote or said, birth=birth))
                     continue
-                should_promote = birth is not None
+                should_promote = False
 
             if ambiguous_match and match.get("lead") is not None:
                 pending_actions.append((_create_lead_clarification, (),
@@ -712,8 +705,6 @@ async def resolve(
                 name_to_id[name_lower] = entity_id
                 decided_names.add(name_lower)
                 resolved_creates[entity_id] = _create_change(entity_id, entity)
-                if birth is not None and _written_type(entity, siblings) == "project":
-                    resolved_creates[entity_id]["project_birth"] = birth
                 if card is not None:
                     # Stage 5 writes the card's sources and photo on the page it creates (`contacts_local.seed_page`).
                     resolved_creates[entity_id]["contacts_card"] = card
@@ -1625,9 +1616,10 @@ def _written_type(entity: dict, siblings) -> str:
 
 @dataclass
 class _Unborn:
-    """A name Stage 1 called a project that nothing gave a birth (`_settle_unborn`): one of this batch's names with
-    its same-name ``siblings`` and its ``pending`` line, or a line an earlier batch parked (``stored``). ``heard`` is
-    every conversation it came up in; ``passes`` says it clears the promotion bar on its own."""
+    """A name Stage 1 called a project with no page yet (`_settle_unborn`): one of this batch's names with its same-name
+    ``siblings`` and its ``pending`` line, or a line an earlier batch parked (``stored``). ``heard`` is every
+    conversation it came up in; ``passes`` says it clears the promotion bar on its own; ``birth`` is what this batch
+    read about where it comes from (`project_birth`), which the page records and never acts on (ruling 56)."""
 
     name: str
     key: str
@@ -1639,6 +1631,7 @@ class _Unborn:
     stored: bool = False
     #: Judged a part of the page it lands on (2026-10-29): its own other names are never that page's aliases.
     part: bool = False
+    birth: dict | None = None
 
     def mentions(self) -> tuple[dict, ...]:
         if self.stored:
@@ -1663,16 +1656,13 @@ MAX_UNBORN_CANDIDATES = 2 * 6
 
 
 def _settle_fallback(change: dict, birth) -> None:
-    """A change that lands on a fallback page (owner 2026-10-23): with a birth it becomes the project — the birth rides
-    to Stage 5, which writes ``born`` once and retypes the page on disk (`project_birth.retype_on_birth`), and a create
-    in this batch drops its marker; without one the page keeps its type whatever the mention said."""
+    """A change that lands on a fallback page: it stays a concept whatever the mention said (ruling 56), and a signal
+    rides to Stage 5, which records it once (`project_birth.note_signal`)."""
     if isinstance(birth, dict):
         prior = change.get("project_birth")
         change["project_birth"] = project_birth.birth_of({"project_birth": birth},
                                                          [{"project_birth": prior}] if isinstance(prior, dict) else [])
-        change.pop(project_birth.PROPOSED_KEY, None)
-    kind = "project" if isinstance(change.get("project_birth"), dict) else project_birth.FALLBACK_TYPE
-    change["entity"] = {**(change.get("entity") or {}), "type": kind}
+    change["entity"] = {**(change.get("entity") or {}), "type": project_birth.FALLBACK_TYPE}
 
 
 def _unborn_group_candidate(index: int, members: list[_Unborn]) -> dict:
@@ -1778,36 +1768,15 @@ async def _judge_shared_first(entity: dict, candidates: list[dict], cache: dict,
     return judged
 
 
-async def _fallback_match(entity: dict, siblings: list[dict], existing: list[dict], resolved_creates: dict[str, dict],
-                          resolved_updates: dict[str, dict], cache: dict, settings: Settings,
-                          cancel_check: Callable[[], bool] | None = None) -> dict | None:
-    """The fallback page (on disk, or made in this batch) a project mention with a birth is judged the same as, or
-    unsure about; ``None`` when it is none of them. The candidates are `_unborn_candidates`' over fallback pages only:
-    aliases count, no shared word is needed, a page the person said is different is never brought, and "different"
-    is final. An unsure verdict on a pair with no shared word or conversation is marked ``quiet``: the name is held,
-    and no question is raised (as in `_settle_unborn`)."""
-    pages = [p for p in _page_candidates(existing, resolved_creates, resolved_updates) if _is_fallback(p[0])]
-    if not pages:
-        return None
-    u = _Unborn(name=str(entity.get("name") or ""), key=str(entity.get("name") or "").lower(), entity=entity,
-                siblings=list(siblings), pending=None, heard=set(), passes=False)
-    candidates = _unborn_candidates(u, [], pages, {}, Path(settings.memory_path))
-    judged = await _judge_shared_first({**entity, "type": "project"}, candidates, cache, settings, cancel_check)
-    match = _pick_match(u.name, judged)
-    if match is not None and match["decision"] == "unsure" and not match["candidate"].get("shared"):
-        match["quiet"] = True
-    return match
-
-
 async def _settle_unborn(
     unborn: list[_Unborn], *, existing: list[dict], resolved_updates: dict[str, dict],
     resolved_creates: dict[str, dict], name_to_id: dict[str, str], pending_actions: list, promoted_pending: list[str],
     clarifier: ClarificationManager, hold: Callable, cache: dict, settings: Settings,
     cancel_check: Callable[[], bool] | None = None, unsure_pairs: set[tuple[str, str]] | None = None,
 ) -> bool:
-    """Owner 2026-10-23 (amends ruling 36 D4): what becomes of this batch's project names that nothing gave a birth.
+    """Owner 2026-10-23, ruling 56 (amends ruling 36 D4): what becomes of this batch's project names with no page.
 
-    A project page still needs a repository or the person's own words. But the same thing said under several names —
+    Sleep never makes a project page. But the same thing said under several names —
     a canoe, its hull, the hull build — is one thing, so each name is first weighed by the judge (never by an alias
     alone, owner 2026-10-08) against the fallback pages already on disk, the other such names in this batch and the
     lines an earlier batch parked (`_unborn_candidates`). A name judged the same as a page — a project page, on disk
@@ -1901,7 +1870,7 @@ async def _settle_unborn(
             change = (resolved_updates if candidate["source"] == "existing" else resolved_creates)[page_id]
             credit(change, m, page_id)
             if _is_fallback(candidate):
-                _settle_fallback(change, None)
+                _settle_fallback(change, m.birth)
 
     made = 0
     for members in groups:
@@ -1931,10 +1900,12 @@ async def _settle_unborn(
         change["entity"] = {**change["entity"], "name": rep.name,
                             "aliases": _union_text(change["entity"].get("aliases"), others)}
         change[project_birth.PROPOSED_KEY] = "project"
-        _settle_fallback(change, None)
+        signals = [m.birth for m in members if isinstance(m.birth, dict)]
+        _settle_fallback(change, project_birth.birth_of({"project_birth": signals[0]},
+                                                        [{"project_birth": b} for b in signals[1:]]) if signals else None)
         resolved_creates[entity_id] = change
         made += 1
-    logger.info(f"Stage 2: {len(unborn)} project name(s) with no birth → {len(groups)} group(s), {made} fallback "
+    logger.info(f"Stage 2: {len(unborn)} project name(s) with no page → {len(groups)} group(s), {made} fallback "
                 f"page(s), {sum(len(m) for _, m in on_page.values())} onto existing pages")   # counts, never names
     return False
 

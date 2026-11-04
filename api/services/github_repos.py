@@ -742,7 +742,7 @@ def backlink_pages(memory_path: Path, page_ids, fms=()) -> list[str]:
 
 
 def link(memory_path: Path, project_id: str, entity_id: str, *, by: str = "user", how: str = HOW_USER,
-         session: str | None = None, remove: bool = False) -> list[str]:
+         session: str | None = None, remove: bool = False, reason: str | None = None) -> list[str]:
     """``entity_id`` (a repository page) is one of ``project_id``'s repositories — or, with ``remove``, is not. The
     person's act (``by: user``) is final both ways: their unlink is remembered and lifts only on their own link again;
     an agent or Cicada's origin rule never re-adds it, and an agent takes back only a link it made. Writes the project's
@@ -794,6 +794,8 @@ def link(memory_path: Path, project_id: str, entity_id: str, *, by: str = "user"
                 row = {"entity": entity_id, "url": url, "how": how, "by": by, "day": date.today().isoformat()}
                 if session:
                     row["session"] = session
+                if reason:
+                    row["reason"] = reason
                 rows.append(row)
                 changed = True
             elif any(r.get("entity") != entity_id for r in here):
@@ -821,7 +823,7 @@ def link_by_origin(memory_path: Path) -> dict:
     origin``. Two projects on one remote link neither (the same repository is not the same project). The back-links
     of every repository page are brought up to date too (a link from before the list included). Returns ``{paths,
     subject, author, words?}``."""
-    from api.services import project_birth
+    from api.services import project_birth, project_ownership
     from api.services.connectors import github
 
     memory_path = Path(memory_path)
@@ -832,7 +834,9 @@ def link_by_origin(memory_path: Path) -> dict:
         if salt:
             sessions = _sessions(memory_path)
             projects = _projects(memory_path)
-            remotes = {f.stem: project_birth.page_remotes(f.frontmatter or {}, sessions) for f in projects}
+            # Ruling 56: an automatic link lands only on a project the person started; adopting one links it next sync.
+            remotes = {f.stem: project_birth.page_remotes(f.frontmatter or {}, sessions) for f in projects
+                       if project_ownership.listed(f.frontmatter, f.path)}
             links = linked_projects(memory_path, projects)
             for row in starred(memory_path):
                 url = github.repo_url(str(row["full_name"]))
@@ -893,29 +897,37 @@ def repositories_line(memory_path: Path, project_id: str) -> str | None:
 
 def make_project(memory_path: Path, repo: Repo, *, via: str = "app", by: str = "user") -> tuple[str, list[str]]:
     """The person's "New project from this repository" (ruling 45: their act, from the app or their own shell): a
-    project page in their list (``mine: {via}``) named after the repository, which then lists it. Raises
-    ``project_ownership.OwnershipError`` when the name is taken (the person links that page instead), ``LookupError``
-    when the repository has no page."""
+    project page in their list (``mine: {via}``) named after the repository, which then lists it. A page that already
+    answers to the name is started instead, its history kept (ruling 56). Raises ``project_ownership.OwnershipError``
+    when the name is held by a page that can't be a project, ``LookupError`` when the repository has no page."""
     from api.services import project_ownership
 
     entity_id = repository_page(memory_path, repo.full_name)
     if entity_id is None:
         raise LookupError(repo.full_name)
     door = project_ownership.VIA_CLI if via == "cli" else project_ownership.VIA_APP
-    eid, paths = project_ownership.create(Path(memory_path), repo.name, repo.description, via=door, by=by,
-                                          listed=True)
+    target = project_ownership.start_target(Path(memory_path), repo.name)
+    if target is not None:
+        eid, paths = target, project_ownership.start(Path(memory_path), target, via=door, by=by)
+    else:
+        eid, paths = project_ownership.create(Path(memory_path), repo.name, repo.description, via=door, by=by,
+                                              listed=True)
     return eid, list(dict.fromkeys([*paths, *link(memory_path, eid, entity_id, by=by), f"entities/{eid}.md"]))
 
 
 def project_candidates(memory_path: Path, full_name: str, *, linked: set[str]) -> list[dict]:
-    """The projects a repository card offers to link to: a suggestion first (the origin hash, then the name), then
-    every other live project by name; never one already linked, at most :data:`MAX_CANDIDATES`."""
+    """The projects a repository card offers to link to: a match first (the origin hash, then the name), then the
+    person's own by name (ruling 56: never every page of that type); never one already linked, at most
+    :data:`MAX_CANDIDATES`."""
+    from api.services import project_ownership
+
     projects = _projects(memory_path)
+    own = {f.stem for f in projects if project_ownership.listed(f.frontmatter, f.path)}
     best = project_match(memory_path, full_name, salt=_salt(), projects=projects, links={})
     out = [best] if best and best["project"] not in linked else []
     rest = sorted(({"project": f.stem, "name": str((f.frontmatter or {}).get("name") or f.stem), "how": "other"}
-                   for f in projects if f.stem not in linked and f.stem != (best or {}).get("project")),
-                  key=lambda p: p["name"].lower())
+                   for f in projects if f.stem in own and f.stem not in linked
+                   and f.stem != (best or {}).get("project")), key=lambda p: p["name"].lower())
     return (out + rest)[:MAX_CANDIDATES]
 
 

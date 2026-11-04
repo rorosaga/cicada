@@ -127,6 +127,8 @@ class Request:
     #: Ruling 45 (Q5): a project's display name and the person's header line (`project_ownership.apply_header`).
     name: str | None = None
     description: str | None = None
+    #: Ruling 56: another client asked to start this page as a project; the person's "yes" here is what starts it.
+    start_project: bool = False
 
     def to_dict(self) -> dict:
         out: dict = {}
@@ -142,6 +144,8 @@ class Request:
             out["name"] = self.name
         if self.description is not None:
             out["description"] = self.description
+        if self.start_project:
+            out["start_project"] = True
         return out
 
 
@@ -175,11 +179,11 @@ def _names(raw, label: str) -> list[str]:
 
 
 def parse_request(edits=None, section=None, text=None, add_aliases=None, remove_aliases=None, name=None,
-                  description=None) -> Request:
+                  description=None, start_project=False) -> Request:
     """The call's arguments as a :class:`Request`, or :class:`EditError` saying what is wrong."""
     from api.services import project_ownership
 
-    request = Request()
+    request = Request(start_project=start_project is True)
     try:
         if name is not None and str(name).strip():
             request.name = project_ownership.clean_name(name)
@@ -233,7 +237,7 @@ def parse_request(edits=None, section=None, text=None, add_aliases=None, remove_
     if both:
         raise EditError("The same alias can't be added and removed in one call.")
     if not (request.edits or request.section or request.add_aliases or request.remove_aliases
-            or request.name is not None or request.description is not None):
+            or request.name is not None or request.description is not None or request.start_project):
         raise EditError("Nothing to change: give `edits`, `section` and `text`, `add_aliases`, `remove_aliases`, "
                         "`name` or `description`.")
     return request
@@ -242,7 +246,8 @@ def parse_request(edits=None, section=None, text=None, add_aliases=None, remove_
 def request_from_dict(raw) -> Request:
     raw = raw if isinstance(raw, dict) else {}
     return parse_request(raw.get("edits"), raw.get("section"), raw.get("text"), raw.get("add_aliases"),
-                         raw.get("remove_aliases"), raw.get("name"), raw.get("description"))
+                         raw.get("remove_aliases"), raw.get("name"), raw.get("description"),
+                         raw.get("start_project", False))
 
 
 def clean_reason(reason) -> str:
@@ -650,6 +655,13 @@ def plan(frontmatter: dict, body: str, request: Request, *, author: str, day: st
         touched.append("aliases")
 
     # Ruling 45 (Q5): a project's name and the person's description — the header Sleep never rewrites.
+    if request.start_project:
+        from api.services import project_birth, project_ownership
+
+        project_birth.start_page(fm, {"origin": "created", "via": project_ownership.VIA_ACCEPTED, "day": day})
+        fm.pop(project_ownership.NOT_MINE_KEY, None)
+        fm[project_ownership.MINE_KEY] = {"via": project_ownership.VIA_ACCEPTED, "day": day, "by": "user"}
+        changes.append("started as a project")
     if request.name is not None or request.description is not None:
         from api.services import project_ownership
 
@@ -738,6 +750,8 @@ def parse_reason(body: str) -> str | None:
 def preview(name: str, request: Request, reason: str) -> str:
     """What the inbox card shows: why, then each change in plain words."""
     lines = [f"Why: {reason}", ""]
+    if request.start_project:
+        lines.append("- Add it to your projects")
     for edit in request.edits:
         every = " (every time it appears)" if edit["all"] else ""
         lines.append(f"- Replace “{edit['old']}” with “{edit['new']}”{every}" if edit["new"]
@@ -753,6 +767,22 @@ def preview(name: str, request: Request, reason: str) -> str:
         lines.append(f"- Set its description to “{request.description}”" if request.description
                      else "- Clear its description")
     return "\n".join(lines)
+
+
+def start_waiting(memory_path: Path, entity_id: str) -> bool:
+    """An open proposal to start this page as a project is already in the inbox: never a second question."""
+    for f in (Path(memory_path) / "inbox").glob("inbox-*.md"):
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+            if "start_project" not in text or entity_id not in text:
+                continue
+            fm = markdown_parser.parse(f).frontmatter or {}
+        except (OSError, ValueError):
+            continue
+        if (fm.get("kind") == KIND and fm.get("status") == "pending" and str(fm.get("entity_id")) == entity_id
+                and (fm.get("edit") or {}).get("start_project")):
+            return True
+    return False
 
 
 def write_proposal(memory_path: Path, *, entity_id: str, name: str, request: Request, reason: str, author: str,
@@ -782,6 +812,10 @@ def write_proposal(memory_path: Path, *, entity_id: str, name: str, request: Req
     if origin:
         fm["origin"] = origin
         fm["trigger"] = f"sleep/{origin}"
+    if request.start_project:
+        fm["title"] = f"Start {name} as a project?"
+        fm["question"] = f"An agent asks to start {name} as one of your projects: {reason}"
+        fm["options"] = [{"key": "apply", "label": "Start it"}, {"key": "dismiss", "label": "Leave it"}]
     rows = [ev.to_dict() if hasattr(ev, "to_dict") else dict(ev) for ev in spans or []]
     rows = [r for r in rows if r.get("kind") != "reasoning"]
     if rows:

@@ -1,16 +1,21 @@
-"""Whose projects are listed (TODO ruling 45, 2026-10-27, amends ruling 36 D4): the person's, and only theirs.
+"""Whose projects are listed (TODO ruling 45, 2026-10-27; ruling 56, 2026-11-04): the person's, and only theirs.
 
-The Projects page lists the projects the person made or claimed; everything Cicada detected waits under **Suggested**
-with its reason, never archived, deleted, renamed or retyped. A project is the person's when:
+The Projects page lists the projects the person made or claimed. Nothing Cicada detects is offered there any more
+(ruling 56): every other page stays a page, reachable by search, the graph, recall and ``cicada_project``, never
+archived, deleted, renamed or retyped in bulk. A project is the person's when:
 
-* they created it — in the app, from their own shell (``cicada`` CLI), or by asking a trusted agent (the G198 trust
+* they started it — in the app, from their own shell (``cicada`` CLI), or by asking a trusted agent (the G198 trust
   list, ``page_editors``) that called ``cicada_create_project``;
 * they named a watched folder as it (``born: {via: folder}``, ``folder_source.ensure_project``);
-* they accepted a suggestion;
+* they added an existing page to their projects, or accepted a suggestion before suggestions went;
 * they already logged progress on it in the app — a claim with ``origin: companion_app`` on the page (Q2: derived on
   read, never written, so no bulk write ever runs over a bank);
 * they made it in Claude, read from a Claude export's ``projects.json`` (addendum: :data:`CLAUDE_EXPORT_MINE`, one
-  constant the acting owner may flip to make those suggestions instead).
+  constant the acting owner may flip).
+
+**Starting a project whose page already exists adopts that page** (:func:`start_target`, :func:`start`): the same id,
+body, claims and history, never a second page under the same name. Only a page that can honestly be the project is
+adopted (:data:`ADOPTABLE`); anything else is refused, naming the page.
 
 **The keys, all frontmatter on the page itself** (so they travel with a merge and with the bank — portability), each
 written only by the person's doors (the app's routes, the CLI, a trusted agent on their ask), never by Sleep, which
@@ -18,7 +23,7 @@ carries them through every rewrite (``conflict_resolver`` updates the page's own
 (:func:`carry_on_merge`):
 
 ``mine: {via, day, by, session?}``         in the person's list
-``not_mine: {day}``                         a dismissed suggestion
+``not_mine: {day}``                         taken out of the person's list; a page they said is not theirs
 ``description`` / ``description_by``        the person's header line and who last set it (Sleep never writes it)
 ``conversations_added`` / ``conversations_removed``   conversations tied or untied by hand (``project_conversations``)
 ``entities_added`` / ``entities_removed``   pages tied to the project by hand, or "Not part of it" (``project_pages``)
@@ -73,8 +78,12 @@ MAX_DESCRIPTION = 4000
 #: Pages attached in one New project, at most.
 MAX_ATTACH = 100
 MAX_TIED = 500
-#: A suggestion's reason, strongest first: how the list orders them (proposal §2.3, mitigation 2).
-WHY_ORDER = ("repo", "words", "agent", "provider", "export", "none", "fallback")
+#: At most this much of an agent's one-sentence reason is kept on a link it made.
+MAX_REASON = 300
+#: The page types a start may adopt, strongest first: a project page; a concept (a fallback page, or the thing Stage 1
+#: filed as an idea); a tool (what the person builds is often read as one). A person, an organisation, a place, a
+#: repository page (ruling 53: never a project) or the rest is refused by name: retyping one would break what it is.
+ADOPTABLE = ("project", "concept", "tool")
 
 _HUMAN_PROGRESS_ORIGIN = "companion_app"
 
@@ -151,11 +160,42 @@ def _entry_episode(x) -> str | None:
     return None
 
 
+def _is_proposal(x) -> bool:
+    return isinstance(x, dict) and bool(x.get("proposed"))
+
+
 def tied(fm: dict | None, key: str) -> list[str]:
     """The episode ids in ``conversations_added`` / ``conversations_removed``. An entry is the id (the person's) or
-    ``{episode, by, session?}`` (an agent's tie, so it may untie only what it tied)."""
+    ``{episode, by, session?, reason?, proposed?}`` (an agent's tie, so it may untie only what it tied). A proposal
+    (ruling 56: an agent not on the trust list) is not a tie until the person takes it: :func:`proposed_ties`."""
     raw = (fm or {}).get(key)
-    return [e for e in (_entry_episode(x) for x in raw) if e] if isinstance(raw, list) else []
+    return [e for e in (_entry_episode(x) for x in raw if not _is_proposal(x)) if e] if isinstance(raw, list) else []
+
+
+def proposed_ties(fm: dict | None) -> list[dict]:
+    """Conversation ties waiting for the person: never counted, never activity, shown on the project's page."""
+    raw = (fm or {}).get(ADDED_KEY)
+    return [dict(x) for x in raw if _is_proposal(x) and _entry_episode(x)] if isinstance(raw, list) else []
+
+
+def tie_row(fm: dict | None, episode: str) -> dict | None:
+    """The agent's row that tied ``episode``, or ``None`` (the person's bare id, or no hand tie)."""
+    for x in (fm or {}).get(ADDED_KEY) or []:
+        if isinstance(x, dict) and _entry_episode(x) == episode:
+            return dict(x)
+    return None
+
+
+def clean_reason(reason, *, bank: str | None = None) -> str | None:
+    """An agent's why, as a link row keeps it: one line, scrubbed (every writer scrubs), at most :data:`MAX_REASON`."""
+    from api.services import episode_scrub
+
+    text = " ".join(str(reason or "").split())
+    if not text:
+        return None
+    scrubbed, n = episode_scrub.scrub(text)
+    episode_scrub.record("project", n, bank=bank)
+    return scrubbed[:MAX_REASON]
 
 
 def tied_by(fm: dict | None, episode: str) -> str:
@@ -172,60 +212,36 @@ def provider_projects(fm: dict | None) -> list[dict]:
         if isinstance(raw, list) else []
 
 
+def unstarted(fm: dict | None, page: Path) -> bool:
+    """A project page or fallback page that is not in the person's list and that they never took out of it: what an agent
+    may offer to start, once, in its own words (ruling 56). Never a list, never an inbox question."""
+    return is_project_like(fm) and not dismissed(fm) and not listed(fm, page)
+
+
 def is_project_like(fm: dict | None) -> bool:
     """A project page, or a fallback page Cicada wrote for a thing called a project (``project_birth.proposed``)."""
     fm = fm or {}
     return str(fm.get("type") or "") == "project" or project_birth.proposed(fm)
 
 
-# --- suggestions ---------------------------------------------------------------------------------------------------
+def logged_progress_on_page(page: Path) -> bool:
+    """:func:`logged_progress` from a page's path, for a pass over many pages. Cheap first: a page whose bytes never name
+    the app's progress origin cannot pass (a copy of the owner's bank, 707 project pages: parsing each took ~95 ms warm;
+    this read ~10), its ledger included."""
+    from api.services.claims import parse_claims
+
+    try:
+        ledger = page.with_name(f"{page.stem}.claims.jsonl")
+        hit = _HUMAN_PROGRESS_ORIGIN in page.read_text(encoding="utf-8", errors="replace") or (
+            ledger.is_file() and _HUMAN_PROGRESS_ORIGIN in ledger.read_text(encoding="utf-8", errors="replace"))
+        return hit and logged_progress(parse_claims(markdown_parser.parse(page).body))
+    except Exception:  # noqa: BLE001 — an unreadable page is not the person's by this door
+        return False
 
 
-@dataclass
-class Why:
-    """Why a suggestion is offered: ``kind`` (one of :data:`WHY_ORDER`), one sentence, and what backs it."""
-
-    kind: str
-    text: str
-    quote: str | None = None
-    episode: str | None = None
-    day: str | None = None
-    repo_name: str | None = None
-    sessions: int = 0
-    by: str | None = None
-
-
-def why(memory_path: Path, stem: str, fm: dict, *, repo_sessions: int = 0, conversations: int = 0) -> Why:
-    """The reason a page is a suggestion, from what the page itself records (no conversation re-read beyond the one
-    sentence a words birth points at)."""
-    fm = fm or {}
-    born = _dict(fm.get("born")) or {}
-    if project_birth.proposed(fm):
-        n = conversations or len([e for e in fm.get("source_episodes") or [] if e])
-        return Why("fallback", f"Came up in {n} conversation{'s' if n != 1 else ''}; you never called it a project.",
-                   sessions=n)
-    if born.get("origin") == "created" and born.get("via") == "agent":
-        by = str(born.get("by") or "an agent")
-        return Why("agent", f"Proposed by {by}.", by=by, day=born.get("day"), episode=born.get("episode"))
-    if born.get("origin") == "created" and born.get("via") == "claude-export":
-        return Why("export", "From your Claude export.", day=born.get("day"))
-    if born.get("origin") == project_birth.REPO or (not born and [r for r in fm.get("repos") or [] if r]):
-        name = (born.get("repo") or {}).get("name") or next((str(r) for r in fm.get("repos") or [] if r), None)
-        n = repo_sessions
-        tail = f" · {n} session{'s' if n != 1 else ''}" if n else ""
-        return Why("repo", f"From the repository {name or '?'}{tail}.", repo_name=name, day=born.get("day"),
-                   episode=born.get("episode"), sessions=n)
-    if born.get("origin") == project_birth.WORDS:
-        said = project_birth.quote(memory_path, born)
-        return Why("words", "You called it a project in a conversation.", quote=said, episode=born.get("episode"),
-                   day=born.get("day"))
-    n = conversations or len([e for e in fm.get("source_episodes") or [] if e])
-    made = f"Cicada made this page from {n} conversation{'s' if n != 1 else ''}" if n else "Cicada made this page"
-    return Why("none", f"{made}; nothing on the record says it is yours.", sessions=n)
-
-
-def strength(w: Why) -> tuple:
-    return (WHY_ORDER.index(w.kind) if w.kind in WHY_ORDER else len(WHY_ORDER), -w.sessions)
+def listed(fm: dict | None, page: Path) -> bool:
+    """The page is in the person's list, read from its frontmatter and, only when that leaves it open, its bytes."""
+    return is_mine(fm) or (not dismissed(fm) and logged_progress_on_page(page))
 
 
 # --- writing -------------------------------------------------------------------------------------------------------
@@ -281,6 +297,73 @@ def existing_named(memory_path: Path, name: str) -> str | None:
     return None
 
 
+def start_target(memory_path: Path, name: str) -> str | None:
+    """The page a start under ``name`` adopts, or ``None`` when no page answers to the name. Raises
+    :class:`OwnershipError` in words when pages answer and none can be adopted, or two could and nothing tells them
+    apart: a name is never minted beside a page that holds it, and one is never picked by listing order."""
+    want, sid = project_birth.fold(name), sanitize_id(name)
+    hits: list[tuple[str, dict]] = []
+    for f in bank_index.files(Path(memory_path), "entities"):
+        fm = f.frontmatter or {}
+        if str(fm.get("status") or "active") == "dropped":
+            continue
+        if f.stem == sid or want in project_birth.name_folds({"name": fm.get("name") or f.stem,
+                                                             "aliases": fm.get("aliases") or []}):
+            hits.append((f.stem, fm))
+    if not hits:
+        return None
+    from api.services import github_repos
+
+    can = [(stem, fm) for stem, fm in hits if str(fm.get("type") or "concept") in ADOPTABLE
+           and fm.get("owner") is not True and not github_repos.is_repository_page(fm)]
+    if not can:
+        raise OwnershipError(f"'{name}' is already a page in memory ({hits[0][0]}). Use that page instead.")
+    rank = min(ADOPTABLE.index(str(fm.get("type") or "concept")) for _, fm in can)
+    best = [stem for stem, fm in can if ADOPTABLE.index(str(fm.get("type") or "concept")) == rank]
+    if len(best) > 1:
+        if sid in best:
+            return sid
+        raise OwnershipError(f"Several pages answer to '{name}': {', '.join(sorted(best))}. Say which by its id.")
+    return best[0]
+
+
+def start(memory_path: Path, stem: str, desc: str = "", *, via: str, by: str, session: str | None = None,
+          episode: str | None = None, span: dict | None = None, today: date | None = None,
+          repo_seen: dict | None = None) -> list[str]:
+    """Start a project from a page that already exists: the person's act, or a trusted agent's on their ask. The page
+    keeps its id, body, claims and history; a concept or tool becomes the project in place, a signal Sleep recorded
+    stays as ``born``, a mark that said it was not theirs is lifted, and a description is set only when one is given.
+    Idempotent."""
+    day = _today(today)
+
+    def change(fm: dict):
+        if str(fm.get("type") or "concept") not in ADOPTABLE:
+            raise OwnershipError(f"{stem!r} can't become a project.")
+        birth: dict = {"origin": "created", "via": via, "day": day}
+        if via == VIA_AGENT:
+            birth["by"] = by
+            if session:
+                birth["session"] = session
+        if episode:
+            birth["episode"] = episode
+        if span:
+            birth["span"] = span
+        if repo_seen:
+            birth["repo"] = repo_seen
+        changed = project_birth.start_page(fm, birth)
+        if fm.pop(NOT_MINE_KEY, None) is not None:
+            changed = True
+        if _dict(fm.get(MINE_KEY)) is None:
+            fm[MINE_KEY] = _mark(via, by=by, day=day, session=session)
+            changed = True
+        if str(desc or "").strip():
+            changed = bool(apply_header(fm, desc=desc, by=by, day=day, session=session,
+                                        bank=Path(memory_path).name)) or changed
+        return changed or False
+
+    return _rewrite(memory_path, stem, change)
+
+
 def _free_id(memory_path: Path, name: str) -> str:
     eid = sanitize_id(name)
     page = Path(memory_path) / "entities" / f"{eid}.md"
@@ -293,10 +376,11 @@ def _free_id(memory_path: Path, name: str) -> str:
 def create(memory_path: Path, name: str, desc: str = "", *, via: str, by: str, listed: bool,
            session: str | None = None, episode: str | None = None, span: dict | None = None,
            repo: str | None = None, born_via: str | None = None, provider: dict | None = None,
-           today: date | None = None) -> tuple[str, list[str]]:
+           today: date | None = None, repo_seen: dict | None = None) -> tuple[str, list[str]]:
     """A new project page the person (or an agent on their ask) started: ``(id, paths written)``. ``born`` says it was
     created and through which door; ``mine`` is written only when ``listed`` (the person's own doors, or a trusted
-    agent), else the page waits under Suggested. Raises :class:`OwnershipError` for a name already taken."""
+    agent). Raises :class:`OwnershipError` for a name already taken: a start goes through :func:`start_target` first.
+    ``repo_seen`` is the hook's observation of the checkout when the agent said the project IS this repository."""
     memory_path = Path(memory_path)
     name = clean_name(name)
     desc = clean_description(desc, bank=memory_path.name)
@@ -313,6 +397,8 @@ def create(memory_path: Path, name: str, desc: str = "", *, via: str, by: str, l
         born["episode"] = episode
     if span:
         born["span"] = span
+    if repo_seen:
+        born["repo"] = repo_seen
     fm: dict = {
         "name": name, "type": "project", "status": "active", "confidence": 0.9,
         "created": day, "last_referenced": day,
@@ -327,6 +413,10 @@ def create(memory_path: Path, name: str, desc: str = "", *, via: str, by: str, l
         fm[DESCRIPTION_BY_KEY] = {"by": by, "day": day, **({"session": session} if session else {})}
     if listed:
         fm[MINE_KEY] = _mark(VIA_IMPORT if born_via == "claude-export" else via, by=by, day=day, session=session)
+    elif via == VIA_AGENT:
+        # Ruling 56: another client's proposal is a quiet concept until the person takes it in the inbox.
+        fm["type"] = project_birth.FALLBACK_TYPE
+        fm[project_birth.PROPOSED_KEY] = "project"
     if provider:
         fm[PROVIDER_KEY] = [provider]
     page = memory_path / "entities" / f"{eid}.md"
@@ -358,15 +448,15 @@ def _rewrite(memory_path: Path, stem: str, change) -> list[str]:
 
 def accept(memory_path: Path, stem: str, *, name: str | None = None, by: str = "user",
            today: date | None = None) -> list[str]:
-    """The person adds a suggestion to their projects. A fallback concept becomes the project in place
-    (``project_birth.retype_on_birth``, ``born: {origin: created, via: accepted}``); a dismissal is lifted. Idempotent."""
+    """The person adds an existing page to their projects ("Add to my projects"). A fallback concept becomes the project
+    in place (``project_birth.start_page``); a "not mine" is lifted. Idempotent."""
     day = _today(today)
 
     def change(fm: dict):
         if not is_project_like(fm):
-            raise OwnershipError(f"{stem!r} is not a project or a suggested one.")
+            raise OwnershipError(f"{stem!r} is not a project.")
         if project_birth.proposed(fm):
-            project_birth.retype_on_birth(fm, {"origin": "created", "via": VIA_ACCEPTED, "day": day})
+            project_birth.start_page(fm, {"origin": "created", "via": VIA_ACCEPTED, "day": day})
         if name:
             _rename(fm, clean_name(name))
         changed = fm.pop(NOT_MINE_KEY, None) is not None
@@ -379,13 +469,13 @@ def accept(memory_path: Path, stem: str, *, name: str | None = None, by: str = "
 
 
 def dismiss(memory_path: Path, stem: str, *, today: date | None = None) -> list[str]:
-    """"Not mine": the page stays as it is (never archived or deleted) and leaves the person's list; it sits behind
-    "N dismissed" and can be accepted later."""
+    """"Remove from my projects": the page stays as it is (never archived or deleted) and leaves the person's list; it
+    can be added again from its page."""
     day = _today(today)
 
     def change(fm: dict):
         if not is_project_like(fm):
-            raise OwnershipError(f"{stem!r} is not a project or a suggested one.")
+            raise OwnershipError(f"{stem!r} is not a project.")
         if dismissed(fm) and MINE_KEY not in fm:
             return False
         fm.pop(MINE_KEY, None)
@@ -458,14 +548,15 @@ def conversation_episodes(memory_path: Path, episode: str) -> list[str]:
 
 @page_lock.locked
 def tie(memory_path: Path, stem: str, episode: str, *, remove: bool = False, by: str = "user",
-        session: str | None = None) -> list[str]:
+        session: str | None = None, trusted: bool = True, reason: str | None = None) -> list[str]:
     """Tie a conversation to the project by hand, or untie it — every episode of the conversation at once
     (:func:`conversation_episodes`), in one page write, so a conversation never comes back through an older episode.
 
     The person's untie overrides every automatic signal and no signal re-adds it (the ``sources_removed`` rule); tying
-    it again lifts the untie. An agent's tie is recorded with its name; an agent may untie only what it tied (the
-    "withdraw only what it wrote" rail), which drops its tie and never marks the conversation untied. Every check runs
-    before anything is written: a refusal writes nothing."""
+    it again lifts the untie. An agent's tie is recorded with its name and its reason; an agent on the person's trust
+    list ties at once, any other only proposes (``proposed: true``, ruling 56: never counted until the person takes it).
+    An agent may untie only what it tied (the "withdraw only what it wrote" rail), which drops its tie and never marks
+    the conversation untied. Every check runs before anything is written: a refusal writes nothing."""
     from api.services import evidence
 
     if not evidence.is_episode_id(episode):
@@ -474,6 +565,7 @@ def tie(memory_path: Path, stem: str, episode: str, *, remove: bool = False, by:
         raise OwnershipError(f"No conversation {episode!r}.")
     episodes = conversation_episodes(memory_path, episode) or [episode]
     person = by == "user"
+    why = clean_reason(reason, bank=Path(memory_path).name)
 
     def change(fm: dict):
         if not is_project_like(fm):
@@ -498,12 +590,16 @@ def tie(memory_path: Path, stem: str, episode: str, *, remove: bool = False, by:
             if ours & untied and not person:
                 raise OwnershipError("The person untied that conversation from this project; it stays untied.")
             removed = [x for x in removed if _entry_episode(x) not in ours]
+            if person or trusted:   # the person, or a trusted agent, turns a waiting proposal into a tie
+                added = [x for x in added if not (_is_proposal(x) and _entry_episode(x) in ours)]
             have = {_entry_episode(x) for x in added}
             missing = [e for e in episodes if e not in have]
             if not missing and not (ours & untied):
                 return False
             for e in missing:
-                added.append(e if person else {"episode": e, "by": by, **({"session": session} if session else {})})
+                added.append(e if person else {"episode": e, "by": by, **({"session": session} if session else {}),
+                                               **({"reason": why} if why else {}),
+                                               **({} if trusted else {"proposed": True})})
         for key, rows in ((ADDED_KEY, added), (REMOVED_KEY, removed)):
             if rows:
                 fm[key] = rows[-MAX_TIED:]
@@ -527,7 +623,7 @@ def _entry_page(x) -> str | None:
 
 def page_entries(fm: dict | None, key: str) -> list:
     """The raw rows of ``entities_added`` / ``entities_removed``: a bare page id (the person's) or ``{entity, by,
-    session?, proposed?}`` (an agent's — ``proposed`` when that agent is not on the person's trust list)."""
+    session?, reason?, proposed?}`` (an agent's — ``proposed`` when that agent is not on the person's trust list)."""
     raw = (fm or {}).get(key)
     return [x for x in raw if _entry_page(x)] if isinstance(raw, list) else []
 
@@ -546,7 +642,7 @@ def page_tie(fm: dict | None, entity: str) -> dict | None:
 
 @page_lock.locked
 def tie_page(memory_path: Path, stem: str, entity: str, *, remove: bool = False, by: str = "user",
-             session: str | None = None, trusted: bool = True) -> list[str]:
+             session: str | None = None, trusted: bool = True, reason: str | None = None) -> list[str]:
     """Tie a page to the project by hand ("Add"), or say it is "Not part of it".
 
     The person's word is final both ways: their "Not part of it" wins over every automatic tie (a claim, an event's
@@ -578,6 +674,7 @@ def tie_page(memory_path: Path, stem: str, entity: str, *, remove: bool = False,
                            .get("name") or stem)
         raise OwnershipError(f"{target!r} is already a sub-project of {project_name}; it shows under it in the list.")
     person = by == "user"
+    why = clean_reason(reason, bank=Path(memory_path).name)
 
     def change(fm: dict):
         if not is_project_like(fm):
@@ -613,6 +710,8 @@ def tie_page(memory_path: Path, stem: str, entity: str, *, remove: bool = False,
                 row = {"entity": target, "by": by}
                 if session:
                     row["session"] = session
+                if why:
+                    row["reason"] = why
                 if not trusted:
                     row["proposed"] = True
                 added.append(row)
@@ -680,33 +779,41 @@ def attach(memory_path: Path, stem: str, entity: str, *, remove: bool = False) -
 def create_with_pages(memory_path: Path, name: str, desc: str, pages, *, via: str, by: str = "user",
                       today: date | None = None) -> tuple[str, list[str], list[str]]:
     """New project with the pages the person attached: ``(id, every path written, the paths created)`` — all or
-    nothing (review of #595, B1). Each page is checked first (:func:`check_attachable`); a check that can only run once
-    the page exists (a ``part-of`` claim naming the new project by its name makes that page its sub-project, which
+    nothing (review of #595, B1). A name a page already answers to starts that page (:func:`start_target`, ruling 56),
+    so nothing is created. Each page is checked first (:func:`check_attachable`); a check that can only run once the
+    page exists (a ``part-of`` claim naming the new project by its name makes that page its sub-project, which
     :func:`tie_page` refuses) runs in :func:`attach`, and any failure there — or any other exception — takes back every
-    file this call wrote: the new page is removed and each repository page whose back-link was written is restored
-    byte for byte, so a refusal leaves no orphan behind and a retry is not told the name is taken."""
+    file this call wrote: a new page is removed, and an adopted page and each repository page whose back-link was
+    written are restored byte for byte, so a refusal leaves no orphan behind and a retry is not told the name is taken."""
     memory_path = Path(memory_path)
+    name = clean_name(name)
     targets = list(dict.fromkeys(check_attachable(memory_path, p) for p in pages))
-    # What `attach` may rewrite besides the new page: a repository page's back-link (`github_repos.sync_backlinks`).
+    adopt = start_target(memory_path, name)
+    targets = [t for t in targets if t != adopt]
+    # What `attach` may rewrite besides the project: a repository page's back-link (`github_repos.sync_backlinks`).
     saved = {}
-    for stem in targets:
-        if repository_page(memory_path, stem):
+    for stem in [*targets, *([adopt] if adopt else [])]:
+        if stem == adopt or repository_page(memory_path, stem):
             f = memory_path / "entities" / f"{stem}.md"
             saved[f] = f.read_bytes()
-    eid, created = create(memory_path, name, desc, via=via, by=by, listed=True, today=today)
-    paths = list(created)
+    if adopt:
+        eid, created = adopt, []
+        paths = start(memory_path, adopt, desc, via=via, by=by, today=today)
+    else:
+        eid, created = create(memory_path, name, desc, via=via, by=by, listed=True, today=today)
+        paths = list(created)
     try:
         for page in targets:
             paths += attach(memory_path, eid, page)
     except BaseException:
-        _take_back(memory_path, eid, saved)
+        _take_back(memory_path, eid if not adopt else None, saved)
         raise
     return eid, list(dict.fromkeys(paths)), list(created)
 
 
 @page_lock.locked
-def _take_back(memory_path: Path, eid: str, saved: dict) -> None:
-    for suffix in (".md", ".claims.jsonl"):
+def _take_back(memory_path: Path, eid: str | None, saved: dict) -> None:
+    for suffix in (".md", ".claims.jsonl") if eid else ():
         (Path(memory_path) / "entities" / f"{eid}{suffix}").unlink(missing_ok=True)
     for f, data in saved.items():
         tmp = f.with_name(f".{f.name}.restore")
@@ -789,16 +896,11 @@ def _carry_repositories(winner_fm: dict, loser_fm: dict) -> None:
             winner_fm.pop(key, None)
 
 
-# --- page-less suggestions (a ChatGPT project with no name) -----------------------------------------------------------
+# --- provider groupings ----------------------------------------------------------------------------------------------
 
-#: A bank file for what has no page to carry it: ChatGPT project groupings the person dismissed. In the bank (it is the
-#: person's decision about bank content, and travels with it), committed under the person.
+#: A bank file for what has no page to carry it: the provider project ids already imported. In the bank (it travels with
+#: it), committed under the person.
 GROUPINGS_FILE = "project_groupings.yaml"
-_GROUP_ID = re.compile(r"^g-p-[A-Za-z0-9_-]{4,80}$")
-
-
-def is_group_id(value) -> bool:
-    return isinstance(value, str) and bool(_GROUP_ID.match(value))
 
 
 def read_groupings(memory_path: Path) -> dict:
@@ -820,17 +922,3 @@ def update_groupings(memory_path: Path, key: str, value) -> list[str]:
     data[key] = value
     markdown_parser.write_yaml(Path(memory_path) / GROUPINGS_FILE, data)
     return [GROUPINGS_FILE]
-
-
-def dismissed_groups(memory_path: Path) -> set[str]:
-    return {str(g) for g in read_groupings(memory_path).get("dismissed") or [] if is_group_id(str(g))}
-
-
-@page_lock.locked
-def dismiss_group(memory_path: Path, group: str, *, today: date | None = None) -> list[str]:
-    if not is_group_id(group):
-        raise OwnershipError(f"{group!r} is not a project grouping.")
-    have = dismissed_groups(memory_path)
-    if group in have:
-        return []
-    return update_groupings(memory_path, "dismissed", sorted(have | {group}))

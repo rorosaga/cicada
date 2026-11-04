@@ -5,11 +5,12 @@ appears in the project — that would pull in every conversation with a frequent
 
 ==========  =======================================================================================================
 ``repo``    the hook observed the session in a checkout of the project's repository (``project_birth.repo_match``,
-            or the birth's own repository family) — a fact the harness recorded (G110 D2)
+            the birth's own repository family, or a repository the project lists whose origin the checkout points at
+            now, ruling 56) — a fact the harness recorded (G110 D2)
 ``named``   the person's own turn names the project (its name or an alias, a whole word), located exactly, never
             fuzzy (G118) — only the person's turns, never an agent's reply
 ``claims``  Sleep wrote a claim on the project (or a sub-project) citing the conversation
-``added``   the person or an agent tied it by hand (``conversations_added``)
+``added``   the person or a trusted agent tied it by hand (``conversations_added``); another agent's waits as a proposal
 ``provider``  the conversation carries its provider's project id, which the page records (a ChatGPT ``g-p-`` id, a
             Claude project's): "In your <provider> project"
 ``relay``   a connected app's agent said which project the relayed conversation belongs to (its word, ``evidence_kind:
@@ -115,7 +116,9 @@ def tie_reasons(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Ban
     born = fm.get("born") if isinstance(fm.get("born"), dict) else {}
     family = str(((born or {}).get("repo") or {}).get("family") or "")
     # G110 D2a: a shared hashed remote ties nothing by itself (`_Bank.page_repo_families`): a renamed checkout judged
-    # the same carries the page's alias, and the name rule below ties it.
+    # the same carries the page's alias, and the name rule below ties it. Ruling 56: a repository the project LISTS does.
+    listed = bank.listed_remotes(fm)
+    current = bank.current_remotes() if listed else {}
     for ep, f in bank.episodes.items():
         efm = f.frontmatter or {}
         if "workspace_identity" not in efm:
@@ -123,7 +126,8 @@ def tie_reasons(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Ban
         repo = project_birth.observed_repo(efm)
         if repo is None:
             continue
-        if (family and str(repo["family"]) == family) or project_birth.repo_match(entity, efm) is not None:
+        if (family and str(repo["family"]) == family) or project_birth.repo_match(entity, efm) is not None \
+                or current.get(str(repo["family"])) in listed:
             add(ep, "repo")
     # claims: what Sleep (or an agent) wrote about the project, citing the conversation.
     for page in tree:
@@ -173,6 +177,7 @@ def build(memory_path: Path, stem: str, *, tz_name: str | None, offset: int = 0,
     from api.models.schemas import ProjectConversationRow, ProjectConversations
 
     bank = _Bank(memory_path, tz_name, transcript_exists)
+    fm = bank.fm(stem)
     reasons, partial = tie_reasons(memory_path, stem, tz_name=tz_name, bank=bank)
     groups: dict[str, str] = {}
     why: dict[str, set[str]] = {}
@@ -196,13 +201,26 @@ def build(memory_path: Path, stem: str, *, tz_name: str | None, offset: int = 0,
             continue
         efm = bank.episodes[ep].frontmatter or {}
         provider = ep_provider(efm)
+        tied_row = project_ownership.tie_row(fm, ep) or {}
         rows.append(ProjectConversationRow(
             **conv.model_dump(), day=_ep_day(bank, ep), why=[s for s in SIGNALS if s in why[key]],
             relayed=isinstance(efm.get("relay"), dict),
             provider_label=PROVIDER_LABELS.get(provider[0], provider[0]) if provider else None,
-            manual=ep in project_ownership.tied(bank.fm(stem), project_ownership.ADDED_KEY)))
-    return ProjectConversations(project=stem, total=len(ordered), counts=counts, conversations=rows,
-                                offset=offset, partial=partial or bank.partial)
+            manual=ep in project_ownership.tied(fm, project_ownership.ADDED_KEY),
+            by=tied_row.get("by"), reason=tied_row.get("reason")))
+    # Ruling 56: what an agent off the trust list proposed: one row per conversation, apart from the ties, never counted.
+    proposed, seen = [], set()
+    for row in project_ownership.proposed_ties(fm):
+        ep = str(row.get("episode") or "")
+        conv = _conversation(bank, ep) if ep in bank.episodes else None
+        key = _conv_key(bank, ep) if conv is not None else None
+        if conv is None or key in seen or key in groups:
+            continue
+        seen.add(key)
+        proposed.append(ProjectConversationRow(**conv.model_dump(), day=_ep_day(bank, ep), by=row.get("by"),
+                                               reason=row.get("reason")))
+    return ProjectConversations(project=stem, total=len(ordered), counts=counts, conversations=rows, offset=offset,
+                                partial=partial or bank.partial, proposed=proposed)
 
 
 def count(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Bank | None = None,

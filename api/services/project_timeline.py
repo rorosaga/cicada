@@ -35,7 +35,7 @@ from typing import Callable
 from api.models.schemas import (
     ActivityDay, ClusterGroup, ClusterMember, MilestoneRow, OpenThread, PendingConversations, ProjectCluster,
     ProjectDescriptionBy, ProjectKnowledge, ProjectNow, ProjectProgress, ProjectRef, ProjectRow, ProjectsResponse,
-    ProjectTimeline, SuggestedProject, TimelineConversation,
+    ProjectTimeline, TimelineConversation,
     TimelineFact, TimelineItem, TimelineParticipant, TimelineQuote, TimelineWindow,
 )
 from api.services import (
@@ -67,7 +67,9 @@ from api.services.transclusion_resolver import claim_to_model
 # pulse) and `pages` / `pagesTotal` / `pageCounts` (Pages in this project, tied by hand).
 # g141-9 (G227, owner 2026-10-29): a "Pages in this project" row whose title another page shares adds `qualifier` and
 # `displayName` (`same_name`).
-PROJECT_SHAPE = "g141-9"
+# g141-10 (ruling 56, 2026-11-04): `GET /projects` carries only the person's own rows and `suggested` is always empty; a
+# conversation row adds `by` and `reason`, the conversations read adds `proposed`, a page row adds `reason`.
+PROJECT_SHAPE = "g141-10"
 TREE_DEPTH = 2
 MAX_SCAN_PAGES = 200          # §6.6: raw scans are capped; hitting the cap sets `partial`
 COMMONS_DEGREE = 12           # R-PJ20
@@ -205,6 +207,7 @@ def _ref_keys(raw: str) -> tuple[str, str, str]:
 
 
 _EMPTY: dict = {}
+_UNREAD = object()
 _MISS = object()
 
 
@@ -315,6 +318,8 @@ class _Bank:
         self._reverse: dict[str, tuple[str | None, bool]] = names_epoch.reverse
         self._ep_convs: dict[str, tuple[tuple[str, str]] | None] = epoch.ep_convs
         self._repo_sessions: list[tuple] | None = None
+        self._current_remotes: dict[str, str] | None = None
+        self._salt = _UNREAD
         self._grouped: dict[tuple[str, ...], list[str]] | None = None
         self.scanned = 0
         self.partial = False
@@ -370,7 +375,28 @@ class _Bank:
         if not self.repo_sessions():
             return []
         families, folds = self.page_repo_families(page, fm)
-        return [s for s in self.repo_sessions() if s[0] in families or (s[1] & folds)]
+        listed = self.listed_remotes(fm)
+        current = self.current_remotes() if listed else {}
+        return [s for s in self.repo_sessions() if s[0] in families or (s[1] & folds) or current.get(s[0]) in listed]
+
+    def current_remotes(self) -> dict[str, str]:
+        """``family → the remote its checkout points at now`` over the observed sessions, once per request."""
+        if self._current_remotes is None:
+            self._current_remotes = project_birth.current_remotes([(s[0], s[3], s[4], s[5]) for s in self.repo_sessions()])
+        return self._current_remotes
+
+    def listed_remotes(self, fm: dict) -> set[str]:
+        """The salted hashes of the repositories a project lists (ruling 56): a session whose checkout points at one NOW
+        is in a repository the person or a trusted agent named as the project's, which is why this may tie where a
+        shared remote alone never does (:meth:`page_repo_families`). Compared, never stored; empty with no salt."""
+        from api.services import github_repos
+
+        urls = github_repos.project_urls(fm)
+        if not urls:
+            return set()
+        if self._salt is _UNREAD:
+            self._salt = github_repos._salt()
+        return {h for u in urls if (h := github_repos.remote_hash(u, self._salt))}
 
     def grouped(self) -> dict[tuple[str, ...], list[str]]:
         """The episodes a provider's own project id or a relaying app's word groups, once per request:
@@ -686,9 +712,10 @@ def _tied_days(bank: _Bank, root: str) -> set[str]:
     days = {d for ep in eps if ep in bank.episodes and (d := _ep_day(bank, ep))}
     # Owner 2026-11-04 (New project as a page): the day the person started it in the app or their shell is activity —
     # a project they made a moment ago is in motion, never under Past as "Nothing heard yet".
-    born, mine = fm.get("born"), fm.get(project_ownership.MINE_KEY)
-    if isinstance(born, dict) and born.get("origin") == "created" and isinstance(mine, dict) \
-            and mine.get("via") in (project_ownership.VIA_APP, project_ownership.VIA_CLI) and (d := _day(mine.get("day"))):
+    # Ruling 56: so is the day they adopted a page that was already there.
+    mine = fm.get(project_ownership.MINE_KEY)
+    if isinstance(mine, dict) and mine.get("via") in (project_ownership.VIA_APP, project_ownership.VIA_CLI) \
+            and (d := _day(mine.get("day"))):
         days.add(d)
     return days
 
@@ -749,43 +776,6 @@ def _header(bank: _Bank, eid: str) -> dict:
 
 def _repo_session_count(bank: _Bank, eid: str) -> int:
     return len(bank.page_repo_sessions(eid, bank.fm(eid)))
-
-
-def _suggestion(bank: _Bank, eid: str) -> SuggestedProject:
-    fm = bank.fm(eid)
-    w = project_ownership.why(bank.path, eid, fm, repo_sessions=_repo_session_count(bank, eid))
-    return SuggestedProject(id=eid, kind="page", name=bank.name(eid), page_type=bank.type_of(eid), why_kind=w.kind,
-                            why=w.text, quote=w.quote, episode=w.episode, day=w.day, repo_name=w.repo_name,
-                            sessions=w.sessions, by=w.by, dismissed=project_ownership.dismissed(fm))
-
-
-def _groups(bank: _Bank, claimed: set[tuple[str, str]]) -> list[SuggestedProject]:
-    """A ChatGPT project the person's conversations carry (``provider_project``) that no page records: one page-less
-    suggestion per grouping, named by the person on accept (the addendum)."""
-    from api.services import project_conversations
-
-    seen: dict[str, list] = {}
-    for ep, f in bank.episodes.items():
-        p = project_conversations.ep_provider(f.frontmatter or {})
-        if p is None or p in claimed or not project_ownership.is_group_id(p[1]):
-            continue
-        row = seen.setdefault(p[1], [p[0], 0, None, None])
-        row[1] += 1
-        name = str(((f.frontmatter or {}).get("provider_project") or {}).get("name") or "").strip()
-        if name and not row[2]:
-            row[2] = name
-        day = _ep_day(bank, ep)
-        if day and (row[3] is None or day > row[3]):
-            row[3] = day
-    gone = project_ownership.dismissed_groups(bank.path) if seen else set()
-    out = []
-    for gid, (provider, n, name, day) in sorted(seen.items()):
-        label = project_conversations.PROVIDER_LABELS.get(provider, provider)
-        out.append(SuggestedProject(
-            id=gid, kind="group", name=name or f"A {label} project", why_kind="provider",
-            why=f"A {label} project, {n} conversation{'s' if n != 1 else ''}.", sessions=n, day=day,
-            provider=provider, dismissed=gid in gone))
-    return out
 
 
 def _knowledge(memory_path: Path, fm: dict) -> list[ProjectKnowledge]:
@@ -1982,16 +1972,4 @@ def _list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists:
             progress=ProjectProgress(**progress), activity=_activity(bank, claims)[:1],
             followups=sum(followups.get(t, 0) for t in tree)))
     rows.sort(key=lambda r: (r.last_moment_day is None, _neg(r.last_moment_day) if r.last_moment_day else "", r.id))
-    # Ruling 45: every project page the person has not claimed, every fallback page (a thing called a project with no
-    # birth) and every provider grouping no page records — under Suggested, strongest first, dismissed ones last.
-    suggested = [_suggestion(bank, r.id) for r in rows if not r.mine]
-    suggested += [_suggestion(bank, s) for s in bank.stems
-                  if bank.live(s) and bank.type_of(s) == project_birth.FALLBACK_TYPE
-                  and project_birth.proposed(bank._fm(s))]
-    claimed = {(str(p["provider"]), str(p["id"])) for s in bank.stems
-               for p in project_ownership.provider_projects(bank._fm(s))}
-    suggested += _groups(bank, claimed)
-    order = {k: i for i, k in enumerate(project_ownership.WHY_ORDER)}
-    suggested.sort(key=lambda g: (g.dismissed, order.get(g.why_kind, len(order)), -g.sessions, g.name.lower(), g.id))
-    return ProjectsResponse(projects=rows, tz_name=bank.tz_name, partial=partial or bank.partial,
-                            suggested=suggested, dismissed=sum(1 for g in suggested if g.dismissed))
+    return ProjectsResponse(projects=rows, tz_name=bank.tz_name, partial=partial or bank.partial)

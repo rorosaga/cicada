@@ -980,20 +980,21 @@ TOOLS = [
     },
     {
         # Ruling 45 (2026-10-27): a project the person asked for. A harness on their trust list (G198) lands it in their
-        # list; any other client's waits under Suggested as its proposal.
+        # list; any other client's waits as a question in the person's inbox (ruling 56).
         "name": "cicada_create_project",
-        "description": "Start a project when the person asks you to ('start a project for this', 'make this a project'). Give its name as `project` and, if they said one, a one-line description; cite their ask in `evidence`. If the person has listed your app as one that may edit their memory directly it lands in their projects; otherwise it waits under Suggested for them to add. Refused when the name is already a page: the reply names it, so use that page instead.",
+        "description": "Start a project only when the person asks you to ('start a project for this', 'make this a project'). Give its name as `project`, what they said as `reason` (or their words in `evidence`), and, if they said one, a one-line `description`. A name a page already holds starts that page with its history kept, never a second one; a person, a company or a repository page is refused, with the page named. If the person listed your app as one that may edit their memory directly it starts at once; otherwise it waits as a question in their inbox. If they are plainly working on a page they never started, you may offer once in your own words; never call this without their yes.",
         "inputSchema": {"type": "object", "required": ["project"], "properties": {
             "project": {"type": "string", "maxLength": 120, "description": "The new project's name, as the person said it."},
             "description": {"type": "string", "maxLength": 600, "description": "Optional: one line on what it is, in the person's terms."},
             "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
                 "episode": {"type": "string"}, "quote": {"type": "string"}}},
                 "description": "Optional: the person's exact words asking for it, from a saved episode."},
-            "repo": {"type": "string", "description": "Optional: the repository's folder name, when the project is one."}}},
+            "reason": {"type": "string", "maxLength": 300, "description": "What the person said asking for it, in one sentence. Required unless `evidence` cites their words."},
+            "repo": {"type": "string", "description": "Optional: the repository's folder name, when the project is the repository this session runs in."}}},
     },
     {
         "name": "cicada_link_conversation",
-        "description": "Tie a conversation to one of the person's projects when it is about that project and nothing ties it yet, or untie one you tied by mistake (`remove`). Give a one-sentence `reason`. A conversation the person untied stays untied.",
+        "description": "Tie a conversation to one of the person's projects when it is about that project and nothing ties it yet: do this yourself, without being asked, for the conversation you are in (no `episode` needed); never for a mere mention. A session in a repository the project lists is tied already. Or untie one you tied by mistake (`remove`). Give a one-sentence `reason`; the person sees it, and can take the tie off. If your app may not edit their memory directly it waits as your proposal. A conversation the person untied stays untied.",
         "inputSchema": {"type": "object", "required": ["project", "reason"], "properties": {
             "project": {"type": "string", "description": "The project page (id or name)."},
             "episode": {"type": "string", "description": "The conversation's episode id (ep_…). Leave out both this and `session` for this conversation."},
@@ -1005,7 +1006,7 @@ TOOLS = [
         # Decision 10 (owner 2026-10-28): Pages in this project, tied by hand. A harness on the person's trust list
         # ties at once; any other proposes.
         "name": "cicada_link_entity",
-        "description": "Tie a page already in memory (a person, a tool, a place, a document) to one of the person's projects when it is part of that project and nothing ties it yet, or take back one you tied (`remove`). Give a one-sentence `reason`. If the person listed your app as one that may edit their memory directly it is tied at once; otherwise it waits on the project's page as your proposal. A page the person said is not part of the project stays out. A repository page tied by an app the person listed becomes one of the project's repositories (a project may span several).",
+        "description": "Tie a page already in memory (a person, a tool, a place, a document) to one of the person's projects when the conversation shows it is part of that project and nothing ties it yet: do this yourself, without being asked; two things mentioned together is not enough. Or take back one you tied (`remove`). Give a one-sentence `reason`; the person sees it, and can take the tie off. If the person listed your app as one that may edit their memory directly it is tied at once; otherwise it waits on the project's page as your proposal. A page the person said is not part of the project stays out. A repository page tied by an app the person listed becomes one of the project's repositories (a project may span several).",
         "inputSchema": {"type": "object", "required": ["project", "entity", "reason"], "properties": {
             "project": {"type": "string", "description": "The project page (id or name)."},
             "entity": {"type": "string", "description": "The page to tie (id or name)."},
@@ -1860,7 +1861,7 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
             bool(arguments.get("preview", False)))
     elif name == "cicada_create_project":
         return mcp_tools.create_project(_ctx(), arguments.get("project", ""), arguments.get("description"),
-                                        arguments.get("evidence"), arguments.get("repo"))
+                                        arguments.get("evidence"), arguments.get("repo"), arguments.get("reason"))
     elif name == "cicada_link_conversation":
         return mcp_tools.link_conversation(_ctx(), arguments.get("project", ""), arguments.get("episode"),
                                            arguments.get("session"), bool(arguments.get("remove", False)),

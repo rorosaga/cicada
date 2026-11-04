@@ -440,20 +440,25 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "status": {"type": "string", "enum": ["open", "doing", "done", "dropped"],
                       "description": "Optional: move the item as you note it."}},
           ("item", "note"), read_only=False),
-    # Ruling 45: a remote app's project waits under Suggested until the person adds it.
+    # Rulings 45 and 56: a remote app's project waits as a question in the person's inbox.
     _tool("cicada_create_project",
-          "Start a project when the person asks you to. It waits under Suggested on their Projects page, as this "
-          "app's proposal, until they add it. Refused when the name is already a page: the reply names it.",
+          "Start a project only when the person asks you to; give what they said as `reason`. It waits as a question "
+          "in their Cicada inbox, and only their yes starts it. A name a page already holds starts that page, never a "
+          "second one.",
           {"project": {"type": "string", "maxLength": 120, "description": "The new project's name, as the person "
                                                                           "said it."},
            "description": {"type": "string", "maxLength": 600, "description": "Optional: one line on what it is."},
            "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
                "episode": {"type": "string"}, "quote": {"type": "string"}}}},
+           "reason": {"type": "string", "maxLength": 300, "description": "What the person said asking for it, in one "
+                                                                         "sentence. Required unless `evidence` cites "
+                                                                         "their words."},
            "repo": {"type": "string", "description": "Optional: the repository's folder name."}},
           ("project",), read_only=False),
     _tool("cicada_link_conversation",
-          "Tie a conversation to one of the person's projects when it is about that project, or untie one this app "
-          "tied (`remove`). Give a one-sentence reason. A conversation the person untied stays untied.",
+          "Propose a conversation for one of the person's projects when it is about that project and nothing ties it "
+          "yet, never for a mere mention, or take back one this app proposed (`remove`). It waits on the project's page "
+          "until the person adds it. Give a one-sentence reason. A conversation the person untied stays untied.",
           {"project": {"type": "string", "description": "The project page (id or name)."},
            "episode": {"type": "string", "description": "The episode id (ep_…) to tie."},
            "session": {"type": "string", "description": "Optional: a session id instead."},

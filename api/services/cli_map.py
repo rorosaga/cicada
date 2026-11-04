@@ -178,7 +178,7 @@ ROWS: tuple[Row, ...] = (
     # Ruling 45 (2026-10-27): proposed spellings, not exposed — `project` is the read's own command, so these live under
     # `projects`; the person's own shell starts one with `projects new` (an app command, below).
     Row(("projects", "create"), "cicada_create_project", "Start a project the person asked for.",
-        (_p("project"), _f("description"), _f("evidence", "json"), _f("repo")), mutates=True),
+        (_p("project"), _f("description"), _f("evidence", "json"), _f("repo"), _f("reason")), mutates=True),
     Row(("projects", "link"), "cicada_link_conversation", "Tie a conversation to a project, or untie one you tied.",
         (_p("project"), _p("reason"), _f("episode"), _f("session"), _f("remove", "bool")), mutates=True),
     Row(("projects", "tie-page"), "cicada_link_entity", "Tie a page to a project, or take back a tie you made.",

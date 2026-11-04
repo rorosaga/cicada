@@ -81,7 +81,7 @@ from api.services.auth import cicada_home
 #     and names cicada_sources for a conversation an answer names.
 # 23: G227 follow-up (owner 2026-10-29) — item 4 names cicada_split_page / cicada_merge_pages / cicada_undo_join:
 #     "that's two different things" / "those are the same" are offered and settled in the conversation.
-CONTRACT_VERSION = 23
+CONTRACT_VERSION = 24
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "desktop", "generic")
 
@@ -109,7 +109,7 @@ REMOTE_VARIANT = "remote"
 # 14: G61 "Where to check" (ruling 36 D5) — the sources item defines it and names `inferred` / `evidence`.
 # 15: lean reads (2026-10-27) — a direct factual question goes straight to cicada_ask; cicada_sources reads a
 #     conversation an answer names, each only where the connection holds it.
-REMOTE_CONTRACT_VERSION = 15
+REMOTE_CONTRACT_VERSION = 16
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -199,6 +199,12 @@ def _remote_contract(tools: frozenset[str], reading: bool = False) -> str:
                      "`cicada_add_backlog_item(project, title, description)` — the brief task as the title, the "
                      "reasoning as the description; later findings go on that item with "
                      "`cicada_add_backlog_note(item, note)`, never a second item.")
+    if "cicada_create_project" in tools:
+        # Ruling 56: named only where the tools exist (R12). A remote app's start and ties wait for the person.
+        items.append("A project starts only on the person's ask: `cicada_create_project(project, reason)`. A "
+                     "conversation or page about one of their projects that nothing ties yet, propose it with a "
+                     "one-sentence why: `cicada_link_conversation(project, reason)`, `cicada_link_entity(project, "
+                     "entity, reason)`; never for a mere mention. The person decides each one.")
     if "cicada_record_watch" in tools:
         items.append("After watching a video the person saved: `cicada_record_watch(url, summary, "
                      "excerpts=[{t, quote}], basis)` — short timestamped quotes, never the transcript; `basis` "
@@ -357,7 +363,11 @@ _CONTRACT = (
     "status, evidence)`. When the person asks to put something in the backlog (or to keep it for later), file it "
     "with `cicada_add_backlog_item(project, title, description)` — the brief task as the title, the reasoning as the "
     "description; later findings go on that item with `cicada_add_backlog_note(item, note)`, never a second item; "
-    "`cicada_backlog(project)` lists what is open.\n"
+    "`cicada_backlog(project)` lists what is open. "
+    "A project starts only on their ask: `cicada_create_project(project, reason)`; if they are plainly working on a "
+    "page not started, offer once, in your own words. A conversation or page about one of their projects that nothing "
+    "ties yet, tie it yourself with a one-sentence why: `cicada_link_conversation(project, reason)`, "
+    "`cicada_link_entity(project, entity, reason)`; never for a mere mention.\n"
     "4. Write facts as claims: `cicada_write_claim(subject, predicate, object, evidence=[{episode, quote}], "
     "sources=[url])` — quote the exact words you relied on, give `sources` for anything you looked up, and "
     "`expected_end` when the fact states an end; withdraw a claim you wrote that proved wrong with "
@@ -561,8 +571,10 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
         lines += ["### Standing — changes rarely", *standing]
     lines.append("### Current — in motion")
     projects = state.get("projects") or []
-    lines.append("- Current projects:" if projects else "- No active projects recorded yet.")
-    for p in projects:
+    if not projects:
+        lines.append("- No active projects recorded yet.")
+
+    def project_line(p: dict) -> str:
         repos = "" if remote else ", ".join(
             f"{r['path']}@{r.get('branch')}" + (f" dirty {r['dirty']}" if r.get("dirty") else "")
             for r in p.get("repos", []) or [] if r.get("state") == "ok"
@@ -581,7 +593,15 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
         # G150 (R-B16): the open backlog count rides the same gate as now/next.
         if p.get("backlog_open") and personal:
             cursor += f" · backlog: {p['backlog_open']} open"
-        lines.append(f"  - `{p['id']}` {p['name']}{tail}{cursor}" + (f" [{repos}]" if repos else ""))
+        return f"  - `{p['id']}` {p['name']}{tail}{cursor}" + (f" [{repos}]" if repos else "")
+
+    # Ruling 56: what the person started, then recent pages said to be what they are, never called their projects.
+    started = [p for p in projects if p.get("started", True)]
+    recent = [p for p in projects if not p.get("started", True)]
+    if started:
+        lines += ["- Current projects:", *(project_line(p) for p in started)]
+    if recent:
+        lines += ["- Recent project pages, not started as projects:", *(project_line(p) for p in recent)]
     focus = (state.get("focus") or []) if personal else []
     if focus:
         lines.append(f"- In focus (last {state_dictionary.FOCUS_WINDOW_DAYS} days): "
