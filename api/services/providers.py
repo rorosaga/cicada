@@ -464,7 +464,7 @@ def resolve_llm_fn(
         except Exception:  # a counter must never break an LLM call
             pass
         try:
-            usage = telemetry.usage_from_response(resp) if ok else telemetry.usage_from_response(None)
+            usage = telemetry.usage_from_response(resp)   # a failure holds a response only when it was charged
             event_model = model_used or (argv_model if is_cli else resolved_model)
             if is_cli:
                 # `costBasis: "list"` says the envelope's figure is metering,
@@ -641,13 +641,13 @@ def resolve_llm_fn(
             # response (``spawned`` unset, defaults True) still gets
             # recorded, same as any other failed call.
             if getattr(exc, "spawned", True):
-                _emit(None, started, ok=False)
+                _emit(getattr(exc, "paid", None), started, ok=False)
             if newly_tripped:
                 _emit_throttle(str(exc), seen.get("stream"))
             raise
-        except Exception:
+        except Exception as exc:
             _note_plan_signals(mode, resolved_scope, seen)
-            _emit(None, started, ok=False)
+            _emit(getattr(exc, "paid", None), started, ok=False)
             raise
         _emit(resp, started, ok=True, model_used=used, equiv_override=equiv, refs=refs)
         _note_plan_signals(mode, resolved_scope, seen)

@@ -82,6 +82,11 @@ def _message_stream(*, model: str, text: str, usage: dict, stop_reason: str = "e
     return _sse(events)
 
 
+def _then_raise(sent: bytes, cut: Exception):
+    yield sent
+    raise cut
+
+
 @dataclass
 class StubAnthropic:
     """``answer(body) -> str`` writes each reply. ``fail`` (a list) pops one scripted failure per call first:
@@ -96,6 +101,10 @@ class StubAnthropic:
     search_blocks: list | None = None
     refused_models: set = field(default_factory=set)
     stream_error: dict | None = None
+    #: The next answer's text arrives, then the transport raises this (a connection cut inside an open stream).
+    stream_cut: Exception | None = None
+    #: The next answer's text arrives, then the stream closes cleanly with no `message_delta` or `message_stop`.
+    stream_ends_early: bool = False
     requests: list = field(default_factory=list)
     headers_seen: list = field(default_factory=list)
     _readable: set = field(default_factory=set)
@@ -144,9 +153,15 @@ class StubAnthropic:
         if marked:
             with self._lock:
                 self._readable.add(prefix)
-        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=_message_stream(
-            model=body["model"], text=reply, usage=usage, stop_reason=self.stop_reason,
-            stop_details=self.stop_details, extra_blocks=self.search_blocks))
+        full = _message_stream(model=body["model"], text=reply, usage=usage, stop_reason=self.stop_reason,
+                               stop_details=self.stop_details, extra_blocks=self.search_blocks)
+        cut, self.stream_cut = self.stream_cut, None
+        early, self.stream_ends_early = self.stream_ends_early, False
+        if cut is not None or early:
+            sent = full[:full.index(b"event: message_delta")]
+            return httpx2.Response(200, headers={"content-type": "text/event-stream"},
+                                   content=_then_raise(sent, cut) if cut is not None else sent)
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=full)
 
     def client(self, key: str, *, max_retries: int = 0) -> anthropic.Anthropic:
         return anthropic.Anthropic(api_key=key, base_url="https://api.anthropic.com", max_retries=max_retries,

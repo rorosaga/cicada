@@ -141,3 +141,14 @@ def test_a_default_is_the_lists_small_tier_once_read(client, key):  # noqa: F811
     client.post("/sleep/engine/models/refresh", json={"id": "byok"})
     body = client.get("/sleep/engine").json()
     assert next(p for p in body["providers"] if p["id"] == "anthropic")["defaultModel"] == "anthropic/claude-haiku-6"
+
+
+def test_another_keys_stage_pin_stands_when_the_key_is_not_claude(monkeypatch, tmp_path):
+    """Review of #614: the rule is a Claude key's. A person with two keys who pinned merges elsewhere keeps that."""
+    from api.services import engine_select
+
+    settings = Settings(_env_file=None, llm_mode="byok", consolidation_model="anthropic/claude-opus-5-5")
+    assert engine_select._one_provider_key(settings, {"litellm_model": "openrouter/z-ai/glm-5.2"}) == {}
+    assert engine_select._one_provider_key(
+        Settings(_env_file=None, llm_mode="byok", consolidation_model="openrouter/z-ai/glm-5.2"),
+        {"litellm_model": CLAUDE})["consolidation_model"] == ""

@@ -9,6 +9,7 @@ import pytest
 
 pytest.importorskip("anthropic")
 
+import httpx2
 import litellm
 
 from api.config import Settings
@@ -406,3 +407,93 @@ def test_the_card_keeps_a_saved_choice_first_and_hides_old_models_unless_saved(m
     assert ids[0] == "anthropic/claude-opus-4-1-20250805"
     assert {m["source"] for m in cat["models"] if m["id"] == ids[0]} == {"saved"}
     assert cat["source"] == "your key"
+
+
+# ---- a connection cut inside an open stream (review of #614, blocker 1) --------------------------------------------
+
+
+@pytest.mark.parametrize("cut, expected", [
+    (httpx2.RemoteProtocolError("peer closed connection"), engine_errors.EngineConnectionLost),
+    (httpx2.ReadError("connection reset"), engine_errors.EngineConnectionLost),
+    (httpx2.ReadTimeout("read timed out"), engine_errors.EngineTimeout),
+])
+def test_a_connection_cut_mid_answer_is_the_engines_and_never_parks_the_conversation(monkeypatch, cut, expected):
+    stub = StubAnthropic(answer=lambda b: '{"partial":', stream_cut=cut)
+    stub.install(monkeypatch)
+    with pytest.raises(expected) as caught:
+        _fn()(messages=_msgs())
+    assert classify_episode(caught.value) == ("pause", None)
+    assert "provider refused" not in str(caught.value)
+
+
+def test_a_stream_that_closes_before_the_model_finished_is_never_an_answer(monkeypatch):
+    stub = StubAnthropic(answer=lambda b: '{"partial": true}', stream_ends_early=True)
+    stub.install(monkeypatch)
+    with pytest.raises(engine_errors.EngineConnectionLost) as caught:
+        _fn()(messages=_msgs())
+    assert classify_episode(caught.value) == ("pause", None)
+
+
+def test_half_a_turn_is_never_an_answer(monkeypatch):
+    stub = StubAnthropic(answer=lambda b: '{"partial": true}', stop_reason="pause_turn")
+    stub.install(monkeypatch)
+    with pytest.raises(engine_errors.EngineProtocolError):
+        _fn()(messages=_msgs())
+
+
+def test_only_a_status_is_ever_called_a_refused_request():
+    err = anthropic_engine._translate(RuntimeError("the SDK's own accumulator was surprised"))
+    assert isinstance(err, engine_errors.EngineConnectionLost)
+    assert classify_episode(err) == ("pause", None)
+
+
+# ---- what a failed call cost (review of #614, blocker 3) -------------------------------------------------------------
+
+
+@pytest.mark.parametrize("stop, raises", [("max_tokens", engine_errors.EngineProtocolError),
+                                          ("refusal", engine_errors.EngineRefused)])
+def test_a_call_that_failed_after_the_provider_answered_reaches_the_ledger_with_its_cost(monkeypatch, stop, raises):
+    stub = StubAnthropic(answer=lambda b: "word " * 3000, stop_reason=stop)
+    stub.install(monkeypatch)
+    events: list[telemetry.UsageEvent] = []
+    with pytest.raises(raises):
+        _fn(events, model="anthropic/claude-opus-5-5")(messages=_msgs())
+    (ev,) = events
+    assert ev.ok is False and ev.engine == "anthropic-api"
+    assert ev.input_tokens > 0 and ev.output_tokens == 5000
+    assert ev.cost_usd == pytest.approx(price_supplement.claude_cost(
+        "claude-opus-5-5", input_tokens=ev.input_tokens - ev.cache_write_tokens, output_tokens=5000, cache_read=0,
+        cache_write=ev.cache_write_tokens, cache_write_1h=ev.cache_write_tokens, searches=0))
+
+
+def test_a_stream_cut_mid_answer_records_what_it_had_reported(monkeypatch):
+    stub = StubAnthropic(answer=lambda b: "x" * 900, stream_cut=httpx2.ReadError("reset"))
+    stub.install(monkeypatch)
+    events: list[telemetry.UsageEvent] = []
+    with pytest.raises(engine_errors.EngineConnectionLost):
+        _fn(events)(messages=_msgs())
+    (ev,) = events
+    assert ev.ok is False and ev.input_tokens > 0 and ev.cost_usd > 0
+
+
+def test_a_call_refused_before_it_was_answered_costs_nothing_in_the_ledger(monkeypatch):
+    stub = StubAnthropic(fail=[(400, error_body("invalid_request_error", "no"), {})])
+    stub.install(monkeypatch)
+    events: list[telemetry.UsageEvent] = []
+    with pytest.raises(engine_errors.EngineFailed):
+        _fn(events)(messages=_msgs())
+    (ev,) = events
+    assert ev.ok is False and ev.input_tokens == 0 and ev.output_tokens == 0 and not ev.cost_usd
+
+
+# ---- which search each model takes (review of #614) ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("model, tool", [
+    ("claude-opus-5-5", "web_search_20260209"), ("claude-sonnet-5", "web_search_20260209"),
+    ("claude-sonnet-4-6", "web_search_20260209"), ("claude-opus-4-8", "web_search_20260209"),
+    ("claude-sonnet-4-5", "web_search_20250305"), ("claude-opus-4-5-20251101", "web_search_20250305"),
+    ("claude-sonnet-4-20250514", "web_search_20250305"), ("claude-haiku-5-5", "web_search_20250305"),
+])
+def test_a_model_is_given_only_the_search_it_takes(model, tool):
+    assert anthropic_engine._search_tool(model)["type"] == tool

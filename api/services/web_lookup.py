@@ -1013,6 +1013,11 @@ async def sweep(memory_path: Path, settings, *, dry_run: bool = True, limit: int
             return out
         report = Report(engine=label)
         todo = _plan_only(memory_path, todo, why, label, report, record=not dry_run)
+        if why == "metered":
+            # Each lookup is money on the person's key: one click reads at most what one run may (G237, ruling 63).
+            per_run = max(0, int(getattr(settings, "web_check_per_run", DEFAULT_PER_RUN) or 0))
+            if len(todo) > per_run:
+                todo, out["capped_at"] = todo[:per_run], per_run
         fn = llm_fn or default_llm_fn(resolved, sink=(lambda _event: None) if dry_run else None)
         failures = 0
         with agent_engine.use_scope(f"web-sweep:{memory_path.name}"):

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -227,21 +228,40 @@ async def _watch_cap(home: Path, cap: int, tripped: list[int]) -> None:
             return
 
 
+@contextlib.contextmanager
+def _leg_environment(home: Path, bank: Path):
+    """The scratch bank and home for one leg, and the process's own values back afterwards, unset ones unset."""
+    values = {"CICADA_HOME": str(home), "CICADA_MEMORY_PATH": str(bank), "LITELLM_MODE": "PRODUCTION",
+              "CICADA_TELEMETRY": "on",   # the scratch home's ledger is what the comparison reads
+              "LITELLM_LOCAL_MODEL_COST_MAP": os.environ.get("LITELLM_LOCAL_MODEL_COST_MAP", "True"),
+              "CICADA_ALLOW_CONNECTOR_FETCH": "off", "CICADA_ALLOW_FEED_FETCH": "off", "CICADA_ALLOW_LOGO_FETCH": "off"}
+    before = {name: os.environ.get(name) for name in values}
+    os.environ.update(values)
+    try:
+        yield
+    finally:
+        for name, value in before.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def run_leg(leg: str, *, model: str, judge: str | None, out: Path, cap: int | None = None,
             conversations: list[dict] | None = None, clock: datetime | None = None) -> dict:
-    """One engine on a fresh bank, through the production drain. Sets ``CICADA_HOME``/``CICADA_MEMORY_PATH`` for this
-    process before the backend reads them; a process runs one leg (the module state is the backend's own)."""
-    from benchmarks.system.engine import embed
-
+    """One engine on a fresh bank, through the production drain. ``CICADA_HOME``/``CICADA_MEMORY_PATH`` hold for the
+    leg, before the backend reads them, and go back after it; a process runs one leg at a time (the module state is the
+    backend's own)."""
     bank, home = out / "bank", out / "home"
     home.mkdir(parents=True, exist_ok=True)
-    os.environ["CICADA_HOME"] = str(home)
-    os.environ["CICADA_MEMORY_PATH"] = str(bank)
-    os.environ["LITELLM_MODE"] = "PRODUCTION"
-    os.environ["CICADA_TELEMETRY"] = "on"   # the scratch home's ledger is what the comparison reads
-    os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
-    for gate in ("CICADA_ALLOW_CONNECTOR_FETCH", "CICADA_ALLOW_FEED_FETCH", "CICADA_ALLOW_LOGO_FETCH"):
-        os.environ[gate] = "off"
+    with _leg_environment(home, bank):
+        return _run_leg(leg, model=model, judge=judge, out=out, bank=bank, home=home, cap=cap,
+                        conversations=conversations, clock=clock)
+
+
+def _run_leg(leg: str, *, model: str, judge: str | None, out: Path, bank: Path, home: Path, cap: int | None,
+             conversations: list[dict] | None, clock: datetime | None) -> dict:
+    from benchmarks.system.engine import embed
     from api.services import providers, sleep_cycle
 
     clock = clock or datetime.now(timezone.utc)

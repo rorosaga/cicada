@@ -458,26 +458,25 @@ def _model_overrides(registry, mode: str) -> dict:
 
 
 def _one_provider_key(settings, updates: dict) -> dict:
-    """G237: a key reads every stage on its own provider. A model pinned for one stage in the environment, or the
+    """G237: a Claude key reads every stage on its own provider. A model pinned for one stage in the environment, or the
     shipped judge default, belongs to another provider's key the person may not hold: the merges and the judge would
     fail, or bill a key they did not choose for this. What the person set on purpose for the judge stays."""
     from api.services import anthropic_models
     from api.services.connections import byok
 
     main = str(updates.get("litellm_model") or getattr(settings, "litellm_model", "") or "")
-    if not main:
-        return {}
+    if not main or not anthropic_models.is_claude(main):
+        return {}   # another key's stage pin stays what it was: the person may well hold both
     provider = byok.provider_for_model(main)
     out: dict = {}
     consolidation = str(getattr(settings, "consolidation_model", "") or "").strip()
     if consolidation and "litellm_model" in updates and byok.provider_for_model(consolidation) != provider:
         out["consolidation_model"] = ""
-    if anthropic_models.is_claude(main):
-        judge = str(updates.get("litellm_disambiguation_model") or getattr(settings, "litellm_disambiguation_model", "")
-                    or "").strip()
-        pinned = "litellm_disambiguation_model" in getattr(settings, "model_fields_set", ())
-        if judge and byok.provider_for_model(judge) != provider and not pinned:
-            out["litellm_disambiguation_model"] = anthropic_models.default_model()
+    judge = str(updates.get("litellm_disambiguation_model") or getattr(settings, "litellm_disambiguation_model", "")
+                or "").strip()
+    pinned = "litellm_disambiguation_model" in getattr(settings, "model_fields_set", ())
+    if judge and byok.provider_for_model(judge) != provider and not pinned:
+        out["litellm_disambiguation_model"] = anthropic_models.default_model()
     return out
 
 

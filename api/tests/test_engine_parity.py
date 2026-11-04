@@ -178,3 +178,41 @@ def test_a_key_file_gives_only_its_own_line(tmp_path):
     secrets = tmp_path / "secrets.env"
     secrets.write_text("OPENAI_API_KEY=not-this\nANTHROPIC_API_KEY=stub-key\n")
     assert engine_parity.read_key_file(secrets) == "stub-key"
+
+
+def test_a_connection_cut_mid_run_is_a_pause_and_no_conversation_is_parked(tmp_path, monkeypatch):
+    """Review of #614, blocker 1, end to end: the production drain over a cut inside an open stream."""
+    import httpx2
+
+    monkeypatch.setattr(engine_parity, "BATCH_SIZE", 2)
+
+    def answer(body):
+        return _answer(body["system"][0]["text"], body["messages"][-1]["content"])
+
+    stub = StubAnthropic(answer=answer, stream_cut=httpx2.RemoteProtocolError("peer closed connection"))
+    stub.install(monkeypatch)
+    snap = engine_parity.run_leg("key", model="anthropic/claude-haiku-5-5", judge="anthropic/claude-haiku-5-5",
+                                 out=tmp_path / "key", conversations=CONVERSATIONS)
+    assert not snap["failures"]["parked"], snap["failures"]
+    assert not snap["failures"]["unread"], snap["failures"]
+
+
+def test_a_leg_leaves_the_process_environment_as_it_found_it(tmp_path, monkeypatch):
+    """Review of #614, blocker 2: a leg's scratch bank and closed gates leaked into every test run after it."""
+    import os
+
+    monkeypatch.setenv("CICADA_TELEMETRY", "off-before")
+    monkeypatch.delenv("CICADA_ALLOW_FEED_FETCH", raising=False)
+    monkeypatch.delenv("CICADA_MEMORY_PATH", raising=False)
+    seen = {}
+
+    def spy(*a, **k):
+        seen["bank"] = os.environ.get("CICADA_MEMORY_PATH")
+        raise RuntimeError("stop here")
+
+    monkeypatch.setattr(engine_parity, "seed_bank", spy)
+    with pytest.raises(RuntimeError):
+        engine_parity.run_leg("plan", model="haiku", judge="haiku", out=tmp_path / "leg", conversations=[])
+    assert seen["bank"] == str(tmp_path / "leg" / "bank"), "the leg itself still runs on its scratch bank"
+    assert os.environ["CICADA_TELEMETRY"] == "off-before"
+    assert "CICADA_ALLOW_FEED_FETCH" not in os.environ and "CICADA_MEMORY_PATH" not in os.environ

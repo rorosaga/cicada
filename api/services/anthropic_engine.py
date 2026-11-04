@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -59,7 +60,9 @@ GATE_WAIT_S = 30.0
 WARM_S = 55 * 60.0
 SEARCH_TOOL_NEW = "web_search_20260209"
 SEARCH_TOOL_BASIC = "web_search_20250305"
-_NEW_SEARCH_LINES = ("opus", "sonnet")
+#: The dynamic-filtering search needs Opus or Sonnet 4.6 or later (the vendor's server-tools table); 4.5 and Haiku take
+#: the basic one.
+_NEW_SEARCH_MODEL = re.compile(r"claude-(?:opus|sonnet)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$")
 
 _client_lock = threading.Lock()
 _clients: dict[str, Any] = {}
@@ -174,6 +177,8 @@ NO_ANSWER = "The provider finished without an answer."
 MODEL_REFUSED = "The model declined to read this conversation."
 
 
+_ANSWERED_STOPS = ("end_turn", "stop_sequence")
+_CUT_OFF_STOPS = ("max_tokens", "model_context_window_exceeded")
 _STREAM_ERRORS = {"overloaded_error": 529, "rate_limit_error": 429, "api_error": 500, "timeout_error": 504}
 
 
@@ -218,8 +223,11 @@ def _key_limit(err: engine_errors.EngineError) -> engine_errors.EngineError:
 
 
 def _translate(exc: Exception) -> engine_errors.EngineError:
-    """An SDK failure as the class every layer above already branches on. The log gets its class and status only."""
+    """An SDK failure as the class every layer above already branches on. The log gets its class and status only.
+    The SDK lets raw transport errors out of an open stream's iterator, so both families are named here; "refused" is
+    only ever what a status said, since Sleep charges a refused request to the conversation."""
     import anthropic
+    import httpx2
 
     status = getattr(exc, "status_code", None)
     # An error inside an open stream arrives with the stream's own 200: its body says what it really was.
@@ -228,10 +236,12 @@ def _translate(exc: Exception) -> engine_errors.EngineError:
     status = _STREAM_ERRORS.get(kind, status) if status == 200 or status is None else status
     logger.warning(f"Claude API call failed: {type(exc).__name__} status={status} "
                    f"request={getattr(exc, 'request_id', None)}")
-    if isinstance(exc, anthropic.APITimeoutError):
+    if isinstance(exc, (anthropic.APITimeoutError, httpx2.TimeoutException)):
         return engine_errors.EngineTimeout(TIMED_OUT)
-    if isinstance(exc, anthropic.APIConnectionError):
+    if isinstance(exc, (anthropic.APIConnectionError, httpx2.TransportError)):
         return engine_errors.EngineConnectionLost(LOST)
+    if not isinstance(exc, anthropic.APIStatusError):
+        return engine_errors.EngineConnectionLost(SERVICE_FAILED)
     cause = engine_cause.classify(exc)
     if cause == "spending_limit" or status == 402:
         return _key_limit(engine_errors.EngineExhausted(engine_cause.sentence("spending_limit")))
@@ -259,7 +269,8 @@ def _system_blocks(system_text: str) -> list[dict]:
 
 def _search_tool(served: str) -> dict:
     """The newest search the model takes, one search a call. Haiku takes the basic variant only."""
-    newer = any(line in served for line in _NEW_SEARCH_LINES)
+    match = _NEW_SEARCH_MODEL.fullmatch(served)
+    newer = bool(match) and (int(match[1]), int(match[2] or 0)) >= (4, 6)
     return {"type": SEARCH_TOOL_NEW if newer else SEARCH_TOOL_BASIC, "name": "web_search", "max_uses": 1}
 
 
@@ -333,6 +344,14 @@ def cost_usd(model: str, usage: _Usage) -> float | None:
         cache_write=usage.cache_write, cache_write_1h=usage.cache_write_1h, searches=usage.searches)
 
 
+def _paid(err: engine_errors.EngineError, served: str, usage: _Usage) -> engine_errors.EngineError:
+    """A call that failed after the provider started answering was still charged. ``paid`` is the answer shape holding
+    what it reported, so the ledger records the spend (``providers._emit``) the same way as a success."""
+    if usage.input_tokens or usage.output_tokens or usage.cache_read or usage.cache_write:
+        err.paid = _shim(text="", stop_reason=None, served=served, usage=usage, searches=None)
+    return err
+
+
 def _shim(*, text: str, stop_reason: str | None, served: str, usage: _Usage, searches: list[list] | None) -> Any:
     # The plan's dual-access shape, so every stage reads one answer either way.
     resp: dict[str, Any] = {
@@ -352,18 +371,32 @@ def _shim(*, text: str, stop_reason: str | None, served: str, usage: _Usage, sea
     return agent_engine._wrap(resp)
 
 
-def _stream_once(client, params: dict, *, timeout: float, deadline: float, first: _Prefix | None) -> Any:
+def _reported_so_far(stream, usage: _Usage) -> None:
+    """What a stream that died had reported: the prompt from its start, the output from its last delta."""
+    try:
+        snapshot = stream.current_message_snapshot
+    except AssertionError:   # nothing arrived
+        return
+    if snapshot is not None:
+        usage.add(snapshot.usage)
+
+
+def _stream_once(client, params: dict, *, timeout: float, deadline: float, first: _Prefix | None, usage: _Usage) -> Any:
     """One streamed request. The first byte opens the prefix for the calls waiting on it; the wall clock is checked as
     the answer arrives, so a call never runs past Sleep's budget however fast the bytes come."""
     import anthropic
 
     sized = client.with_options(timeout=anthropic.Timeout(timeout, connect=CONNECT_TIMEOUT_S))
     with sized.messages.stream(**params) as stream:
-        for _event in stream:
-            _open_prefix(first)
-            if time.monotonic() > deadline:
-                raise engine_errors.EngineTimeout(TIMED_OUT)
-        return stream.get_final_message()
+        try:
+            for _event in stream:
+                _open_prefix(first)
+                if time.monotonic() > deadline:
+                    raise engine_errors.EngineTimeout(TIMED_OUT)
+            return stream.get_final_message()
+        except Exception:
+            _reported_so_far(stream, usage)
+            raise
 
 
 def complete(
@@ -414,10 +447,10 @@ def complete(
             prefix_key = hashlib.sha256(f"{model_id}\0{effort}\0{web_search}\0{system_text}".encode()).hexdigest()
             first = _enter_prefix(prefix_key)
         try:
-            message = _stream_once(client, params, timeout=timeout, deadline=deadline, first=first)
-        except engine_errors.EngineError:
+            message = _stream_once(client, params, timeout=timeout, deadline=deadline, first=first, usage=usage)
+        except engine_errors.EngineError as exc:
             _fail_prefix(prefix_key or "", first)
-            raise
+            raise _paid(exc, model_id, usage)
         except Exception as exc:  # noqa: BLE001 — every SDK failure leaves here as an engine error, in words
             _fail_prefix(prefix_key or "", first)
             translated = _translate(exc)
@@ -427,21 +460,23 @@ def complete(
                     logger.warning(f"Claude API: the model id was refused, moved forward to {forward.model}")
                     model_id, moved = forward.model, forward.note
                     continue
-            raise translated from None
+            raise _paid(translated, model_id, usage) from None
         _open_prefix(first)
         if prefix_key:
             _touch_prefix(prefix_key)
         usage.add(message.usage)
         stop = getattr(message, "stop_reason", None)
+        if stop is None:   # the stream closed before the model finished: partial text is never an answer
+            raise _paid(engine_errors.EngineConnectionLost(LOST), model_id, usage)
         if stop == "refusal":
             category = getattr(getattr(message, "stop_details", None), "category", None)
             logger.warning(f"Claude API: the model declined a call (stage {stage}, category {category})")
-            raise engine_errors.EngineRefused(MODEL_REFUSED)
+            raise _paid(engine_errors.EngineRefused(MODEL_REFUSED), model_id, usage)
         text = _text_of(message)
-        if stop == "max_tokens":
-            raise engine_errors.EngineProtocolError(CUT_OFF)
-        if not text.strip():
-            raise engine_errors.EngineProtocolError(NO_ANSWER)
+        if stop in _CUT_OFF_STOPS:
+            raise _paid(engine_errors.EngineProtocolError(CUT_OFF), model_id, usage)
+        if stop not in _ANSWERED_STOPS or not text.strip():   # `pause_turn` holds half a turn, never an answer
+            raise _paid(engine_errors.EngineProtocolError(NO_ANSWER), model_id, usage)
         served_id = str(getattr(message, "model", "") or model_id)
         return _shim(text=text, stop_reason=stop, served=served_id, usage=usage,
                      searches=_searches_of(message) if web_search else None)
