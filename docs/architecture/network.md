@@ -318,11 +318,11 @@ so a machine that changed since they read it runs nothing); argv only, 10 s, std
   every answer is the ServeConfig plus, on a click or a page open, `reach.probe` through the address. `ok` is the
   ServeConfig afterwards, never the return code: with Funnel not allowed the CLI prints a link and waits, or exits 0
   having changed nothing. `url` is on the wire only when the probe just passed. **Its one limit:** from this machine the
-  name resolves over the tailnet, so a passing probe proves the mapping and the listener, not public DNS (up to 10
+  name should resolve over the tailnet (reasoned from MagicDNS, not yet measured), so a passing probe proves the mapping and the listener, not public DNS (up to 10
   minutes the first time, Tailscale's figure); the page says so once after the click. Only a device off the tailnet
   proves the rest.
 - **Restart and reboot.** `--bg` persists in Tailscale across reboots, and `enabled` restarts the listener, so it comes
-  back by itself. Backend down or connector switched off: the mapping remains and strangers get Tailscale's 502; the page
+  back by itself. Backend down or connector switched off: the mapping remains and nothing answers strangers (the serve proxy's 502, not yet seen on a real funnel); the page
   keeps a card saying *still open, nothing answers* with its off, because the switch never touches Tailscale. Uninstalling
   Cicada does not touch Tailscale either.
 - **Connector off at the click:** it is turned on first, and back off if the door then doesn't open, so a failed click
