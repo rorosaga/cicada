@@ -806,7 +806,21 @@ class SqliteVecIndexer:
             conn.close()
         if "claims" in out:
             out["claims"] = self._current_claim_hits(out["claims"])
+        if "episodes" in out:
+            out["episodes"] = self._without_locked_notes(out["episodes"])
         return out
+
+    def _without_locked_notes(self, hits: list[dict]) -> list[dict]:
+        """G234: a retired locked note's rows stay in the table until Sleep's next whole sync removes them, so a hit is
+        checked against its episode before it leaves the index."""
+        from api.services import bank_index
+
+        def locked(hit: dict) -> bool:
+            stem = str(hit.get("episode_id") or (hit.get("metadata") or {}).get("episode_id") or "")
+            f = bank_index.file(self.memory_path, "episodes", f"{stem}.md") if stem else None
+            return bool(f is not None and (f.frontmatter or {}).get(evidence.LOCKED_NOTE_KEY))
+
+        return [hit for hit in hits if not locked(hit)]
 
     def _search_kind(self, kind: str, query: str, top_k: int) -> list[dict]:
         """Shared search helper: returns [] for a missing db or missing table."""
@@ -814,7 +828,8 @@ class SqliteVecIndexer:
             return []
         conn = self._connect()
         try:
-            return self._knn(conn, kind, query, top_k)
+            hits = self._knn(conn, kind, query, top_k)
+            return self._without_locked_notes(hits) if kind == "episodes" else hits
         except sqlite3.OperationalError as exc:
             logger.warning(f"vector_index._search_kind({kind!r}): query failed ({exc}); degrading to []")
             return []
@@ -860,6 +875,8 @@ class SqliteVecIndexer:
             except Exception:
                 continue
             fm = parsed.frontmatter or {}
+            if fm.get(evidence.LOCKED_NOTE_KEY):
+                continue   # G234: a retired locked note is in no index
             # Gate B2: the dropped-middle marker (the episode's own record) is blanked before chunking.
             body = evidence.mask_gaps(parsed.body, evidence.gap_ranges(fm, parsed.body)).strip()
             if not body:

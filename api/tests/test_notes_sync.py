@@ -96,7 +96,7 @@ def test_sync_notes_new_note_creates_episode(tmp_path):
     memory = _memory(tmp_path)
     result = run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2)))
 
-    assert result == {"new": 2, "updated": 0, "skipped": 0, "total": 2, "excluded": 0}
+    assert result == {"new": 2, "updated": 0, "skipped": 0, "total": 2, "excluded": 0, "locked": 0, "retired": 0}
 
     episodes = list((memory / "episodes").glob("ep_*.md"))
     assert len(episodes) == 2
@@ -117,7 +117,7 @@ def test_sync_notes_unchanged_note_skipped_on_second_sync(tmp_path):
     run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2)))
 
     result = run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2)))
-    assert result == {"new": 0, "updated": 0, "skipped": 2, "total": 2, "excluded": 0}
+    assert result == {"new": 0, "updated": 0, "skipped": 2, "total": 2, "excluded": 0, "locked": 0, "retired": 0}
 
     episodes = list((memory / "episodes").glob("ep_*.md"))
     assert len(episodes) == 2  # no new episodes written
@@ -128,7 +128,7 @@ def test_sync_notes_modified_note_reemits_updated_episode(tmp_path):
     run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2)))
 
     result = run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2_EDITED)))
-    assert result == {"new": 0, "updated": 1, "skipped": 1, "total": 2, "excluded": 0}
+    assert result == {"new": 0, "updated": 1, "skipped": 1, "total": 2, "excluded": 0, "locked": 0, "retired": 0}
 
     episodes = list((memory / "episodes").glob("ep_*.md"))
     assert len(episodes) == 3  # original 2 + 1 fresh episode for the edit
@@ -158,13 +158,13 @@ def test_sync_notes_no_id_falls_back_to_name_created_hash(tmp_path):
 
     # Same name+created (no id) again -> treated as the same note, skipped.
     result2 = run(notes_sync.sync_notes(memory, dump=_dump(NOTE_NO_ID)))
-    assert result2 == {"new": 0, "updated": 0, "skipped": 1, "total": 1, "excluded": 0}
+    assert result2 == {"new": 0, "updated": 0, "skipped": 1, "total": 1, "excluded": 0, "locked": 0, "retired": 0}
 
 
 def test_sync_notes_empty_dump(tmp_path):
     memory = _memory(tmp_path)
     result = run(notes_sync.sync_notes(memory, dump=""))
-    assert result == {"new": 0, "updated": 0, "skipped": 0, "total": 0, "excluded": 0}
+    assert result == {"new": 0, "updated": 0, "skipped": 0, "total": 0, "excluded": 0, "locked": 0, "retired": 0}
     assert list((memory / "episodes").glob("ep_*.md")) == []
 
 
@@ -270,7 +270,7 @@ def test_sync_notes_endpoint_empty_dump(tmp_path, monkeypatch):
     client, _ = _make_client(tmp_path, monkeypatch)
     resp = client.post("/sources/sync-notes", json={"notesDump": ""})
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"new": 0, "updated": 0, "skipped": 0, "total": 0, "excluded": 0}
+    assert resp.json() == {"new": 0, "updated": 0, "skipped": 0, "total": 0, "excluded": 0, "locked": 0, "retired": 0}
 
 
 # --- Folder exclusion (CICADA_NOTES_EXCLUDE_FOLDERS) -------------------------
