@@ -2742,6 +2742,8 @@ class InboxKind(str, Enum):
     # so it can read a page). Machine-wide outside the bank (`agent_requests`), served here above the questions,
     # resolved only by the person's tap (`done` | `dismiss`), never in a conversation.
     agent_request = "agent_request"
+    # G235: the one review of what may be sensitive, one row per conversation. The person's alone (`sensitive_flags`).
+    sensitive = "sensitive"
 
 
 class RequiredInput(str, Enum):
@@ -2889,6 +2891,22 @@ class WhereToCheckRow(CamelModel):
     evidence: Optional[dict] = None
 
 
+class SensitiveRow(CamelModel):
+    """One conversation of the sensitive review (G235): where and what kind. Never the words."""
+
+    id: str
+    episode: str
+    title: str = ""
+    day: str = ""
+    kinds: list[str] = Field(default_factory=list)
+    # The engines that read something here, in the person's words; which kinds were held back, and from whom (ruling 60);
+    # read before this check existed.
+    read_by: list[str] = Field(default_factory=list)
+    held_kinds: list[str] = Field(default_factory=list)
+    held_from: list[str] = Field(default_factory=list)
+    earlier: bool = False
+
+
 class AgentRequestNotification(CamelModel):
     """G205: what the app posts as a Mac notification — ids and the agent's own words, never episode text."""
 
@@ -2960,6 +2978,9 @@ class InboxItem(CamelModel):
     # it is one Sleep may settle on the person's own words). Additive: an older build draws the yes/no options.
     rows: Optional[list[WhereToCheckRow]] = None
     review: bool = False
+    # G235: a `sensitive` item's rows, and how many conversations hold something replaced before it was stored.
+    sensitive_rows: Optional[list[SensitiveRow]] = None
+    replaced: Optional[int] = None
     # G115 Phase 1 — all additive so an older app build still decodes.
     entity_type: Optional[str] = None
     source_episode: Optional[str] = None
@@ -3646,6 +3667,12 @@ class SleepHistoryEntry(CamelModel):
     run: Optional["SleepRunRef"] = None
 
 
+class SleepRunSensitive(CamelModel):
+    """G235: how many conversations a run read holding something likely sensitive, and which kinds. Never a word."""
+    conversations: int = 0
+    kinds: list[str] = Field(default_factory=list)
+
+
 class SleepRunRef(CamelModel):
     id: str
     batches: int = 0
@@ -3659,6 +3686,7 @@ class SleepRunRef(CamelModel):
     finished_at: Optional[str] = None
     state: Optional[str] = None            # running | paused | finished | failed | ended
     started_by: str = "user"
+    sensitive: Optional[SleepRunSensitive] = None
     #: A scheduled run that stood in for a time the Mac slept or was off through: that time (aware ISO). Owner 2026-10-19.
     catch_up_for: Optional[str] = None
     # Owner 2026-10-26 (the run card): the run's whole figures, joined at read from its batches' `sleep_run` ledger
@@ -3714,6 +3742,8 @@ class SleepRunDetail(CamelModel):
     pauses: list[SleepRunPause] = Field(default_factory=list)
     questions_raised: Optional[int] = None
     owner: Optional[SleepDrainOwnerPage] = None
+    # G235: conversations in this run holding something `episode_scrub` replaced before it was stored. None: not recorded.
+    replaced: Optional[int] = None
     batches: list[SleepRunBatch] = Field(default_factory=list)
     models: list["CycleUsageModel"] = Field(default_factory=list)
     usage: Optional["CycleUsage"] = None

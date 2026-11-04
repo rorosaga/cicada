@@ -52,7 +52,7 @@ NICKNAME_MAX_OPEN = 3
 NICKNAME_TRIGGER = "sleep/nickname-questions"
 #: Never in a catch-up: app-only audit rows, an agent's proposed edit, an agent request, and the grouped "Confirm N
 #: links" review (the app's one screen, ruling 36 D5).
-NEVER = frozenset({"normalization", "page_edit", "agent_request"})
+NEVER = frozenset({"normalization", "page_edit", "agent_request", "sensitive"})
 MIN_PREFIX = 3
 MAX_TAIL = 8
 MAX_RATIO = 0.6

@@ -34,6 +34,7 @@ extension Copy {
             case .followup: "Plans that went quiet or passed their date. Say how they went."
             case .pageEdit: "Changes an agent proposed to a page's words. Apply each one, or dismiss it."
             case .agentRequest: "Things an agent needs you to do."
+            case .sensitive: "Conversations that may hold a password, a card or an ID number."
             case .unknown: "Questions from a newer version of Cicada."
             }
         }

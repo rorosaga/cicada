@@ -37,6 +37,7 @@
     "pauses": 1,
     "questionsRaised": 0,
     "readMs": 8040000,
+    "sensitive": null,
     "startedAt": "2026-09-30T10:14:00+00:00",
     "startedBy": "user",
     "state": "finished",

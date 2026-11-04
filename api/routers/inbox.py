@@ -355,6 +355,37 @@ async def resolve_inbox(
     return await inbox_service.resolve(item_id, request, settings)
 
 
+@router.post("/sensitive/remove")
+async def remove_sensitive(payload: dict = Body(...), settings: Settings = Depends(get_settings)):
+    """G235: Remove on exactly the conversations `scripts/sensitive_removal.py` listed: ``rows`` and the dry run's ``plan``
+    stamp, both required. 409 while Sleep holds the pages, when the plan moved since, or when the older version could not
+    be kept. An agent relaying it is refused, as on every resolve of this kind. The answer is counts only."""
+    from api.services import git_service, sensitive_flags, state_dictionary, write_admission
+
+    if str(payload.get("via") or "").strip().lower() == "agent":
+        raise HTTPException(403, "This is the person's to answer.")
+    rows = payload.get("rows")
+    if not (isinstance(rows, list) and rows and all(isinstance(r, str) for r in rows)):
+        raise HTTPException(400, "rows is the list of row ids the dry run printed.")
+    stamp = payload.get("plan")
+    if not isinstance(stamp, str) or not stamp:
+        raise HTTPException(400, "plan is the stamp the dry run printed.")
+
+    async def admitted():
+        before = await git_service.snapshot_dirty(settings.memory_path)
+        return await asyncio.to_thread(sensitive_flags.remove_planned, settings.memory_path, rows, stamp=stamp, before=before)
+
+    try:
+        answer = await write_admission.run_admitted(
+            settings.memory_path, admitted,
+            refuse=lambda: HTTPException(409, "Cicada is consolidating memory right now. Try again in a few minutes."))
+    except (ValueError, sensitive_flags.RemovalRefused) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    # A primer can hold a title from before; the cursor commits alone.
+    await state_dictionary.refresh_admitted(settings.memory_path, settings)
+    return answer
+
+
 @router.post("/agent-requests", status_code=201)
 async def file_agent_request(payload: dict = Body(...), settings: Settings = Depends(get_settings)):
     """G205's REST door: an agent that cannot use Cicada's MCP tools asks the person to sign in to a site so it can
