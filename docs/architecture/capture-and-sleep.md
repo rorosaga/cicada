@@ -2649,12 +2649,12 @@ listed as an alias. Four gaps caused it, each closed:
   `merge_rejections`, never a merge; the card says the conversation named the full name and the page carries only
   the given name.
 
-- **A number in a chat (PROPOSED ruling 55, off; `storage.md`, "Phone numbers").** With `CICADA_PHONE_NUMBERS=on`, the
-  person's own new lines hold a token instead of a redaction (`phone_numbers.tokenise_batch`, before the stager, in both
-  chat ingests); an agent's reply, another speaker's line and a forwarded message keep today's redaction. A stored line
-  never moves: a stored sitting is rebuilt from its body, and a line posted again keeps its stored words, so turning it
-  on re-reads no old chat. Stage 1 gets a note only when the conversation holds a token; `phone_numbers.take` keeps an
-  entry only on the person's own located line and takes every token out of the prose.
+- **A number in a chat (PROPOSED ruling 55, off; `storage.md`, "Phone numbers").** With its switch on, the person's own new
+  lines hold a token instead of a redaction (`phone_numbers.tokenise_batch`, before the stager, in both chat ingests),
+  for what a positive signal calls a phone; an agent's reply, another speaker's line and a forwarded message keep today's
+  redaction. A stored line never moves: a stored sitting is rebuilt from its body, and a line posted again keeps its
+  stored words, so turning it on re-reads no old chat. Stage 1 gets a note only when the conversation holds a token;
+  `phone_numbers.take` keeps an entry only on the person's own located line and takes every token out of the prose.
 - **One person across sources (owner 2026-10-28, `contact_identity`).** Stage 1 marks a `person` entity of a chat
   sitting whose name or alias folds to exactly one participant (a group member or a one-to-one chat's person) that
   carries an address-book card (`contact_card`, never the model's). Stage 2 reads it before any name: the one page
