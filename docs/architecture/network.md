@@ -306,7 +306,8 @@ so a machine that changed since they read it runs nothing); argv only, 10 s, std
 `reset`. The route is master-token only (`auth.MASTER_ONLY_WRITE_PREFIXES`), absent from MCP and `/v1`, and the CLI's
 `funnel on|off` refuse from an agent's shell.
 - **Only this port.** The API's port and the door's are refused if `CICADA_REMOTE_PORT` is ever set onto them, before
-  Tailscale is even asked, and nothing opens unless this listener is up.
+  Tailscale is even asked, and nothing opens unless this listener is up. The API's port is both the configured one and the
+  socket's own (`scope["server"]`), since `uvicorn --port` leaves the setting at 8000.
 - **The port (read from `serve_v2.go`, v1.104).** Funnel allows 443, 8443 and 10000, and a port is served or funnelled,
   never both. Three behaviours decide the code: a funnel on a held port silently replaces its `/` and opens every other
   path on it, so a port holding anything (any config, foreground ones and tailnet-only serves of this same port
@@ -321,10 +322,30 @@ so a machine that changed since they read it runs nothing); argv only, 10 s, std
   name should resolve over the tailnet (reasoned from MagicDNS, not yet measured), so a passing probe proves the mapping and the listener, not public DNS (up to 10
   minutes the first time, Tailscale's figure); the page says so once after the click. Only a device off the tailnet
   proves the rest.
-- **Restart and reboot.** `--bg` persists in Tailscale across reboots, and `enabled` restarts the listener, so it comes
-  back by itself. Backend down or connector switched off: the mapping remains and nothing answers strangers (the serve proxy's 502, not yet seen on a real funnel); the page
-  keeps a card saying *still open, nothing answers* with its off, because the switch never touches Tailscale. Uninstalling
-  Cicada does not touch Tailscale either.
+- **The mapping outlives the listener (review of #607).** A `--bg` mapping names a port, and with the listener down anyone
+  local may take that port and be public with no auth. So:
+  - **The switch closes it, in the same act, before the listener stops.** Turning the connector off runs each off for the
+    connector's own door and says so (`funnelNote`, "The public address closed too."). Turning it on again never reopens
+    it. Decided because *off* is what the person asked for, and a door left open behind it is the one failure that exposes
+    something else. If the off fails, the connector still goes off and the sentence says the address is open.
+  - **A listener that is down is never read as nothing there.** The port is asked (`reach.port_accepts`: connect and close,
+    nothing sent, on every read). Something accepts: `otherProgram: true`, "Another program on this machine is on the
+    connector's port, and this address makes it reachable from the internet. Turn it off.", first on the page, over the
+    bind failure that is the same fact. Nothing accepts: "still open and nothing answers it now, but any program that takes
+    the connector's port will be public" (the serve proxy's 502 to strangers, not yet seen on a real funnel). Both offer the off.
+  - **A clean quit does not close it.** `--bg` persists across restarts and reboots, and a restart or an update would
+    otherwise drop an address only a click may reopen, so a start cannot put it back. With the backend down Cicada can say
+    nothing and only the person's own `tailscale funnel` command closes it. **On the next start:** the listener comes back
+    if the switch is on, and if its port is held, the page and `cicada funnel status` say the above and the log carries one
+    line (`listener.warn_if_exposed`, which reads Tailscale only if the port accepts, so a normal start never does). A start
+    never closes it: that program may be a second Cicada whose address this is. Nothing pushes those words to a person who
+    never opens the page. Tying the mapping to the backend's life (a foreground funnel) was rejected: it needs Cicada to
+    reopen it on every start, which this ruling forbids. Uninstalling Cicada does not touch Tailscale either.
+  - **Any other public mapping is reported, never closed (`others`).** Every funnelled handler proxying to a loopback port
+    but for the connector's own `/`: left on an old port after `CICADA_REMOTE_PORT` moved, or the person's own, which look
+    alike from here. Each comes in words with the command that closes that one mapping, to copy, and *Turn on* still works
+    beside it. Cicada keeps no record of what it opened, so it cannot prove one is its own, and it never removes the
+    person's. The API's port there is named as such.
 - **The command to copy is safe too.** `/remote/status`'s `funnelCommand` was a bare `tailscale funnel --bg <port>`, which
   means 443. Pasted on a machine serving the API at `/` on 443 it took that serve away and made the connector public
   there; with the API or anything else on another path of that port, that went public too. The field

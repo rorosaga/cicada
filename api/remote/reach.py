@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
+import socket
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from urllib.parse import urlparse
 
 from api.remote import catalog
@@ -452,6 +454,11 @@ def run_serve(action: str, port: int, *, which=shutil.which, run=subprocess.run,
 # - ``funnel --https=<p> off`` with no ``--set-path`` deletes EVERY handler on the port — so the off names ``/``;
 # - with Funnel not yet allowed it prints a URL and either waits or EXITS 0 having changed nothing — so a return code
 #   never decides success: only the ServeConfig read back does.
+#
+# A `--bg` mapping outlives the listener: it names a port, and when the connector is down anyone local may hold that port,
+# with no auth. So a mapping with no listener behind it is asked about, never assumed dead (`port_accepts`); the switch
+# closes the mapping as it stops the listener (`routers/remote.py`); and any other public mapping on this machine is
+# reported with its own off to copy, since Cicada cannot prove it made one and never removes the person's own.
 
 #: The public ports the click may use, in order. Funnel allows 443, 8443 and 10000; 443 is the clean address and where
 #: the docs have always put it, 10000 only when the person's own mapping holds 443 (`headless.md` suggests one).
@@ -489,6 +496,17 @@ _FUNNEL_WORDS = {
 
 
 @dataclass(frozen=True)
+class FunnelOther:
+    """A public handler on this machine that is not the connector's own door: left on an old port, the person's own, or
+    the API's. Shown with the command that closes that one mapping, to copy: Cicada never runs it."""
+    url: str
+    local_port: int
+    message: str
+    command: str | None
+    kind: str  # "api" | "other"
+
+
+@dataclass(frozen=True)
 class FunnelState:
     """Where the connector's public door stands, read from Tailscale. ``mapped_url`` is what the ServeConfig says, which
     is not yet a claim that it answers: only :func:`funnel_wire` with a passed probe puts an address on the wire."""
@@ -497,6 +515,7 @@ class FunnelState:
     command: str | None = None
     stop_command: str | None = None
     mapped_url: str | None = None
+    others: tuple[FunnelOther, ...] = ()
 
 
 def _configs(status: dict) -> list[dict]:
@@ -517,6 +536,57 @@ def funnel_port_taken(status: dict, https_port: int) -> bool:
         if any(_hostport_port(h) == wanted for h in (*_dict(config.get("Web")), *_dict(config.get("AllowFunnel")))):
             return True
     return False
+
+
+def port_accepts(port: int, *, timeout: float = 0.3) -> bool:
+    """Does anything accept on this loopback port? Connect and close, nothing sent: with the listener down, whatever is
+    here is what a public mapping of this port serves to the internet."""
+    for host in ("127.0.0.1", "::1"):
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _loopback_port(proxy: str) -> int | None:
+    target = proxy if "://" in proxy else f"http://{proxy}"
+    try:
+        parsed = urlparse(target)
+        return parsed.port if parsed.hostname in _LOOPBACK else None
+    except ValueError:
+        return None
+
+
+def funnel_others(status: dict, port: int, *, closed_ports: tuple[int, ...] = ()) -> tuple[FunnelOther, ...]:
+    """Every funnelled handler proxying to a loopback port, but for the connector's own ``/``. Reported, never removed: a
+    mapping on the connector's old port and the person's own site look exactly alike from here."""
+    found = []
+    for config in _configs(status):
+        foreground = config is not status
+        allowed = _dict(config.get("AllowFunnel"))
+        for hostport, web in _dict(config.get("Web")).items():
+            if not allowed.get(hostport):
+                continue
+            host, _, https = str(hostport).rpartition(":")
+            if not https.isdigit():
+                continue
+            for mount, handler in _dict(_dict(web).get("Handlers")).items():
+                local = _loopback_port(str(_dict(handler).get("Proxy") or ""))
+                if local is None or (local == port and mount == "/"):
+                    continue
+                url = (f"https://{host}" if https == "443" else f"https://{host}:{https}") + (
+                    "" if mount == "/" else str(mount))
+                api = local in closed_ports
+                words = (f"Cicada's own API is reachable from the internet at {url}. Close it now." if api else
+                         f"Also public from this machine: {url}, which reaches local port {local}, not the connector.")
+                command = None if foreground else (
+                    f"tailscale funnel --https={https} --set-path={shlex.quote(str(mount))} off")
+                if foreground:
+                    words += " It was opened from a terminal: close it there with Ctrl+C."
+                found.append(FunnelOther(url, local, words, command, "api" if api else "other"))
+    return tuple(found)
 
 
 def _foreground_funnel(status: dict, port: int) -> bool:
@@ -592,32 +662,45 @@ def funnel_state(port: int, *, closed_ports: tuple[int, ...] = (), saved_url: st
     status = _read_serve_config(tailscale, run)
     if status is None:
         return _stopped_at("unknown")
+    others = funnel_others(status, port, closed_ports=closed_ports)
     url = funnel_url_for_port(status, port)
     if url:
         if _foreground_funnel(status, port):
-            return FunnelState("terminal", _FUNNEL_WORDS["terminal"], mapped_url=url)
-        return FunnelState("on", stop_command=funnel_stop_command(_https_port(url) or 443), mapped_url=url)
+            return FunnelState("terminal", _FUNNEL_WORDS["terminal"], mapped_url=url, others=others)
+        return FunnelState("on", stop_command=funnel_stop_command(_https_port(url) or 443), mapped_url=url,
+                           others=others)
     free = next((p for p in FUNNEL_HTTPS_PORTS if not funnel_port_taken(status, p)), None)
     if free is None:
-        return _stopped_at("taken")
+        return replace(_stopped_at("taken"), others=others)
     if saved_url and state.dns_name:
         would_be = f"https://{state.dns_name}" + ("" if free == 443 else f":{free}")
         if saved_url.rstrip("/") != would_be:
-            return _stopped_at("address")
-    return FunnelState("off", CERT_LOG_WORDS, command=funnel_command(free, port))
+            return replace(_stopped_at("address"), others=others)
+    return FunnelState("off", CERT_LOG_WORDS, command=funnel_command(free, port), others=others)
+
+
+#: What the public address reaches when the listener is down, asked of the port (`port_accepts`), never assumed.
+FUNNEL_OTHER_PROGRAM = ("Another program on this machine is on the connector's port, and this address makes it reachable "
+                        "from the internet.")
+FUNNEL_OPEN_NOTHING_BEHIND = ("This address is still open and nothing answers it now, but any program that takes the "
+                              "connector's port will be public. Turn it off.")
 
 
 def funnel_wire(state: FunnelState, *, answers: bool | None = None, listener_up: bool = True,
-                fix_url: str | None = None) -> dict:
+                other_program: bool = False, fix_url: str | None = None) -> dict:
     """The answer both clients read. ``url`` only when a probe through that address just passed (never the ServeConfig's
-    say-so); a mapping that does not answer says why, in words."""
+    say-so); a mapping that does not answer says why, in words, and says so when something else is answering."""
     message = state.message
-    if state.step == "on" and answers is False:
-        message = ("The address is still open, but the connector is off, so nothing answers." if not listener_up else
+    if state.step in ("on", "terminal") and other_program:
+        message = FUNNEL_OTHER_PROGRAM + (" Turn it off." if state.step == "on" else f" {state.message}")
+    elif state.step == "on" and answers is False:
+        message = (FUNNEL_OPEN_NOTHING_BEHIND if not listener_up else
                    "Set, not answering yet. The first time can take up to 10 minutes.")
     return {"step": state.step, "message": message, "command": state.command, "stopCommand": state.stop_command,
             "url": state.mapped_url if state.step == "on" and answers is True else None, "answers": answers,
-            "fixUrl": fix_url}
+            "otherProgram": other_program, "fixUrl": fix_url,
+            "others": [{"url": o.url, "port": o.local_port, "message": o.message, "command": o.command, "kind": o.kind}
+                       for o in state.others]}
 
 
 def _fix_url(text: str) -> str | None:
@@ -687,9 +770,13 @@ def run_funnel(action: str, port: int, *, shown: str | None = None, listener_up:
         https_port = int(before.command.split("--https=", 1)[1].split()[0])
         argv, command = funnel_argv(tailscale, https_port, port), before.command
     else:
+        if before.step in ("off", "taken", "address"):
+            words = "The connector isn't open to the internet, so there is nothing to close."
+            if before.others:
+                words += " Another public address is listed with the command that closes it."
+            return nothing(words, before)
         if before.step != "on":
-            return nothing(before.message or "The connector isn't open to the internet, so there is nothing to close.",
-                           before)
+            return nothing(before.message, before)
         https_port = _https_port(before.mapped_url) or 443
         argv, command = funnel_stop_argv(tailscale, https_port), before.stop_command
     out, err, timed_out = "", "", False

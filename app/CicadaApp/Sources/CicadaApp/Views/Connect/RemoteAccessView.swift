@@ -27,6 +27,8 @@ struct RemoteAccessView: View {
     @State private var funnelFailure: String?
     @State private var funnelFix: URL?
     @State private var confirmFunnelOff = false
+    /// What became of the public address when the switch turned the connector off.
+    @State private var switchNote: String?
     /// Only right after this click: a check from this machine can pass before the address is known outside.
     @State private var justOpened = false
     /// Hyrum audit B1 review: the group is the last one on Devices & access, so the public-address check (up to 3 s, a
@@ -39,12 +41,13 @@ struct RemoteAccessView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             switchCard
+            switchNoteLine
             if status?.enabled == true {
                 if !signIns.isEmpty { signInCard }
                 reachCard
                 connectorsCard
-            } else if funnel?.isOpen == true {
-                // The switch never touches Tailscale, so the address outlives it: it stays in sight, with its off.
+            } else if funnel?.needsSightWhileOff == true {
+                // The switch closes the connector's own door. What outlives it stays in sight, with its off.
                 openWhileOffCard
             }
             if let problem {
@@ -123,6 +126,16 @@ struct RemoteAccessView: View {
         .glassCard()
     }
 
+    @ViewBuilder
+    private var switchNoteLine: some View {
+        if let switchNote {
+            Text(switchNote)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private var reachCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text("How apps reach this Mac")
@@ -131,6 +144,7 @@ struct RemoteAccessView: View {
             if let status { reachBody(RemoteReach.of(status, funnel: funnel), status: status) }
             funnelOutcome
             if funnel?.isOpen == true, funnel?.stopCommand != nil { funnelOffButton }
+            funnelOthers
             Text(Copy.remoteNeverOpensTunnel)
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
@@ -159,13 +173,28 @@ struct RemoteAccessView: View {
 
     private var openWhileOffCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            line(funnel?.message ?? Copy.remoteFunnelLine, symbol: "exclamationmark.circle.fill", tint: CicadaTheme.warning)
+            if funnel?.isOpen == true || funnel?.step == "terminal" {
+                line(funnel?.message ?? Copy.remoteFunnelLine, symbol: "exclamationmark.circle.fill",
+                     tint: funnel?.otherProgram == true ? CicadaTheme.danger : CicadaTheme.warning)
+            }
             funnelOutcome
             if funnel?.stopCommand != nil { funnelOffButton }
+            funnelOthers
         }
         .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
+    }
+
+    /// Every other public mapping on this machine: what it reaches, and the off to copy. Cicada can't prove it made one, so
+    /// it never runs that off itself.
+    @ViewBuilder
+    private var funnelOthers: some View {
+        ForEach(funnel?.others ?? []) { other in
+            line(other.message, symbol: "exclamationmark.circle.fill",
+                 tint: other.kind == "api" ? CicadaTheme.danger : CicadaTheme.warning)
+            if let command = other.command { CommandBox(command: command) }
+        }
     }
 
     private var funnelOffButton: some View {
@@ -235,6 +264,9 @@ struct RemoteAccessView: View {
             checkAgain
         case .funnelBlocked(let message):
             line(message, symbol: "exclamationmark.circle.fill", tint: CicadaTheme.warning)
+            checkAgain
+        case .funnelExposed(let message):
+            line(message, symbol: "exclamationmark.triangle.fill", tint: CicadaTheme.danger)
             checkAgain
         case .problem(let text):
             line(text, symbol: "exclamationmark.triangle.fill", tint: CicadaTheme.danger)
@@ -422,7 +454,8 @@ struct RemoteAccessView: View {
             }
             status = (try? await APIClient.shared.fetchRemoteStatus(probe: false)) ?? status
         } catch {
-            funnelFailure = Copy.remoteFunnelFailed
+            funnelFailure = RemoteFunnel.refusal(ConnectionModelText.detail(error)?.text,
+                                                 stopCommand: action == "off" ? funnel?.stopCommand : nil)
         }
     }
 
@@ -473,8 +506,10 @@ struct RemoteAccessView: View {
         switching = true
         defer { switching = false }
         do {
-            status = try await APIClient.shared.updateRemoteSettings(enabled: on)
-            if on { await refresh(probe: true) }
+            let fresh = try await APIClient.shared.updateRemoteSettings(enabled: on)
+            status = fresh
+            switchNote = fresh.funnelNote
+            if on { await refresh(probe: true) } else { await refreshFunnel(check: false) }
         } catch {
             problem = "Couldn't change that: \(error.localizedDescription)"
         }

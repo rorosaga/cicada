@@ -85,7 +85,9 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   compact `NeutralButton` *Turn on*; open, *Reachable at <address>* only when a probe just answered (`RemoteReach.of`,
   `.funnelOpen`), and a `TextButton` *Turn off* with a confirmation naming the off, the serve's pattern. A refusal is one
   danger caption with *Open Tailscale settings* when there is a place to fix it. The connectors card offers an opened
-  address only once it answered. With the switch off and the mapping still there, one card says so and keeps the off. An
+  address only once it answered. The switch closes the address as it turns the connector off, with one caption saying so.
+  If a mapping still outlives it, one card says so and keeps the off, and another program on the port comes first, in
+  danger. Other public mappings are listed with their off in a `CommandBox`, to copy. An
   older backend (404) or no Tailscale keeps the page as it was: the command to copy, ngrok, the download.
 - **Privacy & data** gains Search & memory's one row (*Search runs on this Mac* and the sharper-model download); the
   fade card shows only while it holds a suggestion or a chosen pace. Watched folders are sources (`WatchedFoldersGroup`

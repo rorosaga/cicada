@@ -123,21 +123,40 @@ struct RemoteStatus: Codable, Equatable {
     var reachable: Bool? = nil
     let funnelCommand: String
     let ngrokCommand: String
+    /// Only on the answer to turning the connector off: what became of its public address, in words.
+    var funnelNote: String? = nil
 }
 
 /// Ruling 59 — `GET /remote/funnel`: the connector's public address, read from Tailscale each time, never stored. `step`
 /// is one of `reach.FUNNEL_STEPS`; `command` exactly what a click on `off` runs; `url` only when a probe through that
 /// address just passed (`answers`), never the configuration's say-so.
 struct RemoteFunnel: Codable, Equatable {
+    /// Another public mapping on this machine: left on an old port, the person's own, or the API's. Its off is to copy.
+    struct Other: Codable, Equatable, Identifiable {
+        let url: String
+        let port: Int
+        let message: String
+        var command: String? = nil
+        var kind: String? = nil
+
+        var id: String { url }
+    }
+
     let step: String
     var message: String? = nil
     var command: String? = nil
     var stopCommand: String? = nil
     var url: String? = nil
     var answers: Bool? = nil
+    /// The listener is down and another program holds its port, so that program is what the address serves.
+    var otherProgram: Bool? = nil
     var fixUrl: String? = nil
+    var others: [Other]? = nil
 
     var isOpen: Bool { step == "on" }
+    /// Drawn with the switch off too: the switch closes the connector's own door, but one can outlive it (it failed, it
+    /// came from a terminal), and other mappings are never Cicada's to close.
+    var needsSightWhileOff: Bool { isOpen || step == "terminal" || !(others ?? []).isEmpty }
     /// Nothing the app can act on: no Tailscale here, so the other ways in (ngrok, an address of their own) stay on show.
     var isAbsent: Bool { step == "install" }
 
@@ -149,6 +168,14 @@ struct RemoteFunnel: Codable, Equatable {
         merged.url = old.url
         merged.message = old.message
         return merged
+    }
+
+    /// Why a click was refused outright (a replica, say), in the backend's words. An off also gets the command, because
+    /// the address is still open and this is how to close it from here.
+    static func refusal(_ detail: String?, stopCommand: String?) -> String {
+        guard let detail, !detail.isEmpty else { return Copy.remoteFunnelFailed }
+        guard let stopCommand else { return detail }
+        return "\(detail) To close it here, run: \(stopCommand)"
     }
 
     /// The only addresses offered as a link: Tailscale's own, where the person fixes what stopped the click.
@@ -440,10 +467,14 @@ enum RemoteReach: Equatable {
     case funnelWaiting(String)
     /// Ruling 59: what stands in the way, in the backend's words.
     case funnelBlocked(String)
+    /// The connector is down and another program holds its port: that program is public. First, over a bind failure,
+    /// which is the same fact seen from the listener's side.
+    case funnelExposed(String)
 
     /// `funnel` is nil for an older backend without the route: the page is what it was, the command to copy.
     static func of(_ s: RemoteStatus, funnel: RemoteFunnel? = nil) -> RemoteReach {
         guard s.enabled else { return .off }
+        if funnel?.otherProgram == true, let message = funnel?.message { return .funnelExposed(message) }
         if let error = s.listenerError { return .problem("Cicada couldn't open its door: \(error).") }
         if let funnel, s.publicBaseUrl == nil, !funnel.isAbsent {
             switch funnel.step {

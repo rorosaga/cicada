@@ -5994,6 +5994,8 @@ class RemoteStatusOut(CamelModel):
     reachable: Optional[bool] = None
     funnel_command: str
     ngrok_command: str
+    #: Only on a `PUT /remote/settings` that turned the connector off: what became of its public address, in words.
+    funnel_note: Optional[str] = None
 
 
 class RemoteFunnelIn(CamelModel):

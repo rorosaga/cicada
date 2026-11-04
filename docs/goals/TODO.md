@@ -1406,6 +1406,15 @@ These are attached to permanent rows instead of becoming a second queue. Older d
 - **G7:** centrality premise remains unproved; no tracked measurement was found, so it is not archived as done.
 - **G92/G19:** old bank-history size is historical, not permission to rewrite git history. No destructive cleanup is implied.
 
+## Open on the remote listener's public face (review of #607, 2026-11-04)
+
+- **A stranger can hold `/register` at its limit** (`oauth.Limits.register`: one global bucket, 10 then 2 a minute), which
+  blocks a real app's sign-in by registration while it lasts. Pre-existing, and now one click from public. A metadata
+  document client is not affected. Not fixed in #607: a per-source bucket needs its own look, since a tunnel's forwarded
+  source is what the limit would rest on. Row growth from `/authorize` itself is fixed there.
+- **Nothing pushes "another program is public" to a person who never opens the page.** The log and `cicada funnel status`
+  say it too. A Home notice would need its own design.
+
 ## Known flaky tests
 
 A test here is not fixed and not skipped: each line says what was seen and on what basis. Look here before chasing a
@@ -3146,4 +3155,8 @@ A whole row moves to DONE only after its remaining implementation and required a
     click would use, or a harmless shell comment when none is safe); `cicada setup` says `cicada funnel on`; *Stop serving*
     and the copy-only unfunnel now name `--set-path=/`, since without it the CLI deletes every handler on the port (the
     2026-10-29 rail's shown command changes with them); and what enabling HTTPS publishes, for good, is said before the
-    click. The off keeps its confirmation, as *Stop serving* does (coordinator 2026-11-04; the owner can overrule).
+    click. The off keeps its confirmation, as *Stop serving* does (coordinator 2026-11-04; the owner can overrule). **Review
+    of #607, the mapping outlives the listener:** the switch now closes the connector's address in the same act (amends "the
+    switch never touches Tailscale"); a down listener's port is asked, never assumed free; other public mappings are shown
+    with their off to copy and never run, since Cicada keeps no record of what it opened; a clean quit still leaves it open,
+    because only a click may reopen it (`network.md`).

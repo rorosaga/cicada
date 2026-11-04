@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from api.config import get_settings
@@ -71,12 +71,12 @@ def _created(connector: catalog.Connector, token: str, base: str | None) -> Remo
 
 
 @router.get("/status", response_model=RemoteStatusOut)
-async def get_status(probe: bool = False) -> RemoteStatusOut:
+async def get_status(request: Request, probe: bool = False) -> RemoteStatusOut:
     settings = store.load_settings()
     port = store.remote_port()
     found, effective = await _reach()
     reachable = await run_in_threadpool(reach.probe, effective) if (probe and effective) else None
-    copy = reach.FUNNEL_COPY_PORT if (port <= 0 or port in _closed_ports()) else found.funnel_copy
+    copy = reach.FUNNEL_COPY_PORT if (port <= 0 or port in _closed_ports(request)) else found.funnel_copy
     return RemoteStatusOut(
         enabled=settings.enabled, port=port, listener_up=LISTENER.up, listener_error=LISTENER.error,
         public_base_url=settings.public_base_url, detected_url=found.funnel_url, effective_url=effective,
@@ -86,7 +86,7 @@ async def get_status(probe: bool = False) -> RemoteStatusOut:
 
 
 @router.put("/settings", response_model=RemoteStatusOut)
-async def put_settings(req: RemoteSettingsIn) -> RemoteStatusOut:
+async def put_settings(req: RemoteSettingsIn, request: Request) -> RemoteStatusOut:
     current = store.load_settings()
     enabled, url = current.enabled, current.public_base_url
     if "public_base_url" in req.model_fields_set:
@@ -97,11 +97,16 @@ async def put_settings(req: RemoteSettingsIn) -> RemoteStatusOut:
     if "enabled" in req.model_fields_set and req.enabled is not None:
         enabled = bool(req.enabled)
     store.save_settings(store.RemoteSettings(enabled=enabled, public_base_url=url))
+    note = None
     if enabled and not LISTENER.up:
         await LISTENER.start()
     elif not enabled:
+        if "enabled" in req.model_fields_set and req.enabled is False:
+            note = await _close_funnel_with_the_switch(request)  # first: the address never points at a freed port
         await LISTENER.stop()
-    return await get_status(probe=False)
+    out = await get_status(request, probe=False)
+    out.funnel_note = note
+    return out
 
 
 # ── One click to the internet (ruling 59, owner 2026-11-04) ──────────────────────────────────────────────────────
@@ -111,40 +116,70 @@ async def put_settings(req: RemoteSettingsIn) -> RemoteStatusOut:
 _FUNNEL_LOCK = asyncio.Lock()
 
 
-def _closed_ports() -> tuple[int, ...]:
-    """Never public, however the connector's port was configured: the backend's API and the door (ruling 51f)."""
+def _closed_ports(request: Request) -> tuple[int, ...]:
+    """Never public, however the connector's port was configured: the backend's API and the door (ruling 51f). The API's
+    port is the one this very request arrived on (the socket's own, `scope["server"]`) as well as the configured one,
+    which stays 8000 under `uvicorn --port`."""
     from api.services import sync_door
 
     door = getattr(sync_door.SERVER, "port", None) if sync_door.SERVER is not None else None
-    return tuple(p for p in (get_settings().port, door) if p)
+    server = request.scope.get("server")
+    bound = server[1] if isinstance(server, (list, tuple)) and len(server) == 2 else None
+    return tuple(p for p in dict.fromkeys((get_settings().port, bound, door)) if p)
 
 
-def _funnel_kwargs() -> dict:
-    return {"closed_ports": _closed_ports(), "saved_url": store.load_settings().public_base_url}
+def _funnel_kwargs(request: Request) -> dict:
+    return {"closed_ports": _closed_ports(request), "saved_url": store.load_settings().public_base_url}
 
 
 async def _funnel_wire(state: reach.FunnelState, *, check: bool, fix_url: str | None = None) -> dict:
-    """``answers`` is the probe's, and only on a real ask: with the listener down nothing can answer, so nothing is
-    asked; with an address of the person's own saved, the listener names that one, so a probe here would say nothing."""
-    answers = None
-    if state.step == "on" and not store.load_settings().public_base_url:
-        if not LISTENER.up:
-            answers = False
-        elif check:
-            answers = await run_in_threadpool(reach.probe, state.mapped_url)
-    return reach.funnel_wire(state, answers=answers, listener_up=LISTENER.up, fix_url=fix_url)
+    """With the listener down the port is asked, every time: whatever holds it is what the mapping serves to the internet.
+    With it up, ``answers`` is the probe's, only on a real ask, and never with an address of the person's own saved, since
+    the listener then names that one and a probe here would say nothing."""
+    answers, other_program = None, False
+    if state.step in ("on", "terminal") and not LISTENER.up:
+        answers = False
+        other_program = await run_in_threadpool(reach.port_accepts, store.remote_port())
+    elif state.step == "on" and check and not store.load_settings().public_base_url:
+        answers = await run_in_threadpool(reach.probe, state.mapped_url)
+    return reach.funnel_wire(state, answers=answers, listener_up=LISTENER.up, other_program=other_program,
+                             fix_url=fix_url)
+
+
+async def _close_funnel_with_the_switch(request: Request) -> str | None:
+    """Turning the connector off closes its public address, in the same act (coordinator's review of #607, 2026-11-04). The
+    mapping names a port, and with the listener gone anyone local may take that port and be public with no auth. Turning
+    the connector back on never reopens it: that stays the person's click. Only the connector's own door, every mapping of
+    it; other mappings are the person's. The answer is one sentence for the person, or None if there was nothing to say."""
+    port = store.remote_port()
+    async with _FUNNEL_LOCK:
+        kwargs = _funnel_kwargs(request)
+        closed = False
+        for _ in reach.FUNNEL_HTTPS_PORTS + (8443,):
+            state = await run_in_threadpool(lambda: reach.funnel_state(port, **kwargs))
+            if state.step == "terminal":
+                return f"The connector is off, but its public address is still open. {state.message}"
+            if state.step != "on":
+                break
+            result = await run_in_threadpool(lambda: reach.run_funnel("off", port, **kwargs))
+            if not result["ok"]:
+                return f"The connector is off, but its public address is still open. {result['message']}"
+            closed = True
+    return "The public address closed too. Turning the connector on again won't reopen it." if closed else None
 
 
 @router.get("/funnel")
-async def get_funnel(check: bool = False) -> dict:
+async def get_funnel(request: Request, check: bool = False) -> dict:
     """Where the connector's public door stands: ``step`` (`reach.FUNNEL_STEPS`), ``message``, ``command`` (exactly what
-    a click on ``off`` runs), ``stopCommand``, ``url`` (only when a probe just passed, ``check=true``) and ``answers``."""
-    state = await run_in_threadpool(lambda: reach.funnel_state(store.remote_port(), **_funnel_kwargs()))
+    a click on ``off`` runs), ``stopCommand``, ``url`` (only when a probe just passed, ``check=true``), ``answers``,
+    ``otherProgram`` (the listener is down and something else holds the port) and ``others`` (every other public mapping
+    on this machine, each with the off to copy)."""
+    state = await run_in_threadpool(lambda: reach.funnel_state(store.remote_port(), **_funnel_kwargs(request)))
     return await _funnel_wire(state, check=check)
 
 
 @router.post("/funnel")
-async def set_funnel(req: RemoteFunnelIn) -> dict:
+async def set_funnel(req: RemoteFunnelIn, request: Request) -> dict:
     """The person's click (master token: `auth.MASTER_ONLY_WRITE_PREFIXES`). ``on`` with the connector off turns it on
     first and, if the door then doesn't open, back off, so a failed click changes nothing. ``off`` removes that one
     mapping and leaves the connector as it is. ``{ok, message, fixUrl, ran, funnel}``."""
@@ -153,7 +188,7 @@ async def set_funnel(req: RemoteFunnelIn) -> dict:
         raise HTTPException(422, "action must be 'on' or 'off'.")
     port = store.remote_port()
     async with _FUNNEL_LOCK:
-        kwargs = _funnel_kwargs()
+        kwargs = _funnel_kwargs(request)
         turned_on = False
         if action == "on":
             before = await run_in_threadpool(lambda: reach.funnel_state(port, **kwargs))

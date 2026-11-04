@@ -24,7 +24,9 @@ Pick one. Both forward only port `8765`.
   controls page; you need to be an owner or admin of the tailnet. The public name can then take up to 10 minutes.
 
   Your address is `https://<machine>.<tailnet>.ts.net`. Renaming the machine changes it. It stays open across
-  restarts until you turn it off.
+  restarts until you turn it off, or turn the connector off, which closes it too. With Cicada quit it stays open, pointing
+  at a port any program on this computer could take, so turn it off first if you are stopping for a while. If Cicada is
+  already gone, `tailscale funnel status` lists it and `tailscale funnel --https=443 --set-path=/ off` closes it.
 - **ngrok** (you run this, Cicada never does) with your account's free static domain (a random ngrok address changes on every restart, and the app
   would lose Cicada each time):
 

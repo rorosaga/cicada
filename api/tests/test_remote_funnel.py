@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import socket
 import stat
 import subprocess
 import sys
@@ -55,6 +56,9 @@ if args == ["funnel", "status", "--json"]:
     sys.exit(0)
 if args[:1] not in (["funnel"], ["serve"]):
     sys.exit(64)
+if args[-1] == "off" and state.get("off_fail"):
+    print(state["off_fail"], file=sys.stderr)
+    sys.exit(1)
 if args[-1] != "off" and args[0] == "funnel":
     mode = state.get("mode")
     if mode == "wait":
@@ -490,11 +494,52 @@ def test_one_the_person_opened_by_hand_is_seen_and_can_be_closed(stub):
     assert state.step == "on" and reach.run_funnel("off", 8765, **stub.kw)["ok"] and stub.serve.get("Web") in (None, {})
 
 
-def test_a_funnel_of_another_port_is_not_the_connectors_door(stub):
-    stub.set(serve=web(443, 3000, funnel=True))
-    state = reach.funnel_state(8765, **stub.kw)
-    assert state.step == "off" and state.command == "tailscale funnel --bg --https=10000 8765"
-    assert reach.run_funnel("off", 8765, **stub.kw)["ran"] is None and stub.changes() == []
+def test_a_funnel_of_another_port_is_reported_and_never_closed(stub):
+    """A mapping left on the connector's old port and the person's own site look alike from here: shown with its off to
+    copy, whatever the step, and never run."""
+    stub.set(serve=web(443, 8765, funnel=True))
+    state = reach.funnel_state(9001, **stub.kw)  # CICADA_REMOTE_PORT moved after the click
+    assert state.step == "off" and state.command == "tailscale funnel --bg --https=10000 9001"
+    (other,) = state.others
+    assert other.url == f"https://{HOST}" and other.local_port == 8765 and other.kind == "other"
+    assert other.command == "tailscale funnel --https=443 --set-path=/ off"
+    assert "reaches local port 8765" in other.message
+    out = reach.run_funnel("off", 9001, **stub.kw)
+    assert out["ran"] is None and stub.changes() == [] and "listed" in out["message"]
+    assert stub.serve == web(443, 8765, funnel=True)
+    assert paste(stub, other.command).returncode == 0, "its off is right, when the person runs it"
+    assert not stub.serve.get("Web")
+
+
+@pytest.mark.parametrize("serve, count", [
+    (web(443, 8765, funnel=True), 0),  # the connector's own door
+    (web(443, 8765), 0),               # tailnet-only: not public
+    (web(443, 3000), 0),
+    ({"Web": {f"{HOST}:443": {"Handlers": {"/": {"Proxy": "https://example.com"}}}},
+      "AllowFunnel": {f"{HOST}:443": True}}, 0),  # not this machine's
+    (merged(web(443, 3000, funnel=True), web(10000, 3001, funnel=True)), 2),
+    (web(443, 8765, funnel=True, extra={"/api": {"Proxy": "http://127.0.0.1:8000"}}), 1),
+])
+def test_what_counts_as_another_public_mapping(serve, count):
+    assert len(reach.funnel_others(serve, 8765)) == count
+
+
+def test_the_apis_port_funnelled_is_named_as_such(stub):
+    stub.set(serve=web(443, 8000, funnel=True, extra={"/odd path": {"Proxy": "http://127.0.0.1:8000"}}))
+    state = reach.funnel_state(8765, closed_ports=(8000,), **stub.kw)
+    assert {o.kind for o in state.others} == {"api"} and "Cicada's own API" in state.others[0].message
+    assert "--set-path='/odd path' off" in state.others[1].command, "safe to paste"
+
+
+def test_one_in_a_terminal_has_no_command_to_copy(stub):
+    stub.set(serve={"Foreground": {"s1": web(443, 3000, funnel=True)}})
+    (other,) = reach.funnel_state(8765, **stub.kw).others
+    assert other.command is None and "Ctrl+C" in other.message
+
+
+def test_closing_nothing_never_says_the_certificate_words(stub):
+    out = reach.run_funnel("off", 8765, **stub.kw)
+    assert out["ok"] is False and out["message"] == "The connector isn't open to the internet, so there is nothing to close."
 
 
 def test_the_wire_shows_an_address_only_when_it_answered():
@@ -556,7 +601,8 @@ def test_status_fields_are_exactly_what_they_were(route, stub):
     client, _listener, _ = route
     body = client.get("/remote/status").json()
     assert set(body) == {"enabled", "port", "listenerUp", "listenerError", "publicBaseUrl", "detectedUrl", "effectiveUrl",
-                         "tailscale", "ngrokInstalled", "reachable", "funnelCommand", "ngrokCommand"}
+                         "tailscale", "ngrokInstalled", "reachable", "funnelCommand", "ngrokCommand", "funnelNote"}
+    assert body["funnelNote"] is None
     assert body["funnelCommand"] == "tailscale funnel --bg --https=443 8765" and body["tailscale"] == "no-funnel"
 
 
@@ -626,6 +672,156 @@ def test_the_truth_after_a_restart_comes_from_tailscale_and_nothing_is_stored(ro
     # Someone closed it behind Cicada's back: the next read says so.
     stub.set()
     assert client.get("/remote/funnel").json()["step"] == "off"
+
+
+@pytest.fixture
+def held_port():
+    """A real program on a real port: what a public mapping serves once the listener is gone."""
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+    yield sock.getsockname()[1]
+    sock.close()
+
+
+def test_with_the_listener_down_another_program_on_the_port_is_said(route, stub, held_port, monkeypatch):
+    """The review of #607: `answers: false`, "nothing answers", while the port served that program's private body."""
+    client, listener, probes = route
+    monkeypatch.setenv("CICADA_REMOTE_PORT", str(held_port))
+    stub.set(serve=web(443, held_port, funnel=True))
+    assert listener.up is False
+    for path in ("/remote/funnel", "/remote/funnel?check=true"):
+        got = client.get(path).json()
+        assert got["step"] == "on" and got["otherProgram"] is True and got["url"] is None
+        assert "Another program" in got["message"] and "nothing answers" not in got["message"]
+        assert got["stopCommand"] == "tailscale funnel --https=443 --set-path=/ off", "with the off offered"
+    assert probes == [], "the identity probe would only say no"
+    assert client.post("/remote/funnel", json={"action": "off"}).json()["ok"] is True
+    assert not stub.serve.get("Web")
+
+
+def test_with_the_listener_down_and_nothing_on_the_port_it_says_what_could_happen(route, stub, monkeypatch):
+    client, _listener, _ = route
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    free = sock.getsockname()[1]
+    sock.close()
+    monkeypatch.setenv("CICADA_REMOTE_PORT", str(free))
+    stub.set(serve=web(443, free, funnel=True))
+    got = client.get("/remote/funnel").json()
+    assert got["otherProgram"] is False and got["answers"] is False
+    assert "any program that takes the connector's port will be public" in got["message"]
+
+
+def test_a_saved_address_does_not_hide_another_program(route, stub, held_port, monkeypatch):
+    client, _listener, _ = route
+    assert client.put("/remote/settings", json={"publicBaseUrl": "https://own.example"}).status_code == 200
+    monkeypatch.setenv("CICADA_REMOTE_PORT", str(held_port))
+    stub.set(serve=web(443, held_port, funnel=True))
+    assert client.get("/remote/funnel").json()["otherProgram"] is True
+
+
+def test_turning_the_connector_off_closes_its_address_in_the_same_act(route, stub):
+    client, listener, _ = route
+    assert client.put("/remote/settings", json={"enabled": True}).status_code == 200
+    stub.set(serve=merged(web(8443, 8000), web(443, 8765, funnel=True), web(10000, 3000, funnel=True)))
+    got = client.put("/remote/settings", json={"enabled": False}).json()
+    assert got["enabled"] is False and listener.up is False and "closed too" in got["funnelNote"]
+    assert stub.changes() == [["funnel", "--https=443", "--set-path=/", "off"]], "its own door and no other"
+    assert f"{HOST}:8443" in stub.serve["Web"] and f"{HOST}:10000" in stub.serve["Web"]
+    # Turning it back on never reopens it: that stays the person's click.
+    after = client.put("/remote/settings", json={"enabled": True}).json()
+    assert after["funnelNote"] is None and len(stub.changes()) == 1
+    assert client.get("/remote/funnel").json()["step"] == "off"
+
+
+def test_the_switch_closes_every_mapping_of_the_connector(route, stub):
+    client, _listener, _ = route
+    assert client.put("/remote/settings", json={"enabled": True}).status_code == 200
+    stub.set(serve=merged(web(443, 8765, funnel=True), web(10000, 8765, funnel=True)))
+    assert "closed too" in client.put("/remote/settings", json={"enabled": False}).json()["funnelNote"]
+    assert not stub.serve.get("Web")
+
+
+def test_the_connector_turns_off_even_if_the_address_will_not_close(route, stub):
+    client, listener, _ = route
+    assert client.put("/remote/settings", json={"enabled": True}).status_code == 200
+    stub.set(serve=web(443, 8765, funnel=True), off_fail="something odd")
+    got = client.put("/remote/settings", json={"enabled": False}).json()
+    assert got["enabled"] is False and listener.up is False
+    assert got["funnelNote"].startswith("The connector is off, but its public address is still open.")
+    again = client.get("/remote/funnel").json()
+    assert again["step"] == "on" and again["stopCommand"], "still in sight, with its off"
+
+
+def test_one_from_a_terminal_is_said_when_the_switch_goes_off(route, stub):
+    client, _listener, _ = route
+    assert client.put("/remote/settings", json={"enabled": True}).status_code == 200
+    stub.set(serve={"Foreground": {"s1": web(443, 8765, funnel=True)}})
+    assert "Ctrl+C" in client.put("/remote/settings", json={"enabled": False}).json()["funnelNote"]
+    assert stub.changes() == []
+
+
+def test_nothing_to_close_says_nothing_and_saving_an_address_closes_nothing(route, stub):
+    client, _listener, _ = route
+    assert client.put("/remote/settings", json={"enabled": True}).status_code == 200
+    assert client.put("/remote/settings", json={"enabled": False}).json()["funnelNote"] is None
+    stub.set(serve=web(443, 8765, funnel=True))
+    assert client.put("/remote/settings", json={"publicBaseUrl": "https://own.example"}).json()["funnelNote"] is None
+    assert stub.changes() == []
+
+
+def test_the_api_port_this_request_arrived_on_is_closed_whatever_the_settings_say(stub, tmp_path, monkeypatch):
+    """`uvicorn --port` leaves `get_settings().port` at 8000. The request's own socket knows better."""
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(_bank(tmp_path)))
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("PATH", f"{stub.folder}:{__import__('os').environ['PATH']}")
+    monkeypatch.setenv("CICADA_REMOTE_PORT", "8123")
+    config.get_settings.cache_clear()
+    assert config.get_settings().port != 8123
+    client = TestClient(main.app, base_url="http://127.0.0.1:8123")
+    assert client.get("/remote/funnel").json()["step"] == "port"
+    assert client.get("/remote/status").json()["funnelCommand"] == reach.FUNNEL_COPY_PORT
+    got = client.post("/remote/funnel", json={"action": "on", "shown": "tailscale funnel --bg --https=443 8123"}).json()
+    assert got["ok"] is False and stub.changes() == []
+    config.get_settings.cache_clear()
+
+
+def test_a_start_warns_only_about_a_real_exposure_and_changes_nothing(stub, held_port, monkeypatch):
+    import asyncio
+
+    from loguru import logger
+
+    from api.remote import listener as remote_listener
+
+    seen = []
+    sink = logger.add(lambda m: seen.append(str(m)), level="WARNING")
+    monkeypatch.setenv("PATH", f"{stub.folder}:{__import__('os').environ['PATH']}")
+    monkeypatch.setenv("CICADA_REMOTE_PORT", str(held_port))
+    try:
+        asyncio.run(remote_listener.warn_if_exposed())
+        assert seen == [] and stub.changes() == [], "a program on that port and no mapping: nothing to say"
+        stub.set(serve=web(443, held_port, funnel=True))
+        asyncio.run(remote_listener.warn_if_exposed())
+        assert len(seen) == 1 and f"port {held_port}" in seen[0] and "ts.net" not in seen[0]
+        assert stub.changes() == [], "a start never touches Tailscale"
+    finally:
+        logger.remove(sink)
+
+
+def test_a_normal_start_never_runs_tailscale(stub, monkeypatch):
+    import asyncio
+
+    from api.remote import listener as remote_listener
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    free = sock.getsockname()[1]
+    sock.close()
+    monkeypatch.setenv("PATH", f"{stub.folder}:{__import__('os').environ['PATH']}")
+    monkeypatch.setenv("CICADA_REMOTE_PORT", str(free))
+    asyncio.run(remote_listener.warn_if_exposed())
+    assert stub.log() == []
 
 
 def test_a_saved_address_of_their_own_comes_first(route, stub):

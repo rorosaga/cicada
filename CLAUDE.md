@@ -490,6 +490,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   --https=8443 <port>` (tailnet only) or that one mapping's off (`--https=<its port> --set-path=/ off`) — argv built by the backend, 10 s, never `funnel` or `up` (`network.md`).
   **Ruling 59 (owner 2026-11-04):** the person's click, or their shell, may run exactly the shown `tailscale funnel --bg --https=<443|10000> <the
   connector's port>` or that one mapping's off (`--set-path=/`): no port or argv from a request, never over a held port, never 8443, never `up`; nothing stored, every answer read back (`network.md`).
+  The mapping outlives the listener: the connector's switch closes it too, a down listener's port is asked and another program on it said first, other public mappings shown with their off to copy, never run.
   Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling 28) with its own revocable device
   token and no bank of its own; what it posts records `device` (`headless.md`).
   **Ruling 51 (owner 2026-10-29, G132; decided, not built — amends this rail as each phase ships):** one movable home

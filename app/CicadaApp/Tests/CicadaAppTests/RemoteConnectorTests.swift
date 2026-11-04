@@ -208,6 +208,35 @@ final class RemoteConnectorTests: XCTestCase {
         XCTAssertEqual(ngrok, "ngrok http 8765 --inspect=false")
     }
 
+    /// The review of #607: another program on the connector's port is public. That comes first, over the bind failure that
+    /// is the same fact seen from the listener's side, and the address itself is never offered.
+    func testAnotherProgramOnThePortIsSaidFirst() {
+        let exposed = RemoteFunnel(step: "on", message: "Another program is public.",
+                                   stopCommand: "tailscale funnel --https=443 --set-path=/ off", answers: false,
+                                   otherProgram: true)
+        XCTAssertEqual(RemoteReach.of(status(error: "port 8765 is already in use", effective: "https://a.ts.net"),
+                                      funnel: exposed), .funnelExposed("Another program is public."))
+        XCTAssertNil(exposed.url)
+    }
+
+    func testWhatStaysInSightWithTheSwitchOff() {
+        XCTAssertFalse(RemoteFunnel(step: "off", command: "x").needsSightWhileOff)
+        XCTAssertTrue(RemoteFunnel(step: "on").needsSightWhileOff)
+        XCTAssertTrue(RemoteFunnel(step: "terminal").needsSightWhileOff)
+        let other = RemoteFunnel.Other(url: "https://a.ts.net", port: 8765, message: "Also public.",
+                                       command: "tailscale funnel --https=443 --set-path=/ off", kind: "other")
+        XCTAssertTrue(RemoteFunnel(step: "off", command: "x", others: [other]).needsSightWhileOff,
+                      "a mapping left on an old port stays in sight")
+    }
+
+    /// A replica refuses the click: say why, and how to close the address from here.
+    func testARefusalSaysWhyAndHowToCloseIt() {
+        XCTAssertEqual(RemoteFunnel.refusal("This computer keeps a copy.", stopCommand: "tailscale off"),
+                       "This computer keeps a copy. To close it here, run: tailscale off")
+        XCTAssertEqual(RemoteFunnel.refusal("This computer keeps a copy.", stopCommand: nil), "This computer keeps a copy.")
+        XCTAssertEqual(RemoteFunnel.refusal(nil, stopCommand: "tailscale off"), Copy.remoteFunnelFailed)
+    }
+
     func testAPlainPollKeepsAKnownAnswerAndNothingElse() {
         let answered = RemoteFunnel(step: "on", stopCommand: "off443", url: "https://a.ts.net", answers: true)
         let poll = RemoteFunnel(step: "on", stopCommand: "off443")
@@ -241,6 +270,8 @@ final class RemoteConnectorTests: XCTestCase {
         let run = try JSONDecoder().decode(RemoteFunnelRun.self, from: Data(json.utf8))
         XCTAssertFalse(run.ok)
         XCTAssertEqual(run.funnel.step, "off")
+        let withOther = #"{"step":"off","command":"x","otherProgram":false,"others":[{"url":"https://a.ts.net","port":8765,"message":"Also public.","command":"y","kind":"other"}]}"#
+        XCTAssertEqual(try JSONDecoder().decode(RemoteFunnel.self, from: Data(withOther.utf8)).others?.first?.port, 8765)
         XCTAssertEqual(run.fixUrl, "https://console.tailscale.com/admin/acls")
     }
 

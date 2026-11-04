@@ -167,7 +167,11 @@ def report(found: Found, ui: Ui) -> list[str]:
         remote = found.remote or {}
         if remote.get("effectiveUrl") or remote.get("detectedUrl"):
             url = remote.get("effectiveUrl") or remote.get("detectedUrl")
-            lines.append(f"{_check(True)} A public address for phone and cloud agents: {url}")
+            if remote.get("listenerUp") is False and remote.get("detectedUrl"):
+                lines.append(f"{_check(False)} A public address is open with the connector down, so anything on its "
+                             "port is public: `cicada funnel status` says what, and `cicada funnel off` closes it.")
+            else:
+                lines.append(f"{_check(True)} A public address for phone and cloud agents: {url}")
         elif remote.get("tailscale") not in (None, "", "missing"):
             lines.append(f"{_check(False)} Tailscale is here, with no public address yet. Phones on your tailnet "
                          "can pair; cloud agents need `cicada funnel on`.")

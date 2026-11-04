@@ -1036,15 +1036,24 @@ def cmd_connector_sync(boot, args) -> Result:
 
 # --- the remote connector's public address (ruling 59) ---------------------------------------------------------------
 
+def _funnel_others(funnel: dict) -> str:
+    return "".join(f"\n{o.get('message')}" + (f"\n  Close it with: {o['command']}" if o.get("command") else "")
+                   for o in funnel.get("others") or [])
+
+
 def _funnel_text(funnel: dict) -> str:
     step = funnel.get("step")
     if step == "on":
-        return funnel.get("message") or (f"Open to the internet at {funnel['url']}." if funnel.get("url")
+        text = funnel.get("message") or (f"Open to the internet at {funnel['url']}." if funnel.get("url")
                                          else "Open to the internet.")
-    if step == "off":
-        return (f"Not open to the internet. `cicada funnel on` runs: {funnel.get('command')}\n"
+        if funnel.get("stopCommand") and funnel.get("answers") is False:
+            text += " `cicada funnel off` closes it."
+    elif step == "off":
+        text = (f"Not open to the internet. `cicada funnel on` runs: {funnel.get('command')}\n"
                 f"{funnel.get('message') or ''}").rstrip()
-    return funnel.get("message") or str(step)
+    else:
+        text = funnel.get("message") or str(step)
+    return text + _funnel_others(funnel)
 
 
 def cmd_funnel_status(boot, args) -> Result:
@@ -1056,7 +1065,7 @@ def _funnel_run(boot, action: str, shown: str | None) -> Result:
     result = call(boot, "POST", "/remote/funnel", body={"action": action, "shown": shown}, bank_header=False, timeout=60)
     if not result.get("ok"):
         fix = f" {result['fixUrl']}" if result.get("fixUrl") else ""
-        raise Refusal("refused", f"{result.get('message')}{fix}")
+        raise Refusal("refused", f"{result.get('message')}{fix}{_funnel_others(result.get('funnel') or {})}")
     return Result(text=f"Ran: {result.get('ran')}\n{_funnel_text(result.get('funnel') or {})}", data=result,
                   warnings=_warn(boot))
 

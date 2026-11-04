@@ -348,7 +348,9 @@ party: no relay, no account, no public port (the T3-Connect comparison is in the
   (ruling 59; the POST is master-token, `network.md`).** `{step, message, command, stopCommand, url, answers, fixUrl}`:
   `step` one of `reach.FUNNEL_STEPS` (`install, open, sign-in, turn-on, update, port, unknown, address, taken, terminal,
   off, on`), `command` only at `off`, `stopCommand` only at `on`, `url` only when `check=true` and the probe passed,
-  `answers` true, false, or null when nothing was asked. The POST answers `{ok, message, fixUrl, ran, funnel}`; an unknown
+  `answers` true, false, or null when nothing was asked, `otherProgram` true when the listener is down and something else
+  holds its port, `others` every other public mapping on this machine, each `{url, port, message, command, kind}`, the
+  command to copy. `PUT /remote/settings` turning the connector off also closes its address and answers `funnelNote`. The POST answers `{ok, message, fixUrl, ran, funnel}`; an unknown
   action is 422, any other step runs nothing and says why. `/remote/status` keeps every field and meaning (Hyrum):
   `detectedUrl` stays the ServeConfig's say-so, and `funnelCommand` stays a non-empty string to copy, whose value now names
   a port safe on this machine, or is a harmless shell comment when none is (`network.md`). Not a Store domain, no ETag. Write
