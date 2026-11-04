@@ -5034,6 +5034,9 @@ class NotesSyncRequest(CamelModel):
     # 2026-11-04 — each note's Notes account by note id ("iCloud", "On My Mac", a mail account's name), beside the dump
     # rather than in it, so a backend that predates it ignores the key and still reads every note.
     note_accounts: Optional[dict[str, str]] = Field(default=None, max_length=100_000)
+    # G234: the ids of the notes that are locked, beside the dump for the same reason. Used to drop and retire, counted,
+    # never stored. None from an older app, which is told apart by this: there a record with no text is taken as locked.
+    locked_note_ids: Optional[list[str]] = Field(default=None, max_length=100_000)
 
 
 class NotesSyncResponse(CamelModel):
@@ -5043,6 +5046,10 @@ class NotesSyncResponse(CamelModel):
     total: int = 0
     # Notes dropped by CICADA_NOTES_EXCLUDE_FOLDERS before dedup/ingest.
     excluded: int = 0
+    # G234: locked notes this read found; nothing of them is kept but this count.
+    locked: int = 0
+    # G234: episodes this read retired because their note is locked.
+    retired: int = 0
 
 # --- Capture channels (G62) --------------------------------------------------
 

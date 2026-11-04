@@ -32,15 +32,20 @@ enum SourceListKey {
 struct ChannelCollections: Decodable, Equatable, Sendable {
     var channel: String
     var accounts: [SourceAccount]
+    /// G234: locked notes the last read found (Notes only); nothing else of them is kept.
+    var locked: Int
 
-    init(channel: String, accounts: [SourceAccount]) { self.channel = channel; self.accounts = accounts }
+    init(channel: String, accounts: [SourceAccount], locked: Int = 0) {
+        self.channel = channel; self.accounts = accounts; self.locked = locked
+    }
 
-    enum CodingKeys: String, CodingKey { case channel, accounts }
+    enum CodingKeys: String, CodingKey { case channel, accounts, locked }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         channel = (try? c.decodeIfPresent(String.self, forKey: .channel)) ?? ""
         accounts = (try? c.decodeIfPresent([SourceAccount].self, forKey: .accounts)) ?? []
+        locked = (try? c.decodeIfPresent(Int.self, forKey: .locked)) ?? 0
     }
 }
 

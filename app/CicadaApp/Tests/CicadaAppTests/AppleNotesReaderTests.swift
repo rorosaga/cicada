@@ -46,6 +46,83 @@ final class AppleNotesReaderTests: XCTestCase {
         XCTAssertTrue(AppleNotesReader.script.contains("set RS to (ASCII character 29)"))
     }
 
+    // MARK: - G234: locked notes
+
+    /// The owner's "never requested": no event may name a note's `plaintext` (or anything else about it) except through
+    /// the filter Notes evaluates itself. Filtering a bulk read afterwards would already have asked for the body.
+    func testTheScriptNeverRequestsAnythingButAnIdOfALockedNote() {
+        let script = AppleNotesReader.script
+        XCTAssertFalse(script.contains("of every note of fld"), "an unfiltered bulk read asks for locked notes too")
+        for property in ["id", "name", "plaintext", "creation date", "modification date"] {
+            XCTAssertTrue(script.contains("set \(property == "id" ? "noteIds" : variable(property)) to \(property) of "
+                                              + "(every note of fld whose password protected is false)"), property)
+        }
+        // A locked note yields its id and nothing else.
+        let locked = script.components(separatedBy: "whose password protected is true")
+        XCTAssertEqual(locked.count, 2)
+        XCTAssertTrue(locked[0].hasSuffix("set lockedIds to id of (every note of fld "))
+        XCTAssertFalse(script.contains(" body of "), "the HTML body is never asked for")
+    }
+
+    private func variable(_ property: String) -> String {
+        ["name": "noteNames", "plaintext": "noteBodies", "creation date": "cDates", "modification date": "mDates"][property]!
+    }
+
+    /// The bulk lists are separate events: a note locked between them must not misalign one note's text with another's id.
+    func testAFolderThatChangedDuringTheReadWaitsForTheNextOne() {
+        let script = AppleNotesReader.script
+        guard let bodies = script.range(of: "set mDates to"), let after = script.range(of: "set idsAfter to id of"),
+              let check = script.range(of: "if idsAfter = noteIds then"), let emit = script.range(of: "set end of outList to (item i") else {
+            return XCTFail("the read's order changed")
+        }
+        XCTAssertTrue(bodies.lowerBound < after.lowerBound && after.lowerBound < check.lowerBound
+                      && check.lowerBound < emit.lowerBound)
+    }
+
+    func testLockedIdsAndTheTallyNeverReachTheDump() {
+        let fs = AppleNotesReader.fieldSeparator, rs = AppleNotesReader.recordSeparator
+        let note = ["id-1", "alpha-project", "body", "c", "m", "Notes", "2026-11-01T10:00:00", "0", "iCloud"]
+            .joined(separator: fs)
+        let raw = [AppleNotesReader.lockedMark + fs + "id-locked", note, AppleNotesReader.lockedMark + fs + "id-locked",
+                   AppleNotesReader.statsMark + fs + "3" + fs + "1"].joined(separator: rs)
+        let parts = AppleNotesReader.split(raw)
+        XCTAssertEqual(parts.locked, ["id-locked"])
+        XCTAssertEqual(parts.foldersRead, 3)
+        XCTAssertEqual(parts.foldersFailed, 1)
+        XCTAssertEqual(parts.accounts, ["id-1": "iCloud"])
+        XCTAssertFalse(parts.dump.contains("id-locked"))
+        XCTAssertFalse(parts.dump.contains(AppleNotesReader.statsMark))
+        XCTAssertEqual(parts.dump.components(separatedBy: rs).count, 1)
+        XCTAssertEqual(parts.dump.components(separatedBy: fs).count, 8)
+    }
+
+    /// A Notes without the filter refuses every folder: that is a failed read, never "no notes".
+    func testEveryFolderRefusedThrowsInsteadOfPostingNothing() async {
+        let fs = AppleNotesReader.fieldSeparator
+        do {
+            _ = try await AppleNotesReader.syncNow { _, _ in
+                AppleNotesReaderTests().output(stdout: AppleNotesReader.statsMark + fs + "0" + fs + "4\n")
+            }
+            XCTFail("expected a failure")
+        } catch {
+            XCTAssertEqual(error as? AppleNotesReader.ReadError, .failed)
+        }
+    }
+
+    func testThePageLineSaysTheCountAndIsAbsentAtZero() {
+        XCTAssertNil(Copy.SourceBrowser.lockedNotes(0))
+        XCTAssertEqual(Copy.SourceBrowser.lockedNotes(1), "1 locked note · Cicada can't read it")
+        XCTAssertEqual(Copy.SourceBrowser.lockedNotes(12), "12 locked notes · Cicada can't read them")
+    }
+
+    func testAnOlderBackendsCollectionsDecodeWithNoLockedCount() throws {
+        let tree = try JSONDecoder().decode(ChannelCollections.self, from: Data(#"{"channel":"notes","accounts":[]}"#.utf8))
+        XCTAssertEqual(tree.locked, 0)
+        let counted = try JSONDecoder().decode(ChannelCollections.self,
+                                               from: Data(#"{"channel":"notes","accounts":[],"locked":12}"#.utf8))
+        XCTAssertEqual(counted.locked, 12)
+    }
+
     func testThePlistAsksToControlNotesInPlainWords() throws {
         let bundleScript = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

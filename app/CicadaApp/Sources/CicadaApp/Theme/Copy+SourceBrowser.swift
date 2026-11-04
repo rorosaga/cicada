@@ -5,6 +5,11 @@ extension Copy {
     /// and said once (DESIGN_RULES §9 2026-11-03: no paragraphs, one line at most, no repeated titles).
     enum SourceBrowser {
         static let accounts = "Accounts"
+        /// G234: the one line on the Notes page; absent at zero.
+        static func lockedNotes(_ count: Int) -> String? {
+            guard count > 0 else { return nil }
+            return "\(UsageFormat.count(count)) locked \(count == 1 ? "note" : "notes") · Cicada can't read \(count == 1 ? "it" : "them")"
+        }
         static let recent = "Recent"
         static let openHelp = "Open"
         static func back(_ to: String) -> String { "‹ \(to)" }
