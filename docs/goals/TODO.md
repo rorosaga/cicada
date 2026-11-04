@@ -3105,10 +3105,11 @@ A whole row moves to DONE only after its remaining implementation and required a
     **The person's own local agent** (`cicada_record_check`, on their ask) keeps the stricter proposed test and its two
     searches: Cicada cannot see that agent's queries, so the limit there can only be who is offered.
     **Measured** on synthetic banks with one widely known public figure, on the plan with haiku; the shipped tier
-    (`web_check_agent_model`) was not run. A real Sleep settled it: 2 searches, 1 page opened, 1 refused by the site, 5
-    reads, 4 turns, 35.1 s, and undo put the question back. One question measured apart: 3 searches, 2 pages, 7 spawns, 44.3
-    s, 37,986 input tokens, 3,190 output, $0.0425 equivalent on plan usage (`equiv_cost_usd`). A private friend in the same
-    bank got no model call. Wikipedia answered 403 to Cicada's `User-Agent` in every run (never retried), so its encyclopedia
+    (`web_check_agent_model`) was not run. A real Sleep on the final code settled it: 1 search, 2 pages opened, 1 link
+    dropped by the guard, 4 reads, 4 turns, 31.0 s; on an earlier build undo put the question back. Two questions measured
+    apart, each with its plan usage (`equiv_cost_usd`): 2 searches, 3 pages, 5 spawns, 30.3 s, 19,690 input tokens, 2,597
+    output, $0.0155; and 3 searches, 2 pages, 7 spawns, 44.3 s, 37,986 input, 3,190 output, $0.0425. A private friend in the
+    same bank got no model call. Wikipedia answered 403 to Cicada's `User-Agent` in every run (never retried), so its encyclopedia
     route did not fire. **Disclosed deviation (2026-11-04):** while the text was only proposed, an earlier worker ran
     four lookups for one pair on a copy of the owner's bank, sending a real full name to the plan's web search; each
     answered "not sure" and nothing was written. No lookup has touched that bank since.
