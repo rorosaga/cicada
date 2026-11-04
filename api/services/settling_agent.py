@@ -492,9 +492,9 @@ def tracked_public(memory_path: Path, page_ids: tuple[str, ...]) -> tuple[dict[s
             if not source_refresh.tracked(source) or source_refresh.dead(source):
                 continue
             ref = str(source.get("ref") or "").strip()
-            if source_refresh.walled(ref) or source_refresh.checker(source) == source_refresh.AGENT and \
-                    fact_sources.effective_access(source) == fact_sources.ACCESS_SIGNED_IN:
-                kinds["walled"] += 1
+            if (source_refresh.walled(ref) or source_refresh.state(source).get("blocked")
+                    or fact_sources.effective_access(source) == fact_sources.ACCESS_SIGNED_IN):
+                kinds["walled"] += 1   # a page that blocked Cicada's read is the person's agent's, never asked again
                 continue
             kinds["open"] += 1
             urls.setdefault(ref, page_id)
@@ -627,6 +627,8 @@ async def read_changed(fn, memory_path: Path, *, cap: int = UPDATES_PER_DRAIN, f
         if d.reason != "changed" or sr.walled(d.ref) or d.site in seen or f"entities/{d.entity_id}.md" in skip:
             continue
         seen.add(d.site)
+        if _blocked(Path(memory_path), d):
+            continue
         status, html, final = await (fetch or _default_fetch)(d.ref)
         if status != "ok" or (final and sr.walled(final)):
             continue
@@ -645,6 +647,12 @@ async def read_changed(fn, memory_path: Path, *, cap: int = UPDATES_PER_DRAIN, f
             planned.append((d, sr.Observation("read", values=[value], quotes=sr.clean_quotes([quote]),
                                               text_hash=sr.text_hash(html))))
     return planned
+
+
+def _blocked(memory_path: Path, d) -> bool:
+    entry = bank_index.file(memory_path, "entities", f"{d.entity_id}.md")
+    source = source_refresh._find_entry((entry.frontmatter or {}) if entry else {}, d.ref, d.predicate)
+    return source is None or bool(source_refresh.state(source).get("blocked"))
 
 
 def _held_values(memory_path: Path, entity_id: str, predicate: str) -> str:

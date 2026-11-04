@@ -258,3 +258,49 @@ def test_a_public_pages_own_source_comes_before_its_pinned_search():
     finally:
         sa.tracked_public = real
     assert looked is not None and [f.value for f in looked.facts] == ["a company"]
+
+
+def test_a_source_that_blocked_cicadas_read_is_never_asked_again(bank):
+    _page(bank, [dict(TRUSTED, refresh={"at": "2026-10-01", "outcome": "blocked", "blocked": "2026-10-01",
+                                        "changed": "2026-10-01"})])
+    _question(bank)
+    opened: list[str] = []
+
+    def fn(**_kw):
+        raise AssertionError("no call")
+    report = _run(bank, fn, opened)
+    assert opened == [] and report.settled == 0 and report.source_kinds == {"walled": 1}
+
+
+def test_a_private_pairs_tracked_source_settles_it_with_no_search_and_never_a_merge(bank):
+    """A person in the address book: no search exists for them, and the page's own source may still answer (54a)."""
+    from api.services.claims import parse_claims as parse
+
+    site = "https://nora-hidden-example.org/about"
+    markdown_parser.write(bank / "entities" / "nora-hidden.md", {
+        "name": "Nora Hidden", "type": "person", "status": "active", "confidence": 0.7, "created": "2026-01-01",
+        "last_referenced": "2026-01-01", "source_episodes": [], "related": [], "version": 1,
+        "sources": [dict(TRUSTED, ref=site, predicate="website"),
+                    {"ref": "addressbook://card-1", "kind": "app", "predicate": "phone", "added_by": "cicada"}]},
+        "## Summary\nNora Hidden is a friend.\n")
+    markdown_parser.write(bank / "entities" / "nora42.md", {
+        "name": "nora42", "type": "person", "status": "active", "confidence": 0.7, "created": "2026-01-01",
+        "last_referenced": "2026-01-01", "source_episodes": [], "related": [], "version": 1}, "## Summary\nAn account.\n")
+    markdown_parser.write(bank / "inbox" / "inbox-601.md", {
+        "kind": "merge_suggestion", "required_input": "merge", "status": "pending", "priority": 0.6, "entity_id": "nora42",
+        "entity_name": "nora42", "title": "Is nora42 the same as Nora Hidden?", "merge_target_hint": "nora-hidden",
+        "uncertainty_type": "Possible duplicate of Nora Hidden", "created_date": "2026-10-23", "allow_other": True,
+        "allow_defer": True, "suggested_classification": "person"}, "Nora Hidden may go by nora42.")
+    bank_index.invalidate(bank)
+
+    async def fetch(url):
+        return "ok", "<html><title>Nora Hidden</title><main>Nora Hidden writes as nora42 online.</main></html>", url
+    stub = Stub({"answer": {"sure": True, "sources": [{"url": site, "quote": "Nora Hidden writes as nora42 online."}]}})
+    report = asyncio.run(web_lookup.run_tail(bank, SimpleNamespace(web_check_per_run=8), user_triggered=True, llm_fn=stub,
+                                             engine=("resolved", "claude-cli", "plan"), fetch=fetch))
+    assert report.settled == 1 and stub.searches == 0
+    assert "Search: not available" in stub.prompts[0]
+    assert [c.predicate for c in parse(markdown_parser.parse(bank / "entities" / "nora-hidden.md").body)] == ["goes-by"]
+    assert (bank / "entities" / "nora42.md").exists()
+    rec = markdown_parser.parse(bank / "inbox" / "settled" / "inbox-601.md").frontmatter["settled"]
+    assert rec["scope"] == "source"

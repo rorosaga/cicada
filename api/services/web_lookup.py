@@ -36,6 +36,9 @@ the ones the search answers. The rules, each enforced here:
   inbox's); never on an option the item does not have.
 * **Caps.** ``web_check_per_run`` questions a run (default 8), at most two searches a call; a question already looked
   up and left open is not looked up again for 30 days (a memo outside every bank, ids and enums only).
+* **The settling step (rulings 54, 54a, ``settling_agent``).** Inside the same caps: a public handle against a named
+  person, and any conflict whose page tracks a source Cicada may open, go to that step first. It runs on the Claude plan
+  only (:func:`_plan_only`); a public thing's pinned search below comes only when no source answered.
 """
 from __future__ import annotations
 
@@ -454,7 +457,8 @@ def select(memory_path: Path, facts: web_settle.BankFacts, memo: dict[str, dict]
     from api.services import inbox_context, pending_store
 
     def _dirty(c: web_settle.Candidate) -> bool:
-        return bool(skip & {f"entities/{c.entity_id}.md", f"inbox/{c.item_id}.md", pending_store.PENDING_STORE_FILE})
+        return bool(skip & {f"entities/{c.entity_id}.md", f"inbox/{c.item_id}.md", pending_store.PENDING_STORE_FILE,
+                            *([f"entities/{c.other_id}.md"] if c.other_id else [])})
 
     wanted = web_settle.candidates(memory_path, facts=facts)
     wanted += source_items(memory_path, facts, already={c.item_id for c in wanted})
@@ -616,6 +620,7 @@ async def look_up(fn: Callable[..., Any], todo: list[tuple[web_settle.Candidate,
                 answers.append((c, await _handle_answer(fn, Path(memory_path), c, facts, report, fetch=fetch)))
                 continue
             if memory_path is not None and c.kind == "conflict" and c.entity_id != (facts.owner_id if facts else None) \
+                    and len(report.questions) < settling_agent.QUESTIONS_PER_DRAIN \
                     and settling_agent.tracked_public(Path(memory_path), (c.entity_id,))[0]:
                 answer = await _source_answer(fn, Path(memory_path), c, report, fetch=fetch)
                 if answer.ok or c.scope == "source":

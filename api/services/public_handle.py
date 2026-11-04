@@ -504,7 +504,8 @@ def settle(memory_path: Path, item_id: str, *, ref: str, quote: str, checker: st
     settled_dir = memory_path / "inbox" / web_settle.SETTLED_DIR
     settled_dir.mkdir(parents=True, exist_ok=True)
     record = {
-        "at": episode_ids.utc_now_iso(), "by": checker or "agent", "by_kind": checker_kind, "scope": "public",
+        "at": episode_ids.utc_now_iso(), "by": checker or "agent", "by_kind": checker_kind,
+        "scope": "public" if pair.searchable else "source",
         "ref": ref, "host": host, "quote": quote, "answer": answer, "predicate": predicate,
         "entity_id": pair.named_id, "entity_name": pair.name, "claim_id": claim.id, "claim_ids": [claim.id],
         "episode": episode_id, "held": False, "closed": [], "relation": "goes_by",
