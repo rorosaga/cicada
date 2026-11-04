@@ -1637,6 +1637,39 @@ verified by `scripts/verify-skills.sh`, whose `--print-urls` is pinned offline) 
 with a `terms` line; `macos-harness` states plainly that it can control the whole Mac. Choosing one is Settings, How your
 agent reads (`agent_methods`), not an install.
 
+**The standard source page (owner 2026-11-04; `Views/Sources/SourcePageLayout.swift`, `Copy.SourceLayout`;
+DESIGN_RULES §9 2026-11-04).** Owner: *"we should standardize the layout for all the sources pages"*, *"so much text"*.
+Every source's detail column is one `SourcePageLayout(title:origin:status:statusHelp:backLabel:onShowList:onClose:
+connect:content:footer:)` — four slots, top to bottom, and nothing else on the page (no *Settings* label, no paragraph):
+1. **Header** (drawn by the layout from `title`, `origin`, `status`): DR-74's head with the source's real mark
+   (`SourceLogoTile`), its name, and **one status line** (`SourceStatusLine`, `SourcePageStatus`) under the name. What the
+   words measure goes in `statusHelp` (hover only). A source never adds a line here.
+2. **Connect area** — `SourceConnectArea(primary:line:lineIsAttention:ways:extra:)`, drawn for the state the source is
+   in (`SourceConnectState`: `.notConnected` · `.connecting` · `.connected` · `.needsAttention`; `.of(status)` maps a
+   plain status). Each state is **one** `SourcePrimaryAction` (DR-5: the page's one primary; *Connect GitHub*,
+   *Choose chats…*, *Reconnect*) and **at most one short line** (`line`, meta ink, one line, its whole text on hover;
+   `lineIsAttention` for the one thing to fix). A step's own body — a code to enter, a picker's summary — goes in
+   `extra`, between the line and the ways. **Several ways in** are `ways: [SourceWayIn]`, one 36 pt option row each on
+   one ringed block: an icon, a name and a switch (`.toggle(on, set)`) or a neutral button (`.button(words, action)`).
+   The three standard ways: the official account (`icon: .mark(origin)`), *Read through your browser*
+   (`SourceWayIn.browser(on:set:)`, the browser-harness agent's per-site switch, `globe`), and *Import a file*
+   (`SourceWayIn.importFile(origin:action:)`: the source's **own mark on a file icon**, `.file(origin)` — never another
+   company's mark). A connected source with nothing left to choose passes nothing and the area draws nothing (DR-81).
+3. **Content** — the source's own sections, each a `SourceSection(title:count:rows:)` (a `SectionLabel` with its count
+   as meta, then rows at DR-34's heights), drawn only when it holds something (DR-81): GitHub's *Your repositories* and
+   *Starred*; YouTube's lists; a chat source's chats (`ChatSourceList`); a saved source's saves (`SourceItemsSection`,
+   with the page's one search above it). A list longer than the page shows 12 rows then *All N*, opened in the
+   column's place (`SourceDrill`, *‹ <source>* and Esc return); while a drill is open the connect area and the footer
+   are not drawn.
+4. **Footer** — `SourcePageFooter(actions:note:)`: *Refresh* (`SourceFooterAction.refresh`) and *Disconnect*
+   (`SourceFooterAction.disconnect(source, message:)`, asked first in a confirmation whose button carries the
+   destructive role) as quiet `TextButton`s flush with the column's edge, last on the page; `note` is the last action's
+   result in one line. Only the actions that apply (nothing to refresh, no Refresh).
+A source plugs in by building those three slots from its own state in its own file (GitHub: `GitHubSourcePage`); the
+catalogue's dispatcher (`SourceCatalogDetail`) picks the page by entry id. Words go in `Copy.SourceLayout` or the
+source's own `Copy` namespace, short, provider-neutral (CLAUDE.md), never a how-to paragraph (an export's where-from is
+the *Import a file* row's hover).
+
 **The redesign, Sources · Inbox · entity card · Sleep (G217, G205, G212, G61, G206; ruling 36 D5/D6, 2026-10-22).**
 - **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off, grouped
   *Accounts and browser* (X, YouTube, Instagram, LinkedIn, Reddit, Pinterest, TikTok) · *This Mac* (Calendar, Contacts,
