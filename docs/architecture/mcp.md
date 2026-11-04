@@ -236,7 +236,10 @@ observer (`inspired-by`, `references`, `uses`; a person as `works-on` on their p
 never a page made. `cicada_link_entity(project, entity, reason, remove?)` (decision 10, 2026-10-28) ties a page
 already in memory to a project ("Pages in this project"): a harness on the trust list ties at once, any other — a remote
 app always — records a proposal the person takes or turns down on the page; the person's "Not part of it" is final, and
-an agent takes back only its own tie. All four are `record` remotely, one `cli_map` row each (`projects
+an agent takes back only its own tie. A repository page tied by a trusted harness becomes one of the project's repositories
+instead (ruling 53: `repositories:`, `how: agent`, with the session; the person's unlink stays out), and
+`cicada_project` (a `Repositories:` line and `data.repositories`) and `cicada_repo_context` (a `GitHub repositories:`
+line beside the local checkouts) name a project's repositories — a project may span several. All four are `record` remotely, one `cli_map` row each (`projects
 create|link|tie-page|influence`, proposed spellings; `/v1` `projects_create`, `projects_link`, `projects_tie_page`,
 `projects_influence`), admitted, committed alone under the harness. `cicada_project` adds the pulse in words (the last 4
 weeks, what it waits on; Gone quiet is its own "Quiet:" lines) and the pages in the project, proposals apart.

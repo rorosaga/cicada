@@ -364,8 +364,12 @@ def repo_owner(frontmatter: dict) -> str | None:
         return None
     sources = fm.get("sources") if isinstance(fm.get("sources"), list) else []
     repos = fm.get("repos") if isinstance(fm.get("repos"), list) else []
+    # G230: the repositories a project lists (the person's link, a trusted agent's, or the hook's origin hash) — the
+    # first one's owner, after a trusted source.
+    linked = [str(r.get("url") or "") for r in fm.get("repositories") or [] if isinstance(r, dict)] \
+        if isinstance(fm.get("repositories"), list) else []
     if not any("github.com/" in str(s.get("ref") or "") for s in sources if isinstance(s, dict)) and \
-            not any("github.com/" in str(r) for r in repos):
+            not any("github.com/" in str(r) for r in repos) and not any("github.com/" in r for r in linked):
         return None   # the common case, decided without ranking (this runs per project on every `/graph` build)
 
     def serves(source: dict, _predicate) -> bool:
@@ -375,7 +379,7 @@ def repo_owner(frontmatter: dict) -> str | None:
 
     for source in fact_sources.rank(sources, None, match=serves):
         return _repo_login(source.get("ref"))
-    for ref in repos:
+    for ref in [*linked, *repos]:
         login = _repo_login(ref)
         if login:
             return login

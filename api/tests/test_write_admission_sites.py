@@ -440,9 +440,14 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /agent-methods": (HELD, "api.services.skill_pages.ensure"),
     "POST /agent-methods/skills/{skill}/page": (HELD, "api.services.skill_pages.ensure"),
     "POST /sources/save": (ADMITTED, "api.routers.sources._save_source"),   # G212: wrapped by its Idempotency-Key
-    # G230: GitHub's record read first (nothing held), then the page and its commit as one admitted transaction.
-    "POST /sources/github/repos": (ADMITTED, None),
+    # G230: the person's link of a repository to a project (or a new project from it), and its commit, admitted.
     "POST /sources/github/repos/project": (ADMITTED, None),
+    # G230: connecting by a code writes only the token outside every bank (`secrets.env`) and the account's install
+    # state (`$CICADA_HOME/connectors`); never a page.
+    "POST /sources/github/connect": (OUTSIDE, None),
+    "POST /sources/github/connect/poll": (OUTSIDE, None),
+    "POST /sources/github/connect/installation": (OUTSIDE, None),
+    "DELETE /sources/github/connect": (NONE, None),
     "POST /sources/saved-why": (ADMITTED, None),       # G191: the answer on the link's episode, committed alone
     "PUT /sources/saved-why": (ADMITTED, None),        # G191 v3: the person's edit of one answer, committed alone
     "POST /sources/bookmarks/remove": (ADMITTED, None),   # G191 v3: the page archived, the episode tombstoned

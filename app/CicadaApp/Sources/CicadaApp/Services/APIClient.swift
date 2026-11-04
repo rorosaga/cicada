@@ -3020,28 +3020,55 @@ actor APIClient {
     // Not Store domains: the Sources panel's lists and a page's repository card are read on demand and kept in memory
     // by their views, read again after every write (CLAUDE.md, Sync).
 
-    /// A repository page's card (or a linked project's): GitHub's record as the page keeps it, and its README preview.
-    /// The backend reads the README through GitHub's API when it is missing or a week old — so this may take a moment.
+    /// A repository page's card: GitHub's record as the page keeps it, its projects, and its README preview. The
+    /// backend reads the README through GitHub's API when it is missing or a week old — so this may take a moment.
     func fetchRepository(id: String) async throws -> RepositoryDetail {
         try await get("/entities/\(encodedID(id))/repository", timeout: 20)
     }
 
-    /// The repositories the last sync found the person owns (each with the project it already is) and every
+    /// A project's repositories, and the repository pages it could link. Reads the bank only.
+    func fetchProjectRepositories(id: String) async throws -> ProjectRepositories {
+        try await get("/entities/\(encodedID(id))/repositories")
+    }
+
+    /// The repositories the last sync found the person owns (each with its page and its projects) and every other
     /// repository page in memory. Reads the bank only.
     func fetchGitHubRepos() async throws -> RepoLists {
         try await get("/sources/github/repos")
     }
 
-    /// The person adds one repository by its link (or `owner/name`).
-    func addGitHubRepo(_ url: String) async throws -> RepoAddResult {
-        try await post("/sources/github/repos", body: ["url": url])
-    }
-
-    /// The person's "this is my project": link `fullName` to `project`, or (nil) make a project of it.
-    func makeRepoProject(fullName: String, project: String? = nil) async throws -> RepoProjectResult {
-        var body: [String: Any] = ["fullName": fullName, "via": "app"]
+    /// The person's link from either page: `fullName` is one of `project`'s repositories (or, `remove`, is not —
+    /// remembered); with no `project`, a new project made from it.
+    func makeRepoProject(fullName: String, project: String? = nil, remove: Bool = false) async throws
+        -> RepoProjectResult {
+        var body: [String: Any] = ["fullName": fullName, "via": "app", "remove": remove]
         if let project { body["project"] = project }
         return try await post("/sources/github/repos/project", body: body)
+    }
+
+    /// Connecting GitHub with a code (its device flow): where it stands.
+    func fetchGitHubConnect() async throws -> GitHubConnectStatus {
+        try await get("/sources/github/connect")
+    }
+
+    /// The person's Connect GitHub: the code to enter on github.com.
+    func startGitHubConnect() async throws -> GitHubConnectCode {
+        try await post("/sources/github/connect")
+    }
+
+    /// One check on the sign-in under way (the backend asks GitHub at most once an interval).
+    func pollGitHubConnect() async throws -> GitHubConnectPoll {
+        try await post("/sources/github/connect/poll")
+    }
+
+    /// After the person installed Cicada on their GitHub account: ask again.
+    func checkGitHubInstallation() async throws -> GitHubConnectStatus {
+        try await post("/sources/github/connect/installation")
+    }
+
+    /// The person closed the code before approving.
+    func cancelGitHubConnect() async throws {
+        _ = try await delete("/sources/github/connect")
     }
 
     /// Ruling 48 (16), DR-80 — one citation marker's popover: reference `n` as cited by the line ending at `at`, or by

@@ -1511,7 +1511,13 @@
       "disposition": "preserve_frontmatter_guarded"
     },
     {
-      "function": "link_project",
+      "function": "_write_backlink",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "link",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "preserve_frontmatter_guarded"

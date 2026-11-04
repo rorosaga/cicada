@@ -452,22 +452,65 @@ the panel draws them as one line, `ConnectorSetupState.readsLine`, the token's p
 | Connector | Token | What is read | Terms |
 |---|---|---|---|
 | Notion (`notion.py`) | an internal connection with Read content only, shared page by page; a personal access token is refused; a first sync that finds nothing shared says how to share a page (`NOTHING_SHARED_WORDS`, review of #587) | `POST /v1/search` (pages, no query), `GET /v1/pages/{id}/markdown`, `GET /v1/data_sources/{id}` (a row's database title), `GET /v1/users/me` on Save; Notion-Version 2026-03-11 | developers.notion.com: internal connections are for "syncing data from external tools"; 180 requests a minute per connection outside Business plans, honoured through `Retry-After` |
-| GitHub (`github.py`, G230) | a token the person makes (fine-grained, read-only "Metadata", "Contents" and "Starring"; or classic with no scope for public repositories) | `GET /user` (on Save, and once a sync to tell its own repositories apart; the login is kept only as a hash), `GET /user/repos?affiliation=owner&sort=full_name` and `GET /user/starred` (the `star+json` type, for when each was starred), 50 a page — a real 100-row page measured 633,641 bytes, past the 512 KB rail, a starred row ~6.1 KB — ≤ 60 pages each (3,000 items); `GET /repos/{owner}/{name}` and `…/readme` only for one repository the person adds or opens | GitHub's REST API with the person's own token: 5,000 requests an hour; a 403 with `x-ratelimit-remaining: 0`, a `retry-after` or a message naming a rate limit (the secondary limit) is read as the rate limit it is, never as a refused token; it says the next sync reads the lists again from the start (it does: every sync reads them whole) |
+| GitHub (`github.py`, `github_auth.py`, G230) | connected with a code (GitHub's device flow, Cicada's own read-only GitHub App; ruling 53) — the token it grants, its refresh token and when it lapses; a token the person makes (fine-grained, read-only "Metadata", "Contents" and "Starring") only as the fallback behind "Use a token instead" | `GET /user` (once a sync to tell its own repositories apart; the login is kept only as a hash), `GET /user/installations` (signed in by code: whether the app is installed on the person's account), `GET /user/repos?affiliation=owner&sort=full_name` and `GET /user/starred` (the `star+json` type, for when each was starred), 50 a page — a real 100-row page measured 633,641 bytes, past the 512 KB rail, a starred row ~6.1 KB — ≤ 60 pages each (3,000 items); `GET /repos/{owner}/{name}/readme` once for each of the person's repositories whose page a sync is about to make (4 at a time), and for any repository page the person opens | GitHub's REST API with the person's own token: 5,000 requests an hour; a 403 with `x-ratelimit-remaining: 0`, a `retry-after` or a message naming a rate limit (the secondary limit) is read as the rate limit it is, never as a refused token; it says the next sync reads the lists again from the start (it does: every sync reads them whole) |
 **GitHub's transport (G230).** GitHub is the one tier-2 adapter with its own live transport (`github.TRANSPORT`,
 picked up by `tier2.Client`): `https://api.github.com` only, every request through `net_guard`'s address rule, no
 redirect followed, no cookie kept, **4 s and ≤ 512 KB a response — the ToS rail's numbers, not the framework's 15 s**;
 a longer answer is a refusal in words, never a partial read. Only `GET`s; Cicada never writes to GitHub. What a request
 names is the person's own account endpoints and, for a repository's record or README, that repository's own
 `owner/name` sent to GitHub alone — GitHub's own identifier for its own record, never a lookup of a person.
-**A README is never read during a sync:** only when the person adds a repository (their click) or opens its page (the
-person's view, like a saved link's icon — so behind `CICADA_ALLOW_LOGO_FETCH`, the picture-and-preview gate), with the
-token when connected and none for a public repository (GitHub allows 60 requests an hour without one). The preview is
+**A README is read in a sync only for a page about to be born** — one of the person's own repositories with no page on
+the record yet (never one that has its page, one they merged or one they removed) — for its first summary; otherwise
+only when the person opens a repository's page (the person's view, like a saved link's icon — so behind
+`CICADA_ALLOW_LOGO_FETCH`, the picture-and-preview gate), with the token when connected and none for a public
+repository (GitHub allows 60 requests an hour without one). The preview is
 kept outside every bank (`$CICADA_HOME/readmes/<bank>/<entity>.json`, 0600), read again when a week old, and
 **Disconnect forgets every README** with the token and the cursor; the pages and episodes stay, the person's to keep.
 The repository's page link (`https://github.com/<owner>/<name>`) is its trusted source with `kept_by: github`, so the
 source refresh never sends Cicada's own fetcher to github.com for it — the API's record is the re-check. The page's
 picture is the organisation's avatar (`avatars.githubusercontent.com`, through `media_preview`'s ToS rail) only when an
 organisation owns the repository; a personal account's avatar is never asked.
+
+**Connecting GitHub (ruling 53, owner 2026-11-03: "why are you asking for a token for github? cant we just do oauth?
+like a connect?").** *Connect GitHub* asks GitHub's device flow for a code (`POST https://github.com/login/device/code`
+with the public client id), shows it, and opens `github.com/login/device` in the person's browser; the app asks the
+backend every `interval` seconds (`POST /sources/github/connect/poll`) and the backend asks GitHub at most that often
+(`POST https://github.com/login/oauth/access_token`, `grant_type=urn:ietf:params:oauth:grant-type:device_code`),
+honouring `slow_down`, `expired_token`, `access_denied`. **No client secret and no server of Cicada's**: the device flow
+needs neither, the device code never leaves the backend, and nothing is redirected. Both requests go through
+`github_auth.oauth_transport`: those two paths on `github.com` only, `net_guard`'s address rule, no redirect, no
+cookie, 4 s, ≤ 64 KB. The token lasts 8 hours with a 6-month refresh token; a device-flow token is refreshed with the
+client id alone (GitHub: `client_secret` "Required unless the user access token was generated using the device flow"),
+before a sync, a page's README read or the install check, once it is within 5 minutes of lapsing. Everything —
+`CICADA_GITHUB_TOKEN`, `CICADA_GITHUB_REFRESH_TOKEN`, `CICADA_GITHUB_TOKEN_EXPIRES`, `CICADA_GITHUB_AUTH` — is in
+`secrets.env` (0600), stripped from every child; whether the app is installed is kept in
+`$CICADA_HOME/connectors/github-account.json` (two flags and a time). Disconnect forgets all of it and the READMEs; the
+grant on GitHub stays until the person removes it at `github.com/settings/applications` (revoking it needs the app's
+secret, which Cicada does not have), and the panel says so. A token the person pastes instead replaces the code
+sign-in whole (`github.on_token_saved`: its refresh token, expiry, `CICADA_GITHUB_AUTH` and install state are
+forgotten), so a renewal never puts the old sign-in's token back. A refresh GitHub refuses (`bad_refresh_token`: the
+refresh token lapsed or was revoked) marks the sign-in lapsed and the panel reads *Reconnect*.
+
+*Why a GitHub App and not an OAuth App.* An OAuth App reaches a private repository only through the `repo` scope,
+which is full read and write. A GitHub App asks for exactly **Metadata: read** and **Contents: read** on repositories
+(the list and a README) and **Starring: read** on the account — read-only. GitHub's own rule is the cost: a GitHub
+App's user token "can only access resources in an account where it is installed", so after the code the panel offers
+**Install on GitHub** (`https://github.com/apps/<slug>/installations/new`; the person picks all or some repositories)
+until `GET /user/installations` lists an installation on their own account; *I installed it* asks again and syncs.
+Stars are an account permission and come in without it. Until the app is installed the owned list reads empty because
+the app cannot see it, so it replaces nothing: no record is tombstoned for it, and the sync says what to do in words.
+Installed on *selected* repositories, one left out of the selection is out of sight, not deleted: never tombstoned,
+and the sync says how many "aren't shared with Cicada on GitHub".
+
+*The owner's one step (registering the app).* Open the link `github_auth.register_url()` prints — GitHub's *Register
+new GitHub App* form, pre-filled by URL parameters: name *Cicada Memory*, homepage, public, webhook off, Metadata /
+Contents / Starring read. GitHub's App Manifest flow carries the same manifest (`github_auth.MANIFEST`) but must be a
+POST form and needs a page of Cicada's to receive its code, so the link is the one click; neither can turn on the
+device flow. Then: **Create GitHub App** → on the app's settings page tick **Enable Device Flow** → Save → copy the
+**Client ID** and the app's slug (its public page is `github.com/apps/<slug>`) into `github_auth.CLIENT_ID` and
+`APP_SLUG` (`CICADA_GITHUB_CLIENT_ID` / `CICADA_GITHUB_APP_SLUG` override them for a developer build). There is no
+secret to make or ship; the private key GitHub offers is never needed. Until then *Connect GitHub* says it is not set
+up in this build and the token field is the fallback behind "Use a token instead".
 
 **47a amended — one-to-one chats only, each with the other person's consent (owner, 2026-10-28).** Telegram's terms, read the same day: API Terms §1.5 — "you are prohibited from using, accessing or aggregating data obtained from the Telegram platform to train … or otherwise engage in the development, enhancement or deployment of artificial intelligence, machine learning models" — and telegram.org/tos/content-licensing, "Large Language Models and AI": "Telegram firmly prohibits the scraping, indexing, harvesting, aggregation or use of data obtained from its platform to train, fine-tune, validate or otherwise engage in the development, enhancement, benchmarking or deployment of artificial intelligence, machine learning models and similar technologies. Exceptions may be granted in instances where all relevant users individually provide explicit, informed, affirmative and continued consent that is strictly limited to the specific content and chat, channel, or non-global context window for which it was requested." Sleep reads a sitting with a model, so the owner chose "1:1 with consent": group chats and channels are never offered and the backend refuses them; ticking a one-to-one chat needs the person to confirm, per chat and in plain words, that the other person agreed — explicitly, knowing what it means, for that chat only — said to be the person's responsibility, which Cicada cannot verify; the confirmation is kept with its date outside every bank (`$CICADA_HOME/telegram/consents.json`, 0600, a chat id and a time); unticking withdraws it and stops the reading. **Revisit** if Telegram grants Cicada an exception or changes those terms.
 

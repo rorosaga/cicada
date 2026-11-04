@@ -889,13 +889,12 @@ def cmd_feed_poll(boot, args) -> Result:
 
 def _repo_line(r: dict) -> str:
     project = r.get("project") or {}
-    tail = ""
-    if project.get("how") in ("linked", "origin"):
-        tail = f" — your project {project.get('name')} ({project.get('project')})"
-    elif project.get("how") == "name":
-        tail = f" — maybe your project {project.get('name')} ({project.get('project')})"
-    elif r.get("entityId"):
-        tail = f" — in memory ({r['entityId']})"
+    linked = r.get("projects") or []
+    tail = f" — {r['entityId']}" if r.get("entityId") else " — no page"
+    if linked:
+        tail += " · in " + ", ".join(f"{p.get('name')} ({p.get('project')})" for p in linked)
+    elif project.get("how") in ("name", "origin"):
+        tail += f" · maybe your project {project.get('name')} ({project.get('project')})"
     flags = [w for w, on in (("private", r.get("private")), ("archived", r.get("archived")), ("fork", r.get("fork")))
              if on]
     return f"{r.get('fullName')}{' [' + ', '.join(flags) + ']' if flags else ''}{tail}"
@@ -906,33 +905,56 @@ def cmd_github_repos(boot, args) -> Result:
     owned, pages = data.get("owned") or [], data.get("starred") or []
     lines = []
     if not data.get("connected") and not owned:
-        lines.append("GitHub is not connected: `cicada connector connect github` reads your own and starred "
-                     "repositories; without connecting, `cicada github project <owner/name>` adds one of yours as a "
-                     "project and `cicada github add <link>` adds anyone else's.")
+        lines.append("GitHub is not connected: `cicada github connect` brings in your own repositories and the ones "
+                     "you starred, each as a page.")
     if owned:
         lines += ["Yours:", *(f"  {_repo_line(r)}" for r in owned)]
     if pages:
-        lines += ["In memory:", *(f"  {r.get('fullName')}{' (starred)' if r.get('starred') else ''} — {r.get('entityId')}"
-                                  for r in pages)]
+        lines += ["Starred:", *(f"  {r.get('fullName')} — {r.get('entityId')}" for r in pages)]
     return Result(text="\n".join(lines) or "No repositories yet.", data=data, warnings=_warn(boot))
 
 
-def cmd_github_add(boot, args) -> Result:
-    require_person("Adding a repository to your memory")
-    result = call(boot, "POST", "/sources/github/repos", body={"url": args.url}, timeout=60)
-    verb = "Added" if result.get("created") else "Updated"
-    return Result(text=f"{verb} {result.get('fullName')} ({result.get('entityId')}).", data=result,
-                  warnings=_warn(boot))
+def cmd_github_connect(boot, args) -> Result:
+    """GitHub's device flow through the backend: the code is printed here, the person enters it on github.com (on any
+    device — a server with no browser connects the same way), and the backend, asked every few seconds, keeps the
+    token. The CLI never sees or prints a token."""
+    import sys
+    import time
+
+    require_person("Connecting GitHub")
+    started = call(boot, "POST", "/sources/github/connect", body={}, timeout=30)
+    sys.stderr.write(f"Open {started.get('verificationUri')} and enter the code {started.get('userCode')}.\n")
+    interval = max(1, int(started.get("interval") or 5))
+    deadline = time.monotonic() + max(60, int(started.get("expiresAt") or 0) - int(time.time()))
+    answer: dict = {}
+    while time.monotonic() < deadline:
+        time.sleep(interval)
+        answer = call(boot, "POST", "/sources/github/connect/poll", body={}, timeout=30)
+        if answer.get("state") != "pending":
+            break
+        interval = max(1, int(answer.get("interval") or interval))
+    status = answer.get("status") or {}
+    if answer.get("state") != "connected":
+        raise Refusal("refused", answer.get("words") or "The code expired before it was used. Nothing was connected.")
+    text = "GitHub is connected."
+    if status.get("installed") is False and status.get("installUrl"):
+        text += (f" To bring in your own repositories, install Cicada on your account: {status['installUrl']} — "
+                 "then `cicada connector sync github`.")
+    else:
+        text += " `cicada connector sync github` reads it now; it syncs every few hours."
+    return Result(text=text, data={"connected": True, "installed": status.get("installed")}, warnings=_warn(boot))
 
 
 def cmd_github_project(boot, args) -> Result:
-    require_person("Adding a repository as one of your projects")
-    body = {"fullName": args.full_name, "via": "cli"}
+    require_person("Linking a repository to one of your projects")
+    body = {"fullName": args.full_name, "via": "cli", "remove": bool(getattr(args, "remove", False))}
     if args.project:
         body["project"] = args.project
     result = call(boot, "POST", "/sources/github/repos/project", body=body, timeout=60)
     if result.get("created"):
-        text = f"Added {args.full_name} as your project {result.get('project')}."
+        text = f"Started your project {result.get('project')} from {args.full_name}."
+    elif body["remove"]:
+        text = f"Unlinked {args.full_name} from {result.get('project')}; nothing links it back automatically."
     else:
         text = f"Linked {args.full_name} to your project {result.get('project')}."
     return Result(text=text, data=result, warnings=_warn(boot))
@@ -1726,7 +1748,7 @@ COMMANDS = {
     "feed list": cmd_feed_list, "feed add": cmd_feed_add, "feed remove": cmd_feed_remove, "feed poll": cmd_feed_poll,
     "connector list": cmd_connector_list, "connector connect": cmd_connector_connect,
     "connector disconnect": cmd_connector_disconnect, "connector sync": cmd_connector_sync,
-    "github repos": cmd_github_repos, "github add": cmd_github_add, "github project": cmd_github_project,
+    "github connect": cmd_github_connect, "github repos": cmd_github_repos, "github project": cmd_github_project,
     "settings owner": cmd_settings_owner, "engine list": cmd_engine_list, "engine connect": cmd_engine_connect,
     "picture set": cmd_picture_set, "picture initials": cmd_picture_initials, "picture clear": cmd_picture_clear,
     "bank list": cmd_bank_list, "bank use": cmd_bank_use, "bank create": cmd_bank_create,

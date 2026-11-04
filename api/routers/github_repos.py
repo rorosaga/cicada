@@ -1,10 +1,12 @@
-"""G230 — repositories on the graph: the synced lists, the person's hand-add, a repository as a project, and a page's
-repository card with its README preview. ``github_repos`` is the writer; this router is its door for every client
-(the app, the CLI through ``cli_map``).
+"""G230 — repositories on the graph: connecting GitHub by a code, the synced lists, a project's repositories, and a
+page's repository card with its README preview. ``github_repos`` is the writer, ``github_auth`` the sign-in; this
+router is their door for every client (the app, the CLI through ``cli_map``).
 
 Every write is the person's act: demo-gated (``refuse_capture_into_demo``), one admitted transaction around the page
 writes and their scoped commit (409 while Sleep holds the pages, G183), any request to GitHub made BEFORE the
-admission is taken. The token is never read back, logged or returned; a refusal is GitHub's in words.
+admission is taken. Nothing is added by hand (owner 2026-11-03: "there shouldn't be added manually, always sync"):
+every repository page comes from a sync. The token is never read back, logged or returned; a refusal is GitHub's in
+words.
 """
 from __future__ import annotations
 
@@ -18,15 +20,17 @@ from loguru import logger
 from api.config import Settings, get_settings
 from api.models.schemas import CamelModel
 from api.routers.capture import refuse_capture_into_demo
-from api.services import git_service, github_repos, markdown_parser, media_preview, write_admission
-from api.services.connectors import github, tier2
+from api.services import git_service, github_repos, markdown_parser, media_preview, sync_state, write_admission
+from api.services.connectors import github, github_auth, tier2
 from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 _DEMO_GATE = [Depends(refuse_capture_into_demo)]
-BUSY = "Sleep is updating your memory — add the repository again in a moment."
+BUSY = "Sleep is updating your memory — try again in a moment."
 VIAS = frozenset({"app", "cli"})
-NOT_A_REPO = "That is not a GitHub repository link. Paste one like https://github.com/owner/name."
+NOT_A_REPO = "That is not a GitHub repository. Name one like owner/name."
+NOT_IN_MEMORY = ("{full} has no page in memory yet. Repositories come in with a GitHub sync: connect GitHub "
+                 "(Sources → GitHub) and press Refresh.")
 
 
 class RepoProject(CamelModel):
@@ -52,7 +56,10 @@ class RepoRow(CamelModel):
     owned: bool = False
     added: bool = False
     entity_id: Optional[str] = None
+    #: The first project it belongs to, else a suggestion (``how: name``, or ``origin`` not linked yet).
     project: Optional[RepoProject] = None
+    #: Every project it belongs to (a repository may serve several; a project may list several).
+    projects: list[RepoProject] = []
 
 
 class RepoLists(CamelModel):
@@ -61,20 +68,12 @@ class RepoLists(CamelModel):
     starred: list[RepoRow] = []
 
 
-class RepoAddRequest(CamelModel):
-    url: str
-
-
-class RepoAddResponse(CamelModel):
-    entity_id: str
-    full_name: str
-    created: bool
-
-
 class RepoProjectRequest(CamelModel):
     full_name: str
-    #: An existing project page to link; absent, a new project is made (in the person's list).
+    #: The project page to link (or unlink); absent, a new project is made in the person's list, named after it.
     project: Optional[str] = None
+    #: Unlink instead: the person's "not part of it", remembered.
+    remove: bool = False
     #: Which of the person's doors made it (ruling 45's ``mine.via``): ``app`` or ``cli``.
     via: str = "app"
 
@@ -82,6 +81,7 @@ class RepoProjectRequest(CamelModel):
 class RepoProjectResponse(CamelModel):
     project: str
     created: bool
+    linked: bool = True
 
 
 class Readme(CamelModel):
@@ -95,75 +95,177 @@ class Readme(CamelModel):
 class RepoDetail(RepoRow):
     entity_id: str
     readme: Readme
+    #: Projects it could be linked to: a suggestion first, then every other live project.
+    candidates: list[RepoProject] = []
+
+
+class ProjectRepo(RepoRow):
+    #: How it was linked: ``user`` (the person), ``agent``, ``origin`` (the checkout's hashed remote), ``linked``
+    #: (from before projects listed theirs).
+    how: str = "linked"
+    by: Optional[str] = None
+
+
+class ProjectRepos(CamelModel):
+    project: str
+    repos: list[ProjectRepo] = []
+    candidates: list[RepoRow] = []
+
+
+class ConnectStart(CamelModel):
+    user_code: str
+    verification_uri: str
+    expires_at: int
+    interval: int
+
+
+class ConnectStatus(CamelModel):
+    #: This build can connect by code (its GitHub app is registered).
+    available: bool
+    connected: bool
+    #: ``app`` (connected by code), ``token`` (a pasted token), or None.
+    how: Optional[str] = None
+    #: Connected by code: whether the app is installed on the person's account (what lets it see their repositories).
+    installed: Optional[bool] = None
+    selection: Optional[str] = None
+    #: Connected by code, but GitHub no longer renews the sign-in (its refresh token lapsed or was revoked): the panel
+    #: says Reconnect, never Connected.
+    reconnect: bool = False
+    install_url: Optional[str] = None
+    #: GitHub's own page where the person removes the grant.
+    grants_url: str = github_auth.GRANTS_URL
+    pending: Optional[ConnectStart] = None
+    words: Optional[str] = None
+
+
+class ConnectPoll(CamelModel):
+    state: str              # pending | connected | denied | expired | error | none
+    interval: Optional[int] = None
+    words: Optional[str] = None
+    status: Optional[ConnectStatus] = None
 
 
 def _row(block: dict, **extra) -> RepoRow:
+    return RepoRow(**_row_fields(block), **extra)
+
+
+def _row_fields(block: dict) -> dict:
     full = str(block.get("full_name") or "")
-    return RepoRow(
+    return dict(
         id=int(block.get("id") or 0), full_name=full, url=github.repo_url(full),
         description=block.get("description") or None, language=block.get("language") or None,
         topics=[str(t) for t in block.get("topics") or []], owner_kind=str(block.get("owner_kind") or "User"),
         private=bool(block.get("private")), archived=bool(block.get("archived")), fork=bool(block.get("fork")),
         starred=bool(block.get("starred")), starred_at=block.get("starred_at") or None,
         unstarred_on=block.get("unstarred_on") or None, owned=bool(block.get("owned")),
-        added=bool(block.get("added")), **extra)
+        added=bool(block.get("added")))
+
+
+def _projects(rows) -> list[RepoProject]:
+    return [RepoProject(**p) for p in rows or []]
+
+
+# --- connecting --------------------------------------------------------------------------------------------------
+
+
+def _connect_status(words: str | None = None) -> ConnectStatus:
+    connected = github.is_connected()
+    how = (github_auth.HOW_APP if github_auth.is_app_token() else "token") if connected else None
+    account = github_auth.account() if how == github_auth.HOW_APP else {}
+    return ConnectStatus(
+        available=github_auth.available(), connected=connected, how=how,
+        installed=bool(account.get("installed")) if how == github_auth.HOW_APP else None,
+        selection=account.get("selection") if how == github_auth.HOW_APP else None,
+        install_url=github_auth.install_url() if how == github_auth.HOW_APP else None,
+        reconnect=github_auth.needs_reconnect(),
+        pending=ConnectStart(**github_auth.pending()) if github_auth.pending() else None,
+        words=words or (github_auth.RECONNECT_WORDS if github_auth.needs_reconnect() else None))
+
+
+@router.get("/sources/github/connect", response_model=ConnectStatus)
+async def connect_status():
+    """Whether this build can connect by code, whether it is connected and how, and — connected by code — whether the
+    app is installed on the person's account. Reads only (the last check is kept outside every bank)."""
+    return _connect_status()
+
+
+@router.post("/sources/github/connect", response_model=ConnectStart, dependencies=_DEMO_GATE)
+async def connect_start():
+    """The person's *Connect GitHub*: GitHub's device flow gives a short code to enter at github.com/login/device. The
+    person's click, so never gated; the device code itself stays here."""
+    try:
+        started = await github_auth.start()
+    except tier2.Refused as exc:
+        raise HTTPException(409 if exc.kind == "setup" else 502, exc.words) from exc
+    return ConnectStart(**started)
+
+
+@router.post("/sources/github/connect/poll", response_model=ConnectPoll, dependencies=_DEMO_GATE)
+async def connect_poll(settings: Settings = Depends(get_settings)):
+    """One check on the sign-in under way (GitHub is asked at most once an interval). Connected, the app's
+    installation on the person's account is checked once, so the panel can offer *Install on GitHub* next."""
+    try:
+        answer = await github_auth.poll()
+    except tier2.Refused as exc:
+        return ConnectPoll(state="error", words=exc.words, status=_connect_status())
+    if answer["state"] == "connected":
+        sync_state.record_credentials_changed(settings.memory_path, github.CHANNEL_ID)
+        await _check_installation()
+    return ConnectPoll(state=answer["state"], interval=answer.get("interval"), words=answer.get("words"),
+                       status=_connect_status())
+
+
+async def _check_installation() -> str | None:
+    try:
+        await github_auth.check_installation(github.client())
+    except tier2.Refused as exc:
+        return exc.words
+    except Exception as exc:  # noqa: BLE001 — the class only, never the message
+        logger.info(f"github: installation not checked ({type(exc).__name__})")
+        return "Cicada could not reach GitHub; try again in a moment."
+    return None
+
+
+@router.post("/sources/github/connect/installation", response_model=ConnectStatus, dependencies=_DEMO_GATE)
+async def connect_installation():
+    """After the person installed the app on GitHub (*I installed it*): ask GitHub again whether it is there."""
+    await github_auth.fresh_token()
+    return _connect_status(await _check_installation())
+
+
+@router.delete("/sources/github/connect", response_model=ConnectStatus)
+async def connect_cancel():
+    """The person closed the code before approving: the sign-in under way is dropped (nothing was saved)."""
+    github_auth.cancel()
+    return _connect_status()
+
+
+# --- the lists ------------------------------------------------------------------------------------------------------
 
 
 @router.get("/sources/github/repos", response_model=RepoLists)
 async def list_repos(settings: Settings = Depends(get_settings)):
-    """The repositories the last sync found the person owns — each with the project page it already is, or a
-    suggestion — and every repository page (starred or added). Reads the bank only; never asks GitHub."""
+    """The repositories the last sync found the person owns — each with its page and the projects it belongs to, or a
+    suggestion — and every other repository page (starred, or added before adds were retired). Reads the bank only;
+    never asks GitHub."""
     memory_path = settings.memory_path
 
     def read():
+        pages = github_repos.starred(memory_path)
+        by_id = {r["id"]: r["entity_id"] for r in pages}
         owned = github_repos.with_matches(memory_path, github_repos.owned(memory_path))
-        pages = {r["id"]: r["entity_id"] for r in github_repos.starred(memory_path)}
-        return owned, github_repos.starred(memory_path), pages
+        mine = {r.get("id") for r in owned}
+        others = github_repos.with_matches(memory_path, [r for r in pages if r.get("id") not in mine])
+        return owned, others, by_id
 
-    owned, starred, pages = await asyncio.to_thread(read)
-    return RepoLists(
-        connected=github.is_connected(),
-        owned=[_row(r, entity_id=pages.get(r.get("id")),
-                    project=RepoProject(**r["project"]) if r.get("project") else None) for r in owned],
-        starred=[_row(r, entity_id=r["entity_id"]) for r in starred])
+    owned, others, by_id = await asyncio.to_thread(read)
 
+    def row(r: dict, entity_id) -> RepoRow:
+        return _row(r, entity_id=entity_id, project=RepoProject(**r["project"]) if r.get("project") else None,
+                    projects=_projects(r.get("projects")))
 
-async def _record(full_name: str) -> github_repos.Repo:
-    """GitHub's record of one repository (the person's token when connected), or the refusal in words."""
-    try:
-        raw = await github.read_repo(github.client(), full_name)
-    except tier2.Refused as exc:
-        raise HTTPException(422, exc.words) from exc
-    except tier2.base.ConnectorError as exc:
-        if "HTTP 404" in str(exc):
-            raise HTTPException(404, "GitHub has no repository there that Cicada can read. A private one needs "
-                                     "your GitHub connected (Settings → Sources → GitHub).") from exc
-        raise HTTPException(502, "GitHub did not answer; try again in a moment.") from exc
-    except Exception as exc:  # noqa: BLE001 — the class only, never the message
-        logger.info(f"github: repository not read ({type(exc).__name__})")
-        raise HTTPException(502, "Cicada could not reach GitHub; try again in a moment.") from exc
-    repo = github_repos.Repo.from_api(raw)
-    if repo is None:
-        raise HTTPException(502, "GitHub's answer was not a repository Cicada can read.")
-    return repo
-
-
-def _owned_row(memory_path, full: str) -> dict | None:
-    """The person's own repository ``full`` names, as the last sync listed it, with the project it already is."""
-    rows = [r for r in github_repos.owned(memory_path) if str(r.get("full_name") or "").lower() == full.lower()]
-    return github_repos.with_matches(memory_path, rows)[0] if rows else None
-
-
-def _own_repo_words(row: dict) -> str:
-    full, project = str(row["full_name"]), row.get("project") or {}
-    if project and project.get("how") != "name":
-        return f"{full} is already your project {project.get('name')}; nothing was added."
-    if project:
-        return (f"{full} is one of your repositories and your project {project.get('name')} has its name: link them "
-                f"(Sources → GitHub, or `cicada github project {full} --project {project.get('project')}`). "
-                "Nothing was added.")
-    return (f"{full} is one of your repositories: add it as a project (Sources → GitHub, or `cicada github project "
-            f"{full}`). Nothing was added.")
+    return RepoLists(connected=github.is_connected(), owned=[row(r, by_id.get(r.get("id"))) for r in owned],
+                     starred=[row(r, r["entity_id"]) for r in others])
 
 
 async def _commit(memory_path, paths: list[str], subject: str) -> None:
@@ -175,36 +277,17 @@ async def _commit(memory_path, paths: list[str], subject: str) -> None:
     await git_service.commit_paths(memory_path, message, paths)
 
 
-@router.post("/sources/github/repos", response_model=RepoAddResponse, dependencies=_DEMO_GATE)
-async def add_repo(request: RepoAddRequest, settings: Settings = Depends(get_settings)):
-    """The person adds one repository to the graph — a pasted link, or a row of the synced list: GitHub's record is
-    read first (no admission held), then the page is made or updated and committed as one admitted transaction.
-    Its README preview is read right after, outside the bank."""
-    full = github.parse_repo(request.url)
-    if full is None:
-        raise HTTPException(422, NOT_A_REPO)
-    memory_path = settings.memory_path
-    # One of the person's own (the last sync listed it) is added as a project, never as a repository page (owner
-    # 2026-11-03: "i'd rather it said 'Add as a project'"): every door steers it to the project route.
-    mine = await asyncio.to_thread(_owned_row, memory_path, full)
-    if mine is not None:
-        raise HTTPException(409, _own_repo_words(mine))
-    repo = await _record(full)
-
-    async def write():
-        entity_id, status, paths = await asyncio.to_thread(github_repos.add, memory_path, repo)
-        await _commit(memory_path, paths, "Repository added")
-        return entity_id, status
-
-    entity_id, status = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(BUSY))
-    await github_repos.ensure_readme(memory_path, entity_id, repo.block(), allowed=True)
-    return RepoAddResponse(entity_id=entity_id, full_name=repo.full_name, created=status == "created")
+def _page_record(memory_path, entity_id: str) -> github_repos.Repo | None:
+    page = memory_path / "entities" / f"{entity_id}.md"
+    block = github_repos.page_repo(markdown_parser.parse(page, ledger=False).frontmatter) if page.exists() else None
+    return github_repos.Repo.from_block(block) if block else None
 
 
 @router.post("/sources/github/repos/project", response_model=RepoProjectResponse, dependencies=_DEMO_GATE)
 async def repo_project(request: RepoProjectRequest, settings: Settings = Depends(get_settings)):
-    """The person's "this is my project": link the repository to a project page (``project``), or make one in their
-    list named after it. The repository's record comes from the last sync, else from GitHub."""
+    """The person's link from either page: this repository is one of ``project``'s (or, with ``remove``, is not —
+    remembered, so no automatic link puts it back). With no ``project``, a new project in their list named after it,
+    which lists it (ruling 45: their act). The repository must have its page (it comes from a sync)."""
     from api.services import project_ownership
 
     full = github.parse_repo(request.full_name)
@@ -212,21 +295,26 @@ async def repo_project(request: RepoProjectRequest, settings: Settings = Depends
         raise HTTPException(422, NOT_A_REPO)
     if request.via not in VIAS:
         raise HTTPException(422, "via is app or cli")
+    if request.remove and not request.project:
+        raise HTTPException(422, "Name the project to unlink it from.")
     memory_path = settings.memory_path
-    owned = await asyncio.to_thread(github_repos.owned, memory_path)
-    block = next((r for r in owned if str(r.get("full_name") or "").lower() == full.lower()), None)
-    repo = github_repos.Repo.from_block(block) if block else None
-    if repo is None:
-        repo = await _record(full)
+    entity_id = await asyncio.to_thread(github_repos.repository_page, memory_path, full)
+    if entity_id is None:
+        raise HTTPException(404, NOT_IN_MEMORY.format(full=full))
 
     async def write():
         if request.project:
             try:
-                paths = await asyncio.to_thread(github_repos.link_project, memory_path, request.project, repo)
+                paths = await asyncio.to_thread(github_repos.link, memory_path, request.project, entity_id,
+                                                remove=request.remove)
             except LookupError as exc:
                 raise HTTPException(404, f"{request.project!r} is not a project page") from exc
-            await _commit(memory_path, paths, "Repository linked to its project")
+            await _commit(memory_path, paths, "Repository unlinked from a project" if request.remove
+                          else "Repository linked to its project")
             return request.project, False
+        repo = await asyncio.to_thread(_page_record, memory_path, entity_id)
+        if repo is None:
+            raise HTTPException(404, NOT_IN_MEMORY.format(full=full))
         try:
             eid, paths = await asyncio.to_thread(github_repos.make_project, memory_path, repo, via=request.via)
         except project_ownership.OwnershipError as exc:
@@ -235,45 +323,75 @@ async def repo_project(request: RepoProjectRequest, settings: Settings = Depends
         return eid, True
 
     project, created = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(BUSY))
-    return RepoProjectResponse(project=project, created=created)
+    return RepoProjectResponse(project=project, created=created, linked=not request.remove)
+
+
+# --- a page's card ----------------------------------------------------------------------------------------------
 
 
 @router.get("/entities/{entity_id}/repository", response_model=RepoDetail)
 async def get_repository(entity_id: str, settings: Settings = Depends(get_settings)):
-    """A repository page's card (or a project's, once linked): GitHub's record as the page keeps it, the project it
-    is, and its README preview — kept outside every bank, read through the API when missing or a week old while the
-    picture-fetch gate is on (the page's open is the person's view, like its logo). 404 for any other page."""
+    """A repository page's card: GitHub's record as the page keeps it, the projects it belongs to and the ones it
+    could join, and its README preview — kept outside every bank, read through the API when missing or a week old
+    while the picture-fetch gate is on (the page's open is the person's view, like its logo). 404 for any other page
+    (a project's repositories are ``/entities/{id}/repositories``)."""
     memory_path = settings.memory_path
     page = memory_path / "entities" / f"{entity_id}.md"
     if not page.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
     fm = (await asyncio.to_thread(markdown_parser.parse, page)).frontmatter
     block = github_repos.page_repo(fm)
-    if block is None:
+    if block is None or not github_repos.is_repository_page(fm):
         raise HTTPException(404, f"{entity_id!r} is not a repository")
+    if media_preview.fetch_allowed():
+        await github_auth.fresh_token()
     readme = await github_repos.ensure_readme(memory_path, entity_id, block, allowed=media_preview.fetch_allowed())
-    match = None
-    if not github_repos.is_repository_page(fm):
-        match = RepoProject(project=entity_id, name=str(fm.get("name") or entity_id), how="linked")
-    else:
-        # Derived on read: the person owns it when the page says so or the last sync listed it (a pasted link of their
-        # own repository carries no login); the project it already is shows for any repository, a same-name
-        # suggestion only for one they own.
-        full = str(block["full_name"])
+    full = str(block["full_name"])
 
-        def derive():
-            mine = bool(block.get("owned")) or any(
-                str(r.get("full_name") or "").lower() == full.lower() for r in github_repos.owned(memory_path))
-            return mine, github_repos.project_match(memory_path, full, salt=github_repos._salt())
+    def derive():
+        mine = bool(block.get("owned")) or any(
+            str(r.get("full_name") or "").lower() == full.lower() for r in github_repos.owned(memory_path))
+        [row] = github_repos.with_matches(memory_path, [{"full_name": full}])
+        linked = {p["project"] for p in row["projects"]}
+        return mine, row, github_repos.project_candidates(memory_path, full, linked=linked)
 
-        mine, found = await asyncio.to_thread(derive)
-        block = {**block, "owned": mine}
-        if found and (found["how"] != "name" or mine):
-            match = RepoProject(**found)
+    mine, row, candidates = await asyncio.to_thread(derive)
+    match = row["project"]
+    # A same-name suggestion only for one the person owns; a settled link for any repository.
+    if match and match["how"] == "name" and not mine:
+        match = None
+        candidates = [c for c in candidates if c["how"] != "name"]
     state = github_repos.readme_state(readme)
     if readme and readme.get("none"):
         state = "none"
-    return RepoDetail(**_row(block, project=match).model_dump(exclude={"entity_id"}), entity_id=entity_id,
+    fields = {**_row_fields({**block, "owned": mine})}
+    return RepoDetail(**fields, entity_id=entity_id, project=RepoProject(**match) if match else None,
+                      projects=_projects(row["projects"]), candidates=_projects(candidates),
                       readme=Readme(state=state, text=(readme or {}).get("text"),
                                     truncated=bool((readme or {}).get("truncated")),
                                     path=(readme or {}).get("path"), fetched_at=(readme or {}).get("fetched_at")))
+
+
+@router.get("/entities/{entity_id}/repositories", response_model=ProjectRepos)
+async def get_project_repositories(entity_id: str, settings: Settings = Depends(get_settings)):
+    """A project's repositories — every one it lists, each with its page when it has one and how it was linked — and
+    the repository pages it could link (the person's own first, one with the project's name before the rest). 404 for
+    a page that is not a project. Reads only."""
+    memory_path = settings.memory_path
+    page = memory_path / "entities" / f"{entity_id}.md"
+    if not page.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    fm = (await asyncio.to_thread(markdown_parser.parse, page, ledger=False)).frontmatter or {}
+    if str(fm.get("type") or "") != "project":
+        raise HTTPException(404, f"{entity_id!r} is not a project")
+
+    def derive():
+        rows = github_repos.project_repositories(memory_path, entity_id)
+        linked = {r["entity_id"] for r in rows if r.get("entity_id")}
+        return rows, github_repos.repository_candidates(memory_path, entity_id, linked=linked)
+
+    rows, candidates = await asyncio.to_thread(derive)
+    repos = [ProjectRepo(**_row_fields(r["block"] or {"full_name": r["full_name"]}), entity_id=r.get("entity_id"),
+                         how=r["how"], by=r.get("by")) for r in rows]
+    return ProjectRepos(project=entity_id, repos=repos,
+                        candidates=[_row(r, entity_id=r["entity_id"]) for r in candidates])

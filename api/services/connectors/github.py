@@ -1,44 +1,53 @@
 """GitHub — the person's own repositories and the ones they starred (ruling 47 tier 2, G230).
 
 The browser sees a repository page now and then; GitHub's REST API holds the person's whole list — every repository
-they own and every one they starred, with when — through a token they make themselves (a fine-grained token with
-read-only "Metadata", "Contents" and "Starring", or a classic one with no scope for public repositories). Only ``GET``
-requests to ``api.github.com``; Cicada never writes to GitHub. Off until the person pastes a token, said in words
-(:data:`READS`), forgotten by Disconnect.
+they own and every one they starred, with when. **The person connects with a code** (owner 2026-11-03: "cant we just
+do oauth? like a connect?"): GitHub's device flow for Cicada's own read-only GitHub App (``github_auth``) — no token to
+make, no secret, no server of Cicada's. A token the person makes themselves (fine-grained, read-only "Metadata",
+"Contents" and "Starring") is the fallback behind "Use a token instead", for a build whose app is not registered yet.
+Only ``GET`` requests to ``api.github.com``; Cicada never writes to GitHub. Off until the person connects, said in
+words (:data:`READS`), forgotten by Disconnect.
 
 What a sync brings in, one item per repository, keyed by GitHub's own numeric id (a rename or a transfer keeps it):
 
 * **A repository the person owns** — ``github:owned:<id>``, staged through ``episode_staging`` (scrubbed, hashed, an
-  edit rewrites in place, a repository gone from the list is tombstoned and kept). Indexed, never read by a model
-  (``history_index.LIST_ORIGINS``, ruling 30's posture): a repository's existence is a record GitHub kept, not the
-  person's words, and it never mints a page. It is OFFERED: the Sources row lists it, with the project page it already
-  is (``github_repos.project_match``: the same salted origin hash a hook observed, or a ``repo`` source on a project),
-  and the person may make it a project or add it to the graph (ruling 45: only their act lists a project).
+  edit rewrites in place, a repository gone from the list is tombstoned and kept), indexed and never read by a model
+  (``history_index.LIST_ORIGINS``, ruling 30's posture) — **and a page** (owner 2026-11-03: "there shouldn't be added
+  manually, always sync and make their initial markdowns, and develop them if needed"): a ``media`` page
+  (``media.kind: repository``, ``github.owned: true``) whose first markdown is its name, link, description, language,
+  topics and a summary from its README (``github_repos.apply_owned``). A repository page is not a project page: a
+  project lists its repositories (``github_repos.link``), by the hook's D2a origin hash or the person's act.
 * **A repository the person starred** — a save, like a bookmark: one ``media`` page (``media.kind: repository``) and
   one index-only save episode through ``media_ingestor``'s own write path, dated when it was starred
   (``github_repos.apply_stars``). A later sync updates the page's GitHub block in place; a repository no longer starred
   is marked so on its page and kept — nothing is deleted.
 
-**Requests** (:func:`fetch`): ``/user`` (the account's own login, to tell its own repositories apart), then
-``/user/repos?affiliation=owner`` and ``/user/starred`` 100 at a time, at most ``MAX_PAGES`` pages each. Nothing a
-request sends names anyone: only the person's own account endpoints and, for a README, the repository's own path.
-GitHub allows 5,000 requests an hour with a token; a 429 (or a 403 that says the limit was reached) is answered in
-words and the next sync starts over. The transport (:func:`guarded_transport`) is ``api.github.com`` only, through
-``net_guard``'s address rule, no redirects, no cookies, 4 s and 512 KB a response (the ToS rail's numbers).
+**Requests** (:func:`fetch`): ``/user`` (the account's own login, to tell its own repositories apart),
+``/user/installations`` (signed in with the app: whether it is installed on the person's account, which is what lets
+it see their repositories), then ``/user/repos?affiliation=owner`` and ``/user/starred`` 50 at a time, at most
+``MAX_PAGES`` pages each, and ``/repos/{owner}/{name}/readme`` once for each of their own repositories whose page is
+about to be made (its first summary). Nothing a request sends names anyone: only the person's own account endpoints
+and the repository's own path. GitHub allows 5,000 requests an hour with a token; a 429 (or a 403 that says the limit
+was reached) is answered in words and the next sync starts over. The transport (:func:`guarded_transport`) is
+``api.github.com`` only, through ``net_guard``'s address rule, no redirects, no cookies, 4 s and 512 KB a response (the
+ToS rail's numbers).
 
-A README is never read during a sync: it is asked for one repository at a time, when the person adds it or opens its
-page (``github_repos.ensure_readme``), and kept outside every bank.
+A starred repository's README is never read during a sync: it is asked for one repository at a time, when the person
+opens its page (``github_repos.ensure_readme``), and kept outside every bank.
 """
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
+from loguru import logger
+
 from api.services import episode_ids, episode_scrub, episode_staging
-from api.services.connectors import tier2
+from api.services.connectors import github_auth, tier2
 
 CHANNEL_ID = "github"
 LABEL = "GitHub"
@@ -49,22 +58,37 @@ ORIGIN_OWNED = "github-owned"
 ORIGIN_STARRED = "github-starred"
 OWNED_PREFIX = "github:owned:"
 SCRUB_WRITER = "github"
-TOKEN_ENV = "CICADA_GITHUB_TOKEN"
+TOKEN_ENV = github_auth.TOKEN_ENV
+#: The fallback: a token the person pastes (behind "Use a token instead").
 FIELDS: tuple[dict, ...] = ({"name": TOKEN_ENV, "label": "GitHub token", "secret": True},)
-SECRET_NAMES: tuple[str, ...] = (TOKEN_ENV,)
+#: The token, its refresh token, when it lapses and how it was made — every one forgotten by Disconnect.
+SECRET_NAMES: tuple[str, ...] = github_auth.SECRET_NAMES
 API_BASE = "https://api.github.com/"
 API_HOST = "api.github.com"
 WEB_HOSTS = frozenset({"github.com", "www.github.com"})
 TOKEN_HELP = "github.com/settings/personal-access-tokens"
 #: One short line (owner 2026-11-03: "this text is extremely unnecessary in all pages that have it, remove it"); the
 #: panel adds where the token comes from while it is not connected, so neither says it twice.
-READS = "Read-only: the repositories you own and the ones you starred; a README only when you add or open one."
+READS = "Read-only: your repositories, each with its README, and the ones you starred."
 #: GitHub's rate limits (the primary hourly one, or a secondary one for too many requests at once). A sync reads both
 #: lists whole each time, so a sync a limit stopped saved nothing and the next one starts again from the top.
 RATE_WORDS = ("GitHub asked Cicada to slow down, so nothing was saved this time; the next sync reads your repositories "
               "again from the start.")
-REFUSED_WORDS = ("GitHub refused the token. Make a new one at github.com/settings/personal-access-tokens and paste "
-                 "it in Settings → Sources → GitHub.")
+REFUSED_WORDS = "GitHub refused Cicada's access. Connect GitHub again in Sources → GitHub."
+#: Signed in with the app, not installed on the person's account: their own repositories are out of its reach.
+NOT_INSTALLED_WORDS = ("Your stars came in. To bring in your own repositories, install Cicada on your GitHub account "
+                       "(Sources → GitHub → Install on GitHub).")
+def not_shared_words(n: int) -> str:
+    """Installed on selected repositories only: the ones left out, said — their records and pages are kept."""
+    if n == 1:
+        return ("One of your repositories isn't shared with Cicada on GitHub, so it was not read; its page stays. Add "
+                "it to Cicada's installation on GitHub to read it again.")
+    return (f"{n} of your repositories aren't shared with Cicada on GitHub, so they were not read; their pages stay. "
+            "Add them to Cicada's installation on GitHub to read them again.")
+
+
+#: How many README reads run at once in a sync (a first sync of many repositories).
+README_CONCURRENCY = 4
 
 #: Rows a list request asks for. GitHub allows 100, but a real 100-repository page measured 633,641 bytes (a starred
 #: row ~6.1 KB with every URL template GitHub sends), past the ToS rail's 512 KB a response: 50 a page stays under it
@@ -112,8 +136,21 @@ def forget() -> None:
     token's to read). The pages and episodes in memory stay — they are the person's, to keep or remove."""
     from api.services import github_repos
 
+    github_auth.cancel()
     tier2.forget(_self())
     github_repos.forget_readmes()
+
+
+def on_token_saved() -> None:
+    """The person pasted a token (Settings, or `cicada connector connect github`): the code sign-in it replaces is
+    forgotten — its refresh token, its expiry, its "signed in by code" mark and its install state — so a later renewal
+    never puts the old sign-in's token back over the pasted one."""
+    github_auth.forget_sign_in()
+
+
+async def prepare() -> None:
+    """Before a sync's first request (``tier2.run``): a signed-in token about to lapse is renewed."""
+    await github_auth.fresh_token()
 
 
 async def check(client: tier2.Client) -> None:
@@ -284,26 +321,79 @@ async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.
 
     me = await client.get("user") or {}
     login = str(me.get("login") or "")
+    installation = await github_auth.check_installation(client, login)
     owned, owned_done = await _pages(client, "user/repos", affiliation="owner", sort="full_name")
     starred, starred_done = await read_starred(client)
     records = [github_repos.Repo.from_api(r) for r in owned]
     records = [r for r in records if r is not None]
     drafts = [_owned_draft(r) for r in records]
     stars = [(rec, s.get("starred_at")) for s in starred if (rec := github_repos.Repo.from_api(s["repo"]))]
-    words = None
-    if not (owned_done and starred_done):
-        words = f"GitHub's list was longer than {PER_PAGE * MAX_PAGES} items; the first ones came in."
+    # A first summary for each page about to be made — never for a page that exists or one the person removed.
+    readmes = await _readmes(client, github_repos.pages_to_make(memory_path, records))
+    words = [f"GitHub's list was longer than {PER_PAGE * MAX_PAGES} items; the first ones came in."] \
+        if not (owned_done and starred_done) else []
+    installed = bool(installation.get("installed"))
+    if not installed:
+        words.append(NOT_INSTALLED_WORDS)
+    # Installed on some repositories only: one left out of the selection is out of the app's sight, not deleted.
+    selected = installation.get("selection") == "selected"
+    if installed and selected and owned_done:
+        seen_ids = {r.id for r in records}
+        hidden = [r for r in github_repos.owned(memory_path) if r.get("id") not in seen_ids]
+        if hidden:
+            words.append(not_shared_words(len(hidden)))
     batch = tier2.Batch(
         drafts=drafts,
         # The owned list was read whole: a repository gone from it is tombstoned (kept), never silently dropped. A list
-        # cut short at MAX_PAGES replaces nothing.
-        replaced=[OWNED_PREFIX.rstrip(":")] if owned_done else [],
+        # cut short at MAX_PAGES replaces nothing, and neither does one the app could not wholly see (not installed, or
+        # installed on selected repositories: nothing was deleted on GitHub).
+        replaced=[OWNED_PREFIX.rstrip(":")] if owned_done and installed and not selected else [],
         seen=len(records) + len(stars),
         cursor={"login_hash": github_repos.login_key(login)} if login else {},
-        words=words,
+        words=" ".join(words) or None,
     )
-    batch.after = lambda path: github_repos.apply_stars(path, stars, login=login, complete=starred_done)
+
+    def after(path: Path) -> dict:
+        mine = github_repos.apply_owned(path, records, readmes=readmes)
+        theirs = github_repos.apply_stars(path, stars, login=login, complete=starred_done)
+        out = {"paths": list(dict.fromkeys([*mine["paths"], *theirs["paths"]])),
+               "created": mine["created"] + theirs["created"], "updated": mine["updated"] + theirs["updated"],
+               "live": theirs["live"]}
+        said = " ".join(w for w in (mine.get("words"), theirs.get("words")) if w)
+        if said:
+            out["words"] = said
+        # After the sync's own commit: the D2a links, Cicada's inference, committed under its own author.
+        out["then"] = github_repos.link_by_origin
+        return out
+
+    batch.after = after
     return batch
+
+
+async def _readmes(client: tier2.Client, repos: list) -> dict[int, str]:
+    """``{repository id: README markdown}`` for ``repos``, :data:`README_CONCURRENCY` at a time; a repository with no
+    README, or one whose read failed, is absent — its page is made without a summary. A refusal (the token, a rate
+    limit) stops the sync in words like any other request."""
+    from api.services import github_repos
+
+    gate = asyncio.Semaphore(README_CONCURRENCY)
+    out: dict[int, str] = {}
+
+    async def one(repo) -> None:
+        async with gate:
+            try:
+                record = await read_readme(client, repo.full_name)
+            except tier2.Refused:
+                raise
+            except Exception as exc:  # noqa: BLE001 — one README never stops the rest; the class only
+                logger.info(f"github: a README was not read ({type(exc).__name__})")
+                return
+        text = github_repos.decode_readme(record) if record else None
+        if text:
+            out[repo.id] = text
+
+    await asyncio.gather(*(one(r) for r in repos))
+    return out
 
 
 def _owned_draft(repo) -> episode_staging.EpisodeDraft:

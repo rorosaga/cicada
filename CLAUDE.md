@@ -260,7 +260,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **A project is born only from a repository the hook observed or the person's own located words calling it one —
   never from this rule (ruling 36 D4, `project_birth`); an older page is never archived for it.** **Ruling 45: the person, their
   shell or a trusted agent on their ask may create one; only those, folders they named, ones they logged progress on
-  and suggestions they took are listed — the rest is suggested, never archived (`project_ownership`, `storage.md`).** One never called a
+  and suggestions they took are listed — the rest is suggested, never archived (`project_ownership`, `storage.md`).**
+  **Ruling 53 (owner 2026-11-03):** every repository the person owns is a `media` page on sync, never added by hand and
+  never a project; a project lists its repositories, linked by the person, a trusted agent or D2a's origin hash, never
+  a name (`github_repos`). GitHub connects by a code (device flow, read-only GitHub App; `network.md`). One never called a
   project gets, over this rule counted across the spellings the judge joins, one `concept` page a later birth retypes in
   place (owner 2026-10-23, `capture-and-sleep.md`). What is said about a
   name with no page yet is held (`pending_store`), never lost. A page only an import made is quiet — dimmed, never
