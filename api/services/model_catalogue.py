@@ -197,6 +197,26 @@ def _iso(ts: float | None) -> str | None:
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def read_section(name: str) -> dict:
+    """One engine's own part of the cache file (G237: a Claude key's listing). Empty when there is none. Read only."""
+    section = _read().get(name)
+    return section if isinstance(section, dict) else {}
+
+
+def update_section(name: str, change) -> None:
+    """Change one engine's part of the cache file under the lock, on a copy. ``change(section)`` edits it in place.
+    A file that cannot be written is rebuilt next time; never raises."""
+    try:
+        with _LOCK:
+            data = _load()
+            section = data.get(name) if isinstance(data.get(name), dict) else {}
+            change(section)
+            data[name] = section
+            _save(data)
+    except Exception as exc:  # noqa: BLE001 — never fails a run or a page
+        logger.warning(f"model catalogue: {name} not saved ({type(exc).__name__})")
+
+
 # ---- the Claude plan's list --------------------------------------------------------------------------------------
 
 

@@ -408,6 +408,8 @@ def classify_episode(exc: BaseException) -> tuple[str, str | None]:
     so it can receive its second conversation attempt and be parked."""
     from api.services import json_parse
 
+    if isinstance(exc, engine_errors.EngineRefused):
+        return "content", "refused"
     try:   # the metered rung: a key, a model or a quota is the engine's trouble, never the conversation's
         import litellm
 

@@ -4,6 +4,8 @@
 # and the CA bundle the bundled Python needs for HTTPS named explicitly.
 # test_release_build.py holds this list to pyproject's. Recompile the lock with
 #   scripts/release/lock-requirements.sh
+# A Claude API key's calls, direct (api/services/anthropic_engine.py, G237).
+anthropic>=2.5,<3
 apscheduler>=3.10
 beautifulsoup4>=4.14.3
 fastapi>=0.135.3

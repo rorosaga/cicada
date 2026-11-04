@@ -94,6 +94,12 @@ class EngineConnectionLost(EngineFailed):
     """
 
 
+class EngineRefused(ValueError):
+    """The model declined this one conversation (G237: ``stop_reason: refusal``, HTTP 200). No usable answer, never an
+    engine failure: a ``ValueError`` so the later stages take their no-answer path, and ``sleep_drain`` files it as
+    the conversation's ``refused``. Not retried."""
+
+
 def is_connectivity_error(message: str) -> bool:
     """Recognize transport diagnoses on failed CLI output, never successful reply text."""
     text = message.lower()

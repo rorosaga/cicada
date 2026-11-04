@@ -5,6 +5,8 @@ description = "Cicada companion app backend — filesystem-backed API for the pe
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    # A Claude API key's calls, direct (api/services/anthropic_engine.py, G237); every other key stays on litellm.
+    "anthropic>=2.5,<3",
     "apscheduler>=3.10",
     "beautifulsoup4>=4.14.3",
     # EmbeddingGemma 2 on the Neural Engine (api/services/coreml_embedder.py; macOS 15+, owner 2026-10-09).

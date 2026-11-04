@@ -249,6 +249,12 @@ def _throttle_refs(stream) -> dict:
     return refs
 
 
+def _is_real_litellm(completion) -> bool:
+    """``completion`` is litellm's own entry point, not a caller's or a test's stand-in. By its defining module: a
+    test that patches ``litellm.acompletion`` hands in its fake, which is defined elsewhere."""
+    return str(getattr(completion, "__module__", "") or "").startswith("litellm")
+
+
 def resolve_llm_fn(
     settings: Settings,
     *,
@@ -386,8 +392,18 @@ def resolve_llm_fn(
     is_openrouter = resolved_model.startswith("openrouter/")
     headers = _openrouter_headers(settings) if is_openrouter else None
 
-    if is_cli:
+    # G237, ruling 63: a key whose provider has its own SDK row is served by it, behind the same seam as a plan (the
+    # semaphore, the breaker, the drain's retry, the ledger). An injected fake is a test's answer and stays one.
+    direct = None
+    if not is_cli and not is_local and _is_real_litellm(completion):
+        from api.services import direct_engines
+
+        direct = direct_engines.for_model(resolved_model)
+
+    if is_cli or direct is not None:
         from api.services import agent_engine
+
+    if is_cli:
 
         # A plan call is not money and does not belong to the disconnected
         # BYOK API-key card. `connection` must EQUAL the adapter id —
@@ -411,7 +427,7 @@ def resolve_llm_fn(
             connection, billing = engine_select.PLAN_ENGINES[engine_label]
             argv_model = cli_engines.model_for_stage(settings, stage)
     else:
-        engine_label = "litellm"
+        engine_label = direct.label if direct is not None else "litellm"
         connection, billing = telemetry.connection_for_model(resolved_model)
         argv_model = resolved_model
 
@@ -467,7 +483,7 @@ def resolve_llm_fn(
                     _source = telemetry.cost_from_response(resp)[1]
                     if _source:
                         refs = {**(refs or {}), "cost_source": _source}
-                equiv = pricing.estimate_cost(
+                equiv = cost if direct is not None else pricing.estimate_cost(
                     resolved_model, usage["input_tokens"], usage["output_tokens"],
                     usage["cache_read_tokens"], usage["cache_write_tokens"])
                 if equiv is None:
@@ -503,7 +519,7 @@ def resolve_llm_fn(
             logger.warning(f"telemetry sink failed: {sink_exc}")
 
     def _agent_invoke(messages, response_format, timeout: float, reasoning_off: bool = False,
-                      web_search: bool = False):
+                      web_search: bool = False, max_tokens: int | None = None):
         """One plan-CLI call (`claude -p` or `codex exec`), the response shim,
         and telemetry.
 
@@ -540,7 +556,17 @@ def resolve_llm_fn(
         started = time.perf_counter()
         seen: dict = {}
         try:
-            if mode == "agent":
+            if direct is not None:
+                # Reasoning off is the plan's `--effort <agent_low_effort>`: one setting, one meaning on both paths.
+                low = str(getattr(settings, "agent_low_effort", "low") or "").strip()
+                resp = direct.complete(
+                    messages=messages, model=argv_model, stage=stage, want_json=response_format is not None,
+                    timeout=timeout, scope=resolved_scope, effort=low if reasoning_off and low else None,
+                    max_tokens=max_tokens, web_search=web_search)
+                used = resp["model"]
+                equiv = None
+                refs = {}
+            elif mode == "agent":
                 envelope = agent_engine.complete(
                     messages=messages, model=argv_model, stage=stage,
                     want_json=response_format is not None, timeout=timeout, runner=runner,
@@ -647,11 +673,11 @@ def resolve_llm_fn(
                 guard.observe_signals(seen_["stream"].rate_limits)
 
     def _agent_invoke_sync(messages, response_format, timeout: float, reasoning_off: bool = False,
-                           web_search: bool = False):
+                           web_search: bool = False, max_tokens: int | None = None):
         for attempt in range(2):
             try:
                 with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-                    return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search)
+                    return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search, max_tokens)
             except engine_errors.RETRYABLE as exc:
                 delay = _drain_retry_delay(attempt, exc)
                 if delay is None:
@@ -673,7 +699,7 @@ def resolve_llm_fn(
         return delay
 
     async def _agent_invoke_async(messages, response_format, timeout: float, reasoning_off: bool = False,
-                                  web_search: bool = False):
+                                  web_search: bool = False, max_tokens: int | None = None):
         # Round 2 finding 2: the acquire, the call, and the release all
         # happen INSIDE this one `asyncio.to_thread` dispatch, sharing the
         # exact same `threading.BoundedSemaphore` a sync caller blocks on —
@@ -681,7 +707,7 @@ def resolve_llm_fn(
         # loop, while still drawing from the ONE process-wide capacity pool.
         def _run_with_permit():
             with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-                return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search)
+                return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search, max_tokens)
 
         for attempt in range(2):
             try:
@@ -713,12 +739,15 @@ def resolve_llm_fn(
         reasoning_off = _reasoning_off(kw.get("extra_body"))
         # The web lookup (owner ruling 2026-10-16): the plan's own search as the call's one tool. Only the
         # Claude plan has it here; the ChatGPT rung never gets a tool.
-        web_search = bool(kw.get("web_search")) and mode == "agent"
+        web_search = bool(kw.get("web_search")) and (mode == "agent" or direct is not None)
+        # A caller's output cap reaches only a key's SDK (a spend guard there); a plan has no such flag.
+        cap = kw.get("max_tokens") if direct is not None else None
+        cap = cap if isinstance(cap, int) and not isinstance(cap, bool) and cap > 0 else None
         if is_async:
-            return _agent_invoke_async(messages, response_format, timeout, reasoning_off, web_search)
-        return _agent_invoke_sync(messages, response_format, timeout, reasoning_off, web_search)
+            return _agent_invoke_async(messages, response_format, timeout, reasoning_off, web_search, cap)
+        return _agent_invoke_sync(messages, response_format, timeout, reasoning_off, web_search, cap)
 
-    if is_cli:
+    if is_cli or direct is not None:
         return _agent_call
 
     def _call(*, messages, response_format=None, **kw):

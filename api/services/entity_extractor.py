@@ -757,6 +757,8 @@ async def _extract_chunk(
         )
         raw = response.choices[0].message.content
         return _parse_json_lenient(raw)
+    except engine_errors.EngineRefused:
+        raise   # the model declined this text: asking again is paying twice for the same answer (G237)
     except _EXTRACT_RETRYABLE as e:
         if _attempt >= 1:
             raise
