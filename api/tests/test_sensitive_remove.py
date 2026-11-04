@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import importlib.util
 import json
 import subprocess
 from pathlib import Path
@@ -15,7 +16,7 @@ from fastapi import HTTPException
 
 from api.models.schemas import InboxResolveRequest
 from api.services.episode_staging import Turn
-from api.services import (bank_index, claims_ledger, episode_staging, inbox_service, markdown_parser, search_index,
+from api.services import (bank_index, claims, claims_ledger, episode_staging, inbox_service, markdown_parser, search_index,
                           sensitive_flags as sf, sensitive_hold, sensitive_purge as purge, sensitive_text as st, turn_signals,
                           vector_index)
 
@@ -487,3 +488,184 @@ def test_in_scope_matches_the_walk(bank):
     assert "entities/alpha.md" in walked and "_state.md" not in walked and not any(w.startswith("episodes/") for w in walked)
     assert all(purge.in_scope(w) for w in walked)
     assert not purge.in_scope("_state.md") and not purge.in_scope("episodes/x.md") and not purge.in_scope(".awake/x.json")
+
+
+# ---- a wrong alarm never rewrites something unrelated: made-up values, each a shape a real word has
+
+
+FALSE_ALARM = "gpt-4o"
+OTHER_EPS = [f"ep_2026-10-{d:02d}_001" for d in range(1, 5)]
+
+
+def _same(paths: list[Path]) -> dict[Path, bytes]:
+    return {p: p.read_bytes() for p in paths}
+
+
+def _claim_page(bank: Path, name: str, obj: str, quote: str, ep: str = EP) -> Path:
+    line = claims._jsonl_line({"id": "c1", "subject": name, "predicate": "uses", "object": obj, "quote": quote,
+                               "evidence": [{"episode": ep, "quote": quote}]})
+    return _page(bank, name, {}, f"Prose.\n\n```claims\n{line}\n```\n")
+
+
+@pytest.mark.parametrize("value", [FALSE_ALARM, "next-js15", "v0.7.3", "Madrid-2024", "k8s-prod"])
+def test_an_unsure_token_stays_out_of_every_page_and_conversation_not_tied_to_it(bank, value):
+    _ep(bank, body=f"user: la clave es {value}")
+    others = [_ep(bank, ep, f"user: we run on {value} now") for ep in OTHER_EPS]
+    page = _page(bank, "alpha", {"model": value}, f"Runs on {value}.")
+    _commit(bank)
+    assert sf.plan(bank)[0]["unsure"] == 1
+    before = _same([*others, page])
+    out = _remove(bank, EP)
+    assert _same([*others, page]) == before
+    assert value not in (bank / "episodes" / f"{EP}.md").read_text(encoding="utf-8").split("\n---\n", 1)[-1]
+    assert out["stayed"] == 1 and out["still_found"] == 0
+
+
+def test_an_unsure_token_leaves_a_page_citing_it_only_where_the_line_speaks_of_a_secret(bank):
+    _ep(bank, body=f"user: la clave es {FALSE_ALARM}")
+    page = _page(bank, "alpha", {"model": FALSE_ALARM, "source": EP},
+                 f"Runs on {FALSE_ALARM}.\nLa clave es {FALSE_ALARM}.")
+    _commit(bank)
+    out = _remove(bank, EP)
+    parsed = markdown_parser.parse(page)
+    assert parsed.frontmatter["model"] == FALSE_ALARM
+    assert f"Runs on {FALSE_ALARM}." in parsed.body
+    assert f"La clave es {FALSE_ALARM}" not in parsed.body and "[removed: password]" in parsed.body
+    assert out["still_found"] == 0
+
+
+def test_a_confident_token_more_than_a_few_conversations_hold_does_not_travel(bank):
+    _ep(bank, body="user: my password is next-js15")
+    others = [_ep(bank, ep, "user: moving to next-js15 today") for ep in OTHER_EPS]
+    page = _page(bank, "alpha", {"framework": "next-js15"}, "Built on next-js15.")
+    _commit(bank)
+    rows = sf.plan(bank)
+    assert rows[0]["unsure"] == 0
+    before = _same([*others, page])
+    out = _remove(bank, EP)
+    assert _same([*others, page]) == before
+    assert out["stayed"] == 1
+
+
+def test_a_confident_rare_token_travels_up_to_the_limit_and_takes_the_conversations_with_it(bank):
+    _ep(bank, body=f"user: my password is {VALUE}")
+    others = [_ep(bank, ep, f"user: logged in with {VALUE}") for ep in OTHER_EPS[:st.RARE_CONVERSATIONS]]
+    page = _page(bank, "alpha", {"note": VALUE}, f"It is {VALUE}.")
+    _commit(bank)
+    out = _remove(bank, EP)
+    assert all(VALUE not in p.read_text(encoding="utf-8") for p in [*others, page])
+    assert out["stayed"] == 0 and out["still_found"] == 0
+
+
+def test_a_token_on_many_pages_does_not_travel_however_few_conversations_hold_it(bank):
+    _ep(bank, body=f"user: my password is {VALUE}")
+    pages = [_page(bank, f"page-{i}", {}, f"Written up as {VALUE}.") for i in range(sf._RARE_FILES + 1)]
+    _commit(bank)
+    before = _same(pages)
+    assert _remove(bank, EP)["stayed"] == 1
+    assert _same(pages) == before
+
+
+def test_removing_rows_together_does_not_make_their_value_look_rare_halfway(bank):
+    eps = [EP, *OTHER_EPS]
+    for ep in eps:
+        _ep(bank, ep, "user: my password is next-js15")
+    page = _page(bank, "alpha", {"framework": "next-js15"}, "Built on next-js15.")
+    _commit(bank)
+    before = page.read_bytes()
+    out = _remove(bank)
+    assert out["removed"] == len(eps) and page.read_bytes() == before
+
+
+def test_a_row_id_is_no_tie_to_a_longer_one(bank):
+    _ep(bank, "ep_2026-11-01_001", "user: my gmail password is Cocodrilo")
+    page = _page(bank, "alpha", {"source": "ep_2026-11-01_0011"}, "The password is Cocodrilo.")
+    tied = _page(bank, "beta", {"source": "ep_2026-11-01_001"}, "The password is Cocodrilo.")
+    _commit(bank)
+    before = page.read_bytes()
+    _remove(bank, "ep_2026-11-01_001")
+    assert page.read_bytes() == before
+    assert "Cocodrilo" not in tied.read_text(encoding="utf-8")
+
+
+def test_the_dry_run_says_what_each_row_would_touch_and_writes_nothing(bank, capsys):
+    script = Path(__file__).resolve().parents[2] / "scripts" / "sensitive_removal.py"
+    spec = importlib.util.spec_from_file_location("g235_sensitive_removal", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _ep(bank, body=f"user: my password is {VALUE}\nuser: la clave es {FALSE_ALARM}")
+    other = _ep(bank, OTHER_EPS[0], f"user: logged in with {VALUE}")
+    page = _page(bank, "alpha", {}, f"It is {VALUE}.")
+    _commit(bank)
+    before = _same([other, page])
+    assert module.main(["--memory", str(bank)]) == 0
+    out = capsys.readouterr().out
+    assert "other-conversations:1 files:1 stays:1" in out
+    assert VALUE not in out and FALSE_ALARM not in out
+    assert _same([other, page]) == before and not _git(bank, "status", "--porcelain").strip()
+
+
+# ---- a plain word in a claim fence, and a count that tells the truth
+
+
+def test_a_plain_word_password_leaves_the_claim_fence_of_a_page_citing_it(bank):
+    _ep(bank, body="user: my gmail password is Cocodrilo")
+    page = _claim_page(bank, "alpha", "Cocodrilo", "my gmail password is Cocodrilo")
+    _commit(bank)
+    out = _remove(bank, EP)
+    text = page.read_text(encoding="utf-8")
+    assert "Cocodrilo" not in text
+    loaded = claims.load_fence_payload(claims._CLAIMS_BLOCK_RE.search(markdown_parser.parse(page).body).group("payload"))
+    assert loaded[0]["id"] == "c1" and loaded[0]["object"] == "[removed: password]"
+    assert out["still_found"] == 0
+
+
+def test_a_claim_about_the_same_word_elsewhere_on_the_page_keeps_it(bank):
+    _ep(bank, body="user: my gmail password is Cocodrilo")
+    good = claims._jsonl_line({"id": "c1", "object": "Cocodrilo", "quote": "my gmail password is Cocodrilo"})
+    other = claims._jsonl_line({"id": "c2", "object": "Cocodrilo", "quote": "saw a Cocodrilo at the zoo"})
+    page = _page(bank, "alpha", {"source": EP}, f"```claims\n{good}\n{other}\n```\n")
+    _commit(bank)
+    _remove(bank, EP)
+    assert "saw a Cocodrilo at the zoo" in page.read_text(encoding="utf-8")
+
+
+def test_still_found_counts_a_claim_line_that_does_not_parse(bank):
+    _ep(bank, body="user: my gmail password is Cocodrilo")
+    good = claims._jsonl_line({"id": "c1", "object": "x", "episode": EP})
+    _page(bank, "alpha", {}, f'```claims\n{good}\n{{"object": "the password is Cocodrilo", broken\n```\n')
+    _commit(bank)
+    assert _remove(bank, EP)["still_found"] == 1
+
+
+def test_a_value_beside_another_conversations_words_leaves_too(bank):
+    _ep(bank, body=f"user: my password is {VALUE}")
+    other = _ep(bank, OTHER_EPS[0], "user: nothing here", description=f"Logged in with {VALUE}")
+    _commit(bank)
+    out = _remove(bank, EP)
+    parsed = markdown_parser.parse(other)
+    assert VALUE not in other.read_text(encoding="utf-8") and parsed.frontmatter["processed"] is True
+    assert out["still_found"] == 0
+
+
+def test_still_found_reads_the_conversations_too(bank):
+    _ep(bank, body=f"user: my password is {VALUE}")
+    _ep(bank, OTHER_EPS[0], "user: nothing here", source_id=VALUE)   # a key field: kept, so it must be counted
+    _commit(bank)
+    assert _remove(bank, EP)["still_found"] == 1
+
+
+def test_a_removal_refreshes_the_cursor_for_real_and_it_commits_alone(bank):
+    from api.routers import inbox as inbox_router
+    from api.services import state_dictionary
+
+    _ep(bank, body=f"user: my password is {VALUE}")
+    _page(bank, "alpha", {"name": f"Vault {VALUE}", "type": "project", "status": "active"}, f"It is {VALUE}.")
+    state_dictionary.refresh(bank, None, force=True)
+    assert VALUE in (bank / "_state.md").read_text(encoding="utf-8")
+    _commit(bank)
+    rows = sf.plan(bank)
+    asyncio.run(inbox_router.remove_sensitive({"rows": [r["row"] for r in rows], "plan": sf.plan_stamp(rows)},
+                                              SimpleNamespace(memory_path=bank)))
+    assert VALUE not in (bank / "_state.md").read_text(encoding="utf-8")
+    assert _git(bank, "show", "--name-only", "--format=", "HEAD").split() == ["_state.md"]

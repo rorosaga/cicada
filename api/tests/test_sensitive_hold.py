@@ -192,12 +192,35 @@ def test_a_hosted_embedding_model_is_behind_the_door_and_a_local_one_has_none(ba
 
 MODEL_ATTRS = {"completion", "acompletion", "responses", "aresponses", "embedding", "aembedding"}
 SEND_OWNERS = {"agent_engine", "codex_engine", "cli_engines"}
+SEND_ATTRS = {"complete", "build_argv"}
+
+
+#: Hand-built runners that never carry a prompt: each spawn here is a fixed argv with ``stdin=None``.
+HAND_BUILT_RUNNER_OK = {
+    "api/services/model_catalogue.py": "`claude --help`, for the model aliases",
+    "api/services/engine_select.py": "sign-in status of the plan CLIs",
+}
+
+
+def _engine_aliases(tree: ast.AST) -> dict[str, str]:
+    """Every local name an engine module goes by in this file."""
+    names = {owner: owner for owner in SEND_OWNERS}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            names.update({a.asname or a.name: a.name for a in node.names if a.name in SEND_OWNERS})
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                leaf = a.name.rsplit(".", 1)[-1]
+                if leaf in SEND_OWNERS and a.asname:
+                    names[a.asname] = leaf
+    return names
 
 
 def _bypasses(source: str) -> list[str]:
     """Every way this file could reach a model without `providers.resolve_llm_fn`: calling a completion function itself,
-    calling an engine's own ``complete``, or building the plan CLI's argv. A reference may only be handed to the resolver
-    (``completion=...``) or named ``completion`` on its way there."""
+    calling an engine's own ``complete`` (however it was imported or renamed), building the plan CLI's argv, spawning it by
+    hand, or taking the engine's raw runner. A reference may only be handed to the resolver (``completion=...``) or named
+    ``completion`` on its way there."""
     tree = ast.parse(source)
     allowed: set[int] = set()
     for node in ast.walk(tree):
@@ -205,6 +228,7 @@ def _bypasses(source: str) -> list[str]:
             allowed.update(id(k.value) for k in node.keywords if k.arg == "completion")
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "completion" for t in node.targets):
             allowed.add(id(node.value))
+    engines = _engine_aliases(tree)
     out = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in MODEL_ATTRS and id(node) not in allowed:
@@ -213,10 +237,19 @@ def _bypasses(source: str) -> list[str]:
                                                                   and isinstance(owner.func, ast.Name) else "")
             if "litellm" in named or named in ("anthropic", "openai", "client"):
                 out.append(f"{named}.{node.attr}")
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            owner = node.func.value
-            if (isinstance(owner, ast.Name) and owner.id in SEND_OWNERS and node.func.attr in ("complete", "build_argv")):
-                out.append(f"{owner.id}.{node.func.attr}")
+        if isinstance(node, ast.Attribute) and node.attr in SEND_ATTRS:
+            owner = node.value
+            leaf = owner.id if isinstance(owner, ast.Name) else owner.attr if isinstance(owner, ast.Attribute) else ""
+            if leaf in engines:
+                out.append(f"{engines[leaf]}.{node.attr}")
+        if isinstance(node, ast.ImportFrom) and (node.module or "").rsplit(".", 1)[-1] in SEND_OWNERS:
+            out.extend(f"{node.module}:{a.name}" for a in node.names if a.name in SEND_ATTRS)
+        if isinstance(node, ast.Attribute) and node.attr == "_default_runner":
+            out.append("_default_runner")
+        if isinstance(node, (ast.List, ast.Tuple)) and len(node.elts) >= 2:
+            head = [e.value if isinstance(e, ast.Constant) else None for e in node.elts[:2]]
+            if head in (["claude", "-p"], ["claude", "--print"], ["codex", "exec"]):
+                out.append(f"argv:{head[0]}")
     return out
 
 
@@ -235,6 +268,9 @@ def test_every_model_call_goes_through_the_one_door():
               "api/services/cli_engines.py", "api/services/telemetry.py"}
     found = {rel: hits for rel, path in _sources() if rel not in owners
              for hits in [_bypasses(path.read_text(encoding="utf-8"))] if hits}
+    for rel in HAND_BUILT_RUNNER_OK:
+        if found.get(rel) and set(found[rel]) == {"_default_runner"}:
+            del found[rel]
     assert found == {}
 
 
@@ -243,10 +279,24 @@ def test_the_bypass_check_itself_catches_each_way_round():
                    "import litellm\nfn = litellm.completion\nfn(model='m', messages=[])",
                    "def f(): return _litellm().acompletion(model='m')",
                    "from api.services import agent_engine\nagent_engine.complete(messages=[], model='m')",
-                   "from api.services import cli_engines\ncli_engines.complete(None, messages=[])"):
+                   "from api.services import cli_engines\ncli_engines.complete(None, messages=[])",
+                   "from api.services.agent_engine import complete\ncomplete(messages=[], model='m')",
+                   "from agent_engine import complete as send\nsend(messages=[], model='m')",
+                   "from api.services import agent_engine as ae\nae.complete(messages=[], model='m')",
+                   "import api.services.codex_engine as ce\nce.complete(messages=[], model='m')",
+                   "import api.services.agent_engine\napi.services.agent_engine.complete(messages=[], model='m')",
+                   "from api.services import agent_engine\nrun = agent_engine._default_runner()\nrun(['x'], stdin='prompt')",
+                   "import subprocess\nsubprocess.run(['claude', '-p'], input='prompt')",
+                   "import asyncio\nasyncio.create_subprocess_exec(*('codex', 'exec'))"):
         assert _bypasses(sneaky), sneaky
     assert not _bypasses("x = resolve_llm_fn(s, completion=litellm.acompletion)\ncompletion = litellm.completion\n"
                          "y = resolve_llm_fn(s, completion=completion)")
+
+
+def test_a_hand_built_runner_is_classified_or_it_fails():
+    """Each classified file still takes the raw runner, and passes it nothing but a fixed argv with no stdin."""
+    for rel in HAND_BUILT_RUNNER_OK:
+        assert "_default_runner" in _bypasses((REPO / rel).read_text(encoding="utf-8")), rel
 
 
 def test_every_returned_callable_is_the_door(tmp_path):
@@ -321,3 +371,70 @@ def test_st_distinctive():
         assert st.distinctive(yes), yes
     for no in ("guatemala", "Bitwarden", "4821", "A1B2", "Añoranza"):
         assert not st.distinctive(no), no
+
+
+# ------------------------------------------------------------------ a value common in the bank is a word of the bank
+
+
+def _commons(bank: Path, value: str, n: int) -> None:
+    for i in range(n):
+        _ep(bank, f"ep_2026-10-{i + 1:02d}_001", f"user: we moved to {value} this week")
+
+
+def test_one_conversation_calling_a_common_token_a_password_masks_it_nowhere_it_is_not_one(bank):
+    _ep(bank, "ep_2026-11-02_001", "user: my password is next-js15")
+    _commons(bank, "next-js15", st.RARE_CONVERSATIONS + 1)
+    out = hold.hold_back([{"role": "system", "content": "Prefer next-js15 here."},
+                          {"role": "user", "content": "Is next-js15 stable?"}], bank)
+    assert out[0]["content"] == "Prefer next-js15 here." and out[1]["content"] == "Is next-js15 stable?"
+    said = hold.hold_back([{"role": "system", "content": "The account password next-js15 stands."}], bank)
+    assert "next-js15" not in said[0]["content"]
+
+
+def test_a_token_held_by_a_few_conversations_is_still_masked_by_value(bank):
+    _ep(bank, "ep_2026-11-02_001", "user: my password is next-js15")
+    _commons(bank, "next-js15", st.RARE_CONVERSATIONS)
+    out = hold.hold_back([{"role": "system", "content": "Prefer next-js15 here."}], bank)
+    assert "next-js15" not in out[0]["content"]
+
+
+def test_a_value_that_becomes_common_or_rare_is_seen_without_a_fresh_start(bank):
+    _ep(bank, "ep_2026-11-02_001", "user: my password is next-js15")
+    system = [{"role": "system", "content": "Prefer next-js15 here."}]
+    assert "next-js15" not in hold.hold_back(system, bank)[0]["content"]
+    _commons(bank, "next-js15", st.RARE_CONVERSATIONS + 1)
+    assert hold.hold_back(system, bank) == system
+    (bank / "episodes" / "ep_2026-10-01_001.md").unlink()
+    bank_index.invalidate()
+    assert "next-js15" not in hold.hold_back(system, bank)[0]["content"]
+
+
+def test_an_unsure_token_is_never_masked_by_value(bank):
+    _ep(bank, "ep_2026-11-02_001", "user: mi clave es gpt-4o")
+    system = [{"role": "system", "content": "Prefer gpt-4o here."}]
+    assert hold.hold_back(system, bank) == system
+
+
+# ------------------------------------------------------------------ closed when it cannot read a text
+
+
+def test_a_text_with_a_value_is_closed_when_masking_raises(bank, monkeypatch):
+    monkeypatch.setattr(hold, "_view", lambda *_a, **_k: 1 / 0)
+    messages = [{"role": "system", "content": f"The value is {VALUE}."}, {"role": "user", "content": f"Log in with {VALUE}"},
+                {"role": "user", "content": "the weather is nice"}]
+    out = hold.hold_back(messages, bank)
+    assert out[0]["content"] == hold.WITHHELD and out[1]["content"] == hold.WITHHELD
+    assert out[2]["content"] == "the weather is nice"
+    assert hold.hold_texts([f"The value is {VALUE}.", "the weather is nice"], bank) == [hold.WITHHELD, "the weather is nice"]
+
+
+def test_a_text_that_cannot_be_checked_at_all_is_closed(bank, monkeypatch):
+    monkeypatch.setattr(hold, "_view", lambda *_a, **_k: 1 / 0)
+    monkeypatch.setattr(st, "find", lambda *_a, **_k: 1 / 0)
+    assert hold.hold_back([{"role": "user", "content": "the weather is nice"}], bank)[0]["content"] == hold.WITHHELD
+
+
+def test_a_hit_in_a_text_with_no_value_on_record_is_closed_too(tmp_path, monkeypatch):
+    monkeypatch.setattr(hold, "_view", lambda *_a, **_k: 1 / 0)
+    out = hold.hold_back([{"role": "user", "content": "user: my password is Zebra7-lantern"}], tmp_path)
+    assert out[0]["content"] == hold.WITHHELD

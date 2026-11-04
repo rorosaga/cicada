@@ -167,3 +167,32 @@ def test_a_real_pass_is_still_found(line):
 
 def test_a_passport_number_is_still_found():
     assert [h.kind for h in st.find("user: my passport number is G1239876")] == ["id"]
+
+
+@pytest.mark.parametrize("line, sure", [
+    ("user: mi clave es gpt-4o", False),
+    ("user: my pass is gpt-4o", False),
+    ("user: mi clave es 77889944", False),
+    ("user: mi clave de gmail es Xy7hj2k", True),
+    ("user: my password is gpt-4o", True),
+])
+def test_a_weak_word_alone_is_never_sure_a_named_system_makes_it(line, sure):
+    hits = st.find(line)
+    assert len(hits) == 1 and hits[0].sure is sure
+
+
+#: A made-up sample of every vendor shape, spelled in two parts so no scanner takes it for a live key.
+_SAMPLES = ("sk-" + "a1" * 12, "ghp_" + "a1" * 12, "github_pat_" + "a1" * 12, "xoxb-" + "a1" * 8, "AKIA" + "J7K2LQ9XW3MBV5TN",
+            "AIza" + "SyDk3hQw7ZtLm9Xc2Vb8Nf4Gr6Ty1Uj5Ke0", "eyJ" + "a1a1a1a1a1.eyJa1a1a1a1a1.a1a1a1a1a1", "sk_" + "live_" + "a1" * 10,
+            "glpat-" + "a1" * 10, "npm_" + "a1" * 16, "hf_" + "a1" * 16, "SG." + "a1" * 10 + "." + "a1" * 10, "xai-" + "a1" * 16,
+            "gsk_" + "a1" * 16, "pplx-" + "a1" * 16)
+
+
+def test_the_samples_cover_every_vendor_shape():
+    assert [rx.pattern for rx in st._VENDOR_RES if not any(rx.search(s) for s in _SAMPLES)] == []
+
+
+@pytest.mark.parametrize("value", _SAMPLES)
+def test_a_key_of_any_vendor_shape_is_found_with_nothing_else_on_the_line(value):
+    hits = st.find(f"user: look at this {value}")
+    assert [(h.kind, h.sure) for h in hits] == [(st.KEY, True)]

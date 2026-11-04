@@ -652,7 +652,7 @@ def test_remove_planned_refuses_when_the_plan_moved_and_otherwise_removes_all_of
         sf.remove_planned(memory, ["s-a-row-that-is-gone"], stamp=sf.plan_stamp(rows))
     assert CANARY in markdown_parser.parse(memory / "episodes" / f"{EP}.md").body     # refused before a word changed
     out = sf.remove_planned(memory, ids, stamp=sf.plan_stamp(rows))
-    assert out == {"removed": 2, "failed": 0, "files": 2, "committed": True, "left": 0, "still_found": 0}
+    assert out == {"removed": 2, "failed": 0, "files": 2, "committed": True, "left": 0, "still_found": 0, "stayed": 0}
     for path in (memory / "episodes").glob("*.md"):
         text = path.read_text()
         assert CANARY not in text and UNSURE not in text and "4539" not in text
