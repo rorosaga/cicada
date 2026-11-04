@@ -14,7 +14,8 @@ import SwiftUI
 //      and "All N" open in the column's place, never in place (DR-81), with "‹ <source>" and Esc to return. A chat
 //      source lists its chats instead (`ChatSourceList`, 2026-11-03): every chat, pinned first, then the apps' order,
 //      each opening its stored conversation in the panel at the right;
-//   4. the source's own settings, last, under one label (`SourcePageSettings`), the same shape everywhere.
+//   4. (2026-11-04) the settings label is gone: every page is `SourcePageLayout` — head, connect area, the source's
+//      own content (these lists), a quiet footer (`SourcePageLayout.swift`, app.md "The standard source page").
 
 /// The status line under a source page's head.
 ///
@@ -116,8 +117,23 @@ struct SourceItemsSection: View {
                 let rows = cap.map { Array(list.items.prefix($0)) } ?? list.items
                 let today = ISODay.today()
                 let chats = ChatSourcePage.isChatSource(channel)
-                LazyVStack(spacing: saved || chats ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
-                    ForEach(rows, id: \.self) { item in row(item, today: today) }
+                if cap == nil, rows.first?.videos != nil {
+                    // 2026-11-04 (owner: YouTube's "All" is "a bit dense") — every day, under its month's name.
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(SourceItemsRules.byMonth(rows, today: today).enumerated()), id: \.offset) { i, group in
+                            if let title = group.title {
+                                SectionLabel(title)
+                                    .frame(minHeight: CicadaTheme.scaled(28), alignment: .bottomLeading)
+                                    .padding(.horizontal, CicadaTheme.scaled(10))
+                                    .padding(.top, i == 0 ? 0 : CicadaTheme.scaled(14))
+                            }
+                            ForEach(group.items, id: \.self) { item in row(item, today: today) }
+                        }
+                    }
+                } else {
+                    LazyVStack(spacing: saved || chats ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
+                        ForEach(rows, id: \.self) { item in row(item, today: today) }
+                    }
                 }
                 footer(list, shown: rows.count, cache: cache)
             }
@@ -351,21 +367,5 @@ struct SourceDrillHead: View {
                     .lineLimit(1)
             }
         }
-    }
-}
-
-/// The source's own settings, last on its page and the same shape everywhere: one label, then the source's controls
-/// (its ticks, history, Refresh, Choose…, Disconnect, switches, an import's button) as its own row draws them under a
-/// source head (`sourceDetailHeadShown`: no second mark or name, no second list).
-struct SourcePageSettings<Content: View>: View {
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            SectionLabel(Copy.SourcePage.settings)
-            content()
-                .environment(\.sourceDetailHeadShown, true)
-        }
-        .padding(.top, CicadaTheme.spacingMD)
     }
 }

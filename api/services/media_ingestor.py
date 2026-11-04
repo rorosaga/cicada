@@ -1387,6 +1387,57 @@ def parse_reddit_saved_csv(content: bytes, filename: str) -> list[RawItem]:
     return items
 
 
+#: G232: the other two of Reddit's export files that hold what the person kept — their votes on posts and the
+#: communities they joined. Every other file of the export (messages, comments, IP logs, chat…) is skipped by name.
+REDDIT_VOTES_FILE = "post_votes.csv"
+REDDIT_COMMUNITIES_FILE = "subscribed_subreddits.csv"
+_REDDIT_COMMUNITY_NAME = re.compile(r"^[A-Za-z0-9_]{2,21}$")
+
+
+def is_reddit_list_filename(filename: str) -> bool:
+    return Path(filename or "").name.lower() in (REDDIT_VOTES_FILE, REDDIT_COMMUNITIES_FILE)
+
+
+def parse_reddit_list_csv(content: bytes, filename: str) -> list[RawItem]:
+    """Reddit's export ``post_votes.csv`` (``id,permalink,direction``: only ``up`` is kept — an upvote is a like,
+    folder ``Upvoted``) or ``subscribed_subreddits.csv`` (``subreddit``: a joined community, folder ``Joined
+    communities``, its ``https://www.reddit.com/r/<name>/`` link). Both are index-only (ruling 30) and file exactly as
+    the connector files them, so the two are one row. No date is in either file, so none is given. Never raises."""
+    import csv
+    import io
+
+    try:
+        reader = csv.DictReader(io.StringIO(content.decode("utf-8-sig", errors="replace")))
+        fields = {(f or "").strip().lower(): f for f in (reader.fieldnames or [])}
+    except Exception:  # noqa: BLE001
+        return []
+    name = Path(filename or "").name.lower()
+    items: list[RawItem] = []
+    if name == REDDIT_VOTES_FILE:
+        link, way = fields.get("permalink"), fields.get("direction")
+        if link is None or way is None:
+            return []
+        for row in reader:
+            if (row.get(way) or "").strip().lower() != "up":
+                continue
+            raw = (row.get(link) or "").strip()
+            if raw.startswith("/"):
+                raw = REDDIT_BASE_URL + raw
+            if raw.startswith(("http://", "https://")):
+                items.append(RawItem(url=raw, folder="Upvoted", origin="reddit-saved"))
+        return items
+    if name == REDDIT_COMMUNITIES_FILE:
+        col = fields.get("subreddit")
+        if col is None:
+            return []
+        for row in reader:
+            sub = (row.get(col) or "").strip().removeprefix("r/")
+            if _REDDIT_COMMUNITY_NAME.match(sub) and not sub.lower().startswith("u_"):
+                items.append(RawItem(url=f"{REDDIT_BASE_URL}/r/{sub}/", title=f"r/{sub}",
+                                     folder="Joined communities", origin="reddit-saved", defer_enrich=True))
+    return items
+
+
 def parse_url_list(text: str) -> list[RawItem]:
     """``.txt`` one URL per line (skip blanks / ``#`` comments)."""
     items: list[RawItem] = []
@@ -1488,6 +1539,14 @@ def parse_rss(xml: str) -> list[RawItem]:
                 fallback = href.strip()
         return fallback
 
+    from api.services import substack
+
+    # G89 (i)/(iii): the publication — the RSS channel's (or the Atom feed's) own title — rides each item as its
+    # ``channel``, so a post says which publication it came from.
+    channel_node = next((el for el in root.iter() if local(el.tag) == "channel"), None)
+    publication = first_child_text(channel_node if channel_node is not None else root, "title")
+    publication = " ".join(publication.split())[:120] if publication else None
+
     items: list[RawItem] = []
     # An <item> is RSS, an <entry> is Atom — search the whole tree so a
     # namespaced or nested channel still matches.
@@ -1504,6 +1563,10 @@ def parse_rss(xml: str) -> list[RawItem]:
             or first_child_text(entry, "description")
             or first_child_text(entry, "summary")
         )
+        # G89 (vii): a paid post's feed body is a stub — a few words and a "Read more" link (Substack, measured
+        # 2026-09-01). It is not the post, so it never stands in for its words.
+        if substack.is_paywall_stub(summary):
+            summary = None
         tags: list[str] = []
         for child in entry:
             if local(child.tag) == "category":
@@ -1514,6 +1577,7 @@ def parse_rss(xml: str) -> list[RawItem]:
             url=link.strip(),
             title=title or None,
             tags=tags,
+            channel=publication,
             preview=summary or None,
             published_at=_feed_published(
                 first_child_text(entry, "pubDate") or first_child_text(entry, "published")
@@ -1713,6 +1777,10 @@ def parse_upload(
         playlist_items = parse_youtube_playlist_csv(content, filename or name)
         if playlist_items:
             return playlist_items, "YouTube Playlist", False
+        if is_reddit_list_filename(name):
+            # G232: votes and joined communities first — the saved-posts parser would read ``post_votes.csv``'s
+            # permalink column as saves, downvotes included.
+            return parse_reddit_list_csv(content, filename or name), "Reddit Saved Export", False
         reddit_items = parse_reddit_saved_csv(content, filename or name)
         if reddit_items:
             return reddit_items, "Reddit Saved Export", False

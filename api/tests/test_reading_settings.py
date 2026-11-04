@@ -22,9 +22,12 @@ def test_the_default_is_off_and_empty():
     assert snap == {"agentEnabled": False, "allowedSites": {}, "ackedAt": None, "ackCurrent": False,
                     "exploreSignedIn": True, "neverExplore": {},
                     "youtubeLists": {"watchLater": False, "history": False},   # G71: both lists off by default
-                    "savedLists": {"x": False, "instagram": False, "linkedin": False},   # G206: all three off
+                    "savedLists": {"x": False, "instagram": False, "linkedin": False, "reddit": False, "pinterest": False, "tiktok": False},   # G206: all three off
                     "youtubeListsOff": {"watchLater": False, "history": False},   # 2026-10-26: no off on record
-                    "savedListsOff": {"x": False, "instagram": False, "linkedin": False}}
+                    "savedListsOff": {"x": False, "instagram": False, "linkedin": False, "reddit": False, "pinterest": False, "tiktok": False},
+                    # G89 (2026-11-04): the Substack lists, off until the person turns one on.
+                    "substackLists": {"saved": False, "history": False, "subscriptions": False},
+                    "substackListsOff": {"saved": False, "history": False, "subscriptions": False}}
     assert not reading_settings.path().exists(), "reading never creates the file"
 
 
@@ -212,7 +215,7 @@ def test_defaults_turn_on_only_detected_accounts_and_only_once_acknowledged():
     assert changed == ["youtube:watch_later", "youtube:history", "saved:x"]
     snap = reading_settings.snapshot()
     assert snap["youtubeLists"] == {"watchLater": True, "history": True}
-    assert snap["savedLists"] == {"x": True, "instagram": False, "linkedin": False}
+    assert snap["savedLists"] == {"x": True, "instagram": False, "linkedin": False, "reddit": False, "pinterest": False, "tiktok": False}
     assert reading_settings.saved_list_allowed("x") and reading_settings.youtube_list_allowed("history")
     assert reading_settings.apply_list_defaults(detected={"youtube", "x"}) == [], "decided once"
 

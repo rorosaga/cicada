@@ -273,9 +273,11 @@ struct SourceWayRow: View {
 /// file — the import's icon is the source's own, never other companies' marks.
 struct SourceWayIcon: View {
     let icon: SourceWayIn.Icon
+    /// The icon's square in unscaled points: the list glyph's row size (16), larger in a drop zone.
+    var points: CGFloat = 16
 
     var body: some View {
-        let side = CicadaTheme.iconPoints(.titlebar)
+        let side = CicadaTheme.scaled(points)
         Group {
             switch icon {
             case .mark(let origin):
@@ -287,11 +289,11 @@ struct SourceWayIcon: View {
             case .file(let origin):
                 ZStack(alignment: .bottomTrailing) {
                     Image(systemName: "doc")
-                        .font(CicadaTheme.font(size: 15))
+                        .font(CicadaTheme.font(size: points * 0.9))
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .frame(width: side, height: side)
-                    OriginMark(origin: origin, size: CicadaTheme.scaled(10))
-                        .offset(x: CicadaTheme.scaled(3), y: CicadaTheme.scaled(2))
+                    OriginMark(origin: origin, size: side * 0.62)
+                        .offset(x: side * 0.2, y: side * 0.12)
                 }
             }
         }

@@ -1,5 +1,5 @@
-"""The person's own agent keeps their saved lists on X, Instagram and LinkedIn current (G206, ruling 36; extends G166
-and G71).
+"""The person's own agent keeps their saved lists on X, Instagram and LinkedIn — and, since G232 (2026-11-04), Reddit,
+Pinterest and TikTok — current (G206, ruling 36; extends G166 and G71).
 
 Owner, redesign 2026-10-22: the person's saved posts pile up where Cicada cannot see them, and the three sites are
 walled (the backend never fetches a login-walled page, the ToS rail). The YouTube lists already come in through the
@@ -77,6 +77,18 @@ PLATFORMS: dict[str, Platform] = {
                           "instagram.com", "to read your saved posts"),
     "linkedin": Platform("linkedin", "LinkedIn", "Saved posts", "https://www.linkedin.com/my-items/saved-posts/", "",
                          "linkedin-saved", "Saved Items", "linkedin.com", "to read your saved posts"),
+    # G232 (owner 2026-11-04: "offer the website connection through browser harness, just like a toggle switch …
+    # Same for TikTok, same for Pinterest, same for Reddit"). Each files under its export's own origin and folder, so
+    # a post the export (or Reddit's connector) brought in is the same row, and every one is index-only (ruling 30).
+    # Spotify has none: its terms bar automated reading of the service (`ways_in.SPOTIFY_NO_BROWSER`).
+    "reddit": Platform("reddit", "Reddit", "Saved", "https://www.reddit.com/user/me/saved/", "", "reddit-saved",
+                       "Saved posts", "reddit.com", "to read your saved posts"),
+    "pinterest": Platform("pinterest", "Pinterest", "Saved Pins", "https://www.pinterest.com/",
+                          " — open the person's profile, then Saved, then All Pins", "pinterest-saved", "Saved",
+                          "pinterest.com", "to read your saved Pins"),
+    "tiktok": Platform("tiktok", "TikTok", "Favorites", "https://www.tiktok.com/",
+                       " — open the person's profile, then the Favorites tab (videos)", "tiktok-saved", "Favorites",
+                       "tiktok.com", "to read your favorite videos"),
 }
 #: A list is offered again this long after its last read (the youtube lists' cadence).
 CADENCE = timedelta(hours=20)
@@ -220,14 +232,25 @@ def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, now: date
         if outcome == "read":
             entry.update(read_at=moment.isoformat(), items=int(items))
             pauses.pop(key, None)
-            today = moment.date().isoformat()
-            # Only today's count is kept: the bound is a day's, and older days are never read.
-            days = data.setdefault("days", {})
-            days[bank] = {today: int((days.get(bank) or {}).get(today) or 0) + 1}
+            _count(data, bank, moment)
         elif outcome in PAUSING:
             pauses[key] = (moment + PAUSE).isoformat()
         if not pauses:
             data.pop("paused_until", None)
+
+
+def _count(data: dict, bank: str, moment: datetime) -> None:
+    today = moment.date().isoformat()
+    # Only today's count is kept: the bound is a day's, and older days are never read.
+    days = data.setdefault("days", {})
+    days[bank] = {today: int((days.get(bank) or {}).get(today) or 0) + 1}
+
+
+def count_read(memory_path: Path, now: datetime | None = None) -> None:
+    """A saved list kept elsewhere was read (Substack's, ``substack_lists``, G89): it spends the same day's bound —
+    :data:`DAILY_READS` across every walled site's list, one site at a time."""
+    with _locked() as data:
+        _count(data, _bank_key(memory_path), _now(now))
 
 
 def resume(keys) -> None:
@@ -254,6 +277,14 @@ _X_STATUS = re.compile(r"^/(?:(?P<user>[A-Za-z0-9_]{1,15})|i(?:/web)?)/status/(?
 _X_RESERVED = frozenset({"i", "home", "search", "explore", "settings", "messages", "notifications"})
 _IG_POST = re.compile(r"^/(?:[A-Za-z0-9._]{1,30}/)?(?P<kind>p|reel|tv)/(?P<code>[A-Za-z0-9_-]{5,64})(?:/|$)")
 _LI_POST = re.compile(r"^/(?:feed/update/urn:li:(?:activity|share|ugcPost):\d{5,25}|posts/[^/?#\s]{3,300})(?:/|$)")
+#: A post or a comment on Reddit: ``/r/<sub>/comments/<id>[/<slug>[/<comment id>]]``.
+_REDDIT_POST = re.compile(r"^/r/(?P<sub>[A-Za-z0-9_]{2,21})/comments/(?P<id>[a-z0-9]{3,12})"
+                          r"(?:/(?P<slug>[^/?#\s]{1,120})(?:/(?P<comment>[a-z0-9]{3,12}))?)?/?$")
+#: A Pin: ``/pin/<id>/`` on pinterest.com or one of its country hosts.
+_PIN = re.compile(r"^/pin/(?P<id>[A-Za-z0-9_-]{5,40})/?$")
+_PIN_HOST = re.compile(r"(?:(?:www|[a-z]{2})\.)?pinterest\.(?:com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})")
+#: A video or photo post on TikTok: ``/@<user>/video/<id>``.
+_TIKTOK_POST = re.compile(r"^/@(?P<user>[A-Za-z0-9._]{2,24})/(?P<kind>video|photo)/(?P<id>\d{8,25})/?$")
 
 
 def _host_in(host: str, domains) -> bool:
@@ -294,6 +325,28 @@ def canonical(key: str, url) -> tuple[str, tuple[str, ...]] | None:
             return None
         tail = found.group(0).rstrip("/") + "/"
         return f"https://www.linkedin.com{tail}", (f"https://linkedin.com{tail}",)
+    if key == "reddit":
+        found = _REDDIT_POST.match(path_) if _host_in(host, ("reddit.com",)) else None
+        if found is None:
+            return None
+        tail = "/" + "/".join(p for p in (f"r/{found.group('sub')}", "comments", found.group("id"), found.group("slug"),
+                                          found.group("comment")) if p) + "/"
+        # The export's permalink is ``www.reddit.com``; old Reddit and the bare host are the same post.
+        return f"https://www.reddit.com{tail}", (f"https://old.reddit.com{tail}", f"https://reddit.com{tail}")
+    if key == "pinterest":
+        found = _PIN.match(path_) if _PIN_HOST.fullmatch(host) else None
+        if found is None:
+            return None
+        pin = found.group("id")
+        return f"https://www.pinterest.com/pin/{pin}/", (f"https://pinterest.com/pin/{pin}/",)
+    if key == "tiktok":
+        found = _TIKTOK_POST.match(path_) if _host_in(host, ("tiktok.com",)) else None
+        if found is None:
+            return None
+        user, kind, vid = found.group("user"), found.group("kind"), found.group("id")
+        # The export lists a favourite as ``tiktokv.com/share/video/<id>/``: the same video, one row.
+        return f"https://www.tiktok.com/@{user}/{kind}/{vid}", (f"https://www.tiktokv.com/share/video/{vid}/",
+                                                                 f"https://tiktok.com/@{user}/{kind}/{vid}")
     return None
 
 

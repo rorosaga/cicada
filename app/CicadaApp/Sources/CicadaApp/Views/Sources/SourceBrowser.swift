@@ -79,7 +79,11 @@ struct SourceBrowser: View {
             SourceSearchHeader(query: $query, prompt: prompt)
             content
         }
-        .task(id: refreshKey) { await cache?.refreshCollections(channel) }
+        .task(id: refreshKey) {
+            await cache?.refreshCollections(channel)
+            // One collection opens straight on its own list; the page's status line reads the channel's newest item.
+            if case .items = SourceBrowserText.start(tree) { await cache?.refresh(channel) }
+        }
         .onChange(of: channel) { _, _ in path = []; query = "" }
     }
 

@@ -12,6 +12,9 @@ extension Copy {
         /// "last item today" — the day the newest item came in, after the status word.
         static func lastItem(_ day: String) -> String { "last item \(day)" }
         static let nothingYet = "nothing in yet"
+        /// 2026-11-04 — the app a source reads was removed from this Mac.
+        static let notInstalled = "not installed"
+        static let notInstalledRow = "Not installed"
         /// 2026-11-03 — a chat reader's last check of the ticked chats, and the newest message in them (`ChatCheck`).
         static func checked(_ when: String) -> String { "checked \(when)" }
         static func newestMessage(_ day: String) -> String { "newest message \(day)" }
@@ -31,7 +34,6 @@ extension Copy {
         static let allHelp = "Show the whole list here (Esc returns)"
         static func back(_ source: String) -> String { source }
         static let backHelp = "Back to the source (Esc)"
-        static let settings = "Settings"
         /// A group's second words: how many it holds and its newest day ("12 messages · Today").
         static func conversations(_ n: Int) -> String { n == 1 ? "1 conversation" : "\(UsageFormat.count(n)) conversations" }
         static func messages(_ n: Int) -> String { n == 1 ? "1 message" : "\(UsageFormat.count(n)) messages" }

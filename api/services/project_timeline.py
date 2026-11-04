@@ -668,7 +668,8 @@ def _repo_days(bank: _Bank, tree: list[str]) -> set[str]:
 
 
 def _tied_days(bank: _Bank, root: str) -> set[str]:
-    """The local days of the conversations tied to the project that no claim may cite yet (2026-10-28): tied by hand
+    """The local days of the conversations tied to the project that no claim may cite yet (2026-10-28), and the day the
+    person started it in the app or their shell (2026-11-04): tied by hand
     (``conversations_added``), by the provider's own project id the page records, or by the relaying app's word —
     `project_conversations`' added, provider and relay signals; an untied one (``conversations_removed``) never
     counts. A conversation is activity on its own day, read or not, as a repository session is (`_repo_days`)."""
@@ -682,7 +683,14 @@ def _tied_days(bank: _Bank, root: str) -> set[str]:
         for name in project_birth._names({"name": fm.get("name") or root, "aliases": fm.get("aliases") or []}):
             eps.update(grouped.get(("relay", project_birth.fold(name)), ()))
     eps -= set(project_ownership.tied(fm, project_ownership.REMOVED_KEY))
-    return {d for ep in eps if ep in bank.episodes and (d := _ep_day(bank, ep))}
+    days = {d for ep in eps if ep in bank.episodes and (d := _ep_day(bank, ep))}
+    # Owner 2026-11-04 (New project as a page): the day the person started it in the app or their shell is activity —
+    # a project they made a moment ago is in motion, never under Past as "Nothing heard yet".
+    born, mine = fm.get("born"), fm.get(project_ownership.MINE_KEY)
+    if isinstance(born, dict) and born.get("origin") == "created" and isinstance(mine, dict) \
+            and mine.get("via") in (project_ownership.VIA_APP, project_ownership.VIA_CLI) and (d := _day(mine.get("day"))):
+        days.add(d)
+    return days
 
 
 def _parents(bank: _Bank) -> tuple[dict[str, str], dict[str, list[str]]]:
@@ -736,7 +744,7 @@ def _header(bank: _Bank, eid: str) -> dict:
             "description_by": ProjectDescriptionBy(**{k: str(v) for k, v in by.items()
                                                       if k in ("by", "day", "session") and v})
             if by and desc else None,
-            "one_liner": desc[:120] if desc else _one_liner(bank, eid)}
+            "one_liner": project_ownership.first_line(desc)[:120] if desc else _one_liner(bank, eid)}
 
 
 def _repo_session_count(bank: _Bank, eid: str) -> int:

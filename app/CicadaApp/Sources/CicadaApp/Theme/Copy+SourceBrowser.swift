@@ -52,14 +52,8 @@ extension Copy {
 
         // Meeting recorders
         static func recorderFolder(_ path: String) -> String { "Found \(path)" }
-        static let recorderFolderHelp = "Where Hex saves each meeting it records"
         static let hexConnect = "Connect Hex"
         static let hexNoFolder = "Hex hasn't saved a meeting on this Mac yet."
-        static let otherFolder = "Choose another folder…"
-
-        // Not installed (owner 2026-11-04: "I deleted Whisperflow today, and the app should have detected that")
-        static func notInstalled(_ app: String) -> String { "\(app) isn't on this Mac" }
-        static let notInstalledWord = "not installed"
-        static let notInstalledRow = "Not installed"
+        static let otherFolder = "Another folder"
     }
 }

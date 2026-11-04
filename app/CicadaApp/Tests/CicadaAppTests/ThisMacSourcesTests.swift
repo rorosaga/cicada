@@ -262,7 +262,8 @@ final class ThisMacSourcesTests: XCTestCase {
     /// Calendar's standing "Google calendars come in through macOS…" line and its *Add a Google account* button are
     /// what read as an unexplained Google account; the account list replaces both.
     func testTheGoogleExplanationIsTheAccountListNotAStandingLine() throws {
-        for file in ["Views/Settings/CalendarRow.swift", "Views/Sources/SourceBrowser.swift"] {
+        for file in ["Views/Settings/CalendarRow.swift", "Views/Sources/SourceBrowser.swift",
+                     "Views/Sources/SourceCatalogViews.swift"] {
             let source = try String(contentsOfFile: Self.path(file), encoding: .utf8)
             XCTAssertFalse(source.contains("Copy.calendarGoogleHow"), file)
             XCTAssertFalse(source.contains("Copy.calendarAddGoogle"), file)

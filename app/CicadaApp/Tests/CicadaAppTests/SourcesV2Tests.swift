@@ -85,7 +85,7 @@ final class SourcesV2Tests: XCTestCase {
             "safari-bookmarks": "Safari", "safari-tabs": "Safari tabs", "pinterest": "Pinterest",
             "reddit": "Reddit", "x": "X", "instagram": "Instagram", "youtube": "YouTube",
             "linkedin": "LinkedIn", "tiktok": "TikTok", "rss": "RSS", "calendar": "Calendars",
-            "telegram": "Telegram", "notes": "Apple Notes", "files": "Files & links",
+            "telegram": "Telegram bot", "notes": "Apple Notes", "files": "Files & links",
         ]
         for (id, name) in expected {
             XCTAssertEqual(SourceDisplayName.of(SourceOverview(id: id, label: "\(id) bookmarks",

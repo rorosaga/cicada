@@ -608,7 +608,7 @@ walled site: X Bookmarks (`https://x.com/i/bookmarks`), Instagram Saved (the pro
 `https://www.instagram.com/` — Cicada keeps no profile name) and LinkedIn Saved posts
 (`https://www.linkedin.com/my-items/saved-posts/`). Cicada never spawns a browser, never signs in and never fetches a list
 page; it only offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned that site's list on
-(`reading.json` `saved_lists`, `{x|instagram|linkedin: day}`, on by default since 2026-10-26 on the same terms, offs in `saved_lists_off` — refused without a current acknowledgement;
+(`reading.json` `saved_lists`, `{x|instagram|linkedin|reddit|pinterest|tiktok: day}` (the last three G232), on by default since 2026-10-26 on the same terms, offs in `saved_lists_off` — refused without a current acknowledgement;
 `PUT /reading/settings` `savedLists` patch, the Sources page's switch; `GET /reading/settings` carries `savedLists`
 and `saved` — per site the last read, its outcome, item count and pause, plus `readsToday`/`dailyReads`). Like a YouTube
 list it is a **standing ask for exactly that page**, never a site grant: it lets no other page of the site be recorded.
@@ -635,6 +635,64 @@ a post an archive, a connector or a pasted link already saved is a duplicate; th
 for. The post's words become the title (≤ 80) and description (≤ 500), scrubbed; they are the post's, never the
 person's (no `note`). Committed alone as the harness with its session trailer. **Not built:** a post unsaved on the site
 stays saved here (the read only adds); the app's switch (spec in `app.md`, "Saved lists in your browser").
+
+**Reddit, Pinterest and TikTok join (G232, owner 2026-11-04: "offer the website connection through browser harness,
+just like a toggle switch").** Three more `saved_lists.PLATFORMS`, after LinkedIn in the offer's order, on the same
+terms, bound and tool: **Reddit** Saved (`https://www.reddit.com/user/me/saved/`, `reddit-saved` / `Saved posts` — the
+export's own folder; an item must be `/r/<sub>/comments/<id>[/<slug>[/<comment>]]` on reddit.com, saved at
+`www.reddit.com` with `old.reddit.com` and the bare host as aliases), **Pinterest** Saved Pins (reached from
+`https://www.pinterest.com/` through the person's profile, `pinterest-saved` / `Saved` — a new list origin in
+`history_index.LIST_ORIGINS`; `/pin/<id>/` on pinterest.com or a country host, saved at `www.pinterest.com`) and
+**TikTok** Favorites (reached from `https://www.tiktok.com/` through the profile's Favorites tab, `tiktok-saved` /
+`Favorites` — the export's; `/@<user>/video|photo/<id>`, with the export's `tiktokv.com/share/video/<id>/` as an alias,
+so a favourite the export brought in is the same row). `reading.json`'s `saved_lists` takes the three keys. **Off by
+default** (review of #596): `list_defaults` never turns one of the three on — `apply_list_defaults` walks only
+`reading_settings.DEFAULT_ON_SAVED_LISTS` (X, Instagram, LinkedIn), since the app has no switch or onboarding row for
+them yet, so neither the consent nor the remembered off the 2026-10-26 default rests on exists; only the person's own
+`PUT /reading/settings` turns one on. The app follow-up that ships their switches may revisit the default.
+**Spotify has no browser list:** its User Guidelines bar "crawling" or "scraping … by automated means" and "ingesting
+Spotify Content into a machine learning or AI model" (`ways_in.SPOTIFY_TERMS`, `network.md`, "Ways in, per source").
+
+**Substack: Saved, History and Subscriptions (G89, owner 2026-11-04: "a direct app integration is best to see history
+of read stuff, saved stuff, etc.").** Substack gives a reader no API, no OAuth app programme, no reader export and no
+Mac app (the research and its sources are in `network.md`, ruling 47's table), so the saved lists' shape is the way in:
+the person's own agent, in their own signed-in browser, on their standing ask. Three lists (`substack_lists.LISTS`):
+**Saved** (`https://substack.com/inbox` → Saved), **History** (`https://substack.com/home` → the clock icon) and
+**Subscriptions** (the account menu → Subscriptions). Cicada never spawns a browser, never signs in and never fetches a
+Substack page; the private reader endpoints with the person's cookie are scraping behind authentication and stay out.
+**Consent:** agent reading on (its sheet acknowledged) AND the person turned that list on (`reading.json`
+`substack_lists`, `{saved|history|subscriptions: day}`, offs in `substack_lists_off`; `PUT /reading/settings`
+`substackLists` patch; `GET` carries `substackLists`, `substackListsOff` and `substack` — per list the last read, its
+outcome and count, and the one pause). **Off until the person turns it on**: no memory shows a Substack account before
+a read, so owner 2026-10-26's on-by-default (for accounts the memory shows) cannot apply. Each switch is a standing ask
+for exactly that page, never a site grant. **The offer** (`substack_lists.py`; `$CICADA_HOME/substack_lists.json`, ids,
+enums, counts and times only, `flock`ed): G206's bounds, shared — a Substack list is due only when no X, Instagram or
+LinkedIn list is (one site's list at a time), one Substack list at a time, Saved and History after 20 hours,
+Subscriptions after 7 days, and every recorded read spends the same 10 reads a UTC day per bank
+(`saved_lists.count_read`). `cicada_reading_queue` (stdio only) appends its lines — the page, what to read, never a
+post's full text, the inbox or messages, never click anything that changes it (no unsave, like, restack, subscribe,
+unsubscribe or reply), never sign in — and `reading_queue.counts` counts it as an ask.
+**`cicada_record_substack_list(list, outcome, items?, via?)`** (`record` scope, stdio only — `catalog.NEVER_REMOTE`; a
+proposed CLI row `read substack`, not exposed) under one admission and page lock: refused, writing nothing, in a demo
+bank, with reading off, for an unknown list or outcome, a list not turned on, or the day's reads spent.
+`needs_login`/`blocked` pause **every** Substack list for 7 days (one sign-in covers them; no bank write) and file a G205
+agent request for `substack.com`; "I signed in" on it lifts the pause (`agent_requests.resolve`, which now also lifts a
+saved list's own pause), as does turning a list on again. A `read` (≤ 200 rows a call), each row checked by
+`substack.post` / `substack.publication` (the rest counted and left out):
+- **Saved** → an indexed save through `media_ingestor.write_prepared` with no fetch, origin `substack-saved`, folder
+  `Saved` (`history_index.LIST_ORIGINS`: `processed_by: index`, never read by a model, ruling 30), the publication as
+  its `channel`. A post is its canonical URL — `<pub>.substack.com/p/<slug>`, the shape a publication's feed links to,
+  so a post a followed feed already brought in is a duplicate, never a second page; `open.substack.com/pub/<pub>/p/…`
+  and `substack.com/@<handle>/p-<id>` ride as aliases; a publication on its own domain keeps its `/p/<slug>` URL.
+- **History** → reading days (`substack_reads`, `capture-and-sleep.md`), never saves.
+- **Subscriptions** → each publication followed through its own public `/feed` (`feed_registry.subscribe_feed`, tag
+  `substack`, its name as `title`, `via: substack-subscriptions`, `automatic`), polled behind the feed gate like any
+  feed; a feed the person unfollowed in Cicada is remembered (`feeds.yaml` `removed`) and never followed again by this
+  read — only the person's own subscribe lifts it. A profile (`substack.com/@<handle>`) is a person, never a publication.
+Committed alone as the harness with its session trailer. **Not built:** a post unsaved or a publication unsubscribed on
+Substack stays here (the read only adds); the person's Notes, likes, restacks and highlights — no API or export gives
+them, and none of the three pages this read covers lists them (a highlight shared as a Note would be the person's own
+words; reading it needs its own page and an owner ruling first, G89).
 
 **A walled post's title (2026-10-22).** The backend never fetches an X, Instagram or LinkedIn post (R-RW4), so a saved
 one is titled from its URL alone (`media_ingestor._walled_post_title`): "Post by @<user>" for an X status (before, its

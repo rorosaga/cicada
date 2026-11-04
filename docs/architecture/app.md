@@ -503,6 +503,60 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
+**The awaited export, picked up from Downloads, and a weekly nudge (G197 layer c, 2026-11-04).** claude.ai, the Claude
+desktop app's chats and ChatGPT keep their history on the vendor's servers and run no hook, so the person's own export
+is the one way in that needs no model's cooperation (G105; `capture-and-sleep.md`, "Hookless chat apps"). Two steps
+make it a habit rather than a seed, with no new setting.
+
+**(1) The pickup** (`Support/ExportArrivals.swift`). `ExportArrivalWatcher` keeps one FSEvents watch on the top of
+`~/Downloads`. It is open only while a wait the person opened **in this run** of the app (*Remind me* or the weekly
+nudge's tap; `ExportWaitStore.armedVendors` / `armedUntil`) is unexpired in the open memory. A wait left by an earlier
+launch therefore never lists Downloads, or raises macOS's Files and Folders prompt, at launch. The watch closes:
+
+- when the last wait clears;
+- at its 14-day expiry, by its own timer, with no folder event needed;
+- at any look that finds nothing awaited, before anything is read;
+- on a memory switch (`sync`).
+
+A look that awaited across a close never reopens it (an epoch guard). The watcher lists names, sizes and dates only.
+The baseline is taken when the watch opens, so an export already there is never offered. A new `.zip` that keeps its
+size for one 1.5 s look (`ArrivalTracker`) has its **central directory** read (`ZipMembers`: member names only, never
+a member's bytes, zip64 included, ≤ 32 MB of directory). Every bound in `ZipMembers` is checked by subtraction, so a
+crafted offset near `UInt64.max` answers nil rather than trapping. `ExportArrivals.vendor(members:)` names the vendor
+by the files each export carries:
+
+- Claude: `conversations.json` + `users.json`;
+- ChatGPT: `conversations.json` + `user.json`, `chat.html` or `message_feedback.json`;
+- Takeout's Gemini Apps activity;
+- both account files at once is nobody's.
+
+Only a vendor being waited on is offered, through `IntakeRouter.offerArrival`. That is the drop's door
+(`accept(urls:from: .reminder(vendor))`, so the preview, *Into* and Import are the drop's own, and the sniff clears
+the wait) with two differences, because nobody dropped it:
+
+- it is silent while the router is busy: no "finish the import" toast;
+- it never takes the panel from a sniff, preview or import the person has open.
+
+Either way it answers `.wait`, and the file is offered again at the next look. Every other file is offered once.
+When Cicada is not in front, one notification says the export arrived. It is posted only after it `.opened` (never
+after a refusal), only when notifications were already allowed, and its tap brings the window. If macOS refuses
+Downloads, one line says so ("Cicada can't see Downloads, so drop the export on Cicada when it comes."), nothing is
+read, and the drop and picker work as before.
+
+**(2) Every week** is the last item of every *Remind me* menu (`WeeklyReminderItems`, the same three hosts). It is
+saved only when notifications are allowed, because a weekly reminder that cannot fire is not on. A refusal saves
+nothing and says so in one line ("A weekly reminder needs Cicada's notifications, which are off."), never the
+one-off delays' "waits here". On a grant it records an `ExportHabit` (defaults `cicada.exportHabits`, per bank ×
+vendor, the weekday it was turned on, at 9:00) and one repeating local notification ("Time for a fresh Claude
+export."). At launch, the saved habits are scheduled again (`refreshWeekly`). If notifications are no longer allowed,
+they are dropped instead, and launch never asks for the permission. The nudge carries its memory: tapping it opens
+that vendor's export page in the person's own browser (Cicada clicks nothing there) and opens a wait in the memory it
+was set in (*Tomorrow at 9:00*), which arms the pickup. Once on, the same menu reads *Stop the weekly reminder*.
+
+Taps carry a kind (`ReminderTapKind`: `due` · `weekly` · `arrived`); a reminder from before this change carries none
+and is `due`. Because staging is idempotent per conversation, a weekly full export re-imports only what is new or
+grew, and a relayed conversation is upgraded in place (ruling 32).
+
 **Recordings and videos (meaning index 2, 2026-10-28).** **File → Add Recording or Video…** (2026-10-29) is the
 keyboard and VoiceOver twin: the intake's own open panel (`IntakePicker.chooseMedia`, audio and video types, no folders)
 hands what was chosen to `IntakeRouter.accept`, so the menu takes the drop's door and its rules. An audio or video file among a drop (by its type; a folder
@@ -901,10 +955,9 @@ installed app's icon, `anomaly.hex`), **Wispr Flow** (moved here from This Mac, 
 folders: a meeting folder (`FolderRegistration.isMeetings`, `kind: meetings`) syncs as `meetings:<id>`, so it never
 counts for Folders; Hex's own (`recorder: hex`) speak for Hex, the rest for the folder of transcripts. The detail lists
 each meeting folder with the folder rows' own `FolderChannelRow` ("3 meetings · …"; its Manage drops the agent
-checklist and Save, DR-38/DR-40) and `AddMeetingFolderRow`: how it works and whose words they are, one compact
-`NeutralButton` (*Add Hex's folder* / *Add a folder*, DR-40) that opens the open panel — in the Hex meetings folder
-when it is there (`LocalSourceWatcher.hexMeetingsFolder()`: Hex's own `meetings.output_folder`, the one key the app
-reads of Hex's settings file, else Hex's default) — then `AddMeetingFolderSheet` (a sheet, DR-33/R-HS16): its name in
+checklist and Save, DR-38/DR-40) and `FolderSlot`: Hex's one click (*This Mac's pages* below; `LocalSourceWatcher.
+hexMeetingsFolder()`: Hex's own `meetings.output_folder`, the one key the app reads of Hex's settings file, else Hex's
+default), or *Add Hex's folder* / *Add a folder* (DR-40), the open panel, then `AddMeetingFolderSheet` (a sheet, DR-33/R-HS16): its name in
 `cicadaField` (DR-76), *Look inside* (counts only: "Found 3 meetings · 1 file holds no transcript", `MeetingFolderText`),
 then *Start watching*, the sheet's one primary action (DR-40); closing it before that removes the registration the sheet made, never a folder that was already watched (a re-pick);
 a folder already watched as notes is refused by the backend and its words shown. The
@@ -1051,7 +1104,9 @@ only for a number it looked up this session (`lookedUp`) that no card or several
 JID. Telegram's chats post no card: the backend reads them through Telegram's API and never sees a phone number
 (ruling 47a), so there is no handle the app could look up.
 
-**Telegram chats (ruling 47a, 2026-10-28).** The same row and sheet (`TelegramSourceRow`, `TelegramPanel`;
+**Telegram chats (ruling 47a, 2026-10-28; named *Telegram* since 2026-11-04 — owner: "remove 'chats' from 'Telegram
+chats' and just keep 'Telegram'" — and the bot feed *Telegram bot*, on the Sources list, its page and the overview's
+label).** The same row and sheet (`TelegramSourceRow`, `TelegramPanel`;
 `TelegramChats` holds the state, the backend the client). **The connect sheets' one shape (DESIGN_RULES §9,
 2026-10-29; `Views/Settings/ConnectSheet.swift`):** one step at a time, one primary (⏎) with Cancel as a text button, no
 *Done* until connected; under each sign-in step one caption line — one-to-one only, each with the other person's
@@ -1668,7 +1723,20 @@ connect:content:footer:)` — four slots, top to bottom, and nothing else on the
 A source plugs in by building those three slots from its own state in its own file (GitHub: `GitHubSourcePage`); the
 catalogue's dispatcher (`SourceCatalogDetail`) picks the page by entry id. Words go in `Copy.SourceLayout` or the
 source's own `Copy` namespace, short, provider-neutral (CLAUDE.md), never a how-to paragraph (an export's where-from is
-the *Import a file* row's hover).
+the *Import a file* row's hover). **This Mac on the layout (#599):** `SourceCatalogRow.notInstalled` → `SourcePageStatus
+.notInstalled` ("Off · not installed", `SourceConnectState.notConnected`, no Connect — Wispr Flow's `WisprSlot`), and
+`SourceCatalogDetail.thisMacContent`, the content for every entry `ThisMacSourceContent.handles`: a recorder's *Folders*
+(each row only the folder and its Manage) or Reminders' list picker, then the browser. Wispr Flow keeps the plain list.
+Hex's connect is its `FolderSlot` case.
+**Review of #593 (2026-11-04):** a connector is found by `connect` or `disconnect` (`connectorChannel(in:)`: the backend
+sends `["connect"]` before and `["sync", "disconnect"]` after), so a connected X, Reddit or Pinterest keeps Disconnect and
+a lapsed one Reconnect; Substack (#594) is three switches (`substackWays`, the first-use sheet first) with "Following N
+publications" as the line; a browser page lists *Unmute all* as one row while the ask-why question is muted on a site
+(`BrowserWayRules.showsUnmute`); the YouTube watch-history read shows Stop while it reads and its failure under its
+switch — Full Disk Access's exact fix when that is what failed (`WatchHistoryWatcher.failure`), else its words as the
+attention line (`WatchHistoryState`, `WatchHistoryLine`), on YouTube's page and Chrome's; chat exports list each app's
+*Request your … export* as a way (`ChatExportWay`; the reminder menu stays in the intake overlay, a menu not being a
+switch or a button).
 
 **This Mac's pages: accounts → collections → items (owner 2026-11-04; G161, G154, G95, G142, G219; PR #599;
 `Views/Sources/SourceBrowser.swift`, `SourceBrowserLists.swift`, `Models/SourceAccounts.swift`, `Copy.SourceBrowser`).**
@@ -1692,18 +1760,19 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   account, so its kind is read from the name (`of(posted:name:)`). Google draws the bundled *Google Calendar* mark (Gmail's
   on Notes); iCloud, this Mac, Exchange and the rest a system symbol on the dense tile — Apple's marks are never committed
   (Track L). **Why Calendar showed a Google account:** the Calendar app holds every account in Internet Accounts, and the
-  old page said so in a standing line with an *Add a Google account* button (`CalendarRow.google`, removed); the account
-  list now names each account the Mac holds, Google only when there is one.
+  old page said so in a standing line with an *Add a Google account* button (`CalendarRow.google` and the layout's
+  way row, both removed); the account list now names each account the Mac holds, Google only when there is one.
 - **Contacts** (`ContactsGrid`): the people in memory a card matched, as a grid of faces (`ContactCell`, 48 pt
   `EntityPicture` by the one picture precedence — the Contacts photo when the card has one, else the person's monogram)
   with the name under each, under the page's search; a face opens the person's page. Never a card's other facts (G154).
 - **Meeting recorders** (`MeetingsBrowser`): recorder → folder → meetings; one folder lists its meetings directly
   (`MeetingRow`: a waveform glyph, the title, then *Tue, Nov 3 · 32 min* in meta ink, the full date on hover —
-  `MeetingRowText`, `duration_s` from the episode's `meeting` record). **Hex in one click** (`HexConnectRow`, until the
-  standard connect area wires it): *Connect Hex* (the one primary) beside *Found ~/Documents/Hex Meetings* — Hex's own
+  `MeetingRowText`, `duration_s` from the episode's `meeting` record). **Hex in one click** (`FolderSlot`'s connect
+  area): *Connect Hex* (the one primary) beside *Found ~/Documents/Hex Meetings* — Hex's own
   `meetings.output_folder`, else its default (`LocalSourceWatcher.hexFolderFound`) — registers that folder and reads it
   at once (`connectHexFolder`): one pass that posts each meeting once, where the open panel → name → *Look inside* →
-  *Start watching* path posted every file twice before a meeting could show; *Choose another folder…* keeps that path.
+  *Start watching* path posted every file twice before a meeting could show; the way row *Another folder* keeps that
+  path. No folder found: *Add Hex's folder* beside *Hex hasn't saved a meeting on this Mac yet*.
 - **Status is the reader's own, from the start** (`SourceCatalog.status`): a reader this Mac runs is Connected while it is
   allowed and turned on (`localReaders[channel] == true`; Contacts `LocalReaders.contactsOn`: on and not refused), whether
   or not the bank has recorded a sync — the backend's `connected` means "a sync was recorded", which a fresh bank, a first
@@ -1739,7 +1808,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   newest day), a watched day (*N videos*), a saved thing (`SavedItemRow`), an item, an agent's conversation
   (`HarnessConversationsView`'s embedded mode) — at most 12 rows then a plain *All N*; a group row and *All N* open in the
   column's place (`SourceDrill`) with *‹ <source>* and Esc to return, never in place (DR-81); then the removals proposed
-  against the channel and, for tab groups, the groups open now; and **Settings** last (`SourcePageSettings`): the
+  against the channel and, for tab groups, the groups open now; and **Settings** last (`SourcePageSettings`, retired 2026-11-04 for the standard source page above — its controls are the connect area and the footer now): the
   source's own control — the very rows Settings drew (`CalendarRow`, `ContactsRow`, `MessagesRow`, `BrowsersSection`,
   `WatchHistoryRow`, `FolderChannelRow` + *Add a folder*, `WisprFlowRow`), or `ChannelActionsBar` (Connect / Refresh /
   Manage) for a registry channel, or a tile's flow — then the per-site reading switch for a walled site (x, instagram,
@@ -1767,6 +1836,33 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   and one line. Esc, the close button, the sidebar re-click and opening another source close it. **Decided:** the page
   and the picker stay two things — the page is what Cicada holds, from the backend (the same on a client or a replica);
   the picker (*Choose…*) is the consent act and reads this Mac's own chat list.
+  **Chat images (owner 2026-11-04, G179; `ChatMedia.swift`, `ChatMediaLocal.swift`, `ChatMediaStore.swift`,
+  `ChatMediaTile.swift`):** a chat source's attachment (`imessage`, `whatsapp`, `telegram-chats`; the sitting's origin
+  and its `<origin>:<chat>:` source id, `ChatMedia.source`) draws as the file itself under its bubble wherever the
+  sitting is drawn — this panel and the Reader — instead of its `Tag` (an export's attachment keeps its `Tag`). The
+  app resolves it at view time from what the chat app already holds on this Mac: WhatsApp's media item
+  (`ZWAMEDIAITEM`, the file under `Message/` in its group container, its `ZMOVIEDURATION`; read from the store's clone
+  like the reader) and Messages' attachment row (the file under `Attachments/` beside `chat.db`), each matched by the
+  turn's own second, the name and kind as the backend stored them and the attachment's place among that second's same
+  files — both sides count over the same set, a store's time floored to the second as the backend stored it, so a
+  burst across a second never shifts a picture (#597 review B1; `ChatMedia.files`/`pick`, Telegram's
+  `telegram_account.pick_media`; a name only one file in the chat carries wins wherever its time lands; the kind
+  when the scrub changed the name), every path resolved inside the app's own folder (a `..` or a symlink out is no
+  file). Telegram's ask the backend (`APIClient.telegramChatMedia`). Ticked chats only: the WhatsApp and Messages
+  watchers' `tickedIds` (a chat not ticked is never read and its thumbnails go), Telegram's tick the backend's.
+  Thumbnails: ImageIO's thumbnailer for a picture, else Quick Look's generator (a video's frame), ≤ 480 px, kept as
+  JPEG in `$CICADA_HOME/chat-media/<source>/<chat>/` (0700/0600, outside every bank), dropped on the app's untick and
+  for any chat the backend's ticks no longer list (`ChatMediaCache.keepOnly`, when a watcher reads the ticks); an
+  untick while a list, a thumbnail or a large photo is loading discards what lands after it (a per-chat generation
+  `forget` bumps, #597 review B2). The
+  tile (DESIGN_RULES §9 2026-11-04): a picture at its own aspect, ≤ 220 pt, the bubble's corners and resting ring; a
+  video its frame with a play mark and its length; a voice message or a file a quiet row in the side's bubble fill
+  with its length or size; a file not on this Mac the same row with *Not on this Mac*. A click opens the chat app's
+  own file in Quick Look (`ChatMediaPreview`, the app delegate the panel's controller), a Telegram photo after
+  `/media/full` (kept beside the thumbnails). A video's length without a store value is `AVURLAsset`'s duration,
+  the one AVFoundation call (`ChatMediaDuration.swift`, allowed by `AVImportLintTests`). A WhatsApp or Telegram
+  one-to-one chat's other side wears the chat's own face at the head of each run (`ReaderChatRows.chatFace`, the
+  row's `ChatFace`); a group's members keep their monograms.
   Instagram is offered with **Turn on** = the reading switch, saying the browser reader is still coming (G206) and
   offering the data export. Obsidian's entry is gone (a vault is a folder). Contacts stays (ruling 33).
 - **One catalogue (Hyrum mode B):** the *Add a source* grid opens from nowhere now. The eyebrow keeps DR-75's labelled
@@ -1842,6 +1938,15 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   library's saved items — and `spotify-listening` — the listening days, shown as "Spotify history" within `SourceDisplayName`'s 16 characters). Its detail is the Files & links row's own
   controls (the where-it-comes-from line, then `IntakePanel`): `Copy.Catalog.howSpotify` says to ask Spotify's privacy
   settings for Extended streaming history or Account data and drop the zip it emails. The bundled `spotify` mark.
+  **G232 (2026-11-04, backend only so far):** the connect area of Spotify, Reddit, Pinterest, TikTok and Instagram is
+  served by `GET /sources/ways-in/<source>` (`ways_in.py`): `state` (`notConnected` · `connected` · `needsAttention`,
+  `SourceConnectState`'s words), `primary` (the official connection as the page's one `SourcePrimaryAction` —
+  `connect` → `POST /sources/connectors/<id>/authorize` and open the URL; `reconnect`; `connected` → none; null when no
+  official connection is offered), one short `line` (`lineIsAttention`), `ways` (`browser` → `SourceWayIn.browser`, its
+  switch `PUT /reading/settings` `savedLists`; `file` → `SourceWayIn.importFile`, `how` its hover and `requestUrl`
+  where to ask), `ownApp` (the person's own app may connect, behind "Use your own app", never the primary) and
+  `notOffered` (each missing way with its reason in words, for hover). The app side lands on #593's layout in a
+  follow-up PR.
   **G230 (2026-11-03; ruling 53):** *Accounts* gains **GitHub** (id `github`, the bundled `github` mark; origins
   `github-starred`, `github-added`, `github-owned` read "GitHub stars" / "GitHub"). Its detail is `GitHubSourcePanel`
   (`Views/Sources/GitHubRepos.swift`): **`GitHubConnectPanel`** — connecting with a code (owner 2026-11-03: "cant we
@@ -1851,7 +1956,18 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   the model asks `POST /sources/github/connect/poll` every interval the backend gives (`GitHubConnectModel`, its
   `Deps` injected) → connected by code but not installed, *Install on GitHub* (the app's install page) and *I installed
   it* (asks again, then syncs at once) → *Connected* (or, once GitHub refuses to renew the sign-in, *GitHub signed Cicada out* with *Reconnect*) with Refresh and Disconnect (which says the grant on GitHub is
-  removed there). `GitHubConnectStep.from` decides the step from the backend's answer alone. The token
+  removed there). `GitHubConnectStep.from` decides the step from the backend's answer alone. **2026-11-04 (owner,
+  live; DESIGN_RULES §9 2026-11-04): `GitHubSourcePage` on the standard layout** — not connected, *Connect GitHub* alone;
+  connecting, `GitHubCodeView` (the code at 28 pt in the copyable face, *Copy*, *Open GitHub*, *Cancel* quiet, "14 minutes
+  left"); connected, `GitHubRepoList` *Your repositories* (name alone) and *Starred* (`owner/name`), each a
+  `GitHubRepoRow` (`GitHubRepoPicture`: the page's own picture — an organisation's avatar — else GitHub's mark; the
+  name with *Private*/*Archived* `Tag`s, the description, the language on the right; a click opens its page, the context
+  menu *Open on GitHub* and its projects), 12 rows then *All N* in the column's place; the install step is one way row
+  (*Add your own repositories* · *Install on GitHub*) and `openInstallAndWatch` asks GitHub every 5 s for 3 min, so there
+  is no *I installed it*; Refresh and Disconnect in the footer. The backend starts the first sync when the code sign-in
+  completes (`start_first_sync`, `syncing` on `GET /sources/github/connect`); the status line reads Syncing and
+  `watchSync` reads the lists again when it ends. The words below about `GitHubConnectPanel` and `GitHubReposSection`
+  describe the retired panel. The token
   (`ConnectorSetupPanel`) is only behind *Use a token instead* — the fallback only where the build's client id is blank
   (the shipped build names Cicada's registered app, 2026-11-04), never the default. Under it **`GitHubReposSection`**: *Your repositories* in their own scroll, each row's name and
   "Private · Python · …", *In <project>* (a `TextButton` to each of at most two projects it belongs to, "+N" after) and
@@ -2022,6 +2138,21 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   PUT answers 422 with that sentence otherwise). The accent is not used here beyond the toggle's own tint (DR-5); no
   new mark (the family's bundled mark already heads the column, DR-52). A `needs_login` lands as the G205 agent
   request in the Inbox, not on this row.
+- **Substack (G89, built 2026-11-04).** One Accounts entry, *Substack* (`SourceCatalog.substackId`, origin
+  `substack-saved`, the overview's `substack` saves and `substack-history` reading days; no `site`, so no per-site page
+  grant is drawn). Its detail holds, only while it is off, one line on why the agent reads it (Substack gives readers no
+  way to connect another app), then the three lists' switches the YouTube row's way (`substackListToggle`, words
+  from the pure `SubstackListWords`: *Keep Saved current*, *Keep reading history current*, *Follow my subscriptions*;
+  under each, off — "Off — your agent never opens …", on — the last read's day (DR-58), "Waiting for your agent", or
+  "Your agent wasn't signed in to Substack. Paused until <day> — turn it on again to try sooner."), each bound to
+  `GET /reading/settings` `substackLists.<list>` and written by `PUT /reading/settings {"substackLists": {…}}` (not a
+  Store domain, in memory; never a `sites` grant). Turning one on with agent reading off or its sheet unacknowledged
+  opens the first-use sheet first (`ReadingFirstUseSheet(substackList:)`), whose Turn on enables agent reading and that
+  list. Under the switches, once any publication is followed: "Following N publications through their public feeds"
+  (`SubstackFollowing.count` over the Store's `feeds`, tag `substack`). The row reads Off until a list is on, *On ·
+  waits for your agent* with no local agent, Connected with one (`savedListsOn` holds `substack`), and Connected once
+  its saves or reading days are in memory. The mark is a symbol (`newspaper.fill`, tinted 0xFF6719): no Substack logo
+  is bundled (DR-52). Applies DR-5, DR-20, DR-40, DR-58, DR-81.
 - **Watch history is never a save.** YouTube and TikTok history days are their own captured rows (*YouTube history*,
   *TikTok history*), headlined by their days ("30 watched days", `SourceOverview.isWatchHistory`), and their detail
   lists those days by title under the row's own id (`GET /sources/channels/youtube-history/items`, each opening in the
@@ -2272,9 +2403,33 @@ g141-7; DESIGN_RULES §9 2026-10-27).** The page is back on the rail (`PageSwitc
   reason in words (`why`), the person's located sentence for a words birth, and two neutral buttons, *Add to my
   projects* and *Not mine*. It opens the first time and is remembered (`cicada.projects.suggestedOpen`); dismissed ones
   sit behind "N dismissed · Show". A provider grouping (`kind: group`) asks for a name on accept (`ProjectNameSheet`).
-  With none of the person's own yet, the list says so above the fold (`ProjectsListState.emptyMine`).
-- **New project** is the eyebrow row's `PageAddButton`; its sheet takes a name and a description and opens the new
-  project.
+  With none of the person's own yet, the list draws no words at all (owner 2026-11-04: "just have it look empty"):
+  the column is empty and calm, the eyebrow's New project is the way in, and Cicada's suggestions stay one quiet line,
+  "N suggested · Review", its count in tertiary ink (`ProjectsSuggestedLine`).
+- **New project is a page (owner 2026-11-04, DESIGN_RULES §9 2026-11-04).** The eyebrow row's `PageAddButton` opens
+  `ProjectNewColumn` as the detail column (`ProjectsPage.newColumn`, an id no slug can take): the project page it will
+  become, before it exists. The card is the name as the page's H1 (a 22 pt field with no chrome, "Project name" in
+  tertiary ink while empty; ⏎ moves on) over a large editor for what it is about in the person's own words
+  (`cicadaEditor`, DR-76's long form: a `TextEditor` where Return starts a new line, 280 pt tall), then Cancel and the
+  one primary, Create (⌘⏎). Beside it (under it when narrow, `ProjectKnowledgeLayout`) the knowledge panel holds
+  *Pages · N* — the attached pages, each with Remove on hover and in its menu — then `ProjectPagePicker`: one search
+  field ("Find a page to add"), kind text tabs with counts (All · Videos · Articles · Papers · Repositories · People ·
+  Other, drawn only when the matches span two kinds), *Recent* (the most recently mentioned pages) while nothing is
+  typed, and rows of `ProjectAttachRow`: one leading slot as wide as a media page's 3:2 well holding the page's
+  picture, else its source's mark (a saved link's site, GitHub for a repository), then the name and where it came
+  from. The candidates are `ProjectAttachModel.candidates` over the graph's nodes and Sleep › Saved's items (the owner,
+  facets, hubs and dropped pages left out). The draft (`ProjectDraft`) lives on the page: Esc and × close and keep it,
+  Cancel forgets it, a bank switch clears it. Create is ONE `ProjectChange.create(name:description:pages:)` → `POST
+  /projects` with `pages`: the server makes the page and attaches everything in one person commit (a repository joins
+  `repositories:`, ruling 53), and the new project opens in place of the draft; a refusal keeps the draft and toasts
+  the server's sentence. The picker ranks again only when its query, kind, attached set or candidates move
+  (`ProjectPickerMemo`), and the candidates are built once per graph and saved-items load (`ProjectAttachCache`). The person's description is the project page's lead (`ProjectHeaderEditor`, primary ink,
+  paragraphs kept; editing it uses the same long field, ⌘⏎ saves, Esc cancels, a click away saves). The day the
+  person started it counts as activity (`project_timeline._tied_days`), so a project made a moment ago is in Current;
+  that day is one of the moment days `project_state.median_gap` reads, so it also sets the rhythm a quiet project's
+  follow-up is measured against until other activity arrives.
+  Add on *Pages in this project* opens `AddProjectPageSheet`, the same picker in a sheet. `ProjectNameSheet` now only
+  names a provider grouping on accept.
 - **The header** is `ProjectHeaderEditor`: the name and the person's description, edited in place (PATCH), a meta
   line saying how it became theirs and who last set the description (with that agent's mark). Sleep's first line shows,
   dimmer, only when the person wrote no description.
@@ -2340,8 +2495,8 @@ part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page 
   influences, each capped with its own "All N". Writes are `ProjectChange.tiePage` through `Store.perform`, painted at
   once (`ProjectPagesPaint`). **The list:** sub-projects sit indented under their parent, always shown (no chevron —
   amends 2026-10-19's "dropdown that moves if I press again", the owner's newer preference); the quiet projects sit
-  under a static *Gone quiet* label (`ProjectsEntry.quiet`), never a fold; Suggested is one line, "N suggested by
-  Cicada · Review" (`ProjectsSuggestedLine`), which opens the suggestions as the detail column
+  under a static *Gone quiet* label (`ProjectsEntry.quiet`), never a fold; Suggested is one line, "N suggested ·
+  Review" (`ProjectsSuggestedLine`; "by Cicada" dropped 2026-11-04), which opens the suggestions as the detail column
   (`ProjectsSuggestedColumn`: DR-74's head, text tabs Suggested · Not mine). ← on a sub-project opens its parent; →
   has nothing left to unfold. The bullets below describe v2; where they name a fold, v3's open section replaces it.
 - **The list (v2):** text tabs **Current · Past** with counts (`ProjectsModel.tabs`; tapping the selected one keeps

@@ -51,11 +51,6 @@ struct CalendarRow: View {
     /// System Settings → Privacy & Security → Calendars.
     static let privacyURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!
 
-    /// System Settings → Internet Accounts (macOS 13+), where a Google account's calendars join the Calendar app.
-    /// Opening it asks macOS for nothing.
-    static let internetAccountsURL =
-        URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension")!
-
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             // 2026-11-04 (owner: "I don't know why there's an Ada Google account for the macOS calendar, they should be

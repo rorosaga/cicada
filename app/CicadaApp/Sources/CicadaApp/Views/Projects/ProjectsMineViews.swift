@@ -94,20 +94,18 @@ struct SuggestedProjectRow: View {
     }
 }
 
-// MARK: - New project / name it
+// MARK: - Name it
 
-/// New project (DR-75's one add button opens it): a name and a description, both `cicadaField` (DR-76), one primary
-/// Create (DR-40). A provider grouping's accept reuses it with the name alone.
+/// A provider grouping's accept asks for a name (one `cicadaField`, DR-76; one primary, DR-40). New project is a page
+/// of its own since 2026-11-04 (`ProjectNewColumn`).
 struct ProjectNameSheet: View {
     let title: String
     var message: String? = nil
-    var asksDescription = true
     var confirm = Copy.ProjectsMine.create
-    let submit: (String, String) -> Void
+    let submit: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
-    @State private var description = ""
-    @FocusState private var focus: Int?
+    @FocusState private var focused: Bool
 
     private var ready: Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
@@ -119,19 +117,10 @@ struct ProjectNameSheet: View {
                 Text(message).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary)
             }
             TextField("", text: $name)
-                .focused($focus, equals: 0)
-                .cicadaField(isFocused: focus == 0, prompt: Copy.ProjectsMine.namePlaceholder, isEmpty: name.isEmpty)
+                .focused($focused)
+                .cicadaField(isFocused: focused, prompt: Copy.ProjectsMine.namePlaceholder, isEmpty: name.isEmpty)
                 .accessibilityLabel(Copy.ProjectsMine.nameField)
-                .onSubmit { if asksDescription { focus = 1 } else { send() } }
-            if asksDescription {
-                TextField("", text: $description, axis: .vertical)
-                    .lineLimit(1...4)
-                    .focused($focus, equals: 1)
-                    .cicadaField(isFocused: focus == 1, prompt: Copy.ProjectsMine.descriptionPlaceholder,
-                                 isEmpty: description.isEmpty)
-                    .accessibilityLabel(Copy.ProjectsMine.descriptionField)
-                    .onSubmit { send() }
-            }
+                .onSubmit { send() }
             HStack {
                 Spacer()
                 NeutralButton(title: Copy.ProjectsMine.cancel, shortcut: .cancelAction) { dismiss() }
@@ -143,13 +132,12 @@ struct ProjectNameSheet: View {
         .padding(CicadaTheme.spacingXL)
         .frame(width: CicadaTheme.scaled(440))
         .background(CicadaTheme.bgBase)
-        .onAppear { focus = 0 }
+        .onAppear { focused = true }
     }
 
     private func send() {
         guard ready else { return }
-        submit(name.trimmingCharacters(in: .whitespacesAndNewlines),
-               description.trimmingCharacters(in: .whitespacesAndNewlines))
+        submit(name.trimmingCharacters(in: .whitespacesAndNewlines))
         dismiss()
     }
 }
@@ -193,11 +181,14 @@ struct ProjectHeaderEditor: View {
                     .accessibilityHint(about)
             }
             if editing == .description {
-                field(prompt: Copy.ProjectsMine.descriptionPlaceholder, font: CicadaTheme.detailBodyFont)
+                editor
             } else if let text = ref.description, !text.isEmpty {
+                // The person's words are the page's lead (owner 2026-11-04), paragraphs and all; Sleep never writes
+                // them (Q5).
                 Text(text)
                     .font(CicadaTheme.detailBodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .lineSpacing(CicadaTheme.scaled(3))
                     .fixedSize(horizontal: false, vertical: true)
                     .onTapGesture { begin(.description, text) }
                     .help(blocked ? Copy.Projects.sleepBusy : about + "\n" + Copy.ProjectsMine.editDescriptionHelp)
@@ -225,12 +216,27 @@ struct ProjectHeaderEditor: View {
     }
 
     private func field(prompt: String, font: Font) -> some View {
-        TextField("", text: $draft, axis: editing == .description ? .vertical : .horizontal)
+        TextField("", text: $draft)
             .font(font)
             .focused($focused)
             .cicadaField(isFocused: focused, prompt: prompt, isEmpty: draft.isEmpty)
             .onSubmit { commit() }
             // Esc cancels: `editing` goes first, so the focus loss that follows saves nothing.
+            .onExitCommand { Instant.run { editing = nil } }
+            .onAppear { focused = true }
+    }
+
+    /// The description in DR-76's long form: Return starts a new line, ⌘Return saves, Esc cancels, a click away saves.
+    private var editor: some View {
+        TextEditor(text: $draft)
+            .focused($focused)
+            .cicadaEditor(isFocused: focused, prompt: Copy.ProjectsMine.newDescription, isEmpty: draft.isEmpty,
+                          minHeight: 120)
+            .onKeyPress(keys: [.return]) { press in
+                guard press.modifiers.contains(.command) else { return .ignored }
+                commit()
+                return .handled
+            }
             .onExitCommand { Instant.run { editing = nil } }
             .onAppear { focused = true }
     }

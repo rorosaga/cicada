@@ -33,6 +33,11 @@
   their own agent to keep current (``saved_lists``), on the same terms as
   ``youtube_lists``: on by default since 2026-10-26 (see ``saved_lists_off``), a standing ask for exactly that list page,
   never a site grant.
+* ``substack_lists`` — ``{list: day}`` (G89, owner 2026-11-04): the Substack lists (``saved``, ``history``,
+  ``subscriptions``) the person asked their own agent to keep current from their signed-in browser
+  (``substack_lists``) — a standing ask for exactly that page, never a site grant, needs a current acknowledgement to
+  turn on and counts only while the master switch is on. **Off until the person turns it on**: no memory shows a
+  Substack account before a read, so no default could tell it applies. ``substack_lists_off`` remembers an off.
 * ``youtube_lists_off`` / ``saved_lists_off`` — ``{key: day}`` (owner 2026-10-26, ruling 39 dated line): the lists
   the person turned OFF. The lists are on by default since then — asked once, pre-ticked, in onboarding (the answer
   is the consent), and on an existing install turned on by :func:`apply_list_defaults` only for an account this memory
@@ -177,7 +182,11 @@ def youtube_list_allowed(name: str) -> bool:
 
 
 #: The saved lists on walled sites an agent may be asked to read (G206; ``saved_lists.PLATFORMS``' keys).
-SAVED_LISTS = ("x", "instagram", "linkedin")
+SAVED_LISTS = ("x", "instagram", "linkedin", "reddit", "pinterest", "tiktok")
+#: The saved lists :func:`apply_list_defaults` may turn on (owner 2026-10-26: onboarding pre-ticks them and an off is
+#: remembered). G232's Reddit, Pinterest and TikTok lists are off until the person turns one on: the app has no switch
+#: or onboarding row for them yet, so no consent and no visible off exist to rest a default on (review of #596).
+DEFAULT_ON_SAVED_LISTS = ("x", "instagram", "linkedin")
 
 
 def saved_lists() -> dict[str, str]:
@@ -190,6 +199,24 @@ def saved_lists() -> dict[str, str]:
 
 def saved_list_allowed(key: str) -> bool:
     return agent_enabled() and key in saved_lists()
+
+
+#: G89 (2026-11-04): the Substack lists an agent may be asked to read (``substack_lists.LISTS``' keys).
+SUBSTACK_LISTS = ("saved", "history", "subscriptions")
+
+
+def substack_lists() -> dict[str, str]:
+    """``{list: day granted}`` as stored. NOT gated on the master switch — see :func:`substack_list_allowed`."""
+    return _day_map(_load().get("substack_lists"), SUBSTACK_LISTS)
+
+
+def substack_list_allowed(name: str) -> bool:
+    return agent_enabled() and name in substack_lists()
+
+
+def substack_lists_off() -> dict[str, str]:
+    """``{list: day turned off}`` — the person's explicit offs."""
+    return _day_map(_load().get("substack_lists_off"), SUBSTACK_LISTS)
 
 
 def _day_map(raw, keys) -> dict[str, str]:
@@ -221,7 +248,7 @@ def apply_list_defaults(*, detected: set[str], read_before: set[str] = frozenset
     changed: list[str] = []
     defaulted = data.get("lists_defaulted") if isinstance(data.get("lists_defaulted"), dict) else {}
     for family, keys, account in (("youtube", YOUTUBE_LISTS, lambda _k: "youtube"),
-                                  ("saved", SAVED_LISTS, lambda k: k)):
+                                  ("saved", DEFAULT_ON_SAVED_LISTS, lambda k: k)):
         on_key, off_key = f"{family}_lists", f"{family}_lists_off"
         on = data.get(on_key) if isinstance(data.get(on_key), dict) else {}
         off = data.get(off_key) if isinstance(data.get(off_key), dict) else {}
@@ -254,6 +281,8 @@ def snapshot() -> dict:
     saved = saved_lists()
     yt_off = youtube_lists_off()
     saved_off = saved_lists_off()
+    substack = substack_lists()
+    substack_off = substack_lists_off()
     return {
         "agentEnabled": agent_enabled(),
         "allowedSites": allowed_sites(),
@@ -266,6 +295,9 @@ def snapshot() -> dict:
         # 2026-10-26: the lists the person turned off (an off is remembered; nothing automatic turns it on again).
         "youtubeListsOff": {"watchLater": "watch_later" in yt_off, "history": "history" in yt_off},
         "savedListsOff": {k: k in saved_off for k in SAVED_LISTS},
+        # G89 (2026-11-04): the Substack lists the person's own agent keeps current, and the ones turned off.
+        "substackLists": {k: k in substack for k in SUBSTACK_LISTS},
+        "substackListsOff": {k: k in substack_off for k in SUBSTACK_LISTS},
     }
 
 
@@ -275,7 +307,7 @@ class SettingsError(ValueError):
 
 def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sites=None,
            surfaced=None, today: date | None = None, explore_signed_in_: bool | None = None,
-           never_explore_=None, youtube_lists_=None, saved_lists_=None) -> dict:
+           never_explore_=None, youtube_lists_=None, saved_lists_=None, substack_lists_=None) -> dict:
     """Apply one change and return the new snapshot.
 
     Turning the switch on needs a current acknowledgement — either already
@@ -379,6 +411,28 @@ def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sit
             data["saved_lists"] = dict(sorted(held_saved.items()))
         else:
             data.pop("saved_lists", None)
+    if substack_lists_ is not None:
+        # G89: the same standing ask, one per Substack list.
+        if not isinstance(substack_lists_, dict) or any(str(k) not in SUBSTACK_LISTS for k in substack_lists_):
+            raise SettingsError("substackLists must be a map of saved, history or subscriptions to true or false. "
+                                "Nothing was changed.")
+        if any(substack_lists_.values()) and not _ack_ok(data):
+            raise SettingsError(
+                "Read the sheet and tick I understand before turning this on. Nothing was changed.")
+        held_on = _day_map(data.get("substack_lists"), SUBSTACK_LISTS)
+        held_off = _day_map(data.get("substack_lists_off"), SUBSTACK_LISTS)
+        for key, on in substack_lists_.items():
+            if on:
+                held_on.setdefault(str(key), (today or date.today()).isoformat())
+                held_off.pop(str(key), None)
+            else:
+                held_on.pop(str(key), None)
+                held_off.setdefault(str(key), (today or date.today()).isoformat())
+        for name, held in (("substack_lists", held_on), ("substack_lists_off", held_off)):
+            if held:
+                data[name] = dict(sorted(held.items()))
+            else:
+                data.pop(name, None)
     if agent_enabled_ is not None:
         if agent_enabled_ and not _ack_ok(data):
             raise SettingsError(

@@ -110,17 +110,20 @@ CATALOG: tuple[SourceSpec, ...] = (
     # G32: Spotify's own download — the library as saved items, the plays as listening days (index-only, ruling 30).
     SourceSpec("spotify", "Spotify", "social", "spotify", ("spotify-saved",), None),
     SourceSpec("spotify-listening", "Spotify listening", "social", "spotify", ("spotify-history",), None),
+    # G89 (2026-11-04): the person's Substack, read by their own agent — Saved as saves, History as reading days.
+    SourceSpec("substack", "Substack", "social", "substack-saved", ("substack-saved",), None),
+    SourceSpec("substack-history", "Substack reading", "social", "substack-history", ("substack-history",), None),
     SourceSpec("rss", "RSS feeds", "feed", "rss", ("rss",), "rss"),
     SourceSpec("calendar", "Calendars", "feed", "calendar", ("calendar",), "calendar"),
     # G142 (round 4): Apple Calendar through EventKit, so its episodes never read as a raw id.
     SourceSpec("calendar-local", "Apple Calendar", "feed", "calendar-local", ("calendar-local",), "calendar-local"),
-    SourceSpec("telegram", "Telegram", "messaging", "telegram", ("telegram",), "telegram"),
+    SourceSpec("telegram", "Telegram bot", "messaging", "telegram", ("telegram",), "telegram"),
     # G179: the Messages conversations the person ticked — one episode per sitting.
     SourceSpec("imessage", "Messages", "messaging", "imessage", ("imessage",), "imessage"),
     # G179 (2026-10-28): WhatsApp read live from its Mac store, the Messages way.
     SourceSpec("whatsapp", "WhatsApp", "messaging", "whatsapp", ("whatsapp",), "whatsapp"),
     # Ruling 47a: the person's own Telegram one-to-one chats, through their own account.
-    SourceSpec("telegram-chats", "Telegram chats", "messaging", "telegram-chats", ("telegram-chats",),
+    SourceSpec("telegram-chats", "Telegram", "messaging", "telegram-chats", ("telegram-chats",),
                "telegram-chats"),
     SourceSpec("wispr-flow", "Wispr Flow", "voice", "wispr-flow", ("wispr-flow",), "wispr-flow"),
     SourceSpec("notes", "Apple Notes", "import", "apple-notes", ("apple-notes",), "notes"),
@@ -149,14 +152,17 @@ CATALOG: tuple[SourceSpec, ...] = (
 SAVED_SOURCES = frozenset({
     "chrome-bookmarks", "safari-bookmarks", "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
     "pinterest", "reddit", "x", "instagram", "youtube", "linkedin", "tiktok", "files", "spotify", "github",
+    "substack",
 })
 INTENTS = ("saved", "captured")
 #: Folded into `/sources/overview`'s ETag: bump it when the body changes for the same bank files (v3: `intent`;
 #: v4: `waiting`, `faces`/`faces_more`, and check records left out; v5: a nil-origin save on Files & links, the Phone
 #: and device-notes rows; v6: the device-files row; v7: Apple Reminders and Notion, G219;
 #: v8: Readwise and Notion live, ruling 47 tier 2; v9: WhatsApp, G179; v10: Telegram chats, ruling 47a;
-#: v11: Spotify's library and listening, G32; v12: Readwise removed by owner direction, 2026-11-03; v13: GitHub, G230).
-SHAPE = "overview-v13"
+#: v11: Spotify's library and listening, G32; v12: Readwise removed by owner direction, 2026-11-03; v13: GitHub, G230;
+#: v14: Substack's saves and reading days, G89; v15: Telegram chats labelled "Telegram", the bot feed
+#: "Telegram bot", 2026-11-04).
+SHAPE = "overview-v15"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent
