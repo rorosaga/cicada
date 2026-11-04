@@ -12,6 +12,17 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — one layout for every source page; GitHub syncs on connect (G161, G230; branch
+  `sources-standard-layout`, PR #593).** Owner, from screenshots: "so much text", the export drop showing "the logos of
+  AI companies instead of the logo of Spotify", "standardize the layout for all the sources pages". Every source page is
+  `SourcePageLayout` — head and one status line, a connect area (one primary, at most one line, ways in as option rows
+  with their own icons), the source's own sections, a quiet footer; spec in `app.md` ("The standard source page"), rule
+  in DESIGN_RULES §9 2026-11-04. GitHub's live `lastSync: null` after a code sign-in: nothing started a sync (the poll
+  only stamped credentials; the scheduler's first run is 6 h after start); the completed sign-in now starts it. Telegram
+  chats is *Telegram*. **Pick up here:** the This Mac pages' content (Notes, Reminders, Contacts, Calendar, Hex, Wispr
+  Flow, transcripts) is another worker's, in the layout's `content` slot; Telegram's missing chat pictures are the chat
+  images worker's (backend data, not the page layout).
+
 - **2026-11-03 — GitHub connects with a code; your repositories are pages; a project lists its repositories (ruling
   53, G230; branch `feat/g230-oauth-sync`).** Owner: "why are you asking for a token for github? cant we just do oauth?"
   and "always sync and make their initial markdowns … a project might reference several repos". Connect GitHub shows

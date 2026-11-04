@@ -14,7 +14,8 @@ import SwiftUI
 //      and "All N" open in the column's place, never in place (DR-81), with "‹ <source>" and Esc to return. A chat
 //      source lists its chats instead (`ChatSourceList`, 2026-11-03): every chat, pinned first, then the apps' order,
 //      each opening its stored conversation in the panel at the right;
-//   4. the source's own settings, last, under one label (`SourcePageSettings`), the same shape everywhere.
+//   4. (2026-11-04) the settings label is gone: every page is `SourcePageLayout` — head, connect area, the source's
+//      own content (these lists), a quiet footer (`SourcePageLayout.swift`, app.md "The standard source page").
 
 /// The status line under a source page's head.
 ///
@@ -366,21 +367,5 @@ struct SourceDrillHead: View {
                     .lineLimit(1)
             }
         }
-    }
-}
-
-/// The source's own settings, last on its page and the same shape everywhere: one label, then the source's controls
-/// (its ticks, history, Refresh, Choose…, Disconnect, switches, an import's button) as its own row draws them under a
-/// source head (`sourceDetailHeadShown`: no second mark or name, no second list).
-struct SourcePageSettings<Content: View>: View {
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            SectionLabel(Copy.SourcePage.settings)
-            content()
-                .environment(\.sourceDetailHeadShown, true)
-        }
-        .padding(.top, CicadaTheme.spacingMD)
     }
 }

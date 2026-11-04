@@ -31,7 +31,6 @@ extension Copy {
         static let allHelp = "Show the whole list here (Esc returns)"
         static func back(_ source: String) -> String { source }
         static let backHelp = "Back to the source (Esc)"
-        static let settings = "Settings"
         /// A group's second words: how many it holds and its newest day ("12 messages · Today").
         static func conversations(_ n: Int) -> String { n == 1 ? "1 conversation" : "\(UsageFormat.count(n)) conversations" }
         static func messages(_ n: Int) -> String { n == 1 ? "1 message" : "\(UsageFormat.count(n)) messages" }

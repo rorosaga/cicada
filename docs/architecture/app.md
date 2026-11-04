@@ -1051,7 +1051,9 @@ only for a number it looked up this session (`lookedUp`) that no card or several
 JID. Telegram's chats post no card: the backend reads them through Telegram's API and never sees a phone number
 (ruling 47a), so there is no handle the app could look up.
 
-**Telegram chats (ruling 47a, 2026-10-28).** The same row and sheet (`TelegramSourceRow`, `TelegramPanel`;
+**Telegram chats (ruling 47a, 2026-10-28; named *Telegram* since 2026-11-04 — owner: "remove 'chats' from 'Telegram
+chats' and just keep 'Telegram'" — and the bot feed *Telegram bot*, on the Sources list, its page and the overview's
+label).** The same row and sheet (`TelegramSourceRow`, `TelegramPanel`;
 `TelegramChats` holds the state, the backend the client). **The connect sheets' one shape (DESIGN_RULES §9,
 2026-10-29; `Views/Settings/ConnectSheet.swift`):** one step at a time, one primary (⏎) with Cancel as a text button, no
 *Done* until connected; under each sign-in step one caption line — one-to-one only, each with the other person's
@@ -1694,7 +1696,7 @@ the *Import a file* row's hover).
   newest day), a watched day (*N videos*), a saved thing (`SavedItemRow`), an item, an agent's conversation
   (`HarnessConversationsView`'s embedded mode) — at most 12 rows then a plain *All N*; a group row and *All N* open in the
   column's place (`SourceDrill`) with *‹ <source>* and Esc to return, never in place (DR-81); then the removals proposed
-  against the channel and, for tab groups, the groups open now; and **Settings** last (`SourcePageSettings`): the
+  against the channel and, for tab groups, the groups open now; and **Settings** last (`SourcePageSettings`, retired 2026-11-04 for the standard source page above — its controls are the connect area and the footer now): the
   source's own control — the very rows Settings drew (`CalendarRow`, `ContactsRow`, `MessagesRow`, `BrowsersSection`,
   `WatchHistoryRow`, `FolderChannelRow` + *Add a folder*, `WisprFlowRow`), or `ChannelActionsBar` (Connect / Refresh /
   Manage) for a registry channel, or a tile's flow — then the per-site reading switch for a walled site (x, instagram,
@@ -1806,7 +1808,18 @@ the *Import a file* row's hover).
   the model asks `POST /sources/github/connect/poll` every interval the backend gives (`GitHubConnectModel`, its
   `Deps` injected) → connected by code but not installed, *Install on GitHub* (the app's install page) and *I installed
   it* (asks again, then syncs at once) → *Connected* (or, once GitHub refuses to renew the sign-in, *GitHub signed Cicada out* with *Reconnect*) with Refresh and Disconnect (which says the grant on GitHub is
-  removed there). `GitHubConnectStep.from` decides the step from the backend's answer alone. The token
+  removed there). `GitHubConnectStep.from` decides the step from the backend's answer alone. **2026-11-04 (owner,
+  live; DESIGN_RULES §9 2026-11-04): `GitHubSourcePage` on the standard layout** — not connected, *Connect GitHub* alone;
+  connecting, `GitHubCodeView` (the code at 28 pt in the copyable face, *Copy*, *Open GitHub*, *Cancel* quiet, "14 minutes
+  left"); connected, `GitHubRepoList` *Your repositories* (name alone) and *Starred* (`owner/name`), each a
+  `GitHubRepoRow` (`GitHubRepoPicture`: the page's own picture — an organisation's avatar — else GitHub's mark; the
+  name with *Private*/*Archived* `Tag`s, the description, the language on the right; a click opens its page, the context
+  menu *Open on GitHub* and its projects), 12 rows then *All N* in the column's place; the install step is one way row
+  (*Add your own repositories* · *Install on GitHub*) and `openInstallAndWatch` asks GitHub every 5 s for 3 min, so there
+  is no *I installed it*; Refresh and Disconnect in the footer. The backend starts the first sync when the code sign-in
+  completes (`start_first_sync`, `syncing` on `GET /sources/github/connect`); the status line reads Syncing and
+  `watchSync` reads the lists again when it ends. The words below about `GitHubConnectPanel` and `GitHubReposSection`
+  describe the retired panel. The token
   (`ConnectorSetupPanel`) is only behind *Use a token instead* — the fallback only where the build's client id is blank
   (the shipped build names Cicada's registered app, 2026-11-04), never the default. Under it **`GitHubReposSection`**: *Your repositories* in their own scroll, each row's name and
   "Private · Python · …", *In <project>* (a `TextButton` to each of at most two projects it belongs to, "+N" after) and
