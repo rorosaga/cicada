@@ -147,9 +147,9 @@ def test_calendar_sync_keeps_its_calendars_and_the_tree_groups_them_by_account(c
     assert accounts[0]["name"] == "iCloud" and accounts[0]["provider"] == "icloud"
     google = next(a for a in accounts if a["provider"] == "google")
     assert google["count"] == 2 and google["collections"][0]["name"] == "Work"
-    # A calendar with nothing in it is still listed under its account.
-    holidays = next(a for a in accounts if a["provider"] == "subscribed")["collections"][0]
-    assert (holidays["name"], holidays["count"]) == ("Holidays", 0)
+    # A calendar with nothing in it: no episode carries its title, so it is neither kept nor listed.
+    assert "c-empty" not in kept and all(a["provider"] != "subscribed" for a in accounts)
+    assert "Holidays" not in (bank / sync_state.SYNC_STATE_FILENAME).read_text()
     page = client.get("/sources/channels/calendar-local/items", params={"collection": "c-g"}).json()
     assert sorted(i["title"] for i in page["items"]) == ["Alpha sync", "Review"]
     # The ETag answers 304, and moves when the calendars change.
@@ -196,7 +196,7 @@ def test_reminders_lists_are_collections(client, bank):
     assert [i["title"] for i in page["items"]] == ["Send notes"]
 
 
-def test_an_unticked_list_keeps_its_name_while_it_holds_items_and_an_empty_one_goes(client, bank):
+def test_an_unticked_list_keeps_its_name_and_an_empty_ones_never_enters_the_bank(client, bank):
     now = datetime.now(timezone.utc).replace(microsecond=0)
 
     def sync(lists, reminders):
@@ -211,13 +211,14 @@ def test_an_unticked_list_keeps_its_name_while_it_holds_items_and_an_empty_one_g
         return {(a["name"], c["name"], c["count"]) for a in accounts for c in a["collections"]}
 
     sync([("l1", "Errands"), ("l2", "Reading"), ("l3", "Empty")], [("r1", "l1"), ("r2", "l2")])
-    assert tree() == {("iCloud", "Errands", 1), ("iCloud", "Reading", 1), ("iCloud", "Empty", 0)}
-    # "Reading" and "Empty" unticked: a sync names only what is ticked, so Reading's reminder stays, under its own name.
+    assert tree() == {("iCloud", "Errands", 1), ("iCloud", "Reading", 1)}
+    # "Reading" unticked: a sync names only what is ticked, so its reminder stays, under its own name.
     sync([("l1", "Errands")], [("r1", "l1")])
     assert tree() == {("iCloud", "Errands", 1), ("iCloud", "Reading", 1)}
-    # Named again, it is an ordinary collection.
-    sync([("l1", "Errands"), ("l3", "Empty")], [("r1", "l1")])
-    assert ("iCloud", "Empty", 0) in tree()
+    assert "Empty" not in (bank / sync_state.SYNC_STATE_FILENAME).read_text()
+    # Renamed while it holds nothing new: the kept name follows.
+    sync([("l1", "Errands"), ("l2", "Books")], [("r1", "l1")])
+    assert ("iCloud", "Books", 0) not in tree() and "Books" in (bank / sync_state.SYNC_STATE_FILENAME).read_text()
 
 
 def test_a_channel_with_no_collections_answers_no_accounts_and_an_unknown_one_404s(client):

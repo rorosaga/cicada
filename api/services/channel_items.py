@@ -1116,15 +1116,6 @@ def collections(memory_path: Path, channel_id: str) -> dict | None:
         coll = acct["collections"].setdefault(cid, {"id": cid, "name": title, "count": 0, "_days": []})
         coll["count"] += 1
         coll["_days"].append(row)
-    # A collection the last sync named that holds nothing yet still lists (an empty calendar is still a calendar).
-    for cid, record in named.items():
-        if record.get("named") is False:
-            continue
-        account = record.get("account") or ""
-        acct = groups.setdefault(account, {"name": account or None, "provider": record.get("provider"),
-                                           "collections": {}})
-        acct["collections"].setdefault(cid, {"id": cid, "name": record.get("title") or fallback, "count": 0,
-                                              "_days": []})
     accounts = []
     for acct in groups.values():
         colls = [{"id": c["id"], "name": c["name"], "count": c["count"], "latest": _latest(c["_days"])}

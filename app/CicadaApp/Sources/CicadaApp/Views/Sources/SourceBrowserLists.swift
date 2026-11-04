@@ -4,16 +4,10 @@ import SwiftUI
 // meetings, each with its day and how long it ran) and Contacts (the people in memory as a grid of faces). Both fill
 // the standard source page's `content` slot and read the backend's lists (`ChannelItemsCache`), never this Mac's store.
 
-/// Hex's connect area, pure (`ThisMacSourcesTests`): the folder Hex saves meetings in, said before Connect as the path
-/// the person knows it by ("Found ~/Documents/Hex Meetings"), and what Connect does — register that folder and read it
-/// at once (`LocalSourceWatcher.connectHexFolder`). No folder yet: one line saying so (`FolderSlot`).
+/// Hex's folder as the person knows it: a path under the home folder as `~/…`. Pure (`ThisMacSourcesTests`).
 enum HexConnectText {
-    static func line(found: URL?, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String {
-        guard let found else { return Copy.SourceBrowser.hexNoFolder }
-        return Copy.SourceBrowser.recorderFolder(display(found, home: home))
-    }
+    static func display(_ url: URL) -> String { display(url, home: FileManager.default.homeDirectoryForCurrentUser) }
 
-    /// A path under the home folder as `~/…`.
     static func display(_ url: URL, home: URL) -> String {
         let path = url.standardizedFileURL.path
         let base = home.standardizedFileURL.path

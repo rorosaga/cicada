@@ -1769,11 +1769,12 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
 - **Meeting recorders** (`MeetingsBrowser`): recorder → folder → meetings; one folder lists its meetings directly
   (`MeetingRow`: a waveform glyph, the title, then *Tue, Nov 3 · 32 min* in meta ink, the full date on hover —
   `MeetingRowText`, `duration_s` from the episode's `meeting` record). **Hex in one click** (`FolderSlot`'s connect
-  area): *Connect Hex* (the one primary) beside *Found ~/Documents/Hex Meetings* — Hex's own
-  `meetings.output_folder`, else its default (`LocalSourceWatcher.hexFolderFound`) — registers that folder and reads it
-  at once (`connectHexFolder`): one pass that posts each meeting once, where the open panel → name → *Look inside* →
-  *Start watching* path posted every file twice before a meeting could show; the way row *Another folder* keeps that
-  path. No folder found: *Add Hex's folder* beside *Hex hasn't saved a meeting on this Mac yet*.
+  area): *Connect Hex* (the one primary), the folder on its hover — Hex's own `meetings.output_folder`, else its default
+  (`LocalSourceWatcher.hexMeetingsFolder`, which reads only Hex's setting). **Opening the page never touches that folder**,
+  because Hex's default is under Documents; the click checks it (`hexFolderFound`), registers it and reads it at once
+  (`connectHexFolder`): one pass that posts each meeting once, where the open panel → name → *Look inside* → *Start
+  watching* path posted every file twice before a meeting could show. No folder there: *Hex hasn't saved a meeting on
+  this Mac yet*, in the connect area's line. The way row *Another folder* keeps the open panel.
 - **Status is the reader's own, from the start** (`SourceCatalog.status`): a reader this Mac runs is Connected while it is
   allowed and turned on (`localReaders[channel] == true`; Contacts `LocalReaders.contactsOn`: on and not refused), whether
   or not the bank has recorded a sync — the backend's `connected` means "a sync was recorded", which a fresh bank, a first

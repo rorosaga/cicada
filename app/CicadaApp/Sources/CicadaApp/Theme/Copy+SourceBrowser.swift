@@ -51,7 +51,6 @@ extension Copy {
         static func contactHelp(_ name: String) -> String { "Open \(name)'s page" }
 
         // Meeting recorders
-        static func recorderFolder(_ path: String) -> String { "Found \(path)" }
         static let hexConnect = "Connect Hex"
         static let hexNoFolder = "Hex hasn't saved a meeting on this Mac yet."
         static let otherFolder = "Another folder"

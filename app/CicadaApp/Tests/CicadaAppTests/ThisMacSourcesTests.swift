@@ -216,17 +216,22 @@ final class ThisMacSourcesTests: XCTestCase {
         XCTAssertEqual(SourceBrowserText.duration(3_900), "1 h 05 min")
     }
 
-    /// The owner: "if we detect application and we press connect, we should be able to see what the folder for the
-    /// transcriptions is and directly read that folder".
-    func testHexsConnectAreaNamesTheFolderItFound() {
+    /// Hex's folder as the person knows it, on *Connect Hex*'s hover.
+    func testHexsFolderReadsAsThePathThePersonKnows() {
         let home = URL(fileURLWithPath: "/Users/verify")
-        XCTAssertEqual(HexConnectText.line(found: URL(fileURLWithPath: "/Users/verify/Documents/Hex Meetings"),
-                                           home: home), "Found ~/Documents/Hex Meetings")
-        XCTAssertEqual(HexConnectText.line(found: URL(fileURLWithPath: "/Volumes/Notes/Meetings"), home: home),
-                       "Found /Volumes/Notes/Meetings")
-        XCTAssertEqual(HexConnectText.line(found: nil, home: home), Copy.SourceBrowser.hexNoFolder)
+        XCTAssertEqual(HexConnectText.display(URL(fileURLWithPath: "/Users/verify/Documents/Hex Meetings"), home: home),
+                       "~/Documents/Hex Meetings")
+        XCTAssertEqual(HexConnectText.display(URL(fileURLWithPath: "/Volumes/Notes/Meetings"), home: home),
+                       "/Volumes/Notes/Meetings")
         XCTAssertEqual(HexConnectText.display(URL(fileURLWithPath: "/Users/verifyx/a"), home: home),
                        "/Users/verifyx/a", "a sibling of the home folder is not under it")
+    }
+
+    /// Hex's default is under Documents: opening its page asks nothing of that folder. Only Connect's own read does.
+    func testOpeningHexsPageNeverChecksItsFolder() throws {
+        let slots = try String(contentsOfFile: Self.path("Views/Sources/SourcePageSlots.swift"), encoding: .utf8)
+        XCTAssertFalse(slots.contains("hexFolderFound"))
+        XCTAssertFalse(slots.contains("fileExists"))
     }
 
     /// Hex's own settings name the folder; with none, Hex's default under Documents.

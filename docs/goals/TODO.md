@@ -22,7 +22,7 @@
   sync (the catalogue needed the bank's recorded sync, not the reader's own switch — every reader this Mac runs now
   reads Connected while allowed and on); Wispr Flow's bundled mark was never claimed; app removal was read from its
   database, which outlives the app (now LaunchServices, *Off · not installed*); Hex's folder posted every file twice
-  before a meeting showed (now *Connect Hex* reads the found folder once, ~1.9 s to the list on a scratch run).
+  before a meeting showed (now *Connect Hex* reads Hex's folder once, on the click, 0.9 s to the list on a scratch run; opening the page never touches the folder).
   Calendar's "Google account" was a standing *Add a Google account* line, retired. **Not reproduced:** Hex's "no
   conversations" (dev with Hex-format files lists them; the owner's real folder's shapes match the parser, checked by
   structure only). *Connect Hex* and the not-installed state sit in the standard connect area. Found re-verifying on

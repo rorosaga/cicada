@@ -318,7 +318,7 @@ struct FolderSlot: View {
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var picked: PickedFolder?
     @State private var refused: String?
-    /// Hex's own meetings folder, when it is on this Mac (`LocalSourceWatcher.hexFolderFound`).
+    /// Where Hex says it saves meetings (`LocalSourceWatcher.hexMeetingsFolder`); never checked before the click.
     @State private var hexFolder: URL?
     @State private var connecting = false
 
@@ -354,25 +354,17 @@ struct FolderSlot: View {
         }
     }
 
-    /// Hex in one click (owner 2026-11-04): the folder it found is named before Connect, and Connect reads it once.
-    /// Nothing found yet, the open panel is the primary; found, another folder is one way in.
-    @ViewBuilder
+    /// Hex in one click (owner 2026-11-04). Opening this page never touches the folder: Hex's default sits under
+    /// Documents, so whether it is there is asked only on the person's click, by *Connect Hex*. Its path is the hover,
+    /// from Hex's own setting.
     private var hexConnect: some View {
-        Group {
-            if let hexFolder {
-                SourceConnectArea(
-                    primary: SourcePrimaryAction(title: Copy.SourceBrowser.hexConnect, help: hexFolder.path,
-                                                 isDisabled: connecting) { Task { await connectHex() } },
-                    line: refused ?? HexConnectText.line(found: hexFolder), lineIsAttention: refused != nil,
-                    ways: [SourceWayIn(id: "other", icon: .symbol("folder"), title: Copy.SourceBrowser.otherFolder,
-                                       control: .button(Copy.SourceLayout.choose) { pick() }, help: help)])
-            } else {
-                SourceConnectArea(primary: SourcePrimaryAction(title: title, systemImage: "folder.badge.plus",
-                                                               help: help) { pick() },
-                                  line: refused ?? HexConnectText.line(found: nil), lineIsAttention: refused != nil)
-            }
-        }
-        .task { hexFolder = localSources.hexFolderFound() }
+        SourceConnectArea(
+            primary: SourcePrimaryAction(title: Copy.SourceBrowser.hexConnect, help: hexFolder.map(HexConnectText.display),
+                                         isDisabled: connecting) { Task { await connectHex() } },
+            line: refused, lineIsAttention: refused != nil,
+            ways: [SourceWayIn(id: "other", icon: .symbol("folder"), title: Copy.SourceBrowser.otherFolder,
+                               control: .button(Copy.SourceLayout.choose) { pick() }, help: help)])
+            .task { hexFolder = LocalSourceWatcher.hexMeetingsFolder() }
     }
 
     private func connectHex() async {
@@ -381,6 +373,8 @@ struct FolderSlot: View {
         do {
             try await localSources.connectHexFolder()
             refused = nil
+        } catch FolderWatchError.missing {
+            refused = Copy.SourceBrowser.hexNoFolder
         } catch {
             refused = AddSourceSheet.friendlyError(error)
         }

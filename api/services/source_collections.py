@@ -7,9 +7,9 @@ this Mac files its items the way its own app does: an **account** (iCloud, On My
 holds **collections** (a calendar, a Reminders list, a Notes folder), which hold the items. The Sources page browses
 the same three levels (`channel_items.collections`).
 
-What each sync names is kept here, beside the channel's last sync (`sync_state`): the calendars and the ticked lists,
-each ``{id, title, account, provider}`` — the titles the episodes' bodies already carry, so nothing new about the
-person enters the bank. A note's account and folder ride the Notes index instead (`notes_sync`). Pure apart from the
+What a sync names is kept here, beside the channel's last sync (`sync_state`): the calendars and ticked lists that hold
+an item, each ``{id, title, account, provider}`` — the titles the episodes' bodies already carry, so nothing new about
+the person enters the bank. A note's account and folder ride the Notes index instead (`notes_sync`). Pure apart from the
 one read of `sync_state`; never raises.
 """
 
@@ -53,18 +53,18 @@ def stored(records: list[dict]) -> list[dict]:
     return out
 
 
-def after_sync(memory_path: Path, channel_id: str, records: list[dict]) -> list[dict]:
-    """What to keep after a sync: the collections it named, then the ones it no longer names (a list unticked), marked
-    ``named: false``. Their items stay in the bank, so their names must too; the page lists them only while they hold
-    items (`channel_items.collections`)."""
-    now = stored(records)
+def after_sync(memory_path: Path, channel_id: str, records: list[dict], with_items: set[str]) -> list[dict]:
+    """What to keep after a sync: the collections holding an item (`with_items`, the ids this sync posted items for)
+    and every name kept before, freshest first. An empty calendar's title stays out: no episode carries it, and the
+    pickers read EventKit, not this. A list unticked later keeps its name, because its items stay in the bank."""
+    past = known(memory_path, channel_id)
+    now = stored([r for r in records if isinstance(r, dict) and (str(r.get("id")) in with_items or r.get("id") in past)])
     ids = {r["id"] for r in now}
-    past = [{**r, "named": False} for cid, r in known(memory_path, channel_id).items() if cid not in ids]
-    return (now + past)[:MAX]
+    return (now + [r for cid, r in past.items() if cid not in ids])[:MAX]
 
 
 def known(memory_path: Path, channel_id: str) -> dict[str, dict]:
-    """Every collection the channel's syncs named, by id; empty when none did (an older sync)."""
+    """Every collection kept for the channel, by id; empty when none was (an older sync)."""
     entry = sync_state.read_sync_state(memory_path).get(channel_id)
     records = entry.get(KEY) if isinstance(entry, dict) else None
     if not isinstance(records, list):

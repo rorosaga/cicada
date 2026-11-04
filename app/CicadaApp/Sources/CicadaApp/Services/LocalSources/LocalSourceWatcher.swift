@@ -453,9 +453,9 @@ final class LocalSourceWatcher {
 
     /// 2026-11-04 (owner: "if we detect application and we press connect, we should be able to see what the folder for
     /// the transcriptions is and directly read that folder and have the view of meeting transcriptions there") — Hex's
-    /// own meetings folder when it is on this Mac (`hexMeetingsFolder`: Hex's setting, else its default), for the page
-    /// to name before Connect. Nil when no such folder exists yet.
-    func hexFolderFound() -> URL? {
+    /// own meetings folder when it is on this Mac (`hexMeetingsFolder`: Hex's setting, else its default). Nil when no
+    /// such folder exists yet. Only on the person's click: Hex's default is under Documents.
+    private func hexFolderFound() -> URL? {
         let url = Self.hexMeetingsFolder()
         var isDir: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue ? url : nil
