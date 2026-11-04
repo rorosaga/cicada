@@ -798,7 +798,9 @@ code_runs?}]` — one entry per turn that has any, keyed by its marker-line star
 `reactions: [{by, kind, emoji?}]` with `by` a turn marker (`user` / `assistant` / `speaker:<label>`) and `kind` one of
 love · like · dislike · laugh · emphasize · question · emoji · sticker; `reply_to` the target turn's offset, or `{ref}`
 (a source's opaque message key) when the target is in another episode; `attachments: [{kind, name, size?, mime?,
-generated?}]` (kind image · video · audio · file · sticker — a name and a size, never a path or a byte);
+generated?}]` (kind image · video · audio · file · sticker — a name and a size, never a path or a byte; the chat
+panel shows the file itself by resolving that name at view time, app-side, against what the chat app holds on this
+Mac — nothing more is stored for it, 2026-11-04, `app.md` "Chat images");
 `edited: true`; `forwarded_from`; `code_runs`. `unsent_turns: [{at, speaker, ts?, ref?}]` — where an unsent message
 was (`at` = the offset of the turn it preceded, or one past the body's end) and who sent it, never its words. A draft
 carries them as `Turn.extras` (a reply's target an index into the draft's turns) and `EpisodeDraft.unsent`; the stager

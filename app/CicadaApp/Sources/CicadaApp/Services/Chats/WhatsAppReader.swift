@@ -121,7 +121,7 @@ struct WhatsAppReader: Sendable {
     }
 
     /// Clone the store and its WAL into a private folder, open the copy, run `body` in one read transaction.
-    private func withCopy<T>(_ body: (SQLiteReadOnly) throws -> T) throws -> T {
+    func withCopy<T>(_ body: (SQLiteReadOnly) throws -> T) throws -> T {
         try checkAccess()
         let fm = FileManager.default
         let folder = scratchRoot.appendingPathComponent("cicada-whatsapp-\(UUID().uuidString)", isDirectory: true)
@@ -149,11 +149,11 @@ struct WhatsAppReader: Sendable {
         }
     }
 
-    private static func columns(_ table: String, _ db: SQLiteReadOnly) throws -> Set<String> {
+    static func columns(_ table: String, _ db: SQLiteReadOnly) throws -> Set<String> {
         Set(try db.query("PRAGMA table_info(\(table))", binds: []).compactMap { $0["name"] as? String })
     }
 
-    private static func pick(_ column: String, from table: String, in present: Set<String>, as alias: String) -> String {
+    static func pick(_ column: String, from table: String, in present: Set<String>, as alias: String) -> String {
         present.contains(column) ? "\(table).\(column) AS \(alias)" : "NULL AS \(alias)"
     }
 

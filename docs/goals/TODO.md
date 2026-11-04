@@ -12,6 +12,12 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — chat images and Telegram faces (G179; branch `feat/chat-panel-images`).** Owner: "I don't see images appearing when I open the chat inside the app" and "I don't know why the profile pictures don't appear in the chats" (Telegram). Attachments of WhatsApp, Messages and Telegram chats now show as the files in the chat
+  panel and the Reader, resolved by the app at view time for ticked chats only (Telegram's through the backend's
+  own connection), thumbnails outside every bank, gone on untick; nothing new is stored in the bank, so chats
+  already synced show their pictures as they are. Telegram's root cause: a ticked chat's photo was asked only in
+  the tick's own request, never again — now on every start and sign-in. **Owner's check:** open the own WhatsApp
+  chat on the Sources page; on Telegram, restart the backend once so the photos are asked.
 - **2026-11-03 — GitHub connects with a code; your repositories are pages; a project lists its repositories (ruling
   53, G230; branch `feat/g230-oauth-sync`).** Owner: "why are you asking for a token for github? cant we just do oauth?"
   and "always sync and make their initial markdowns … a project might reference several repos". Connect GitHub shows

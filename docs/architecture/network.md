@@ -422,6 +422,13 @@ when they ask. The session secret lives in `~/.cicada/secrets.env` (0600) or a 0
 in a bank. The connect step says in plain words that Cicada keeps a signed-in session to their account and how to end it
 (Disconnect in Cicada, or Telegram's own Settings → Devices). Off until connected; only ticked chats are read (G179); the
 bot channel (G29, `CICADA_TELEGRAM_BOT_TOKEN`) is unchanged. Built on `feat/telegram-live` (its own PR).
+**Chat images and faces (2026-11-04, G179).** When the person opens a ticked, consented chat, each of its turns'
+attachments is asked of Telegram through the same session (`GET /sources/telegram/chats/{id}/media`, `/media/full`
+for a photo opened large): the chat's peer and the turn's time only (`TelegramPort.around`, then `media_bytes` —
+Telegram's own photo size nearest 320 px, or the photo at most 20 MB), never a name; kept under
+`$CICADA_HOME/telegram/media/<chat>/` (0700/0600) until untick or sign-out, never in a bank, never sent anywhere else.
+Each start and sign-in keeps every ticked chat's profile photo (`Account.keep_photos`; it was asked only at the tick
+before), at most one ask per chat a week.
 
 **The tier-2 framework (`api/services/connectors/tier2.py`, 2026-10-29).** One module behind every token connector
 after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sources row, `GET/PUT/DELETE
