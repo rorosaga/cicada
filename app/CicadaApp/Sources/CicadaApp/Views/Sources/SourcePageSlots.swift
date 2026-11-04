@@ -296,6 +296,8 @@ struct FolderSlot: View {
 /// Wispr Flow: Connect opens its panel (turning it on, dictation opt-in); on, Refresh and Manage.
 struct WisprSlot: View {
     let slot: SourceSlot
+    /// The app was removed from this Mac: the status line says "Off · not installed" and there is nothing to connect.
+    var notInstalled = false
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var showPanel = false
 
@@ -303,7 +305,9 @@ struct WisprSlot: View {
         Group {
             switch slot {
             case .connect:
-                if !localSources.wisprSettings.enabled {
+                if notInstalled {
+                    EmptyView()
+                } else if !localSources.wisprSettings.enabled {
                     SourceConnectArea(primary: SourcePrimaryAction(title: Copy.SourceLayout.connect("Wispr Flow")) {
                         showPanel = true
                     })
@@ -311,7 +315,7 @@ struct WisprSlot: View {
                     FullDiskAccessHint(error: error)
                 }
             case .footer:
-                if localSources.wisprSettings.enabled {
+                if localSources.wisprSettings.enabled, !notInstalled {
                     SourcePageFooter(actions: [
                         .refresh(isDisabled: localSources.syncing.contains(LocalSourceWatcher.wisprChannel)) {
                             Task { await localSources.syncWisprNow() }

@@ -76,6 +76,8 @@ struct SourceCatalogRow: Identifiable, Equatable {
     let entry: SourceCatalogEntry
     let status: SourceCatalogStatus
     let lastSync: Date?
+    /// 2026-11-04 — the app this source reads was removed from this Mac: Off, and the row says why.
+    var notInstalled = false
     var id: String { entry.id }
 }
 

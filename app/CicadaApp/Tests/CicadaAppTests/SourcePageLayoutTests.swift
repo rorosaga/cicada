@@ -11,6 +11,11 @@ final class SourcePageLayoutTests: XCTestCase {
         XCTAssertEqual(SourceConnectState.of(.connected(lastItem: nil)), .connected)
         XCTAssertEqual(SourceConnectState.of(.syncing(detail: nil)), .connecting)
         XCTAssertEqual(SourceConnectState.of(.needsYou("sign in again")), .needsAttention)
+        // An app removed from this Mac reads Off, says why, and offers nothing to connect.
+        let gone = SourcePageStatus.of(row: .connected, run: .idle, latest: nil, notInstalled: true)
+        XCTAssertEqual(gone, .notInstalled)
+        XCTAssertEqual(SourceConnectState.of(gone), .notConnected)
+        XCTAssertEqual(gone.line(today: ISODay.today()), "\(Copy.SourcePage.off) · \(Copy.SourcePage.notInstalled)")
     }
 
     func testTheStandardWaysCarryTheirOwnIcons() {

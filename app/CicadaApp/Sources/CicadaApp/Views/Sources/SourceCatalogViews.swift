@@ -247,7 +247,8 @@ struct SourceCatalogDetail: View {
         let channel = mine.first
         let watch = channel.flatMap { watcher.state(for: $0.id) }
         let run = SourceRowText.status(channel: channel, watch: watch, run: channel.flatMap { activity?.run(for: $0.id) })
-        return SourcePageStatus.of(row: row.status, run: run, latest: latest, check: chatCheck)
+        return SourcePageStatus.of(row: row.status, run: run, latest: latest, check: chatCheck,
+                                   notInstalled: row.notInstalled)
     }
 
     private var chatCheck: ChatCheck? {
@@ -380,7 +381,7 @@ struct SourceCatalogDetail: View {
         case WhatsAppWatcher.channel: ChatPickerSlot(slot: .connect, kind: .whatsApp)
         case TelegramChats.channel: TelegramSlot(slot: .connect)
         case AppleNotesWatcher.channel: NotesSlot(slot: .connect)
-        case LocalSourceWatcher.wisprChannel: WisprSlot(slot: .connect)
+        case LocalSourceWatcher.wisprChannel: WisprSlot(slot: .connect, notInstalled: row.notInstalled)
         case "folders": FolderSlot(slot: .connect, meetings: nil, hasFolders: !mine.isEmpty)
         case SourceCatalog.hexId: FolderSlot(slot: .connect, meetings: SourceCatalog.hexId, hasFolders: !mine.isEmpty)
         case SourceCatalog.meetingFoldersId: FolderSlot(slot: .connect, meetings: "", hasFolders: !mine.isEmpty)
@@ -511,10 +512,18 @@ struct SourceCatalogDetail: View {
 
     // MARK: - The content
 
+    /// The This Mac sources whose content is their own browser (#599: accounts → collections → items).
+    static let thisMacContent: Set<String> = [
+        CalendarRow.channelId, ContactsReader.channel, RemindersReader.channel, AppleNotesWatcher.channel,
+        SourceCatalog.hexId, LocalSourceWatcher.wisprChannel, SourceCatalog.meetingFoldersId,
+    ]
+
+    /// The content seam for the This Mac sources: until their browser lands (#599, `ThisMacSourceContent(entry:
+    /// channels:)`), the lists the page drew before.
     @ViewBuilder
-    private var contentSlot: some View {
+    private var thisMacContent: some View {
         switch row.entry.id {
-        case "folders", SourceCatalog.hexId, SourceCatalog.meetingFoldersId:
+        case SourceCatalog.hexId, SourceCatalog.meetingFoldersId:
             if !mine.isEmpty {
                 SourceSection(title: Copy.SourceLayout.folders) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -527,6 +536,26 @@ struct SourceCatalogDetail: View {
         case RemindersReader.channel:
             RemindersRow(channel: mine.first, pickerOnly: true)
                 .environment(\.sourceDetailHeadShown, true)
+            cameIn
+        default:
+            cameIn
+        }
+    }
+
+    @ViewBuilder
+    private var contentSlot: some View {
+        switch row.entry.id {
+        case let id where Self.thisMacContent.contains(id):
+            thisMacContent
+        case "folders":
+            if !mine.isEmpty {
+                SourceSection(title: Copy.SourceLayout.folders) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(mine) { FolderChannelRow(channel: $0) }
+                    }
+                }
+                .environment(\.sourceDetailHeadShown, true)
+            }
             cameIn
         default:
             cameIn
@@ -547,7 +576,7 @@ struct SourceCatalogDetail: View {
         case WhatsAppWatcher.channel: ChatPickerSlot(slot: .footer, kind: .whatsApp)
         case TelegramChats.channel: TelegramSlot(slot: .footer)
         case AppleNotesWatcher.channel: NotesSlot(slot: .footer)
-        case LocalSourceWatcher.wisprChannel: WisprSlot(slot: .footer)
+        case LocalSourceWatcher.wisprChannel: WisprSlot(slot: .footer, notInstalled: row.notInstalled)
         case "folders": FolderSlot(slot: .footer, meetings: nil, hasFolders: !mine.isEmpty)
         case SourceCatalog.hexId: FolderSlot(slot: .footer, meetings: SourceCatalog.hexId, hasFolders: !mine.isEmpty)
         case SourceCatalog.meetingFoldersId: FolderSlot(slot: .footer, meetings: "", hasFolders: !mine.isEmpty)

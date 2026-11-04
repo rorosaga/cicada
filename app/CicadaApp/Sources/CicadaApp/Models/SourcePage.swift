@@ -49,9 +49,13 @@ enum SourcePageStatus: Equatable {
     /// "Connected · last item Oct 28" (and the list's "4 days ago") read as a stopped reader while it was checking on
     /// every WhatsApp write and the ticked chat had simply had nothing new.
     case checked(ChatCheck)
+    /// 2026-11-04 (owner: "I deleted Whisperflow today, and the app should have detected that and say that it
+    /// disconnected or that's off") — the app the source reads is no longer on this Mac: Off, and why, in words.
+    case notInstalled
 
     static func of(row: SourceCatalogStatus, run: SourceRowStatus, latest: String?,
-                   check: ChatCheck? = nil) -> SourcePageStatus {
+                   check: ChatCheck? = nil, notInstalled: Bool = false) -> SourcePageStatus {
+        if notInstalled { return .notInstalled }
         if case .syncing(let detail, _, _) = run { return .syncing(detail: detail) }
         switch row {
         case .needsSignIn: return .needsYou(Copy.SourcePage.signInAgain)
@@ -69,7 +73,7 @@ enum SourcePageStatus: Equatable {
         switch self {
         case .connected, .syncing, .checked: .on
         case .needsYou: .attention
-        case .off: .off
+        case .off, .notInstalled: .off
         }
     }
 
@@ -78,7 +82,7 @@ enum SourcePageStatus: Equatable {
         case .connected, .checked: Copy.SourcePage.connected
         case .syncing: Copy.SourcePage.syncing
         case .needsYou: Copy.SourcePage.needsYou
-        case .off: Copy.SourcePage.off
+        case .off, .notInstalled: Copy.SourcePage.off
         }
     }
 
@@ -96,6 +100,7 @@ enum SourcePageStatus: Equatable {
             return Copy.SourcePage.lastItem(Self.dayWord(Self.cameIn(day, today: today), today: today, locale: locale))
         case .syncing(let detail): return detail
         case .needsYou(let action): return action
+        case .notInstalled: return Copy.SourcePage.notInstalled
         case .off(let latest):
             return ISODay(latest).map {
                 Copy.SourcePage.lastItem(Self.dayWord(Self.cameIn($0, today: today), today: today, locale: locale))

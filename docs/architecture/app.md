@@ -1670,7 +1670,10 @@ connect:content:footer:)` — four slots, top to bottom, and nothing else on the
 A source plugs in by building those three slots from its own state in its own file (GitHub: `GitHubSourcePage`); the
 catalogue's dispatcher (`SourceCatalogDetail`) picks the page by entry id. Words go in `Copy.SourceLayout` or the
 source's own `Copy` namespace, short, provider-neutral (CLAUDE.md), never a how-to paragraph (an export's where-from is
-the *Import a file* row's hover).
+the *Import a file* row's hover). **Seams for This Mac (#599):** `SourceCatalogRow.notInstalled` → `SourcePageStatus
+.notInstalled` ("Off · not installed", `SourceConnectState.notConnected`, no Connect — Wispr Flow's `WisprSlot`), and
+`SourceCatalogDetail.thisMacContent`, the one content seam for Calendar, Contacts, Reminders, Apple Notes, Hex, Wispr
+Flow and transcripts (`thisMacContent` ids), where their browser plugs in; Hex's connect is its `FolderSlot` case.
 
 **The redesign, Sources · Inbox · entity card · Sleep (G217, G205, G212, G61, G206; ruling 36 D5/D6, 2026-10-22).**
 - **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off, grouped
