@@ -396,59 +396,28 @@ struct ProjectPagesBlock: View {
     }
 }
 
-/// Add a page (decision 10): one field, the pages already in memory that match it as option rows, one tap adds
-/// (DR-42). Nothing new is made here — a name that matches no page says so (promotion stays Sleep's rule).
+/// Add a page (decision 10): the same picker New project uses (owner 2026-11-04) — one search over the pages already in
+/// memory, kind tabs, each row its picture and its source's mark; one tap adds (DR-42). Nothing new is made here — a
+/// name that matches no page says so (promotion stays Sleep's rule). A repository becomes one of the project's
+/// repositories on the server (ruling 53).
 struct AddProjectPageSheet: View {
-    let candidates: [(id: String, name: String, type: String)]
-    let submit: (_ id: String, _ name: String, _ type: String) -> Void
+    let candidates: [ProjectAttachCandidate]
+    let submit: (ProjectAttachCandidate) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
-    @FocusState private var focused: Bool
-
-    private var matches: [(id: String, name: String, type: String)] {
-        let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard q.count >= 2 else { return [] }
-        return Array(candidates.filter { QuickMatch.matches(q, fields: [QuickMatch.Field($0.name,
-                                                                                         weight: QuickMatch.Weight.name)]) }
-            .prefix(6))
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             Text(Copy.ProjectsOpen.addPageTitle).font(CicadaTheme.displayFont(size: 22))
                 .tracking(CicadaTheme.displayTracking(size: 22)).foregroundStyle(CicadaTheme.textPrimary)
-            TextField("", text: $text)
-                .focused($focused)
-                .cicadaField(isFocused: focused, prompt: Copy.ProjectsOpen.addPagePlaceholder, isEmpty: text.isEmpty)
-                .onAppear { focused = true }
-                .onSubmit { if let first = matches.first { pick(first) } }
-            ForEach(matches, id: \.id) { m in
-                Button { pick(m) } label: {
-                    HStack(spacing: CicadaTheme.spacingSM) {
-                        TypeDot(type: EntityType(rawValue: m.type) ?? .concept)
-                        Text(m.name).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
-                        Spacer()
-                    }
-                    .padding(CicadaTheme.scaled(10))
-                    .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgOption))
-                    .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.cicadaPlain)
-            }
-            if matches.isEmpty && text.trimmingCharacters(in: .whitespaces).count >= 2 {
-                Text(Copy.ProjectsOpen.noPageMatches).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-            }
+            ProjectPagePicker(candidates: candidates, picked: [], pick: { c in
+                submit(c)
+                dismiss()
+            }, autofocus: true)
             HStack { Spacer(); NeutralButton(title: Copy.ProjectsMine.cancel, shortcut: .cancelAction) { dismiss() } }
         }
         .padding(CicadaTheme.spacingXL)
-        .frame(width: CicadaTheme.scaled(440))
+        .frame(width: CicadaTheme.scaled(480))
         .background(CicadaTheme.bgBase)
-    }
-
-    private func pick(_ m: (id: String, name: String, type: String)) {
-        submit(m.id, m.name, m.type)
-        dismiss()
     }
 }
 
@@ -494,9 +463,11 @@ struct ProjectsSuggestedLine: View {
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
+            // Quiet (owner 2026-11-04): the count in tertiary ink, never a sentence above it.
             Text(Copy.ProjectsOpen.suggestedLine(count))
                 .font(CicadaTheme.metaFont)
-                .foregroundStyle(selected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                .monospacedDigit()
+                .foregroundStyle(selected ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
             Spacer(minLength: CicadaTheme.spacingSM)
             TextButton(title: Copy.ProjectsOpen.review, help: Copy.ProjectsOpen.reviewHelp, inline: true, action: review)
         }

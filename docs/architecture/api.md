@@ -587,9 +587,17 @@ The detail adds `influences` [{id, source, label, url, entity, entityType, tag, 
 page, reversed}], `conversationCount` and `knowledge` [{provider, projectId, name, episode, instructions, start, end,
 docs}]. The client mapping ships with the bump: the app's `ProjectsCache` keys both reads on the server's ETag, so the
 new shape refetches once. New routes, each **admitted** (409 while Sleep holds the pages), committing alone as
-`Cicada-Author: user`: `POST /projects` {name, description, via?: cli} (refuses a name already a page with **409**
-naming it), `POST /projects/{id}/accept` {name?} (a fallback page is retyped in place; a `g-p-` grouping id needs a name
+`Cicada-Author: user`: `POST /projects` {name, description, via?: cli, pages?: [id or name, ≤ 100]} (refuses a name
+already a page with **409** naming it; since 2026-11-04 `description` keeps its paragraphs, ≤ 4,000 characters, and
+`pages` attaches pages of any kind in the same write — each checked first, a 400 naming an unknown, dropped or owner
+page writes nothing; a GitHub repository page joins `repositories:` through `github_repos.link`, any other page
+`entities_added`; one commit, the new page `created`, each repository page's back-link `updated`; all or nothing —
+a refusal that can only be checked once the page exists, such as a `part-of` claim naming the new project, or any other
+failure while attaching removes the new page and restores each back-link, `project_ownership.create_with_pages`; the
+description is scrubbed on every door, `clean_description`, its count ledgered as `project`), `POST /projects/{id}/accept` {name?} (a fallback page is retyped in place; a `g-p-` grouping id needs a name
 and becomes a new page), `POST /projects/{id}/dismiss`, `PATCH /projects/{id}` {name?, description?},
+`POST /projects/{id}/pages` {entity, remove?} (Pages in this project; a repository page is one of its repositories,
+ruling 53, and its removal unlinks it — remembered — and says "Not part of it"; `project_ownership.attach`),
 `POST /projects/{id}/conversations` {episode, remove?} (the whole conversation — every episode of its session or source
 id — in one page write), `POST /projects/{id}/influences` {url? | what? | entity?, how?,
 note?} and `POST /projects/{id}/influences/withdraw` {claimId, page?} | {ref, predicate?}. `GET
