@@ -315,6 +315,11 @@ def source_path(memory_path: Path | None, doc_id: str) -> Path | None:
     return path if path.is_file() else None
 
 
+#: G234: frontmatter on a retired Apple Notes episode (`notes_sync.retire_locked`): the note is locked, so its record is
+#: never read back by anything, whatever door asks.
+LOCKED_NOTE_KEY = "locked_note"
+
+
 def source_document(memory_path: Path | None, doc_id: str) -> tuple[dict, str] | None:
     """``(frontmatter, evidence text)`` from ONE parse and the same resolver
     as :func:`source_text`, so the Reader's header and its text can never
@@ -328,6 +333,8 @@ def source_document(memory_path: Path | None, doc_id: str) -> tuple[dict, str] |
         parsed = markdown_parser.parse(path)
     except Exception:
         return None
+    if (parsed.frontmatter or {}).get(LOCKED_NOTE_KEY):
+        return None   # G234: a locked note's record reads as no document at all
     body = parsed.body if is_episode_id(doc_id) else strip_claims_block(parsed.body)
     return dict(parsed.frontmatter or {}), body
 

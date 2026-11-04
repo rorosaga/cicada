@@ -537,6 +537,8 @@ def claim_payload(claim) -> dict:
 
 
 def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
+    if fm.get(evidence.LOCKED_NOTE_KEY):
+        return   # G234: a retired locked note is in no index
     ref = f.path.stem  # the evidence doc id (G118 R3) — the file stem, not `fm["id"]`
     meta = {
         "title": str(fm.get("title") or "").strip(),

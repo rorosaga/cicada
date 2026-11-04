@@ -1698,8 +1698,11 @@ async def _index_without_model_safely(memory_path: Path) -> None:
     summary (``watch_history.rollup``), in ``cicada`` commits of at most ``COMMIT_STEP`` files. No model, no fetch.
     Files dirty before it ran are skipped (an uncommitted capture keeps its own author); they stay out of every
     model batch meanwhile (``history_index.waits_for_model``). A failed commit restores what it wrote. Never raises."""
-    from api.services import history_index, watch_history
+    from api.services import history_index, notes_sync, watch_history
 
+    # G234: first, and whatever the tree's state: a Notes episode that holds no text is a locked note's stub, retired
+    # before anything is frozen so a run that starts ahead of the next sync reads none of it.
+    await notes_sync.retire_stubs_safely(memory_path)
     skip: frozenset[str] = frozenset()
     has_git = (memory_path / ".git").exists()
     if has_git:
@@ -3800,6 +3803,8 @@ def episode_headers(memory_path: Path, processed: bool | None = None) -> list[ba
     for f in bank_index.files(memory_path, "episodes"):
         if processed is not None and bool(f.frontmatter.get("processed", False)) != processed:
             continue
+        if f.frontmatter.get(evidence.LOCKED_NOTE_KEY):
+            continue   # G234: a retired locked note is no read to list
         out.append(f)
     out.sort(key=lambda f: _episode_sort_key({"timestamp": str(f.frontmatter.get("timestamp", "") or ""),
                                               "id": str(f.frontmatter.get("id", f.stem))}))
