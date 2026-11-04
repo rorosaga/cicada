@@ -106,6 +106,17 @@ def name_keys(given, family) -> set[str]:
     return {f"{first} {last}", f"{last} {first}"}
 
 
+def labels(frontmatter: dict, stem: str) -> list:
+    """A page's name and aliases to match on. A hand-edited page may hold anything under ``aliases``: one string is one
+    alias, and anything else that is not a list is none, so one odd page never fails a whole sync or read."""
+    aliases = frontmatter.get("aliases")
+    if isinstance(aliases, str):
+        aliases = [aliases]
+    elif not isinstance(aliases, (list, tuple)):
+        aliases = []
+    return [frontmatter.get("name") or stem.replace("-", " "), *aliases]
+
+
 def forget(bank: str) -> None:
     """A bank moved to the trash takes its directory with it: the names outlive no bank, and a new bank of the same
     name never inherits them. Never raises."""

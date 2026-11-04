@@ -14,7 +14,8 @@ drawing the grid, and it is deliberately not a way into the first:
   each per-device token its own, so a client of a backend elsewhere reads the book it posted, never another Mac's. On a
   copy the routes run locally (``replica_routes``), since the book is where the reader is, not at the home.
 * **Forgotten with the rest.** ``contacts_local.forget_waiting`` removes every scope under its lock and its marker
-  stops a save read before it; revoking a device removes that device's scope (:func:`forget_device`).
+  stops a save read before it; revoking a device removes that device's scope and stops a save still in flight
+  (:func:`forget_device`).
 
 Outside every bank and git (folder 0700, files 0600, written by a rename); empty on a demo bank.
 """
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import re
 import shutil
 import time
@@ -31,6 +33,10 @@ from api.services import bank_index, contacts_local, fact_sources, people_direct
 
 BOOK_DIR = people_directory.CONTACTS_BOOK_DIR
 BOOK_FILE = "book.json"
+#: The scopes of revoked devices, one file in ``$CICADA_HOME/people/``: a PUT already past the token check when its
+#: device was revoked never brings that book back. Scopes are hashes, so no device id is kept; ids are never reused.
+REVOKED_FILE = ".contacts-book-revoked"
+REVOKED_KEEP = 64
 #: This backend's own computer, when no per-device token signed the request.
 HERE = "here"
 NAME_CAP = 200
@@ -53,7 +59,7 @@ def _label(value) -> str:
 
 
 def name_of(card: dict) -> str:
-    return " ".join(p for p in (card.get("given") or "", card.get("family") or "") if p)
+    return " ".join(p for p in (card.get("given"), card.get("family")) if p and isinstance(p, str))
 
 
 def save(bank: str, scope: str, cards: list[dict], *, connection: str | None = None) -> int:
@@ -80,10 +86,22 @@ def save(bank: str, scope: str, cards: list[dict], *, connection: str | None = N
             photos[row["photo"]] = photo[0]
         rows[key] = row
     with contacts_local._WAITING_LOCK:
-        if contacts_local.forgotten_since(read_at):
+        if contacts_local.forgotten_since(read_at) or scope in _revoked():
             return 0
         _write(bank, scope, list(rows.values()), photos)
     return len(rows)
+
+
+def _revoked() -> list[str]:
+    try:
+        rows = json.loads((_people_root() / REVOKED_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [r for r in rows if isinstance(r, str)] if isinstance(rows, list) else []
+
+
+def _people_root() -> Path:
+    return people_directory.folder("x").parent
 
 
 def _write(bank: str, scope: str, rows: list[dict], photos: dict[str, bytes]) -> None:
@@ -108,7 +126,9 @@ def _write(bank: str, scope: str, rows: list[dict], photos: dict[str, bytes]) ->
 
 def _load(bank: str, scope: str) -> list[dict]:
     rows = people_directory.load_json(bank, f"{BOOK_DIR}/{scope}/{BOOK_FILE}").get("cards")
-    return [r for r in rows if isinstance(r, dict) and r.get("key")] if isinstance(rows, list) else []
+    if not isinstance(rows, list):
+        return []
+    return [r for r in rows if isinstance(r, dict) and r.get("key") and isinstance(r["key"], str)]
 
 
 def _links(memory_path: Path, rows: list[dict]) -> dict[str, str]:
@@ -126,7 +146,7 @@ def _links(memory_path: Path, rows: list[dict]) -> dict[str, str]:
         for ref in refs:
             links[contacts_local._card_key(ref[len(contacts_local.REF_SCHEME):])] = f.stem
         if not refs and fm.get(contacts_local.FRONTMATTER_KEY):
-            for label in [fm.get("name") or f.stem.replace("-", " "), *(fm.get("aliases") or [])]:
+            for label in people_directory.labels(fm, f.stem):
                 folded = people_directory.fold(label)
                 if folded:
                     photo_only.setdefault(folded, set()).add(f.stem)
@@ -179,10 +199,11 @@ def photo(memory_path: Path, bank: str, scope: str, key: str) -> tuple[bytes, st
 def forget_device(device_id: str) -> None:
     """A revoked device's book, in every bank: a server keeps no address book of a machine it no longer trusts."""
     scope = scope_of(device_id)
-    root = people_directory.folder("x").parent
-    if not root.is_dir():
-        return
+    root = _people_root()
     with contacts_local._WAITING_LOCK:
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        revoked = [r for r in _revoked() if r != scope] + [scope]
+        people_directory.write_bytes(root / REVOKED_FILE, json.dumps(revoked[-REVOKED_KEEP:]).encode("utf-8"))
         for bank in root.iterdir():
             target = bank / BOOK_DIR / scope
             if bank.is_dir() and not bank.is_symlink() and target.is_dir() and not target.is_symlink():

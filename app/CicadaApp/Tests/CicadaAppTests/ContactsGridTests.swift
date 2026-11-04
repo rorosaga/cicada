@@ -16,6 +16,23 @@ private final class FakeBookAPI: ChannelItemsAPI {
     }
 }
 
+@MainActor
+private final class SlowBookAPI: ChannelItemsAPI {
+    var book = ContactsBook()
+    var error: (any Error)?
+    var hold = false
+    private(set) var waiting: CheckedContinuation<Void, Never>?
+    func fetchChannelItems(channel: String, offset: Int, limit: Int, etag: String?) async throws
+        -> Conditional<ChannelItemsPage> { throw APIError.serverUnreachable }
+    func fetchContactsBook() async throws -> ContactsBook {
+        if let error { throw error }
+        let answer = book
+        if hold { await withCheckedContinuation { waiting = $0 } }
+        return answer
+    }
+    func release() { waiting?.resume(); waiting = nil }
+}
+
 /// G154 (owner 2026-11-04) — the Contacts page's faces: the wire shape, the one line, the in-memory search, the cache's
 /// forget, and a thumbnail's address. Synthetic people only.
 @MainActor
@@ -84,6 +101,56 @@ final class ContactsGridTests: XCTestCase {
         api.fails = true
         await cache.refreshContactsBook()
         XCTAssertEqual(cache.contactsBook?.total, 1, "never blank")
+    }
+
+    func testThePageNeverDrawsNothingWhileTheBookIsOnItsWay() {
+        let empty = ContactsBook()
+        let full = book([ContactsBookCard(key: "a", name: "Ann Example")])
+        let of = ContactsGridPhase.of
+        XCTAssertEqual(of(nil, nil, false, nil), .loading, "the first read")
+        XCTAssertEqual(of(nil, nil, true, nil), .loading)
+        XCTAssertEqual(of(nil, "down", false, nil), .failed("down"))
+        XCTAssertEqual(of(nil, "down", true, nil), .loading, "a post under way will read again")
+        XCTAssertEqual(of(empty, nil, true, nil), .loading, "connected and not yet posted: the owner's first launch")
+        XCTAssertEqual(of(empty, nil, false, nil), .nothing, "stopped, or a truly empty address book")
+        XCTAssertEqual(of(empty, nil, false, "no route"), .failed("no route"))
+        XCTAssertEqual(of(full, "down", true, nil), .cards, "cards held always show")
+    }
+
+    func testACancelledReadIsNoFailureAndAnOlderAnswerNeverReplacesANewerOne() async {
+        let api = SlowBookAPI()
+        let cache = ChannelItemsCache(api: api)
+        api.error = CancellationError()
+        await cache.refreshContactsBook()
+        XCTAssertNil(cache.contactsBookFailure, "a view went away; the page says nothing")
+        api.error = URLError(.cancelled)
+        await cache.refreshContactsBook()
+        XCTAssertNil(cache.contactsBookFailure)
+        api.error = nil
+
+        api.hold = true
+        let older = Task { await cache.refreshContactsBook() }   // sent first, empty, answers last
+        while api.waiting == nil { await Task.yield() }
+        api.hold = false
+        api.book = book([ContactsBookCard(key: "a", name: "Ann Example")])
+        await cache.refreshContactsBook()
+        XCTAssertEqual(cache.contactsBook?.total, 1)
+        api.release()
+        await older.value
+        XCTAssertEqual(cache.contactsBook?.total, 1, "the empty answer that raced the post is dropped")
+    }
+
+    func testAPostedBookIsReadOnlyIfAPageHasAsked() async {
+        let api = FakeBookAPI()
+        let cache = ChannelItemsCache(api: api)
+        await cache.refreshContactsBookIfAsked()
+        XCTAssertEqual(api.reads, 0, "no address book in memory for a page never opened")
+        await cache.refreshContactsBook()
+        await cache.refreshContactsBookIfAsked()
+        XCTAssertEqual(api.reads, 2)
+        cache.forgetContactsBook()
+        await cache.refreshContactsBookIfAsked()
+        XCTAssertEqual(api.reads, 2)
     }
 
     func testStoppingContactsLeavesNoNameInMemoryAndABankSwitchForgetsToo() async {

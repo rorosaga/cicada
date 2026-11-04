@@ -39,10 +39,25 @@ final class FakeContactsAPI: ContactsSyncAPI {
     /// Every call in order, to prove the faces do not wait on the sync.
     private(set) var calls: [String] = []
     var bookFails = false
+    /// What each `PUT` answers next, in order, once `bookFails` is off.
+    var bookReplies: [any Error] = []
+    /// What `GET` answers: the backend's book, empty until a `PUT` lands unless a test holds one.
+    var heldTotal = 0
+    var fetchErrors: [any Error] = []
+    private(set) var fetches = 0
     func putContactsBook(_ payload: ContactsBookPayload) async throws {
         calls.append("book")
         books.append(payload)
         if bookFails { throw APIError.httpError(404, "") }
+        if !bookReplies.isEmpty { throw bookReplies.removeFirst() }
+        heldTotal = payload.cards.count
+    }
+    func fetchContactsBook() async throws -> ContactsBook {
+        fetches += 1
+        if !fetchErrors.isEmpty { throw fetchErrors.removeFirst() }
+        var book = ContactsBook()
+        book.total = heldTotal
+        return book
     }
     func forgetContactsBook(connection: String?) async throws { bookForgets.append(connection) }
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
@@ -147,6 +162,174 @@ final class ContactsReaderTests: XCTestCase {
         await r.forgetTask?.value
         XCTAssertEqual(api.bookForgets, [connection])
         XCTAssertEqual(api.forgotConnections, [connection])
+    }
+
+    /// Review of #602: someone connected before the book existed. Their sync is under a day old and nothing changed, so
+    /// no sync runs on launch; the backend holds no book, so the reader posts it, without a sync.
+    func testALaunchWithinADayOfASyncPostsTheBookWhenTheBackendHasNone() async throws {
+        let store = FakeContactStore()
+        let defaults = self.defaults()
+        let old = reader(store, FakeContactsAPI(), defaults)
+        await old.connect()
+
+        let api = FakeContactsAPI()
+        let later = ContactsReader(store: store, api: api, defaults: defaults,
+                                   now: { [now] in now.addingTimeInterval(3600) }, bank: { "alpha" })
+        later.start()
+        try await eventually("the book's post") { api.books.count == 1 }
+        XCTAssertEqual(api.payloads.count, 0, "the sync's token is untouched: this is the book's own post")
+        XCTAssertEqual(api.banks.count, 0)
+        try await eventually("the post to settle") { !later.bookPending }
+    }
+
+    /// Set up as someone whose last sync and book are current, an hour ago.
+    private func connected(_ store: FakeContactStore, _ defaults: UserDefaults) async {
+        await reader(store, FakeContactsAPI(), defaults).connect()
+    }
+
+    private func relaunch(_ store: FakeContactStore, _ api: FakeContactsAPI, _ defaults: UserDefaults,
+                          retryAfter: Duration = .seconds(60)) -> ContactsReader {
+        ContactsReader(store: store, api: api, defaults: defaults, now: { [now] in now.addingTimeInterval(3600) },
+                       retryAfter: retryAfter, bank: { "alpha" })
+    }
+
+    func testTheBookIsPendingFromTheFirstMomentOfALaunch() async throws {
+        let store = FakeContactStore()
+        let defaults = self.defaults()
+        await connected(store, defaults)
+        let later = relaunch(store, FakeContactsAPI(), defaults)
+        later.start()
+        XCTAssertTrue(later.bookPending, "true before any await: the page never paints nothing in that moment")
+        try await eventually("the post") { !later.bookPending }
+    }
+
+    func testABookAlreadyHeldAtTheCurrentTokenPostsNothingAndReadsNoCards() async throws {
+        let store = FakeContactStore()
+        let defaults = self.defaults()
+        await connected(store, defaults)
+        let snapshots = store.snapshots
+        let api = FakeContactsAPI()
+        api.heldTotal = 5
+        let later = relaunch(store, api, defaults)
+        later.start()
+        try await eventually("the check") { !later.bookPending }
+        XCTAssertEqual(api.fetches, 1)
+        XCTAssertEqual(api.books.count, 0)
+        XCTAssertEqual(store.snapshots, snapshots, "no read of the address book for nothing")
+    }
+
+    /// A post that failed left an older book at the backend: the book's own token says so, though the sync's was stored.
+    func testAPostThatFailedIsRetriedAndALaterLaunchChecksAgain() async throws {
+        let store = FakeContactStore()
+        let defaults = self.defaults()
+        let first = FakeContactsAPI()
+        first.bookReplies = [APIError.serverUnreachable]
+        let r = reader(store, first, defaults, retryAfter: .seconds(30))
+        await r.connect()
+        XCTAssertEqual(first.payloads.count, 1, "the sync still ran, and stored its token")
+        XCTAssertTrue(r.bookPending, "still on its way: the retry is waiting")
+
+        let api = FakeContactsAPI()
+        api.heldTotal = 5
+        let later = relaunch(store, api, defaults)
+        later.start()
+        try await eventually("the older book replaced") { api.books.count == 1 }
+        XCTAssertEqual(api.payloads.count, 0)
+    }
+
+    func testAFailedPostIsTriedAgainOnItsOwn() async throws {
+        let store = FakeContactStore()
+        let api = FakeContactsAPI()
+        api.bookReplies = [APIError.serverUnreachable]
+        var posted = 0
+        let r = reader(store, api, defaults(), retryAfter: .milliseconds(10))
+        r.onBookPosted = { posted += 1 }
+        await r.connect()
+        try await eventually("the retry's post") { api.books.count == 2 && !r.bookPending }
+        XCTAssertEqual(posted, 1)
+        XCTAssertNil(r.bookFailure)
+        XCTAssertEqual(api.payloads.count, 1, "only the book is posted again")
+    }
+
+    func testABackendNotYetUpAtLaunchIsAskedAgain() async throws {
+        let store = FakeContactStore()
+        let defaults = self.defaults()
+        await connected(store, defaults)
+        let api = FakeContactsAPI()
+        api.fetchErrors = [URLError(.cannotConnectToHost)]
+        let later = relaunch(store, api, defaults, retryAfter: .milliseconds(10))
+        later.start()
+        try await eventually("the post after the retry") { api.books.count == 1 }
+    }
+
+    func testRetriesAreCappedAndThenSaidInWords() async throws {
+        let store = FakeContactStore()
+        let api = FakeContactsAPI()
+        api.bookReplies = Array(repeating: APIError.serverUnreachable, count: 20)
+        let r = reader(store, api, defaults(), retryAfter: .milliseconds(5))
+        await r.connect()
+        try await eventually("giving up") { !r.bookPending }
+        XCTAssertEqual(api.books.count, ContactsReader.maxBookRetries + 1)
+        XCTAssertNotNil(r.bookFailure)
+    }
+
+    func testARefusalOrAnOlderBackendIsNotRetried() async throws {
+        for (error, says) in [(APIError.httpError(409, "demo"), false), (APIError.httpError(404, ""), true)] {
+            let api = FakeContactsAPI()
+            api.bookReplies = [error]
+            let r = reader(FakeContactStore(), api, defaults(), retryAfter: .milliseconds(1))
+            await r.connect()
+            try await Task.sleep(for: .milliseconds(50))
+            XCTAssertEqual(api.books.count, 1)
+            XCTAssertFalse(r.bookPending)
+            XCTAssertEqual(r.bookFailure != nil, says)
+        }
+    }
+
+    func testATrulyEmptyAddressBookSettlesWithNoPost() async throws {
+        let store = FakeContactStore()
+        let defaults = self.defaults()
+        await connected(store, defaults)
+        store.records = []
+        let api = FakeContactsAPI()
+        let later = relaunch(store, api, defaults)
+        later.start()
+        try await eventually("the check") { !later.bookPending }
+        XCTAssertEqual(api.books.count, 0)
+        XCTAssertNil(later.bookFailure)
+    }
+
+    /// An empty book after a forget is not a reason to post: a stopped reader asks nothing.
+    func testAStoppedReaderNeverAsksOrPostsAndStoppingEndsARetry() async throws {
+        let store = FakeContactStore()
+        let defaults = self.defaults()
+        let api = FakeContactsAPI()
+        api.bookReplies = [APIError.serverUnreachable]
+        let r = reader(store, api, defaults, retryAfter: .milliseconds(20))
+        await r.connect()
+        r.disconnect()
+        XCTAssertFalse(r.bookPending)
+        await r.forgetTask?.value
+        let posts = api.books.count
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(api.books.count, posts, "the retry was stopped with it")
+
+        let stopped = FakeContactsAPI()
+        let later = relaunch(store, stopped, defaults)
+        later.start()
+        later.ensureBook()
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(stopped.fetches, 0)
+        XCTAssertEqual(stopped.books.count, 0)
+        XCTAssertFalse(later.bookPending)
+    }
+
+    func testWhenTheBookIsPosted() {
+        let a = Data([1]), b = Data([2])
+        XCTAssertTrue(ContactsReader.shouldPostBook(held: 0, posted: a, token: a), "the backend holds none")
+        XCTAssertTrue(ContactsReader.shouldPostBook(held: 3, posted: a, token: b), "older than the address book")
+        XCTAssertTrue(ContactsReader.shouldPostBook(held: 3, posted: nil, token: a), "never posted from here")
+        XCTAssertFalse(ContactsReader.shouldPostBook(held: 3, posted: a, token: a))
     }
 
     func testDeniedSaysSoAndReadsNothing() async {

@@ -181,6 +181,8 @@ protocol ContactsSyncAPI: Sendable {
     func forgetWaitingContacts(connection: String?) async throws
     /// Every card, for the Contacts page's faces. Kept where this Mac's backend is; never read by a match.
     func putContactsBook(_ payload: ContactsBookPayload) async throws
+    /// What the backend holds of the book, so the reader posts one when it holds none (review of #602).
+    func fetchContactsBook() async throws -> ContactsBook
     /// The same forget under a route that runs on this computer: on a copy, the one above goes to the home.
     func forgetContactsBook(connection: String?) async throws
 }

@@ -163,7 +163,7 @@ def _index(memory_path: Path) -> tuple[dict[str, set[str]], set[str], str | None
         persons.add(f.stem)
         if fm.get("owner") is True:
             flagged.append(f.stem)
-        for label in [fm.get("name") or f.stem.replace("-", " "), *(fm.get("aliases") or [])]:
+        for label in people_directory.labels(fm, f.stem):
             key = people_directory.fold(label)
             if key:
                 keys.setdefault(key, set()).add(f.stem)

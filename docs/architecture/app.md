@@ -1770,7 +1770,9 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   by the one picture precedence, its hue ring when there is no picture; hover a fill, a click opens the page). A card
   with none is not (`ContactCardCell`: its thumbnail through `SourcePictureStore`, else a neutral disc in secondary ink;
   no hover, no press, no click target, static text to VoiceOver). A nameless card reads *No name*, never its
-  organisation. One line beside the search: *376 contacts · 6 in memory*. The search is in memory, folded once when the
+  organisation. One line beside the search: *376 contacts · 6 in memory*. `ContactsGridPhase` decides what is drawn: an
+  empty answer while the reader is still posting (`bookPending`) is the skeleton, never nothing, and an answer that
+  raced the post is dropped for the newer read (`onBookPosted`). The search is in memory, folded once when the
   book is read, and its words never leave the app (0.015 s over 20,000 cards, debug build). `LazyVGrid`: about 85 of
   800 cells exist at once. Contacts stopping (`ContactsReader.onForget`) drops the names and thumbnails the app holds.
 - **Meeting recorders** (`MeetingsBrowser`): recorder → folder → meetings; one folder lists its meetings directly

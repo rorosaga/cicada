@@ -528,9 +528,13 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   shows at once. `GET …/book/{key}/photo` serves a thumbnail, `no-store`. It is the app's own read: the token's device
   picks the scope, so a client of a backend elsewhere reads only the book it posted; on a copy the routes are `local`,
   because the reader is here and not at the home. No tool, CLI row or `/v1` operation reaches it, and the remote
-  listener has no such path. The forget removes every scope in every bank (`DELETE …/book` is the same forget, sent too
-  because a copy forwards `/waiting` to the home); revoking a device removes its scope; a demo bank takes and shows
-  none. Few photos is true of the book: on the owner's Mac the store files hold at most 6 raw records with one, of 969
+  listener has no such path. **The book's own state decides when it is posted (review of #602):** a sync posts it, and a
+  launch with no sync due asks `GET …/book` and posts when the backend holds none or the last book it took is older than
+  the address book (`ContactsReader.shouldPostBook`, its own token beside the sync's). A failed post is tried again 3
+  times, a minute apart, then said in words; a refusal is final; a stopped reader asks nothing; a truly empty address book
+  posts nothing. The forget removes every scope in every bank (`DELETE …/book` is the same forget, sent too
+  because a copy forwards `/waiting` to the home); revoking a device removes its scope and stops a save already in
+  flight (`.contacts-book-revoked`, scope hashes only); a demo bank takes and shows none. Few photos is true of the book: on the owner's Mac the store files hold at most 6 raw records with one, of 969
   raw records (count-only, 2026-11-04; size and format not measured).
   **The Contacts forget lands at once, even while Sleep runs (review of #393):** the app sends it once, so a 409 would
   keep a disconnected address book's cards. It deletes the set and then stamps a forget marker,

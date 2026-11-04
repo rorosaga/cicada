@@ -231,18 +231,81 @@ def test_a_one_part_name_still_never_waits_with_the_book_beside_it(client):
     assert c.get(BOOK).json()["total"] == 2
 
 
+def _imports_of_the_book(tree) -> bool:
+    """Any spelling: `import api.services.contacts_book`, `from api.services import contacts_book`, or
+    `from api.services.contacts_book import read`, at any depth of the file."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any("contacts_book" in alias.name.split(".") for alias in node.names):
+            return True
+        if isinstance(node, ast.ImportFrom):
+            if "contacts_book" in (node.module or "").split("."):
+                return True
+            if any(alias.name == "contacts_book" for alias in node.names):
+                return True
+    return False
+
+
+def _sources():
+    """Every door's code: the backend and the MCP server."""
+    repo = Path(contacts_book.__file__).resolve().parents[2]
+    for root in (repo / "api", repo / "mcp"):
+        for path in root.rglob("*.py"):
+            if not {"tests", ".venv", "__pycache__"} & set(path.parts):
+                yield repo, path
+
+
 def test_nothing_but_its_routes_imports_the_book():
     """A match cannot read a store it does not know. `contacts_local` names only the folder, to forget it."""
-    api_root = Path(contacts_book.__file__).resolve().parents[1]
     importers = set()
-    for path in api_root.rglob("*.py"):
-        if "tests" in path.parts or ".venv" in path.parts:
-            continue
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            names = [a.name.rsplit(".", 1)[-1] for a in node.names] if isinstance(node, (ast.Import, ast.ImportFrom)) else []
-            if "contacts_book" in names:
-                importers.add(path.relative_to(api_root).as_posix())
-    assert importers == {"routers/local_sources.py", "routers/devices.py"}
+    for repo, path in _sources():
+        if path.name != "contacts_book.py" and _imports_of_the_book(ast.parse(path.read_text(encoding="utf-8"))):
+            importers.add(path.relative_to(repo).as_posix())
+    assert importers == {"api/routers/local_sources.py", "api/routers/devices.py"}
+
+
+@pytest.mark.parametrize("line", ["from api.services.contacts_book import read", "import api.services.contacts_book as b",
+                                  "from api.services import contacts_book", "def f():\n    from .contacts_book import read"])
+def test_the_import_check_catches_every_spelling(line):
+    assert _imports_of_the_book(ast.parse(line))
+
+
+def test_no_other_code_names_the_books_route():
+    """An MCP tool or a CLI command could reach the book over HTTP without importing it."""
+    named = set()
+    for repo, path in _sources():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        prose = {id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Expr)}   # docstrings
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and BOOK in node.value \
+                    and id(node) not in prose:
+                named.add(path.relative_to(repo).as_posix())
+    assert named == {"api/routers/local_sources.py", "api/services/replica_routes.py"}
+
+
+def test_a_page_with_a_malformed_alias_field_never_fails_the_read_or_the_sync(client):
+    c, memory = client
+    _entity(memory, "photo-page", type="person", name="Photo Page", aliases=5,
+            contacts_photo={"sha": "abc", "ext": "jpg"})
+    _entity(memory, "one-alias", type="person", name="One Alias", aliases="Lone Alias",
+            contacts_photo={"sha": "abd", "ext": "jpg"})
+    bank_index.invalidate(memory)
+    _put(c, [_card("C1", "Photo", "Page"), _card("C2", "Lone", "Alias")])
+    body = c.get(BOOK).json()
+    assert {row["name"]: row["entityId"] for row in body["cards"]} == {"Photo Page": "photo-page",
+                                                                       "Lone Alias": "one-alias"}
+    synced = c.post("/sources/contacts-local/sync", json={"contacts": [_sync_card("C9", "New", "Person")]})
+    assert synced.status_code == 200, synced.text
+    assert contacts_local.rematch(memory).matched == 0
+
+
+def test_a_stored_row_it_cannot_read_is_skipped_not_a_failure(client):
+    c, memory = client
+    _put(c, [_card("C1", "Ann", "Example")])
+    target = _folder(memory) / contacts_book.BOOK_FILE
+    target.write_text('{"v": 1, "cards": [{"key": 5}, "x", {"key": "abc", "given": 7, "family": null}]}', encoding="utf-8")
+    body = c.get(BOOK)
+    assert body.status_code == 200, body.text
+    assert [row["key"] for row in body.json()["cards"]] == ["abc"]
 
 
 # --- the forget ----------------------------------------------------------------------------------------------------------
@@ -266,9 +329,9 @@ def test_a_save_read_before_a_forget_never_brings_the_book_back(client, monkeypa
         contacts_local.forget_waiting()
         return False
 
-    monkeypatch.setattr(contacts_local, "connection_ended", forget_midway)
-    assert contacts_book.save(memory.name, contacts_book.HERE, [{"id": "C1", "given_name": "Ann"}]) == 0
-    monkeypatch.undo()
+    with monkeypatch.context() as patch:
+        patch.setattr(contacts_local, "connection_ended", forget_midway)
+        assert contacts_book.save(memory.name, contacts_book.HERE, [{"id": "C1", "given_name": "Ann"}]) == 0
     assert not _folder(memory).exists()
 
 
@@ -332,6 +395,30 @@ def test_a_device_reads_only_the_book_it_posted_and_revoking_it_removes_that(ser
     assert client.delete(f"/devices/{made['device']['id']}", headers=_auth(master)).status_code == 200
     assert not _folder(memory, scope).exists()
     assert client.get(BOOK, headers=_auth(master)).json()["total"] == 1, "the server's own book stays"
+
+
+def test_a_put_racing_a_revoke_never_brings_that_devices_book_back(server, monkeypatch):
+    client, master, memory = server
+    made = client.post("/devices", json={"name": "laptop"}, headers=_auth(master)).json()
+    device_id = made["device"]["id"]
+    scope = contacts_book.scope_of(device_id)
+    real = contacts_local.connection_ended
+
+    def revoke_midway(connection):   # the token was already checked; the revoke lands before the save takes its lock
+        contacts_book.forget_device(device_id)
+        return real(connection)
+
+    # A context, never `monkeypatch.undo()`: that would also take back the fixture's own `CICADA_HOME`.
+    with monkeypatch.context() as patch:
+        patch.setattr(contacts_local, "connection_ended", revoke_midway)
+        assert contacts_book.save(memory.name, scope, [{"id": "C1", "given_name": "Ann"}]) == 0
+    assert not _folder(memory, scope).exists()
+    # Nobody else's book is touched, and the marker survives the Contacts forget.
+    assert contacts_book.save(memory.name, contacts_book.HERE, [{"id": "C1", "given_name": "Ann"}]) == 1
+    contacts_local.forget_waiting()
+    assert contacts_book.save(memory.name, scope, [{"id": "C1", "given_name": "Ann"}]) == 0
+    marker = people_directory.folder("x").parent / contacts_book.REVOKED_FILE
+    assert stat.S_IMODE(marker.stat().st_mode) == 0o600 and device_id not in marker.read_text(encoding="utf-8")
 
 
 def test_a_capture_only_device_is_refused(server, monkeypatch):

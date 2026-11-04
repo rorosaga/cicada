@@ -18,6 +18,8 @@
   and thumbnail for the grid alone; ruling 33's match rules are untouched. Thumbnails: few is true of the book, at most
   6 of 969 raw records (count-only query of the store files; size and format not measured, because no shell here has a
   Contacts grant). The grid reads it: a card with a page opens it, the rest are quiet discs that are not controls.
+  Review of #602 caught the page going blank for someone already connected (no sync due, so no book posted): the book's
+  own state now decides when it is posted, and the page draws a skeleton while it is on its way.
   Detail: `capture-and-sleep.md`, `app.md`. **Known residue:** `UserDefaults(suiteName:)` in Swift tests lands in the real
   `~/Library/Preferences` whatever `HOME` says (cfprefsd ignores it): 5,621 `contacts-<uuid>.plist` files since 2026-09-24,
   test values only. These two suites now empty theirs, leaving a 42-byte file; the class is not fixed.

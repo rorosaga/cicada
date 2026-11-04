@@ -9,18 +9,23 @@ struct ContactsGrid: View {
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
     @Environment(Store.self) private var store: Store?
+    @Environment(ContactsReader.self) private var reader: ContactsReader?
     @State private var query = ""
 
     private var refreshKey: Double { store?.channels.loadedAt?.timeIntervalSinceReferenceDate ?? 0 }
 
     var body: some View {
         Group {
-            if let book = cache?.contactsBook {
-                if book.total > 0 { content(book) }
-            } else if let why = cache?.contactsBookFailure {
-                InPlaceNote(text: why)
-            } else {
+            switch ContactsGridPhase.of(book: cache?.contactsBook, failure: cache?.contactsBookFailure,
+                                        pending: reader?.bookPending ?? false, postFailure: reader?.bookFailure) {
+            case .cards:
+                if let book = cache?.contactsBook { content(book) }
+            case .loading:
                 ListSkeleton(message: Copy.SourceBrowser.loading, rows: 2)
+            case .failed(let why):
+                InPlaceNote(text: why)
+            case .nothing:
+                EmptyView()
             }
         }
         .task(id: refreshKey) {
@@ -61,6 +66,20 @@ struct ContactsGrid: View {
                 }
             }
         }
+    }
+}
+
+/// What the page draws, pure (review of #602). A book with cards always shows. An empty answer while the reader is still
+/// posting is "not yet": a skeleton, never nothing. An empty book with nothing on its way is nothing to draw: stopped, or a
+/// truly empty address book.
+enum ContactsGridPhase: Equatable {
+    case loading, cards, nothing, failed(String)
+
+    static func of(book: ContactsBook?, failure: String?, pending: Bool, postFailure: String?) -> ContactsGridPhase {
+        if let book, book.total > 0 { return .cards }
+        if pending { return .loading }
+        guard book != nil else { return failure.map(ContactsGridPhase.failed) ?? .loading }
+        return postFailure.map(ContactsGridPhase.failed) ?? .nothing
     }
 }
 

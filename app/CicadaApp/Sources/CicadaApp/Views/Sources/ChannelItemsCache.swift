@@ -29,9 +29,12 @@ final class ChannelItemsCache {
     private(set) var trees: [String: ChannelCollections] = [:]
     @ObservationIgnored private var treeTags: [String: String] = [:]
 
-    /// G154 — the Contacts page's faces. The book's own read has no ETag; a failure keeps what is held (DR-43).
+    /// G154 — the Contacts page's faces. The book's own read has no ETag; a failure keeps what is held.
     private(set) var contactsBook: ContactsBook?
     private(set) var contactsBookFailure: String?
+    /// The newest read: a slower, older answer never replaces it (an empty answer racing the book's post).
+    @ObservationIgnored private var contactsBookRead = 0
+    @ObservationIgnored private var contactsBookAsked = false
 
     private struct Tag { let limit: Int; let etag: String }
 
@@ -77,20 +80,31 @@ final class ChannelItemsCache {
         treeTags = [:]
         contactsBook = nil
         contactsBookFailure = nil
+        contactsBookAsked = false
     }
 
-    /// Read every card on this Mac; a failure with nothing held says so in words, else the grid stays as it is.
+    /// Read every card on this Mac; a failure with nothing held says so in words, else the grid stays as it is. A read
+    /// cancelled with its view is no failure, and says nothing.
     func refreshContactsBook() async {
         let started = epoch
+        contactsBookAsked = true
+        contactsBookRead &+= 1
+        let read = contactsBookRead
         do {
             let book = try await api.fetchContactsBook()
-            guard started == epoch else { return }
+            guard started == epoch, read == contactsBookRead else { return }
             contactsBook = book
             contactsBookFailure = nil
         } catch {
-            guard started == epoch else { return }
+            guard started == epoch, read == contactsBookRead, !SyncCancellation.isCancellation(error) else { return }
             contactsBookFailure = ContactsReader.failureMessage(error)
         }
+    }
+
+    /// A book reached the backend. Read it only if a page has asked: no address book in memory for a page never opened.
+    func refreshContactsBookIfAsked() async {
+        guard contactsBookAsked else { return }
+        await refreshContactsBook()
     }
 
     /// Contacts stopped: no name stays in memory, and an answer in flight is dropped. Empty rather than nil, so the page
@@ -99,6 +113,7 @@ final class ChannelItemsCache {
         epoch &+= 1
         contactsBook = ContactsBook()
         contactsBookFailure = nil
+        contactsBookAsked = false
     }
 
     func collections(_ channel: String) -> ChannelCollections? { trees[channel] }
