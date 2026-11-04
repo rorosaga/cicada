@@ -17,6 +17,17 @@ extension Copy {
         static let open = "Open…"
         static let folders = "Folders"
         static let history = "History"
+        /// YouTube's ways in, named by what they read; how each reads is its hover.
+        static let historyInChrome = "History in Chrome"
+        /// A browser's ways in.
+        static let bookmarks = "Bookmarks"
+        static func bookmarksHelp(_ browser: String) -> String {
+            "Cicada reads \(browser)'s bookmarks on this Mac each time they change"
+        }
+        static let youtubeHere = "YouTube you watch here"
+        static func youtubeList(_ list: YouTubeList) -> String {
+            list == .watchLater ? "Watch later, in your browser" : "Watch history, in your browser"
+        }
         static let saved = "Saved"
         static let chooseChats = "Choose chats…"
         static let savedList = "Keep your saved list current"

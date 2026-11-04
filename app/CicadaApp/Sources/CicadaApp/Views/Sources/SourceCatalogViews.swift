@@ -201,6 +201,7 @@ struct SourceCatalogDetail: View {
     @Environment(WatchHistoryWatcher.self) private var watchHistory: WatchHistoryWatcher?
     @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
     @Environment(ContactsReader.self) private var contacts: ContactsReader?
+    @Environment(IntakeRouter.self) private var intake
     /// What the footer's last Refresh said.
     @State private var feedNote: String?
 
@@ -389,17 +390,28 @@ struct SourceCatalogDetail: View {
         case "youtube":
             SourceConnectArea(ways: youtubeWays)
         case "spotify", "files":
-            // The export's own drop, its where-from on hover: the source's mark on a file, never the chat vendors'.
-            IntakePanel(origin: .emptyState(.sources), compact: true, mark: entry.origin,
-                        how: SourceCatalog.exportHow(entry.id))
+            // Nothing in yet: the export's own drop, its where-from on hover — the source's mark on a file, never the
+            // chat vendors'. Once something came in, the next import is one quiet way row above the list.
+            if row.status == .off {
+                IntakePanel(origin: .emptyState(.sources), compact: true, mark: entry.origin,
+                            how: SourceCatalog.exportHow(entry.id))
+            } else {
+                SourceConnectArea(ways: [.importFile(origin: entry.origin, help: SourceCatalog.exportHow(entry.id)) {
+                    chooseExport()
+                }])
+            }
         case "chat-exports":
             // A chat export is the chat vendors' own file: their marks are the right ones here.
             IntakePanel(origin: .emptyState(.sources), compact: true, how: SourceCatalog.exportHow(entry.id))
         case "notion":
+            // The live connection is the primary; the export is one more way in, the file chooser of the one intake.
+            let export = SourceWayIn.importFile(origin: entry.origin, help: Copy.Catalog.notionHow) { chooseExport() }
             if let api = channels.first(where: { $0.id == "notion-api" }) {
-                ConnectorSlot(slot: .connect, channel: api, title: "Notion", needsSignIn: row.status == .needsSignIn)
+                ConnectorSlot(slot: .connect, channel: api, title: "Notion", ways: [export],
+                              needsSignIn: row.status == .needsSignIn)
+            } else {
+                SourceConnectArea(ways: [export])
             }
-            IntakePanel(origin: .emptyState(.sources), compact: true, mark: entry.origin, how: Copy.Catalog.notionHow)
         case "telegram":
             // The bot feed needs a public address Cicada never opens: its steps are one click away.
             SourceConnectArea(primary: entry.tile.map { tile in
@@ -409,11 +421,10 @@ struct SourceCatalogDetail: View {
             })
         default:
             if entry.id.hasPrefix(SourceCatalog.browserPrefix) {
-                BrowsersSection(channels: channels,
-                                inventory: BrowserInventory(installed: browsers.installed.filter {
-                                    SourceCatalog.browserPrefix + $0.id == entry.id
-                                }))
-                    .environment(\.sourceDetailHeadShown, true)
+                let mine = BrowserInventory(installed: browsers.installed.filter {
+                    SourceCatalog.browserPrefix + $0.id == entry.id
+                })
+                if let spec = mine.installed.first { BrowserWays(spec: spec, inventory: mine) }
             } else if entry.overviewId != nil {
                 EmptyView()
             } else if let connector = mine.first(where: { $0.actions.contains("connect") }) {
@@ -433,6 +444,13 @@ struct SourceCatalogDetail: View {
                 SourceConnectArea(primary: SourcePrimaryAction(title: verbTitle(entry.verb)) { flowTile = tile })
             }
         }
+    }
+
+    /// The one intake's file chooser; what it reads runs in the window's intake overlay, as a drop would.
+    private func chooseExport() {
+        let urls = IntakePicker.choose()
+        guard !urls.isEmpty else { return }
+        intake.accept(urls: urls, from: .emptyState(.sources))
     }
 
     private var calendarOn: Bool {
@@ -471,7 +489,7 @@ struct SourceCatalogDetail: View {
     private var youtubeWays: [SourceWayIn] {
         var ways: [SourceWayIn] = []
         if let history = watchHistory {
-            ways.append(SourceWayIn(id: "chrome", icon: .mark("chrome"), title: Copy.watchHistoryTitle,
+            ways.append(SourceWayIn(id: "chrome", icon: .mark("chrome-bookmark"), title: Copy.SourceLayout.historyInChrome,
                                     control: .toggle(history.enabled) { on in
                                         if on { Task { await history.enable() } } else { history.disable() }
                                     },
@@ -479,7 +497,7 @@ struct SourceCatalogDetail: View {
         }
         for list in YouTubeList.allCases {
             let on = reading.enabled && (reading.settings?.youtubeLists.isOn(list) ?? false)
-            ways.append(SourceWayIn(id: "list-\(list.id)", icon: .symbol("globe"), title: YouTubeListWords.title(list),
+            ways.append(SourceWayIn(id: "list-\(list.id)", icon: .symbol("globe"), title: Copy.SourceLayout.youtubeList(list),
                                     control: .toggle(on) { flipYouTube(list, on: $0) },
                                     help: YouTubeListWords.detail(list, on: on, status: reading.settings?.youtube)))
         }

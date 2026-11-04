@@ -9,6 +9,66 @@ import SwiftUI
 /// Which of the page's two action slots a source view draws.
 enum SourceSlot { case connect, footer }
 
+// MARK: - A browser on this Mac
+
+/// A browser's ways in, one switch each (2026-11-04: the page drew Settings' four rows and a paragraph): its
+/// bookmarks, its open tab groups (Chrome), the YouTube it plays (Chrome), and the question asked on a bookmark. The
+/// Full Disk Access fix shows where the read failed. Each switch's how is its hover.
+struct BrowserWays: View {
+    let spec: BrowserSpec
+    let inventory: BrowserInventory
+    @Environment(BrowserWatcher.self) private var watcher
+    @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
+    @Environment(WatchHistoryWatcher.self) private var watchHistory: WatchHistoryWatcher?
+    @AppStorage(SaveWhyPrefs.enabledKey) private var askWhy = false
+    /// `isEnabled` reads this Mac's defaults, which SwiftUI does not observe: a flip redraws through this.
+    @State private var flips = 0
+
+    private var channel: String { spec.bookmarksChannel ?? spec.id }
+
+    var body: some View {
+        let _ = flips
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            if watcher.state(for: channel) == .blocked, let error = watcher.error(for: channel) {
+                FullDiskAccessHint(error: error)
+            }
+            SourceConnectArea(ways: ways)
+        }
+    }
+
+    private var ways: [SourceWayIn] {
+        var out: [SourceWayIn] = []
+        if spec.bookmarksChannel != nil {
+            out.append(SourceWayIn(id: "bookmarks", icon: .mark(spec.origin), title: Copy.SourceLayout.bookmarks,
+                                   control: .toggle(watcher.isEnabled(channel)) { on in
+                                       if on { watcher.enable(channel) } else { watcher.disable(channel) }
+                                       flips += 1
+                                   }, help: Copy.SourceLayout.bookmarksHelp(spec.name)))
+        }
+        if spec.tabGroupsChannel != nil, let tabGroups {
+            out.append(SourceWayIn(id: "tab-groups", icon: .symbol("square.stack"), title: Copy.tabGroupsTitle,
+                                   control: .toggle(tabGroups.enabled) { on in
+                                       if on { Task { await tabGroups.enable() } } else { tabGroups.disable() }
+                                   }, help: Copy.tabGroupsSwitch))
+        }
+        if spec.id == WatchHistoryWatcher.browser, let watchHistory {
+            out.append(SourceWayIn(id: "youtube", icon: .mark("youtube-playlist"), title: Copy.SourceLayout.youtubeHere,
+                                   control: .toggle(watchHistory.enabled) { on in
+                                       if on { Task { await watchHistory.enable() } } else { watchHistory.disable() }
+                                   }, help: Copy.watchHistorySwitch))
+        }
+        if spec.bookmarksChannel != nil {
+            out.append(SourceWayIn(id: "ask-why", icon: .symbol("questionmark.bubble"), title: Copy.SaveWhy.switchTitle,
+                                   control: .toggle(askWhy) { on in
+                                       let prefs = SaveWhyPrefs(defaults: .standard)
+                                       if on { SaveWhySetup.turnOn(prefs: prefs, inventory: inventory, watcher: watcher) }
+                                       else { prefs.enabled = false }
+                                   }, help: Copy.SaveWhy.switchDetail))
+        }
+        return out
+    }
+}
+
 // MARK: - This Mac: Calendar, Contacts, Reminders, Apple Notes
 
 /// Calendar on this Mac: Connect (the system prompt); refused, the privacy setting; on, Refresh and Disconnect.
