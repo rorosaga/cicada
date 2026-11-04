@@ -466,7 +466,7 @@ _FUNNEL_WORDS = {
     "unknown": "Tailscale did not answer. Try again.",
     "address": "You saved your own address for this machine. Clear it first.",
     "taken": "Ports 443 and 10000 already carry your other Tailscale mappings, and Cicada won't replace them. Free one "
-             "(`tailscale funnel status` lists them), then try again.",
+             "(tailscale funnel status lists them), then try again.",
     "terminal": "This was opened from a terminal. Close it there with Ctrl+C.",
 }
 
@@ -611,7 +611,7 @@ def _funnel_failure(stdout: str, stderr: str, command: str) -> tuple[str, str | 
     text = " ".join(f"{stderr or ''} {stdout or ''}".split())
     lower = text.lower()
     if "access denied" in lower or "permission denied" in lower or "--operator" in lower:
-        return ("Tailscale refused: this user may not change its settings. Run `sudo tailscale set --operator=$USER`, "
+        return ("Tailscale refused: this user may not change its settings. Run sudo tailscale set --operator=$USER, "
                 "then try again."), None
     if "https must be enabled" in lower:
         return "HTTPS certificates are off for your tailnet. Turn them on, then try again.", _HTTPS_FIX

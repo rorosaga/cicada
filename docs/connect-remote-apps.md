@@ -10,18 +10,22 @@ that app is kept as it happens (ruling 32). How it works and what it checks: `do
 
 Cicada → Settings → Devices → **From anywhere** → *Let AI apps outside this Mac use your memory*.
 
-## 2. Give it a stable public address (you run this, Cicada never does)
+## 2. Give it a stable public address
 
 Pick one. Both forward only port `8765`.
 
-- **Tailscale Funnel** (free; the address is your machine's name, so it stays the same):
+- **Tailscale Funnel** (free; the address is your machine's name, so it stays the same): **Turn on**, under *How apps
+  reach this Mac*, runs the command it shows you; on a server, `cicada funnel on` in your own terminal. **Turn off** (or
+  `cicada funnel off`) closes that one address. Nothing else on your Tailscale is touched: if something of yours holds
+  port 443 it uses 10000 instead, and if both are held it says so.
 
-  ```sh
-  tailscale funnel --bg 8765
-  ```
+  The first time, your tailnet has to allow it: Cicada shows the link. That is HTTPS certificates on the DNS admin page,
+  and the `funnel` attribute in your access controls (`"nodeAttrs": [{"target": ["autogroup:member"], "attr":
+  ["funnel"]}]`). The public name can then take up to 10 minutes.
 
-  Your address is `https://<machine>.<tailnet>.ts.net`. Renaming the machine changes it.
-- **ngrok** with your account's free static domain (a random ngrok address changes on every restart, and the app
+  Your address is `https://<machine>.<tailnet>.ts.net`. Renaming the machine changes it. It stays open across
+  restarts until you turn it off.
+- **ngrok** (you run this, Cicada never does) with your account's free static domain (a random ngrok address changes on every restart, and the app
   would lose Cicada each time):
 
   ```sh

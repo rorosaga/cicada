@@ -204,8 +204,9 @@ item only (fetched once, on the person's click, through `net_guard` under the To
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
 (`CICADA_REMOTE_PORT`) serves **only MCP and the agent API** (below) — none of the FastAPI routers — to cloud AI apps
 through a tunnel **the person** runs (Tailscale Funnel or ngrok); **Cicada never starts, stops or
-reconfigures a tunnel** (one dated exception, owner 2026-10-29: the tailnet-only serve of the backend below, on the
-person's click) — `GET /remote/status` only detects one — on PATH or in
+reconfigures a tunnel** (two dated exceptions, each the person's click on the command shown: the tailnet-only serve of
+the backend, owner 2026-10-29, and the funnel of this listener's port, ruling 59, both below) — `GET /remote/status`
+only detects one — on PATH or in
 the standard install folders, since an older LaunchAgent's PATH is bare (F2-back R-B15). Access is a per-connector
 capability token `cic_rc_<id>_<secret>`: shown once, only its sha256 stored in
 `~/.cicada/remote/connectors.db` (0600, never in a bank), scoped (`search`/`read`/`record` default;
@@ -292,8 +293,52 @@ word of the person's, and a claim is `origin: remote:<id>`, never the person's o
 **The tunnel for sign-in is the person's, to this listener only.** claude.ai and ChatGPT reach the Mac from their own
 servers, so the person exposes the G135 listener's port publicly with a stable hostname — `tailscale funnel --bg 8765`
 or `ngrok http 8765 --url <their-domain>`. That is the one public port Cicada is ever reached on: the backend's own port
-(8000) is never funnelled (the headless rail, `headless.md`), and Cicada never starts a tunnel. What the person runs is in
+(8000) is never funnelled (the headless rail, `headless.md`). What the person runs is in
 [`docs/connect-remote-apps.md`](../connect-remote-apps.md).
+
+**One click opens it (ruling 59, owner 2026-11-04; amends "never `funnel`").** Settings → Devices → From anywhere, or
+`cicada funnel on` in the person's own shell, runs **exactly the command shown** (`GET /remote/funnel`'s `command`,
+`POST /remote/funnel`, `reach.run_funnel`): `tailscale funnel --bg --https=443 <connector port>`, and
+`tailscale funnel --https=<its port> --set-path=/ off` to close it. Off until clicked; never at install, on start or by
+an agent. The same seam as the serve below: the argv is built in one function from `store.remote_port()` and the
+person's own ServeConfig; the request carries an action and the command the person read (`shown`, compared, never run,
+so a machine that changed since they read it runs nothing); argv only, 10 s, stdin closed; never `up`, a login or
+`reset`. The route is master-token only (`auth.MASTER_ONLY_WRITE_PREFIXES`), absent from MCP and `/v1`, and the CLI's
+`funnel on|off` refuse from an agent's shell.
+- **Only this port.** The API's port and the door's are refused if `CICADA_REMOTE_PORT` is ever set onto them, before
+  Tailscale is even asked, and nothing opens unless this listener is up.
+- **The port (read from `serve_v2.go`, v1.104).** Funnel allows 443, 8443 and 10000, and a port is served or funnelled,
+  never both. Three behaviours decide the code: a funnel on a held port silently replaces its `/` and opens every other
+  path on it, so a port holding anything (any config, foreground ones and tailnet-only serves of this same port
+  included) is never used; 8443 is the backend's tailnet mapping and not a candidate at all; 443 first (the clean
+  address, what these docs always said), 10000 only when the person's own mapping holds 443, as `headless.md`'s example
+  does. Both held: `taken`, in words, nothing replaced. The off names `--set-path=/` because without it the CLI deletes
+  every handler on the port.
+- **Read back, never assumed.** Nothing about it is stored (`settings.json` keeps `enabled` and `public_base_url` only);
+  every answer is the ServeConfig plus, on a click or a page open, `reach.probe` through the address. `ok` is the
+  ServeConfig afterwards, never the return code: with Funnel not allowed the CLI prints a link and waits, or exits 0
+  having changed nothing. `url` is on the wire only when the probe just passed. **Its one limit:** from this machine the
+  name resolves over the tailnet, so a passing probe proves the mapping and the listener, not public DNS (up to 10
+  minutes the first time, Tailscale's figure); the page says so once after the click. Only a device off the tailnet
+  proves the rest.
+- **Restart and reboot.** `--bg` persists in Tailscale across reboots, and `enabled` restarts the listener, so it comes
+  back by itself. Backend down or connector switched off: the mapping remains and strangers get Tailscale's 502; the page
+  keeps a card saying *still open, nothing answers* with its off, because the switch never touches Tailscale. Uninstalling
+  Cicada does not touch Tailscale either.
+- **Connector off at the click:** it is turned on first, and back off if the door then doesn't open, so a failed click
+  changes nothing. The off leaves the connector as it is. An address saved by hand comes first (`address`: clear it), since
+  the listener names only that one.
+- **Failures, in words with the fix:** missing, not running, signed out, off (`FUNNEL_STEPS`), too old (`--bg`, `--https`
+  and `--set-path` arrived in 1.52), Funnel not on for the tailnet (Tailscale's own link), HTTPS certificates off (the DNS
+  admin page), the `funnel` attribute missing from the policy (the access controls page), a refused operator, a hung CLI;
+  a link only ever to Tailscale's own hosts.
+- **What a stranger gets** (requested against a real scratch listener; `test_remote_funnel`): every path but the list
+  above 404s (`/`, `/healthz`, `/graph`, `/docs`, `/openapi.json`, `/remote/*`, `/devices`); `/mcp`, `/v1/*` and a bad
+  `/c/…` link are a 401 with no data; the open documents are the protected-resource and authorization-server metadata and
+  the static `/llms.txt`, `/v1/llms.txt` and `/v1/openapi.json`, which name no person and no memory. `/authorize` for an
+  unknown client is an error page, never a redirect; a sign-in anyone starts only shows a code, approved only by typing it
+  in the app (loopback, master token) and no route on the listener approves anything. Turning on HTTPS writes the machine's
+  name into a public certificate log (the app says so before the click).
 
 **Reach for the person's own devices is guided (G212, 2026-10-29), and one click may serve it (dated amendment to
 G132 (c), owner 2026-10-29: "Yes, one click").** Settings → Devices reads two bounded (2 s), read-only CLI answers
@@ -306,8 +351,8 @@ backend builds the argv from its own port and the person's own ServeConfig, neve
 resolved like every other read (`find_tool`, then the app bundle's CLI); argv only, never a shell; 10 s cap; stdin
 closed so nothing waits on a prompt; any failure is a sentence (Serve not enabled on the tailnet names the admin URL
 Tailscale printed; a refused operator says to run it in Terminal); then the state is read again and checked the way a
-phone would. **Never `funnel`, never `up`**: closing a funnel stays a command to copy, and every other step only says
-what to do. *Check again* is one
+phone would. **This route never runs `funnel` or `up`**: closing a funnel of the backend stays a command to copy, and
+every other step only says what to do. *Check again* is one
 fetch of this machine's own served `/healthz` (no token, no redirect, no proxy env, 3 s) — the person's own address
 read from their ServeConfig, never a URL a request names, so it is not a `net_guard` fetch of someone else's page and no
 fetch gate applies; it runs only on the page's open or the person's click. No hosted relay sits in the path: a relay

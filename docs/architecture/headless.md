@@ -17,7 +17,8 @@ this page ("Decided, not built").
 overlay the person runs and Cicada never configures: on a tailnet, `tailscale serve --bg --https=443
 http://127.0.0.1:8000` (tailnet only; never `funnel`), or an SSH tunnel. **The one public exception is not this
 port (ruling 32, owner 2026-10-19):** to let claude.ai or ChatGPT sign in, the person may funnel the G135 remote
-listener (`127.0.0.1:8765`, MCP and OAuth only — `network.md`), never the API. The API token is still required on every
+listener (`127.0.0.1:8765`, MCP and OAuth only — `network.md`), never the API; `cicada funnel on` in their own shell is
+the app's one click (ruling 59), and with the serve above on 443 it goes to 10000 rather than replace it. The API token is still required on every
 route but `/healthz`, and `/healthz` without the token says only `status`, `version` and the bank ids — the memory's
 path, its counts and the index's state need the token (owner decision 3, 2026-10-16: through the overlay, any device
 on the tailnet could otherwise read the server's account name from the path; `auth.bearer_admits`; the CLI's 21a probe,
@@ -224,7 +225,7 @@ app's QR) shows a one-time code; the device trades it once at `POST /pair` for i
 capture-only (`api.md`, "A phone is capture-only"). The QR names this machine's tailnet address for the backend only
 when the person already serves the backend port to their tailnet themselves, e.g. `tailscale serve --bg --https=8443
 8000` — tailnet only, never funnel; the backend still binds 127.0.0.1 and Cicada runs no tunnel command except that
-one serve and its off, on the person's click (below).
+one serve and its off, on the person's click (below), and the connector's own funnel and its off (ruling 59, `network.md`).
 
 **Guided, checked and key-bound (G212, 2026-10-29).** Settings → Devices reads the overlay's state (`GET
 /devices/reach`: Tailscale missing, not running, signed out, off, serving or funnelled) and shows the one next step,

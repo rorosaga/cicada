@@ -415,7 +415,9 @@ struct RemoteAccessView: View {
             funnel = answer.funnel
             justOpened = answer.ok && action == "on"
             if !answer.ok {
-                funnelFailure = answer.message ?? Copy.remoteFunnelFailed
+                // A state the page already says in its own line is not said twice.
+                let message = answer.message ?? Copy.remoteFunnelFailed
+                funnelFailure = message == answer.funnel.message ? nil : message
                 funnelFix = RemoteFunnel.fixLink(answer.fixUrl)
             }
             status = (try? await APIClient.shared.fetchRemoteStatus(probe: false)) ?? status

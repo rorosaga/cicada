@@ -12,6 +12,12 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — one click to a public address for the connector (ruling 59, G135, G132's D6′; branch
+  `feat/g135-funnel-one-click`).** Owner: yes to D6′, since claude.ai and the phone apps can only reach a public address
+  and `/remote/status` on the live install reported no listener and no funnel. Built and proved on a stand-in binary and a
+  scratch listener; **no real funnel has run**, that is the owner's click. Read-only `tailscale status --json` on this Mac
+  (key names only): HTTPS certificates and the `funnel` attribute are not yet granted, so the first click meets the
+  tailnet step and shows Tailscale's link. Waiting on the owner: that first click and a request from a device off the tailnet.
 - **2026-11-04 — books: scan an ISBN, Apple Books, a Goodreads export (G233, G39; branch `books-g39` + cicada-app `feat/scan-a-book`).** Owner: "integrate ISBN codes to include books I'm reading … iBooks too, to track progress … save books I want to read (maybe including Goodreads)"; then "be able to consolidate highlights and such is important", not started as its own status, the scanner in the phone app. `POST /capture/isbn` is the phone's contract (`{isbn, status?, id?}`, keep it stable); the home resolves the number behind the connector gate; `books.apply_pending` makes one `media` page per work with dated `reading-status` claims and happenings (`progress.py`). Apple Books is read by the app after Connect; Goodreads only by its export (no API keys since 2020); both on the standard source page (`BooksSlots.swift`). Highlights are read by Sleep, revision-read as they grow. Verified on scratch state with a synthetic library, a sample export and a capture-only phone (`feature-status.md`). **Owner's steps:** the four decisions on the G233 row; a real-iPhone camera test once the Apple Developer Program signup is done.
 - **2026-11-04 — a question about two people rests on a conversation naming both; never the owner without their own
   words (G209; branch `fix/person-dedup-evidence`).** Owner: "why tf would <handle> be me?" about "Is <handle> the same
@@ -3062,3 +3068,20 @@ A whole row moves to DONE only after its remaining implementation and required a
     search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
     No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
     test called public turns out to be someone they know.
+
+59. **One click may open the connector's own port to the internet (owner, 2026-11-04: "YES to one-click Tailscale Funnel
+    for the claude.ai and phone connector"; G135, G132's D6′; amends G132 (c), the headless rail's "never `funnel`" and the
+    2026-10-29 one-click rail; branch `feat/g135-funnel-one-click`).** Why: claude.ai and the phone apps relay through the
+    remote connector (ruling 32, 57) and can only reach it at a public address. **The rule:** the person's click, or
+    their own shell, may run exactly the shown `tailscale funnel --bg --https=<443|10000> <the connector's port>`, or that
+    one mapping's off (`tailscale funnel --https=<its port> --set-path=/ off`). Off until clicked; never at install, on
+    start, by an agent, or from an agent's shell. No port or argv from a request; the API's port and the door's refused;
+    never `up`, a login or `reset`; a port holding anything is never used; 8443 (the backend's tailnet mapping) is never a
+    candidate; nothing about it is stored, every answer is read back from Tailscale. What is exposed stays MCP and `/v1` on
+    that listener with its tokens and OAuth as they are, consent only in the app by typing the code. **Evidence that decides
+    the code, read from Tailscale's CLI source (v1.104, `serve_v2.go`), not its docs:** a funnel on a held port replaces
+    its `/` without asking and opens every other path on it; an off with no `--set-path` deletes every handler on the port;
+    with Funnel not allowed it prints a link and waits, or exits 0 having changed nothing, so the return code never decides.
+    The obvious `tailscale funnel --bg 8765` from our own docs fights `headless.md`'s example serve of the API on 443: it
+    would have made the API public. Details: `network.md`. **Revisit** if embedded `tsnet` (D6′'s "later") is built, if
+    Tailscale changes those behaviours, or if an app refuses the 10000 address.

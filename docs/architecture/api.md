@@ -344,6 +344,14 @@ party: no relay, no account, no public port (the T3-Connect comparison is in the
   from the backend's port and the ServeConfig, never from the body; argv only; 10 s; stdin closed), then answers
   `{ok, message, ran, reach}` — `reach` the fresh guide, checked when served. Any other step runs nothing and answers
   `ok: false` with the sentence; an unknown action is 422. Never `up` or `funnel`. Write admission: outside every bank.
+- **The connector's public address: `GET /remote/funnel[?check=true]`, `POST /remote/funnel {action: on|off, shown}`
+  (ruling 59; the POST is master-token, `network.md`).** `{step, message, command, stopCommand, url, answers, fixUrl}`:
+  `step` one of `reach.FUNNEL_STEPS` (`install, open, sign-in, turn-on, update, port, unknown, address, taken, terminal,
+  off, on`), `command` only at `off`, `stopCommand` only at `on`, `url` only when `check=true` and the probe passed,
+  `answers` true, false, or null when nothing was asked. The POST answers `{ok, message, fixUrl, ran, funnel}`; an unknown
+  action is 422, any other step runs nothing and says why. `/remote/status` is unchanged, every field (Hyrum):
+  `funnelCommand` stays the words to copy, `detectedUrl` the ServeConfig's say-so. Not a Store domain, no ETag. Write
+  admission: outside every bank; on a replica, refused.
 - **Cost (measured 2026-10-29, TestClient in process, synthetic bank, N = 300 each, p95):** the proof verify alone
   0.06 ms; the device store's verify 0.98 → 0.57 ms (its DDL now runs once per process, not per request); a phone's
   `POST /capture/note` 5.62 ms before, 4.79 unbound, 5.44 bound; `GET /capture/mine` 4.76 / 3.92 / 4.94; a client's
