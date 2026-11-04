@@ -343,11 +343,12 @@ def test_a_contacts_book_that_cannot_be_read_fails_closed(bank):
         _guard(bank)
 
 
-def test_an_episode_that_cannot_be_read_fails_closed(bank):
-    (bank / "episodes" / "ep_2026-10-23_009.md").write_bytes(b"---\nid: [unclosed\n---\nbody \xff\xfe")
+def test_one_malformed_episode_is_read_as_private_and_stops_nothing(bank):
+    (bank / "episodes" / "ep_2026-10-23_009.md").write_bytes(b"---\nid: [unclosed\n---\nNora Hidden said hi \xff\xfe")
     bank_index.invalidate(bank)
-    with pytest.raises(name_guard.GuardUnreadable):
-        _guard(bank)
+    guard = _guard(bank)
+    assert guard.clears("Bea Example") is None
+    assert guard.check("Nora Hidden") == "private_only"
 
 
 @pytest.mark.parametrize("store", [name_guard.WAITING_FILE, name_guard.LINKEDIN_FILE])
@@ -384,3 +385,112 @@ def test_a_store_that_is_not_there_is_empty_and_the_guard_rereads_a_change(bank)
     assert name_guard.guard_for(bank, facts).check("Nora Hidden") == "private_only"
     name_guard.release()
     assert name_guard._HELD == {}
+
+
+# --------------------------------------------------------------------------- a name, not any words someone used
+
+
+HARNESS = ("please watch the item on the comments page and understand how agents work. I am a software engineer and "
+           "this developer profile has my real name on the talk page. Check the profile and the engineer on X.")
+
+
+@pytest.mark.parametrize("query", ["who is bex42", "bex42 real name", "is bex42 a developer", "bex42 engineer on X",
+                                   "Who Is bex42", "Real Name bex42", "understand how agents work", "comments page"])
+def test_ordinary_words_said_in_a_harness_session_are_not_a_name(bank, query):
+    _episode(bank, "ep_2026-10-24_001", f"user: {HARNESS}", "claude-code")
+    assert _guard(bank).check(query, allowed=("Bea Example",)) is None, query
+
+
+@pytest.mark.parametrize("query", ["maria garcia", "garcia maria", "Maria Garcia", "mariagarcia"])
+def test_a_name_typed_in_lower_case_in_a_chat_is_still_a_name(bank, query):
+    _episode(bank, "ep_2026-10-24_001", "user: maria garcia vino ayer", "whatsapp")
+    assert _guard(bank).check(query) == "private_only", query
+
+
+def test_a_lower_case_name_said_only_to_a_harness_is_blocked_when_the_query_writes_it_as_a_name(bank):
+    _episode(bank, "ep_2026-10-24_001", "user: maria garcia reviewed it", "claude-code")
+    assert _guard(bank).check("Maria Garcia") == "private_only"
+
+
+@pytest.mark.parametrize("url", ["https://news.ycombinator.com/item?id=12345678", "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                                 "https://stackoverflow.com/users/1234567/some-person",
+                                 "https://example.org/comments/understand-how-agents-work"])
+def test_a_link_is_held_to_ties_only(bank, url):
+    _episode(bank, "ep_2026-10-24_001", f"user: {HARNESS} stackoverflow users person item watch youtube", "claude-code")
+    assert _guard(bank).check_url(url) is None, url
+
+
+def test_a_link_with_a_name_only_a_chat_mentions_is_not_held_but_one_with_a_tie_is(bank):
+    _episode(bank, "ep_2026-10-24_001", "user: Maria Garcia is coming", "whatsapp")
+    _store(bank, name_guard.WAITING_FILE, {"cards": [{"id": "c1", "given_name": "Søren", "family_name": "Bjørk"},
+                                                     {"id": "c2", "given_name": "Rose", "family_name": "Tyler"}]})
+    guard = _guard(bank)
+    assert guard.check_url("https://example.org/maria-garcia") is None
+    assert guard.check_url("https://example.org/soren-bjork") == "tie"
+    assert guard.check_url("https://sorenbjork.example.org/") == "tie"
+    assert guard.check_url("https://example.org/a-rose-by-any-name") is None     # one word of a two-part name
+
+
+def test_a_link_past_the_word_cap_is_refused_at_once(bank):
+    url = "https://example.org/" + "-".join(f"w{n}" for n in range(300))
+    assert _guard(bank).check_url(url) == "shape"
+
+
+@pytest.mark.parametrize("line", ["**Shared by:** Nora Hidden", "Nora Hidden sent this", "user: Nora Hidden sent this"])
+def test_a_line_a_saved_item_does_not_name_is_private(bank, line):
+    body = f"# A post\n{line}\n**URL:** https://example.org/post\n\n## Description\nA post about agents."
+    said, own = name_guard.public_part({"source": "bookmark"}, body)
+    assert "Nora" not in said and "Nora Hidden" in own
+    _episode(bank, "ep_2026-10-24_001", body, "bookmark")
+    assert _guard(bank).check("Nora Hidden") == "private_only"
+
+
+def test_natural_queries_and_links_pass_on_a_real_sized_corpus_and_a_name_in_it_is_still_blocked(tmp_path, monkeypatch):
+    """A reviewer's measure, 2026-11-04: this repo's docs as harness sessions, package descriptions as public text. 11 of 20
+    queries and 11 of 18 links were blocked. Both lists are the census script's."""
+    from importlib import metadata
+    from pathlib import Path as P
+
+    from api.scripts import name_guard_census as census
+
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    m = tmp_path / "memory"
+    for sub in ("entities", "episodes", "inbox"):
+        (m / sub).mkdir(parents=True)
+    _page(m, "dana-rivers", "Dana Rivers", owner=True)
+    root = P(__file__).resolve().parents[2]
+    n = 0
+    for doc in [root / "CLAUDE.md", *sorted((root / "docs" / "architecture").glob("*.md"))]:
+        text = doc.read_text(encoding="utf-8")
+        for start in range(0, len(text), 2000):
+            n += 1
+            _episode(m, f"ep_2026-10-01_{n:04d}", "user: " + text[start:start + 2000], "claude-code")
+    described = " ".join(str(d.metadata.get("Summary") or "") for d in metadata.distributions())
+    _episode(m, "ep_2026-10-02_0001", _saved(description=described), "url")
+    _episode(m, "ep_2026-10-03_0001", "user: Nora Hidden is coming tonight", "whatsapp")
+    bank_index.invalidate(m)
+    guard = name_guard.build(m, web_settle.bank_facts(m))
+    allowed = (census.NAME, census.HANDLE)
+    blocked_queries = [q for q in census.QUERIES if guard.check(q, allowed=allowed)]
+    blocked_links = [u for u in census.LINKS if guard.check_url(u, allowed=allowed)]
+    assert blocked_queries == [] and blocked_links == []
+    assert guard.check("Nora Hidden") == "private_only" and guard.check("Hidden, Nora") == "private_only"
+
+
+def test_the_census_script_prints_counts_and_only_its_own_synthetic_words_and_writes_nothing(bank):
+    import hashlib
+    import json as js
+
+    from api.scripts import name_guard_census as census
+
+    _episode(bank, "ep_2026-10-24_001", "user: Nora Hidden is coming tonight", "whatsapp")
+    _page(bank, "nora", "Nora Hidden")
+
+    def stamp():
+        return {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in bank.rglob("*") if p.is_file()}
+    bank_index.invalidate(bank)
+    before = stamp()
+    out = census.census(bank)
+    assert stamp() == before
+    assert out["queries"]["total"] == len(census.QUERIES) and out["links"]["total"] == len(census.LINKS)
+    assert "Nora" not in js.dumps(out) and "nora" not in js.dumps(out).lower()

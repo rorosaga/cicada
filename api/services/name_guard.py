@@ -27,14 +27,20 @@ Substack day's rows. A LinkedIn or Instagram save, a tab group, a day's reading 
 repositories and any source this module does not know are private. A link says one thing publicly: the handle of a post
 (``x.com/<h>/status/…``); a saved link to a bare profile says nothing.
 
-**What is compared.** :func:`words` folds fully (NFKD, marks off, case off, plus :data:`TRANSLIT` for the letters that do not
-decompose: "ø", "ł", "ß"). One-letter tokens are dropped on both sides, so a middle initial changes nothing, and an
-initial in a query makes the word beside it stricter (it may not be said privately at all). Every pair of a query's words
-and every window of three is asked in every order, so word order, a comma or a generic word in between change nothing; a
-long unknown token is asked as every split of it ("<given><family>"); a tied name is also compared with its spaces out.
-A word in :data:`GENERIC` is never asked alone. The question's own cleared name and handle are taken out first
-(:func:`NameGuard.check` ``allowed``), so a contact who shares a first name does not block a cleared full name, while that
-first name alone with anything else does.
+**A mention is a name, not any words someone happened to use** (a reviewer's finding, 2026-11-04: ordinary words said in a
+harness session blocked "who is <handle>" and most links, and stopped the question). A query's words are asked only when
+they are name-shaped: written capitalised in the query, or :attr:`NameGuard.name_like` in the record (written capitalised at
+least as often as not, a handle's shape, an ``@mention``, an account's bare link). A pair is also asked when it was said in a
+chat, where names are often typed in lower case. A word in :data:`GENERIC` ("github", "who", "developer") is never asked,
+and neither is a pair of two of them. **What is held as strictly as ever is a real name:** :func:`words` folds fully (NFKD,
+marks off, case off, plus :data:`TRANSLIT` for "ø", "ł", "ß"); one-letter tokens are dropped on both sides, so a middle initial
+changes nothing, and a capital initial beside a name-shaped word makes that word stricter; every pair of a query's name-shaped
+words and every window of three is asked in every order; a long token is asked as each split of it; a tied name is also
+compared with its spaces out. The question's own cleared name and handle are taken out first (:func:`NameGuard.check`
+``allowed``), so a contact who shares a first name does not block a cleared full name, while that first name alone does.
+
+**A link a search returned is held to ties only** (:meth:`NameGuard.check_url`): the model did not choose it, so it cannot
+carry the model's words, and a page's path is full of ordinary ones. A blocked link is counted and never stops the question.
 
 **The index.** One contentless in-memory FTS5 table per side, built once a run from ``bank_index``'s cached headers, off the
 event loop (never under write admission: ``public_handle.settle`` does not rebuild it), dropped by :func:`release`. It
@@ -55,6 +61,7 @@ import sqlite3
 import threading
 import time
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -63,6 +70,9 @@ from api.services import bank_index, people_directory, person_leads, text_fold
 
 #: Cicada's own records of what it looked up: neither the person's life nor something the person read.
 NEUTRAL_SOURCES = frozenset({"web-check", "source-check", "source-refresh"})
+#: Conversations with other people, by source: where names are typed in lower case. A record with a correspondent, members or
+#: speaker labels counts too, whatever its source.
+CHAT_SOURCES = frozenset({"imessage", "messages", "whatsapp", "telegram", "telegram-chats", "email", "gmail"})
 #: The folder the contacts book (open PR #602, ``contacts_book``) keeps its per-device ``book.json`` in. Read by layout,
 #: never by import, so the guard covers it the moment it lands.
 CONTACTS_BOOK_DIR = "contacts-book"
@@ -74,6 +84,7 @@ MAX_CORPUS_CHARS = 400_000_000
 MAX_QUERY_CHARS = 160
 MAX_QUERY_WORDS = 12
 MAX_TOKEN_CHARS = 32
+MAX_URL_WORDS = 64
 MIN_COMPACT = 5
 MIN_SPLIT = 6
 #: The guard held between two calls in one run: rebuilt when the record changes, dropped by :func:`release`.
@@ -84,6 +95,8 @@ github gitlab twitter x instagram linkedin mastodon bluesky threads youtube redd
 website site homepage home page personal blog about bio biography profile account accounts handle handles username
 usernames user users official real name names who is verified talk talks interview podcast paper papers code repo
 com org net dev io co ai app me www http https html htm php en es wiki wikipedia wikidata blog posts post
+developer developers engineer engineers software founder cofounder ceo cto researcher professor author writer speaker
+designer artist programmer maintainer creator work works worked job company open source contact social media news
 """.split())
 #: Labels a chat writer uses for someone it has no name for: nobody's name.
 _NO_NAME = frozenset({"contact", "member", "unnamed", "unknown", "you", "me", "user", "assistant"})
@@ -96,6 +109,9 @@ _SPEAKER = re.compile(r"^speaker:([^:\n]{1,120}):", re.MULTILINE)
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE = re.compile(r"(?<!\d)(?:\+?\d[\s().-]?){7,}(?!\d)")
 _KEY_LINE = re.compile(r"^\*\*([A-Za-z ]+):\*\*\s*(.*)$")
+_AT = re.compile(r"(?<![\w.])@([A-Za-z0-9_][\w.-]{1,38})")
+#: A saved link's own record lines: nothing the person typed.
+_ITEM_KEYS = frozenset({"source", "url", "site", "channel", "saved", "originally saved"})
 
 
 class GuardUnreadable(Exception):
@@ -177,14 +193,13 @@ def _saved_link(fm: dict, body: str, _pages: dict) -> tuple[str, str]:
             title = line[2:]
             continue
         match = _KEY_LINE.match(line)
-        if match:
-            key, value = match.group(1).strip().lower(), match.group(2)
-            if key == "channel":
-                channel = value
-            elif key == "url":
-                url = value
-            elif key == "folder":
-                private.append(value)
+        key = match.group(1).strip().lower() if match else ""
+        if key == "channel":
+            channel = match.group(2)
+        elif key == "url":
+            url = match.group(2)
+        elif key not in _ITEM_KEYS and line.strip():
+            private.append(line)   # a line this writer does not name (a folder, anything new): not the item's
     if str(fm.get("folder") or "").strip():
         private.append(str(fm["folder"]))
     has_words = bool(" ".join(description).strip())
@@ -272,6 +287,11 @@ class NameGuard:
     compact: frozenset[str] = frozenset()
     #: Owner's projects: only the whole phrase blocks, since a project's words are often ordinary ones.
     phrases: frozenset[str] = frozenset()
+    #: Words the record writes as names: capitalised at least as often as not, a handle's shape, an @mention, a bare link.
+    name_like: frozenset[str] = frozenset()
+    #: The ties a link is asked about: whole names and one-part cards, never one word of a two-part name.
+    url_ties: list[frozenset[str]] = field(default_factory=list)
+    url_compact: frozenset[str] = frozenset()
     built_at: float = 0.0
     _db: sqlite3.Connection | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
@@ -312,53 +332,102 @@ class NameGuard:
             return "not_public"
         return None
 
-    def check(self, text: str, *, allowed: tuple[str, ...] = (), url: bool = False) -> str | None:
-        """``None`` when ``text`` may leave, or why not (an enum): ``shape``, ``contact_detail``, ``tie``,
+    def _name_shaped(self, word: str, capitalised: bool) -> bool:
+        return capitalised or word in self.name_like or _handle_shaped(word)
+
+    def _private_name(self, tokens: list[str], capitals: list[bool]) -> bool:
+        """Said privately and never publicly, and shaped like a name: some word is, or all were written so, or it was said
+        in a chat, where people type each other's names in lower case. Ordinary words someone used are not."""
+        if not self._private_only(tokens):
+            return False
+        if any(self._name_shaped(w, False) for w in tokens) or all(capitals):
+            return True
+        return len(tokens) > 1 and any(self._said("chats", " ".join(p)) for p in itertools.permutations(tokens))
+
+    def check(self, text: str, *, allowed: tuple[str, ...] = ()) -> str | None:
+        """``None`` when this query may leave, or why not (an enum): ``shape``, ``contact_detail``, ``tie``,
         ``private_only``. ``allowed``: the names the caller already cleared with :func:`clears`."""
         raw = str(text or "")
-        if _EMAIL.search(raw) or (not url and _PHONE.search(raw)):
+        if _EMAIL.search(raw) or _PHONE.search(raw):
             return "contact_detail"
-        tokens = words(raw)
-        if not url and (len(raw) > MAX_QUERY_CHARS or len(tokens) > MAX_QUERY_WORDS
-                        or any(len(w) > MAX_TOKEN_CHARS for w in tokens) or _mixed_script(raw)):
+        tokens, caps = _cased(raw)
+        if (len(raw) > MAX_QUERY_CHARS or len(tokens) > MAX_QUERY_WORDS or any(len(w) > MAX_TOKEN_CHARS for w in tokens)
+                or _mixed_script(raw)):
             return "shape"
         rest = _without(tokens, allowed)
-        said = [w for w in rest if w is not None and not w.isdigit()]   # a year or an id is nobody's name
-        content = [w for w in said if len(w) > 1]
-        kept = [w for w in content if w not in GENERIC]
-        if any(w in self.tie_words for w in kept):
-            return "tie"
-        squeezed = "".join(said)
+        said = [(w, c) for w, c in zip(rest, caps) if w is not None and not w.isdigit()]
+        squeezed = "".join(w for w, _c in said)
         if any(c in squeezed for c in self.compact):
             return "tie"
-        spaced = f" {' '.join(content)} "
+        full = [(w, c) for w, c in said if len(w) > 1]
+        if any(w in self.tie_words and w not in GENERIC for w, _c in full):
+            return "tie"
+        spaced = f" {' '.join(w for w, _c in full)} "
         if any(f" {p} " in spaced for p in self.phrases):
             return "tie"
-        if any(self._private_only([w]) for w in kept):
-            return "private_only"
-        for pair in itertools.combinations(content, 2):
-            if self._private_only(list(pair)):
+        # A generic word counts only when the query itself writes it as part of a name ("Will <surname>").
+        asked = [(w, c) for w, c in full if w not in GENERIC or c]
+        for w, c in asked:
+            if w not in GENERIC and self._name_shaped(w, c) and self._private_only([w]):
                 return "private_only"
-        for i in range(len(content) - 2):
-            if self._private_only(content[i:i + 3]):
+        for (a, ca), (b, cb) in itertools.combinations(asked, 2):
+            if (a not in GENERIC or b not in GENERIC) and self._private_name([a, b], [ca, cb]):
                 return "private_only"
-        for w in kept:
-            if len(w) >= MIN_SPLIT and not self._said("public", w) and self._split_is_private(w):
+        for i in range(len(asked) - 2):
+            window = asked[i:i + 3]
+            if any(w not in GENERIC for w, _c in window) and self._private_name([w for w, _c in window],
+                                                                                 [c for _w, c in window]):
                 return "private_only"
-        if not url and any(len(w) == 1 and w.isalpha() for w in said) and any(self._said("private", w) for w in kept):
-            return "private_only"   # "M <surname>": an initial makes the word beside it stricter
+        for w, _c in asked:
+            if len(w) >= MIN_SPLIT and w not in GENERIC and not self._said("public", w) and self._split_is_private(w):
+                return "private_only"
+        for i, (w, c) in enumerate(said):
+            if len(w) == 1 and c and w.isalpha():   # "M. <surname>": a capital initial makes the name beside it stricter
+                beside = [n for n, nc in said[max(0, i - 1):i + 2] if len(n) > 1 and n not in GENERIC
+                          and self._name_shaped(n, nc)]
+                if any(self._said("private", n) for n in beside):
+                    return "private_only"
         return None
 
     def _split_is_private(self, token: str) -> bool:
-        return any(self._private_only([token[:i], token[i:]]) for i in range(2, len(token) - 1))
+        return any(self._private_name([token[:i], token[i:]], [False, False]) for i in range(2, len(token) - 1))
 
     def check_url(self, url: str, *, allowed: tuple[str, ...] = ()) -> str | None:
-        """A link carries words too: its host, path and query, decoded, under the same rule."""
+        """A link a search returned, or ``None`` when it may be opened: its host, path and query, decoded, held to ties
+        only. The model did not choose it, so it carries none of the model's words. ``shape``, ``contact_detail``, ``tie``."""
         try:
             parts = urlsplit(str(url or ""))
         except ValueError:
             return "shape"
-        return self.check(unquote(" ".join([parts.hostname or "", parts.path, parts.query])), allowed=allowed, url=True)
+        text = unquote(" ".join([parts.hostname or "", parts.path, parts.query]))
+        if _EMAIL.search(text):
+            return "contact_detail"
+        tokens = words(text)
+        if len(tokens) > MAX_URL_WORDS:
+            return "shape"
+        rest = {w for w in _without(tokens, allowed) if w is not None and not w.isdigit() and len(w) > 1}
+        if any(tie <= rest for tie in self.url_ties):
+            return "tie"
+        if any(c in w for w in rest for c in self.url_compact):
+            return "tie"
+        return None
+
+
+def _handle_shaped(word: str) -> bool:
+    """A word with letters and digits together: how an account is named, never an ordinary word."""
+    return any(c.isdigit() for c in word) and any(c.isalpha() for c in word) and len(word) >= 4
+
+
+def _cased(text: str) -> tuple[list[str], list[bool]]:
+    """A query's folded tokens, and whether each was written with a capital."""
+    tokens: list[str] = []
+    caps: list[bool] = []
+    for raw in _TOKEN.findall(str(text or "")):
+        capital = raw[0].isupper()
+        for word in words(raw):
+            tokens.append(word)
+            caps.append(capital)
+    return tokens, caps
 
 
 def _without(tokens: list[str], allowed: tuple[str, ...]) -> list[str | None]:
@@ -465,47 +534,83 @@ def _is_page_tie(fm: dict) -> bool:
     return False
 
 
-def _scan(memory_path: Path, facts) -> tuple[sqlite3.Connection, list[str]]:
-    """The record into an in-memory index, off the event loop: every episode, through ``bank_index``'s cached headers."""
+def _scan(memory_path: Path, facts) -> tuple[sqlite3.Connection, list[str], frozenset[str]]:
+    """The record into an in-memory index, off the event loop: every episode, through ``bank_index``'s cached headers. An
+    episode that cannot be parsed is read as private text: one bad file neither stops the feature nor lifts the limit."""
     db = sqlite3.connect(":memory:", check_same_thread=False)
-    for table in ("private", "public"):
+    for table in ("private", "public", "chats"):
         db.execute(f"CREATE VIRTUAL TABLE {table} USING fts5(text, content='', "   # noqa: S608 — two literals
                    "tokenize='unicode61 remove_diacritics 0')")
     names: list[str] = []
     size = 0
     pages = facts.pages if isinstance(getattr(facts, "pages", None), dict) else {}
+    counts: Counter = Counter()
+    marked: set[str] = set()
+    row = 0
+
+    def add(said: str, own: str, labels: list[str], *, chat: bool, title: str = "") -> None:
+        nonlocal row, size
+        row += 1
+        size += len(said) + len(own)
+        if size > MAX_CORPUS_CHARS:
+            raise GuardUnreadable("too_large")
+        names.extend(labels)
+        if said.strip():
+            db.execute("INSERT INTO public(rowid, text) VALUES (?, ?)", (row, _indexed(said)))
+        own = f"{title}\n{own}".strip()
+        if not own:
+            return
+        counts.update(_TOKEN.findall(own))
+        marked.update(_AT.findall(own))
+        for url in _URL.findall(own):
+            found = person_leads.profile_handle(url)
+            if found is not None and "/status/" not in url:
+                marked.add(found[1])
+        text = _indexed(_outside_links(own))
+        db.execute("INSERT INTO private(rowid, text) VALUES (?, ?)", (row, text))
+        if chat:
+            db.execute("INSERT INTO chats(rowid, text) VALUES (?, ?)", (row, text))
+
     episodes = memory_path / "episodes"
     try:
-        on_disk = sum(1 for p in episodes.iterdir() if p.suffix == ".md") if episodes.is_dir() else 0
+        on_disk = {p.name: p for p in episodes.iterdir() if p.suffix == ".md"} if episodes.is_dir() else {}
         files = bank_index.files(memory_path, "episodes") if on_disk else []
     except OSError as exc:
         raise GuardUnreadable(type(exc).__name__) from exc
-    if len(files) < on_disk:
-        raise GuardUnreadable("episode")   # one the index could not parse could hold any name
-    for row, entry in enumerate(files, 1):
+    for entry in files:
+        on_disk.pop(entry.path.name, None)
         fm = entry.frontmatter or {}
         source = str(fm.get("source") or "").strip().lower()
         if source in NEUTRAL_SOURCES:
             continue
         try:
             body = entry.body() or ""
-        except Exception as exc:  # noqa: BLE001 — an episode the guard cannot read could hold any name
-            raise GuardUnreadable(type(exc).__name__) from exc
-        size += len(body)
-        if size > MAX_CORPUS_CHARS:
-            raise GuardUnreadable("too_large")
+        except Exception:  # noqa: BLE001 — one the index could not read: its bytes, as private text, below
+            on_disk[entry.path.name] = entry.path
+            continue
         said, own = public_part(fm, body, pages)
-        if said.strip():
-            db.execute("INSERT INTO public(rowid, text) VALUES (?, ?)", (row, _indexed(said)))
-        if source not in WRITERS:
-            names += _episode_labels(fm, body)
-            own = f"{fm.get('title') or ''}\n{_outside_links(own)}"
-        else:
-            own = _outside_links(own)
-        if own.strip():
-            db.execute("INSERT INTO private(rowid, text) VALUES (?, ?)", (row, _indexed(own)))
+        known = source in WRITERS
+        labels = [] if known else _episode_labels(fm, body)
+        add(said, own, labels, chat=bool(labels) or source in CHAT_SOURCES, title="" if known else str(fm.get("title") or ""))
+    for path in on_disk.values():   # could not be parsed: whatever it says, it is private
+        try:
+            add("", path.read_bytes().decode("utf-8", errors="replace"), [], chat=True)
+        except OSError:
+            continue
     db.commit()
-    return db, names
+    cased: Counter = Counter()
+    lower: Counter = Counter()
+    for token, n in counts.items():
+        if token[0].isupper() and not token.isupper():
+            for w in words(token):
+                cased[w] += n
+        elif token[0].islower():
+            for w in words(token):
+                lower[w] += n
+    like = {w for w, n in cased.items() if n >= lower.get(w, 0) and len(w) > 1}
+    for handle in marked:
+        like.update(words(handle))
+    return db, names, frozenset(like - GENERIC)
 
 
 def build(memory_path: Path, facts) -> NameGuard:
@@ -516,11 +621,11 @@ def build(memory_path: Path, facts) -> NameGuard:
     memory_path = Path(memory_path)
     names = store_names(memory_path.name)
     try:
-        db, labels = _scan(memory_path, facts)
+        db, labels, name_like = _scan(memory_path, facts)
     except sqlite3.Error as exc:
         raise GuardUnreadable(type(exc).__name__) from exc
     names += labels
-    guard = NameGuard(built_at=time.monotonic(), _db=db)
+    guard = NameGuard(built_at=time.monotonic(), _db=db, name_like=name_like)
     for page_id, fm in facts.pages.items():
         if not isinstance(fm, dict) or str(fm.get("type") or "").strip().lower() != "person":
             continue
@@ -536,9 +641,11 @@ def build(memory_path: Path, facts) -> NameGuard:
             if page is None or web_context.known_personally(memory_path, page, facts):
                 names += page_labels
     names += [str(n) for n in facts.pending_person_names]
-    names += [str(n) for n in facts.owner_names]
-    ties = {frozenset(_ties_of(n)) for n in names}
-    ties.discard(frozenset())
+    url_ties = {frozenset(_ties_of(n)) for n in names} - {frozenset()}
+    guard.url_ties = sorted(url_ties, key=sorted)
+    guard.url_compact = frozenset(c for n in names for c in _compact_forms(n) if len(c) >= MIN_COMPACT)
+    names += [str(n) for n in facts.owner_names]   # each part of the owner's name: never in a query, but ordinary in a path
+    ties = {frozenset(_ties_of(n)) for n in names} - {frozenset()}
     guard.ties = sorted(ties, key=sorted)
     guard.tie_words = frozenset(w for tie in ties for w in tie if w not in GENERIC)
     guard.compact = frozenset(c for n in names for c in _compact_forms(n) if len(c) >= MIN_COMPACT)

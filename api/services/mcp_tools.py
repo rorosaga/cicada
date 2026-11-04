@@ -2046,6 +2046,10 @@ def record_profile(ctx: ToolContext, entity_id: str, url: str, outcome: str, com
         return Reply("Not recorded: Cicada records only the one LinkedIn profile that person's page lists (from the "
                 "person's LinkedIn connections, or a link the person gave). Nothing was written; tell the person.",
                 code="refused")
+    if linkedin_people.alias_only(memory_path, entity_id, listed):
+        return Reply("Not recorded: this link was matched only by an alias, so it may be someone else's. Nothing was "
+                     "written. Ask the person whether it is theirs; once they take the link it can be recorded.",
+                     code="refused")
     outcome = str(outcome or "").strip().lower()
     if outcome not in linkedin_people.PROFILE_OUTCOMES:
         return Reply(f"Error: outcome must be one of {', '.join(linkedin_people.PROFILE_OUTCOMES)}.",

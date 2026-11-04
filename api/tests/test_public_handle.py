@@ -192,9 +192,29 @@ def test_a_citation_that_is_not_real_settles_nothing(answer, reason):
     assert not got.ok and got.reason == reason
 
 
-@pytest.mark.parametrize("given, kept", [(None, 0.8), ("high", 0.8), (1.7, 1.0), (-1, 0.0), (0.6, 0.6)])
+@pytest.mark.parametrize("given, kept", [(None, 0.8), (1.7, 1.0), (0.6, 0.6)])
 def test_the_models_confidence_is_kept_in_range(given, kept):
-    assert public_handle.cited({"url": GH.url, "quote": "bex42", "confidence": given}, {GH.url: GH}).confidence == kept
+    got = public_handle.cited({"url": GH.url, "quote": "Bea Example bex42.", "confidence": given}, {GH.url: GH})
+    assert got.ok and got.confidence == kept
+
+
+@pytest.mark.parametrize("given", [0, 0.0, -1, "high", float("nan"), float("inf"), [0.9]])
+def test_a_sure_answer_with_no_real_confidence_is_no_answer(given):
+    got = public_handle.cited({"url": GH.url, "quote": "Bea Example bex42.", "confidence": given}, {GH.url: GH})
+    assert not got.ok and got.reason == "no_confidence"
+
+
+@pytest.mark.parametrize("quote", [
+    "Bea Example bex42." + " " * 300 + "and these words are invented", "e", "bex42", "   ",
+    "Bea Example bex42. Software engineer. And then something the page never says.",
+])
+def test_a_real_start_with_invented_words_or_a_scrap_is_no_citation(quote):
+    assert public_handle.cited({"url": GH.url, "quote": quote}, {GH.url: GH}).reason == "quote_not_on_page"
+
+
+def test_what_is_stored_is_the_pages_text_not_the_models():
+    got = public_handle.cited({"url": GH.url, "quote": "bea   EXAMPLE   bex42."}, {GH.url: GH})
+    assert got.ok and got.quote == "Bea Example bex42."
 
 
 def test_the_model_is_told_what_is_at_stake_and_not_how_to_judge():
@@ -577,6 +597,34 @@ def test_what_memory_holds_reaches_the_model_fenced(bank):
     _run(bank, stub)
     prompt = stub.reader_prompts[1]
     assert prompt.index(settling_agent.FENCE) < prompt.index("x.com/bex42/status/123") < prompt.index(settling_agent.FENCE_END)
+
+
+def test_one_ordinary_sentence_in_a_harness_session_stops_nothing_end_to_end(bank):
+    """A reviewer's reproduction, 2026-11-04: this sentence blocked a Hacker News link and a blog post, stopped the
+    question, opened nothing and wrote the 30-day memo."""
+    _episode(bank, "ep_2026-10-24_001", "user: please watch the item on the comments page and understand how agents work",
+             "claude-code")
+    bank_index.invalidate(bank)
+    hn, post = "https://news.ycombinator.com/item?id=12345678", "https://blog.example.org/how-agents-work-comments"
+    hits = [{"title": "HN", "url": hn}, {"title": "Post", "url": post}, {"title": "GitHub", "url": PROFILE}]
+    stub = Stub([{"calls": [{"tool": "search", "query": "who is bex42"}]},
+                 {"calls": [{"tool": "open", "url": hn}, {"tool": "open", "url": post}, {"tool": "open", "url": PROFILE}]},
+                 {"answer": {"sure": True, "url": PROFILE, "quote": "Bea Example bex42."}}], hand={"who is bex42": hits})
+    report = _run(bank, stub, {hn: PROFILE_HTML, post: SITE_HTML, PROFILE: PROFILE_HTML})
+    row = report.questions[0]
+    assert (row["blocked_queries"], row["blocked_urls"], row["pages"]) == (0, 0, 3) and report.settled == 1
+
+
+def test_a_blocked_link_does_not_count_toward_the_stop(bank):
+    _page(bank, "nora", "Nora Hidden")
+    bank_index.invalidate(bank)
+    bad = [f"https://example.org/people/nora-hidden/{n}" for n in range(3)]
+    stub = Stub([{"calls": [{"tool": "search", "query": "bex42"}]}, {"calls": [{"tool": "open", "url": u} for u in bad]},
+                 {"calls": [{"tool": "open", "url": PROFILE}]},
+                 {"answer": {"sure": True, "url": PROFILE, "quote": "Bea Example bex42."}}],
+                hand={"bex42": [{"title": "t", "url": u} for u in [*bad, PROFILE]]})
+    report = _run(bank, stub, {PROFILE: PROFILE_HTML})
+    assert report.questions[0]["blocked_urls"] == 3 and report.settled == 1
 
 
 def test_the_guard_failing_to_read_stops_every_search(bank):

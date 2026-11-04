@@ -61,9 +61,12 @@ PAGE_BUDGET = 6
 READ_BUDGET = 12
 TURN_BUDGET = 8
 CALLS_PER_TURN = 4
+#: A citation of fewer characters says nothing.
+MIN_QUOTE_CHARS = 12
 #: How often a sure answer that does not hold is sent back before it counts as the answer: never a paid loop.
 SEND_BACKS = 2
-#: Queries or links the guard may drop before the question stops: a model that keeps trying is not retried.
+#: Queries the guard may drop before the question stops: a model that keeps trying is not retried. A link it drops does not
+#: count: the model did not choose that link.
 MAX_BLOCKED = 2
 #: Per drain or sweep, so a backlog cannot eat a plan (each question is at most TURN_BUDGET + TURN_BUDGET spawns).
 HANDLES_PER_DRAIN = 3
@@ -311,12 +314,11 @@ async def _open(run: Run, url: str) -> str:
             if entry is not None and fact_sources.is_tombstoned(entry.frontmatter or {}, url):
                 led.refused += 1
                 return "The person removed that link from this page."
-        reason = "unreadable" if run.guard is None else run.guard.check_url(url, allowed=run.allowed)
+        reason = "unreadable" if run.guard is None else await asyncio.to_thread(run.guard.check_url, url,
+                                                                               allowed=run.allowed)
         if reason:
-            led.blocked_urls += 1
-            if led.blocked_queries + led.blocked_urls >= MAX_BLOCKED:
-                run.stop = "guard_blocked"
-            return "Dropped: that link cannot be opened."
+            led.blocked_urls += 1   # never counts toward the stop: the model did not choose this link
+            return "Dropped: that link cannot be opened. Open another."
     run.tried.add(url)
     if source_refresh.walled(url):
         led.walled += 1
@@ -356,11 +358,11 @@ async def _search(run: Run, queries: list[str]) -> str:
         if led.searches + len(cleared) >= SEARCH_BUDGET:
             out.append("No searches left in this question's budget.")
             break
-        if run.guard.check(query, allowed=run.allowed):
+        if await asyncio.to_thread(run.guard.check, query, allowed=run.allowed):
             led.searches += 1
             led.blocked_queries += 1
             out.append("Dropped: that query cannot leave. It counts. Do not reword it.")
-            if led.blocked_queries + led.blocked_urls >= MAX_BLOCKED:
+            if led.blocked_queries >= MAX_BLOCKED:
                 run.stop = "guard_blocked"
                 return "\n".join(out)
             continue
@@ -567,11 +569,27 @@ def _on_opened(answer: dict, pages: dict) -> bool:
     return page is not None and quote_on_page(page, str(answer.get("quote") or "").strip())
 
 
-def quote_on_page(page: Page, quote: str) -> bool:
-    """Is this quote really on the bytes opened here? Exact, then whitespace, then case; never fuzzy (G118)."""
+def located_quote(page: Page, quote: str) -> str | None:
+    """The page's own words for this quote, or ``None`` when they are not all on the bytes opened here. Exact, then
+    whitespace, then case; never fuzzy (G118). ``locate`` looks only at a quote's first characters, so the whole of it is
+    compared with what it found: a real start followed by invented words is not on the page. What is kept is the page's text,
+    never the model's. Too short to say anything is no citation."""
     from api.services import evidence
 
-    return bool(quote) and evidence.locate(page.text, quote) is not None
+    wanted = " ".join(str(quote or "").split())
+    if len(wanted) < MIN_QUOTE_CHARS:
+        return None
+    hit = evidence.locate(page.text, wanted)
+    if hit is None:
+        return None
+    found = " ".join(page.text[hit[0]:hit[1]].split())
+    if found.casefold() != wanted.casefold():
+        return None
+    return found
+
+
+def quote_on_page(page: Page, quote: str) -> bool:
+    return located_quote(page, quote) is not None
 
 
 # ------------------------------------------------------------------------------------------------ a proposal
@@ -621,6 +639,14 @@ UPDATE_RULES = (
 )
 
 
+def changed_key(memory_path: Path, d) -> str:
+    """What a read of a changed source is remembered by: the source and the day it was seen changing. A later change is a
+    new key, so it never waits on the back-off of the one before."""
+    entry = bank_index.file(Path(memory_path), "entities", f"{d.entity_id}.md")
+    source = source_refresh._find_entry((entry.frontmatter or {}) if entry else {}, d.ref, d.predicate) or {}
+    return f"changed:{d.key}:{source_refresh.state(source).get('changed') or ''}"
+
+
 async def read_changed(fn, memory_path: Path, *, waiting: Callable[[str], bool], attempted: Callable[[str], None],
                        cap: int = UPDATES_PER_DRAIN, fetch=None, skip: frozenset[str] = frozenset(),
                        ) -> list[tuple[Any, Any]]:
@@ -628,7 +654,7 @@ async def read_changed(fn, memory_path: Path, *, waiting: Callable[[str], bool],
     for the person's agent. On a plan run the model reads it first, through the same fold (``source_refresh.apply``);
     what it cannot read keeps waiting. Returns ``(due item, observation)`` to write; a walled source is never touched.
     ``cap`` counts every attempt, whatever it found, and an attempt is remembered (``attempted``): a page that states
-    nothing still says ``changed``, and ``waiting`` keeps it from being read again every drain."""
+    nothing still says ``changed``, and ``waiting`` keeps that same change from being read again every drain."""
     from api.services import source_refresh as sr
 
     planned: list[tuple[Any, Any]] = []
@@ -637,14 +663,16 @@ async def read_changed(fn, memory_path: Path, *, waiting: Callable[[str], bool],
     for d in await asyncio.to_thread(sr.due, Path(memory_path)) or []:
         if tried >= cap:
             break
-        if d.reason != "changed" or sr.walled(d.ref) or d.site in seen or f"entities/{d.entity_id}.md" in skip \
-                or waiting(d.key):
+        if d.reason != "changed" or sr.walled(d.ref) or d.site in seen or f"entities/{d.entity_id}.md" in skip:
+            continue
+        key = changed_key(Path(memory_path), d)
+        if waiting(key):
             continue
         seen.add(d.site)
         if _blocked(Path(memory_path), d):
             continue
         tried += 1
-        attempted(d.key)
+        attempted(key)
         status, html, final = await (fetch or _default_fetch)(d.ref)
         if status != "ok" or (final and sr.walled(final)):
             continue
@@ -658,8 +686,8 @@ async def read_changed(fn, memory_path: Path, *, waiting: Callable[[str], bool],
         resp = await asyncio.to_thread(fn, messages=messages, web_search=False, timeout=TIMEOUT_S)
         data = _parse(_content(resp)) or {}
         value = " ".join(str(data.get("value") or "").split())[:sr.MAX_VALUE_CHARS]
-        quote = str(data.get("quote") or "").strip()
-        if value and quote_on_page(page, quote):
+        quote = located_quote(page, str(data.get("quote") or ""))
+        if value and quote:
             planned.append((d, sr.Observation("read", values=[value], quotes=sr.clean_quotes([quote]),
                                               text_hash=sr.text_hash(html))))
     return planned

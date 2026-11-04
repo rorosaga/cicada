@@ -387,3 +387,29 @@ def test_an_alias_only_match_or_any_other_link_is_not_counted_as_given(change):
     from api.services import linkedin_people
 
     assert not linkedin_people.from_connections({**IMPORTED, **change})
+
+
+def test_a_second_change_is_read_though_the_first_is_waiting(bank):
+    """The back-off is keyed on the day the page was seen changing: a later change never waits on an earlier one."""
+    _page(bank, [_changed_source(0)])
+    calls: list = []
+
+    def fn(*, messages, web_search=False, **_kw):
+        calls.append(1)
+        return {"choices": [{"message": {"content": json.dumps({"value": ""})}}], "model": "m"}
+
+    async def fetch(url):
+        return "ok", HTML, url
+
+    def drain():
+        asyncio.run(web_lookup.run_tail(bank, SimpleNamespace(web_check_per_run=8), user_triggered=True, llm_fn=fn,
+                                        engine=("resolved", "claude-cli", "plan"), fetch=fetch))
+    drain()
+    drain()
+    assert len(calls) == 1
+    later = _changed_source(0)
+    later["refresh"]["changed"] = "2026-10-20"
+    _page(bank, [later])
+    bank_index.invalidate(bank)
+    drain()
+    assert len(calls) == 2

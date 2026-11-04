@@ -3090,16 +3090,18 @@ A whole row moves to DONE only after its remaining implementation and required a
     a group member, a speaker label in a chat or meeting, a page the record says the person knows, a person page or held
     name public content never says, the owner's names; an owner's project as a whole phrase. A **mention** (words said
     anywhere that is not public content) blocks unless the same words are also said in public content, so a public figure
-    the person also talked about passes and a neighbour does not. **Public content is a positive decision per writer and
-    section, defaulting to private** (`name_guard.WRITERS`): a saved link's description and, when the page was really read, its
-    title, never its note, reason or folder; an agent's quotes from a page or a video; a watched, listened or Substack day's
-    rows. A LinkedIn or Instagram save, a tab group, a day read across every site, the person's own repositories and any
-    unknown source are private. Every pair of a query's words, and every window of three, is asked in every order; a
-    long unknown token is asked as every split of it; a middle initial changes nothing, and an initial makes the word beside
-    it stricter; folding is full (NFKD plus a table for ø, ł, ß and the like). A blocked query is dropped, counted against the
-    budget, never rewritten; two blocks stop the question. If a store that exists cannot be read or holds an unexpected
-    shape, nothing leaves (reading is not stopped). A link leaves too: only a link a search returned or the page's own
-    tracked source may be opened, exact to the character, and a returned one passes the same guard.
+    the person also talked about passes and a neighbour does not. **A mention is a name, not any words someone used:** a
+    query's words are asked only when name-shaped (capitalised in the query, written as a name in the record, a handle's
+    shape, or a pair said in a chat, where names are typed in lower case); generic words alone are never asked. **Public
+    content is a positive decision per writer and section, defaulting to private** (`name_guard.WRITERS`): a saved link's
+    description and, when the page was really read, its title, never its note, reason, folder or a line the writer does not
+    name; an agent's quotes from a page or a video; a watched, listened or Substack day's rows. A LinkedIn or Instagram save, a
+    tab group, a day read across every site, the person's own repositories and any unknown source are private. A real name is
+    held in every word order, through initials, squeezed forms and full transliteration. A blocked query is dropped, counted
+    against the budget, never rewritten; two blocks stop the question. If a store that exists cannot be read or holds an
+    unexpected shape, nothing leaves; one malformed episode is read as private text and stops nothing. A link leaves too: only
+    a link a search returned or the page's own tracked source may be opened, exact to the character. A returned link is held to
+    ties only, since the model did not choose it, and a blocked one never counts toward the stop.
     **How it runs (`settling_agent`).** The plan's own web tool cannot be intercepted: hooks are off in the pinned
     `--safe-mode`, a permission tool needs MCP, and a query reaches the provider before the stream reports it. So the model
     that reads holds no tool (`--tools ""`, the unchanged pinned argv, `CICADA_CAPTURE=off`, `CICADA_RECALL=off`); each turn
@@ -3121,8 +3123,9 @@ A whole row moves to DONE only after its remaining implementation and required a
     this work don't tell it how to do it. That why we depend on Claude code as the intelligence for consolidation, because
     if I asked you now you'd resolve it." So there is no list of what counts, no two-source rule, and no parody or namesake
     rule: the prompt gives the goal and what is at stake, and the model answers whether it is sure, with a confidence and a
-    citation. **The one code check** (`public_handle.cited`): the citation is real, a page Cicada opened with the quote on
-    it (exact, whitespace, case; never fuzzy), since a model can invent one. One that is not real is sent back at most
+    citation. **The one code check** (`public_handle.cited`): the citation is real, a page Cicada opened with all of the
+    quote on it (exact, whitespace, case; never fuzzy; 12 characters at least), since a model can invent one, and it is the
+    page's own text that is stored. A confidence of 0 or not a number is no answer. One that is not real is sent back at most
     twice. A signed-in page is never opened, so it cannot be cited. Parody, a namesake, a stale handle are the model's to judge;
     the person's undo is the floor under it.
     **The person's own local agent** (`cicada_record_check`, on their ask) keeps the stricter proposed test and its two
@@ -3161,7 +3164,8 @@ A whole row moves to DONE only after its remaining implementation and required a
     talked about people, and do save the links as resources to check." Saving already existed (`linkedin_people`, existing
     people only, never minting a page, a removal remembered). A link on a confident match now counts as given as a place to
     check, the photo rung's own rule (`from_connections`); an alias-only one stays what it was, a guess saved with `match:
-    alias` that counts for nothing until the person takes it. It is deliberately NOT `trusted`: that would make it a tracked
+    alias` that counts for nothing until the person takes it; `cicada_record_profile` refuses it, saying so, and writes no
+    `works-at` or `role` from it until then. A confident link is deliberately NOT `trusted`: that would make it a tracked
     source, which ruling 26 lists for a visit on a cadence. **Reading one stays on the person's ask** (`cicada_record_profile`,
     ≤ 10 a day, stdio only, their own agent and browser). A standing read of the most talked-about people is a small later
     switch, not built: automated visits risk the person's LinkedIn account.

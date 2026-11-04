@@ -588,7 +588,8 @@ async def _source_answer(fn, memory_path: Path, c: web_settle.Candidate, report:
     page = result.run.pages.get(url)
     if label is None:
         return Answer(c.item_id, False, "no_option", model=result.run.model, proposals=proposals)
-    if page is None or not settling_agent.quote_on_page(page, quote):
+    quote = settling_agent.located_quote(page, quote) if page is not None else None
+    if quote is None:
         return Answer(c.item_id, False, "quote_not_on_page", model=result.run.model, proposals=proposals)
     return Answer(c.item_id, True, option_key=key, url=url, quote=quote, via_source=True, model=result.run.model,
                   proposals=proposals)
@@ -684,14 +685,11 @@ async def run_tail(
         name_guard.release()
 
 
-def _changed_key(key: str) -> str:
-    return f"changed:{key}"
-
-
 def _changed_sources(memory_path: Path, memo: dict[str, dict], today: date) -> bool:
-    from api.services import source_refresh
+    from api.services import settling_agent, source_refresh
 
-    return any(d.reason == "changed" and not source_refresh.walled(d.ref) and not _recent(memo, _changed_key(d.key), today)
+    return any(d.reason == "changed" and not source_refresh.walled(d.ref)
+               and not _recent(memo, settling_agent.changed_key(memory_path, d), today)
                for d in source_refresh.due(memory_path) or [])
 
 
@@ -704,8 +702,8 @@ async def _read_changed(fn, memory_path: Path, report: Report, *, by: str, skip:
     try:
         planned = await settling_agent.read_changed(
             fn, memory_path, fetch=fetch, skip=skip,
-            waiting=lambda key: _recent(memo, _changed_key(key), today),
-            attempted=lambda key: memo.__setitem__(_changed_key(key), {"at": today.isoformat(), "outcome": "read"}))
+            waiting=lambda key: _recent(memo, key, today),
+            attempted=lambda key: memo.__setitem__(key, {"at": today.isoformat(), "outcome": "read"}))
     except Exception as exc:  # noqa: BLE001 — what it could not read keeps waiting for the person's agent
         logger.info(f"web check: a tracked source was not read ({type(exc).__name__})")
         return

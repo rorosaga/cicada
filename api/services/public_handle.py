@@ -325,21 +325,31 @@ class Citation:
 
 def cited(answer: dict, pages: dict) -> Citation:
     """The one thing not left to the model's judgement: its citation is real. ``url`` is a page Cicada opened in this
-    question and ``quote`` is on those bytes (exact, then whitespace, then case; never fuzzy, G118), since a model can
-    invent one. Whether the page convinces is the model's to say."""
-    from api.services import evidence
+    question and all of ``quote`` is on those bytes, since a model can invent one; what is stored is the page's own text. A
+    sure answer also says how sure: 0, a negative or not a number is no answer. Whether the page convinces is the
+    model's to say."""
+    import math
 
-    url, quote = str(answer.get("url") or "").strip(), str(answer.get("quote") or "").strip()
-    page = pages.get(url)
+    from api.services import settling_agent
+
+    page = pages.get(str(answer.get("url") or "").strip())
     if page is None:
         return Citation(False, "not_opened")
-    if not quote or evidence.locate(page.text, quote) is None:
+    quote = settling_agent.located_quote(page, answer.get("quote"))
+    if quote is None:
         return Citation(False, "quote_not_on_page")
-    try:
-        confidence = max(0.0, min(1.0, float(answer.get("confidence"))))
-    except (TypeError, ValueError):
+    raw = answer.get("confidence")
+    if raw is None:
         confidence = DEFAULT_CONFIDENCE
-    return Citation(True, ref=url, quote=quote, confidence=confidence)
+    else:
+        try:
+            confidence = float(raw)
+        except (TypeError, ValueError):
+            return Citation(False, "no_confidence")
+        if not math.isfinite(confidence) or confidence <= 0:
+            return Citation(False, "no_confidence")
+        confidence = min(confidence, 1.0)
+    return Citation(True, ref=page.url, quote=quote, confidence=confidence)
 
 
 def settle(memory_path: Path, item_id: str, *, ref: str, quote: str, checker: str, checker_kind: str,

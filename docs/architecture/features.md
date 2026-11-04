@@ -408,7 +408,9 @@ step, enforced at one place (`web_lookup.look_up(settling=…)`): `metered_only`
 **The guard** (`name_guard`). A tie always blocks: Contacts' waiting cards and contacts book, LinkedIn connections and slugs, pages
 carrying either, chat correspondents, group members, speaker labels, pages `web_context.known_personally` flags, person pages and
 held names no public content says, the owner's names; an owner's project as a whole phrase. A mention blocks unless the same
-words are also in public content. **Public content is a positive decision per writer and section** (`WRITERS`, default private):
+words are also in public content, and only a name-shaped one: capitalised in the query, written as a name in the record, a
+handle's shape, or a pair said in a chat. Ordinary words someone used are not asked. A returned link is held to ties only and
+never counts toward the stop. `api/scripts/name_guard_census.py` counts what a bank blocks, for a fixed synthetic list. **Public content is a positive decision per writer and section** (`WRITERS`, default private):
 a saved link's description and, when the page was read, its title and channel, never its note, reason or folder; a post's
 handle from its link; an agent's quotes from a page or a video; a watched, listened or Substack day's rows. Every pair of a query's
 words and every window of three is asked in every order, a long unknown token as each split of it; a middle initial changes
@@ -430,7 +432,8 @@ passing `check_url`, not removed from the page. All on the link rail (`_stream_h
 
 **What settles a handle is the model's judgement** (owner 2026-11-04: "One site is enough … let the agent do this work don't
 tell it how to do it"). It is given the goal and what is at stake, and answers sure or not, with a confidence and a citation.
-The one code check (`public_handle.cited`): the page was opened here and the quote is on it. One that is not is sent back at most
+The one code check (`public_handle.cited`): the page was opened here and all of the quote is on it, 12 characters at least, and
+the page's own text is what is stored. A confidence of 0 or not a number is no answer. One that is not is sent back at most
 twice. It writes one `goes-by` claim on the named page ("<Name> goes by “<handle>” online", observer `agent`, `external`,
 `web-check`, the model's confidence), citing that page in one `web-check` episode; while it stands the pair is not asked again
 (`pair_evidence.answered_by_check`).
@@ -438,7 +441,7 @@ twice. It writes one `goes-by` claim on the named page ("<Name> goes by “<hand
 page, on a predicate the vocabulary knows is single-valued, and every other option said before today; the same day or undated
 stays the question. Its record has `scope: source`.
 **Budget:** one question 6 searches, 6 pages, 12 reads, 8 turns, 2 sends-back; a drain or sweep 3 handles, 5 questions, 5 changed
-sources, counting every attempt; a changed page read with nothing to show waits 30 days. `Report.questions` keeps each question's numbers and the log line their totals, never a query, link or name.
+sources, counting every attempt; that same change waits 30 days after a read with nothing to show, and a later change does not. `Report.questions` keeps each question's numbers and the log line their totals, never a query, link or name.
 **The person's own agent** settles a handle through `cicada_record_check` (`proposed_value="same"`) under the stricter test
 (`_agent_test`): no chat or card touching either name, its two pinned searches, a quote naming both.
 The settled question moves to `inbox/settled/<id>.md` with a `settled:` block naming exactly what it wrote, and is
