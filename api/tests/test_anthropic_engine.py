@@ -497,3 +497,14 @@ def test_a_call_refused_before_it_was_answered_costs_nothing_in_the_ledger(monke
 ])
 def test_a_model_is_given_only_the_search_it_takes(model, tool):
     assert anthropic_engine._search_tool(model)["type"] == tool
+
+
+def test_the_pinned_sdk_sends_the_key_on_the_bearer_header_of_its_api_version(monkeypatch):
+    """Review of #614: every 2.x SDK moved to `Authorization: Bearer` with API version 2026-10-21; this was checked on
+    the pinned one, and the owner's capped run is the proof against the real API."""
+    stub = StubAnthropic(answer=lambda b: "{}")
+    stub.install(monkeypatch, key="stub-key-not-real")
+    _fn()(messages=_msgs())
+    headers = stub.headers_seen[0]
+    assert headers["authorization"] == "Bearer stub-key-not-real" and "x-api-key" not in headers
+    assert headers["anthropic-version"] == "2026-10-21"

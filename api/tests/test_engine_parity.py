@@ -181,20 +181,23 @@ def test_a_key_file_gives_only_its_own_line(tmp_path):
 
 
 def test_a_connection_cut_mid_run_is_a_pause_and_no_conversation_is_parked(tmp_path, monkeypatch):
-    """Review of #614, blocker 1, end to end: the production drain over a cut inside an open stream."""
+    """Review of #614, blocker 1, end to end: the production drain over a network that cuts every open stream."""
     import httpx2
 
     monkeypatch.setattr(engine_parity, "BATCH_SIZE", 2)
 
     def answer(body):
+        stub.stream_cut = httpx2.RemoteProtocolError("peer closed connection")
         return _answer(body["system"][0]["text"], body["messages"][-1]["content"])
 
-    stub = StubAnthropic(answer=answer, stream_cut=httpx2.RemoteProtocolError("peer closed connection"))
+    stub = StubAnthropic(answer=answer)
     stub.install(monkeypatch)
     snap = engine_parity.run_leg("key", model="anthropic/claude-haiku-5-5", judge="anthropic/claude-haiku-5-5",
                                  out=tmp_path / "key", conversations=CONVERSATIONS)
-    assert not snap["failures"]["parked"], snap["failures"]
-    assert not snap["failures"]["unread"], snap["failures"]
+    failures = snap["failures"]
+    assert not failures["parked"] and not failures["unread"], failures
+    assert failures["stop"] == "engine" and "connection" in failures["stop_sentence"].lower(), failures
+    assert snap["episodes_processed"] == 0
 
 
 def test_a_leg_leaves_the_process_environment_as_it_found_it(tmp_path, monkeypatch):
