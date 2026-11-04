@@ -242,6 +242,38 @@ def _entries(conv: Conversation, ids: list[str | None]) -> list[dict]:
     return out
 
 
+#: Ruling 57: how close the other door's first turn must be to be this same turn.
+ELSEWHERE_WINDOW_S = 600
+
+
+def _kept_elsewhere(episodes_dir: Path, relay: dict, first: str | None) -> str | None:
+    """A connector added on claude.ai also shows in the desktop app beside its local connection, and both ask the model
+    to relay. The id of the episode the app's other door just started for this same first message (exact match key,
+    within minutes), so a conversation stays one episode; ``None`` for a message too short to match on. Runs under the
+    episode lock, so two doors called together cannot both start one."""
+    from datetime import datetime, timedelta, timezone
+
+    key = relay_match_key(first)
+    if key is None:
+        return None
+    now = datetime.now(timezone.utc)
+    for offset in (0, -1, 1):       # an episode id carries the conversation's local day
+        day = (now + timedelta(days=offset)).date().isoformat()
+        for path in episodes_dir.glob(f"ep_{day}*.md"):
+            fm = markdown_parser.parse(path).frontmatter
+            other = fm.get(RELAY_KEY)
+            if not isinstance(other, dict) or other.get("first") != key or other.get("app") != relay.get("app") \
+                    or other.get("channel") == relay.get("channel"):
+                continue
+            try:
+                at = datetime.fromisoformat(str(fm.get("timestamp")).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if abs((now - at.astimezone(timezone.utc)).total_seconds()) <= ELSEWHERE_WINDOW_S:
+                return str(fm.get("id") or path.stem)
+    return None
+
+
 def capture_turns(
     memory_path: Path,
     *,
@@ -263,9 +295,10 @@ def capture_turns(
 ) -> tc.CaptureResult:
     """Merge the posted turns into the session's one episode and write it.
 
-    ``relay`` (ruling 32) marks turns a hookless app's model relayed through the remote connector: ``{app,
-    connector, channel}``. Any catalog harness is then accepted, the episode carries the channel and
-    ``evidence_kind: assistant``, and an episode an export already upgraded is left alone (``upgraded``).
+    ``relay`` (rulings 32, 57) marks turns a hookless app's model relayed: ``{app, connector, channel}``. Any catalog
+    harness is then accepted, the episode carries the channel and ``evidence_kind: assistant``, an episode an export
+    already upgraded is left alone (``upgraded``), and a first turn the app's other connection just kept writes nothing
+    (``elsewhere``, :func:`_kept_elsewhere`).
     ``utc_offset_minutes`` (ruling 34): a client's UTC offset, so a new episode's id carries the person's day.
     ``host`` (G228): the app that launched the harness, a label on the episode (``transcript_capture.host_extra``).
 
@@ -311,6 +344,10 @@ def capture_turns(
             or agent_catalog.clean_host(stored.frontmatter.get("host") if stored is not None else None))
         _merge(kept, ids, posted, turn_id=turn_id, retry=retry, now=now, model=model, counts=counts,
                host=strip_host)
+        if relay is not None and stored is None:
+            other = _kept_elsewhere(episodes_dir, relay, next((t.text for t in kept if t.role == "user"), None))
+            if other is not None:
+                return tc.CaptureResult("elsewhere", other, 0, 0, {})
         key = {id(t): k for t, k in zip(kept, ids)}
         kept, gap = window(kept, gap)
         ids = [key[id(t)] for t in kept]

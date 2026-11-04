@@ -81,7 +81,8 @@ from api.services.auth import cicada_home
 #     and names cicada_sources for a conversation an answer names.
 # 23: G227 follow-up (owner 2026-10-29) — item 4 names cicada_split_page / cicada_merge_pages / cicada_undo_join:
 #     "that's two different things" / "those are the same" are offered and settled in the conversation.
-CONTRACT_VERSION = 23
+# 24: ruling 57 — the desktop prelude asks for `cicada_capture_turns` where its client was offered it.
+CONTRACT_VERSION = 24
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "desktop", "generic")
 
@@ -272,6 +273,7 @@ _PRELUDE = {
         "## Desktop app\n"
         "- What you save groups under this app's connection, not by conversation; a conversation here is not "
         "resumable from Cicada.\n"
+        "{relay}"
         "- The tools are the whole interface; nothing needs a file on disk."
     ),
     "generic": (
@@ -312,8 +314,20 @@ def claude_skill(home: Path | None = None) -> str:
         return "none"
 
 
-def _prelude(variant: str, skill: str) -> str:
+# Ruling 57: only where `relay_capture.local_relay_allowed` offered the client the tool (R12). Words a model acts on
+# every turn without narrating; what the person is told comes once, in the tool's first reply.
+_LOCAL_RELAY_LINE = (
+    "- This app has no hook, so you keep this chat: on every turn, before you answer, call "
+    "`cicada_capture_turns(message, previous_reply, conversation)` with the person's message and your previous reply "
+    "word for word (`conversation` is \"new\" the first time, then the handle it returns). Never summarise; don't "
+    "mention it beyond what its reply asks.\n"
+)
+
+
+def _prelude(variant: str, skill: str, relay: bool = False) -> str:
     text = _PRELUDE[variant]
+    if variant == "desktop":
+        return text.replace("{relay}", _LOCAL_RELAY_LINE if relay else "")
     return text.replace("{skill}", CLAUDE_SKILL_LINES.get(skill, CLAUDE_SKILL_LINES["file"])) \
         if variant == "claude-code" else text
 
@@ -611,10 +625,11 @@ def _preference(p: dict) -> str:
 
 def _assemble(state: dict | None, variant: str, bank: str, tz: str | None = None,
               bridges: tuple[str, ...] = (), reading: bool = False, methods: tuple[str, ...] = (),
-              reading_tools: str | None = None, skill: str = "file", server: str | None = None) -> str:
+              reading_tools: str | None = None, skill: str = "file", server: str | None = None,
+              relay: bool = False) -> str:
     capabilities = _CAPABILITIES + "".join(f"\n{line}" for line in bridges) + "".join(f"\n{line}" for line in methods)
     contract = _CONTRACT + (f"\n{_reading_item(reading_tools)}" if reading else "")
-    return "\n\n".join([_WHAT, _prelude(variant, skill), contract, _now_block(state, bank, tz=tz, server=server),
+    return "\n\n".join([_WHAT, _prelude(variant, skill, relay), contract, _now_block(state, bank, tz=tz, server=server),
                         capabilities])
 
 
@@ -647,9 +662,10 @@ def _fit(assemble, state: dict | None, max_tokens: int = MAX_TOKENS) -> str:
 def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
           bridges: tuple[str, ...] = (), reading: bool = False, methods: tuple[str, ...] = (),
           reading_tools: str | None = None, max_tokens: int = MAX_TOKENS, skill: str = "file",
-          server: str | None = None) -> str:
+          server: str | None = None, relay: bool = False) -> str:
     """Pure: the primer for a parsed state (or none) and a variant. ``server``: the host a client reaches this
-    bank on (G202, D6), named on the Now line; None on the bank's own machine.
+    bank on (G202, D6), named on the Now line; None on the bank's own machine. ``relay`` (ruling 57): the desktop
+    prelude asks for ``cicada_capture_turns``; only a caller whose client was offered it passes True.
 
     ``skill`` (#357) is ``claude_skill()``'s answer, which ``load_or_build`` reads: the claude-code prelude names the
     plugin's `cicada:cicada`, the ~/.claude/skills copy, or no policy file. Other variants ignore it.
@@ -688,8 +704,8 @@ def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
     variant = variant if variant in VARIANTS else "generic"
     bridges = tuple(bridges)[: skill_catalog.MAX_BRIDGE_LINES]
     methods = tuple(methods)[: skill_catalog.MAX_METHOD_LINES]
-    return _fit(lambda st: _assemble(st, variant, bank, tz, bridges, reading, methods, reading_tools, skill, server),
-                state, max_tokens)
+    return _fit(lambda st: _assemble(st, variant, bank, tz, bridges, reading, methods, reading_tools, skill, server,
+                                     relay), state, max_tokens)
 
 
 # G180: the `cicada` command line's primer. NOT a member of `VARIANTS` (those share one MCP
@@ -785,7 +801,7 @@ def _state_age_hours(state: dict | None) -> int | None:
 def load_or_build(
     memory_path: Path, client_name: str | None = None, *, variant: str | None = None,
     tools: frozenset[str] | None = None, cache_dir: Path | None = None, reserve: int = 0,
-    bank_name: str | None = None, server: str | None = None,
+    bank_name: str | None = None, server: str | None = None, relay: bool = False,
 ) -> tuple[str, dict]:
     """The primer for this bank + client, from cache when the state file is unchanged.
 
@@ -808,6 +824,9 @@ def load_or_build(
     ``bank_name`` (G202, D6): the bank's name as the caller's roster pinned it; else the roster's name for
     ``memory_path`` (``bank_registry.name_of``), never the folder's. ``server``: the host a client reached this bank
     on (the tool door passes it), named on the Now line. Both are part of the cache key.
+
+    ``relay`` (ruling 57): the desktop variant asks for ``cicada_capture_turns``. Default off: only a door that offered
+    its client the tool says so (R12), so ``GET /handshake?client=claude-ai`` never asks a reader who holds no tool.
     """
     from api.services import bank_registry
 
@@ -858,18 +877,19 @@ def load_or_build(
                          if any(m.startswith("- Reading pages:") for m in methods) else None)
         # #357: which `cicada` skill Claude Code has is in the text, so in the key.
         skill = claude_skill() if variant == "claude-code" else "-"
-        cache_name = variant
+        relay = bool(relay and variant == "desktop")
+        cache_name = f"{variant}.relay" if relay else variant
         # The bridge set is part of the text, so it is part of the key: installing
         # or removing a bridged skill must never serve yesterday's primer.
         key = f"{CONTRACT_VERSION}:{variant}:sk-{skill}:{stamp}:{tz_key}:{skill_catalog.fingerprint(bridges)}:{reading_key}:{skill_catalog.fingerprint(methods)}:{hashlib.sha256((reading_tools or '').encode('utf-8')).hexdigest()[:6]}"
-        key += f":{where_key}"
+        key += f":{where_key}:relay{int(relay)}"
         reserve = max(0, int(reserve or 0))
         if reserve:
             key += f":rv{reserve}"
             cache_name = f"{variant}.rv{reserve}"
         make = lambda st: build(  # noqa: E731
             st, variant=variant, bank=bank, tz=tz, bridges=bridges, reading=reading, methods=methods,
-            reading_tools=reading_tools, max_tokens=MAX_TOKENS - reserve, skill=skill, server=server)
+            reading_tools=reading_tools, max_tokens=MAX_TOKENS - reserve, skill=skill, server=server, relay=relay)
     cache_dir = Path(cache_dir) if cache_dir is not None else _cache_dir()
     cache_file = cache_dir / f"{memory_path.name}.{cache_name}.json"
     meta = {

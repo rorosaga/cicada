@@ -41,7 +41,8 @@ def actor(fm: dict | None, *, ids: bool = True) -> str | None:
     - a hook-captured agent session: ``a Claude Code session (id <session>, resumable, model <m>)`` — "resumable"
       only for a harness whose id resumes it (:data:`RESUMABLE`), the model only when its last agent turn recorded it;
     - an agent's saved note: ``an agent's saved note from a Claude Code session (id <session>)``;
-    - a turn a hookless app relayed (ruling 32): ``Claude, relayed through the remote connector``;
+    - a turn a hookless app relayed (ruling 32): ``Claude, relayed through the remote connector``, or, on the desktop
+      app's own connection (ruling 57), ``Claude Desktop, relayed by its model``;
     - a texted correspondent: ``Instinct (an AI agent), over Messages`` / ``<name>, over Messages``;
     - an export: ``ChatGPT, from the person's exported conversations``.
 
@@ -55,7 +56,8 @@ def actor(fm: dict | None, *, ids: bool = True) -> str | None:
     source = str(fm.get("source") or "").strip()
     origin = str(fm.get("origin") or "").strip()
     if isinstance(fm.get("relay"), dict):
-        return f"{_label(harness) if harness else 'an app'}, relayed through the remote connector"
+        how = "by its model" if fm["relay"].get("channel") == "local" else "through the remote connector"
+        return f"{_label(harness) if harness else 'an app'}, relayed {how}"
     from api.services import authorship
 
     saved_note = authorship.agent_saved(fm)   # ruling 50: an agent's saved note, by its own record

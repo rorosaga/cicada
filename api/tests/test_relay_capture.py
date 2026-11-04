@@ -60,7 +60,9 @@ def _capture(runtime, connector, handle, message, previous=None):
 def test_a_conversation_is_one_relayed_episode_turn_by_turn(memory):
     runtime, connector = _runtime(), _connector()
     handle = _handle(runtime, connector)
-    assert _capture(runtime, connector, handle, FIRST) == ("Captured. Keep calling this every turn.", "ok")
+    first, status = _capture(runtime, connector, handle, FIRST)
+    assert status == "ok" and first.startswith("Captured. Keep calling this every turn.")
+    assert "Cicada memory" in first      # ruling 57: said once, in words the person sees
     assert _capture(runtime, connector, handle, SECOND, REPLY)[1] == "ok"
     assert _capture(runtime, connector, handle, SECOND, REPLY)[0] == "Already captured."  # a re-sent turn
     [path] = _relayed(memory)
@@ -111,7 +113,7 @@ def test_capture_is_not_stopped_by_sleep_but_never_writes_a_demo_bank(memory):
 def test_capture_needs_record_and_never_reaches_stdio(memory):
     runtime, reader = _runtime(), _connector(scopes={"search", "read"})
     assert runtime.call(reader, "cicada_capture_turns", {"message": FIRST}) == (DENIED_TEXT, "denied")
-    assert catalog.TOOL_SCOPE["cicada_capture_turns"] == "record" and "cicada_capture_turns" in catalog.REMOTE_ONLY
+    assert catalog.TOOL_SCOPE["cicada_capture_turns"] == "record" 
 
 
 def test_an_empty_message_captures_nothing(memory):

@@ -501,7 +501,7 @@ def setup(harness: str, *, home: Path, memory_root: Path, repo: Path = REPO_ROOT
         # the app's own merge does it with a backup first, merging, never replacing.
         return {"harness": harness, "kind": "config-merge", "title": "Connect the Claude app",
                 "config": {"path": CLAUDE_DESKTOP_CONFIG, "key": "mcpServers.cicada", "value": spec},
-                "note": "Quit and reopen Claude so it picks Cicada up."}
+                "note": "Quit and reopen Claude so it picks Cicada up. It then keeps your chats in Cicada as you talk."}
     if harness in CONFIG_SETUPS:
         product, where, key, note = CONFIG_SETUPS[harness]
         value = config_value(harness, spec)

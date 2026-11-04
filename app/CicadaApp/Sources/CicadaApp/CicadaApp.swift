@@ -149,8 +149,6 @@ struct CicadaApp: App {
     /// defaults, told by the Feed, the menu bar and Getting started whether or
     /// not notifications were allowed.
     @State private var exportWaits = ExportWaitStore()
-    /// G197 layer c — the Downloads pickup for an awaited export; open only while a wait is.
-    @State private var exportArrivals = ExportArrivalWatcher()
     /// R-IA25 — the one AppKit hook SwiftUI's `App` lacks: a Dock "Open With"
     /// or a drop on the Dock icon. Its queue holds a cold launch's URLs until
     /// `.onAppear` attaches the router.
@@ -370,8 +368,6 @@ struct CicadaApp: App {
         }
         .onChange(of: store.bank) { _, _ in
             Task { await localSources.reload() }
-            // G197 layer c — the Downloads pickup follows the memory's own waits.
-            exportArrivals.sync()
             // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
             Task { await calendarReader.bankChanged() }
             Task { await notesWatcher.bankChanged() }
@@ -597,34 +593,10 @@ struct CicadaApp: App {
         }
         // A tapped reminder opens the one intake idle for that vendor —
         // never a cycle (G125 R10). Queued until now on a cold launch.
-        // G197 layer c: the weekly nudge opens the vendor's export page in the person's own browser and a wait; the
-        // arrival notice only brings the window, whose preview is already open.
-        appDelegate.reminderTaps.attach { [intakeRouter, appRouter, exportWaits, store] tap in
-            switch tap.kind {
-            case .due:
-                appRouter.showMainWindow()
-                intakeRouter.present(from: .reminder(tap.vendor))
-            case .weekly:
-                NSWorkspace.shared.open(tap.vendor.walkthrough.exportURL)
-                Task { await exportWaits.weeklyTapped(vendor: tap.vendor.rawValue, bank: tap.bank(fallback: store.bank)) }
-            case .arrived:
-                appRouter.showMainWindow()
-            }
+        appDelegate.reminderTaps.attach { [intakeRouter, appRouter] vendor in
+            appRouter.showMainWindow()
+            intakeRouter.present(from: .reminder(vendor))
         }
-        // G197 layer c — while an export the person asked about in this run is awaited in this memory, the vendor's zip
-        // landing in Downloads opens its preview.
-        exportArrivals.waitedVendors = { [exportWaits, store] in exportWaits.armedVendors(bank: store.bank) }
-        exportArrivals.waitsUntil = { [exportWaits, store] in exportWaits.armedUntil(bank: store.bank) }
-        exportArrivals.deliver = { [intakeRouter] url, vendor in
-            let offer = intakeRouter.offerArrival(url, vendor: vendor)
-            if offer == .opened, !NSApp.isActive { Task { await LiveReminderScheduler().announceArrival(vendor) } }
-            return offer != .wait
-        }
-        exportArrivals.onRefused = { [store] in store.toast = Copy.arrivalsDownloadsRefused }
-        exportWaits.onChange = { [exportArrivals] in exportArrivals.sync() }
-        exportArrivals.sync()
-        // G197 layer c — saved weekly reminders scheduled again (or dropped, notifications off), never asking.
-        Task { await exportWaits.refreshWeekly() }
         // When SleepViewModel observes a cycle finish (running ->
         // idle, no error), refresh the graph/topics layer in
         // place. Without this, Sleep finishes successfully but
