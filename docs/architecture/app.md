@@ -1845,6 +1845,15 @@ agent reads (`agent_methods`), not an install.
   library's saved items — and `spotify-listening` — the listening days, shown as "Spotify history" within `SourceDisplayName`'s 16 characters). Its detail is the Files & links row's own
   controls (the where-it-comes-from line, then `IntakePanel`): `Copy.Catalog.howSpotify` says to ask Spotify's privacy
   settings for Extended streaming history or Account data and drop the zip it emails. The bundled `spotify` mark.
+  **G232 (2026-11-04, backend only so far):** the connect area of Spotify, Reddit, Pinterest, TikTok and Instagram is
+  served by `GET /sources/ways-in/<source>` (`ways_in.py`): `state` (`notConnected` · `connected` · `needsAttention`,
+  `SourceConnectState`'s words), `primary` (the official connection as the page's one `SourcePrimaryAction` —
+  `connect` → `POST /sources/connectors/<id>/authorize` and open the URL; `reconnect`; `connected` → none; null when no
+  official connection is offered), one short `line` (`lineIsAttention`), `ways` (`browser` → `SourceWayIn.browser`, its
+  switch `PUT /reading/settings` `savedLists`; `file` → `SourceWayIn.importFile`, `how` its hover and `requestUrl`
+  where to ask), `ownApp` (the person's own app may connect, behind "Use your own app", never the primary) and
+  `notOffered` (each missing way with its reason in words, for hover). The app side lands on #593's layout in a
+  follow-up PR.
   **G230 (2026-11-03; ruling 53):** *Accounts* gains **GitHub** (id `github`, the bundled `github` mark; origins
   `github-starred`, `github-added`, `github-owned` read "GitHub stars" / "GitHub"). Its detail is `GitHubSourcePanel`
   (`Views/Sources/GitHubRepos.swift`): **`GitHubConnectPanel`** — connecting with a code (owner 2026-11-03: "cant we

@@ -9,13 +9,16 @@ export shares, so a member is read only when its name says what it is):
   every play of the account's life, ``ts`` (when it ended, UTC) to the second, ``ms_played``, the track, episode or
   audiobook with its URI.
 * **Account data** (``StreamingHistory_music_<n>.json``, ``StreamingHistory_podcast_<n>.json``, the older
-  ``StreamingHistory<n>.json``; ``YourLibrary.json``): the last year's plays, ``endTime`` (UTC) to the minute, with
-  no URI; and the library as it stands — liked songs, saved albums, followed podcasts, saved episodes.
+  ``StreamingHistory<n>.json``; ``YourLibrary.json``; ``Playlist<n>.json``): the last year's plays, ``endTime`` (UTC)
+  to the minute, with no URI; the library as it stands — liked songs, saved albums, followed podcasts, saved
+  episodes; and (G232) the playlists in it, each track or episode with the day it was added.
 
 Plays become ``listening_history`` rows (one episode per day, index-only, ruling 30); library entries become saved
 items (``RawItem``, origin ``spotify-saved``, a saved list's index-only save) at ``open.spotify.com/<type>/<id>`` —
-the link the app opens, never fetched (``defer_enrich``: no Spotify page is ever asked for its title). Every other
-member (playlists, search queries, inferences, payments, identifiers, user data) is skipped unread by name.
+the link the app opens, never fetched (``defer_enrich``: no Spotify page is ever asked for its title). A playlist's
+entries are saved the same way, filed under the playlist's name (a Takeout playlist's posture), dated the day each was
+added; a playlist's description is never read. Every other member (search queries, inferences, payments,
+identifiers, user data) is skipped unread by name.
 """
 from __future__ import annotations
 
@@ -24,7 +27,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 
-from api.services import listening_history
+from api.services import listening_history, saved_at
 from api.services.media_ingestor import RawItem
 
 PLATFORM = "spotify"
@@ -33,6 +36,10 @@ SAVED_ORIGIN = "spotify-saved"
 _EXTENDED = re.compile(r"^streaming_history_(audio|video)(_[^/]*)?\.json$")
 _ACCOUNT = re.compile(r"^streaminghistory(_(music|podcast|audiobook|video))?_?\d*\.json$")
 LIBRARY = "yourlibrary.json"
+#: G232: the Account data's playlists, ``Playlist1.json``, ``Playlist2.json`` …
+_PLAYLIST = re.compile(r"^playlist\d+\.json$")
+#: A playlist name kept as the folder its entries file under, cut like a page title.
+PLAYLIST_NAME_MAX = 120
 _URI = re.compile(r"^spotify:(track|album|show|episode|artist|audiobook):([A-Za-z0-9]{8,40})$")
 #: The library's lists, each the folder its saved items land in.
 _LIBRARY_LISTS = {"tracks": ("track", "Liked Songs"), "albums": ("album", "Saved albums"),
@@ -41,7 +48,7 @@ _LIBRARY_LISTS = {"tracks": ("track", "Liked Songs"), "albums": ("album", "Saved
 
 def is_member(path: str) -> bool:
     base = PurePosixPath(path.replace("\\", "/")).name.lower()
-    return bool(_EXTENDED.match(base) or _ACCOUNT.match(base) or base == LIBRARY)
+    return bool(_EXTENDED.match(base) or _ACCOUNT.match(base) or base == LIBRARY or _PLAYLIST.match(base))
 
 
 def open_url(uri: str | None) -> str | None:
@@ -121,6 +128,8 @@ def parse_member(path: str, data: bytes) -> list[RawItem] | None:
         return []
     if base == LIBRARY:
         return library_items(parsed) if isinstance(parsed, dict) else []
+    if _PLAYLIST.match(base):
+        return playlist_items(parsed) if isinstance(parsed, dict) else []
     if not isinstance(parsed, list):
         return []
     m = _EXTENDED.match(base)
@@ -162,4 +171,33 @@ def library_items(data: dict) -> list[RawItem]:
             title = " ".join(str(name).split()) + (f" — {' '.join(str(by).split())}" if str(by or "").strip() else "")
             out.append(RawItem(url=url, title=title[:300], channel=str(by or "") or None, folder=folder,
                                origin=SAVED_ORIGIN, defer_enrich=True))
+    return out
+
+
+def playlist_items(data: dict) -> list[RawItem]:
+    """Each playlist's tracks and episodes as saved items filed under the playlist's name, dated the day each was
+    added (``addedDate``). An entry with no URI (a local file) has no link and is left out; the same track in two
+    playlists is one saved item (``saved_exports`` merges on the link)."""
+    out: list[RawItem] = []
+    for playlist in data.get("playlists") or []:
+        if not isinstance(playlist, dict):
+            continue
+        folder = " ".join(str(playlist.get("name") or "").split())[:PLAYLIST_NAME_MAX] or "Playlist"
+        for entry in playlist.get("items") or []:
+            if not isinstance(entry, dict):
+                continue
+            track, episode = entry.get("track"), entry.get("episode")
+            if isinstance(track, dict):
+                uri, name, by = track.get("trackUri"), track.get("trackName"), track.get("artistName")
+            elif isinstance(episode, dict):
+                uri, name, by = episode.get("episodeUri"), episode.get("episodeName"), episode.get("showName")
+            else:
+                continue
+            url = open_url(uri)
+            if url is None or not str(name or "").strip():
+                continue
+            title = " ".join(str(name).split()) + (f" — {' '.join(str(by).split())}" if str(by or "").strip() else "")
+            out.append(RawItem(url=url, title=title[:300], channel=str(by or "") or None, folder=folder,
+                               added=saved_at.from_iso8601(entry.get("addedDate")), origin=SAVED_ORIGIN,
+                               defer_enrich=True))
     return out

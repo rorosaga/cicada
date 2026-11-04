@@ -12,6 +12,20 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — ways in for Spotify, Reddit, Pinterest, TikTok and Instagram (G232; branch `feat/g232-ways-in`).**
+  Owner: "is there no way to do similar to GitHub … offer the website connection through browser harness, just like a
+  toggle switch, and then also the file export". Researched against each service's docs and terms (table in
+  `network.md`, "Ways in, per source"): only Reddit has an official sign-in a desktop app can use with no secret and no
+  server (an installed app); Spotify stays file-only (ruling 47's 2026-10-29 amendment re-checked: its User Guidelines
+  also bar automated access and AI ingestion, so no browser toggle either; Development Mode is 5 users since
+  2026-02-11); Pinterest needs a secret and blocks new apps from personal boards since 2026-09-14; TikTok and Instagram
+  APIs return no saves for a personal account. Built: Connect Reddit (installed app, saved + upvoted + joined
+  communities, revoke on Disconnect), browser lists for Reddit, Pinterest and TikTok (off by default until the app
+  shows their switches — review of #596), Reddit's votes and communities
+  and Spotify's playlists from their downloads, `GET /sources/ways-in` for #593's connect area. **Owner's step:**
+  request Reddit API access (Responsible Builder Policy), register an *installed app* with redirect
+  `http://127.0.0.1:8000/sources/connectors/reddit/callback`, put its id in `reddit.CLIENT_ID` (`network.md`,
+  "Registering Cicada's Reddit app"). **Pick up:** the app side on #593's `SourceConnectArea` (follow-up PR).
 - **2026-11-04 — chat images and Telegram faces (G179; branch `feat/chat-panel-images`).** Owner: "I don't see images appearing when I open the chat inside the app" and "I don't know why the profile pictures don't appear in the chats" (Telegram). Attachments of WhatsApp, Messages and Telegram chats now show as the files in the chat
   panel and the Reader, resolved by the app at view time for ticked chats only (Telegram's through the backend's
   own connection), thumbnails outside every bank, gone on untick; nothing new is stored in the bank, so chats

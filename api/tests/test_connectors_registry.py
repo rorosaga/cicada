@@ -99,7 +99,7 @@ def test_every_adapter_exposes_the_full_contract_surface(channel_id):
 
 
 @pytest.mark.parametrize(
-    "channel_id", [cid for cid, a in ADAPTERS.items() if a.LOGIN_MODE == "oauth"]
+    "channel_id", [cid for cid, a in ADAPTERS.items() if a.LOGIN_MODE == "oauth" or hasattr(a, "app_available")]
 )
 def test_every_oauth_adapter_exposes_authorize_url_and_exchange_code(channel_id):
     adapter = ADAPTERS[channel_id]
@@ -115,8 +115,10 @@ def test_every_oauth_adapter_exposes_authorize_url_and_exchange_code(channel_id)
 
 
 def test_credentials_only_adapters_have_no_oauth_surface():
+    """A credentials adapter has no OAuth surface — unless it signs in with Cicada's own app (G232, Reddit's installed
+    app), which says so with ``app_available()``; its callback opens only while that is true."""
     for channel_id, adapter in ADAPTERS.items():
-        if adapter.LOGIN_MODE == "credentials":
+        if adapter.LOGIN_MODE == "credentials" and not hasattr(adapter, "app_available"):
             assert not hasattr(adapter, "authorize_url"), channel_id
             assert not hasattr(adapter, "exchange_code"), channel_id
 

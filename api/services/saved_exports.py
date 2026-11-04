@@ -159,6 +159,7 @@ def is_save_list(path: str) -> bool:
     if base in YOUTUBE_HISTORY_FILES or (base.endswith(".csv") and "playlists/" in low):
         return True
     if base.endswith(".csv") and (media_ingestor._is_reddit_saved_filename(base)
+                                  or media_ingestor.is_reddit_list_filename(base)
                                   or media_ingestor._is_linkedin_saved_filename(base)):
         return True
     return False
@@ -229,6 +230,10 @@ def parse_member(path: str, data: bytes, *, include_history: bool = False) -> tu
 
     if base.endswith(".csv") and media_ingestor._is_reddit_saved_filename(base):
         return media_ingestor.parse_reddit_saved_csv(data, p.name), "reddit", 0
+
+    if base.endswith(".csv") and media_ingestor.is_reddit_list_filename(base):
+        # G232: upvotes and joined communities, filed as the connector files them (index-only).
+        return media_ingestor.parse_reddit_list_csv(data, p.name), "reddit", 0
 
     if base.endswith(".csv") and media_ingestor._is_linkedin_saved_filename(base):
         return media_ingestor.parse_linkedin_saved(data, p.name), "linkedin", 0
