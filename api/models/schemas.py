@@ -6036,6 +6036,16 @@ class RemoteStatusOut(CamelModel):
     reachable: Optional[bool] = None
     funnel_command: str
     ngrok_command: str
+    #: Only on a `PUT /remote/settings` that turned the connector off: what became of its public address, in words.
+    funnel_note: Optional[str] = None
+
+
+class RemoteFunnelIn(CamelModel):
+    """``POST /remote/funnel`` (ruling 59). ``action`` is ``on`` or ``off``. ``shown`` is the command the person read, for
+    ``on``: compared with what would run and never run itself. There is no port and no argv to send."""
+
+    action: str
+    shown: Optional[str] = None
 
 
 class PageEditRequest(CamelModel):

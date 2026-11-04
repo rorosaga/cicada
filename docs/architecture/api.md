@@ -334,16 +334,27 @@ party: no relay, no account, no public port (the T3-Connect comparison is in the
   turn-on, serve, unfunnel, ready` (`reach.GUIDE_STEPS`; `unfunnel` comes first whenever the backend port is
   funnelled, even beside a tailnet-only serve of it — every ServeConfig entry is read, and no address goes in a QR
   while it is open); `command` the exact command to copy (`tailscale serve --bg
-  --https=8443 <port>`, or `tailscale funnel --https=<p> off` for a funnelled backend port); `url` only at `ready`, from
+  --https=8443 <port>`, or `tailscale funnel --https=<p> --set-path=/ off` for a funnelled backend port; each off leaves any other handler on the port); `url` only at `ready`, from
   the ServeConfig read `tailnet_backend` already makes. `check=true` fetches this machine's own served `/healthz` the
   way a phone would — no token, no redirect, no proxy env, 3 s (`reach.self_check`) — and answers `{ok, failed, ms}`,
   `failed` one of `dns, overlay, backend, not-cicada, other-cicada` (version and memory id compared). At `ready` it also
-  carries `stopCommand` (`tailscale serve --https=<that mapping's port> off`). Not a Store domain, no ETag.
+  carries `stopCommand` (`tailscale serve --https=<that mapping's port> --set-path=/ off`). Not a Store domain, no ETag.
 - **One click: `POST /devices/reach/serve {action: serve|stop}`** (master token; owner 2026-10-29, "Yes, one click").
   Runs exactly the guide's `command` on the `serve` step or its `stopCommand` on `ready` (`reach.run_serve`: argv built
   from the backend's port and the ServeConfig, never from the body; argv only; 10 s; stdin closed), then answers
   `{ok, message, ran, reach}` — `reach` the fresh guide, checked when served. Any other step runs nothing and answers
   `ok: false` with the sentence; an unknown action is 422. Never `up` or `funnel`. Write admission: outside every bank.
+- **The connector's public address: `GET /remote/funnel[?check=true]`, `POST /remote/funnel {action: on|off, shown}`
+  (ruling 59; the POST is master-token, `network.md`).** `{step, message, command, stopCommand, url, answers, fixUrl}`:
+  `step` one of `reach.FUNNEL_STEPS` (`install, open, sign-in, turn-on, update, port, unknown, address, taken, terminal,
+  off, on`), `command` only at `off`, `stopCommand` only at `on`, `url` only when `check=true` and the probe passed,
+  `answers` true, false, or null when nothing was asked, `otherProgram` true when the listener is down and something else
+  holds its port, `others` every other public mapping on this machine, each `{url, port, message, command, kind}`, the
+  command to copy. `PUT /remote/settings` turning the connector off also closes its address and answers `funnelNote` (null only when it read Tailscale and there was nothing to close, or Tailscale isn't installed). The POST answers `{ok, message, fixUrl, ran, funnel}`; an unknown
+  action is 422, any other step runs nothing and says why. `/remote/status` keeps every field and meaning (Hyrum):
+  `detectedUrl` stays the ServeConfig's say-so, and `funnelCommand` stays a non-empty string to copy, whose value now names
+  a port safe on this machine, or is a harmless shell comment when none is (`network.md`). Not a Store domain, no ETag. Write
+  admission: outside every bank; on a replica, refused.
 - **Cost (measured 2026-10-29, TestClient in process, synthetic bank, N = 300 each, p95):** the proof verify alone
   0.06 ms; the device store's verify 0.98 → 0.57 ms (its DDL now runs once per process, not per request); a phone's
   `POST /capture/note` 5.62 ms before, 4.79 unbound, 5.44 bound; `GET /capture/mine` 4.76 / 3.92 / 4.94; a client's

@@ -356,8 +356,20 @@ enum Copy {
     static let remoteSwitchTitle = "Let AI apps outside this Mac use your memory."
     static let remoteSwitchDetail = "Works while this Mac is awake and online. Everything still lives here."
     static let remoteNeverOpensTunnel = "Cicada never opens a tunnel on its own."
+    // Ruling 59: one click to a public address. Tailscale is named because it is the person's own tool.
+    static let remoteFunnelLine = "This makes the connector reachable from the internet."
+    static let remoteFunnelOn = "Turn on"
+    static let remoteFunnelOff = "Turn off"
+    static let remoteFunnelOffTitle = "Close the public address?"
+    static func remoteFunnelWillRun(_ command: String) -> String {
+        "Cicada will run: \(command)\nApps using this address stop reaching your memory."
+    }
+    static let remoteFunnelChecking = "Checking the public address…"
+    static let remoteFunnelFirstTime = "From outside, the first time can take up to 10 minutes."
+    static let remoteFunnelFix = "Open Tailscale settings"
+    static let remoteFunnelFailed = "That did not run. Try again."
     static let remoteShownOnce = "You won't see this again. Revoke any time."
-    static let remoteMachineNameWarning = "Turning on HTTPS in Tailscale writes this Mac's name into a public certificate log. Rename your Mac first if its name is personal."
+    static let remoteMachineNameWarning = "Turning on HTTPS publishes this Mac's name and your tailnet's name on a public certificate log, and that can't be undone. Rename this Mac first if its name is personal."
     static let remoteGeminiApp = "Using the Gemini app? It can't connect to outside memory yet. Use Gemini CLI, or bring your Gemini history in with the + on the Sleep page."
 
     // MARK: Pointers

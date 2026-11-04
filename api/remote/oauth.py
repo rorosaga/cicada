@@ -592,6 +592,11 @@ class OAuthServer:
         user_code = f"{raw[:4]}-{raw[4:]}"
         ref = "rq_" + secrets.token_hex(8)
         with self._db() as db:
+            # Here, not only on a registration: a stranger can hold `/register` at its limit and keep asking `/authorize`,
+            # and each evicted row outlived its use by a day. Only requests nothing can answer: a code's replay check
+            # reads `approved` and `issued` rows, which `_prune_clients` still keeps for the day.
+            db.execute("DELETE FROM oauth_requests WHERE (status='evicted' AND expires_at < ?) "
+                       "OR (status='pending' AND expires_at < ?)", (_iso(now), _iso(now - timedelta(hours=1))))
             waiting = db.execute("SELECT COUNT(*) FROM oauth_requests WHERE status='pending' AND expires_at > ?",
                                  (_iso(now),)).fetchone()[0]
             for _ in range(max(0, waiting - MAX_PENDING + 1)):
