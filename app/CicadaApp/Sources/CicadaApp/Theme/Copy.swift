@@ -198,7 +198,7 @@ enum Copy {
         case "opencode-cli": "OpenCode (your plan)"
         case "grok-cli": "Grok (your plan)"
         case "ollama": "Ollama (on this Mac)"
-        case "litellm": "API key"
+        case "litellm", "anthropic-api": "API key"   // G237: `anthropic-api` is a key's own SDK, in trailers and the ledger
         // 2026-10-19: Auto found no plan and no local model, and an API key reads only when chosen.
         case "none": "No engine yet"
         case "auto": "Auto"

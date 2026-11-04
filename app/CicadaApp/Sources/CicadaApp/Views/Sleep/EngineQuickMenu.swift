@@ -123,8 +123,10 @@ struct EngineQuickMenuModel: Equatable {
         // R-HS10 — a model list only where the engine has one to pick from; Auto and the API key say
         // in the backend's own words how their model is decided.
         // G49/G50: the person's own Cursor, OpenCode or Grok lists its own models (live, else documented defaults).
-        let pickable = ["agent", "codex", "local"].contains(current) || chosen.map(EngineOption.isOwnTool) == true
-        let note: String? = (current == "auto" || current == "byok") ? chosen?.detail : chosen?.modelNote
+        // G237: a Claude key lists what that key can use; any other key says how its model is decided.
+        let keyList = current == "byok" && (chosen?.models.count ?? 0) > 1
+        let pickable = ["agent", "codex", "local"].contains(current) || chosen.map(EngineOption.isOwnTool) == true || keyList
+        let note: String? = (current == "auto" || current == "byok") ? (chosen?.modelNote ?? chosen?.detail) : chosen?.modelNote
         let command = chosen.flatMap { $0.id == "local" ? OllamaGuideState.from(candidate: $0).command : nil }
         let previews: [Preview] = response.preview.map { p in
             [Preview(label: Copy.EngineMenu.whenYouStart, engine: p.manual.engine,
@@ -152,7 +154,8 @@ struct EngineQuickMenuModel: Equatable {
             pinnedNote: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode) : nil,
             runNote: response.runKeepsEngine ? Copy.EngineMenu.runKeepsEngine : nil,
             modelPrices: prices,
-            pricesNote: prices.isEmpty ? nil : Copy.SleepUsage.perMillionNote,
+            pricesNote: prices.isEmpty ? nil : Copy.SleepUsage.perMillionNote(
+                basis: chosen?.modelPrices.values.compactMap(\.basis).first),
             lastCycleLine: last?.line,
             lastCycleHelp: last?.help,
             reserve: Reserve.from(response.reserve, billing: response.preview?.manual.billing),

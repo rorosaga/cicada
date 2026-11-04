@@ -317,8 +317,11 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
         // points at Details, where the paused row shows it whole.
         let vendor = drain.stop?.sentence.flatMap { $0.split(whereSeparator: \.isNewline).first }
             .map { String($0).trimmingCharacters(in: .whitespaces) }
+        // G237: a key's limit is the key's, never the person's plan.
+        let keyLimit = drain.stop?.limit == "key_limit"
         let text = vendor.flatMap { !$0.isEmpty && $0.count <= SentenceLine.maxTail ? $0 : nil }
-            ?? (vendor == nil ? "Stopped at your plan's limit — the rest wait."
+            ?? (keyLimit ? "Stopped at your API key's limit — details in Past reads."
+                : vendor == nil ? "Stopped at your plan's limit — the rest wait."
                               : "Stopped at your plan's limit — the reset time is in Past reads.")
         return SentenceTail(text: text, tone: .warning, action: .openDetails(.lastCycle))
     }

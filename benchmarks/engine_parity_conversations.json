@@ -1,0 +1,62 @@
+[
+  {"source_id": "parity:alpha:1", "day": -12, "turns": [
+    "I'm moving alpha-project off the old notebook setup this month. alpha-project uses sqlite-tool. alpha-project status planning.",
+    "That sounds reasonable. What drove the decision?",
+    "The notebooks kept losing state between runs, and bob-example kept hitting the same bug. I decided we write everything to one file from now on."
+  ]},
+  {"source_id": "parity:alpha:2", "day": -9, "turns": [
+    "Quick update: alpha-project runs-on primary-machine now, and bob-example signed off on the migration on Tuesday.",
+    "Did you keep the old notebooks?",
+    "Archived them. alpha-project uses sqlite-tool. The next milestone is the first import of the spring data."
+  ]},
+  {"source_id": "parity:beta:1", "day": -8, "turns": [
+    "I've been reading about gamma-theory for the talk at delta-conference in June. beta-project uses gamma-theory.",
+    "How does it relate to your earlier work?",
+    "It replaces the ranking step. beta-project status prototype. I need a draft of the talk by the end of May."
+  ]},
+  {"source_id": "parity:beta:2", "day": -6, "turns": [
+    "The beta-project prototype ranked the test set better than the old method, about 12 percent on the held-out queries.",
+    "Is that enough to justify the rewrite?",
+    "I think so. beta-project status building. I asked carol-example to review the numbers before I commit to it."
+  ]},
+  {"source_id": "parity:person:1", "day": -7, "turns": [
+    "carol-example is starting at epsilon-lab next month, so she'll have less time for reviews after June.",
+    "Will that change your plans?",
+    "A bit. I'd like to get the beta-project review done before she moves."
+  ]},
+  {"source_id": "parity:habit:1", "day": -5, "turns": [
+    "I've started running in the mornings before work, three times a week, since the start of the month.",
+    "How is it going?",
+    "My knee hurt the first week but it's fine now. I want to do the zeta-race in September."
+  ]},
+  {"source_id": "parity:habit:2", "day": -3, "turns": [
+    "Signed up for the zeta-race today, the 10k distance. It's on the 14th of September.",
+    "Congratulations. Are you following a plan?",
+    "Just the one from the eta-app, it was the cheapest one that syncs with my watch."
+  ]},
+  {"source_id": "parity:conflict:1", "day": -4, "turns": [
+    "alpha-project status building. We finally started the import work.",
+    "Is sqlite-tool holding up?",
+    "So far yes. But theta-tool looks better for concurrent writes, I might switch next quarter."
+  ]},
+  {"source_id": "parity:conflict:2", "day": -1, "turns": [
+    "Decision made: alpha-project uses theta-tool from now on, we hit the write lock too often with sqlite-tool.",
+    "That reverses last month's decision, doesn't it?",
+    "It does. The migration is two days of work, and bob-example agreed."
+  ]},
+  {"source_id": "parity:ask:1", "day": -2, "turns": [
+    "What's a good way to structure the delta-conference slides for a mixed audience?",
+    "Lead with the problem, one result, then the method. Keep the method to three slides.",
+    "Good. I'll use that for the beta-project talk."
+  ]},
+  {"source_id": "parity:short:1", "day": -2, "turns": [
+    "Remind me, what was the name of that iota-book you mentioned?",
+    "You mentioned iota-book last week yourself; I don't have the author on record.",
+    "Right, never mind, I'll look it up."
+  ]},
+  {"source_id": "parity:media:1", "day": -1, "turns": [
+    "Saved an article about kappa-method for later, it argues that ranking should be learned per user. It might matter for beta-project.",
+    "Do you want to compare it with gamma-theory?",
+    "Later. It's not urgent, the delta-conference talk comes first."
+  ]}
+]

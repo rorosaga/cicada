@@ -50,6 +50,8 @@ DEFAULT_MAX_TOKENS = 64_000
 #: room for it; the answer itself stays as short as it was asked to be.
 THINKING_ROOM = 2_048
 CACHE_TTL = "1h"
+#: A rate limit lifting within this long is waited out by a batch's later stages (see ``complete``).
+SHORT_LIMIT_S = 120.0
 #: A prefix under the API's smallest cacheable size (512 tokens on current models) is not worth waiting for.
 GATE_MIN_CHARS = 1_500
 GATE_WAIT_S = 30.0
@@ -192,6 +194,18 @@ def _resets_at(exc) -> int | None:
             except ValueError:
                 continue
     return None
+
+
+def _short_limit_wait(scope: str) -> float | None:
+    """How long until a tripped key limit lifts, when it is a rate limit that says so and soon. ``None`` for anything
+    else (a spending limit, no reset time, a long wait): those fail fast, nothing sent."""
+    if agent_engine.breaker_kind(scope=scope) != KEY_LIMIT:
+        return None
+    resets = agent_engine.breaker_resets_at(scope=scope)
+    if resets is None:
+        return None
+    wait = float(resets) - time.time()
+    return max(0.0, wait) if wait <= SHORT_LIMIT_S else None
 
 
 def _key_limit(err: engine_errors.EngineError) -> engine_errors.EngineError:
@@ -362,10 +376,15 @@ def complete(
     scope = scope or agent_engine.current_scope()
     tripped = agent_engine.breaker_reason(scope=scope)
     if tripped:
-        exc = engine_errors.EngineThrottled(tripped)
-        exc.limit_type = KEY_LIMIT
-        exc.spawned = False
-        raise exc
+        wait = _short_limit_wait(scope)
+        if wait is None:
+            exc = engine_errors.EngineThrottled(tripped)
+            exc.limit_type = KEY_LIMIT
+            exc.spawned = False
+            raise exc
+        # The batch's reads are already paid for: a later stage waits out a key's minute instead of losing them. The
+        # breaker stays tripped, so the run still stops, with the words, once this batch is filed.
+        time.sleep(wait)
 
     client = make_client()
     deadline = time.monotonic() + timeout
