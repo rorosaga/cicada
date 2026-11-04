@@ -12,7 +12,7 @@
 
 ## Current state and evidence
 
-- **2026-11-04 — phone numbers on the right page, proposed ruling 55 (G81; branch `g81-phone-numbers`).** Owner: he texted
+- **2026-11-04 — phone numbers on the right page, proposed ruling 55 (G81; PR #603, branch `g81-phone-numbers`).** Owner: he texted
   an agent two people's numbers and expected memory to map and follow them. Built OFF (`CICADA_PHONE_NUMBERS`), never
   run on real data: a token in the bank, the digits in a vault on this Mac. Proved through three real Sleeps at haiku on
   scratch state, with a restatement, a change, a held name and a question. **Needs the owner:** the four-part question at
