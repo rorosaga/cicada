@@ -199,7 +199,8 @@ def test_get_carries_prices_only_in_usage_fields_and_never_a_token_count(client)
 
     paths = list(walk(body))
     priced = [p for p in paths if "price" in p.lower() or "cost" in p.lower() or "usd" in p.lower()]
-    assert all(".usage" in p or ".modelPrices" in p for p in priced), priced
+    # The person's own spending limit is a figure for the engine menu, ruling 12's home, and never a price (ROR-102).
+    assert all(".usage" in p or ".modelPrices" in p or p == ".spend.limitUsd" for p in priced), priced
 
 
 # --- R-AG12 / R-AG13: the OpenRouter card, the key-provider list, the selected card ---
