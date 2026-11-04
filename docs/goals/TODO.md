@@ -23,7 +23,7 @@
   Detail: `capture-and-sleep.md`, `app.md`. **Known residue:** `UserDefaults(suiteName:)` in Swift tests lands in the real
   `~/Library/Preferences` whatever `HOME` says (cfprefsd ignores it): 5,621 `contacts-<uuid>.plist` files since 2026-09-24,
   test values only. These two suites now empty theirs, leaving a 42-byte file; the class is not fixed.
-- **2026-11-04 — Wispr Flow off the offer for now (G134; branch `wispr-hide-from-sources`, PR_PLACEHOLDER).** Owner: "remove
+- **2026-11-04 — Wispr Flow off the offer for now (G134; branch `wispr-hide-from-sources`, #613).** Owner: "remove
   wisprflow also from sources for now." `SourceCatalog.wisprOffered = false` is the one line that brings it back. Gone from
   Sources, onboarding, the notch and Settings' list of Noes; a Getting started row that ticked it drops. The Permissions
   step and the find palette never offered it (⌘K lists a source only with evidence, and that row opens what came in, with
