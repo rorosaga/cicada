@@ -851,6 +851,23 @@ API gives no one Watch later or watch history, so there are three doors, and the
   *Saved albums*, *Saved podcasts*, *Saved episodes*) at `open.spotify.com/<type>/<id>` with `defer_enrich`: no
   Spotify page or API is ever asked. Every door that brings saved files (`/sources/upload`, `cicada import`) takes
   plays off the save path (`listening_history.split`) and commits their days alone (`user/listening_history`).
+- **Substack reading history (G89, 2026-11-04).** Substack gives a reader no API or export (`network.md`, ruling 47's
+  table), so its History comes in through the person's own agent reading it in their browser
+  (`cicada_record_substack_list`, `mcp.md`). What was read is experience, never a save: `substack_reads` writes **one
+  episode per day**, `reading-history:substack:<day>`, `source: reading-history`, origin `substack-history` — the kind
+  activity traces' reading days are (`history_index.kind == "reading"`), **index-only** (ruling 30: never read by a
+  model, never a mention). **The day (ruling 39):** the one the page shows for a read, when it shows one (never a future
+  day); Substack's History lists reads with no time, so a row with no day is filed under the day the agent first saw it
+  there, and the day's words say each was read on or before it — the first read of a long history lands on one day,
+  every later read adds only what is new. A post is its canonical URL (`substack.post`, the key a saved post and a
+  followed feed's item share) and is recorded once, ever, by this door. A day's rows live in
+  `sources/reading/substack/<day>.json`, committed with the day, never in the episode's frontmatter (the shape #528
+  gave Spotify's plays). Overview row `substack-history` ("Substack reading", captured).
+- **Substack's feeds (G89 (i), (vii), 2026-11-04).** A followed publication's posts come in through its public `/feed`
+  (`feed_registry`, the feed gate) like any feed's: `parse_rss` now gives every item its publication — the RSS
+  channel's (or Atom feed's) own title — as its `channel` (the episode's **Channel:** line), and a paid post's stub (a
+  "Read more" link and at most 400 characters of words, `substack.is_paywall_stub`; measured 2026-09-01 at ~142 bytes)
+  never stands in for the post's words: the item keeps its title, link and date with no body.
 - **One identity.** A video is `media_ingestor.url_hash` of its canonical URL — the key Watch later, bookmarks and
   Takeout playlists share — so `youtu.be/<id>`, `/shorts/<id>` and `watch?v=<id>&t=…` are one video. Within a day a
   video is one row (`url, title, channel, times, via, seen`) in the day's own rows file,

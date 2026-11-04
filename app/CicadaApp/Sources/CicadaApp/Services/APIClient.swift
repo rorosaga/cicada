@@ -3578,10 +3578,12 @@ actor APIClient {
                             acknowledge: Bool = false, exploreSignedIn: Bool? = nil,
                             neverExplore: [String: Bool]? = nil,
                             youtubeLists: [String: Bool]? = nil,
-                            savedLists: [String: Bool]? = nil) async throws -> ReadingSettingsResponse {
+                            savedLists: [String: Bool]? = nil,
+                            substackLists: [String: Bool]? = nil) async throws -> ReadingSettingsResponse {
         try await put("/reading/settings", body: Self.readingSettingsBody(
             agentEnabled: agentEnabled, sites: sites, acknowledge: acknowledge, exploreSignedIn: exploreSignedIn,
-            neverExplore: neverExplore, youtubeLists: youtubeLists, savedLists: savedLists))
+            neverExplore: neverExplore, youtubeLists: youtubeLists, savedLists: savedLists,
+            substackLists: substackLists))
     }
 
     /// `PUT /reading/settings`' body, pure: only what the caller named rides it — a saved-list patch never carries a
@@ -3590,8 +3592,11 @@ actor APIClient {
                                                 acknowledge: Bool = false, exploreSignedIn: Bool? = nil,
                                                 neverExplore: [String: Bool]? = nil,
                                                 youtubeLists: [String: Bool]? = nil,
-                                                savedLists: [String: Bool]? = nil) -> [String: Any] {
+                                                savedLists: [String: Bool]? = nil,
+                                                substackLists: [String: Bool]? = nil) -> [String: Any] {
         var body: [String: Any] = [:]
+        // G89 (2026-11-04): a `{saved|history|subscriptions: Bool}` patch.
+        if let substackLists { body["substackLists"] = substackLists }
         // G206: a `{x|instagram|linkedin: Bool}` patch.
         if let savedLists { body["savedLists"] = savedLists }
         // G71 (2026-10-16): a `{watch_later|history: Bool}` patch.

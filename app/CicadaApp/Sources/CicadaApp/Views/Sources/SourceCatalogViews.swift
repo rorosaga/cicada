@@ -20,7 +20,10 @@ extension ReadingAgentModel {
         guard let settings, settings.agentEnabled else { return [] }
         // 2026-10-26: a YouTube list kept current reads as "youtube" (the YouTube row's Connected).
         let youtube = settings.youtubeLists.watchLater || settings.youtubeLists.history
-        return Set(settings.savedLists.filter { $0.value }.map { $0.key } + (youtube ? ["youtube"] : []))
+        // G89: a Substack list kept current reads as "substack" (the Substack row's Connected).
+        let substack = settings.substackLists.values.contains(true)
+        return Set(settings.savedLists.filter { $0.value }.map { $0.key } + (youtube ? ["youtube"] : [])
+                   + (substack ? [SourceCatalog.substackId] : []))
     }
 }
 
@@ -178,6 +181,8 @@ struct SourceCatalogDetail: View {
     @State private var consentSavedList = false
     /// 2026-10-26 — the YouTube list whose switch raised the first-use sheet.
     @State private var consentYouTube: YouTubeList?
+    /// G89 — the Substack list whose switch raised the first-use sheet.
+    @State private var consentSubstack: SubstackList?
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var flowTile: AddSourceTile?
     /// The connector panel's export walkthrough binding; a tier-2 connector has no export walkthrough.
@@ -335,6 +340,11 @@ struct SourceCatalogDetail: View {
         // G136 R-SU18 — a palette conversation row lands on its agent's page with the search filled.
         .onAppear { takeConversationQuery() }
         .onChange(of: router.pendingConversationQuery) { _, _ in takeConversationQuery() }
+        .sheet(item: $consentSubstack) { list in
+            SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { consentSubstack = nil }) {
+                ReadingFirstUseSheet(model: reading, site: nil, label: nil, substackList: list) { consentSubstack = nil }
+            }
+        }
         .sheet(item: $consentYouTube) { list in
             SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { consentYouTube = nil }) {
                 ReadingFirstUseSheet(model: reading, site: nil, label: nil, youtubeList: list) { consentYouTube = nil }
@@ -414,6 +424,18 @@ struct SourceCatalogDetail: View {
                 }
                 ForEach(YouTubeList.allCases) { youtubeListToggle($0) }
                 tileButton(Copy.Catalog.importFile)
+            }
+        case SourceCatalog.substackId:
+            // G89 (2026-11-04) — the three lists the person's own agent keeps current, then what it follows.
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                offLine(Copy.Reading.substackIntro)
+                ForEach(SubstackList.allCases) { substackListToggle($0) }
+                let following = SubstackFollowing.count(store.feeds.value ?? [])
+                if following > 0 {
+                    Text(Copy.Reading.substackFollowing(following))
+                        .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         case AppleNotesWatcher.channel:
             NotesControls()
@@ -567,6 +589,34 @@ struct SourceCatalogDetail: View {
             Text(YouTubeListWords.detail(list, on: on, status: reading.settings?.youtube))
                 .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// G89 — one Substack list's switch, the YouTube lists' words and rule (the first-use sheet first when agent
+    /// reading is not yet on).
+    private func substackListToggle(_ list: SubstackList) -> some View {
+        let on = reading.enabled && (reading.settings?.isOn(list) ?? false)
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            Toggle(isOn: Binding(get: { on }, set: { value in flipSubstack(list, on: value) })) {
+                Text(SubstackListWords.title(list))
+                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            Text(SubstackListWords.detail(list, on: on, status: reading.settings?.substack))
+                .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func flipSubstack(_ list: SubstackList, on: Bool) {
+        Task { @MainActor in
+            await reading.loadSettings()
+            if on, reading.needsFirstUseSheet || !reading.enabled {
+                consentSubstack = list
+            } else {
+                _ = await reading.setSubstackList(list, on)
+            }
         }
     }
 

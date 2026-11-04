@@ -18,6 +18,21 @@
   already synced show their pictures as they are. Telegram's root cause: a ticked chat's photo was asked only in
   the tick's own request, never again — now on every start and sign-in. **Owner's check:** open the own WhatsApp
   chat on the Sources page; on Telegram, restart the backend once so the photos are asked.
+- **2026-11-04 — Substack through the person's own agent (G89; branch `g89-substack`).** Owner: "a direct app
+  integration is best to see history of read stuff, saved stuff, etc." Researched against current sources: Substack has
+  no reader API or OAuth app programme (its OAuth serves only its own MCP connector — publisher analytics for an admin of
+  a Bestseller publication, no profile data), no reader export (a privacy request by email only), no Mac app, and terms
+  that forbid scraping; the only "direct" route to history and saved posts is the private reader API with the person's
+  cookie — scraping behind authentication, so not built. Built instead, on G166/G206's rails: `cicada_record_substack_list`
+  (stdio only) — Saved as indexed saves (`substack-saved`), History as one index-only reading day per day
+  (`reading-history:substack:<day>`, the page's day or first-seen, said so), Subscriptions as followed public feeds
+  (tag `substack`; `feeds.yaml` remembers an unfollow and no automatic writer undoes it); off until the person turns a
+  list on in Sources → Substack; one site's list at a time and the shared 10 reads a day; `needs_login` pauses all three
+  and asks for a sign-in (its "I signed in" now lifts a saved list's pause too). Feeds: every item names its
+  publication; a paid post's stub is dropped as a body. **DECIDE for the owner (G89 row):** A (built, recommended) the
+  agent-read path; B also take Substack's personal-data copy as an import once a real file shows its format; C let
+  activity traces file substack.com post reads into the same record; D the private reader API — ruled out by the ToS
+  rail. Verified on scratch state with fixtures only (never the owner's account).
 - **2026-11-03 — GitHub connects with a code; your repositories are pages; a project lists its repositories (ruling
   53, G230; branch `feat/g230-oauth-sync`).** Owner: "why are you asking for a token for github? cant we just do oauth?"
   and "always sync and make their initial markdowns … a project might reference several repos". Connect GitHub shows

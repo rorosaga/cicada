@@ -101,10 +101,15 @@ struct ReadingSettingsResponse: Decodable, Equatable {
     /// onboarding), so an off is remembered and onboarding's rerun leaves these unticked. Absent from an older backend.
     var youtubeListsOff = YouTubeListSwitches()
     var savedListsOff: [String: Bool] = [:]
+    /// G89 (2026-11-04): `{saved|history|subscriptions: on}` — the Substack lists the person asked their own agent to
+    /// keep current. Off until they turn one on; absent from an older backend.
+    var substackLists: [String: Bool] = [:]
+    /// When each Substack list was last read for this memory, and the pause.
+    var substack: SubstackListsStatus?
 
     enum CodingKeys: String, CodingKey {
         case agentEnabled, allowedSites, ackedAt, ackCurrent, lastAgentRead, exploreSignedIn, neverExplore
-        case youtubeLists, youtube, savedLists, youtubeListsOff, savedListsOff
+        case youtubeLists, youtube, savedLists, youtubeListsOff, savedListsOff, substackLists, substack
     }
 
     init(agentEnabled: Bool = false, allowedSites: [String: String] = [:], ackedAt: String? = nil,
@@ -136,6 +141,87 @@ struct ReadingSettingsResponse: Decodable, Equatable {
         savedLists = (try? c.decode([String: Bool].self, forKey: .savedLists)) ?? [:]
         youtubeListsOff = (try? c.decode(YouTubeListSwitches.self, forKey: .youtubeListsOff)) ?? YouTubeListSwitches()
         savedListsOff = (try? c.decode([String: Bool].self, forKey: .savedListsOff)) ?? [:]
+        substackLists = (try? c.decode([String: Bool].self, forKey: .substackLists)) ?? [:]
+        substack = try? c.decodeIfPresent(SubstackListsStatus.self, forKey: .substack)
+    }
+
+    func isOn(_ list: SubstackList) -> Bool { substackLists[list.rawValue] ?? false }
+}
+
+/// G89 (2026-11-04) — the Substack lists an agent may keep current, by the backend's own keys.
+enum SubstackList: String, CaseIterable, Identifiable {
+    case saved, history, subscriptions
+    var id: String { rawValue }
+}
+
+/// `GET /reading/settings`' `substack` block: per list, the last read; the one pause (a sign-in covers all three).
+struct SubstackListsStatus: Decodable, Equatable {
+    struct List: Decodable, Equatable {
+        var lastReadAt: String?
+        var lastOutcome: String?
+        var items: Int = 0
+
+        init(lastReadAt: String? = nil, lastOutcome: String? = nil, items: Int = 0) {
+            self.lastReadAt = lastReadAt; self.lastOutcome = lastOutcome; self.items = items
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            lastReadAt = try? c.decodeIfPresent(String.self, forKey: .lastReadAt)
+            lastOutcome = try? c.decodeIfPresent(String.self, forKey: .lastOutcome)
+            items = (try? c.decode(Int.self, forKey: .items)) ?? 0
+        }
+
+        enum CodingKeys: String, CodingKey { case lastReadAt, lastOutcome, items }
+    }
+
+    var pausedUntil: String?
+    var lists: [String: List] = [:]
+
+    init(pausedUntil: String? = nil, lists: [String: List] = [:]) { self.pausedUntil = pausedUntil; self.lists = lists }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pausedUntil = try? c.decodeIfPresent(String.self, forKey: .pausedUntil)
+        lists = (try? c.decode([String: List].self, forKey: .lists)) ?? [:]
+    }
+
+    enum CodingKeys: String, CodingKey { case pausedUntil, lists }
+}
+
+/// G89 — how many publications Cicada follows for the person's Substack: the feeds their agent's read of
+/// Subscriptions followed (tag `substack`). Pure.
+enum SubstackFollowing {
+    static let tag = "substack"
+    static func count(_ feeds: [FeedSubscription]) -> Int { feeds.filter { $0.tags.contains(tag) }.count }
+}
+
+/// The words under each Substack list's switch — pure, so a test reads them.
+enum SubstackListWords {
+    static func title(_ list: SubstackList) -> String {
+        switch list {
+        case .saved: Copy.Reading.substackSavedTitle
+        case .history: Copy.Reading.substackHistoryTitle
+        case .subscriptions: Copy.Reading.substackSubscriptionsTitle
+        }
+    }
+
+    static func detail(_ list: SubstackList, on: Bool, status: SubstackListsStatus?,
+                       locale: Locale = .autoupdatingCurrent) -> String {
+        guard on else {
+            switch list {
+            case .saved: return Copy.Reading.substackSavedOff
+            case .history: return Copy.Reading.substackHistoryOff
+            case .subscriptions: return Copy.Reading.substackSubscriptionsOff
+            }
+        }
+        if let until = status?.pausedUntil {
+            return Copy.Reading.substackPaused(ReadWords.day(until, locale: locale) ?? until)
+        }
+        if let last = status?.lists[list.rawValue]?.lastReadAt {
+            return Copy.Reading.youtubeLastRead(ReadWords.day(last, locale: locale) ?? last)
+        }
+        return Copy.Reading.youtubeWaiting
     }
 }
 
