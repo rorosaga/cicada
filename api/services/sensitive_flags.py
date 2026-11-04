@@ -267,12 +267,10 @@ def reapply_draft(draft, fm: dict):
     changes: dict = {}
     if getattr(draft, "body", None) is not None:
         changes["body"] = _out(draft.body, kinds, harness=harness, override=override)
-    if getattr(draft, "turns", None):
-        changes["turns"] = [replace(t, text=_out(t.text, kinds, harness=harness, override=override,
-                                                 prefix=f"{t.speaker}: ")) for t in draft.turns]
     if getattr(draft, "title", None):
         changes["title"] = _out(draft.title, kinds, harness=harness, override=override)
-    return replace(draft, **changes)
+    return replace(draft, turns=[replace(t, text=_out(t.text, kinds, harness=harness, override=override,
+                                                      prefix=f"{t.speaker}: ")) for t in draft.turns], **changes)
 
 
 def reapply_conversation(conv, fm: dict) -> None:
