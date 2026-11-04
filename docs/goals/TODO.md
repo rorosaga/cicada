@@ -12,6 +12,7 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — books: scan an ISBN, Apple Books, a Goodreads export (G233, G39; branch `books-g39` + cicada-app `feat/scan-a-book`).** Owner: "integrate ISBN codes to include books I'm reading … iBooks too, to track progress … save books I want to read (maybe including Goodreads)"; then "be able to consolidate highlights and such is important", not started as its own status, the scanner in the phone app. `POST /capture/isbn` is the phone's contract (`{isbn, status?, id?}`, keep it stable); the home resolves the number behind the connector gate; `books.apply_pending` makes one `media` page per work with dated `reading-status` claims and happenings (`progress.py`). Apple Books is read by the app after Turn on; Goodreads only by its export (no API keys since 2020). Highlights are read by Sleep, revision-read as they grow. Verified on scratch state with a synthetic library, a sample export and a capture-only phone (`feature-status.md`). **Owner's steps:** the four decisions on the G233 row; a real-iPhone camera test once the Apple Developer Program signup is done.
 - **2026-11-04 — Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
   `claude-desktop-capture`).** Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."
   Diagnosis, from the live install's numbers: one relayed episode ever, and every Claude chat in the bank from one

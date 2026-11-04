@@ -22,6 +22,11 @@ from api.services import bank_registry, demo_guard, sleep_cycle
 #: with a concrete path to call (R-CS15).
 GATED = {
     ("POST", "/sources/save"): "/sources/save",
+    ("POST", "/capture/isbn"): "/capture/isbn",                                  # G233: a scanned book
+    ("POST", "/sources/apple-books/sync"): "/sources/apple-books/sync",          # G39
+    ("PUT", "/sources/apple-books/settings"): "/sources/apple-books/settings",
+    ("POST", "/sources/goodreads/preview"): "/sources/goodreads/preview",        # G233
+    ("POST", "/sources/goodreads/import"): "/sources/goodreads/import",
     ("POST", "/sources/github/repos/project"): "/sources/github/repos/project",   # G230: a repository's project link
     ("POST", "/sources/github/connect"): "/sources/github/connect",               # G230: connecting by a code
     ("POST", "/sources/github/connect/poll"): "/sources/github/connect/poll",
@@ -210,7 +215,7 @@ def test_importing_into_your_own_memory_still_works_while_the_demo_is_open(demo_
 
 TAIL_STEPS = ("_refresh_state_safely", "_expire_claims_safely", "_poll_connectors_safely",
               "_poll_feeds_and_calendars_safely", "_backfill_links_safely", "_resolve_papers_safely",
-              "_replay_wispr_todos_safely", "_warm_logos_safely", "_refresh_questions_safely")
+              "_resolve_books_safely", "_replay_wispr_todos_safely", "_warm_logos_safely", "_refresh_questions_safely")
 
 
 def _tail_order(monkeypatch, bank: Path) -> list[str]:

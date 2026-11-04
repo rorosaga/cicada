@@ -6,7 +6,7 @@ import Foundation
 /// (`/sources/channels`, `/sources/overview`, the browsers on this Mac, the sites an agent may read), so the words and
 /// the order are tested without a view.
 enum SourceCatalogGroup: String, CaseIterable, Identifiable {
-    case accounts, thisMac, meetings, exports, feeds, conversations
+    case accounts, thisMac, meetings, reading, exports, feeds, conversations
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum SourceCatalogGroup: String, CaseIterable, Identifiable {
         case .accounts: Copy.Catalog.accounts
         case .thisMac: Copy.Catalog.thisMac
         case .meetings: Copy.Catalog.meetings
+        case .reading: Copy.readingGroup
         case .exports: Copy.Catalog.exports
         case .feeds: Copy.Catalog.feeds
         case .conversations: Copy.Catalog.conversations
@@ -143,6 +144,13 @@ enum SourceCatalog {
                            channels: ["notes"], tile: .appleNotes, verb: .connect(Copy.Catalog.connectNotes)),
         SourceCatalogEntry(id: "folders", group: .thisMac, title: Copy.Catalog.folders, origin: "folder",
                            channels: [], verb: .connect(Copy.Catalog.addFolder)),
+        // G39 — Apple Books on this Mac, read by the app (`AppleBooksReader`) only after Turn on; G233 — a Goodreads
+        // export the person chooses.
+        SourceCatalogEntry(id: AppleBooksReader.channel, group: .reading, title: Copy.appleBooksTitle,
+                           origin: AppleBooksReader.channel, channels: [AppleBooksReader.channel],
+                           verb: .connect(Copy.appleBooksTurnOn)),
+        SourceCatalogEntry(id: "goodreads", group: .reading, title: Copy.goodreadsTitle, origin: "goodreads",
+                           channels: ["goodreads"], verb: .importFile),
         SourceCatalogEntry(id: "files", group: .exports, title: Copy.Catalog.filesAndLinks, origin: "bookmark",
                            channels: ["files"], tile: .bookmarksFile, verb: .importFile),
         // G219 slice 1: a Notion export (Markdown & CSV) through the one intake; ruling 47 tier 2: or live, through the
@@ -219,6 +227,7 @@ enum SourceCatalog {
         case "tiktok": Copy.Catalog.howTikTok
         case "spotify": Copy.Catalog.howSpotify
         case "linkedin": Copy.Catalog.howLinkedIn
+        case "goodreads": Copy.goodreadsHow
         case "files": Copy.Catalog.howBookmarksFile
         case "chat-exports": Copy.Catalog.howChatExports
         default: nil

@@ -1,0 +1,729 @@
+"""Books: one page per WORK, its ISBNs as aliases, what the person did with it as dated claims (G39, G233).
+
+Three ways a book comes in, each the normal capture path — an episode staged through ``episode_staging`` — and one
+writer (:func:`apply_pending`) that turns those episodes into pages and claims, with no model:
+
+* **A scan** (``/capture/isbn``, the phone's "Scan a book", any client): the raw ISBN and, when the person tapped one,
+  a status. The episode is the person's act (``origin: book-scan``). It holds no title — the home resolves the number
+  (``book_lookup``: Open Library, then Google Books, behind the network gate, cached outside every bank) and the page
+  is made then; until it is, the scan waits, never lost (the episode is the record, :func:`pending`).
+* **Apple Books** (``apple_books``: the APP reads the two databases, the backend parses what it posts): one episode
+  per book — its status and, as the person adds them, its highlights (the book's words) and notes (the person's).
+* **A Goodreads export** (``goodreads_export``: the person's own "Export Library" CSV): one episode per row — its
+  shelf, rating, dates and the person's review or private notes.
+
+**The page** is a ``media`` page with ``media.kind: book`` (the closed set has no ``book`` type and needs none: a book
+is a work someone made and the person consumes, the paper's shape, G133) and a ``book:`` block. It is the work, not
+the copy: a paperback's ISBN, the ebook's and an Apple Books asset all land on one page, matched by any ISBN, an Open
+Library work id, a source's own id, or the folded title plus the first author's surname (:func:`identity_keys`) —
+exact keys only, never fuzzy. Every ISBN (13 and, for 978, 10 digits) is an alias, so a note that names the number
+links to the page.
+
+**Statuses** — ``reading``, ``finished``, ``want`` (want to read), ``not_started`` (in Apple Books' library, never
+opened; owner 2026-11-04):
+
+* one ``reading-status`` claim per status record, dated (``valid_from``), the newest by its date the open one, every
+  earlier one closed (``valid_to`` the next one's day, ``superseded_by`` it) — never deleted;
+* ``reading`` and ``finished`` are also happenings, through ``progress.record_happening`` (the one event writer, G141):
+  "Started reading" (``ongoing``) and "Finished reading" (``done``, settling the open thread). ``want`` and
+  ``not_started`` are not events: nothing happened.
+
+**Whose act it is** is read from the episode's own record, never set here (``authorship``): a scan is the person's own
+act (its lines are ``user``); an Apple Books or Goodreads episode is a saved record (``page``), except the person's
+notes and review, under ``## User note``. So a scanned "reading now" lights its page at once, while a library or a
+shelf someone imported stays quiet (``quiet_pages``) until the person writes or talks about the book — a want-to-read
+or not-started scan, a save by another name, is stamped ``media_entity_id`` and stays quiet too (ruling 30's indexed
+save, owner 2026-11-04).
+
+**Sleep reads the highlights** (owner 2026-11-04: "be able to consolidate highlights and such is important"): an Apple
+Books episode with a highlight or a note, and a Goodreads row with a review, is queued like any conversation; a re-sync
+that adds highlights edits it in place and Sleep reads only what changed (``episode_revision``, #581). Everything else
+— a library entry, a shelf, a scan — lands already read (``processed_by: index`` / ``parser``): there is nothing in it
+for a model.
+
+Rails: no model, no network (``book_lookup`` fetches; this module reads its cache), every page write under
+``page_lock`` and, from a route, the bank's write admission (the caller's; Sleep's tail calls it inside its own
+window); an episode stamp under ``episode_lock`` (lock order: page, then episode); nothing here logs a title.
+"""
+from __future__ import annotations
+
+import hashlib
+import re
+import unicodedata
+from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
+from pathlib import Path
+
+from loguru import logger
+
+from api.services import bank_index, decay_policy, episode_ids, evidence, markdown_parser, page_lock
+from api.services.claims import Claim, MalformedClaimsBlockError, is_recovered_history, parse_claims, write_claims
+from api.services.id_utils import sanitize_id
+
+KIND = "book"
+#: ``origin`` of each door's episodes, and of the page and claims this module writes.
+SCAN_ORIGIN = "book-scan"
+APPLE_ORIGIN = "apple-books"
+GOODREADS_ORIGIN = "goodreads"
+PAGE_ORIGIN = "book"
+DOORS = (SCAN_ORIGIN, APPLE_ORIGIN, GOODREADS_ORIGIN)
+#: The frontmatter block every book episode carries (what its door read), and the stamp :func:`apply_pending` leaves
+#: (the ``content_hash`` it applied) so a re-sync that changed nothing is not applied twice.
+EPISODE_KEY = "book"
+APPLIED_KEY = "book_applied"
+#: ``media_entity_id`` — the save stamp ``quiet_pages`` and ``authorship`` read.
+SAVE_KEY = "media_entity_id"
+
+READING, FINISHED, WANT, NOT_STARTED = "reading", "finished", "want", "not_started"
+STATUSES = (READING, FINISHED, WANT, NOT_STARTED)
+#: How each status reads on a record, in the person's language (the app shows the same words).
+STATUS_WORDS = {READING: "Reading now", FINISHED: "Finished", WANT: "Want to read", NOT_STARTED: "Not started"}
+#: The statuses that say the person did something with the book (a happening; a scan of one lights the page).
+ACTED = frozenset({READING, FINISHED})
+STATUS_PREDICATE = "reading-status"
+RATING_PREDICATE = "rated"
+HAPPENING_TEXT = {READING: "Started reading", FINISHED: "Finished reading"}
+#: The most book episodes one apply reads; the rest wait for the next (an import of thousands is many applies).
+MAX_APPLY = 3000
+
+_ISBN_STRIP = re.compile(r"[\s\-‐-―=\"']")
+
+
+# --------------------------------------------------------------------------- #
+# ISBNs
+# --------------------------------------------------------------------------- #
+
+
+def ean13_ok(digits: str) -> bool:
+    """The EAN-13 check digit (weights 1, 3 alternating) — what a book's barcode is."""
+    if not re.fullmatch(r"\d{13}", digits or ""):
+        return False
+    total = sum(int(d) * (3 if i % 2 else 1) for i, d in enumerate(digits[:12]))
+    return (10 - total % 10) % 10 == int(digits[12])
+
+
+def isbn10_ok(raw: str) -> bool:
+    if not re.fullmatch(r"\d{9}[\dX]", raw or ""):
+        return False
+    total = sum((10 - i) * (10 if c == "X" else int(c)) for i, c in enumerate(raw))
+    return total % 11 == 0
+
+
+def isbn13(raw) -> str | None:
+    """``raw`` as a valid ISBN-13 (``978``/``979``), or None. Takes an ISBN-10 (converted), hyphens, spaces and the
+    ``="…"`` quoting a spreadsheet export wraps them in. A barcode that is not a book's (another EAN prefix) is None."""
+    text = _ISBN_STRIP.sub("", str(raw or "")).upper()
+    if text.startswith("ISBN"):
+        text = text[4:].lstrip(":")
+    if isbn10_ok(text):
+        body = "978" + text[:9]
+        total = sum(int(d) * (3 if i % 2 else 1) for i, d in enumerate(body))
+        return body + str((10 - total % 10) % 10)
+    if ean13_ok(text) and text[:3] in ("978", "979"):
+        return text
+    return None
+
+
+def isbn10(isbn: str) -> str | None:
+    """The ISBN-10 of a ``978`` ISBN-13 (a ``979`` has none)."""
+    if not (isbn and isbn.startswith("978") and ean13_ok(isbn)):
+        return None
+    body = isbn[3:12]
+    check = (11 - sum((10 - i) * int(d) for i, d in enumerate(body)) % 11) % 11
+    return body + ("X" if check == 10 else str(check))
+
+
+def aliases_for(isbns) -> list[str]:
+    out: list[str] = []
+    for isbn in isbns or []:
+        for alias in (isbn, isbn10(isbn)):
+            if alias and alias not in out:
+                out.append(alias)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# identity
+# --------------------------------------------------------------------------- #
+
+
+def _fold(text) -> str:
+    decomposed = unicodedata.normalize("NFKD", str(text or ""))
+    plain = "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", plain).split())
+
+
+def title_key(title) -> str:
+    """The title folded for matching: a series note in brackets and a subtitle after ``:`` dropped (Goodreads writes
+    "Dune (Dune, #1)", Apple Books often keeps the subtitle), accents and punctuation folded, a leading article kept."""
+    text = re.sub(r"\s*[\(\[][^)\]]*[\)\]]\s*", " ", str(title or ""))
+    return _fold(text.split(":")[0])
+
+
+def author_key(authors) -> str:
+    """The first author's surname, folded ("Herbert, Frank" and "Frank Herbert" agree)."""
+    first = next((str(a) for a in authors or [] if str(a or "").strip()), "")
+    if "," in first:
+        first = first.split(",")[0]
+    words = _fold(first).split()
+    return words[-1] if words else ""
+
+
+@dataclass
+class BookFacts:
+    """What one door knows about a book. Every field optional but one way to name it."""
+    title: str | None = None
+    subtitle: str | None = None
+    authors: list[str] = field(default_factory=list)
+    isbns: list[str] = field(default_factory=list)
+    work_id: str | None = None
+    published: str | None = None
+    pages: int | None = None
+    cover_id: int | None = None
+    apple_id: str | None = None
+    goodreads_id: str | None = None
+    title_from: str = "placeholder"
+
+
+def identity_keys(facts: BookFacts) -> list[str]:
+    keys = [f"isbn:{i}" for i in facts.isbns]
+    if facts.work_id:
+        keys.append(f"work:{facts.work_id}")
+    if facts.apple_id:
+        keys.append(f"apple:{facts.apple_id}")
+    if facts.goodreads_id:
+        keys.append(f"goodreads:{facts.goodreads_id}")
+    t, a = title_key(facts.title), author_key(facts.authors)
+    if t and a and facts.title_from != "placeholder":
+        keys.append(f"title:{t}|{a}")
+    return keys
+
+
+def is_book(fm: dict) -> bool:
+    media = (fm or {}).get("media")
+    return isinstance(media, dict) and media.get("kind") == KIND
+
+
+def _page_facts(fm: dict) -> BookFacts:
+    book = fm.get("book") if isinstance(fm.get("book"), dict) else {}
+    return BookFacts(title=book.get("title") or fm.get("name"), authors=list(book.get("authors") or []),
+                     isbns=list(book.get("isbns") or []), work_id=book.get("work_id"),
+                     title_from=str(book.get("title_from") or "page"))
+
+
+def _page_keys(fm: dict) -> list[str]:
+    book = fm.get("book") if isinstance(fm.get("book"), dict) else {}
+    keys = identity_keys(_page_facts(fm))
+    keys += [f"apple:{a}" for a in book.get("apple_books") or []]
+    keys += [f"goodreads:{g}" for g in book.get("goodreads") or []]
+    return keys
+
+
+class BookIndex:
+    """Identity key → page id over the bank's book pages, kept current as :func:`apply_pending` makes pages."""
+
+    def __init__(self, memory_path: Path):
+        self.by_key: dict[str, str] = {}
+        self.ids: set[str] = set()
+        for f in bank_index.files(memory_path, "entities"):
+            fm = f.frontmatter or {}
+            stem = Path(f.path).stem
+            self.ids.add(stem)
+            if is_book(fm) and str(fm.get("status") or "active") != "dropped":
+                self.add(stem, _page_keys(fm))
+
+    def add(self, entity_id: str, keys) -> None:
+        for key in keys:
+            self.by_key.setdefault(key, entity_id)
+        self.ids.add(entity_id)
+
+    def find(self, facts: BookFacts) -> str | None:
+        return next((self.by_key[k] for k in identity_keys(facts) if k in self.by_key), None)
+
+
+def _new_id(index: BookIndex, facts: BookFacts) -> str:
+    # The id leaves out a series note ("Title (Series, #1)", Goodreads' spelling); the name keeps the whole title.
+    plain = re.sub(r"\s*[\(\[][^)\]]*[\)\]]\s*", " ", str(facts.title or "")).strip()
+    base = sanitize_id(plain) if facts.title_from != "placeholder" else ""
+    if not base or base == "unnamed":
+        base = f"book-{facts.isbns[0]}" if facts.isbns else "book"
+    if base not in index.ids:
+        return base
+    base = f"{base}-book"
+    n, cid = 1, base
+    while cid in index.ids:
+        n += 1
+        cid = f"{base}-{n}"
+    return cid
+
+
+def display_title(facts: BookFacts) -> str:
+    if facts.title and facts.title_from != "placeholder":
+        return " ".join(str(facts.title).split())[:300]
+    return f"Book with ISBN {facts.isbns[0]}" if facts.isbns else "Untitled book"
+
+
+def media_url(book: dict) -> str:
+    """A link the person can open (never fetched to draw a card): the Open Library work, else an edition by ISBN."""
+    if book.get("work_id"):
+        return f"https://openlibrary.org/works/{book['work_id']}"
+    isbns = book.get("isbns") or []
+    return f"https://openlibrary.org/isbn/{isbns[0]}" if isbns else ""
+
+
+def _spellings(facts: BookFacts, name) -> list[str]:
+    """A source's own spelling of the title when it is not the page's name ("<Title>: A Novel" in Apple Books,
+    "<Title> (Series, #1)" on Goodreads): an alias, so a highlight's episode that names the book its way, and Stage 1
+    reading it, land on this page instead of a second one."""
+    if facts.title_from == "placeholder" or not facts.title:
+        return []
+    title = " ".join(str(facts.title).split())[:300]
+    return [title] if title.casefold() != str(name or "").casefold() else []
+
+
+def _merge_list(old, new) -> list:
+    out = list(old or [])
+    for v in new or []:
+        if v and v not in out:
+            out.append(v)
+    return out
+
+
+def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_id: str,
+                today: str) -> tuple[str, bool, bool]:
+    """``(entity_id, created, changed)``: the work's page, made or upgraded in place with what ``facts`` adds. A
+    placeholder title gives way to a real one; a title from Open Library or a source is never replaced by another
+    source's spelling (the first real title stays, the person may rename it)."""
+    entity_id = index.find(facts)
+    path = Path(memory_path) / "entities" / f"{entity_id}.md" if entity_id else None
+    if path is not None and path.exists():
+        parsed = markdown_parser.parse(path)
+        fm = dict(parsed.frontmatter)
+        before = repr(sorted(fm.items(), key=lambda kv: kv[0]))
+        book = dict(fm.get("book") or {})
+        book["isbns"] = _merge_list(book.get("isbns"), facts.isbns)
+        if facts.apple_id:
+            book["apple_books"] = _merge_list(book.get("apple_books"), [facts.apple_id])
+        if facts.goodreads_id:
+            book["goodreads"] = _merge_list(book.get("goodreads"), [facts.goodreads_id])
+        upgrade = book.get("title_from") == "placeholder" and facts.title_from != "placeholder"
+        for key in ("work_id", "subtitle", "published", "pages", "cover_id"):
+            if getattr(facts, key) and (upgrade or not book.get(key)):
+                book[key] = getattr(facts, key)
+        if facts.authors and (upgrade or not book.get("authors")):
+            book["authors"] = list(facts.authors)
+        if upgrade:
+            book["title"], book["title_from"] = facts.title, facts.title_from
+            fm["name"] = display_title(facts)
+        fm["book"] = book
+        fm["aliases"] = _merge_list(fm.get("aliases"),
+                                    aliases_for(book["isbns"]) + _spellings(facts, fm.get("name")))
+        media = dict(fm.get("media") or {})
+        media["kind"] = KIND
+        media["url"] = media.get("url") or media_url(book)
+        media["channel"] = media.get("channel") or (book.get("authors") or [None])[0]
+        fm["media"] = media
+        episodes = list(fm.get("source_episodes") or [])
+        if episode_id not in episodes:
+            episodes.append(episode_id)
+        fm["source_episodes"] = episodes
+        if repr(sorted(fm.items(), key=lambda kv: kv[0])) == before:
+            return entity_id, False, False
+        markdown_parser.write(path, fm, parsed.body)
+        index.add(entity_id, _page_keys(fm))
+        return entity_id, False, True
+    entity_id = _new_id(index, facts)
+    name = display_title(facts)
+    book = {"title": facts.title if facts.title_from != "placeholder" else None, "subtitle": facts.subtitle,
+            "authors": list(facts.authors), "isbns": list(facts.isbns), "work_id": facts.work_id,
+            "published": facts.published, "pages": facts.pages, "cover_id": facts.cover_id,
+            "apple_books": [facts.apple_id] if facts.apple_id else [],
+            "goodreads": [facts.goodreads_id] if facts.goodreads_id else [], "title_from": facts.title_from}
+    url = media_url(book)
+    fm = {
+        "name": name, "type": "media", "status": "active", "confidence": 0.8,
+        "created": today, "last_referenced": today,
+        **decay_policy.frontmatter_fields(decay_policy.default_class_for("media", source="media")),
+        "source_episodes": [episode_id], "aliases": aliases_for(facts.isbns) + _spellings(facts, name), "tags": [KIND],
+        "related": [], "version": 1, "origin": PAGE_ORIGIN,
+        # A book page is described by the book APIs and the person's own records — never a scraped page.
+        "enrichment_attempted": True,
+        "media": {"url": url, "media_type": KIND, "kind": KIND, "site": "openlibrary.org" if url else None,
+                  "channel": facts.authors[0] if facts.authors else None, "thumbnail": None,
+                  "saved_at": episode_ids.utc_now_iso()},
+        "book": book,
+    }
+    path = Path(memory_path) / "entities" / f"{entity_id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    by = f" by {', '.join(facts.authors[:3])}" if facts.authors else ""
+    markdown_parser.write(path, fm, f"## Summary\n{name}{by} — a book.")
+    index.add(entity_id, _page_keys(fm))
+    return entity_id, True, True
+
+
+# --------------------------------------------------------------------------- #
+# claims
+# --------------------------------------------------------------------------- #
+
+
+def _claim_id(*parts: str) -> str:
+    return "clm_book_" + hashlib.sha1("\x00".join(parts).encode()).hexdigest()[:10]
+
+
+def _span(memory_path: Path, episode_id: str, quote: str):
+    """A span over ``quote`` in the episode, its kind the episode's own (``authorship``, through ``evidence.verify``)
+    — or ``reasoning``. Never raises (provenance never blocks memory)."""
+    return evidence.verify(memory_path, episode_id, quote)
+
+
+def _status_claims(claims: list[Claim]) -> list[Claim]:
+    return [c for c in claims if c.predicate == STATUS_PREDICATE and c.origin == PAGE_ORIGIN
+            and not is_recovered_history(c)]
+
+
+def set_status(memory_path: Path, entity_id: str, *, status: str, day: str, episode_id: str, quote: str,
+               observer: str, today: str) -> bool:
+    """One dated ``reading-status`` record on the page; the newest by its day stays open, each earlier one closed on
+    the next one's day. Idempotent: the same status, day and episode change nothing."""
+    path = Path(memory_path) / "entities" / f"{entity_id}.md"
+    parsed = markdown_parser.parse(path)
+    try:
+        claims = parse_claims(parsed.body, strict=True)
+    except MalformedClaimsBlockError:
+        logger.warning("book page has an unreadable claims block; its status was not written")
+        return False
+    cid = _claim_id(entity_id, STATUS_PREDICATE, status, day)
+    mine = {c.id: c for c in _status_claims(claims)}
+    changed = False
+    if cid in mine:
+        old = mine[cid]
+        if episode_id not in old.source_episodes:
+            old.source_episodes.append(episode_id)
+            changed = True
+    else:
+        span = _span(memory_path, episode_id, quote)
+        made = Claim(id=cid, text=f"{STATUS_WORDS[status]}.", subject=entity_id, predicate=STATUS_PREDICATE,
+                     object=status, object_kind="literal", observer=observer, context="general",
+                     epistemic="explicit", source_trust="user_stated", confidence=0.9, valid_from=day,
+                     recorded_at=today, source_episodes=[episode_id], origin=PAGE_ORIGIN, authored_by="user",
+                     evidence=[span])
+        claims.append(made)
+        mine[cid] = made
+        changed = True
+    # By the day each record gives; on one day, in the order they were recorded (the later tap wins).
+    order = {key: n for n, key in enumerate(mine)}
+    ordered = sorted(mine.values(), key=lambda c: (c.valid_from or "", order[c.id]))
+    for here, nxt in zip(ordered, ordered[1:]):
+        if here.valid_to != (nxt.valid_from or today) or here.superseded_by != nxt.id:
+            here.valid_to, here.superseded_by = nxt.valid_from or today, nxt.id
+            changed = True
+    last = ordered[-1]
+    if last.valid_to or last.superseded_by:
+        last.valid_to, last.superseded_by = None, None
+        changed = True
+    if not changed:
+        return False
+    markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, claims))
+    return True
+
+
+def set_rating(memory_path: Path, entity_id: str, *, rating: int, day: str, episode_id: str, quote: str,
+               observer: str, today: str) -> bool:
+    path = Path(memory_path) / "entities" / f"{entity_id}.md"
+    parsed = markdown_parser.parse(path)
+    try:
+        claims = parse_claims(parsed.body, strict=True)
+    except MalformedClaimsBlockError:
+        return False
+    cid = _claim_id(entity_id, RATING_PREDICATE, str(rating), episode_id)
+    if any(c.id == cid for c in claims):
+        return False
+    for c in claims:
+        if c.predicate == RATING_PREDICATE and c.origin == PAGE_ORIGIN and not c.valid_to:
+            c.valid_to, c.superseded_by = day, cid
+    claims.append(Claim(id=cid, text=f"Rated it {rating} out of 5.", subject=entity_id, predicate=RATING_PREDICATE,
+                        object=f"{rating}/5", object_kind="literal", observer=observer, context="general",
+                        epistemic="explicit", source_trust="user_stated", confidence=0.9, valid_from=day,
+                        recorded_at=today, source_episodes=[episode_id], origin=PAGE_ORIGIN, authored_by="user",
+                        evidence=[_span(memory_path, episode_id, quote)]))
+    markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, claims))
+    return True
+
+
+def _open_reading_thread(memory_path: Path, entity_id: str) -> str | None:
+    from api.services.claims import HAPPENED
+
+    try:
+        parsed = markdown_parser.parse(Path(memory_path) / "entities" / f"{entity_id}.md")
+        claims = parse_claims(parsed.body)
+    except Exception:  # noqa: BLE001 — no thread to settle is the safe answer
+        return None
+    return next((c.id for c in claims if c.predicate == HAPPENED and c.status == "ongoing" and c.valid_to is None
+                 and c.object == HAPPENING_TEXT[READING].lower()), None)
+
+
+def record_happening(memory_path: Path, entity_id: str, *, status: str, day: str, episode_id: str, quote: str,
+                     observer: str, basis: str = "stated") -> list[str]:
+    """``reading`` / ``finished`` as a happening, through the one event writer. Returns the paths it wrote."""
+    from api.services import progress
+
+    if status not in ACTED:
+        return []
+    try:
+        on = date.fromisoformat(day[:10])
+    except ValueError:
+        return []
+    settles = _open_reading_thread(memory_path, entity_id) if status == FINISHED else None
+    if settles is not None:
+        # An open thread that began after this finish is another reading; never settle it backwards.
+        thread_day = settles.rsplit("_", 1)[-1][:10]
+        if thread_day > on.isoformat():
+            settles = None
+    out = progress.record_happening(
+        memory_path, subject=entity_id, text=HAPPENING_TEXT[status],
+        status="ongoing" if status == READING else "done", evidence=[{"episode": episode_id, "quote": quote}],
+        observer=observer, origin=PAGE_ORIGIN, authored_by="user", source_episode=episode_id, day=on,
+        date_basis=basis, settles=settles)
+    if out.get("action") not in ("written", "reinforced"):
+        logger.info(f"book happening not written ({out.get('action')})")
+        return []
+    return [p for p in out.get("paths") or [] if p != f"entities/{entity_id}.md"]
+
+
+# --------------------------------------------------------------------------- #
+# episodes
+# --------------------------------------------------------------------------- #
+
+
+def status_line(status: str | None) -> str:
+    return f"**Status:** {STATUS_WORDS[status]}" if status in STATUS_WORDS else ""
+
+
+def _owner(memory_path: Path) -> str:
+    from api.config import get_settings
+    from api.services import owner_identity
+
+    return owner_identity.resolve_observer(memory_path, get_settings())
+
+
+def pending(memory_path: Path, *, limit: int = MAX_APPLY) -> list:
+    """The book episodes not applied as they stand now (a new one, one a re-sync changed, one whose ISBN waited for
+    its lookup) — derived from the bank, so nothing waits anywhere a move or a restore could lose it."""
+    out = []
+    for f in bank_index.files(Path(memory_path), "episodes"):
+        fm = f.frontmatter or {}
+        if not isinstance(fm.get(EPISODE_KEY), dict) or fm.get("source_deleted_at"):
+            continue
+        if str(fm.get("origin") or "") not in DOORS:
+            continue
+        if fm.get(APPLIED_KEY) and fm.get(APPLIED_KEY) == fm.get("content_hash"):
+            continue
+        out.append(f)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def waiting_isbns(memory_path: Path) -> list[str]:
+    """The ISBNs to ask about: a scan whose page waits for its lookup, then a placeholder page's numbers (a definite
+    miss, asked again when ``book_lookup.due`` says so). ``book_lookup.resolve`` skips any not yet due."""
+    from api.services import book_lookup
+
+    out: list[str] = []
+    for f in pending(memory_path):
+        fm = f.frontmatter or {}
+        isbn = (fm.get(EPISODE_KEY) or {}).get("isbn")
+        if fm.get("origin") == SCAN_ORIGIN and isbn and book_lookup.cached(isbn) is None and isbn not in out:
+            out.append(isbn)
+    for f in bank_index.files(Path(memory_path), "entities"):
+        fm = f.frontmatter or {}
+        book = fm.get("book") if is_book(fm) and isinstance(fm.get("book"), dict) else None
+        if book and book.get("title_from") == "placeholder":
+            out += [i for i in book.get("isbns") or [] if i not in out]
+    return out
+
+
+def scan_draft(isbn: str, status: str | None, *, who: str, ident: str, now: datetime):
+    """The episode a scan is: the person's act, already read (nothing in it for a model)."""
+    from api.services import episode_staging, when as when_mod
+
+    instant = when_mod.utc_z(now)
+    day = episode_ids.id_day(now)
+    lines = ([status_line(status)] if status else []) + [f"**ISBN:** {isbn}"]
+    return episode_staging.EpisodeDraft(
+        title="Book scan", source_id=f"isbn:{who}:{ident}", timestamp=instant, original_date=day,
+        source=SCAN_ORIGIN, origin=SCAN_ORIGIN, body="\n".join(lines) + "\n",
+        extra={EPISODE_KEY: {"isbn": isbn, "status": status, "day": day}}, queue_for_sleep=False,
+        writer=SCAN_ORIGIN)
+
+
+def _upgrade_placeholders(memory_path: Path, index: BookIndex, today: str) -> list[str]:
+    """A placeholder page (its number was a definite miss) whose number has an answer now takes the real title."""
+    from api.services import book_lookup
+
+    paths: list[str] = []
+    for f in bank_index.files(Path(memory_path), "entities"):
+        fm = f.frontmatter or {}
+        book = fm.get("book") if is_book(fm) and isinstance(fm.get("book"), dict) else None
+        if not book or book.get("title_from") != "placeholder":
+            continue
+        for isbn in book.get("isbns") or []:
+            hit = book_lookup.cached(isbn)
+            if not (hit and hit.get("found")):
+                continue
+            facts = BookFacts(title=hit.get("title"), subtitle=hit.get("subtitle"),
+                              authors=list(hit.get("authors") or []),
+                              isbns=list(book.get("isbns") or []), work_id=hit.get("work_id"),
+                              published=hit.get("published"), pages=hit.get("pages"), cover_id=hit.get("cover_id"),
+                              title_from=str(hit.get("source") or "lookup"))
+            episode = (fm.get("source_episodes") or [""])[0]
+            entity_id, _, changed = ensure_page(memory_path, index, facts, episode, today)
+            if changed:
+                paths.append(f"entities/{entity_id}.md")
+            break
+    return paths
+
+
+def _stamp_episode(path: Path, *, digest: str, entity_id: str, save: bool) -> bool:
+    """Mark the episode applied (and, for a save, whose page it is) — under the episode lock, re-read first: a re-sync
+    that landed meanwhile keeps its new body, and its new hash keeps it pending."""
+    with episode_ids.episode_lock(path.parent):
+        parsed = markdown_parser.parse(path)
+        fm = dict(parsed.frontmatter)
+        if fm.get("content_hash") != digest:
+            return False
+        fm[APPLIED_KEY] = digest
+        fm["book_entity_id"] = entity_id
+        if save:
+            fm[SAVE_KEY] = entity_id
+        markdown_parser.write(path, fm, parsed.body)
+        return True
+
+
+def _facts_from_episode(fm: dict) -> BookFacts | None:
+    """What the episode itself says, or None for a scan whose lookup has not answered yet."""
+    from api.services import book_lookup
+
+    rec = fm.get(EPISODE_KEY) or {}
+    origin = str(fm.get("origin") or "")
+    isbns = [i for i in (isbn13(x) for x in rec.get("isbns") or [rec.get("isbn")]) if i]
+    if origin == SCAN_ORIGIN:
+        if not isbns:
+            return None
+        hit = book_lookup.cached(isbns[0])
+        if hit is None:
+            return None
+        if not hit.get("found"):
+            return BookFacts(isbns=isbns, title_from="placeholder")
+        return BookFacts(title=hit.get("title"), subtitle=hit.get("subtitle"), authors=list(hit.get("authors") or []),
+                         isbns=_merge_list(isbns, [i for i in (isbn13(x) for x in hit.get("isbns") or []) if i]),
+                         work_id=hit.get("work_id"), published=hit.get("published"), pages=hit.get("pages"),
+                         cover_id=hit.get("cover_id"), title_from=str(hit.get("source") or "lookup"))
+    title = str(rec.get("title") or "").strip()
+    if not title and not isbns:
+        return None
+    return BookFacts(title=title or None, authors=[str(a) for a in rec.get("authors") or [] if str(a).strip()],
+                     isbns=isbns, published=rec.get("published"), pages=rec.get("pages"),
+                     apple_id=rec.get("asset_id") if origin == APPLE_ORIGIN else None,
+                     goodreads_id=rec.get("goodreads_id") if origin == GOODREADS_ORIGIN else None,
+                     title_from=origin if title else "placeholder")
+
+
+def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = MAX_APPLY) -> dict:
+    """Make every pending book episode's page, status and rating, with no model and no network. Returns ``{applied,
+    waiting, pages_created, paths}`` (memory-relative, for the caller's own commit). The caller holds the bank's write
+    admission (a route) or Sleep's window (the tail); this holds the page lock."""
+    memory_path = Path(memory_path)
+    today_s = (today or date.today()).isoformat()
+    out = {"applied": 0, "waiting": 0, "pages_created": 0, "paths": []}
+    todo = pending(memory_path, limit=limit)
+    paths: list[str] = []
+    with page_lock.page_lock(memory_path):
+        index = BookIndex(memory_path)
+        observer = _owner(memory_path)
+        for entry in todo:
+            fm = entry.frontmatter or {}
+            try:
+                facts = _facts_from_episode(fm)
+                if facts is None:
+                    out["waiting"] += 1
+                    continue
+                episode_id = str(fm.get("id") or Path(entry.path).stem)
+                rec = fm.get(EPISODE_KEY) or {}
+                status = rec.get("status") if rec.get("status") in STATUSES else None
+                entity_id, created, changed = ensure_page(memory_path, index, facts, episode_id, today_s)
+                out["pages_created"] += int(created)
+                if changed:
+                    paths.append(f"entities/{entity_id}.md")
+                # A scan of a book the person did nothing with yet is a save (quiet, ruling 30); Apple Books and
+                # Goodreads records are saves by their origin, stamped too so every reader agrees.
+                save = fm.get("origin") != SCAN_ORIGIN or status not in ACTED
+                ep_path = Path(entry.path)
+                if not _stamp_episode(ep_path, digest=str(fm.get("content_hash") or ""), entity_id=entity_id,
+                                      save=save):
+                    continue
+                paths.append(f"episodes/{ep_path.name}")
+                if status:
+                    day = str(rec.get("day") or "")[:10] or today_s
+                    quote = STATUS_WORDS[status]
+                    if set_status(memory_path, entity_id, status=status, day=day, episode_id=episode_id,
+                                  quote=quote, observer=observer, today=today_s):
+                        paths.append(f"entities/{entity_id}.md")
+                    # A scan is dated by when it was made; a record by the day its source gives.
+                    basis = "episode" if fm.get("origin") == SCAN_ORIGIN else "stated"
+                    paths += record_happening(memory_path, entity_id, status=status, day=day, episode_id=episode_id,
+                                              quote=quote, observer=observer, basis=basis)
+                    if status in ACTED:
+                        paths.append(f"entities/{entity_id}.md")
+                rating = rec.get("rating")
+                if isinstance(rating, int) and 1 <= rating <= 5:
+                    day = str(rec.get("rated_day") or rec.get("day") or "")[:10] or today_s
+                    if set_rating(memory_path, entity_id, rating=rating, day=day, episode_id=episode_id,
+                                  quote=f"{rating} of 5", observer=observer, today=today_s):
+                        paths.append(f"entities/{entity_id}.md")
+                out["applied"] += 1
+            except Exception as exc:  # noqa: BLE001 — one bad record never stops the rest
+                from api.services import tool_contract
+
+                logger.warning(f"book episode not applied: {tool_contract.where(exc)}")
+        try:
+            paths += _upgrade_placeholders(memory_path, index, today_s)
+        except Exception as exc:  # noqa: BLE001
+            from api.services import tool_contract
+
+            logger.warning(f"book placeholders not upgraded: {tool_contract.where(exc)}")
+    bank_index.invalidate(memory_path)
+    out["paths"] = list(dict.fromkeys(paths))
+    return out
+
+
+def counts(memory_path: Path) -> dict:
+    """Book pages by their current status (the open ``reading-status``), for a source row. Frontmatter scan plus one
+    body parse per book page; no titles."""
+    by = {s: 0 for s in STATUSES}
+    total = 0
+    for f in bank_index.files(Path(memory_path), "entities"):
+        if not is_book(f.frontmatter or {}):
+            continue
+        total += 1
+        try:
+            claims = parse_claims(markdown_parser.parse(Path(f.path)).body)
+        except Exception:  # noqa: BLE001
+            continue
+        current = next((c.object for c in _status_claims(claims) if not c.valid_to), None)
+        if current in by:
+            by[current] += 1
+    return {"books": total, **by}
+
+
+def utc_day(value) -> str | None:
+    """A source's instant as the local calendar day it fell on (ruling 34's day), or None."""
+    if not value:
+        return None
+    try:
+        at = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    return episode_ids.id_day(at)

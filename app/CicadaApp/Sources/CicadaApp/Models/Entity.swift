@@ -740,6 +740,8 @@ struct MediaBlock: Codable, Equatable {
     }
 
     var isPaper: Bool { kind == "paper" }
+    /// G39/G233 — a book page (`books.KIND`): its link is a catalogue entry, never fetched for a preview card.
+    var isBook: Bool { kind == "book" }
     /// G230 — a repository page (`github_repos.KIND`).
     var isRepository: Bool { kind == "repository" }
 

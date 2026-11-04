@@ -494,7 +494,7 @@ struct EntityDetailCard: View {
                     loadRepository(entity.id)
                     reloadPage()
                 })
-            } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
+            } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper, !media.isBook {
                 // G11: rich media preview above the body for `media`-type entities.
                 MediaPreview(model: MediaPreviewModel(block: media, title: entity.name, description: mediaDescription))
                 if VideoBlock.isVideo(media) {
@@ -732,7 +732,7 @@ struct EntityDetailCard: View {
     /// and no article (the first screen is built synchronously, so an empty one is known now, never a guess).
     private var pageBlockIsEmpty: Bool {
         guard !showRawMarkdown, !isStub, paperDetail == nil else { return false }
-        if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper { return false }
+        if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper, !media.isBook { return false }
         if HeroPreview.hasPreviewableAsset(for: entity) { return false }
         return WikiArticleCache.shared.article(articleKey).isEmpty
     }

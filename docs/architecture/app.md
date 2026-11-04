@@ -1788,6 +1788,18 @@ agent reads (`agent_methods`), not an install.
   Settings → Internet Accounts (`CalendarRow.internetAccountsURL`) and asks macOS for nothing. A Google calendar's
   secret iCal address through Calendar feeds is not offered: a feed subscription is stored in the bank's
   `calendars.yaml`, and that address is a credential.
+- **Reading: Apple Books and Goodreads (G39, G233; 2026-11-04).** A Sources group of its own, *Reading*, between
+  Meeting recorders and Exports (`SourceCatalogGroup.reading`; the backend's `reading` kind sits before `import`).
+  *Apple Books* (`AppleBooksRow`, `AppleBooksReader.shared` in the environment): Turn on PUTs the bank's switch, then
+  the reader copies Apple Books' two stores (found by prefix under `NSHomeDirectory()`'s
+  `Library/Containers/com.apple.iBooksX/Data/Documents`, so a verify run's scratch home is honoured) with their WAL into
+  a temporary folder, folds the WAL into the copy, reads only `AppleBooksColumns`' whitelist read-only, and posts the
+  books whose fingerprint changed (status, dates, highlights — never the progress figure), 500 a request; on launch,
+  every 3 hours, on a bank switch and on Refresh. macOS asks once whether Cicada may read another app's data, with the
+  first read. Turn off (behind a confirmation) stops it and deletes nothing. *Goodreads* (`GoodreadsImportRow`): where
+  the export comes from, *Choose the export…* (a file importer), the preview's counts, then *Import*. A book page shows
+  no link preview (`MediaBlock.isBook`, the paper rule). The Mac camera scanner was made optional by the owner
+  (2026-11-04) and is not built; the phone app scans (`cicada-app`, "Scan a book").
 - **Reminders and Notion (G219, ruling 38: one way in, never written back; 2026-10-23).** *This Mac* gains
   **Reminders** after Contacts (`SourceCatalog.fixed`, id `reminders-local`, the installed Reminders app's icon,
   `com.apple.reminders`). Its detail is `RemindersRow`: `CalendarRow`'s line and buttons (Connect · Refresh ·

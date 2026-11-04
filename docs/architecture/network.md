@@ -28,7 +28,12 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   decides the engine before reading any page — plan search only, a metered key never — then asks Wikidata, through
   `org_sites.wikidata_get`, only for a name that passed the local public test (≤ 20 a run), and the engine's search only
   with the pinned queries; ≤ `web_context_per_run` lookups a run; `storage.md`) — and
-  paper details (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
+  paper details (below) — and **book lookups** (G233, `book_lookup`: a scanned ISBN asked of Open Library's
+  `/isbn/<isbn>.json` and `/authors/<id>.json`, else Google Books' `volumes?q=isbn:`, one request a second, 4 s / ≤ 512
+  KB, no cookies, `net_guard` on every hop, a User-Agent naming the software and never a person; at most 30 numbers a
+  run, every answer cached in `$CICADA_HOME/books/isbn_cache.json`; gated on BOTH callers — the background job after a
+  scan and Sleep's tail — so a scan waits while it is off; `capture-and-sleep.md`, "Books"). Goodreads is never
+  fetched: its export is the way in. It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
   The backlog's one-off web-check sweep (`POST /inbox/web-check`, ruling 27b) is the person's start, so the gate is
   reported in its counts, never applied — the same pinned query and nothing else leaves.
   A user-initiated `sync_now`, `POST /maintenance/enrich-links`, `POST /maintenance/verify-sites`, the person's

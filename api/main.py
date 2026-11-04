@@ -23,6 +23,7 @@ from api.routers import (
     ask,
     backlog,
     banks,
+    books,
     capture,
     chat_sources,
     claims,
@@ -443,6 +444,7 @@ app.include_router(local_sources.router, tags=["local-sources"])
 app.include_router(chat_sources.router, tags=["chat-sources"])
 app.include_router(traces.router, tags=["traces"])
 app.include_router(capture.router, tags=["capture"])
+app.include_router(books.router, tags=["books"])
 app.include_router(connectors.router, tags=["connectors"])
 app.include_router(github_repos.router, tags=["github"])
 app.include_router(maintenance.router, tags=["maintenance"])

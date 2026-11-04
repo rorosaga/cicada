@@ -395,6 +395,10 @@ struct SourceCatalogDetail: View {
             ContactsRow(channel: mine.first)
         case RemindersReader.channel:
             RemindersRow(channel: mine.first)
+        case AppleBooksReader.channel:
+            AppleBooksRow(channel: mine.first)
+        case "goodreads":
+            GoodreadsImportRow()
         case MessagesWatcher.channel:
             MessagesRow(channel: mine.first)
         case WhatsAppWatcher.channel:
