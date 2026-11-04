@@ -302,7 +302,7 @@ def _superseded(fm: dict, read_bytes: int, path: Path | None, size: int | None =
 
 @dataclass
 class CaptureResult:
-    status: str  # created | updated | unchanged | metadata | superseded | empty | refused
+    status: str  # created | updated | unchanged | metadata | superseded | empty | refused | upgraded | elsewhere
     episode_id: str | None
     turns_user: int
     turns_assistant: int

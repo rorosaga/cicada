@@ -210,6 +210,13 @@ def test_one_chat_is_one_relayed_episode_and_two_chats_two_in_one_process(server
     assert len(_relayed(memory)) == 2
 
 
+def test_a_replica_with_no_backend_never_writes_its_copy(server, memory, monkeypatch):
+    monkeypatch.setattr(server.runtime_layout, "is_replica", lambda *a, **k: True)
+    _connect(server, "claude-ai")
+    result = _turn(server, FIRST, "new")
+    assert result["isError"] is True and not _relayed(memory)
+
+
 def test_a_relayed_chat_is_never_the_persons_own_words(server, memory):
     _connect(server, "claude-ai")
     _turn(server, FIRST, "new")

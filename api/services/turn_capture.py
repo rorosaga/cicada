@@ -260,7 +260,10 @@ def _kept_elsewhere(episodes_dir: Path, relay: dict, first: str | None) -> str |
     for offset in (0, -1, 1):       # an episode id carries the conversation's local day
         day = (now + timedelta(days=offset)).date().isoformat()
         for path in episodes_dir.glob(f"ep_{day}*.md"):
-            fm = markdown_parser.parse(path).frontmatter
+            try:
+                fm = markdown_parser.parse(path).frontmatter
+            except (OSError, ValueError):   # another episode's bad file is never a reason to lose this turn
+                continue
             other = fm.get(RELAY_KEY)
             if not isinstance(other, dict) or other.get("first") != key or other.get("app") != relay.get("app") \
                     or other.get("channel") == relay.get("channel"):
