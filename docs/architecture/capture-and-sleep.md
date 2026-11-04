@@ -501,6 +501,21 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   bank's `contacts.json` and thumbnails (Contacts is app-wide; token-gated like every route; counts only), so no first
   mention and no tail rematch uses a card again; what matched pages already gained stays. LinkedIn's kept export has
   its own forget, `DELETE /sources/linkedin-connections` (this bank; *Forget kept connections* in the LinkedIn panel).
+  **The page's faces are a second store, not a way into the first (owner 2026-11-04, `contacts_book`).** The waiting
+  set keeps only what Sleep could match, so a page reading it can never show a one-part name. The app also sends every
+  card's names and thumbnail, before the sync and best effort, to `PUT /sources/contacts-local/book`, kept at
+  `$CICADA_HOME/people/<bank>/contacts-book/<scope>/` (never which facts a card holds, its id only hashed, never an
+  organisation's name: a card with no personal name is kept nameless). `WaitingIndex`, `seed_page`, `rematch` and
+  `waiting_status` never read it (`test_contacts_book.py`), so the match rules and the `waiting` count mean what they
+  meant. `GET …/book` lists the cards, those with a page first; the link is read from the pages' `addressbook://`
+  sources each time (one holding only a photo joins by name when exactly one card carries it), so a rematch or a removal
+  shows at once. `GET …/book/{key}/photo` serves a thumbnail, `no-store`. It is the app's own read: the token's device
+  picks the scope, so a client of a backend elsewhere reads only the book it posted; on a copy the routes are `local`,
+  because the reader is here and not at the home. No tool, CLI row or `/v1` operation reaches it, and the remote
+  listener has no such path. The forget removes every scope in every bank (`DELETE …/book` is the same forget, sent too
+  because a copy forwards `/waiting` to the home); revoking a device removes its scope; a demo bank takes and shows
+  none. Few photos is true of the book: on the owner's Mac the store files hold at most 6 raw records with one, of 969
+  raw records (count-only, 2026-11-04; size and format not measured).
   **The Contacts forget lands at once, even while Sleep runs (review of #393):** the app sends it once, so a 409 would
   keep a disconnected address book's cards. It deletes the set and then stamps a forget marker,
   `$CICADA_HOME/people/.contacts-forgotten` (ns), under the lock every save of the set takes. Every Sleep read of the

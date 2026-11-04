@@ -12,6 +12,14 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — the Contacts page shows every card (G154, G161; branch `g154-contacts-grid`, PR #602).** Owner: "only 6
+  contacts synced". Coordinator's numbers: 370 cards waiting, 6 matched, and the page listed the 6; one-part names were
+  kept nowhere (196 + 139 raw records across two account sources, which overlap). `contacts_book` keeps every card's names
+  and thumbnail for the grid alone; ruling 33's match rules are untouched. Thumbnails: few is true of the book, at most
+  6 of 969 raw records (count-only query of the store files; size and format not measured, because no shell here has a
+  Contacts grant). Detail: `capture-and-sleep.md`. **Pick up here:** the grid itself, on #599's `ContactsGrid`, once #599
+  has merged.
+
 - **2026-11-04 — one layout for every source page; GitHub syncs on connect (G161, G230; branch
   `sources-standard-layout`, PR #593).** Owner, from screenshots: "so much text", the export drop showing "the logos of
   AI companies instead of the logo of Spotify", "standardize the layout for all the sources pages". Every source page is
