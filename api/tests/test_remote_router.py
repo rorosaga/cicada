@@ -52,7 +52,7 @@ def test_status_is_off_by_default_and_probes_only_when_asked(client):
     body = c.get("/remote/status").json()
     assert body["enabled"] is False and body["port"] == 8765 and body["reachable"] is None
     assert body["effectiveUrl"] == "https://mac.example-tailnet.ts.net" and body["tailscale"] == "funnel-on"
-    assert body["funnelCommand"] == "tailscale funnel --bg 8765"
+    assert body["funnelCommand"] == reach.FUNNEL_COPY_UNKNOWN, "this stand-in `detect` read no ServeConfig"
     assert body["ngrokCommand"] == "ngrok http 8765 --inspect=false"
     assert probes == []
     assert c.get("/remote/status?probe=true").json()["reachable"] is True and len(probes) == 1

@@ -170,7 +170,7 @@ def report(found: Found, ui: Ui) -> list[str]:
             lines.append(f"{_check(True)} A public address for phone and cloud agents: {url}")
         elif remote.get("tailscale") not in (None, "", "missing"):
             lines.append(f"{_check(False)} Tailscale is here, with no public address yet. Phones on your tailnet "
-                         f"can pair; cloud agents need `{remote.get('funnelCommand', 'tailscale funnel')}`.")
+                         "can pair; cloud agents need `cicada funnel on`.")
         else:
             lines.append(f"{_check(None)} No Tailscale or ngrok: this machine is reachable from itself only.")
     for line in lines:

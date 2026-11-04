@@ -20,7 +20,7 @@ Pick one. Both forward only port `8765`.
   port 443 it uses 10000 instead, and if both are held it says so.
 
   The first time, your tailnet has to allow it: Cicada shows the link. That is **Enable HTTPS** on the admin console's
-  DNS page (it publishes your machine and tailnet names on a public ledger), and **Add Funnel to policy** on its Access
+  DNS page (it publishes your machine's and tailnet's names on a public certificate log, and that can't be undone), and **Add Funnel to policy** on its Access
   controls page; you need to be an owner or admin of the tailnet. The public name can then take up to 10 minutes.
 
   Your address is `https://<machine>.<tailnet>.ts.net`. Renaming the machine changes it. It stays open across

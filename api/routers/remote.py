@@ -76,11 +76,12 @@ async def get_status(probe: bool = False) -> RemoteStatusOut:
     port = store.remote_port()
     found, effective = await _reach()
     reachable = await run_in_threadpool(reach.probe, effective) if (probe and effective) else None
+    copy = reach.FUNNEL_COPY_PORT if (port <= 0 or port in _closed_ports()) else found.funnel_copy
     return RemoteStatusOut(
         enabled=settings.enabled, port=port, listener_up=LISTENER.up, listener_error=LISTENER.error,
         public_base_url=settings.public_base_url, detected_url=found.funnel_url, effective_url=effective,
         tailscale=found.tailscale, ngrok_installed=found.ngrok, reachable=reachable,
-        funnel_command=f"tailscale funnel --bg {port}", ngrok_command=f"ngrok http {port} --inspect=false",
+        funnel_command=copy, ngrok_command=f"ngrok http {port} --inspect=false",
     )
 
 

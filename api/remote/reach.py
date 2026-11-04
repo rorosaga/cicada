@@ -22,7 +22,7 @@ import json
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 from api.remote import catalog
@@ -31,11 +31,22 @@ TAILSCALE_APP_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 _LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
 
+#: `GET /remote/status`'s `funnelCommand` when no command is safe to offer. An older app shows this field in a box to
+#: copy and an older `cicada setup` prints it, so it stays a non-empty string, and one harmless if pasted: a shell comment
+#: (or, in an interactive zsh, "command not found") with no quote, `$`, `;`, `&` or bracket in it.
+FUNNEL_COPY_UNKNOWN = "# Tailscale is not answering. Open it, then check again."
+FUNNEL_COPY_TAKEN = "# Ports 443 and 10000 are in use. Free one, then check again."
+FUNNEL_COPY_PORT = "# The connector shares a port with another part of Cicada. Change CICADA_REMOTE_PORT."
+
+
 @dataclass(frozen=True)
 class Reach:
     tailscale: str  # "missing" | "stopped" | "no-funnel" | "funnel-on"
     funnel_url: str | None
     ngrok: bool
+    #: What `funnelCommand` says (ruling 59): never a bare `tailscale funnel --bg <port>`, which means 443 and replaces
+    #: whatever holds it. Derived from the same read as the two fields above, so not part of what makes two answers equal.
+    funnel_copy: str = field(default=FUNNEL_COPY_UNKNOWN, compare=False)
 
 
 def _proxies_to(proxy: str, port: int) -> bool:
@@ -107,7 +118,7 @@ def detect(port: int, *, which=shutil.which, run=subprocess.run, exists=_is_exec
     if not isinstance(status, dict):
         return Reach("stopped", None, ngrok)
     url = funnel_url_for_port(status, port)
-    return Reach("funnel-on" if url else "no-funnel", url, ngrok)
+    return Reach("funnel-on" if url else "no-funnel", url, ngrok, funnel_copy_command(status, port))
 
 
 @dataclass(frozen=True)
@@ -265,7 +276,7 @@ def guide(port: int, *, state: TailnetState | None = None, backend: TailnetBacke
     if backend.public:
         # First, even beside a tailnet-only serve: the backend is open to the internet (G181: it never has a public
         # port). Nothing is offered for a QR until the funnel is closed.
-        return {**out, "step": "unfunnel", "command": f"tailscale funnel --https={backend.public_port or 443} off"}
+        return {**out, "step": "unfunnel", "command": funnel_stop_command(backend.public_port or 443)}
     if backend.url:
         # The matching off for that one mapping (owner 2026-10-29): shown before a click may run it.
         return {**out, "step": "ready", "url": backend.url, "stopCommand": stop_command(backend.url)}
@@ -359,14 +370,15 @@ def _https_port(url: str | None) -> int | None:
 
 
 def stop_command(url: str | None) -> str | None:
-    """The off for the one tailnet-only mapping that serves the backend (``ready``): its https port, nothing else."""
+    """The off for the one tailnet-only mapping that serves the backend (``ready``): its https port and its ``/``, nothing
+    else. With no ``--set-path`` the CLI deletes every handler on the port (`serve_v2.go`, ``removeWebServe``)."""
     port = _https_port(url)
-    return f"tailscale serve --https={port} off" if port else None
+    return f"tailscale serve --https={port} --set-path=/ off" if port else None
 
 
 def stop_argv(tailscale: str, url: str | None) -> list[str] | None:
     port = _https_port(url)
-    return [tailscale, "serve", f"--https={port}", "off"] if port else None
+    return [tailscale, "serve", f"--https={port}", "--set-path=/", "off"] if port else None
 
 
 #: Tailscale prints a URL to visit when Serve or HTTPS certificates are not enabled for the tailnet yet, and waits.
@@ -457,6 +469,9 @@ _ENABLE_HOSTS = ("console.tailscale.com", "login.tailscale.com")
 _FIX_HOSTS = (*_ENABLE_HOSTS, "tailscale.com")
 _HTTPS_FIX = "https://console.tailscale.com/admin/dns"
 _POLICY_FIX = "https://console.tailscale.com/admin/acls"
+#: Said before the click that can publish it, and it cannot be taken back: a certificate log is public and append-only.
+CERT_LOG_WORDS = ("Turning on HTTPS publishes this machine's name and your tailnet's name on a public certificate log, "
+                  "and that can't be undone.")
 _FUNNEL_WORDS = {
     "install": "Install Tailscale on this machine.",
     "open": "Open Tailscale on this machine.",
@@ -514,6 +529,18 @@ def funnel_command(https_port: int, port: int) -> str:
 
 def funnel_stop_command(https_port: int) -> str:
     return f"tailscale funnel --https={https_port} --set-path=/ off"
+
+
+def funnel_copy_command(status: dict | None, port: int) -> str:
+    """`GET /remote/status`'s `funnelCommand`: a command safe to paste on this machine as it stands, or words. The same
+    rule as the click: the port it already holds, else the first free one, never one holding something else."""
+    if not isinstance(status, dict):
+        return FUNNEL_COPY_UNKNOWN
+    url = funnel_url_for_port(status, port)
+    if url:
+        return funnel_command(_https_port(url) or 443, port)
+    free = next((p for p in FUNNEL_HTTPS_PORTS if not funnel_port_taken(status, p)), None)
+    return funnel_command(free, port) if free is not None else FUNNEL_COPY_TAKEN
 
 
 def funnel_argv(tailscale: str, https_port: int, port: int) -> list[str]:
@@ -577,7 +604,7 @@ def funnel_state(port: int, *, closed_ports: tuple[int, ...] = (), saved_url: st
         would_be = f"https://{state.dns_name}" + ("" if free == 443 else f":{free}")
         if saved_url.rstrip("/") != would_be:
             return _stopped_at("address")
-    return FunnelState("off", command=funnel_command(free, port))
+    return FunnelState("off", CERT_LOG_WORDS, command=funnel_command(free, port))
 
 
 def funnel_wire(state: FunnelState, *, answers: bool | None = None, listener_up: bool = True,

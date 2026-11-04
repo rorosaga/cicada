@@ -484,7 +484,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Headless (G181):** the bank's **home** (a server or any computer; ruling 51 (1), phase 2) is its one writer and binds its API to 127.0.0.1 only; reach from another machine is an
   overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32, 59), and no installer creates or copies a credential (`headless.md`).
   **One click (owner 2026-10-29, amends G132 (c)):** Settings → Devices may run exactly the shown `tailscale serve --bg
-  --https=8443 <port>` (tailnet only) or that one mapping's off — argv built by the backend, 10 s, never `funnel` or `up` (`network.md`).
+  --https=8443 <port>` (tailnet only) or that one mapping's off (`--https=<its port> --set-path=/ off`) — argv built by the backend, 10 s, never `funnel` or `up` (`network.md`).
   **Ruling 59 (owner 2026-11-04):** the person's click, or their shell, may run exactly the shown `tailscale funnel --bg --https=<443|10000> <the
   connector's port>` or that one mapping's off (`--set-path=/`): no port or argv from a request, never over a held port, never 8443, never `up`; nothing stored, every answer read back (`network.md`).
   Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling 28) with its own revocable device

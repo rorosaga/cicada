@@ -291,8 +291,8 @@ word of the person's, and a claim is `origin: remote:<id>`, never the person's o
 (static, nothing about the person). No FastAPI router is reachable through it.
 
 **The tunnel for sign-in is the person's, to this listener only.** claude.ai and ChatGPT reach the Mac from their own
-servers, so the person exposes the G135 listener's port publicly with a stable hostname — `tailscale funnel --bg 8765`
-or `ngrok http 8765 --url <their-domain>`. That is the one public port Cicada is ever reached on: the backend's own port
+servers, so the person exposes the G135 listener's port publicly with a stable hostname — Tailscale Funnel, by the one
+click below, or `ngrok http 8765 --url <their-domain>`. That is the one public port Cicada is ever reached on: the backend's own port
 (8000) is never funnelled (the headless rail, `headless.md`). What the person runs is in
 [`docs/connect-remote-apps.md`](../connect-remote-apps.md).
 
@@ -325,6 +325,15 @@ so a machine that changed since they read it runs nothing); argv only, 10 s, std
   back by itself. Backend down or connector switched off: the mapping remains and nothing answers strangers (the serve proxy's 502, not yet seen on a real funnel); the page
   keeps a card saying *still open, nothing answers* with its off, because the switch never touches Tailscale. Uninstalling
   Cicada does not touch Tailscale either.
+- **The command to copy is safe too.** `/remote/status`'s `funnelCommand` was a bare `tailscale funnel --bg <port>`, which
+  means 443. Pasted on a machine serving the API at `/` on 443 it took that serve away and made the connector public
+  there; with the API or anything else on another path of that port, that went public too. The field
+  stays (the app and older `cicada setup` read it) and follows the click's rule: `--https=` the port it already holds, or
+  the first free one. With none safe it is words, a shell comment with nothing a shell acts on, because an older app
+  shows it in a box to copy: both ports held, Tailscale not answering, or the port set onto the API's. `cicada setup`
+  now says `cicada funnel on`. An app newer than its backend still shows that older backend's bare command.
+- **What HTTPS publishes is said before the click:** the app's line above *Turn on*, `funnel status`, and stderr before
+  `funnel on` runs. Enabling HTTPS publishes the machine's and the tailnet's names on a public certificate log, for good.
 - **Connector off at the click:** it is turned on first, and back off if the door then doesn't open, so a failed click
   changes nothing. The off leaves the connector as it is. An address saved by hand comes first (`address`: clear it), since
   the listener names only that one.
@@ -345,7 +354,8 @@ G132 (c), owner 2026-10-29: "Yes, one click").** Settings → Devices reads two 
 (`tailscale status --json`, `tailscale funnel status --json`) and shows the one next step; a serve of the backend port
 to the tailnet (`tailscale serve --bg --https=8443 <port>`) or closing a funnel of it is shown as a command to copy.
 On the serve step, *Run it for me* runs **exactly that shown command**; on a served address, *Stop serving* runs that one
-mapping's off (`tailscale serve --https=<its port> off`), named in its confirmation before the click
+mapping's off (`tailscale serve --https=<its port> --set-path=/ off`, which leaves any other handler on that port),
+named in its confirmation before the click
 (`POST /devices/reach/serve`, master token, `reach.run_serve`). The app sends only the action (`serve` | `stop`); the
 backend builds the argv from its own port and the person's own ServeConfig, never from a request; the tailscale binary is
 resolved like every other read (`find_tool`, then the app bundle's CLI); argv only, never a shell; 10 s cap; stdin

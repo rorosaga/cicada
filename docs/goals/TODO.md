@@ -1389,6 +1389,27 @@ These are attached to permanent rows instead of becoming a second queue. Older d
 - **G7:** centrality premise remains unproved; no tracked measurement was found, so it is not archived as done.
 - **G92/G19:** old bank-history size is historical, not permission to rewrite git history. No destructive cleanup is implied.
 
+## Known flaky tests
+
+A test here is not fixed and not skipped: each line says what was seen and on what basis. Look here before chasing a
+failure; add to the counts when one comes back.
+
+- **`test_phone_pairing::test_a_replay_after_a_bank_switch_runs_in_the_bank_now_open` (2026-11-04, seen on
+  `feat/g135-funnel-one-click`, PR #607).** Failed once, in a batch of 30 test files, beside a Swift build. **The error
+  text was lost:** that run's output was cut to its last lines, so which assertion failed is unknown. Not reproduced
+  since, and not patched. Whether it is that branch or a flake is not settled: the branch changes no capture or
+  bank-switch code, and the test stubs `tailnet_backend`, the part of `reach.py` that pairing calls. Next time, keep the
+  whole output.
+
+  | Run | The branch | Plain `origin/dev` (`4c99cef4`) |
+  |---|---|---|
+  | The test alone | 5/5 passed | 5/5 passed |
+  | Its module | 3/3 passed | 3/3 passed |
+  | Whole batch, no load | 2/2 passed | 2/2 passed |
+  | Whole batch, beside a Swift build | 1/1 passed | 1/1 passed |
+  | Whole batch, the failing run's reused `HOME` | 1/1 passed | not run |
+  | The original run | **1 failed** | not run |
+
 ## Maintaining this queue
 
 A whole row moves to DONE only after its remaining implementation and required acceptance are complete. If only one slice ships, name the remaining slice and keep the G ID active. Update this file and the reasoning row together; never renumber or silently discard an unresolved seam. Use [working-method.md](working-method.md) for the implementation bar and [BACKLOG_CONTEXT.md](BACKLOG_CONTEXT.md) for original prompts rather than loading old execution logs as current instructions.
@@ -3101,5 +3122,11 @@ A whole row moves to DONE only after its remaining implementation and required a
     its `/` without asking and opens every other path on it; an off with no `--set-path` deletes every handler on the port;
     with Funnel not allowed it prints a link and waits, or exits 0 having changed nothing, so the return code never decides.
     The obvious `tailscale funnel --bg 8765` from our own docs fights `headless.md`'s example serve of the API on 443: it
-    would have made the API public. Details: `network.md`. **Revisit** if embedded `tsnet` (D6′'s "later") is built, if
-    Tailscale changes those behaviours, or if an app refuses the 10000 address.
+    would have silently taken that serve away and made the connector public there, and made public anything mounted on
+    another path of that port, an API included. Details: `network.md`. **Revisit** if embedded `tsnet` (D6′'s "later") is built, if
+    Tailscale changes those behaviours, or if an app refuses the 10000 address. **In the same PR, the same class on this
+    seam:** `/remote/status`'s `funnelCommand` no longer offers the bare command that took over a held 443 (the port the
+    click would use, or a harmless shell comment when none is safe); `cicada setup` says `cicada funnel on`; *Stop serving*
+    and the copy-only unfunnel now name `--set-path=/`, since without it the CLI deletes every handler on the port (the
+    2026-10-29 rail's shown command changes with them); and what enabling HTTPS publishes, for good, is said before the
+    click. The off keeps its confirmation, as *Stop serving* does (coordinator 2026-11-04; the owner can overrule).

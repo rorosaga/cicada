@@ -228,6 +228,10 @@ final class RemoteConnectorTests: XCTestCase {
 
     func testFunnelCopySaysItInWords() {
         XCTAssertEqual(Copy.remoteFunnelLine, "This makes the connector reachable from the internet.")
+        // Said before the click, and it can't be taken back.
+        for words in ["this Mac's name", "your tailnet's name", "public certificate log", "can't be undone"] {
+            XCTAssertTrue(Copy.remoteMachineNameWarning.contains(words), words)
+        }
         XCTAssertTrue(Copy.remoteFunnelWillRun("tailscale funnel --https=443 --set-path=/ off")
             .contains("tailscale funnel --https=443 --set-path=/ off"))
     }

@@ -8,6 +8,8 @@ not allowed, it prints a URL and waits or exits 0 having changed nothing. Nothin
 from __future__ import annotations
 
 import json
+import re
+import shlex
 import stat
 import subprocess
 import sys
@@ -67,7 +69,7 @@ if args[-1] != "off" and args[0] == "funnel":
     if mode:
         print(mode, file=sys.stderr)
         sys.exit(1)
-https = flag("--https")
+https = flag("--https") or "443"  # the CLI's own default
 hp = host + ":" + https
 if args[-1] == "off":
     handlers = serve.get("Web", {{}}).get(hp, {{}}).get("Handlers", {{}})
@@ -180,7 +182,7 @@ def test_the_tailnet_mapping_stays_private_through_on_and_off(stub):
 
 
 def test_a_held_443_is_never_replaced_and_10000_is_used(stub):
-    # `headless.md`'s own suggestion: the backend served to the tailnet on 443. A funnel there would make the API public.
+    # `headless.md`'s own suggestion: the backend served to the tailnet on 443. A funnel there would take that serve away.
     held = web(443, 8000)
     stub.set(serve=held)
     shown, out = click_on(stub)
@@ -215,6 +217,119 @@ def test_8443_is_never_a_candidate_even_when_free():
     assert 8443 not in reach.FUNNEL_HTTPS_PORTS
     with pytest.raises(ValueError):
         reach.funnel_argv("/x/tailscale", 8443, 8765)
+
+
+# ---------- every off removes one mapping, every command to copy is safe to paste ----------
+
+
+def paste(stub, command):
+    """Run a command as the person would, with the stand-in as `tailscale`."""
+    words = shlex.split(command)
+    assert words[0] == "tailscale", command
+    return subprocess.run([str(stub.binary), *words[1:]], capture_output=True, text=True, timeout=10, check=False)
+
+
+def test_stop_serving_keeps_the_other_handlers_on_its_port(stub):
+    stub.set(serve=web(8443, 8000, extra={"/mine": {"Proxy": "http://127.0.0.1:3000"}}))
+    shown = reach.guide(8000, **stub.kw)
+    assert shown["stopCommand"] == "tailscale serve --https=8443 --set-path=/ off"
+    out = reach.run_serve("stop", 8000, **stub.kw)
+    assert out["ok"] and out["ran"] == shown["stopCommand"], "exactly the command shown"
+    assert stub.changes() == [["serve", "--https=8443", "--set-path=/", "off"]]
+    assert list(stub.serve["Web"][f"{HOST}:8443"]["Handlers"]) == ["/mine"]
+
+
+def test_closing_a_funnelled_backend_keeps_the_other_handlers_on_its_port(stub):
+    stub.set(serve=web(443, 8000, funnel=True, extra={"/mine": {"Proxy": "http://127.0.0.1:3000"}}))
+    shown = reach.guide(8000, **stub.kw)
+    assert shown["step"] == "unfunnel" and shown["command"] == "tailscale funnel --https=443 --set-path=/ off"
+    assert paste(stub, shown["command"]).returncode == 0
+    assert list(stub.serve["Web"][f"{HOST}:443"]["Handlers"]) == ["/mine"]
+    assert reach.tailnet_backend(8000, **stub.kw).public is False, "the backend is no longer behind it"
+
+
+def test_without_the_path_the_cli_would_have_deleted_them(stub):
+    """The negative control: what the stand-in does with the old commands, which is what `removeWebServe` does."""
+    stub.set(serve=web(8443, 8000, extra={"/mine": {"Proxy": "http://127.0.0.1:3000"}}))
+    assert paste(stub, "tailscale serve --https=8443 off").returncode == 0
+    assert not stub.serve.get("Web")
+
+
+def test_the_command_to_copy_never_replaces_a_held_443(stub):
+    held = web(443, 8000)  # `headless.md`'s example: the API served to the tailnet on 443
+    stub.set(serve=held)
+    command = reach.detect(8765, **stub.kw).funnel_copy
+    assert command == "tailscale funnel --bg --https=10000 8765"
+    assert paste(stub, command).returncode == 0
+    assert stub.serve["Web"][f"{HOST}:443"] == held["Web"][f"{HOST}:443"]
+    assert stub.serve["AllowFunnel"] == {f"{HOST}:10000": True}
+    assert reach.guide(8000, **stub.kw)["url"] == f"https://{HOST}", "the person's serve of the API still works"
+
+
+def test_the_old_bare_command_took_the_serve_at_root_away(stub):
+    """The negative control: with the API at `/` on 443 the bare command replaces that handler. The API is not public, the
+    connector is, and the person's devices have lost the API."""
+    stub.set(serve=web(443, 8000))
+    assert paste(stub, "tailscale funnel --bg 8765").returncode == 0
+    assert stub.serve["Web"][f"{HOST}:443"]["Handlers"] == {"/": {"Proxy": "http://127.0.0.1:8765"}}
+    assert reach.guide(8000, **stub.kw)["step"] == "serve", "nothing serves the API any more"
+
+
+def test_the_old_bare_command_made_another_path_on_that_port_public(stub):
+    """The negative control: Funnel is per host and port, so whatever else is mounted there, an API included, goes public."""
+    api = {"Proxy": "http://127.0.0.1:8000"}
+    stub.set(serve={"TCP": {"443": {"HTTPS": True}}, "Web": {f"{HOST}:443": {"Handlers": {"/api": api}}}})
+    assert paste(stub, "tailscale funnel --bg 8765").returncode == 0
+    assert stub.serve["AllowFunnel"] == {f"{HOST}:443": True}
+    assert stub.serve["Web"][f"{HOST}:443"]["Handlers"]["/api"] == api
+
+
+@pytest.mark.parametrize("serve, expected", [
+    ({}, "tailscale funnel --bg --https=443 8765"),
+    (web(443, 8765, funnel=True), "tailscale funnel --bg --https=443 8765"),  # already its own: harmless, the same
+    (web(10000, 8765, funnel=True), "tailscale funnel --bg --https=10000 8765"),
+    (web(8443, 8000), "tailscale funnel --bg --https=443 8765"),
+    (merged(web(443, 3000), web(10000, 3001)), reach.FUNNEL_COPY_TAKEN),
+])
+def test_the_command_to_copy_follows_the_same_rule_as_the_click(stub, serve, expected):
+    stub.set(serve=serve)
+    assert reach.detect(8765, **stub.kw).funnel_copy == expected
+
+
+@pytest.mark.parametrize("words", [reach.FUNNEL_COPY_UNKNOWN, reach.FUNNEL_COPY_TAKEN, reach.FUNNEL_COPY_PORT])
+def test_words_in_the_command_field_are_harmless_if_pasted(words):
+    """An older app shows the field in a box to copy. A shell comment, or in an interactive zsh `command not found: #`;
+    nothing in it a shell would act on."""
+    assert re.fullmatch(r"# [A-Za-z0-9_ .,]+", words), words
+
+
+def test_a_tailscale_that_will_not_answer_offers_no_command(stub):
+    def run(argv, **kw):
+        raise subprocess.TimeoutExpired(argv, 2.0)
+
+    assert reach.detect(8765, run=run, **stub.kw).funnel_copy == reach.FUNNEL_COPY_UNKNOWN
+
+
+def test_status_offers_no_command_when_the_port_is_the_apis(route, stub, monkeypatch):
+    client, _listener, _ = route
+    monkeypatch.setenv("CICADA_REMOTE_PORT", str(config.get_settings().port))
+    assert client.get("/remote/status").json()["funnelCommand"] == reach.FUNNEL_COPY_PORT
+
+
+def test_setup_points_at_the_safe_door_and_no_bare_command():
+    from api import cli_setup
+
+    source = Path(cli_setup.__file__).read_text()
+    assert "funnelCommand" not in source and "cicada funnel on" in source
+
+
+def test_what_https_publishes_is_said_before_the_click(stub):
+    state = reach.funnel_state(8765, **stub.kw)
+    assert state.step == "off" and "public certificate log" in state.message and "tailnet's name" in state.message
+    assert "can't be undone" in reach.funnel_wire(state)["message"]
+    stub.set(mode="Funnel not available; HTTPS must be enabled. See https://tailscale.com/s/https.")
+    _, out = click_on(stub)
+    assert "can't be undone" in reach.funnel_wire(out["state"], fix_url=out["fixUrl"])["message"], "still in sight"
 
 
 # ---------- only the connector's port ----------
@@ -442,7 +557,7 @@ def test_status_fields_are_exactly_what_they_were(route, stub):
     body = client.get("/remote/status").json()
     assert set(body) == {"enabled", "port", "listenerUp", "listenerError", "publicBaseUrl", "detectedUrl", "effectiveUrl",
                          "tailscale", "ngrokInstalled", "reachable", "funnelCommand", "ngrokCommand"}
-    assert body["funnelCommand"] == "tailscale funnel --bg 8765" and body["tailscale"] == "no-funnel"
+    assert body["funnelCommand"] == "tailscale funnel --bg --https=443 8765" and body["tailscale"] == "no-funnel"
 
 
 def test_one_click_turns_the_connector_on_and_opens_only_its_port(route, stub):

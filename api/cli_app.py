@@ -1042,7 +1042,8 @@ def _funnel_text(funnel: dict) -> str:
         return funnel.get("message") or (f"Open to the internet at {funnel['url']}." if funnel.get("url")
                                          else "Open to the internet.")
     if step == "off":
-        return f"Not open to the internet. `cicada funnel on` runs: {funnel.get('command')}"
+        return (f"Not open to the internet. `cicada funnel on` runs: {funnel.get('command')}\n"
+                f"{funnel.get('message') or ''}").rstrip()
     return funnel.get("message") or str(step)
 
 
@@ -1061,8 +1062,12 @@ def _funnel_run(boot, action: str, shown: str | None) -> Result:
 
 
 def cmd_funnel_on(boot, args) -> Result:
+    import sys
+
     require_person("Opening the connector to the internet")
     shown = call(boot, "GET", "/remote/funnel", timeout=30)
+    if shown.get("step") == "off" and shown.get("message"):
+        sys.stderr.write(shown["message"] + "\n")  # what it can publish, for good, before it runs
     return _funnel_run(boot, "on", shown.get("command"))
 
 
