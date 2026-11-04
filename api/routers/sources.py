@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import json
 from datetime import date, datetime
 from pathlib import Path
 
@@ -70,6 +72,7 @@ from api.services import (
     saved_at as saved_at_service,
     saved_why,
     site_captures,
+    source_collections,
     source_overview,
     sync_service,
     sync_state,
@@ -1343,9 +1346,13 @@ async def list_channel_items(
     offset: int = Query(0, ge=0),
     limit: int = Query(channel_items.LIMIT_DEFAULT, ge=1, le=channel_items.LIMIT_MAX),
     q: str | None = Query(None, max_length=channel_items.Q_MAX),
+    collection: str | None = Query(None, max_length=200),
     settings: Settings = Depends(get_settings),
 ):
     """What a channel brought in, by name (G161): each item's title and day, newest first, a page at a time.
+
+    `collection` (2026-11-04) narrows the page to one calendar, Reminders list or Notes folder — an id from
+    `GET /sources/channels/{id}/collections`.
 
     source-page-v3 (owner 2026-10-29): `q` narrows the page to what a source page's one search finds — titles, a
     chat's name, a saved link's host, and the words of the episodes behind the rows where the words index has them
@@ -1367,15 +1374,44 @@ async def list_channel_items(
         # Sources v4 (review of #358): `photos` too — a Messages row carries its chat photo's hash.
         etag = sync_service.etag_for(
             memory_path, "sources", "episodes", "entities", "photos",
-            extra=f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}|{q or ''}",
+            extra=f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}|{q or ''}|{collection or ''}",
         )
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early
         # Off the event loop: a cold `bank_index` re-parses every frontmatter (the `/sources/channels` reason).
-        page = await run_in_threadpool(channel_items.items, memory_path, channel_id, offset=offset, limit=limit, q=q)
+        page = await run_in_threadpool(channel_items.items, memory_path, channel_id, offset=offset, limit=limit, q=q,
+                                       collection=collection)
     if page is None:
         raise HTTPException(status_code=404, detail="Unknown channel")
     return page
+
+
+@router.get("/sources/channels/{channel_id}/collections")
+async def list_channel_collections(
+    channel_id: str,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """Where a channel's items live, as their own app files them (2026-11-04): accounts (iCloud, On My Mac, a Google
+    or Exchange account), each with its collections (a calendar, a Reminders list, a Notes folder), how many items each
+    holds and the day the newest came in (`channel_items.collections`). A channel that files nothing this way answers
+    no accounts. Read-only, engine-free, never a Store domain; ETagged like the items, plus what the channel's last
+    sync named (kept beside it in `sync_state.json`)."""
+    memory_path = settings.memory_path
+    if not channel_items.known(memory_path, channel_id):
+        raise HTTPException(status_code=404, detail="Unknown channel")
+    named = source_collections.known(memory_path, channel_id)
+    digest = hashlib.sha256(json.dumps(named, sort_keys=True).encode()).hexdigest()[:16]
+    with sync_ticker.request_scans(memory_path):
+        etag = sync_service.etag_for(memory_path, "sources", "episodes",
+                                     extra=f"{channel_items.SHAPE}|collections|{channel_id}|{digest}")
+        if (early := sync_service.conditional(request, response, etag)) is not None:
+            return early
+        tree = await run_in_threadpool(channel_items.collections, memory_path, channel_id)
+    if tree is None:
+        raise HTTPException(status_code=404, detail="Unknown channel")
+    return tree
 
 
 _OWN_ICON_SEMAPHORE = asyncio.Semaphore(4)
