@@ -22,6 +22,10 @@ extension Copy {
             minutes <= 1 ? "The code works for about a minute more." : "The code works for \(minutes) more minutes."
         }
         static let connected = "Connected"
+        static let signedOut = "GitHub signed Cicada out"
+        static let signedOutWhy = "Its sign-in lapsed or was removed on GitHub. Connect again to keep your repositories "
+            + "in sync; nothing in your memory changes."
+        static let reconnect = "Reconnect"
         static let connectedByToken = "Connected with a token"
         static let installTitle = "One more step: install Cicada on your GitHub account"
         static let installWhy = "It lets Cicada read your own repositories — all of them, or the ones you pick — "

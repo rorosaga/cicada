@@ -725,6 +725,22 @@ def sync_backlinks(memory_path: Path, entity_ids: list[str] | None = None) -> li
     return paths
 
 
+def backlink_pages(memory_path: Path, page_ids, fms=()) -> list[str]:
+    """The repository pages whose back-link may change when ``page_ids`` change (a merge, ``entity_merge``): each one
+    naming any of them, any of them that is itself a repository page, and each one a frontmatter in ``fms`` lists.
+    Reads only — a merge's footprint and its write share it."""
+    from api.services.connectors import github
+
+    ids = set(page_ids)
+    urls = {u for fm in fms for u in project_urls(fm)}
+    out = []
+    for row in starred(Path(memory_path)):
+        named = {str(p) for p in row.get(PROJECTS_KEY) or []}
+        if named & ids or row["entity_id"] in ids or github.repo_url(str(row["full_name"])).lower() in urls:
+            out.append(row["entity_id"])
+    return out
+
+
 def link(memory_path: Path, project_id: str, entity_id: str, *, by: str = "user", how: str = HOW_USER,
          session: str | None = None, remove: bool = False) -> list[str]:
     """``entity_id`` (a repository page) is one of ``project_id``'s repositories — or, with ``remove``, is not. The

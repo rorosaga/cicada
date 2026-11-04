@@ -253,12 +253,47 @@ async def poll() -> dict:
     return {"state": "error", "words": FAILED_WORDS}
 
 
+#: What GitHub answers a refresh whose refresh token is no good any more.
+SIGNED_OUT_ERRORS = frozenset({"bad_refresh_token", "unauthorized_client", "incorrect_client_credentials"})
+RECONNECT_WORDS = "GitHub signed Cicada out. Connect again to keep your repositories in sync."
+
+
+def set_reconnect(value: bool) -> None:
+    """Mark (or clear) "the sign-in lapsed; connect again", beside the install state outside every bank."""
+    data = account()
+    if bool(data.get("reconnect")) == value:
+        return
+    data = {k: v for k, v in data.items() if k != "reconnect"}
+    if value:
+        data["reconnect"] = True
+    _write_account(data)
+
+
+def needs_reconnect() -> bool:
+    return is_app_token() and bool(account().get("reconnect"))
+
+
+def forget_sign_in() -> None:
+    """Everything the code sign-in kept except the token itself: a pasted token now stands alone."""
+    from api.services.connections import secrets
+
+    for name in (REFRESH_ENV, EXPIRES_ENV, HOW_ENV):
+        secrets.remove_secret(name)
+    try:
+        _account_path().unlink()
+    except OSError:
+        pass
+    cancel()
+
+
 def save(body: dict) -> None:
     """Keep what GitHub granted: the token, its refresh token and when it lapses — in ``secrets.env``, never a bank."""
     from api.services.connections import secrets
 
     secrets.set_secret(TOKEN_ENV, str(body["access_token"]))
     secrets.set_secret(HOW_ENV, HOW_APP)
+    if _account_path().exists():
+        set_reconnect(False)
     if body.get("refresh_token"):
         secrets.set_secret(REFRESH_ENV, str(body["refresh_token"]))
     else:
@@ -289,8 +324,13 @@ async def fresh_token() -> None:
         return
     if body.get("access_token") and not body.get("error"):
         save(body)
-    else:
-        logger.info(f"github: token not renewed ({str(body.get('error') or 'no token')[:40]})")
+        return
+    error = str(body.get("error") or "")
+    logger.info(f"github: token not renewed ({(error or 'no token')[:40]})")
+    if error in SIGNED_OUT_ERRORS:
+        # The refresh token itself lapsed (six months) or was revoked: no request can succeed until the person
+        # connects again, and the panel says Reconnect rather than Connected.
+        set_reconnect(True)
 
 
 # --- the install step ----------------------------------------------------------------------------------------------

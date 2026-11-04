@@ -486,7 +486,10 @@ before a sync, a page's README read or the install check, once it is within 5 mi
 `secrets.env` (0600), stripped from every child; whether the app is installed is kept in
 `$CICADA_HOME/connectors/github-account.json` (two flags and a time). Disconnect forgets all of it and the READMEs; the
 grant on GitHub stays until the person removes it at `github.com/settings/applications` (revoking it needs the app's
-secret, which Cicada does not have), and the panel says so.
+secret, which Cicada does not have), and the panel says so. A token the person pastes instead replaces the code
+sign-in whole (`github.on_token_saved`: its refresh token, expiry, `CICADA_GITHUB_AUTH` and install state are
+forgotten), so a renewal never puts the old sign-in's token back. A refresh GitHub refuses (`bad_refresh_token`: the
+refresh token lapsed or was revoked) marks the sign-in lapsed and the panel reads *Reconnect*.
 
 *Why a GitHub App and not an OAuth App.* An OAuth App reaches a private repository only through the `repo` scope,
 which is full read and write. A GitHub App asks for exactly **Metadata: read** and **Contents: read** on repositories
@@ -496,6 +499,8 @@ App's user token "can only access resources in an account where it is installed"
 until `GET /user/installations` lists an installation on their own account; *I installed it* asks again and syncs.
 Stars are an account permission and come in without it. Until the app is installed the owned list reads empty because
 the app cannot see it, so it replaces nothing: no record is tombstoned for it, and the sync says what to do in words.
+Installed on *selected* repositories, one left out of the selection is out of sight, not deleted: never tombstoned,
+and the sync says how many "aren't shared with Cicada on GitHub".
 
 *The owner's one step (registering the app).* Open the link `github_auth.register_url()` prints — GitHub's *Register
 new GitHub App* form, pre-filled by URL parameters: name *Cicada Memory*, homepage, public, webhook off, Metadata /

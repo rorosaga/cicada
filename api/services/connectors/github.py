@@ -78,6 +78,15 @@ REFUSED_WORDS = "GitHub refused Cicada's access. Connect GitHub again in Sources
 #: Signed in with the app, not installed on the person's account: their own repositories are out of its reach.
 NOT_INSTALLED_WORDS = ("Your stars came in. To bring in your own repositories, install Cicada on your GitHub account "
                        "(Sources → GitHub → Install on GitHub).")
+def not_shared_words(n: int) -> str:
+    """Installed on selected repositories only: the ones left out, said — their records and pages are kept."""
+    if n == 1:
+        return ("One of your repositories isn't shared with Cicada on GitHub, so it was not read; its page stays. Add "
+                "it to Cicada's installation on GitHub to read it again.")
+    return (f"{n} of your repositories aren't shared with Cicada on GitHub, so they were not read; their pages stay. "
+            "Add them to Cicada's installation on GitHub to read them again.")
+
+
 #: How many README reads run at once in a sync (a first sync of many repositories).
 README_CONCURRENCY = 4
 
@@ -130,6 +139,13 @@ def forget() -> None:
     github_auth.cancel()
     tier2.forget(_self())
     github_repos.forget_readmes()
+
+
+def on_token_saved() -> None:
+    """The person pasted a token (Settings, or `cicada connector connect github`): the code sign-in it replaces is
+    forgotten — its refresh token, its expiry, its "signed in by code" mark and its install state — so a later renewal
+    never puts the old sign-in's token back over the pasted one."""
+    github_auth.forget_sign_in()
 
 
 async def prepare() -> None:
@@ -319,12 +335,19 @@ async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.
     installed = bool(installation.get("installed"))
     if not installed:
         words.append(NOT_INSTALLED_WORDS)
+    # Installed on some repositories only: one left out of the selection is out of the app's sight, not deleted.
+    selected = installation.get("selection") == "selected"
+    if installed and selected and owned_done:
+        seen_ids = {r.id for r in records}
+        hidden = [r for r in github_repos.owned(memory_path) if r.get("id") not in seen_ids]
+        if hidden:
+            words.append(not_shared_words(len(hidden)))
     batch = tier2.Batch(
         drafts=drafts,
         # The owned list was read whole: a repository gone from it is tombstoned (kept), never silently dropped. A list
-        # cut short at MAX_PAGES replaces nothing, and neither does an empty one the app could not see (not installed:
-        # nothing was deleted on GitHub).
-        replaced=[OWNED_PREFIX.rstrip(":")] if owned_done and installed else [],
+        # cut short at MAX_PAGES replaces nothing, and neither does one the app could not wholly see (not installed, or
+        # installed on selected repositories: nothing was deleted on GitHub).
+        replaced=[OWNED_PREFIX.rstrip(":")] if owned_done and installed and not selected else [],
         seen=len(records) + len(stars),
         cursor={"login_hash": github_repos.login_key(login)} if login else {},
         words=" ".join(words) or None,

@@ -1772,7 +1772,7 @@ agent reads (`agent_methods`), not an install.
   GitHub* (github.com only) and *Copy code*, "Waiting for you to approve on GitHub…" and the minutes left, *Cancel* —
   the model asks `POST /sources/github/connect/poll` every interval the backend gives (`GitHubConnectModel`, its
   `Deps` injected) → connected by code but not installed, *Install on GitHub* (the app's install page) and *I installed
-  it* (asks again, then syncs at once) → *Connected* with Refresh and Disconnect (which says the grant on GitHub is
+  it* (asks again, then syncs at once) → *Connected* (or, once GitHub refuses to renew the sign-in, *GitHub signed Cicada out* with *Reconnect*) with Refresh and Disconnect (which says the grant on GitHub is
   removed there). `GitHubConnectStep.from` decides the step from the backend's answer alone. The token
   (`ConnectorSetupPanel`) is only behind *Use a token instead* — the fallback while the build's app is not registered,
   never the default. Under it **`GitHubReposSection`**: *Your repositories* in their own scroll, each row's name and

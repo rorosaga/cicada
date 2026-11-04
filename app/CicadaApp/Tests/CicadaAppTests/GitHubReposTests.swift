@@ -102,6 +102,14 @@ final class GitHubReposTests: XCTestCase {
         XCTAssertEqual(GitHubConnectStep.from(GitHubConnectStatus(available: false, connected: true, how: "token")),
                        .connected(byToken: true))
         XCTAssertEqual(GitHubConnectStep.minutesLeft(code(), now: 1_000_000), 15)
+        // Review of #588: a sign-in GitHub no longer renews reads Reconnect, never Connected; a new code wins.
+        let lapsed = GitHubConnectStatus(available: true, connected: true, how: "app", installed: true, reconnect: true)
+        XCTAssertEqual(GitHubConnectStep.from(lapsed), .reconnect)
+        var again = lapsed
+        again.pending = code()
+        XCTAssertEqual(GitHubConnectStep.from(again), .code(code()))
+        XCTAssertEqual(GitHubConnectStep.from(GitHubConnectStatus(connected: true, how: "token", reconnect: true)),
+                       .connected(byToken: true))
     }
 
     func testConnectShowsTheCodeOpensGitHubAndWaitsForTheApproval() async {

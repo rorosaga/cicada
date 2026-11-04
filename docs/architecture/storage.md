@@ -1452,7 +1452,9 @@ Round 4 (C2–C4):
   link. `project_urls` also reads what came before the list — a trusted `repo` source, a GitHub URL in `repos:` (or a
   checkout's `remote`), the one `github:` block #587 wrote on a project — so nothing is migrated. `repos:` keeps its
   meaning: the person's local checkouts. The first repository's organisation gives the project its avatar
-  (`logo_service.repo_owner`). The README preview is outside every bank
+  (`logo_service.repo_owner`). A merge of two pages (`entity_merge`, every door) unions both lists through
+  `project_ownership.carry_on_merge` — an unlink on either side wins — and re-derives `github.projects` on each
+  repository page involved. The README preview is outside every bank
   (`$CICADA_HOME/readmes/<bank>/<entity>.json`; `network.md`).
 - On an episode (G133/G134): `turns` (the G118 per-turn sidecar), `evidence_kind`,
   `source_deleted_at`, and a section's `content_sha` — see the Awake rails; on a conversation, `turn_extras` and

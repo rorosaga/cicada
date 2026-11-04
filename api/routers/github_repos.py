@@ -128,6 +128,9 @@ class ConnectStatus(CamelModel):
     #: Connected by code: whether the app is installed on the person's account (what lets it see their repositories).
     installed: Optional[bool] = None
     selection: Optional[str] = None
+    #: Connected by code, but GitHub no longer renews the sign-in (its refresh token lapsed or was revoked): the panel
+    #: says Reconnect, never Connected.
+    reconnect: bool = False
     install_url: Optional[str] = None
     #: GitHub's own page where the person removes the grant.
     grants_url: str = github_auth.GRANTS_URL
@@ -174,7 +177,9 @@ def _connect_status(words: str | None = None) -> ConnectStatus:
         installed=bool(account.get("installed")) if how == github_auth.HOW_APP else None,
         selection=account.get("selection") if how == github_auth.HOW_APP else None,
         install_url=github_auth.install_url() if how == github_auth.HOW_APP else None,
-        pending=ConnectStart(**github_auth.pending()) if github_auth.pending() else None, words=words)
+        reconnect=github_auth.needs_reconnect(),
+        pending=ConnectStart(**github_auth.pending()) if github_auth.pending() else None,
+        words=words or (github_auth.RECONNECT_WORDS if github_auth.needs_reconnect() else None))
 
 
 @router.get("/sources/github/connect", response_model=ConnectStatus)

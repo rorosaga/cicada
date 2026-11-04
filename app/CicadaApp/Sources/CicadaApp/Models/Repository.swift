@@ -170,18 +170,21 @@ struct GitHubConnectStatus: Codable, Equatable, Sendable {
     var installed: Bool?
     var installUrl: String?
     var grantsUrl: String?
+    /// Connected by code, but GitHub no longer renews the sign-in: Reconnect, never Connected.
+    var reconnect: Bool
     var pending: GitHubConnectCode?
     var words: String?
 
     init(available: Bool = false, connected: Bool = false, how: String? = nil, installed: Bool? = nil,
-         installUrl: String? = nil, grantsUrl: String? = nil, pending: GitHubConnectCode? = nil,
-         words: String? = nil) {
+         installUrl: String? = nil, grantsUrl: String? = nil, reconnect: Bool = false,
+         pending: GitHubConnectCode? = nil, words: String? = nil) {
         self.available = available
         self.connected = connected
         self.how = how
         self.installed = installed
         self.installUrl = installUrl
         self.grantsUrl = grantsUrl
+        self.reconnect = reconnect
         self.pending = pending
         self.words = words
     }
@@ -194,6 +197,7 @@ struct GitHubConnectStatus: Codable, Equatable, Sendable {
         installed = try c.decodeIfPresent(Bool.self, forKey: .installed)
         installUrl = try c.decodeIfPresent(String.self, forKey: .installUrl)
         grantsUrl = try c.decodeIfPresent(String.self, forKey: .grantsUrl)
+        reconnect = try c.decodeIfPresent(Bool.self, forKey: .reconnect) ?? false
         pending = try? c.decodeIfPresent(GitHubConnectCode.self, forKey: .pending)
         words = try c.decodeIfPresent(String.self, forKey: .words)
     }

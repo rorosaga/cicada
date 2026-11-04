@@ -727,6 +727,99 @@ def test_the_registration_link_asks_for_read_only_permissions_and_no_webhook():
     assert not any(k.endswith("_url") or k == "callback_urls[]" for k in q)        # nothing to redirect to
 
 
+# --- review of #588 -----------------------------------------------------------------------------------------------
+
+
+def test_a_project_merge_keeps_its_repositories_and_the_persons_unlink_wins(bank):
+    """Blocker 1: a merge (Sleep's dedup, the inbox, a join) carried neither key, so the person's links vanished and a
+    lost unlink let the origin rule link the repository again. Both lists union; an unlink on either side wins; the
+    repository pages name the merged project, never the page that is gone."""
+    from api.services import entity_merge
+
+    _salted()
+    hashed = github_repos.remote_hash("https://github.com/bob-example/alpha-project", SALT)
+    _project(bank, "alpha", born={"origin": "repo", "repo": {"remote": hashed}})
+    _project(bank, "alpha-two")
+    _connect()
+    _sync(bank, FakeGitHub())
+    pages = _pages(bank)
+    alpha, side = pages["bob-example/alpha-project"]["id"], pages["bob-example/side-notes"]["id"]
+    github_repos.link(bank, "alpha-two", side)
+    github_repos.link(bank, "alpha", alpha, remove=True)          # the person's unlink of the origin link
+    assert markdown_parser.parse(bank / "entities" / f"{side}.md").frontmatter["github"]["projects"] == ["alpha-two"]
+    footprint = entity_merge.merge_footprint(bank, "alpha-two", "alpha")
+    assert f"entities/{side}.md" in footprint
+    result = entity_merge.merge_entities(bank, loser_id="alpha-two", winner_id="alpha")
+    assert f"entities/{side}.md" in result["paths"] and set(result["paths"]) <= set(footprint)
+    fm = markdown_parser.parse(bank / "entities" / "alpha.md").frontmatter
+    assert [r["url"] for r in fm["repositories"]] == ["https://github.com/bob-example/side-notes"]
+    assert fm["repositories_removed"] == ["https://github.com/bob-example/alpha-project"]
+    assert markdown_parser.parse(bank / "entities" / f"{side}.md").frontmatter["github"]["projects"] == ["alpha"]
+    bank_index.invalidate(bank)
+    github_repos.link_by_origin(bank)                             # the origin rule still respects the unlink
+    assert [r["url"] for r in markdown_parser.parse(bank / "entities" / "alpha.md").frontmatter["repositories"]] == [
+        "https://github.com/bob-example/side-notes"]
+    # An unlink on the losing page wins over the winner's link too.
+    from api.services import project_ownership
+
+    winner = {"repositories": [{"entity": "x", "url": "https://github.com/a-b/c", "how": "user"}]}
+    project_ownership.carry_on_merge(winner, {"repositories_removed": ["https://github.com/a-b/c"]})
+    assert "repositories" not in winner and winner["repositories_removed"] == ["https://github.com/a-b/c"]
+
+
+def test_a_pasted_token_replaces_the_code_sign_in_whole(api, bank, sign_in):
+    """Blocker 2: a pasted token left the code sign-in's refresh token, expiry and "app" mark behind, so the next
+    renewal put the old sign-in's token back over it. The paste forgets them."""
+    sign_in.answers = [{"access_token": "ghu_old", "refresh_token": "ghr_old", "expires_in": 100}]
+    api.post("/sources/github/connect")
+    sign_in.clock["now"] += 5
+    assert api.post("/sources/github/connect/poll").json()["state"] == "connected"
+    assert github_auth.account()                                       # the install state was checked
+    saved = api.put("/sources/connectors/github/credentials", json={"fields": {github.TOKEN_ENV: TOKEN}})
+    assert saved.status_code == 200, saved.text
+    stored = secrets.load_secrets()
+    assert stored[github.TOKEN_ENV] == TOKEN
+    assert not any(stored.get(n) for n in (github_auth.REFRESH_ENV, github_auth.EXPIRES_ENV, github_auth.HOW_ENV))
+    assert github_auth.account() == {} and not github_auth.is_app_token()
+    sign_in.clock["now"] += 10_000                                     # past the old sign-in's expiry
+    calls = len(sign_in.calls)
+    asyncio.run(github_auth.fresh_token())
+    assert len(sign_in.calls) == calls and secrets.load_secrets()[github.TOKEN_ENV] == TOKEN
+    assert api.get("/sources/github/connect").json()["how"] == "token"
+
+
+def test_a_lapsed_refresh_token_asks_to_reconnect(api, bank, sign_in):
+    sign_in.answers = [{"access_token": "ghu_a", "refresh_token": "ghr_a", "expires_in": 100},
+                       {"error": "bad_refresh_token"},
+                       {"access_token": "ghu_b", "refresh_token": "ghr_b", "expires_in": 28800}]
+    api.post("/sources/github/connect")
+    sign_in.clock["now"] += 5
+    api.post("/sources/github/connect/poll")
+    asyncio.run(github_auth.fresh_token())                             # due: GitHub says the refresh token is no good
+    status = api.get("/sources/github/connect").json()
+    assert status["connected"] is True and status["reconnect"] is True and "Connect again" in status["words"]
+    api.post("/sources/github/connect")
+    sign_in.clock["now"] += 5
+    assert api.post("/sources/github/connect/poll").json()["state"] == "connected"
+    assert api.get("/sources/github/connect").json()["reconnect"] is False
+
+
+def test_a_repository_left_out_of_a_selected_install_is_said_and_never_marked_gone(bank, monkeypatch):
+    _connect()
+    _sync(bank, FakeGitHub())
+    monkeypatch.setenv(github_auth.HOW_ENV, github_auth.HOW_APP)
+    server = FakeGitHub()
+    server.fix["installations"]["installations"][0]["repository_selection"] = "selected"
+    del server.fix["owned"][1]                                         # side-notes is not in the selection
+    assert _sync(bank, server)["status"] == "ok"
+    assert not any(e.get("source_deleted_at") for e in _episodes(bank))
+    words = sync_state.read_sync_state(bank)["github"].get("words") or ""
+    assert github.not_shared_words(1) in words and words.count("isn't shared with Cicada") == 1
+    assert "3 of your repositories aren't shared" in github.not_shared_words(3)
+    assert [r["full_name"] for r in github_repos.owned(bank)] == ["bob-example/alpha-project",
+                                                                  "bob-example/side-notes"]
+
+
 def test_the_cli_commands_call_the_backends_routes_as_the_person(monkeypatch):
     from types import SimpleNamespace
 

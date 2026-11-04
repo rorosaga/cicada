@@ -78,14 +78,17 @@ enum GitHubConnectStep: Equatable {
     case code(GitHubConnectCode)
     /// Connected by code, but Cicada is not installed on the person's account: their repositories are out of reach.
     case install(url: String)
+    /// Connected by code, but the sign-in lapsed (its refresh token expired or was revoked): connect again.
+    case reconnect
     case connected(byToken: Bool)
 
     static func from(_ status: GitHubConnectStatus) -> GitHubConnectStep {
+        if let code = status.pending { return .code(code) }
         if status.connected {
+            if status.how == "app", status.reconnect { return .reconnect }
             if status.how == "app", status.installed == false, let url = status.installUrl { return .install(url: url) }
             return .connected(byToken: status.how == "token")
         }
-        if let code = status.pending { return .code(code) }
         return status.available ? .disconnected : .unavailable
     }
 
@@ -327,6 +330,17 @@ struct GitHubConnectPanel: View {
                 Spacer(minLength: CicadaTheme.spacingSM)
                 PrimaryActionButton(title: Copy.GitHub.install, systemImage: "arrow.up.right") { model.openInstall() }
                     .disabled(model.busy)
+            }
+            connectedControls
+        case .reconnect:
+            Text(Copy.GitHub.signedOut).font(CicadaTheme.font(size: 12, weight: .semibold))
+                .foregroundStyle(CicadaTheme.textPrimary)
+            line(Copy.GitHub.signedOutWhy)
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Spacer(minLength: CicadaTheme.spacingSM)
+                PrimaryActionButton(title: Copy.GitHub.reconnect) { Task { await model.connect() } }
+                    .disabled(model.busy)
+                    .help(Copy.GitHub.connectHelp)
             }
             connectedControls
         case .connected(let byToken):
