@@ -115,7 +115,7 @@ def same_number(held: str | None, new_token: str, settings) -> bool:
 
 def match_digits(raw: str | None) -> str | None:
     """What identifies a number however it was written, or ``None`` for what is not a number's length."""
-    digits = re.sub(r"\D", "", str(raw or ""))
+    digits = re.sub(r"[^0-9]", "", str(raw or ""))   # ASCII only: the app's hash reads the same digits
     if not MIN_DIGITS <= len(digits) <= MAX_DIGITS:
         return None
     return digits[-MATCH_DIGITS:]
@@ -384,7 +384,7 @@ def _raw_person_span(content: str, raw: str, episode_id: str, *, override, gaps)
     session, a note). The body keeps them as it always has; the claim does not."""
     from api.services import evidence
 
-    digits = re.sub(r"\D", "", raw)
+    digits = re.sub(r"[^0-9]", "", raw)
     if not digits:
         return None
     pattern = re.compile(r"[ .\-()]*".join(re.escape(d) for d in digits))
@@ -496,6 +496,8 @@ _ADDITIONAL_RE = re.compile(
     r"tambi[eé]n|otro|otra|segundo|segunda|trabajo|oficina|casa|fijo|aussi|autre|travail|auch|arbeit|zweite)\b")
 _PAST_RE = re.compile(
     r"(?i)\b(old|former|previous|used to|was|antiguo|antigua|viejo|vieja|anterior|ancien|ancienne|alte|alter)\b")
+#: "changed from <the old number> to <the new one>": the token right after one of these is the one that ended.
+_FROM_RE = re.compile(r"(?i)\b(?:from|de|desde|instead of|en vez de|en lugar de|von|au lieu de)\s+$")
 
 
 def classify(line: str) -> str:
@@ -576,8 +578,8 @@ def annotate(incoming: list, memory_path: Path, owner_id: str | None) -> tuple[l
     audit: list[dict] = []
     cards: dict[str, list[str]] | None = None
     for claim in incoming:
-        if not is_number_claim(claim):
-            kept.append(claim)
+        if not is_number_claim(claim) or claim.source_trust == "user_stated":
+            kept.append(claim)      # the person's own hand needs no line read
             continue
         line = _line_of(memory_path, claim)
         if line is None:
@@ -587,6 +589,9 @@ def annotate(incoming: list, memory_path: Path, owner_id: str | None) -> tuple[l
         ids = token_ids(line)
         tid = token_ids(claim.object)[0]
         claim.number_replaces = [t for t in ids[:ids.index(tid)]] if tid in ids else []
+        at = line.find(token(tid))
+        if at > 0 and _FROM_RE.search(line[:at]):
+            claim.number_change = PAST    # a model filed the old number of a "from … to …" too
         fm = _page_of(memory_path, claim.subject)
         if fm is None:      # no page yet: Stage 5's write-back holds it on the name's pending line
             kept.append(claim)

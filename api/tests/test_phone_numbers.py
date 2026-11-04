@@ -553,6 +553,32 @@ def test_changed_from_one_to_another_files_only_the_new_one(memory):
     assert [c.object for c in claims_on(memory, "ana-diaz") if c.predicate == "phone" and c.valid_to is None] == [t2]
 
 
+def test_changed_from_one_to_another_with_both_filed_keeps_only_the_new_one_either_order(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    t1, t2 = tok(memory, A), tok(memory, B)
+    ep = episode(memory, "2026-08-25", f"Ana Diaz changed her number from {t1} to {t2}")
+    both = extraction(memory, ep, "Ana Diaz", t2)
+    both["values"] = extraction(memory, ep, "Ana Diaz", t2)["values"] + extraction(memory, ep, "Ana Diaz", t1)["values"]
+    pipeline(memory, both, name_to_id={"ana diaz": "ana-diaz"})
+    assert [c.object for c in claims_on(memory, "ana-diaz") if c.predicate == "phone" and c.valid_to is None] == [t2]
+
+
+def test_two_people_on_one_line_are_two_numbers(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    page(memory, "bob-example", "Bob Example")
+    t1, t2 = tok(memory, A), tok(memory, B)
+    ep = episode(memory, "2026-08-25", f"Ana Diaz's new number is {t1} and Bob Example's new number is {t2}")
+    both = extraction(memory, ep, "Ana Diaz", t1)
+    both["values"] += extraction(memory, ep, "Bob Example", t2)["values"]
+    pipeline(memory, both, name_to_id={"ana diaz": "ana-diaz", "bob example": "bob-example"})
+    assert [c.object for c in claims_on(memory, "ana-diaz") if c.predicate == "phone" and c.valid_to is None] == [t1]
+    assert [c.object for c in claims_on(memory, "bob-example") if c.predicate == "phone" and c.valid_to is None] == [t2]
+
+
+def test_digits_in_another_script_are_not_a_number_to_hash(home):
+    assert phone_numbers.match_digits("\u0662\u0660\u0662\u0665\u0665\u0665\u0660\u0661\u0664\u0663") is None
+
+
 def test_a_number_for_a_name_with_no_page_is_held_and_lands_when_it_has_one(memory):
     t = tok(memory, A)
     ep = episode(memory, "2026-08-20", f"Carla Example's number is {t}")
