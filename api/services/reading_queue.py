@@ -440,6 +440,10 @@ def counts(memory_path: Path, *, warm_only: bool = False, include_words_origin: 
     from api.services import saved_lists
 
     asks += len(saved_lists.due(memory_path))
+    # G89 (2026-11-04): a Substack list the person turned on (offered only when no other site's list is due).
+    from api.services import substack_lists
+
+    asks += len(substack_lists.due(memory_path))
     if not reading_settings.allowed_sites():
         return asks, 0
     if warm_only and not bank_index.is_warm(memory_path, "entities"):

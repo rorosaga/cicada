@@ -89,6 +89,8 @@ enum SourceCatalog {
     /// G95 (2026-11-03) — Meeting recorders: Hex's own Markdown folder, and any other folder of transcripts. Both are
     /// meeting folders (`FolderRegistration.isMeetings`), told apart by the folder's `recorder`.
     static let hexId = "hex"
+    /// G89 — Substack's entry, and the `savedListsOn` key its lists read as.
+    static let substackId = "substack"
     static let meetingFoldersId = "meeting-folders"
 
     /// The fixed entries. Browsers on this Mac and watched folders are added from what is present (`entries`).
@@ -116,6 +118,10 @@ enum SourceCatalog {
                            channels: ["spotify", "spotify-listening"], verb: .importFile),
         SourceCatalogEntry(id: "tiktok", group: .accounts, title: "TikTok", origin: "tiktok-saved",
                            channels: ["tiktok"], tile: .tiktok, site: "tiktok", verb: .importFile),
+        // G89 (2026-11-04): Substack gives readers no API or export — the person's own agent reads Saved, History and
+        // Subscriptions in their browser (the overview's own ids: saves, then reading days).
+        SourceCatalogEntry(id: substackId, group: .accounts, title: "Substack", origin: "substack-saved",
+                           channels: ["substack", "substack-history"], verb: .connect(Copy.Catalog.turnOn)),
         SourceCatalogEntry(id: "calendar-local", group: .thisMac, title: "Calendar", origin: "calendar-local",
                            channels: ["calendar-local"], verb: .connect(Copy.Catalog.connectCalendar)),
         SourceCatalogEntry(id: "contacts-local", group: .thisMac, title: "Contacts", origin: "contacts-local",
@@ -292,6 +298,8 @@ enum SourceCatalog {
         } ?? false
             // 2026-10-26: the same for YouTube's Watch later and history (`savedListsOn` holds "youtube" then).
             || (entry.id == "youtube" && savedListsOn.contains("youtube"))
+            // G89: and for Substack's lists (`savedListsOn` holds "substack" then).
+            || (entry.id == substackId && savedListsOn.contains(substackId))
         if agentReads { return localAgent ? .connected : .waitingForAgent }
         return .off
     }

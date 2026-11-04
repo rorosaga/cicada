@@ -36,6 +36,11 @@ final class ReadingAgentModel {
                                                           savedLists: lists)
         }
 
+        /// G89 (2026-11-04) — a Substack list patch `{saved|history|subscriptions: true|false}`.
+        var writeSubstack: @MainActor ([String: Bool]) async throws -> ReadingSettingsResponse = {
+            try await APIClient.shared.setReadingSettings(substackLists: $0)
+        }
+
         @MainActor static var live: Deps {
             Deps(fetch: { try await APIClient.shared.fetchReadingSettings() },
                  write: { on, sites, ack in
@@ -125,6 +130,24 @@ final class ReadingAgentModel {
         defer { busy = false }
         do {
             settings = try await deps.writeYouTube([list.rawValue: on])
+            note = nil
+            return true
+        } catch APIError.httpError(let code, let body) where code == 422 {
+            note = ProjectWriteFailure.detail(body) ?? Copy.Reading.saveFailed
+            return false
+        } catch {
+            note = Copy.Reading.saveFailed
+            return false
+        }
+    }
+
+    /// G89 — turn one Substack list on or off. On again lifts a sign-in pause (Try again).
+    @discardableResult
+    func setSubstackList(_ list: SubstackList, _ on: Bool) async -> Bool {
+        busy = true
+        defer { busy = false }
+        do {
+            settings = try await deps.writeSubstack([list.rawValue: on])
             note = nil
             return true
         } catch APIError.httpError(let code, let body) where code == 422 {
@@ -705,6 +728,8 @@ struct ReadingFirstUseSheet: View {
     /// 2026-10-26 — raised by a YouTube list's switch on the Sources page's YouTube row: Turn on enables agent reading
     /// with the acknowledgement, then that list.
     var youtubeList: YouTubeList? = nil
+    /// G89 (2026-11-04) — raised by a Substack list's switch on the Substack entry: the same, then that list.
+    var substackList: SubstackList? = nil
     let done: () -> Void
     @State private var understood = false
     @State private var failure: String?
@@ -741,6 +766,9 @@ struct ReadingFirstUseSheet: View {
                         let ok = if let youtubeList {
                             await model.setEnabled(true, acknowledge: true, site: nil)
                                 ? await model.setYouTubeList(youtubeList, true) : false
+                        } else if let substackList {
+                            await model.setEnabled(true, acknowledge: true, site: nil)
+                                ? await model.setSubstackList(substackList, true) : false
                         } else if savedList, let site {
                             await model.setSavedList(site, true, acknowledge: true)
                         } else {

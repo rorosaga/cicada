@@ -1998,6 +1998,21 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   PUT answers 422 with that sentence otherwise). The accent is not used here beyond the toggle's own tint (DR-5); no
   new mark (the family's bundled mark already heads the column, DR-52). A `needs_login` lands as the G205 agent
   request in the Inbox, not on this row.
+- **Substack (G89, built 2026-11-04).** One Accounts entry, *Substack* (`SourceCatalog.substackId`, origin
+  `substack-saved`, the overview's `substack` saves and `substack-history` reading days; no `site`, so no per-site page
+  grant is drawn). Its detail holds, only while it is off, one line on why the agent reads it (Substack gives readers no
+  way to connect another app), then the three lists' switches the YouTube row's way (`substackListToggle`, words
+  from the pure `SubstackListWords`: *Keep Saved current*, *Keep reading history current*, *Follow my subscriptions*;
+  under each, off — "Off — your agent never opens …", on — the last read's day (DR-58), "Waiting for your agent", or
+  "Your agent wasn't signed in to Substack. Paused until <day> — turn it on again to try sooner."), each bound to
+  `GET /reading/settings` `substackLists.<list>` and written by `PUT /reading/settings {"substackLists": {…}}` (not a
+  Store domain, in memory; never a `sites` grant). Turning one on with agent reading off or its sheet unacknowledged
+  opens the first-use sheet first (`ReadingFirstUseSheet(substackList:)`), whose Turn on enables agent reading and that
+  list. Under the switches, once any publication is followed: "Following N publications through their public feeds"
+  (`SubstackFollowing.count` over the Store's `feeds`, tag `substack`). The row reads Off until a list is on, *On ·
+  waits for your agent* with no local agent, Connected with one (`savedListsOn` holds `substack`), and Connected once
+  its saves or reading days are in memory. The mark is a symbol (`newspaper.fill`, tinted 0xFF6719): no Substack logo
+  is bundled (DR-52). Applies DR-5, DR-20, DR-40, DR-58, DR-81.
 - **Watch history is never a save.** YouTube and TikTok history days are their own captured rows (*YouTube history*,
   *TikTok history*), headlined by their days ("30 watched days", `SourceOverview.isWatchHistory`), and their detail
   lists those days by title under the row's own id (`GET /sources/channels/youtube-history/items`, each opening in the
