@@ -6,10 +6,18 @@ final class FakeReminders: ReminderScheduling {
     var permissionAsks = 0
     var scheduled: [String] = []
     var cancelled: [String] = []
+    var weekly: [ExportHabit] = []
+    var weeklyCancelled: [String] = []
+    var arrivals: [ChatVendor] = []
     init(grant: Bool) { self.grant = grant }
+    var authorized: Bool?
     func requestPermission() async -> Bool { permissionAsks += 1; return grant }
+    func isAuthorized() async -> Bool { authorized ?? grant }
     func schedule(_ wait: ExportWait) async { scheduled.append(wait.id) }
     func cancel(_ wait: ExportWait) { cancelled.append(wait.id) }
+    func scheduleWeekly(_ habit: ExportHabit) async { weekly.append(habit) }
+    func cancelWeekly(_ habit: ExportHabit) { weeklyCancelled.append(habit.id) }
+    func announceArrival(_ vendor: ChatVendor) async { arrivals.append(vendor) }
 }
 
 /// Track I part b (design §5.5, R-IB22) — a reminder is a per-viewer

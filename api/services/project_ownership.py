@@ -67,7 +67,11 @@ VIA_APP, VIA_CLI, VIA_AGENT, VIA_ACCEPTED, VIA_FOLDER, VIA_IMPORT, VIA_PROGRESS 
 CLAUDE_EXPORT_MINE = True
 
 MAX_NAME = 120
-MAX_DESCRIPTION = 600
+#: The person's description is the project page's lead in their own words (owner 2026-11-04: "a better bigger page
+#: view for describing this"): paragraphs kept, at most this many characters.
+MAX_DESCRIPTION = 4000
+#: Pages attached in one New project, at most.
+MAX_ATTACH = 100
 MAX_TIED = 500
 #: A suggestion's reason, strongest first: how the list orders them (proposal §2.3, mitigation 2).
 WHY_ORDER = ("repo", "words", "agent", "provider", "export", "none", "fallback")
@@ -119,7 +123,20 @@ def logged_progress(claims) -> bool:
 
 
 def description(fm: dict | None) -> str:
-    return " ".join(str((fm or {}).get(DESCRIPTION_KEY) or "").split())
+    """The person's description as they wrote it, paragraphs kept (:func:`clean_description`'s form)."""
+    value = (fm or {}).get(DESCRIPTION_KEY)
+    return clean_description_lenient(value) if value else ""
+
+
+def clean_description_lenient(text) -> str:
+    """:func:`clean_description` without the length check (a page written before the cap moved is read as it is)."""
+    lines = [" ".join(line.split()) for line in str(text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+def first_line(text: str | None) -> str:
+    """The description's first non-empty line: what one-line surfaces (the list row) show."""
+    return next((line.strip() for line in str(text or "").split("\n") if line.strip()), "")
 
 
 def description_by(fm: dict | None) -> dict | None:
@@ -234,8 +251,16 @@ def clean_name(name) -> str:
     return text
 
 
-def clean_description(text) -> str:
-    out = " ".join(str(text or "").split())
+def clean_description(text, *, bank: str | None = None) -> str:
+    """The person's words with their paragraphs and line breaks kept: runs of spaces inside a line fold to one, each
+    line is trimmed, and more than one blank line folds to one. Every door that writes a description comes through here
+    (create, the header's PATCH, ``page_edits``, a provider import), so it scrubs: secrets and one-time codes redacted
+    first, the count ledgered as ``project`` (every writer scrubs; ``backlog._scrub``'s R-B10)."""
+    from api.services import episode_scrub
+
+    scrubbed, n = episode_scrub.scrub(str(text or ""))
+    episode_scrub.record("project", n, bank=bank)
+    out = clean_description_lenient(scrubbed)
     if len(out) > MAX_DESCRIPTION:
         raise OwnershipError(f"A description is at most {MAX_DESCRIPTION} characters.")
     return out
@@ -274,7 +299,7 @@ def create(memory_path: Path, name: str, desc: str = "", *, via: str, by: str, l
     agent), else the page waits under Suggested. Raises :class:`OwnershipError` for a name already taken."""
     memory_path = Path(memory_path)
     name = clean_name(name)
-    desc = clean_description(desc)
+    desc = clean_description(desc, bank=memory_path.name)
     if (taken := existing_named(memory_path, name)) is not None:
         raise OwnershipError(f"'{name}' is already a page in memory ({taken}). Use that page instead.")
     day = _today(today)
@@ -306,7 +331,7 @@ def create(memory_path: Path, name: str, desc: str = "", *, via: str, by: str, l
         fm[PROVIDER_KEY] = [provider]
     page = memory_path / "entities" / f"{eid}.md"
     page.parent.mkdir(parents=True, exist_ok=True)
-    lead = desc or name
+    lead = " ".join(desc.split()) if desc else name
     markdown_parser.write(page, fm, f"## Summary\n{lead}")
     bank_index.invalidate()
     return eid, [f"entities/{eid}.md"]
@@ -385,14 +410,14 @@ def _rename(fm: dict, new: str) -> bool:
 
 
 def apply_header(fm: dict, *, name: str | None = None, desc: str | None = None, by: str, day: str,
-                 session: str | None = None) -> list[str]:
+                 session: str | None = None, bank: str | None = None) -> list[str]:
     """Rename (the slug never changes; the old name becomes an alias) and set the description with its blame, in a
     frontmatter dict. Returns the changes, in words. ``page_edits.plan`` and the app's PATCH both come through here."""
     changes: list[str] = []
     if name is not None and _rename(fm, clean_name(name)):
         changes.append("renamed")
     if desc is not None:
-        text = clean_description(desc)
+        text = clean_description(desc, bank=bank)
         if text != description(fm):
             if text:
                 fm[DESCRIPTION_KEY] = text
@@ -413,7 +438,8 @@ def set_header(memory_path: Path, stem: str, *, name: str | None = None, desc: s
     def change(fm: dict):
         if not is_project_like(fm):
             raise OwnershipError(f"{stem!r} is not a project.")
-        return bool(apply_header(fm, name=name, desc=desc, by=by, day=day, session=session)) or False
+        return bool(apply_header(fm, name=name, desc=desc, by=by, day=day, session=session,
+                                 bank=Path(memory_path).name)) or False
 
     return _rewrite(memory_path, stem, change)
 
@@ -598,6 +624,95 @@ def tie_page(memory_path: Path, stem: str, entity: str, *, remove: bool = False,
         return None
 
     return _rewrite(memory_path, stem, change)
+
+
+def repository_page(memory_path: Path, entity: str) -> str | None:
+    """The GitHub repository page ``entity`` names (an id or a name; ruling 53), else ``None``."""
+    from api.services import github_repos
+    from api.services.id_utils import resolve_entity_file
+
+    ref = str(entity or "").strip()
+    page = resolve_entity_file(memory_path, ref) if ref else None
+    if page is None:
+        return None
+    fm = markdown_parser.parse(page, ledger=False).frontmatter or {}
+    return page.stem if github_repos.is_repository_page(fm) and github_repos.page_repo(fm) else None
+
+
+def check_attachable(memory_path: Path, entity: str) -> str:
+    """The page id the person may attach to a new project, or :class:`OwnershipError` in words — the checks
+    :func:`tie_page` makes that do not need the project, run before anything is written."""
+    from api.services.id_utils import resolve_entity_file
+
+    page = resolve_entity_file(memory_path, str(entity or "").strip()) if str(entity or "").strip() else None
+    if page is None:
+        raise OwnershipError(f"No page {entity!r}.")
+    fm = markdown_parser.parse(page, ledger=False).frontmatter or {}
+    if str(fm.get("status") or "active") == "dropped":
+        raise OwnershipError(f"{page.stem!r} was dropped from memory.")
+    if fm.get("owner") is True:
+        raise OwnershipError("The person's own page is part of every project; it is never tied by hand.")
+    return page.stem
+
+
+def attach(memory_path: Path, stem: str, entity: str, *, remove: bool = False) -> list[str]:
+    """The person attaches a page to their project, or takes it off — one door for every kind of page (owner
+    2026-11-04: "selecting entity pages from different sources … that will be linked to a project"). A GitHub
+    repository page becomes one of the project's repositories (ruling 53: ``github_repos.link``, the one writer of
+    ``repositories:``); every other page is a hand tie (:func:`tie_page`). Taking a repository off unlinks it
+    (remembered) and says "Not part of it" as well, so no automatic layer draws it back; adding one the person had
+    taken off lifts that. Raises :class:`OwnershipError` in words."""
+    repo = repository_page(memory_path, entity)
+    project = markdown_parser.parse(_page(memory_path, stem), ledger=False).frontmatter or {}
+    if repo is None or str(project.get("type") or "") != "project":
+        return tie_page(memory_path, stem, entity, remove=remove)
+    from api.services import github_repos
+
+    try:
+        paths = github_repos.link(memory_path, stem, repo, remove=remove)
+    except (LookupError, github_repos.LinkRefused) as exc:
+        raise OwnershipError(f"Nothing changed — {exc}") from exc
+    if remove or repo in pages(project, PAGES_REMOVED_KEY):
+        paths += tie_page(memory_path, stem, repo, remove=remove)
+    return list(dict.fromkeys(paths))
+
+
+def create_with_pages(memory_path: Path, name: str, desc: str, pages, *, via: str, by: str = "user",
+                      today: date | None = None) -> tuple[str, list[str], list[str]]:
+    """New project with the pages the person attached: ``(id, every path written, the paths created)`` — all or
+    nothing (review of #595, B1). Each page is checked first (:func:`check_attachable`); a check that can only run once
+    the page exists (a ``part-of`` claim naming the new project by its name makes that page its sub-project, which
+    :func:`tie_page` refuses) runs in :func:`attach`, and any failure there — or any other exception — takes back every
+    file this call wrote: the new page is removed and each repository page whose back-link was written is restored
+    byte for byte, so a refusal leaves no orphan behind and a retry is not told the name is taken."""
+    memory_path = Path(memory_path)
+    targets = list(dict.fromkeys(check_attachable(memory_path, p) for p in pages))
+    # What `attach` may rewrite besides the new page: a repository page's back-link (`github_repos.sync_backlinks`).
+    saved = {}
+    for stem in targets:
+        if repository_page(memory_path, stem):
+            f = memory_path / "entities" / f"{stem}.md"
+            saved[f] = f.read_bytes()
+    eid, created = create(memory_path, name, desc, via=via, by=by, listed=True, today=today)
+    paths = list(created)
+    try:
+        for page in targets:
+            paths += attach(memory_path, eid, page)
+    except BaseException:
+        _take_back(memory_path, eid, saved)
+        raise
+    return eid, list(dict.fromkeys(paths)), list(created)
+
+
+@page_lock.locked
+def _take_back(memory_path: Path, eid: str, saved: dict) -> None:
+    for suffix in (".md", ".claims.jsonl"):
+        (Path(memory_path) / "entities" / f"{eid}{suffix}").unlink(missing_ok=True)
+    for f, data in saved.items():
+        tmp = f.with_name(f".{f.name}.restore")
+        tmp.write_bytes(data)
+        tmp.replace(f)
+    bank_index.invalidate()
 
 
 def add_provider(fm: dict, entry: dict) -> bool:

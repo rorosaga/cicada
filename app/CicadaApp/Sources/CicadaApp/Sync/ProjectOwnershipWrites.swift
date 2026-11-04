@@ -4,7 +4,9 @@ import Foundation
 /// suggestion, edit the header, tie or untie a conversation, add or take back an influence. One enum so the transport
 /// stays one requirement on `SyncAPI` (every route answers `ProjectOwnershipResponse`, 409 while Sleep writes).
 enum ProjectChange: Equatable, Sendable {
-    case create(name: String, description: String)
+    /// New project (owner 2026-11-04): the person's name and description, and the pages they attached — one request,
+    /// one commit on the server (a repository becomes one of the project's repositories, ruling 53).
+    case create(name: String, description: String, pages: [String] = [])
     case accept(id: String, name: String?)
     case dismiss(id: String)
     case header(id: String, name: String?, description: String?)
@@ -30,8 +32,10 @@ enum ProjectChange: Equatable, Sendable {
             if let value, !value.isEmpty { body[key] = value }
         }
         switch self {
-        case .create(let name, let description):
-            return ("POST", "/projects", ["name": name, "description": description])
+        case .create(let name, let description, let pages):
+            var body: [String: Any] = ["name": name, "description": description]
+            if !pages.isEmpty { body["pages"] = pages }
+            return ("POST", "/projects", body)
         case .accept(let id, let name):
             var body: [String: Any] = [:]
             set(&body, "name", name)

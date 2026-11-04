@@ -393,6 +393,7 @@ way. As applied on 2026-10-28:
 | Google | Calendar on the Mac reader; API only for what the Mac cannot read (Drive, Docs), on ask | the Mac already reads Calendar |
 | YouTube | harness (G71 browser history, Watch later through the agent) | the official API does not return watch history |
 | Letterboxd | harness, plus its public per-diary RSS through the feed gate | its API is granted by request; adopt it only if granted |
+| Substack | harness (the person's agent reads Saved, History and Subscriptions in their own browser, G89, built 2026-11-04), plus each publication's public `/feed` through the feed gate | researched 2026-11-04: no reader API or OAuth app programme (its OAuth server, `substack.com/.well-known/oauth-authorization-server`, serves only its own MCP connector at `mcp.substack.com/api/v1/mcp`, which is publisher analytics for an admin of a Bestseller publication and "cannot access profile data or Notes activity"); no reader export (Exports are a publisher's; a reader can only email a privacy request); no Mac app (iPhone, iPad, Apple TV, Vision Pro); the terms (6 Oct 2026) forbid crawling or scraping "through use of manual or automated means". The private `substack.com/api/v1/...` reader endpoints with the person's session cookie are scraping behind authentication — out (the ToS rail). Revisit if Substack opens its OAuth to third-party apps with a reader scope |
 | WhatsApp | local database, read by the app (built 2026-10-28, `whatsapp_source`; no network at all) | no sanctioned personal-account API; an unofficial client risks a ban |
 | Pocket | export only | the service closed in 2025 |
 
@@ -763,6 +764,14 @@ shares a memory — it publishes its log, it is a copy, or a device is paired wi
 demo, `CICADA_SYNC_DOOR=off` to keep it shut. It is **a sealed-frame endpoint only: never the HTTP API, never a token,
 never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
 
+- **TCP, decided (ruling 51f, owner 2026-11-04).** The door's carrier stays TCP (owner 2026-11-04: "if you find TCP
+  working better than UDP, then let's go for TCP"); a UDP door is parked in #590 (draft) after three security-review
+  rounds each found a new availability bug in its hand-rolled reliable channel — unbounded reassembly memory, quadratic
+  CPU from tiny pieces, then a session deadlock once its held-piece cap was reached — while the TCP door passed three
+  rounds clean, and on real Wi-Fi the throughput difference does not matter. Revisit with slice 3 (the hole punch needs
+  UDP), with a vetted transport (QUIC behind the authenticated gate, or a maintained library), never a hand-rolled
+  channel. The app's Bonjour stays `_cicada._tcp`.
+
 - **Who may connect.** T3 Code's rule, made exact: a connection on the loopback socket from loopback, on a private
   socket from a private address, on a Tailscale socket from Tailscale's ranges; anything else is closed before a byte
   is read.
@@ -795,8 +804,8 @@ never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
   reordered frame fails and closes the connection.
 - **Unauthenticated first packets are dropped silently.** A hello that does not open, is more than 5 min old or new,
   repeats a fresh key already seen, or names no device of the group is closed without one byte sent back. Over TCP a
-  scanner learns only that a port accepted a connection; it never learns what listens (the UDP door of slice 2's punch
-  would show nothing at all).
+  scanner learns only that a port accepted a connection; it never learns what listens (a UDP door would show nothing
+  at all — parked until slice 3, above).
 - **Rate-limited.** Per source (an IPv4 address, an IPv6 /64) a bucket of 10 handshakes refilled one per 2 s (a failed one costs 3); at most 32
   connections waiting for their hello (3 s each) and 128 sessions; a frame at most 513 KiB, a request body 32 MiB, an
   idle session closes after 120 s.
