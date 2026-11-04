@@ -911,7 +911,7 @@ def test_pick_media_matches_the_stored_attachment_then_its_kind():
     at = T0
     named = TgMessage(id=3, chat=FRIEND, date=at, out=False, media={"kind": "", "name": "plan.pdf",
                                                                      "mime": "application/pdf"})
-    photo = TgMessage(id=2, chat=FRIEND, date=at + 1, out=False, media={"kind": "image", "name": ""})
+    photo = TgMessage(id=2, chat=FRIEND, date=at, out=False, media={"kind": "image", "name": ""})
     late = TgMessage(id=4, chat=FRIEND, date=at + 5, out=False, media={"kind": "image", "name": ""})
     service = TgMessage(id=5, chat=FRIEND, date=at, out=False, service=True, media={"kind": "image", "name": ""})
     pick = telegram_account.pick_media
@@ -966,3 +966,31 @@ def test_a_preview_asks_telegrams_own_size_nearest_320_px_in_telethons_order():
     two = sorted([small, stripped], key=telegram_port._thumb_order)
     assert two[telegram_port.preview_index([small, stripped])] is small, "nothing at 320 px: the largest"
     assert telegram_port.preview_index([stripped, outline]) is None, "never a stripped blur or a vector outline"
+
+
+def test_a_burst_across_a_second_shows_each_photo_under_its_own_turn():
+    """#597 review B1: photos A and B said at T and C at T+1 — every one "unnamed", timed to the whole second. The app
+    counts a turn's place only among turns of the same second (`ChatMedia.files`), so the backend counts over the same
+    set: C is the first photo of T+1, never A."""
+    a = TgMessage(id=10, chat=FRIEND, date=T0, out=False, media={"kind": "image", "name": ""})
+    b = TgMessage(id=11, chat=FRIEND, date=T0, out=False, media={"kind": "image", "name": ""})
+    c = TgMessage(id=12, chat=FRIEND, date=T0 + 1, out=False, media={"kind": "image", "name": ""})
+    pick = telegram_account.pick_media
+    for msgs in ([a, b, c], [c, b, a]):
+        assert pick(msgs, at=T0, kind="image", name="unnamed", n=0) is a
+        assert pick(msgs, at=T0, kind="image", name="unnamed", n=1) is b
+        assert pick(msgs, at=T0 + 1, kind="image", name="unnamed", n=0) is c
+        assert pick(msgs, at=T0 + 1, kind="image", name="unnamed", n=1) is None
+
+
+def test_a_telegram_chats_id_is_always_a_hash_never_a_signed_peer_id():
+    """A report said a Telegram group's id is negative (`-100…`), so the app's hex-only photo path would drop its
+    photo. The bank never holds a peer id: every Telegram conversation id is a hash (hex), a group is never listed or
+    ticked (ruling 47a), and the one chat-photo store refuses anything else — so the app's hex guard is right."""
+    from api.services import messages_photos, messages_source
+
+    for peer in (FRIEND, GROUP, -1001234567890):
+        assert messages_source.CONVERSATION_ID_RE.match(telegram_source.conversation_id(peer))
+    assert telegram_source.listed(TgDialog(GROUP, "Weekend crew", True, last=T0)) is None
+    with pytest.raises(messages_photos.PayloadError):
+        messages_photos.store("/nonexistent", [{"conversation": "-1001234567890", "photo_b64": None}])

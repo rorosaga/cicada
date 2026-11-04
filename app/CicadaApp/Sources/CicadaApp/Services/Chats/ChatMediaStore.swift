@@ -31,11 +31,13 @@ final class ChatMediaStore {
     static let shared = ChatMediaStore()
 
     typealias TelegramFetch = @Sendable (String, ChatFile, Bool) async throws -> Data?
+    typealias Thumbnailer = @Sendable (URL) async -> (image: NSImage, jpeg: Data)?
 
     var whatsAppStore: URL
     var messagesDatabase: URL
     var cacheRoot: URL
     var telegram: TelegramFetch
+    var thumbnailer: Thumbnailer
     /// How long a chat's media list is trusted before it is read again (a chat keeps receiving files).
     var indexLife: TimeInterval = 60
     nonisolated static let thumbnailSide: CGFloat = 480
@@ -43,14 +45,22 @@ final class ChatMediaStore {
     private var indexes: [ChatMediaSource: (read: Date, items: [ChatMediaCandidate])] = [:]
     private var reading: [ChatMediaSource: Task<[ChatMediaCandidate], Never>] = [:]
     private var shown: [String: ChatMediaShown] = [:]
+    /// #597 review B2 — bumped by every `forget` (an untick). Whatever an ask learnt or made under an older generation
+    /// is discarded when it lands: no thumbnail, no large photo, no media list and no tile outlives the untick that
+    /// came while it was loading.
+    private var generations: [ChatMediaSource: Int] = [:]
+
+    private func generation(_ source: ChatMediaSource) -> Int { generations[source, default: 0] }
 
     init(whatsAppStore: URL = WhatsAppReader.standardStore, messagesDatabase: URL = MessagesReader.standardDatabase,
          cacheRoot: URL = ChatMediaCache.root,
-         telegram: @escaping TelegramFetch = { try await APIClient.shared.telegramChatMedia(chat: $0, file: $1, full: $2) }) {
+         telegram: @escaping TelegramFetch = { try await APIClient.shared.telegramChatMedia(chat: $0, file: $1, full: $2) },
+         thumbnailer: @escaping Thumbnailer = { await ChatMediaStore.thumbnail(of: $0) }) {
         self.whatsAppStore = whatsAppStore
         self.messagesDatabase = messagesDatabase
         self.cacheRoot = cacheRoot
         self.telegram = telegram
+        self.thumbnailer = thumbnailer
     }
 
     private func memoKey(_ source: ChatMediaSource, _ file: ChatFile) -> String {
@@ -59,6 +69,7 @@ final class ChatMediaStore {
 
     /// A chat was unticked: its media list, its tiles and its thumbnails go.
     func forget(_ source: ChatMediaSource) {
+        generations[source, default: 0] += 1
         indexes[source] = nil
         reading[source]?.cancel()
         reading[source] = nil
@@ -77,11 +88,13 @@ final class ChatMediaStore {
         }
         let key = memoKey(source, file)
         if let hit = shown[key] { return hit }
+        let started = generation(source)
         let answer: ChatMediaShown
         switch source.channel {
         case .telegram: answer = await telegramShown(source, file)
-        case .whatsApp, .messages: answer = await localShown(source, file)
+        case .whatsApp, .messages: answer = await localShown(source, file, generation: started)
         }
+        guard generation(source) == started else { return .placeholder }   // unticked while it loaded
         shown[key] = answer
         return answer
     }
@@ -92,6 +105,7 @@ final class ChatMediaStore {
         if let held = indexes[source], Date().timeIntervalSince(held.read) < indexLife { return held.items }
         if let running = reading[source] { return await running.value }
         let store = whatsAppStore, database = messagesDatabase
+        let started = generation(source)
         let task = Task.detached(priority: .userInitiated) { () -> [ChatMediaCandidate] in
             switch source.channel {
             case .whatsApp:
@@ -106,18 +120,20 @@ final class ChatMediaStore {
         }
         reading[source] = task
         let items = await task.value
+        guard generation(source) == started else { return [] }   // unticked while it read: nothing is kept
         reading[source] = nil
         indexes[source] = (Date(), items)
         return items
     }
 
-    private func localShown(_ source: ChatMediaSource, _ file: ChatFile) async -> ChatMediaShown {
+    private func localShown(_ source: ChatMediaSource, _ file: ChatFile, generation started: Int) async -> ChatMediaShown {
         guard let hit = ChatMedia.pick(await index(source), file: file) else { return .placeholder }
         var out = ChatMediaShown(onMac: hit.file != nil, length: hit.length)
         if let local = hit.file { out.large = .file(local) }
         if let kept = ChatMediaCache.read(source, key: file.cacheKey, root: cacheRoot), let image = NSImage(data: kept) {
             out.thumbnail = image
-        } else if file.isVisual, let from = hit.file ?? hit.thumbnail, let made = await Self.thumbnail(of: from) {
+        } else if file.isVisual, let from = hit.file ?? hit.thumbnail, let made = await thumbnailer(from) {
+            guard generation(source) == started else { return .placeholder }   // unticked meanwhile: nothing written
             out.thumbnail = made.image
             ChatMediaCache.write(made.jpeg, source, key: file.cacheKey, root: cacheRoot)
         }
@@ -193,7 +209,9 @@ final class ChatMediaStore {
             let key = file.cacheKey + "-full"
             if let kept = ChatMediaCache.file(source, key: key, root: cacheRoot),
                FileManager.default.fileExists(atPath: kept.path) { return kept }
-            guard let data = try? await telegram(source.chat, file, true), !data.isEmpty else { return nil }
+            let started = generation(source)
+            guard let data = try? await telegram(source.chat, file, true), !data.isEmpty,
+                  generation(source) == started else { return nil }   // unticked while it loaded: nothing written
             return ChatMediaCache.write(data, source, key: key, root: cacheRoot)
         }
     }

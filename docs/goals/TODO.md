@@ -18,6 +18,32 @@
   already synced show their pictures as they are. Telegram's root cause: a ticked chat's photo was asked only in
   the tick's own request, never again — now on every start and sign-in. **Owner's check:** open the own WhatsApp
   chat on the Sources page; on Telegram, restart the backend once so the photos are asked.
+- **2026-11-04 — Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
+  `claude-desktop-capture`).** Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."
+  Diagnosis, from the live install's numbers: one relayed episode ever, and every Claude chat in the bank from one
+  October export. The remote connector was off, so claude.ai had no way in. The desktop app's only Cicada server is
+  stdio, which never serves `cicada_capture_turns`, and its primer asks for no relay. Of the four ways in
+  (`capture-and-sleep.md`, "Hookless chat apps"): the desktop app keeps no chat history on disk for a claude.ai account
+  (counts only, no content read); reading claude.ai through the person's browser by an agent is the "automated or
+  non-human means" Anthropic's Consumer Terms §3 bar; the official export is the one path with no model in it; relay
+  stays ruling 32's model-dependent exception. Built (app only): while an export wait is open, the vendor's zip in
+  Downloads, identified by its central directory's member names, opens the one intake's preview; *Every week* in every
+  *Remind me* menu nudges the person to ask for a fresh export. The review of #592 found four blockers, all fixed, each
+  with a test that failed on the pre-fix sources: a crafted zip64 offset trapped; Downloads stayed watched past a
+  wait's expiry; a busy intake toasted every retry; a refused weekly reminder said it was on. Also fixed: arming only
+  after an in-run tap, a stop during a look being undone, an open preview being replaced, an arrival notice after a
+  refusal, the nudge's memory, and a line for a refused Downloads. Tests: `ExportArrivalsTests` 22, `ExportWaitsTests`
+  7, `IntakeRouterTests` 35, `FeedGuardTests` 10, `CopyConstantsTests` 13, and `--filter Lint` 85, all green. **Needs the owner (DECIDE):**
+  (1) the remote stdio relay: should the local stdio server serve `cicada_capture_turns` to the Claude desktop app
+  (`clientInfo` `claude-ai`) with the desktop primer asking for it? That would amend ruling 32's "through the remote
+  connector" for an app that has no hook on stdio either. **Recommended yes**, as a layer under the export, never
+  instead of it. (2) Reading the person's claude.ai list through their own browser by their agent: **recommended no**
+  under the ToS rail, unless Anthropic explicitly permits it. (3) D6′ (one-click Funnel for the connector) is already
+  waiting (2026-11-03); **recommended yes**, since it is what makes the phone's claude.ai reachable at all. (4) Listing
+  `~/Downloads` (names, sizes, dates; a zip's member names) while an export wait is open, which may raise macOS's one
+  Files and Folders prompt after *Remind me*: **recommended yes**, as built. Open: the export carries no schedule or
+  API, so the person still clicks Export and the email's link once a week. For the owner's own hands: turn the
+  connector on and add it on claude.ai, and turn *Every week* on for Claude.
 - **2026-11-04 — Substack through the person's own agent (G89; branch `g89-substack`).** Owner: "a direct app
   integration is best to see history of read stuff, saved stuff, etc." Researched against current sources: Substack has
   no reader API or OAuth app programme (its OAuth serves only its own MCP connector — publisher analytics for an admin of
@@ -47,6 +73,18 @@
   **Done 2026-11-04:** the app is registered (`github.com/apps/cicada-memory`, Device Flow on, no secret or key) and
   its client id and slug ship in `github_auth`; a real device-code request returned a code. **Owner's step left:** make
   the app public on GitHub, or only the owner's account can install it.
+- **2026-11-04 — the door carrier stays TCP (ruling 51f, owner 2026-11-04; G132).** Ruling 51f gains: the door's carrier
+  stays TCP (owner 2026-11-04: "if you find TCP working better than UDP, then let's go for TCP"); a UDP door is parked
+  in #590 (draft) after three security-review rounds each found a new availability bug in its hand-rolled reliable
+  channel — unbounded reassembly memory, quadratic CPU from tiny pieces, then a session deadlock once its held-piece cap
+  was reached — while the TCP door passed three rounds clean, and on real Wi-Fi the throughput difference does not
+  matter. Revisit with slice 3 (the hole punch needs UDP), with a vetted transport (QUIC behind the authenticated gate,
+  or a maintained library), never a hand-rolled channel. Asked on 2026-11-03 "keep the door on TCP until hole punching,
+  or UDP?", the owner had leaned UDP ("If we can work on tcp and udp directly probably best to do udp, no?") for silence
+  and for the punch; the reviews, not the measurements, decided it. What #590 keeps for slice 3: the silence and
+  hello-memory design, WireGuard-style roaming, a lossy UDP test forwarder, and the macOS finding that a UDP door's LAN
+  answers need the Local Network privilege (TN3179: sending UDP to the LAN does, accepting TCP does not). Nothing in
+  `dev` speaks UDP: the door is #586's TCP listener and the app's Bonjour is #573's `_cicada._tcp`.
 - **2026-11-03 — routes, not a relay (ruling 51f, G132 phase 3b slice 1; branch `feat/g132-routes`, #586 (includes
   #572's one-transport work)).** Owner: "yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"; the
   phone, for now, a capture device. Each device's ordered route list (the home's door on the LAN → on a tailnet if
@@ -120,6 +158,7 @@
   12 s untouched → recorded Not now, Yes → Sources on Apple Notes. Found live and fixed: a Yes over the Welcome opened
   the source behind it, so nothing is offered before setup. Waiting on the owner: nothing.
 - **2026-11-03 — an edited conversation is read as a revision (G104; PR #581).** The owner asked whether updates should be told from new material at consolidation. Measured on a scratch bank (Claude plan, haiku; four synthetic notes consolidated, then edited in place: a changed value, an added line, a removed line, whitespace only): the second Sleep re-read all four whole (8 calls), left the removed line's claim open, read every old span `stale`, doubled 5 claims' spans, asked a conflict question for the whitespace edit and gave four once-said names pages. Now `episode_revision` diffs against the version Sleep read (git), reads only what changed, re-anchors spans, closes what only the removed text said (superseded by the same revision's value with no question, else a Sleep `retracts` record), and keeps a different conversation's word an update or conflict: the same run took 5 calls, 0 questions, 0 new pages, 1 withdrawn. Left: prose regeneration from corrected claims (G104 row).
+- **2026-11-04 — a page's prose follows the revision (G104 slice 2; PR #589).** Owner 2026-11-03: regenerate prose from the corrected claims, only on the pages a revision touched. `revision_prose` (Stage 5.58) finds the pages by a closed claim or by a passage whose `section_provenance` row cites the version Sleep read and says a word the revision took away (the extractor often makes no claim of the changed value), and rewrites or removes only those passages in one call a page — only passages whose rows prove they came from that conversation alone (review: a passage with no rows, or citing another conversation still saying the word, is never rewritten); History is never rewritten and gains the change, dated; a passage the person or an agent wrote or pinned becomes one `page_edit` question a page; a contradiction whose old side only the edited conversation said is not filed; section rows and held spans move onto the new body. Measured (haiku, #581's four notes plus a pinned one, provenance-only rule): every passage with rows corrected, the pinned Key Fact kept with one question, three dated History lines, no conflict question, 1 extra call (2.1k in / 1.2k out); one Friday and one Linux Key Fact remained, cut off a summary (Stage 2's losing summary, Stage 5's bounded Summary) with no rows; both cuts now carry the summary's rows, and an edit that extends a Sleep fact no longer inherits them. Rerun: nothing outside History says Friday, Linux or Lisbon but the pinned fact, asked once. Facts written before 2026-11-04 have no rows and stay untouched. Left: folding two same-batch passages saying the current value in different words; the 40-page cap's overflow.
 - **2026-11-03 — meeting recorders on Sources: Hex, Wispr Flow, a folder of transcripts (G95, ruling 52; branch
   `feat/meeting-recorders`).** Hex (anoma.ly/hex, 3.3.0, MIT) writes one Markdown file per meeting to the Hex
   meetings folder (Hex's `meetings.output_folder` setting, else its default) with a title, Date/Duration bullets, an

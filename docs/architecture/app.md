@@ -503,6 +503,60 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
+**The awaited export, picked up from Downloads, and a weekly nudge (G197 layer c, 2026-11-04).** claude.ai, the Claude
+desktop app's chats and ChatGPT keep their history on the vendor's servers and run no hook, so the person's own export
+is the one way in that needs no model's cooperation (G105; `capture-and-sleep.md`, "Hookless chat apps"). Two steps
+make it a habit rather than a seed, with no new setting.
+
+**(1) The pickup** (`Support/ExportArrivals.swift`). `ExportArrivalWatcher` keeps one FSEvents watch on the top of
+`~/Downloads`. It is open only while a wait the person opened **in this run** of the app (*Remind me* or the weekly
+nudge's tap; `ExportWaitStore.armedVendors` / `armedUntil`) is unexpired in the open memory. A wait left by an earlier
+launch therefore never lists Downloads, or raises macOS's Files and Folders prompt, at launch. The watch closes:
+
+- when the last wait clears;
+- at its 14-day expiry, by its own timer, with no folder event needed;
+- at any look that finds nothing awaited, before anything is read;
+- on a memory switch (`sync`).
+
+A look that awaited across a close never reopens it (an epoch guard). The watcher lists names, sizes and dates only.
+The baseline is taken when the watch opens, so an export already there is never offered. A new `.zip` that keeps its
+size for one 1.5 s look (`ArrivalTracker`) has its **central directory** read (`ZipMembers`: member names only, never
+a member's bytes, zip64 included, ≤ 32 MB of directory). Every bound in `ZipMembers` is checked by subtraction, so a
+crafted offset near `UInt64.max` answers nil rather than trapping. `ExportArrivals.vendor(members:)` names the vendor
+by the files each export carries:
+
+- Claude: `conversations.json` + `users.json`;
+- ChatGPT: `conversations.json` + `user.json`, `chat.html` or `message_feedback.json`;
+- Takeout's Gemini Apps activity;
+- both account files at once is nobody's.
+
+Only a vendor being waited on is offered, through `IntakeRouter.offerArrival`. That is the drop's door
+(`accept(urls:from: .reminder(vendor))`, so the preview, *Into* and Import are the drop's own, and the sniff clears
+the wait) with two differences, because nobody dropped it:
+
+- it is silent while the router is busy: no "finish the import" toast;
+- it never takes the panel from a sniff, preview or import the person has open.
+
+Either way it answers `.wait`, and the file is offered again at the next look. Every other file is offered once.
+When Cicada is not in front, one notification says the export arrived. It is posted only after it `.opened` (never
+after a refusal), only when notifications were already allowed, and its tap brings the window. If macOS refuses
+Downloads, one line says so ("Cicada can't see Downloads, so drop the export on Cicada when it comes."), nothing is
+read, and the drop and picker work as before.
+
+**(2) Every week** is the last item of every *Remind me* menu (`WeeklyReminderItems`, the same three hosts). It is
+saved only when notifications are allowed, because a weekly reminder that cannot fire is not on. A refusal saves
+nothing and says so in one line ("A weekly reminder needs Cicada's notifications, which are off."), never the
+one-off delays' "waits here". On a grant it records an `ExportHabit` (defaults `cicada.exportHabits`, per bank ×
+vendor, the weekday it was turned on, at 9:00) and one repeating local notification ("Time for a fresh Claude
+export."). At launch, the saved habits are scheduled again (`refreshWeekly`). If notifications are no longer allowed,
+they are dropped instead, and launch never asks for the permission. The nudge carries its memory: tapping it opens
+that vendor's export page in the person's own browser (Cicada clicks nothing there) and opens a wait in the memory it
+was set in (*Tomorrow at 9:00*), which arms the pickup. Once on, the same menu reads *Stop the weekly reminder*.
+
+Taps carry a kind (`ReminderTapKind`: `due` · `weekly` · `arrived`); a reminder from before this change carries none
+and is `due`. Because staging is idempotent per conversation, a weekly full export re-imports only what is new or
+grew, and a relayed conversation is upgraded in place (ruling 32).
+
 **Recordings and videos (meaning index 2, 2026-10-28).** **File → Add Recording or Video…** (2026-10-29) is the
 keyboard and VoiceOver twin: the intake's own open panel (`IntakePicker.chooseMedia`, audio and video types, no folders)
 hands what was chosen to `IntakeRouter.accept`, so the menu takes the drop's door and its rules. An audio or video file among a drop (by its type; a folder
@@ -1697,13 +1751,17 @@ agent reads (`agent_methods`), not an install.
   (`ZWAMEDIAITEM`, the file under `Message/` in its group container, its `ZMOVIEDURATION`; read from the store's clone
   like the reader) and Messages' attachment row (the file under `Attachments/` beside `chat.db`), each matched by the
   turn's own second, the name and kind as the backend stored them and the attachment's place among that second's same
-  files (`ChatMedia.files`/`pick`; a name only one file in the chat carries wins wherever its time lands; the kind
+  files — both sides count over the same set, a store's time floored to the second as the backend stored it, so a
+  burst across a second never shifts a picture (#597 review B1; `ChatMedia.files`/`pick`, Telegram's
+  `telegram_account.pick_media`; a name only one file in the chat carries wins wherever its time lands; the kind
   when the scrub changed the name), every path resolved inside the app's own folder (a `..` or a symlink out is no
   file). Telegram's ask the backend (`APIClient.telegramChatMedia`). Ticked chats only: the WhatsApp and Messages
   watchers' `tickedIds` (a chat not ticked is never read and its thumbnails go), Telegram's tick the backend's.
   Thumbnails: ImageIO's thumbnailer for a picture, else Quick Look's generator (a video's frame), ≤ 480 px, kept as
   JPEG in `$CICADA_HOME/chat-media/<source>/<chat>/` (0700/0600, outside every bank), dropped on the app's untick and
-  for any chat the backend's ticks no longer list (`ChatMediaCache.keepOnly`, when a watcher reads the ticks). The
+  for any chat the backend's ticks no longer list (`ChatMediaCache.keepOnly`, when a watcher reads the ticks); an
+  untick while a list, a thumbnail or a large photo is loading discards what lands after it (a per-chat generation
+  `forget` bumps, #597 review B2). The
   tile (DESIGN_RULES §9 2026-11-04): a picture at its own aspect, ≤ 220 pt, the bubble's corners and resting ring; a
   video its frame with a play mark and its length; a voice message or a file a quiet row in the side's bubble fill
   with its length or size; a file not on this Mac the same row with *Not on this Mac*. A click opens the chat app's

@@ -243,6 +243,83 @@ final class ChatMediaTests: XCTestCase {
         XCTAssertNotNil(ChatMediaCache.read(other, key: "abc", root: root), "another source's ticks are its own")
     }
 
+    // MARK: #597 review
+
+    /// B1: photos A and B said at T, C at T+1 — every one "unnamed", each turn's place counted only among its own
+    /// second's turns (`files`). The pick counts over that same set: C is the first photo of T+1, never A.
+    func testABurstAcrossASecondShowsEachPhotoUnderItsOwnTurn() {
+        let t = Date(timeIntervalSince1970: 1_793_000_000)
+        let a = ChatMediaCandidate(order: 10, date: t.addingTimeInterval(0.2), name: "unnamed", kind: "image")
+        let b = ChatMediaCandidate(order: 11, date: t.addingTimeInterval(0.7), name: "unnamed", kind: "image")
+        let c = ChatMediaCandidate(order: 12, date: t.addingTimeInterval(1.1), name: "unnamed", kind: "image")
+        let photo = EpisodeAttachment(kind: "image", name: "unnamed")
+        let stamp = { (d: Date) in ISO8601DateFormatter().string(from: d) }
+        let d = doc(origin: "telegram-chats", chat: chat, turns: [(stamp(t), [photo]), (stamp(t), [photo]),
+                                                                  (stamp(t.addingTimeInterval(1)), [photo])])
+        let files = ChatMedia.files(d)
+        for list in [[a, b, c], [c, b, a]] {
+            XCTAssertEqual(ChatMedia.pick(list, file: files[0]![0])?.order, 10)
+            XCTAssertEqual(ChatMedia.pick(list, file: files[1]![0])?.order, 11)
+            XCTAssertEqual(ChatMedia.pick(list, file: files[2]![0])?.order, 12, "C is the first photo of its second")
+        }
+    }
+
+    /// B2: an untick while a Telegram photo is loading large writes nothing after it.
+    @MainActor
+    func testAnUntickWhileAPhotoLoadsLargeWritesNothingAfterIt() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ChatMediaB2-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let gate = Gate()
+        let media = ChatMediaStore(whatsAppStore: dir, messagesDatabase: dir, cacheRoot: dir, telegram: { _, _, full in
+            guard full else { return nil }
+            await gate.wait()
+            return Data([0xFF, 0xD8, 0xFF])
+        })
+        let source = ChatMediaSource(channel: .telegram, chat: chat)
+        let photo = ChatFile(source: source, kind: "image", name: "unnamed", size: nil, at: "2026-11-04T10:00:00+00:00",
+                             n: 0)
+        let loading = Task { await media.largeFile(photo, .telegram) }
+        await gate.reached()
+        media.forget(source)
+        await gate.open()
+        let url = await loading.value
+        XCTAssertNil(url, "a photo that landed after the untick is discarded")
+        let folder = try XCTUnwrap(ChatMediaCache.folder(source, root: dir))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "nothing written after the untick")
+    }
+
+    /// B2: an untick while a thumbnail is being made writes no thumbnail and keeps no tile or media list.
+    @MainActor
+    func testAnUntickWhileAThumbnailIsMadeKeepsNothing() async throws {
+        let store = try SyntheticWhatsAppStore()
+        defer { store.close() }
+        let jid = "10000000003@s.whatsapp.net"
+        let session = store.session(jid, name: "Bob Example")
+        store.message(session, "S1", at: 800_000_000, text: nil, type: 1,
+                      media: (title: nil, path: "Media/x/photo-3.jpg", size: 10, metadata: nil))
+        try png(store.dir.appendingPathComponent("Message/Media/x/photo-3.jpg"))
+        let cache = store.dir.appendingPathComponent("cicada-home/chat-media")
+        let gate = Gate()
+        let media = ChatMediaStore(whatsAppStore: store.url, messagesDatabase: store.url, cacheRoot: cache,
+                                   telegram: { _, _, _ in nil }, thumbnailer: { url in
+            await gate.wait()
+            return await ChatMediaStore.thumbnail(of: url)
+        })
+        let source = ChatMediaSource(channel: .whatsApp, chat: WhatsAppReader.chatId(jid: jid))
+        let at = ISO8601DateFormatter().string(from: Date(timeIntervalSinceReferenceDate: 800_000_000))
+        let photo = ChatFile(source: source, kind: "image", name: "photo-3.jpg", size: 10, at: at, n: 0)
+        let loading = Task { await media.shown(photo, ticked: true) }
+        await gate.reached()
+        media.forget(source)
+        await gate.open()
+        let shown = await loading.value
+        XCTAssertNil(shown.thumbnail)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cache.path), "no thumbnail written after the untick")
+        // A later ask, after a new tick, reads afresh rather than from a tile or list kept from before the untick.
+        let again = await media.shown(photo, ticked: true)
+        XCTAssertNotNil(again.thumbnail)
+    }
+
     // MARK: The rows
 
     func testAChatSittingsRowsCarryTheirFilesAndOtherConversationsDoNot() {
@@ -270,6 +347,33 @@ final class ChatMediaTests: XCTestCase {
         XCTAssertEqual(wide.height, 110, accuracy: 0.01)
         XCTAssertEqual(ChatMediaTile.fitted(CGSize(width: 100, height: 2000), side: 220).width, 220 / 3, accuracy: 0.01)
         XCTAssertEqual(ChatMediaTile.fitted(.zero, side: 220), CGSize(width: 220, height: 220))
+    }
+}
+
+/// Holds an async step until the test opens it; `reached` returns once the step is waiting.
+private actor Gate {
+    private var waiter: CheckedContinuation<Void, Never>?
+    private var arrived: CheckedContinuation<Void, Never>?
+    private var isWaiting = false
+    private var opened = false
+
+    func wait() async {
+        if opened { return }
+        isWaiting = true
+        arrived?.resume()
+        arrived = nil
+        await withCheckedContinuation { waiter = $0 }
+    }
+
+    func reached() async {
+        if isWaiting { return }
+        await withCheckedContinuation { arrived = $0 }
+    }
+
+    func open() {
+        opened = true
+        waiter?.resume()
+        waiter = nil
     }
 }
 

@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import stat
 from dataclasses import dataclass, field
@@ -90,7 +91,7 @@ HISTORY_BATCH = 500
 MEDIA_DIR = "media"
 MEDIA_PREVIEW_CAP = 512 * 1024
 MEDIA_FULL_CAP = 20 * 1024 * 1024
-#: A turn's time is the message's own, to the second: its attachment is looked for this close to it.
+#: How far around a turn's second Telegram is asked for messages (`around`); the match itself is that second only.
 MEDIA_WINDOW_S = 1.5
 
 
@@ -261,10 +262,13 @@ def stored_attachment(media: dict | None) -> dict | None:
 
 
 def pick_media(messages: list[TgMessage], *, at: float, kind: str, name: str, n: int) -> TgMessage | None:
-    """The message a turn's attachment is: among the chat's messages said in the turn's second, oldest first (the
-    sitting's own order), the ``n``-th whose stored kind and name are the attachment's; when the name changed on the
-    way in (the scrub), the ``n``-th of that kind. None when there is no such message."""
-    near = sorted((m for m in messages if not m.service and m.media and abs(m.date - at) <= MEDIA_WINDOW_S),
+    """The message a turn's attachment is (#597 review B1: counted over the SAME set the app counts ``n`` in,
+    `ChatMedia.files`): among the chat's messages said in the turn's own second — Telegram's time floored to the
+    second, as the bank stored it (`chat_live.utc_from_unix`) — oldest first (the sitting's own order), the ``n``-th
+    whose stored kind and name are the attachment's; when the name changed on the way in (the scrub), the ``n``-th of
+    that kind in that second. ``around``'s window only fetches; it never widens the set. None when there is none."""
+    second = math.floor(at)
+    near = sorted((m for m in messages if not m.service and m.media and math.floor(m.date) == second),
                   key=lambda m: m.id)
     described = [(m, stored_attachment(m.media)) for m in near]
     described = [(m, d) for m, d in described if d is not None]

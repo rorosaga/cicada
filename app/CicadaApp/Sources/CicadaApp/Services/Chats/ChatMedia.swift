@@ -62,8 +62,6 @@ struct ChatMediaCandidate: Hashable, Sendable {
 }
 
 enum ChatMedia {
-    /// A turn's time is its message's, to the second (`messages_source.apple_time`, `chat_live.utc_from_unix`).
-    static let window: TimeInterval = 1.5
     /// The backend's cap on a name (`messages_source.ATTACHMENT_NAME_CAP`).
     static let nameCap = 120
 
@@ -129,21 +127,24 @@ enum ChatMedia {
         return "file"
     }
 
-    /// Which file a turn's attachment is: among the chat's files said in the turn's second, in the store's order, the
-    /// `n`-th whose kind and name are the attachment's; when the name changed on the way in (the scrub), the `n`-th of
-    /// that kind — unless a name no other file in the chat carries (WhatsApp names each file uniquely) points at one
-    /// file wherever its time lands. Nil when there is none — the tile is then the placeholder.
+    /// Which file a turn's attachment is (#597 review B1: counted over the SAME set `files` counts `n` in): among the
+    /// chat's files said in the turn's own second — a store's time floored to the second, as the backend stored it
+    /// (`messages_source.apple_time`, `chat_live.utc_from_unix`), which is what absorbs a Messages fraction — in the
+    /// store's order, the `n`-th whose kind and name are the attachment's. When the scrub changed the name, the `n`-th
+    /// of that kind in that second. A name no other file in the chat carries (WhatsApp names each file uniquely)
+    /// points at one file wherever its time lands. Nil when there is none — the tile is then the placeholder.
     static func pick(_ candidates: [ChatMediaCandidate], file: ChatFile) -> ChatMediaCandidate? {
         let named = candidates.filter { $0.name == file.name && $0.kind == file.kind }
-        let near = file.instant.map { at in
-            candidates.filter { abs($0.date.timeIntervalSince(at)) <= window }
+        let second = file.instant.map { $0.timeIntervalSince1970.rounded(.down) }
+        let inSecond = second.map { at in
+            candidates.filter { $0.date.timeIntervalSince1970.rounded(.down) == at }
                 .sorted { ($0.date, $0.order) < ($1.date, $1.order) }
         } ?? []
-        let same = near.filter { $0.name == file.name && $0.kind == file.kind }
+        let same = inSecond.filter { $0.name == file.name && $0.kind == file.kind }
         if file.n < same.count { return same[file.n] }
         if named.count == 1, file.name != "unnamed" { return named[0] }
         if same.isEmpty {
-            let kind = near.filter { $0.kind == file.kind }
+            let kind = inSecond.filter { $0.kind == file.kind }
             if file.n < kind.count { return kind[file.n] }
         }
         return nil
