@@ -3111,7 +3111,11 @@ A whole row moves to DONE only after its remaining implementation and required a
     **The person's own local agent** (`cicada_record_check`, on their ask) keeps the stricter proposed test and its two
     searches: Cicada cannot see that agent's queries, so the limit there can only be who is offered.
     **Measured** on synthetic banks with one widely known public figure, on the plan with haiku; the shipped tier
-    (`web_check_agent_model`) was not run. MEASURED_PLACEHOLDER A private friend in the same bank got no model call. Wikipedia answered 403 to Cicada's `User-Agent` in every run (never retried), so its encyclopedia
+    (`web_check_agent_model`) was not run. A real Sleep settled it on one site at the model's own confidence: 2 searches, 1 page opened, 1 link
+    dropped by the guard, 4 reads, 4 turns, 30.2 s; undo put the question back. One question measured apart, with its plan usage
+    (`equiv_cost_usd`): 1 search, 2 pages, 5 spawns, 26.1 s, 17,644 input tokens, 1,403 output, $0.0146. The guard's scan on a
+    synthetic bank of the live shape (9,478 episodes, 62 MB): 12.5 s off the event loop, most of it inside SQLite, then
+    about a millisecond a query. A private friend in the same bank got no model call. Wikipedia answered 403 to Cicada's `User-Agent` in every run (never retried), so its encyclopedia
     route did not fire. **Disclosed deviation (2026-11-04):** while the text was only proposed, an earlier worker ran
     four lookups for one pair on a copy of the owner's bank, sending a real full name to the plan's web search; each
     answered "not sure" and nothing was written. No lookup has touched that bank since.
