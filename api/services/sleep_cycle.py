@@ -792,6 +792,13 @@ class BatchPlan:
     ds: "sleep_drain.DrainState | None" = None
 
 
+def _words_taken(rev) -> frozenset[str]:
+    """The words a revision's edit took away (G104 slice 2, `revision_prose.changes_of`); empty for none."""
+    from api.services import revision_prose
+
+    return frozenset().union(*(c.gone for c in revision_prose.changes_of(rev)))
+
+
 def _accepting(fn, **kw) -> dict:
     """The optional keyword arguments ``fn`` accepts. Tests stub the pipeline's
     seams with fixed signatures; a new progress or stop hook is offered only to a
@@ -3122,8 +3129,13 @@ async def _run_stages(
     _say("Stage 3/5: Resolving conflicts...")
     logger.info("Stage 3: Conflict resolution & temporal decay")
     from api.services.conflict_resolver import resolve_and_prune
+    # G104 slice 2: an update resting only on revisions that took words away is the source correcting itself.
+    read_ids = {e.get("episode_id") for e in extracted}
+    correcting = {i: g for i, r in revisions.items() if i in read_ids and (g := _words_taken(r))} \
+        if revisions else {}
     changes = await resolve_and_prune(
         resolved_changes, existing, settings, **decay_kw,
+        **(_accepting(resolve_and_prune, revised=correcting) if correcting else {}),
         # A pause must be able to land between pages (each is a paid call), and the strip counts them.
         **(_accepting(resolve_and_prune, cancel_check=_cancel_requested,
                       progress_callback=_decide_progress(live)) if live is not None else {}))
@@ -3274,6 +3286,10 @@ async def _run_stages(
     # exact deletions get the specific `inbox/organic_resolution` trigger.
     organic_resolution_paths: set[str] = set()
     questions_refreshed = False
+    # Only a revision Stage 1 read: one it could not stays queued, its claims and prose untouched.
+    revisions_read = {i: r for i, r in revisions.items()
+                      if i in {e.get("episode_id") for e in extracted}} if revisions else {}
+    claim_result: dict = {}
     try:
         from api.services.claim_pipeline import run_claim_pipeline
         from api.services.inbox_generator import write_claim_nudges
@@ -3287,9 +3303,7 @@ async def _run_stages(
             # G141 PJ-0: Stage 2's own map, so a claim lands where its edge did.
             name_to_id=resolved_result.get("name_to_id"),
             decided_names=resolved_result.get("decided_names"),
-            # Only a revision Stage 1 read: one it could not stays queued, its claims untouched.
-            **({"revisions": {i: r for i, r in revisions.items()
-                              if i in {e.get("episode_id") for e in extracted}}} if revisions else {}),
+            **({"revisions": revisions_read} if revisions_read else {}),
             **decay_kw,
         )
         _state.claims_page_less = int(claim_result.get("claims_page_less", 0) or 0)
@@ -3351,6 +3365,23 @@ async def _run_stages(
             f"{decay_budget.refreshed} refreshed (already open), "
             f"{len(decay_budget.deferred)} deferred by the cap of {decay_budget.cap}"
         )
+
+    # Stage 5.58 (G104 slice 2, owner 2026-11-03): a page whose prose was written from a conversation that has since
+    # revised itself says what the conversation says now — the passages that carried the old words, one engine call a
+    # page at most, never over the person's or an agent's own words (those become one inbox question a page), History
+    # keeping the change dated. Provenance rows into a revised conversation move onto its new body. Before the hubs and
+    # index, so they project the corrected pages; committed with this batch under Sleep's trailers.
+    if revisions_read:
+        try:
+            from api.services import revision_prose
+
+            prose_report = await revision_prose.run(
+                memory_path, settings, revisions_read, closed=claim_result.get("revision_closed") or {},
+                days=revision_prose.revised_days(episodes))
+            if prose_report.calls or prose_report.rows_moved:
+                logger.info(f"Stage 5.58: revised conversations — {revision_prose.summary(prose_report)}")
+        except Exception as e:  # noqa: BLE001 - prose correction never costs the cycle
+            logger.warning(f"Stage 5.58 revision prose failed: {type(e).__name__}")
 
     # Stage 5.6: Regenerate the hub tier + root _index.md from current entities.
     # Deterministic, no LLM; gives small LLMs a filesystem traversal path.

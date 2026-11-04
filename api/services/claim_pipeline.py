@@ -448,7 +448,8 @@ def run_claim_pipeline(
     Returns a dict: ``{"nudges": [...], "audit": [...], "claims_written": int,
     "subjects_written": int, "subjects_skipped": int, "claims_page_less": int,
     "page_less_subjects": [ids], "relabelled_events": int, "claims_held": int,
-    "claims_hold_capped": int, "claims_released": int, "claims_waiting": int}``.
+    "claims_hold_capped": int, "claims_released": int, "claims_waiting": int,
+    "revision_closed": {page id: [the revised episodes that closed a claim on it]}}`` (G104).
     ``claims_page_less`` counts claims neither written nor held (G141 PJ-0b);
     ``page_less_subjects`` stays in memory only (R-CS3: a subject id is a slug
     of a name, so it is never logged); the four hold counts are R-HP12's;
@@ -478,6 +479,16 @@ def run_claim_pipeline(
     # Released claims go FIRST, so they meet Stage 3 as the page's own claims
     # would have had it existed when they were heard (R-HP6): a newer
     # single-valued claim supersedes them, where the other order would ask.
+    if revisions:
+        # G104: what a name without a page holds from an edited conversation follows its words onto the new body
+        # before any of it is released onto a page (spans only; `pending_store.reanchor_held`).
+        try:
+            held_moved = pending_store.reanchor_held(
+                memory_path, lambda held: episode_revision.reanchor({"": held}, revisions).reanchored)
+            if held_moved:
+                logger.info(f"Claim pipeline: {held_moved} held span(s) re-anchored onto revised conversations")
+        except Exception as e:  # noqa: BLE001 - a store failure costs the move, never the cycle (R-HP10)
+            logger.warning(f"Held spans not re-anchored: {type(e).__name__}")
     existing_by_subject = _load_existing_claims_by_subject(memory_path)
     # What each page holds now, by value: the reconciler edits claims in place (decay, supersede), so the write-back
     # compares against this to render only the pages that changed (F6, benchmarks/scale).
@@ -517,6 +528,15 @@ def run_claim_pipeline(
             entry.get("closed") or entry.get("kept")
         )
         telemetry.record_audit([entry], subject_hint=subject, bank=memory_path.name, stage="reconcile")
+    # G104 slice 2: the pages where a revision closed a claim — their prose follows (`revision_prose`, Stage 5.58).
+    revision_closed: dict[str, list[str]] = {}
+    for entry in audit:
+        if entry.get("action") in ("revised", "revision_withdrew"):
+            closed_id = entry.get("closed")
+            ep = revision_plan.revised_out.get(closed_id)
+            subject = subject_by_id.get(closed_id)
+            if ep and subject and ep not in revision_closed.setdefault(subject, []):
+                revision_closed[subject].append(ep)
 
     # ---- Stage 5: write reconciled claims back INTO each entity page ----
     entities_dir = memory_path / "entities"
@@ -632,5 +652,6 @@ def run_claim_pipeline(
         "claims_page_less": claims_page_less,
         "page_less_subjects": sorted(page_less_subjects),
         "relabelled_events": relabelled,
+        "revision_closed": revision_closed,
         **hold,
     }
