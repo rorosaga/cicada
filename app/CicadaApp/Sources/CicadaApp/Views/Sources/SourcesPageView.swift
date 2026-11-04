@@ -45,7 +45,7 @@ struct SourcesPageView: View {
         return SourceCatalog.rows(entries: entries, channels: channels, overview: overview,
                                   readableSites: reading.readableSites, localReaders: localReaders,
                                   savedListsOn: reading.savedListsOn, localAgent: agents.connectedLocally,
-                                  checked: chatChecks)
+                                  checked: chatChecks, notInstalled: localSources.missingApps)
     }
 
     /// 2026-11-03 — when each chat reader on this Mac last read its ticked chats (`ChatCheck`).
@@ -146,6 +146,8 @@ struct SourcesPageView: View {
         .task { await reading.loadSettings() }
         .task { await agents.run() }
         .task { browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value }
+        // 2026-11-04 — an app removed since launch (Wispr Flow) reads Off · not installed as soon as the page opens.
+        .task { await localSources.refreshInstalledApps() }
         .onAppear { consumeAddSource() }
         .onChange(of: router.pendingAddSource) { _, _ in consumeAddSource() }
         // Track Z §7.1 — a Sleep spine's "Open in Sources ›" lands here with the tab switch.

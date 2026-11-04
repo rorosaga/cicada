@@ -35,7 +35,7 @@ enum SourceConnectState: Equatable {
         case .connected, .checked: .connected
         case .syncing: .connecting
         case .needsYou: .needsAttention
-        case .off: .notConnected
+        case .off, .notInstalled: .notConnected
         }
     }
 }

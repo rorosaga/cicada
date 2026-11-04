@@ -41,7 +41,8 @@ enum LocalReaders {
         // G219: on only while connected with at least one list ticked — nothing arrives otherwise.
         if let reminders { on[RemindersReader.channel] = reminders.isOn }
         if let calendar { on[CalendarRow.channelId] = calendarOn(calendar.status) }
-        if let contacts { on[ContactsReader.channel] = contacts.enabled }
+        // 2026-11-04 — on means allowed AND turned on: a reader whose access was taken away reads Off, never Connected.
+        if let contacts { on[ContactsReader.channel] = contactsOn(enabled: contacts.enabled, status: contacts.status) }
         if let tabGroups { on[TabGroupWatcher.channel] = tabGroups.enabled }
         if let watchHistory { on[WatchHistoryWatcher.channel] = watchHistory.enabled }
         if let notes { on[AppleNotesWatcher.channel] = notes.enabled }
@@ -58,6 +59,11 @@ enum LocalReaders {
     /// row's line and buttons already follow (`CalendarRowText`). The head read `isEnabled` (a defaults flag, not
     /// observed) beside it, so the two could say Connected and "Not connected" at once. Off and denied are off;
     /// syncing, synced and a failed read are a connected reader (a failure says why in the row's line).
+    nonisolated static func contactsOn(enabled: Bool, status: ContactsReader.Status) -> Bool {
+        // `.off` is also the reader's state before `start()` ran at launch: the turned-on switch is what counts then.
+        enabled && status != .denied
+    }
+
     nonisolated static func calendarOn(_ status: CalendarReader.Status) -> Bool {
         switch status {
         case .off, .denied: false

@@ -135,9 +135,30 @@ final class LocalSourceWatcher {
     var wisprInstalled: Bool { FileManager.default.fileExists(atPath: WisprFlowReader(root: wisprRoot).database.path) }
 
     /// G95 (2026-11-03) — Hex (anoma.ly/hex) is on this Mac: the Sources page offers its meeting folder then.
-    static let hexBundleId = "anomaly.hex"
+    nonisolated static let hexBundleId = "anomaly.hex"
     /// A LaunchServices lookup, so it is asked on each reload (launch, bank switch), never per view body.
     private(set) var hexInstalled = false
+    /// 2026-11-04 (owner: "I deleted Whisperflow today, and the app should have detected that and say that it
+    /// disconnected or that's off") — whether the Wispr Flow APP is on this Mac. `wisprInstalled` reads its database,
+    /// which stays in `~/Library` after the app is removed, so it cannot tell. Asked of LaunchServices on each reload
+    /// and each time the Sources page opens (`refreshInstalledApps`), never per view body. True until first asked, so a
+    /// row never flashes "not installed" at launch.
+    private(set) var wisprAppInstalled = true
+    nonisolated static let wisprBundleId = "com.electron.wispr-flow"
+
+    /// The catalogue entries whose app was removed from this Mac (`SourceCatalog.rows(notInstalled:)`): Wispr Flow
+    /// once its app is gone. A Hex folder keeps being read without Hex, so Hex is never one.
+    var missingApps: Set<String> { wisprAppInstalled ? [] : [SourceCatalog.wisprChannel] }
+
+    /// Ask LaunchServices again which recorders' apps are here, off the main actor (a lookup can touch the disk).
+    func refreshInstalledApps() async {
+        let (wispr, hex) = await Task.detached(priority: .utility) {
+            (NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.wisprBundleId) != nil,
+             NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.hexBundleId) != nil)
+        }.value
+        if wisprAppInstalled != wispr { wisprAppInstalled = wispr }
+        if hexInstalled != hex { hexInstalled = hex }
+    }
     /// The Hex meetings folder: Hex's own `meetings.output_folder` setting when the person chose one in Hex, else Hex's
     /// default (Documents › Hex Meetings, its docs: "none uses ~/Documents/Hex Meetings"). The app reads that one key of
     /// Hex's settings file under `~/Library` (the app reads `~/Library`, never the backend); nothing else of it.
@@ -185,6 +206,7 @@ final class LocalSourceWatcher {
     func reload(bank newBank: String) async {
         bank = newBank
         hexInstalled = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.hexBundleId) != nil
+        wisprAppInstalled = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.wisprBundleId) != nil
         do {
             folders = try await api.fetchFolders()
             foldersBank = newBank
@@ -426,6 +448,32 @@ final class LocalSourceWatcher {
         let folder = try await api.registerMeetingFolder(label: label, path: url.path, recorder: recorder)
         bookmarks.save(url, for: folder.id)
         folders = (try? await api.fetchFolders()) ?? (folders.filter { $0.id != folder.id } + [folder])
+        return folder
+    }
+
+    /// 2026-11-04 (owner: "if we detect application and we press connect, we should be able to see what the folder for
+    /// the transcriptions is and directly read that folder and have the view of meeting transcriptions there") — Hex's
+    /// own meetings folder when it is on this Mac (`hexMeetingsFolder`: Hex's setting, else its default), for the page
+    /// to name before Connect. Nil when no such folder exists yet.
+    func hexFolderFound() -> URL? {
+        let url = Self.hexMeetingsFolder()
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue ? url : nil
+    }
+
+    /// Connect Hex in one click: register the folder Hex saves meetings in and read it at once — one pass that posts
+    /// each meeting once. The old way (pick the folder in an open panel, name it, *Look inside*, then *Start watching*)
+    /// posted every file twice, the preview's pass and the first sync's, before the list could show a meeting.
+    /// A folder already watched is read again, never registered twice (the backend answers its existing record).
+    @discardableResult
+    func connectHexFolder() async throws -> FolderRegistration {
+        guard let url = hexFolderFound() else { throw FolderWatchError.missing }
+        if let refusal = IntakeRouter.refusedRoot(of: [url]) {
+            throw BrowserImportActions.ImportActionError.failed(refusal.panelText)
+        }
+        let folder = try await addMeetingFolder(url: url, label: url.lastPathComponent, recorder: SourceCatalog.hexId)
+        await startWatching(folder)
+        await store?.refresh([.channels, .sourcesOverview])
         return folder
     }
 

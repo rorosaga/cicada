@@ -27,6 +27,9 @@ enum AppleNotesReader {
     /// the human date string above it reads differently in every locale) and the Mac's UTC offset in seconds, so the
     /// backend dates a note when it was written (`notes_sync._DATED_FIELDS`, 2026-10-23); the human `modified` string
     /// stays the backend's dedup key.
+    ///
+    /// 2026-11-04 — last, the folder's ACCOUNT ("iCloud", "On My Mac", a mail account's name), so the Sources page
+    /// browses account → folder → notes (`notes_sync._ACCOUNT_FIELDS`); never part of a note's dedup key.
     static let script = """
     set FS to (ASCII character 30)
     set RS to (ASCII character 29)
@@ -34,6 +37,10 @@ enum AppleNotesReader {
     set outList to {}
     tell application "Notes"
         repeat with acc in accounts
+            set accName to ""
+            try
+                set accName to name of acc as string
+            end try
             repeat with fld in folders of acc
                 try
                     set folderName to name of fld as string
@@ -44,7 +51,7 @@ enum AppleNotesReader {
                     set mDates to modification date of every note of fld
                     repeat with i from 1 to count of noteIds
                         try
-                            set end of outList to (item i of noteIds as string) & FS & (item i of noteNames as string) & FS & (item i of noteBodies as string) & FS & (item i of cDates as string) & FS & (item i of mDates as string) & FS & folderName & FS & ((item i of mDates) as «class isot» as string) & FS & utcOffset
+                            set end of outList to (item i of noteIds as string) & FS & (item i of noteNames as string) & FS & (item i of noteBodies as string) & FS & (item i of cDates as string) & FS & (item i of mDates as string) & FS & folderName & FS & ((item i of mDates) as «class isot» as string) & FS & utcOffset & FS & accName
                         end try
                     end repeat
                 end try

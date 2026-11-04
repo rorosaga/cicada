@@ -24,6 +24,11 @@ final class ChannelItemsCache {
     private(set) var failedChats: Set<String> = []
     @ObservationIgnored private var chatTags: [String: String] = [:]
 
+    /// 2026-11-04 — where each channel's items live (accounts → collections), by channel; a read that failed with
+    /// nothing held leaves the page on its plain list.
+    private(set) var trees: [String: ChannelCollections] = [:]
+    @ObservationIgnored private var treeTags: [String: String] = [:]
+
     private struct Tag { let limit: Int; let etag: String }
 
     @ObservationIgnored private let api: any ChannelItemsAPI
@@ -64,6 +69,26 @@ final class ChannelItemsCache {
         chats = [:]
         failedChats = []
         chatTags = [:]
+        trees = [:]
+        treeTags = [:]
+    }
+
+    func collections(_ channel: String) -> ChannelCollections? { trees[channel] }
+
+    /// Read (or revalidate) where a channel's items live; a 304 or a failure keeps what is held.
+    func refreshCollections(_ channel: String) async {
+        let started = epoch
+        do {
+            let answer = try await api.fetchChannelCollections(channel: channel,
+                                                               etag: trees[channel] == nil ? nil : treeTags[channel])
+            guard started == epoch else { return }
+            if let tree = answer.value {
+                trees[channel] = tree
+                treeTags[channel] = answer.etag
+            }
+        } catch {
+            // Never blank (DR-43): the page keeps what it held, else its plain list.
+        }
     }
 
     /// Read (or revalidate) one chat's sittings when its row opens; a 304 or a failure keeps what is held.
