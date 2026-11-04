@@ -41,6 +41,9 @@ def client(tmp_path, monkeypatch):
     fake = _FakeListener()
     monkeypatch.setattr(remote_router, "LISTENER", fake)
     monkeypatch.setattr(reach, "detect", lambda port, **k: reach.Reach("funnel-on", "https://mac.example-tailnet.ts.net", False))
+    # The switch going off asks Tailscale and may close an address: nothing here is a real one (test_remote_funnel is).
+    monkeypatch.setattr(reach, "funnel_state", lambda port, **k: reach.FunnelState("off", ""))
+    monkeypatch.setattr(reach, "run_funnel", lambda *a, **k: pytest.fail("this module never closes an address"))
     probes = []
     monkeypatch.setattr(reach, "probe", lambda url, **k: probes.append(url) or True)
     yield TestClient(main.app), fake, probes

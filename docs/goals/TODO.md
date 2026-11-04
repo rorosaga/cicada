@@ -1435,21 +1435,18 @@ These are attached to permanent rows instead of becoming a second queue. Older d
   source is what the limit would rest on. Row growth from `/authorize` itself is fixed there.
 - **Nothing pushes "another program is public" to a person who never opens the page.** The log and `cicada funnel status`
   say it too. A Home notice would need its own design.
+- **A notice on Home for an address left open (G135, ruling 59). Required before the one-click address goes beyond the
+  owner and testers.** The mapping is the daemon's and survives a crash, a reboot or a read that couldn't check it at the
+  moment the switch went off (`funnelNote`, seen once). With the connector down, only the page, the log and
+  `cicada funnel status` say so today.
+  Home should say it, read from Tailscale, with the off, whenever an address is open and the listener isn't up.
 
 ## Known flaky tests
 
 A test here is not fixed and not skipped: each line says what was seen and on what basis. Look here before chasing a
 failure; add to the counts when one comes back.
 
-- **`test_phone_pairing::test_a_replay_after_a_bank_switch_runs_in_the_bank_now_open` (2026-11-04, cause found, not yet
-  fixed).** It fails with `KeyError: 'device'` at `test_phone_pairing.py:45`: `/pair` answered 429. `/pair` has one
-  process-wide bucket (`devices._wrong_codes`, 10 a minute, one back every 6 s) that every try spends, a good code too.
-  `test_device_binding` resets it per test and `test_phone_pairing` does not. So this test, after 8 pairings in its own
-  module and 3 in `test_agent_api` just before it, fails when the suite reaches it fast enough. **It is the suite, not any
-  branch:** with the bucket spent first it fails on plain `origin/dev` (`5285b158`) too, and passes with it full. Seen
-  twice on `feat/g135-funnel-one-click`, in about 8 runs of the same 30 files, never alone or in its own module. The first
-  time, the error text was lost because the output was cut to its last lines. **The fix when wanted:** the same one line
-  `test_device_binding` has, `monkeypatch.setattr(devices_router, "_WRONG_CODES", None)`, in this module's fixtures.
+None at present.
 
 ## Maintaining this queue
 

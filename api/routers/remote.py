@@ -159,6 +159,9 @@ async def _close_funnel_with_the_switch(request: Request) -> str | None:
             state = await run_in_threadpool(lambda: reach.funnel_state(port, **kwargs))
             if state.step == "terminal":
                 return f"The connector is off, but its public address is still open. {state.message}"
+            if state.step in reach.FUNNEL_UNREAD_STEPS:  # also after closing one: another may be there
+                return ("The connector is off, but its public address couldn't be checked and may still be open. "
+                        f"{state.message}")
             if state.step != "on":
                 break
             result = await run_in_threadpool(lambda: reach.run_funnel("off", port, **kwargs))

@@ -14,6 +14,7 @@ import socket
 import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -373,6 +374,34 @@ def test_the_command_is_argv_only_capped_and_never_waits_on_input():
     (argv, kw), = [(a, k) for a, k in seen if a[1:3] != ["status", "--json"] and "--bg" in a]
     assert argv == ["/opt/fake/tailscale", "funnel", "--bg", "--https=443", "8765"]
     assert kw["timeout"] == reach.FUNNEL_TIMEOUT == 10.0 and kw["stdin"] is subprocess.DEVNULL and "shell" not in kw
+
+
+def test_no_test_can_reach_a_tailscale_it_did_not_make(tmp_path, monkeypatch):
+    """Conftest's guard, proved the way the owner's Mac would hit it: a Tailscale outside the test's own temp folder, first
+    on PATH and holding a funnel of the connector's port, with nothing about the route stubbed."""
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(_bank(tmp_path)))
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("CICADA_REMOTE_PORT", raising=False)
+    config.get_settings.cache_clear()
+    monkeypatch.setattr(remote_router, "LISTENER", _FakeListener())
+    with tempfile.TemporaryDirectory() as outside:
+        binary = Path(outside) / "tailscale"
+        log = Path(outside) / "argv.log"
+        binary.write_text(f'#!/bin/sh\necho "$*" >> "{log}"\n')
+        binary.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{outside}:{__import__('os').environ['PATH']}")
+        assert reach.find_tool("tailscale") == str(binary)
+        client = TestClient(main.app)
+        assert client.put("/remote/settings", json={"enabled": True}).status_code == 200
+        got = client.put("/remote/settings", json={"enabled": False}).json()
+        client.get("/remote/status"), client.get("/remote/funnel")
+        for argv in (["tailscale", "status"], [str(binary), "status"], [reach.TAILSCALE_APP_CLI, "status"]):
+            with pytest.raises(FileNotFoundError):
+                subprocess.run(argv, check=False)
+        with pytest.raises(FileNotFoundError):
+            subprocess.run("tailscale status", shell=True, check=False)
+        assert got["enabled"] is False and not log.exists(), "the stand-in was called"
+    config.get_settings.cache_clear()
 
 
 def test_only_one_place_builds_it_and_only_the_route_runs_it():
@@ -786,6 +815,42 @@ def test_one_from_a_terminal_is_said_when_the_switch_goes_off(route, stub):
     assert stub.changes() == []
 
 
+@pytest.mark.parametrize("state, words", [
+    ({"read_hang": True}, "did not answer"),
+    ({"backend": "Stopped"}, "Turn it on"),
+    ({"backend": "NeedsLogin"}, "Sign in"),
+    ({"version": "1.50.1-tabc"}, "too old"),
+])
+def test_a_tailscale_that_cant_be_read_is_said_when_the_switch_goes_off(route, stub, state, words):
+    """The mapping may be there, and whether it is isn't known: that's never the silence of "nothing to close"."""
+    client, listener, _ = route
+    assert client.put("/remote/settings", json={"enabled": True}).status_code == 200
+    stub.set(serve=web(443, 8765, funnel=True), **state)
+    got = client.put("/remote/settings", json={"enabled": False}).json()
+    assert got["enabled"] is False and listener.up is False
+    assert got["funnelNote"].startswith("The connector is off, but its public address couldn't be checked and may still "
+                                        "be open.") and words in got["funnelNote"]
+    assert stub.changes() == [] and "closed too" not in got["funnelNote"]
+
+
+def test_a_read_that_stops_after_the_first_close_never_says_closed(route, monkeypatch):
+    client, _listener, _ = route
+    assert client.put("/remote/settings", json={"enabled": True}).status_code == 200
+    states = [reach.FunnelState("on", stop_command="tailscale funnel --https=443 --set-path=/ off",
+                                mapped_url=f"https://{HOST}"), reach.FunnelState("unknown", "Tailscale did not answer.")]
+    monkeypatch.setattr(reach, "funnel_state", lambda port, **k: states.pop(0))
+    monkeypatch.setattr(reach, "run_funnel", lambda *a, **k: {"ok": True, "message": ""})
+    note = client.put("/remote/settings", json={"enabled": False}).json()["funnelNote"]
+    assert "may still be open" in note and "closed too" not in note
+
+
+def test_no_tailscale_at_all_has_nothing_to_say(route, monkeypatch):
+    client, _listener, _ = route
+    assert client.put("/remote/settings", json={"enabled": True}).status_code == 200
+    monkeypatch.setattr(reach, "funnel_state", lambda port, **k: reach.FunnelState("install", "Install Tailscale."))
+    assert client.put("/remote/settings", json={"enabled": False}).json()["funnelNote"] is None
+
+
 def test_nothing_to_close_says_nothing_and_saving_an_address_closes_nothing(route, stub):
     client, _listener, _ = route
     assert client.put("/remote/settings", json={"enabled": True}).status_code == 200
@@ -808,6 +873,24 @@ def test_the_api_port_this_request_arrived_on_is_closed_whatever_the_settings_sa
     assert client.get("/remote/status").json()["funnelCommand"] == reach.FUNNEL_COPY_PORT
     got = client.post("/remote/funnel", json={"action": "on", "shown": "tailscale funnel --bg --https=443 8123"}).json()
     assert got["ok"] is False and stub.changes() == []
+    config.get_settings.cache_clear()
+
+
+def test_a_forged_host_never_moves_the_api_port(stub, tmp_path, monkeypatch):
+    """The API's port is the socket's (`scope["server"]`). A browser or a tunnel chooses the Host header, so it can neither
+    make the API's own port look free nor make the connector's look like the API's."""
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(_bank(tmp_path)))
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("PATH", f"{stub.folder}:{__import__('os').environ['PATH']}")
+    monkeypatch.setenv("CICADA_REMOTE_PORT", "8123")
+    config.get_settings.cache_clear()
+    on_the_api = TestClient(main.app, base_url="http://127.0.0.1:8123")
+    assert on_the_api.get("/remote/funnel", headers={"Host": "127.0.0.1:9999"}).json()["step"] == "port"
+    got = on_the_api.post("/remote/funnel", headers={"Host": "127.0.0.1:9999"},
+                          json={"action": "on", "shown": "tailscale funnel --bg --https=443 8123"}).json()
+    assert got["ok"] is False and stub.changes() == []
+    elsewhere = TestClient(main.app, base_url="http://127.0.0.1:9999")
+    assert elsewhere.get("/remote/funnel", headers={"Host": "127.0.0.1:8123"}).json()["step"] == "off"
     config.get_settings.cache_clear()
 
 

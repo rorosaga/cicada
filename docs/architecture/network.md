@@ -327,7 +327,9 @@ so a machine that changed since they read it runs nothing); argv only, 10 s, std
   - **The switch closes it, in the same act, before the listener stops.** Turning the connector off runs each off for the
     connector's own door and says so (`funnelNote`, "The public address closed too."). Turning it on again never reopens
     it. Decided because *off* is what the person asked for, and a door left open behind it is the one failure that exposes
-    something else. If the off fails, the connector still goes off and the sentence says the address is open.
+    something else. If the off fails, the connector still goes off and the sentence says the address is open. If Tailscale
+    can't be read at that moment (a hung read, a stopped daemon, signed out, too old), nothing is known, so the sentence says
+    it couldn't be checked and may still be open, never the silence of nothing to close (`reach.FUNNEL_UNREAD_STEPS`).
   - **A listener that is down is never read as nothing there.** The port is asked (`reach.port_accepts`: connect and close,
     nothing sent, on every read). Something accepts: `otherProgram: true`, "Another program on this machine is on the
     connector's port, and this address makes it reachable from the internet. Turn it off.", first on the page, over the

@@ -479,6 +479,9 @@ _POLICY_FIX = "https://console.tailscale.com/admin/acls"
 #: Said before the click that can publish it, and it cannot be taken back: a certificate log is public and append-only.
 CERT_LOG_WORDS = ("Turning on HTTPS publishes this machine's name and your tailnet's name on a public certificate log, "
                   "and that can't be undone.")
+#: Steps reached without reading the ServeConfig: a mapping may be there, and it is not known. `install` is not one, since
+#: with no Tailscale there is nothing to hold a mapping; `off`, `taken` and `address` all read it and found none.
+FUNNEL_UNREAD_STEPS = ("open", "sign-in", "turn-on", "update", "port", "unknown")
 _FUNNEL_WORDS = {
     "install": "Install Tailscale on this machine.",
     "open": "Open Tailscale on this machine.",
