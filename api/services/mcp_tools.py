@@ -3007,6 +3007,9 @@ def _episode_read(ctx: ToolContext, episode_id: str) -> str | Reply:
     if kind is not None:
         # Ruling 30: a watched day, a month's summary, a saved-list item or a trace day is indexed, never read by a
         # model by id — one line saying what it is and where to ask, as recall and Ask treat it (review of #488).
+        if kind == "locked":
+            return Reply(f"`{episode_id}` is a locked note: Cicada does not read it.",
+                         data={"episode_id": episode_id, "index_only": kind})
         what = {"history": "a day of the person's watch history", "month": "a month's summary of the watch history",
                 "list": "a save from one of the person's saved lists", "traces": "an activity-trace day",
                 "reading": "a day of pages the person read",

@@ -218,6 +218,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **A ticked chat's attachments show at view time (G179, 2026-11-04):** the app opens the file the chat app holds on
   this Mac (Telegram's through the person's own session); the bank keeps names only; thumbnails outside every bank,
   gone on untick (`app.md`).
+- **Locked notes are never read (G234, owner 2026-11-04):** the app asks Notes only for unlocked notes, inside Notes, so a
+  locked note's body is never requested; the backend drops a flagged body and keeps only a count; what it kept is retired
+  and read by nothing, destruction the person's call (`capture-and-sleep.md`).
 - **Messages are read only for conversations the person ticked (G179)**: the app reads them, the backend refuses any
   other; a texted agent's words are its `assistant:` turns and its claims `external:<name>`, never the person's own —
   as are a harness session's or a chat export's assistant's (`external:<harness|app>`, 2026-10-27; relayed apps keep

@@ -51,6 +51,8 @@ extension Copy {
         /// G49/G50 — the person's own agent tools, each signed in through itself.
         static let ownTools = "Your agent tools"
         static let notInstalled = "Not installed"
+        /// ROR-52 — the app is here; the tool Sleep needs isn't, or is too old. The row's line says which.
+        static let notReady = "Not ready"
         static let keys = "API keys"
         static let signIn = "Sign in"
         static let signOut = "Sign out"

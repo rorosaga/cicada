@@ -3890,6 +3890,10 @@ class SleepEngineCandidate(CamelModel):
     model_note: Optional[str] = None
     # The exact command that signs the person in to this tool (they run it; Cicada never signs in for them).
     sign_in: Optional[str] = None
+    # ROR-52, additive: `available` is false yet this is not "not installed": the tool's app (or an old copy of the tool)
+    # is on this computer and Sleep can't run it. `detail` says what is missing; `next_command` is the one line to run.
+    not_ready: bool = False
+    next_command: Optional[str] = None
     # Vision item 4 (2026-10-28) — `models` described (`model_catalogue`): where each came from and when, its family,
     # when Cicada first saw it, what an alias last resolved to, and a format change in words. Additive.
     catalogue: Optional["ModelCatalogue"] = None
@@ -5034,6 +5038,9 @@ class NotesSyncRequest(CamelModel):
     # 2026-11-04 — each note's Notes account by note id ("iCloud", "On My Mac", a mail account's name), beside the dump
     # rather than in it, so a backend that predates it ignores the key and still reads every note.
     note_accounts: Optional[dict[str, str]] = Field(default=None, max_length=100_000)
+    # G234: the ids of the notes that are locked, beside the dump for the same reason. Used to drop and retire, counted,
+    # never stored. None from an older app, which is told apart by this: there a record with no text is taken as locked.
+    locked_note_ids: Optional[list[str]] = Field(default=None, max_length=100_000)
 
 
 class NotesSyncResponse(CamelModel):
@@ -5043,6 +5050,10 @@ class NotesSyncResponse(CamelModel):
     total: int = 0
     # Notes dropped by CICADA_NOTES_EXCLUDE_FOLDERS before dedup/ingest.
     excluded: int = 0
+    # G234: locked notes this read found; nothing of them is kept but this count.
+    locked: int = 0
+    # G234: episodes this read retired because their note is locked.
+    retired: int = 0
 
 # --- Capture channels (G62) --------------------------------------------------
 

@@ -18,6 +18,17 @@
   scratch listener; **no real funnel has run**, that is the owner's click. Read-only `tailscale status --json` on this Mac
   (key names only): HTTPS certificates and the `funnel` attribute are not yet granted, so the first click meets the
   tailnet step and shows Tailscale's link. Waiting on the owner: that first click and a request from a device off the tailnet.
+- **2026-11-04 — three owner reports: a tool inside its app, a plan that is back, one inbox (G50, ROR-52, ROR-96, ROR-46;
+  branch `fix/g50-bundled-tool-detection`).** OpenCode.app's `opencode-cli` is found; an app without the tool Sleep needs
+  says *Not ready* and the line to run, on the cards and in Auto's skip sentence (`Status.not_ready`). The real bundled
+  tool (1.3.3, scratch home) has no `--pure`, so on the owner's Mac it reads too old until the app is updated or the tool
+  installed; rail 3 is never loosened to make it run. A message after `--file` was read as a second file on it, so the
+  message now comes first. A paused run past its reset says the plan is back and to continue, on its own at that moment
+  (`nextClockEdge`), no past time anywhere on the page; Continue resumes the same run, proved with the route and the real
+  run on a reset an hour and a half gone. Ruling 15 stands: a weekly pause still waits for the click. Sources wears `tray`,
+  the Inbox page `tray.full`, ⌘K's word for it. **Pick up here:** a signed-in call through a bundled tool, and a spawn from
+  the launchd agent, are unverified (G50's row); Grok's install line points at an address that answered 404.
+
 - **2026-11-04 — This Mac source pages: accounts → collections → items (G161, G154, G95; branch `this-mac-sources`,
   PR #599, on the standard layout #593).** Owner: Apple Notes, Reminders, Contacts and Calendar "should
   have a better user experience and UI". One browser fills the standard page's content slot (`ThisMacSourceContent`):
@@ -36,6 +47,12 @@
   button (`SourcePageBack`, drills too); an unticked list's items fell under "Other", because each sync replaced the
   names kept for the last one (`source_collections.after_sync`). Calendar's Google way row from #593 is gone too, so
   Cicada no longer links to Internet Accounts: a Google calendar still comes in through macOS.
+- **2026-11-04 — locked Apple Notes are never read (G234; branch `g234-locked-notes`).** Owner (ROR-93): locked notes
+  must be unavailable to read, and the app should show it detects them. The reader asks only through `whose password
+  protected is false`; the backend drops a flagged body and retires what it kept; Sleep retires text-less stubs before
+  it freezes; only a count stays, one line on the Notes page. **Open:** what `password protected` and `plaintext` return
+  for a locked note open in the session needs the owner's Touch ID on a throwaway note. **The owner decides:** an
+  already-read note's text and git history (options in the PR body).
 - **2026-11-04 — books: scan an ISBN, Apple Books, a Goodreads export (G233, G39; branch `books-g39` + cicada-app `feat/scan-a-book`).** Owner: "integrate ISBN codes to include books I'm reading … iBooks too, to track progress … save books I want to read (maybe including Goodreads)"; then "be able to consolidate highlights and such is important", not started as its own status, the scanner in the phone app. `POST /capture/isbn` is the phone's contract (`{isbn, status?, id?}`, keep it stable); the home resolves the number behind the connector gate; `books.apply_pending` makes one `media` page per work with dated `reading-status` claims and happenings (`progress.py`). Apple Books is read by the app after Connect; Goodreads only by its export (no API keys since 2020); both on the standard source page (`BooksSlots.swift`). Highlights are read by Sleep, revision-read as they grow. Verified on scratch state with a synthetic library, a sample export and a capture-only phone (`feature-status.md`). **Owner's steps:** the four decisions on the G233 row; a real-iPhone camera test once the Apple Developer Program signup is done.
 - **2026-11-04 — a question about two people rests on a conversation naming both; never the owner without their own
   words (G209; branch `fix/person-dedup-evidence`).** Owner: "why tf would <handle> be me?" about "Is <handle> the same
