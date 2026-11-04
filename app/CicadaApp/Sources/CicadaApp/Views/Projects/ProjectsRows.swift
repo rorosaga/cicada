@@ -4,7 +4,8 @@ import SwiftUI
 enum ProjectsListState: Equatable {
     case loading, failed(String), empty, emptyMine, tabEmpty, noMatch, list
 
-    /// `suggestions` (ruling 45): none of the person's own yet, but Cicada suggests some — say so above the fold.
+    /// `suggestions` (ruling 45): none of the person's own yet, but Cicada suggests some. Neither empty state draws
+    /// words (owner 2026-11-04): only the quiet suggestions line, when there is one.
     static func of(phase: ProjectsCache.Phase, hasList: Bool, rows: Int, suggestions: Int = 0, lines: Int,
                    finding: Bool) -> ProjectsListState {
         if !hasList {
@@ -63,11 +64,9 @@ struct ProjectsListColumn: View {
                             ListSkeleton(message: Copy.Projects.gathering)
                         case .failed(let message):
                             ListErrorCard(title: Copy.Projects.loadFailedTitle, message: message, retry: retry)
-                        case .empty:
-                            EmptyStateView(systemImage: "point.topleft.down.to.point.bottomright.curvepath",
-                                           title: Copy.Projects.emptyTitle, message: Copy.Projects.emptyMessage)
-                        case .emptyMine:
-                            note(Copy.ProjectsMine.emptyMineMessage)
+                        case .empty, .emptyMine:
+                            // Owner 2026-11-04: no projects is an empty, calm column — no sentence; the eyebrow's
+                            // New project is the way in, and Cicada's suggestions stay one quiet line.
                             suggestedFold()
                         case .tabEmpty:
                             note(tab == .past ? Copy.Projects.nonePast : Copy.Projects.noneCurrent)

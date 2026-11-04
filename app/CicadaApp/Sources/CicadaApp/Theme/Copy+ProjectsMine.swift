@@ -10,8 +10,6 @@ extension Copy {
         static let newProjectHelp = "Start a project of your own"
         static let nameField = "Name"
         static let namePlaceholder = "What it's called"
-        static let descriptionField = "Description"
-        static let descriptionPlaceholder = "One line on what it is, in your words"
         static let create = "Create"
         static let cancel = "Cancel"
         static let suggested = "Suggested"
@@ -21,8 +19,20 @@ extension Copy {
         static let notMineHelp = "Leave it out of your projects. It stays in memory, and you can add it later."
         static let nameItTitle = "Name this project"
         static let nameItMessage = "It's a group of your conversations with no name of its own."
-        static let emptyMineTitle = "No projects of yours yet"
-        static let emptyMineMessage = "Start one with New project, or add one Cicada suggests below."
+
+        // MARK: New project, as a page (owner 2026-11-04: one line of copy, no paragraph, no title over the fields)
+        static let newName = "Project name"
+        static let newDescription = "What it's about, in your words"
+        static let createHelp = "Create the project (⌘Return)"
+        static let discardHelp = "Close and forget this draft"
+        static func attached(_ n: Int) -> String { "Pages · \(UsageFormat.count(n))" }
+        static let findPage = "Find a page to add"
+        static let takeOff = "Remove"
+        static let takeOffHelp = "Take this page off the project"
+        static let recent = "Recent"
+        static let nothingFound = "No page in your memory matches."
+        static let repository = "Repository"
+        static let kindMenu = "Kind"
 
         /// The reason a suggestion is offered, from the server's `whyKind` (its sentence rides as `why`).
         static func reasonGlyph(_ kind: String) -> String {
@@ -44,7 +54,7 @@ extension Copy {
 
         // MARK: The header
         static let editNameHelp = "Rename (Return to save, Esc to cancel)"
-        static let editDescriptionHelp = "Edit the description (Return to save, Esc to cancel)"
+        static let editDescriptionHelp = "Edit the description (⌘Return to save, Esc to cancel)"
         static let addDescription = "Add a description"
         static func startedLine(_ via: String?, day: String?) -> String {
             let how: String
