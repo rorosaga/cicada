@@ -970,7 +970,19 @@ def _record_settle(ctx: ToolContext, memory_path: Path, item_id, source, option_
         return Reply("Not recorded: this session has settled the most questions it may. Stop and tell the person.",
                      code="refused")
     try:
-        if c.kind == web_settle.PAIR:
+        if c.kind == web_settle.PAIR and c.handle is not None:
+            # Proposed ruling 54 (`public_handle`): a public handle and a named person — settled only when a public
+            # page states the handle is theirs; the answer is a cited "goes by" claim, never a merge.
+            from api.services import public_handle
+
+            if entity_relations.clean(proposed_value) != "same":
+                return Reply("Not recorded: for a public handle, `proposed_value` is \"same\" when a public page "
+                             "states the handle is that person's; anything else stays for the person. Nothing was "
+                             "written.", code="refused")
+            done = public_handle.settle(
+                memory_path, item_id, ref=source, quote=quotes_clean[0], checker=ctx.author, checker_kind="agent",
+                origin="mcp", session_frontmatter=ctx.session_frontmatter(), facts=facts)
+        elif c.kind == web_settle.PAIR:
             # Session-1 follow-up (#545, owner's question 3): the person's own agent settles a public pair through the
             # writer Sleep's tail uses — a cited relation, undoable, never a merge, never a person.
             relation = entity_relations.clean(proposed_value)
@@ -1143,6 +1155,12 @@ def _settle_lines(ctx: ToolContext, memory_path: Path, item_id: str) -> list[str
             return []
         return [f"  From the repository: answer it from its commit \u2014 cicada_record_check(item_id=\"{item_id}\", "
                 f"source=\"commit:<sha>\", outcome=\"settles\", {answer}=\u2026, quotes=[{{quote: <the commit's subject>}}])"]
+    if c.kind == web_settle.PAIR and c.handle is not None:
+        searches = " and ".join(f"\"{q}\"" for q in web_settle.queries_for(c))
+        return [f"  Public handle: look it up (search only {searches}); only if a public page states that "
+                f"\"{c.handle.handle}\" is {c.handle.name}'s handle, settle it \u2014 "
+                f"cicada_record_check(item_id=\"{item_id}\", source=<that page>, outcome=\"settles\", "
+                "proposed_value=\"same\", quotes=[{quote naming both}]). Otherwise leave it for the person."]
     if c.kind == web_settle.PAIR:
         # Session-1 follow-up (2026-10-29): a "same as?" pair of two public things is settled by how they are related.
         searches = " and ".join(f"\"{q}\"" for q in web_settle.queries_for(c))

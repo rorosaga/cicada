@@ -1267,6 +1267,20 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/public_handle.py": [
+    {
+      "function": "settle",
+      "method": "write",
+      "frontmatter": "page.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "settle",
+      "method": "write",
+      "frontmatter": "{**parsed_item.frontmatter, 'settled': record}",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
   "services/linkedin_people.py": [
     {
       "function": "_apply_page",

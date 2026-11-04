@@ -390,6 +390,24 @@ the page the name was weighed against (`includes`, `creates`, `alternative-to`, 
 `different`), moves the question to `settled/` with the record Undo reads, and the claim on the record keeps the pair
 from being asked again. **A check never merges:** "they are the same" settles nothing — the question stays for the
 person's tap. Pairs come after clarifications and before conflicts in a run's eight (`KIND_ORDER`).
+**A public handle and a named person (PROPOSED ruling 54, owner direction 2026-11-04, `public_handle`).** The one
+person pair a lookup may answer: "Is <handle> the same as <full name>?" between two person pages, where one side is a
+handle and the other a full name; neither the owner, a role-only page, the address book or LinkedIn import, or known
+personally on the record (ruling 44's own checks, `web_context.known_personally`); no chat (Messages, WhatsApp,
+Telegram chats, e-mail, LinkedIn, a profile read on request) says either name outside a link, in its title or as its
+correspondent; and each name is said in public content the person read or saved (a saved link, a bookmark, a watched
+video, a read page, a paper, a repository, a tab group). **Sent:** to the plan's own web search, exactly two pinned
+queries — the handle with the one platform word the record links it on (`<handle> twitter`/`github`/`instagram`/
+`linkedin`, else `@<handle>`) and the full name alone — plus the prompt to the engine that already read those
+conversations (at most two scrubbed mention lines, other people's names out); plan runs only, never a metered key
+(`metered_only`). **Settles** only a sure "same" whose quote, checked here, names both: one cited `goes-by` claim on the
+named page ("<Name> goes by “<handle>” online", its object the handle's page, observer `agent`, `external`,
+`web-check`), never a merge; while it stands the pair is not asked again (`pair_evidence.answered_by_check`); undo
+under "Settled by a check". The person's own agent settles it the same way (`cicada_record_check`,
+`proposed_value="same"`). On by the owner's direction while the ruling is proposed; `CICADA_PUBLIC_HANDLE_LOOKUP=off`
+closes it. Measured on a copy of the owner's bank: 1 of the 20 open person pairs qualifies; one real
+lookup on the plan with haiku made exactly the two pinned searches and answered "not sure" (nothing written; the
+shipped lookup tier is `web_check_agent_model`, sonnet, not run here).
 The settled question moves to `inbox/settled/<id>.md` with a `settled:` block naming exactly what it wrote, and is
 served by `GET /inbox/settled` (not a Store domain). **The Inbox shows it under "Settled by a check"** (closed until
 asked for, below the questions and on the empty page): the answer, the quote and the site with when and who
@@ -409,6 +427,7 @@ tends the inbox (`inbox_tend`, `capture-and-sleep.md`) in three moves, through t
 |---|---|---|
 | any but `page_edit` | what it asks about is gone (merged away, archived, dropped; for a conflict, decay or follow-up also a name that resolves to no file) — retired, nothing else touched (`subject_gone`). A page that is there but cannot be parsed is never "gone" (`ask:unreadable_page`) | — |
 | `conflict`, `clarification`, `merge_suggestion` | **the person's own words in a conversation answer it**: a batch's conversation is about it (`inbox_ask_gate.relevant`, over the person's turns only), the engine copies the words, and they are found exactly in one of the person's own turns (`evidence.verify`, kind `user`, never fuzzy); the conversation that raised the question (or an option's evidence) never answers it | ask |
+| `merge_suggestion` between people | **it should never have been asked** (owner 2026-11-04, `pair_evidence`): the owner's page beside someone with no words of the person's naming themselves so (`owner_unsaid`), or two people no conversation names together (`no_pair_evidence`; a question the record raised with no conversation is exempt) — retired, nothing written but the record, engine-free; never "same" and never "different" | ask (evidence names both) |
 | `merge_suggestion` | same name once spelling is folded, same type, not a person (`same_spelling`); or the judge reads both pages: `same` ≥ 0.9 merges (`judged_same`), `different` ≥ 0.9 keeps them apart (`_merge_rejected.yaml`, `judged_different`). A merge of two existing pages **folds the duplicate's page into the target** (`entity_merge.merge_entities`: its claims, ledger, sources and references follow; undo brings it back) | ask (unsure; a person — only their own words merge two people) |
 | `normalization` | the two labels differ only in spelling (case, separators, a plural): "Correct fold" (`spelling_fold`); a fold the shipped predicate seed lists (`synonyms`), curated like an ending (`seed_fold`, ruling 37); else the judge: same meaning ≥ 0.9 folds (`judged_fold`) | ask (the meaning changes, or unsure) |
 | `decay` | a one-off nobody would miss: a `concept`/`tool`/`media`/`company` page on one conversation, not evergreen or durable, never kept, no claim of the person's own → archive (`one_off`); any other such page: the judge reads the page and its last mentions — clearly passing → archive (`judged_archive`), clearly live → marked active only (`judged_keep`: no mention dated today, no claim reopened, no confidence lifted — the person's "still true" stays theirs) | ask (the person's projects, skills, people, places; unsure) |

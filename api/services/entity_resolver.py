@@ -14,7 +14,7 @@ from thefuzz import fuzz
 
 from api.config import Settings
 from api.services import (agent_engine, alias_policy, application_page, authorship, contact_identity, contacts_local, correspondents, engine_errors,
-                          entity_body, entity_relations, entity_types, fact_policy, json_parse, owner_identity, people_directory, person_leads,
+                          entity_body, entity_relations, entity_types, fact_policy, json_parse, owner_identity, pair_evidence, people_directory, person_leads,
                           project_birth, promotion, quiet_pages, role_people, section_provenance, text_fold,
                           wrong_aliases)
 from api.services.clarification_manager import (
@@ -593,6 +593,12 @@ async def resolve(
                              "lead": person_leads.Lead(page=sanitize_id(name), holder=pid, kind=kind,
                                                        key=person_leads.handle_key(name))}
                     ambiguous_match = True
+            if ambiguous_match and _unaskable_pair(settings.memory_path, name, entity, match["candidate"], owner_id,
+                                                   two_places=bool(match.get("heard_in"))):
+                # Owner 2026-11-04 (`pair_evidence`): a question that may not be asked — the owner's page with no words
+                # of theirs naming themselves so, or two people no conversation names together — holds nothing back:
+                # the name goes on by the usual rule.
+                match, ambiguous_match = None, False
 
             # New entity — the promotion rule, measured (`promotion`): 2+ conversations
             # (this batch's, plus any an earlier batch parked the name from), more than
@@ -2098,7 +2104,9 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
             "source_episode": entity.get("source_episode", ""),
             "uncertainty_type": f"Possible duplicate of {page_name}",
             "suggested_classification": f"person — could refer to the same person as {page_name}",
-            "suggested_confidence": float(entity.get("confidence", 0.0) or 0.0),
+            # Cicada's guess about the pair, never the mention's extraction confidence (`pair_evidence`).
+            "suggested_confidence": pair_evidence.BASE_GUESS[
+                "cross_source" if heard_in is not None else "given_name" if by_given else "held_alias"],
             "source_context": context,
             "source_episode_timestamp": entity.get("source_episode_timestamp"),
             **({"heard_in": heard_in} if heard_in is not None else {}),
@@ -2279,7 +2287,9 @@ def _create_lead_clarification(clarifier: ClarificationManager, lead: "person_le
             suggested_classification=(f"person — could refer to the same person as {holder_name}"
                                       if index.types == person_leads.PERSON_TYPES else
                                       f"{_lead_type(page, holder)} — could refer to the same thing as {holder_name}"),
-            suggested_confidence=float(entity.get("confidence", 0.0) or 0.0),
+            suggested_confidence=pair_evidence.BASE_GUESS[
+                "profile" if lead.kind.startswith("profile:") else "named_handle" if lead.kind == "named_handle"
+                else "alias"],
             source_context=person_leads.lead_reason(lead, holder_name),
             source_episode_timestamp=entity.get("source_episode_timestamp"),
         )
@@ -2672,6 +2682,23 @@ def _batch_connections(
     return "\n".join(lines)
 
 
+def _unaskable_pair(memory_path, name: str, entity: dict, candidate: dict, owner_id: str | None, *,
+                    two_places: bool = False) -> str | None:
+    """Why "is this mention that person?" may not be asked (owner 2026-11-04, `pair_evidence`), or ``None``: the
+    owner's page with no words of the person's naming themselves by this name, or two people that no conversation
+    names together. Only a person pair; engine-free."""
+    if memory_path is None or not candidate or not candidate.get("id"):
+        return None
+    if not (_is_person(entity) or _candidate_type(candidate) == "person"):
+        return None
+    verdict = pair_evidence.judge(
+        Path(memory_path), a_id=sanitize_id(name), a_name=name, b_id=str(candidate["id"]),
+        b_name=_candidate_display_name(candidate), person=True,
+        source_episode=str(entity.get("source_episode") or ""), owner=owner_id or "", fresh=False,
+        two_places=two_places)
+    return None if verdict.ask else verdict.reason
+
+
 def _create_duplicate_clarification(
     clarifier: ClarificationManager,
     entity: dict,
@@ -2694,7 +2721,7 @@ def _create_duplicate_clarification(
                 f"{entity.get('type', 'concept')} — "
                 f"could refer to the same entity as {candidate_name}"
             ),
-            suggested_confidence=float(entity.get("confidence", 0.0) or 0.0),
+            suggested_confidence=pair_evidence.BASE_GUESS["judge"],   # the judge could not tell
             source_context=(
                 _effective_summary(entity)
                 or f"Could not safely decide whether this refers to {candidate_name}."

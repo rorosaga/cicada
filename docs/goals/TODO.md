@@ -12,6 +12,16 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — a question about two people rests on a conversation naming both; never the owner without their own
+  words (G209; branch `fix/person-dedup-evidence`).** Owner: "why tf would <handle> be me?" about "Is <handle> the same
+  as <owner>?" (guess 0.90, evidence a chat naming neither). Cause: a post BY the handle linked on the owner's page read
+  as the owner's account, raised whenever any mention matched the owner's page, with that mention's conversation and
+  extraction confidence. Now (`pair_evidence`): no owner pair without self-reference; a person pair only on a
+  conversation naming both (it becomes the card's evidence); the guess is the pair's, ≤ 0.8; Sleep retires the open
+  ones that should never have been asked (`owner_unsaid`, `no_pair_evidence`, undoable). Copy of the owner's bank, 210
+  open duplicate questions: 1 owner pair, 148 on a conversation not naming both, 20 between people → 4 retired, 16
+  left, all 16 cards on a conversation naming both (10 before). **Proposed ruling 54 below waits for the owner:** a
+  public handle settled by a web lookup (built behind it; 1 of the 20 qualifies).
 - **2026-11-03 — GitHub connects with a code; your repositories are pages; a project lists its repositories (ruling
   53, G230; branch `feat/g230-oauth-sync`).** Owner: "why are you asking for a token for github? cant we just do oauth?"
   and "always sync and make their initial markdowns … a project might reference several repos". Connect GitHub shows
@@ -2936,3 +2946,26 @@ A whole row moves to DONE only after its remaining implementation and required a
     merged follows its redirect and one they removed is never made again. **Revisit** if a GitHub App user token stops
     needing an installation for the account's own repositories (the install step goes), or if the person unlinks most
     of what the origin rule links.
+54. **PROPOSED — not binding until the owner says yes (owner direction 2026-11-04; G209; amends ruling 44's public test
+    for this one question; branch `fix/person-dedup-evidence`).** The owner's words, on "is <handle> the same as
+    <person>?": "could've been resolved from a search, like how claude code would solve it if i ask it rn." **Proposed
+    text:** *A question whether a public handle is a named person may be settled by a web lookup on a plan run, with a
+    cited claim, undoable — only when: both sides are person pages, one a handle and the other a full name; neither is
+    the owner, a role-only page, on the person's address book or LinkedIn import, or known personally on the record
+    (ruling 44's local checks); no chat (Messages, WhatsApp, Telegram chats, e-mail, LinkedIn, a profile read on request)
+    says either name outside a link to public content, in its title or as its correspondent; and each name is said in
+    public content the person read or saved (a saved link or bookmark, a watched video, a read page, a paper, a
+    repository, a tab group). What is sent: to the plan's own web search, exactly two pinned queries, each alone — the
+    handle with the one platform word the record links it on (or "@handle"), and the full name; the prompt goes to the
+    engine that already read those conversations, with at most two scrubbed mention lines and nobody else's name. What
+    settles: only a public page whose quoted words name both the handle and the person, checked by Cicada, never on the
+    model's word; it writes one cited "<Name> goes by <handle>" claim on the named page and never merges the pages.
+    Never a metered key; a private person's name never reaches any service.* **Built behind it** (`public_handle`,
+    `web_lookup`'s handle prompt, `cicada_record_check` with `proposed_value="same"`), on by the owner's direction and
+    closed by `CICADA_PUBLIC_HANDLE_LOOKUP=off` (every handle question then stays for the person); declining this text
+    removes the path.
+    **Measured** on a copy of the owner's bank: of 20 open person pairs, 1 qualifies (the example above); 11 are not a
+    handle against a name, 1 is a held mention, 1 the owner's page. One real lookup on the plan (haiku): exactly the two
+    pinned searches, answer "not sure", nothing written; the shipped lookup tier (`web_check_agent_model`, sonnet) was
+    not run under the worker's haiku-only rule. **Revisit** if a settled handle is undone by the person, or a name the
+    test called public turns out to be someone they know.
