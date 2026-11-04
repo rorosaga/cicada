@@ -14,6 +14,7 @@ extension Copy {
         static let nothingYet = "nothing in yet"
         /// 2026-11-04 — the app a source reads was removed from this Mac.
         static let notInstalled = "not installed"
+        static let notInstalledRow = "Not installed"
         /// 2026-11-03 — a chat reader's last check of the ticked chats, and the newest message in them (`ChatCheck`).
         static func checked(_ when: String) -> String { "checked \(when)" }
         static func newestMessage(_ day: String) -> String { "newest message \(day)" }

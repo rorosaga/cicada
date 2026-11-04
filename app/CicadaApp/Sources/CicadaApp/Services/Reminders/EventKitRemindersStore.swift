@@ -31,7 +31,11 @@ final class EventKitRemindersStore: RemindersStore, @unchecked Sendable {
         let store = self.store
         return await Task.detached(priority: .utility) {
             store.calendars(for: .reminder).map {
-                RemindersListInfo(id: $0.calendarIdentifier, title: $0.title, account: $0.source?.title)
+                RemindersListInfo(id: $0.calendarIdentifier, title: $0.title, account: $0.source?.title,
+                                  provider: $0.source.map {
+                                      SourceAccountProvider.of(sourceType: $0.sourceType.rawValue, title: $0.title)
+                                          .rawValue
+                                  })
             }
         }.value
     }

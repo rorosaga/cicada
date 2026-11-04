@@ -289,6 +289,12 @@ enum SourceCatalog {
         if mine.contains(where: { signInChannels.contains($0.id) && readsAsSignIn($0.lastError) }) {
             return .needsSignIn
         }
+        // 2026-11-04 (owner: "I just pressed sync contacts … it said syncing and then it turned off … now that it finished
+        // syncing, it says connected. But I don't get why it wasn't connected from the start") — a reader this Mac runs
+        // is Connected while it is on (allowed and turned on), whether or not the bank has recorded a sync yet: the
+        // backend's `connected` means "a sync was recorded", which a fresh bank, a first read still running or a read
+        // the bank refused (Sleep writing) leaves false. Off here stays Off whatever synced before (2026-10-23).
+        if entry.channels.contains(where: { localReaders[$0] == true }) { return .connected }
         if mine.contains(where: { $0.connected && localReaders[$0.id] != false }) { return .connected }
         if entry.overviewId != nil, overviewRow(for: entry, in: overview) != nil { return .connected }
         if entry.id == "chat-exports", mine.contains(where: { $0.count > 0 }) { return .connected }
@@ -334,14 +340,19 @@ enum SourceCatalog {
     static func rows(entries: [SourceCatalogEntry], channels: [SourceChannel], overview: [SourceOverview],
                      readableSites: Set<String>, localReaders: [String: Bool] = [:],
                      savedListsOn: Set<String> = [], localAgent: Bool = false,
-                     checked: [String: Date] = [:]) -> [SourceCatalogRow] {
+                     checked: [String: Date] = [:], notInstalled: Set<String> = []) -> [SourceCatalogRow] {
         entries.map { entry in
             let synced = lastSync(for: entry, channels: channels, overview: overview)
+            // 2026-11-04 — an app removed from this Mac (`LocalSourceWatcher.missingApps`) reads Off, whatever the bank's
+            // switch says: nothing more can come from it.
+            let gone = notInstalled.contains(entry.id)
             return SourceCatalogRow(entry: entry,
-                                    status: status(for: entry, channels: channels, overview: overview,
-                                                   readableSites: readableSites, localReaders: localReaders,
-                                                   savedListsOn: savedListsOn, localAgent: localAgent),
-                                    lastSync: [synced, checked[entry.id]].compactMap { $0 }.max())
+                                    status: gone ? .off : status(for: entry, channels: channels, overview: overview,
+                                                                 readableSites: readableSites,
+                                                                 localReaders: localReaders,
+                                                                 savedListsOn: savedListsOn, localAgent: localAgent),
+                                    lastSync: [synced, checked[entry.id]].compactMap { $0 }.max(),
+                                    notInstalled: gone)
         }
     }
 
@@ -368,6 +379,7 @@ enum SourceCatalog {
     /// The second line, only when it says something: when it last synced ("2 h ago"), else nothing (the status word
     /// on the right says the rest — never a sentence, design-refs pattern 4).
     static func line(_ row: SourceCatalogRow, now: Date, locale: Locale = .autoupdatingCurrent) -> String? {
+        if row.notInstalled { return Copy.SourcePage.notInstalledRow }
         guard row.status == .connected || row.status == .needsSignIn, let last = row.lastSync else { return nil }
         return ago(last, now: now, locale: locale)
     }
