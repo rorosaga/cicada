@@ -54,7 +54,10 @@ enum GettingStartedProgress {
         // the recorded rows, in a stable order so the card never reshuffles.
         let dropped = i.runnerRows.keys.filter { if case .dropped = $0 { return true }; return false }
             .sorted { $0.key < $1.key }
-        return (i.record.enabled + dropped).map { id in
+        // A checklist that ticked Wispr Flow before it left the offer (`SourceCatalog.wisprOffered`) drops the row: there
+        // is nothing to finish, and it must not hold the card open.
+        let shown = i.record.enabled.filter { SourceCatalog.wisprOffered || $0 != .app(AppSourceDrivers.wispr) }
+        return (shown + dropped).map { id in
             let item = i.items.first { $0.id == id }
             let derived = derivedState(id, item: item, i)
             // R-IB18: ✕ settles a row even over this session's runner state, or a

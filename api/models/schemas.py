@@ -5644,6 +5644,44 @@ class ContactsLocalSyncResponse(CamelModel):
     bank: str = ""
 
 
+class ContactsBookCard(CamelModel):
+    """One card of ``PUT /sources/contacts-local/book``: its names and thumbnail, nothing else (R-SR8)."""
+
+    id: str
+    given_name: str = ""
+    family_name: str = ""
+    photo_b64: Optional[str] = None
+
+
+class ContactsBookRequest(CamelModel):
+    """The whole address book, for the Contacts page's faces (``contacts_book``); ``connection`` as on the sync."""
+
+    cards: list[ContactsBookCard] = []
+    connection: Optional[str] = None
+
+
+class ContactsBookSaved(CamelModel):
+    total: int = 0
+
+
+class ContactsBookRow(CamelModel):
+    """A face. ``key`` is the card id hashed, ``entity_id`` the page that carries the card, ``photo`` a hash of its
+    thumbnail for the picture's address; never a fact of the card."""
+
+    key: str
+    name: str = ""
+    entity_id: Optional[str] = None
+    photo: Optional[str] = None
+
+
+class ContactsBookResponse(CamelModel):
+    """``GET /sources/contacts-local/book``: not a Store domain, no ETag; the app holds it in memory."""
+
+    total: int = 0
+    in_memory: int = 0
+    cards: list[ContactsBookRow] = []
+
+
 class LinkedInConnectionsPreview(CamelModel):
     """``POST /sources/linkedin-connections/preview`` — what an import would do; counts only, nothing written."""
 

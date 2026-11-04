@@ -19,11 +19,25 @@ final class ContactsReader {
 
     private(set) var status: Status = .off
     private(set) var enabled: Bool
+    /// Review of #602: the page's book is on its way, so an empty answer from the backend is "not yet", not "none".
+    private(set) var bookPending = false
+    /// Why the book could not be posted, once the retries ran out.
+    private(set) var bookFailure: String?
 
     @ObservationIgnored private let store: ContactStore
     @ObservationIgnored private let api: any ContactsSyncAPI
     /// The last forget request (`forgetWaiting`), kept so a test can await it.
     @ObservationIgnored private(set) var forgetTask: Task<Void, Never>?
+    /// Contacts stopped: what the app holds of the book in memory goes too (`CicadaApp` wires its cache here).
+    @ObservationIgnored var onForget: (@MainActor () -> Void)?
+    /// A book reached the backend: a page already showing the old one reads again (`CicadaApp` wires its cache here).
+    /// Awaited before the book counts as arrived, so the page keeps its skeleton until that read answers.
+    @ObservationIgnored var onBookPosted: (@MainActor () async -> Void)?
+    @ObservationIgnored private var bookTask: Task<Void, Never>?
+    /// Who owns the book's state now: a run that was replaced or stopped says nothing about it when it ends.
+    @ObservationIgnored private var bookRun = 0
+    @ObservationIgnored private var bookRetries = 0
+    nonisolated static let maxBookRetries = 3
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let activity: SyncActivity?
     @ObservationIgnored private let now: () -> Date
@@ -53,6 +67,10 @@ final class ContactsReader {
     /// Review of #393: the current connection's id — minted at Connect, sent with every sync and with the forget that
     /// ends it, so the backend drops a sync of an ended connection that was still in flight.
     private var connectionKey: String { ServerConnection.current.scoped("cicada.contacts.connection") }
+    /// The history token of the last book the backend took: the book's own state, apart from the sync's token.
+    private func bookTokenKey(_ bank: String) -> String {
+        ServerConnection.current.scoped("cicada.contacts.\(bank).bookToken")
+    }
     private func lastPostKey(_ bank: String) -> String {
         ServerConnection.current.scoped("cicada.contacts.\(bank).lastPost")  // per connection (G181 phase 3)
     }
@@ -65,6 +83,12 @@ final class ContactsReader {
         return now.timeIntervalSince(lastPost) >= staleAfter
     }
 
+    /// Review of #602, pure: post the book when the backend holds none, or when the last one it took is older than the
+    /// address book. Independent of the sync's token, which says nothing about the book.
+    nonisolated static func shouldPostBook(held: Int, posted: Data?, token: Data?) -> Bool {
+        held == 0 || posted != token
+    }
+
     func start() {
         guard enabled else { status = .off; return }
         guard store.access() == .granted else { denied(); return }
@@ -74,7 +98,91 @@ final class ContactsReader {
         if Self.shouldPostOnLaunch(token: store.historyToken(), stored: defaults.data(forKey: tokenKey(bank)),
                                    lastPost: defaults.object(forKey: lastPostKey(bank)) as? Date, now: now(),
                                    staleAfter: staleAfter) {
+            bookPending = true   // before any await; `perform` takes the run
             Task { await self.sync() }
+        } else {
+            ensureBook()
+        }
+    }
+
+    /// Make sure the backend holds this address book's cards, asking the backend rather than remembering. A sync posts
+    /// the book too, so this is for a launch with no sync due and for a post that failed.
+    func ensureBook() {
+        guard enabled else { return }
+        let run = beginBook()
+        let bank = self.bank()
+        bookTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await BankScope.bound(to: bank) { try await self.checkBook(bank: bank, run: run) }
+            } catch {
+                self.bookFailed(error, run: run)
+            }
+        }
+    }
+
+    /// This run owns the book's state from here, and whatever ran before it stops.
+    private func beginBook() -> Int {
+        bookTask?.cancel()
+        bookRun &+= 1
+        bookPending = true
+        bookFailure = nil
+        return bookRun
+    }
+
+    private func checkBook(bank: String, run: Int) async throws {
+        let held = try await api.fetchContactsBook()
+        try Task.checkCancellation()
+        let token = store.historyToken()
+        guard Self.shouldPostBook(held: held.total, posted: defaults.data(forKey: bookTokenKey(bank)), token: token) else {
+            bookSettled(run: run)
+            return
+        }
+        let records = await store.snapshot()
+        try Task.checkCancellation()
+        guard !records.isEmpty else { bookSettled(run: run); return }   // a truly empty address book: nothing to post
+        try await postBook(records, token: token, bank: bank, run: run)
+    }
+
+    private func postBook(_ records: [ContactRecord], token: Data?, bank: String, run: Int) async throws {
+        try await api.putContactsBook(ContactsBookPayload(records: records,
+                                                          connection: defaults.string(forKey: connectionKey)))
+        guard run == bookRun else { return }
+        defaults.set(token, forKey: bookTokenKey(bank))
+        await onBookPosted?()
+        bookSettled(run: run)
+    }
+
+    private func bookSettled(run: Int) {
+        guard run == bookRun else { return }
+        bookRetries = 0
+        bookFailure = nil
+        bookPending = false
+    }
+
+    /// A run replaced by another says nothing: the new one owns the state. Otherwise a stop is nothing; a refusal (a demo
+    /// bank, an ended connection) and a backend without the route are final; anything else is tried again a few times,
+    /// then said in words. A later launch or change checks again either way.
+    private func bookFailed(_ error: Error, run: Int) {
+        guard run == bookRun else { return }
+        if SyncCancellation.isCancellation(error) { bookPending = false; return }
+        if case APIError.httpError(409, _) = error { bookSettled(run: run); return }
+        let final: Bool = switch error {
+        case APIError.httpError(404, _), APIError.httpError(405, _): true
+        default: bookRetries >= Self.maxBookRetries
+        }
+        guard !final else {
+            bookPending = false
+            bookFailure = Self.failureMessage(error)
+            return
+        }
+        bookRetries += 1
+        bookPending = true
+        bookTask?.cancel()
+        bookTask = Task { [weak self, retryAfter] in
+            try? await Task.sleep(for: retryAfter)
+            guard !Task.isCancelled, let self else { return }
+            self.ensureBook()
         }
     }
 
@@ -114,7 +222,18 @@ final class ContactsReader {
         let api = self.api
         let connection = defaults.string(forKey: connectionKey)
         defaults.removeObject(forKey: connectionKey)
-        forgetTask = Task { try? await api.forgetWaitingContacts(connection: connection) }
+        bookTask?.cancel()
+        bookTask = nil
+        bookRun &+= 1
+        bookPending = false
+        bookFailure = nil
+        bookRetries = 0
+        onForget?()
+        forgetTask = Task {
+            await SourcePictureStore.shared.forget(pathPrefix: SourcePictures.contactPhotoPrefix)
+            try? await api.forgetContactsBook(connection: connection)
+            try? await api.forgetWaitingContacts(connection: connection)
+        }
     }
 
     func syncNow() async { await sync() }
@@ -138,6 +257,7 @@ final class ContactsReader {
             // memory on screen gets its own post at once rather than after the old run (G183(d)).
             if runningBank == bank { return await running.result }
             running.cancel()
+            bookRun &+= 1   // its end says nothing about the book of the memory on screen
         }
         guard enabled else { return .failure(CancellationError()) }
         // Access can be taken away in System Settings while Cicada runs; a read without it comes back empty. Said as
@@ -182,13 +302,26 @@ final class ContactsReader {
     }
 
     private func perform(bank: String) async throws -> String {
+        let run = beginBook()   // this run posts the book itself, for the memory on screen
         let token = store.historyToken()
         let records = await store.snapshot()
+        if Task.isCancelled { bookFailed(CancellationError(), run: run) }
         try Task.checkCancellation()
-        guard !records.isEmpty else { throw ContactsReadError.empty }
+        guard !records.isEmpty else {
+            bookSettled(run: run)
+            throw ContactsReadError.empty
+        }
         activity?.progressed(Self.channel, detail: Copy.contactsMatching(records.count))
-        let result = try await api.syncLocalContacts(
-            ContactsSyncPayload(contacts: records, connection: defaults.string(forKey: connectionKey)))
+        let connection = defaults.string(forKey: connectionKey)
+        // The page's faces first: the sync can be refused while Sleep runs, and the grid need not wait. Its failure is
+        // the book's own (`bookFailed` tries again) and never fails the sync.
+        do {
+            try await postBook(records, token: token, bank: bank, run: run)
+        } catch {
+            bookFailed(error, run: run)
+        }
+        try Task.checkCancellation()
+        let result = try await api.syncLocalContacts(ContactsSyncPayload(contacts: records, connection: connection))
         try Task.checkCancellation()
         defaults.set(token, forKey: tokenKey(bank))
         defaults.set(now(), forKey: lastPostKey(bank))

@@ -2779,6 +2779,24 @@ actor APIClient {
         try await delete("/sources/contacts-local/waiting" + query)
     }
 
+    /// G154 (owner 2026-11-04): every card, for the Contacts page's faces (`contacts_book`).
+    func putContactsBook(_ payload: ContactsBookPayload) async throws {
+        let _: ContactsBookSavedAnswer = try await putData("/sources/contacts-local/book",
+                                                           json: try JSONEncoder().encode(payload))
+    }
+
+    func fetchContactsBook() async throws -> ContactsBook {
+        try await get("/sources/contacts-local/book", timeout: Self.refreshTimeout)
+    }
+
+    /// `DELETE /sources/contacts-local/book` — the forget, answered on this computer (`forgetWaitingContacts` goes to the
+    /// home on a copy).
+    func forgetContactsBook(connection: String?) async throws {
+        let query = connection.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }
+            .map { "?connection=\($0)" } ?? ""
+        try await delete("/sources/contacts-local/book" + query)
+    }
+
     /// `DELETE /sources/linkedin-connections` — forget this memory's kept LinkedIn export; returns how many were kept.
     func forgetLinkedInConnections() async throws -> Int {
         let data = try await delete("/sources/linkedin-connections")
