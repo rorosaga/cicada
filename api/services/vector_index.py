@@ -1201,12 +1201,13 @@ class SimilarityUnavailable(RuntimeError):
 PASSAGE_LOAD_WAIT_S = 1.5
 
 
-def forget_passages(memory_path: Path, values: tuple[str, ...]) -> int:
-    """G235: delete every stored passage holding one of these exact strings, from every table of the bank's index, with
-    ``secure_delete`` so the bytes go too. The sync that follows embeds what the files say now. No embedding model is
-    touched. Returns the rows removed; the value is a bound parameter, never in a statement or a log."""
-    index = VectorIndex(Path(memory_path))
-    if not index.db_path.exists() or not values:
+def forget_passages(memory_path: Path, values: tuple[str, ...], episodes: tuple[str, ...] = ()) -> int:
+    """G235: delete every stored passage holding one of these exact strings, or belonging to one of these conversations,
+    from every table of the bank's index, with ``secure_delete`` so the bytes go too. The sync that follows embeds what the
+    files say now. No embedding model is touched. Returns the rows removed; the value is a bound parameter, never in a
+    statement or a log."""
+    index = SqliteVecIndexer(Path(memory_path))
+    if not index.db_path.exists() or not (values or episodes):
         return 0
     removed = 0
     with _write_lock(index.db_path):
@@ -1217,13 +1218,18 @@ def forget_passages(memory_path: Path, values: tuple[str, ...]) -> int:
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'meta\\_%' ESCAPE '\\'")]
             for meta in tables:
                 vec = "vec_" + meta[len("meta_"):]
+                rowids: set[int] = set()
                 for value in values:
-                    rows = [r[0] for r in conn.execute(
-                        f"SELECT rowid FROM {meta} WHERE instr(text, ?) > 0 OR instr(metadata, ?) > 0", (value, value))]
-                    for rowid in rows:
-                        conn.execute(f"DELETE FROM {vec} WHERE rowid = ?", (rowid,))
-                        conn.execute(f"DELETE FROM {meta} WHERE rowid = ?", (rowid,))
-                    removed += len(rows)
+                    rowids.update(r[0] for r in conn.execute(
+                        f"SELECT rowid FROM {meta} WHERE instr(text, ?) > 0 OR instr(metadata, ?) > 0", (value, value)))
+                for episode in episodes:
+                    fragment = json.dumps({"episode_id": episode})[1:-1]
+                    rowids.update(r[0] for r in conn.execute(
+                        f"SELECT rowid FROM {meta} WHERE instr(metadata, ?) > 0", (fragment,)))
+                for rowid in rowids:
+                    conn.execute(f"DELETE FROM {vec} WHERE rowid = ?", (rowid,))
+                    conn.execute(f"DELETE FROM {meta} WHERE rowid = ?", (rowid,))
+                removed += len(rowids)
             conn.commit()
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")   # the deleted text does not linger in the log either
         finally:

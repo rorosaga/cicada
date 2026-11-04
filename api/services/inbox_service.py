@@ -2710,8 +2710,13 @@ async def _resolve_sensitive(path, parsed, request, settings, label: str, before
     target = [r for r in rows if r.get("id") == wanted] if wanted else rows
     if not target:
         raise HTTPException(404, "That conversation is no longer waiting in this review.")
-    await asyncio.to_thread(sensitive_flags.answer, settings.memory_path, path, dict(parsed.frontmatter), target, label,
-                            before)
+    try:
+        done = await asyncio.to_thread(sensitive_flags.answer, settings.memory_path, path, dict(parsed.frontmatter), target,
+                                       label, before)
+    except sensitive_flags.RemovalRefused as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if done["failed"]:
+        raise HTTPException(409, "Some of this could not be taken out. It is still there; try again.")
     return "", False, True
 
 

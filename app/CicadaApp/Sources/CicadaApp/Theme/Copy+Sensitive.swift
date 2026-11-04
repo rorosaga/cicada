@@ -7,6 +7,7 @@ extension Copy {
         static let remove = "Remove"
         static let leave = "Leave it"
         static let review = "Review"
+        static let confirm = "Remove this from memory?"
         static let failed = "That didn't go through. Try again."
         /// Plainly, once: what Remove does and what it cannot.
         static let effect = "Remove takes it out of memory. History keeps an older copy, and what was read can't be unread."

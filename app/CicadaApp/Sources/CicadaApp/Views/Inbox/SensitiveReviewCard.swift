@@ -11,6 +11,7 @@ struct SensitiveReviewCard: View {
     @Environment(ProvenanceRouter.self) private var reader: ProvenanceRouter?
     @State private var answered: Set<String> = []
     @State private var showAll = false
+    @State private var confirming: String?
 
     private static let firstRows = 3
     private var rows: [SensitiveRow] { (item.sensitiveRows ?? []).filter { !answered.contains($0.id) } }
@@ -62,14 +63,19 @@ struct SensitiveReviewCard: View {
                     .lineLimit(1).truncationMode(.tail)
             }
             Spacer(minLength: CicadaTheme.spacingSM)
-            NeutralButton(title: Copy.Sensitive.remove, size: .compact) { answer(row, "remove") }
+            NeutralButton(title: Copy.Sensitive.remove, size: .compact) { confirming = row.id }
             TextButton(title: Copy.Sensitive.leave) { answer(row, "keep") }
+        }
+        // It deletes words: one line, asked once (owner 2026-11-04).
+        .confirmationDialog(Copy.Sensitive.confirm, isPresented: Binding(
+            get: { confirming == row.id }, set: { if !$0 { confirming = nil } })) {
+            Button(Copy.Sensitive.remove, role: .destructive) { answer(row, "remove") }
         }
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
         .accessibilityElement(children: .contain)
     }
 
-    /// Optimistic: the row leaves at the tap and comes back with a toast if the answer never landed.
+    /// Optimistic: the row leaves at the answer and comes back with a toast if the answer never landed.
     private func answer(_ row: SensitiveRow, _ key: String) {
         answered.insert(row.id)
         Task {

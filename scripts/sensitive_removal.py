@@ -5,19 +5,22 @@ conversation (a row id, kinds with counts, how many are unsure, source, day, whe
 value, a title, a path or a line of text; a source outside the known list prints as ``other``.
 
 ``--apply`` asks the RUNNING backend to do it (`POST /sensitive/remove`, the same writer as the review card's Remove): one
-git writer per bank, under Sleep's write window. It sends how many conversations this dry run listed, and the backend
-refuses if the plan moved since. It then prints counts only, and reads the files again to say what is left.
+git writer per bank, under Sleep's write window. It needs ``--plan``, the stamp a dry run printed (ids and counts, nothing
+of what they hold), so it removes what that dry run listed or nothing: the backend refuses if a row was swapped, added or
+grew since. It prints counts only, including how many files still hold a removed value.
 
-**What Remove does and does not do.** The value leaves the conversation and every page that repeated it; the word index
-is rebuilt and the vector index's passages holding it are deleted. Git history keeps the older version, and is never
-rewritten. The source (the Notes app, a chat, the transcript) still holds it: Cicada never edits a source, and takes it out
+**What Remove does and does not do.** The older version is committed first; if it cannot be, nothing is removed. The value
+leaves the conversation, every other conversation holding the same distinctive value, and every file that repeated it; a
+value that could be an ordinary word stays out of that spread (only its own place, and a tied file's line that speaks of a
+secret). The word index is rebuilt and the vector index's passages holding it are deleted. Git history keeps the older
+version, and is never rewritten. The source (the Notes app, a chat, the transcript) still holds it: Cicada never edits a source, and takes it out
 again if that source sends it. What an engine already read cannot be unread. A wrong alarm loses that word from the
 conversation too, so read the dry run first; the older version in git is how to get it back.
 
 Usage:
   api/.venv/bin/python scripts/sensitive_removal.py --memory /path/to/bank
-  api/.venv/bin/python scripts/sensitive_removal.py --memory /path/to/bank --apply --api http://127.0.0.1:<port> \\
-      --token-file <CICADA_HOME>/api_token [--rows id,id]
+  api/.venv/bin/python scripts/sensitive_removal.py --memory /path/to/bank --apply --plan <stamp> \\
+      --api http://127.0.0.1:<port> --token-file <CICADA_HOME>/api_token [--rows id,id]
 """
 
 import argparse
@@ -54,6 +57,7 @@ def main(argv=None) -> int:
     parser.add_argument("--api", help="the running backend, for --apply")
     parser.add_argument("--token-file", type=Path, help="its api_token file, for --apply")
     parser.add_argument("--rows", help="comma-separated row ids; absent: every conversation listed")
+    parser.add_argument("--plan", help="the stamp the dry run printed, for --apply")
     args = parser.parse_args(argv)
     if not (args.memory / "episodes").is_dir():
         print("no episodes directory")
@@ -68,17 +72,22 @@ def main(argv=None) -> int:
             return 2
         rows = [r for r in rows if r["row"] in wanted]
     _print_plan(rows)
+    stamp = sensitive_flags.plan_stamp(rows)
+    print(f"plan: {stamp}")
     if not args.apply:
-        print("dry run: nothing written. --apply to remove these.")
+        print("dry run: nothing written. --apply --plan <the stamp above> to remove these.")
         return 0
-    if not args.api or not args.token_file:
-        print("--apply needs --api and --token-file: the running backend does the writing")
+    if not args.api or not args.token_file or not args.plan:
+        print("--apply needs --plan, --api and --token-file: the running backend does the writing")
         return 2
+    if args.plan != stamp:
+        print("refused: this is not what the dry run listed. Run the dry run again.")
+        return 1
     if not rows:
         print("nothing to remove")
         return 0
 
-    body = {"expected": len(rows), **({"rows": wanted} if wanted is not None else {})}
+    body = {"rows": [r["row"] for r in rows], "plan": stamp}
     request = urllib.request.Request(
         f"{args.api.rstrip('/')}/sensitive/remove", data=json.dumps(body).encode(), method="POST",
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {args.token_file.read_text().strip()}"})
@@ -88,8 +97,9 @@ def main(argv=None) -> int:
     except urllib.error.HTTPError as exc:
         print(f"refused: {exc.code}")     # never the body: nothing from the bank goes to a terminal unchecked
         return 1
-    print(f"removed: {answer.get('removed')}  files: {answer.get('files')}  left: {answer.get('left')}")
-    return 0
+    print(f"removed: {answer.get('removed')}  failed: {answer.get('failed')}  files: {answer.get('files')}  "
+          f"committed: {answer.get('committed')}  left: {answer.get('left')}  still found in files: {answer.get('still_found')}")
+    return 1 if answer.get("failed") or not answer.get("committed") else 0
 
 
 if __name__ == "__main__":

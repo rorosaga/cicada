@@ -5,24 +5,27 @@ model may read it. **Nothing here stores, logs, commits or returns a value**, no
 password is the password, to anyone with a wordlist): an episode's record holds kinds, counts, engine labels and dates, and
 every value is re-derived in memory from the body when needed.
 
-**Before the engine reads** (:class:`Guard`, at ``entity_extractor.extract``'s send point; the quick read goes through it
-too). The hits in the windows about to be sent are found, and the read is recorded on the episode (:func:`note_read`,
-Sleep only). **Ruling 60 (owner 2026-11-04):** the engine reads a typed mark where a confident hit was (``Hit.sure``); an
-unsure one it reads, and the person is told. The stored body is untouched, so spans keep their offsets. Either way, the
-value is taken back out of whatever the model answered, and an item built only on it is dropped, so a page never repeats
-it (:meth:`Guard.clean`, and :func:`sweep_written` before the commit).
+**Before an engine reads** (`sensitive_hold`, inside ``providers.resolve_llm_fn``: every model call Cicada starts). **Ruling
+60 (owner 2026-11-04):** an engine reads a typed mark wherever a confident hit's value stands (``Hit.sure``); an unsure
+one it reads, and the person is told. :class:`Guard`, at Stage 1's send point, records the read on the episode
+(:func:`note_read`, Sleep only) and masks the same value on the conversation's other lines by offset, so the stored body
+and every span stay as they are. Either way the value is taken back out of whatever the model answered, and an item built
+only on it is dropped, so a page never repeats it (:meth:`Guard.clean`, and :func:`sweep_written` before the commit).
 
 **The review** (:func:`sync_review`, the tail). One inbox item, one row per conversation: which conversation, what kind,
 which engine read it. Never one question per hit. A row is checked against the body as it is now, so an edit that removed
 the text removes the row. Conversations read before this existed are found once, by :func:`sweep_read`: a report only, which
 writes nothing on an episode.
 
-**Remove** (:func:`remove_episode`, the person's act alone). The values leave the body through the revision path
-(``revised`` record, ``processed: false``), and leave every page, claim, ledger line and inbox item that repeated them, at
-once and by exact match. The next Sleep reads it as a revision with no engine call and closes what only those words said
-(`episode_revision`). The source may send the words again: :func:`reapply_draft` and :func:`reapply_conversation` take
-them out on the way in, and :func:`reapply_waiting` catches any other writer before a read. **Git history keeps the older
-version; history is never rewritten.** What an engine already read cannot be unread.
+**Remove** (:func:`remove_rows`, the person's act alone). In this order, so a failure at any point leaves the value
+findable and the row standing: **the older version is committed first** (a conversation still waiting has no other copy;
+no commit, no removal); then the value leaves every file that repeated it, by what the file is (`sensitive_purge`), and
+every other conversation holding the same distinctive value; **the conversation's own body goes last**. A word that is not
+distinctive stays where it was called a secret, and on a tied file's line that speaks of one. The body goes through the
+revision path (``revised`` record, ``processed: false``); the next Sleep reads it as a revision with no engine call and
+closes what only those words said (`episode_revision`). The source may send the words again: :func:`reapply_draft` and
+:func:`reapply_conversation` take them out on the way in, and :func:`reapply_waiting` catches any other writer before a
+read. **Git history keeps the older version; history is never rewritten.** What an engine already read cannot be unread.
 
 **Leave it** records how many of each kind the person saw (``kept``), so only a new one asks again."""
 from __future__ import annotations
@@ -30,6 +33,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 from collections import Counter
 from dataclasses import dataclass, field, replace
@@ -38,7 +42,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import authorship, bank_index, episode_ids, episode_scrub, evidence, markdown_parser, sensitive_text
+from api.services import (authorship, bank_index, episode_ids, episode_scrub, evidence, markdown_parser, sensitive_purge,
+                          sensitive_text)
 from api.services.sensitive_text import HELD_MARK, REMOVED_MARK, Hit
 
 #: The episode frontmatter key: ``{read: [{engine, at, kinds, held?}], kept: {kind: n}, removed: {kinds, at, pending?}}``.
@@ -50,11 +55,9 @@ STRIPPED = "[removed]"
 TRIGGER_REVIEW = "sleep/sensitive-review"
 TRIGGER_REMOVED = "inbox/sensitive/removed"
 TRIGGER_KEPT = "inbox/sensitive/kept"
+TRIGGER_OLDER = "inbox/sensitive/older-version"
 #: Bump when the detector changes what it finds, so the already-read conversations are looked through once more.
 DETECTOR_VERSION = 1
-#: Directories of a bank a value may have reached: never ``episodes`` (each its own row) or git.
-_PAGE_DIRS = ("entities", "hubs", "inbox", "backlog", "skills", "projects")
-_PAGE_SUFFIXES = (".md", ".jsonl")
 #: Who read it, in the person's terms. A name only ever says the person's own current or past choice.
 _LOCAL_ENGINE = "ollama"
 
@@ -82,40 +85,46 @@ def _keep_turns_last(fm: dict) -> None:
 # ---- before the engine reads ----------------------------------------------------------------------------------------
 
 
-def _still_flagged(episode: dict) -> list[Hit]:
-    """A Sleep episode's hits, without the kinds the person already looked at and left: a wrong alarm costs its word on
-    the pages only until they say so (`Leave it`)."""
-    hits = sensitive_text.find_in_episode(episode)
-    kept = _record(episode).get("kept")
+def not_left(fm: dict, hits: list[Hit]) -> list[Hit]:
+    """``hits`` without the kinds the person already looked at and left."""
+    kept = _record(fm).get("kept")
     if not isinstance(kept, dict) or not hits:
         return hits
     counts = Counter(h.kind for h in hits)
     return [h for h in hits if counts[h.kind] > int(kept.get(h.kind) or 0)]
 
 
+def _still_flagged(episode: dict) -> list[Hit]:
+    """A Sleep episode's hits, without what the person left: a wrong alarm costs its word on the pages only until they
+    say so (`Leave it`)."""
+    return not_left(episode, sensitive_text.find_in_episode(episode))
+
+
 @dataclass
 class Guard:
-    """One episode's hits at the send point. Holds the values in memory for as long as this read takes."""
+    """One episode at the send point. Holds the values in memory for as long as this read takes. ``hits`` are the ones in
+    the windows being sent, as reported; ``held`` everywhere a confident value of this conversation stands, by offset, so
+    the prompt is masked before the chokepoint even looks; ``values`` every value of the conversation, read or held."""
     hits: tuple[Hit, ...] = ()
     values: tuple[str, ...] = ()
+    held_at: tuple[Hit, ...] = ()
 
     @classmethod
     def of(cls, episode: dict, spans) -> "Guard":
-        """The hits inside what is about to be sent (``spans``, the chunks' ranges). A failure here is no hit: it
-        logs its class and costs the report, never the read."""
+        """A failure here is no hit: it logs its class and costs the report. The chokepoint still stands."""
         try:
             content = str(episode.get("content") or "")
-            hits = tuple(h for h in _still_flagged(episode)
-                         if any(h.start < hi and h.end > lo for lo, hi in spans))
-            return cls(hits, sensitive_text.values_of(content, hits))
+            flagged = _still_flagged(episode)
+            hits = tuple(h for h in flagged if any(h.start < hi and h.end > lo for lo, hi in spans))
+            return cls(hits, sensitive_text.values_of(content, flagged),
+                       tuple(h for h in sensitive_text.with_echoes(content, flagged) if h.sure))
         except Exception as exc:  # noqa: BLE001 - the detector never fails a read
             logger.warning(f"Sensitive check skipped: {type(exc).__name__}")
             return cls()
 
     def chunk(self, masked: str, lo: int, hi: int) -> str:
         """``masked[lo:hi]`` as the engine reads it."""
-        held = [h for h in self.hits if h.sure]
-        return sensitive_text.held_text(masked, lo, hi, held) if held else masked[lo:hi]
+        return sensitive_text.held_text(masked, lo, hi, self.held_at) if self.held_at else masked[lo:hi]
 
     def kinds(self) -> dict[str, int]:
         return dict(Counter(h.kind for h in self.hits))
@@ -126,7 +135,7 @@ class Guard:
     def clean(self, entities: list, relationships: list, values: list) -> tuple[list, list, list]:
         """A model's answer without the values. A name, an end of a link or a value that WAS one is dropped: a page
         named after a password, or a claim whose object is only a mark, holds nothing worth keeping."""
-        if not self.hits:
+        if not self.values:
             return entities, relationships, values
 
         def scrubbed(items: list, *fields: str) -> list:
@@ -171,14 +180,6 @@ def note_read(episode: dict, kinds: dict[str, int], engine: str | None, *, held:
         logger.warning(f"Sensitive record skipped: {type(exc).__name__}")
 
 
-def engine_view(text: str) -> str:
-    """A line of a stored conversation on its way into a prompt outside Stage 1 (a question's evidence): without the
-    confident hits it holds (ruling 60)."""
-    if not text:
-        return text
-    return sensitive_text.replace_hits(text, [h for h in sensitive_text.find(text) if h.sure], HELD_MARK)
-
-
 def title_for_others(title: str) -> str:
     """A conversation's stored title on its way to an agent (the primer, a continuation). A capture's title is its first
     line, so it can be the line that holds the value. Whatever the switch: this is a list, not a read the person chose."""
@@ -198,12 +199,11 @@ def sweep_written(memory_path: Path, episodes: list[dict], dirty) -> int:
             values.extend(sensitive_text.values_of(content, _still_flagged(ep)))
         if not values:
             return 0
-        ordered = tuple(sorted(set(values), key=len, reverse=True))
+        marks = {v: STRIPPED for v in values}
+        tied = tuple(str(ep.get("id") or "") for ep in episodes if ep.get("id"))
         changed = 0
         for rel in dirty:
-            if not rel.endswith(_PAGE_SUFFIXES) or rel.split("/", 1)[0] not in _PAGE_DIRS:
-                continue
-            if _strip_file(Path(memory_path) / rel, ordered, STRIPPED):
+            if sensitive_purge.in_scope(rel) and sensitive_purge.clean_file(Path(memory_path) / rel, marks, tied_ids=tied):
                 changed += 1
         if changed:
             bank_index.invalidate(memory_path)
@@ -211,27 +211,6 @@ def sweep_written(memory_path: Path, episodes: list[dict], dirty) -> int:
     except Exception as exc:  # noqa: BLE001 - a guard on the way to a commit, never the reason it fails
         logger.warning(f"Sensitive sweep skipped: {type(exc).__name__}")
         return 0
-
-
-def _strip_file(path: Path, values: tuple[str, ...], mark: str) -> bool:
-    """Replace whole-token ``values`` in one file, atomically. Raw text, so the file's YAML and fences stay byte-for-byte
-    apart from the values."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return False
-    if not any(v in text for v in values):
-        return False
-    cleaned, n = sensitive_text.strip_values(text, values, mark)
-    if not n:
-        return False
-    tmp = path.with_name(f".{path.name}.sensitive.tmp")
-    try:
-        tmp.write_text(cleaned, encoding="utf-8")
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
-    return True
 
 
 # ---- the source sends the words again -------------------------------------------------------------------------------
@@ -248,13 +227,29 @@ def removal_pending(fm: dict | None) -> bool:
     return isinstance(removed, dict) and bool(removed.get("pending"))
 
 
-def _out(text: str, kinds: frozenset[str], *, harness: bool, override: str | None, prefix: str = "") -> str:
-    """``text`` without the hits of ``kinds``, read as a line under ``prefix`` (a turn's marker)."""
+def _hits_of_kinds(text: str, kinds: frozenset[str], *, harness: bool, override: str | None) -> list[Hit]:
+    return [h for h in sensitive_text.find(text, harness=harness, override=override) if h.kind in kinds]
+
+
+def _echo_marks(pieces, kinds: frozenset[str], *, harness: bool, override: str | None) -> dict[str, str]:
+    """The distinctive values a source's text states, across all of it: an echo on another turn goes with them."""
+    marks: dict[str, str] = {}
+    for prefix, text in pieces:
+        whole = prefix + text
+        for h in _hits_of_kinds(whole, kinds, harness=harness, override=override):
+            value = whole[h.start:h.end]
+            if sensitive_text.distinctive(value):
+                marks[value] = REMOVED_MARK.format(kind=h.kind)
+    return marks
+
+
+def _out(text: str, kinds: frozenset[str], echoes: dict[str, str], *, harness: bool, override: str | None,
+         prefix: str = "") -> str:
+    """``text`` without the hits of ``kinds``, read as a line under ``prefix`` (a turn's marker), nor ``echoes``."""
     whole = prefix + text
-    hits = [h for h in sensitive_text.find(whole, harness=harness, override=override) if h.kind in kinds]
-    if not hits:
-        return text
-    return sensitive_text.replace_hits(whole, hits, REMOVED_MARK)[len(prefix):]
+    hits = _hits_of_kinds(whole, kinds, harness=harness, override=override)
+    out = sensitive_text.replace_hits(whole, hits, REMOVED_MARK) if hits else whole
+    return sensitive_text.take_out(out, echoes)[0][len(prefix):]
 
 
 def reapply_draft(draft, fm: dict):
@@ -263,14 +258,18 @@ def reapply_draft(draft, fm: dict):
     kinds = removed_kinds(fm)
     if not kinds:
         return draft
-    harness, override = _session(fm), authorship.of(fm)
+    ctx = {"harness": _session(fm), "override": authorship.of(fm)}
+    pieces = [(f"{t.speaker}: ", t.text) for t in draft.turns]
+    if getattr(draft, "body", None) is not None:
+        pieces.append(("", draft.body))
+    echoes = _echo_marks(pieces, kinds, **ctx)
     changes: dict = {}
     if getattr(draft, "body", None) is not None:
-        changes["body"] = _out(draft.body, kinds, harness=harness, override=override)
+        changes["body"] = _out(draft.body, kinds, echoes, **ctx)
     if getattr(draft, "title", None):
-        changes["title"] = _out(draft.title, kinds, harness=harness, override=override)
-    return replace(draft, turns=[replace(t, text=_out(t.text, kinds, harness=harness, override=override,
-                                                      prefix=f"{t.speaker}: ")) for t in draft.turns], **changes)
+        changes["title"] = _out(draft.title, kinds, echoes, **ctx)
+    return replace(draft, turns=[replace(t, text=_out(t.text, kinds, echoes, prefix=f"{t.speaker}: ", **ctx))
+                                 for t in draft.turns], **changes)
 
 
 def reapply_conversation(conv, fm: dict) -> None:
@@ -279,16 +278,21 @@ def reapply_conversation(conv, fm: dict) -> None:
     kinds = removed_kinds(fm)
     if not kinds:
         return
-    harness, override = True, authorship.of(fm)
+    ctx = {"harness": True, "override": authorship.of(fm)}
+    echoes = _echo_marks([(f"{t.role}: ", t.text) for t in conv.turns], kinds, **ctx)
     for turn in conv.turns:
-        turn.text = _out(turn.text, kinds, harness=harness, override=override, prefix=f"{turn.role}: ")
+        turn.text = _out(turn.text, kinds, echoes, prefix=f"{turn.role}: ", **ctx)
+
+
+_OFFSET_KEYS = frozenset({"offset", "reply_to"})
 
 
 def _shift_offsets(value, shift):
-    """Every ``offset`` in a frontmatter value moved by ``shift``: the sidecars index the body (`evidence.turn_stamps`)."""
+    """Every body offset in a frontmatter value moved by ``shift``: the sidecars index the body (`evidence.turn_stamps`), and
+    a reply points at the offset of the turn it answers (`turn_extras`; a dict there is a reference to another sitting)."""
     if isinstance(value, dict):
-        return {k: (shift(v) if k == "offset" and isinstance(v, int) else _shift_offsets(v, shift))
-                for k, v in value.items()}
+        return {k: (shift(v) if k in _OFFSET_KEYS and isinstance(v, int) and not isinstance(v, bool)
+                    else _shift_offsets(v, shift)) for k, v in value.items()}
     if isinstance(value, list):
         return [_shift_offsets(v, shift) for v in value]
     return value
@@ -315,12 +319,12 @@ _SAID_FIELDS = frozenset({"title", "description", "summary"})
 
 
 def _strip_fm_strings(value, marks: dict[str, str], *, key=None):
-    """A value out of the strings a writer keeps beside the body (a title, a description). Keys and ids stay."""
+    """A value out of the strings a writer keeps beside the body (a title, a description). Keys and ids stay. A word that
+    was called a secret once stays in a title that does not speak of one."""
     if isinstance(value, str):
         if episode_scrub._is_key_field(key):
             return value
-        for found, mark in marks.items():
-            value, _n = sensitive_text.strip_values(value, (found,), mark)
+        value, _n = sensitive_text.take_out(value, marks)
         if str(key or "") in _SAID_FIELDS:
             # A title is cut to a length, so it can hold a value cut in two that no exact match finds.
             value = sensitive_text.replace_hits(value, sensitive_text.find(value), REMOVED_MARK)
@@ -337,6 +341,7 @@ def _take_out(fm: dict, body: str, hits: list[Hit], kinds, *, at: str, pending: 
     beside the body cleaned, and a ``revised`` record so Sleep reads it as a revision of itself. Writes nothing."""
     from api.services import episode_staging
 
+    hits = sensitive_text.with_echoes(body, hits)
     marks = {body[h.start:h.end]: REMOVED_MARK.format(kind=h.kind) for h in hits}
     new_body = sensitive_text.replace_hits(body, hits, REMOVED_MARK)
     shift = _mapper(hits, REMOVED_MARK)
@@ -401,17 +406,36 @@ def _context_of_episode(episode: dict) -> dict:
             "override": episode.get(authorship.KEY)}
 
 
-def same_after_removal(prior: str, body: str, episode: dict) -> bool:
-    """Is the removal all that changed? The earlier body, with the same text taken out, is this body."""
-    kinds = removed_kinds({KEY: episode.get(KEY)})
-    ctx = _context_of_episode(episode)
-    hits = [h for h in sensitive_text.find(prior, **ctx) if h.kind in kinds]
-    return sensitive_text.replace_hits(prior, hits, REMOVED_MARK) == body
+_REMOVED_RE = re.compile(r"\[removed: (?:" + "|".join(sensitive_text.KINDS) + r")\]")
+#: Longer than any value the detector reports (a PEM block is the longest).
+_MAX_REMOVED_CHARS = 8192
+
+
+def same_after_removal(prior: str, body: str, episode: dict | None = None) -> bool:
+    """Is the removal all that changed? Every stretch of the body between two marks stands, in order, in the earlier body,
+    and only a value's length lies between them. Asked of the texts, not the detector: a conversation that only repeated
+    a value elsewhere flagged has no hit of its own to compare."""
+    pieces = _REMOVED_RE.split(body)
+    if len(pieces) < 2 or not prior.startswith(pieces[0]) or not prior.endswith(pieces[-1]):
+        return False
+    at = len(pieces[0])
+    for piece in pieces[1:-1]:
+        found = prior.find(piece, at)
+        if found < 0 or found - at > _MAX_REMOVED_CHARS:
+            return False
+        at = found + len(piece)
+    return 0 <= len(prior) - len(pieces[-1]) - at <= _MAX_REMOVED_CHARS
+
+
+def is_removal_mark(text: str) -> bool:
+    return _REMOVED_RE.search(text) is not None
 
 
 def masked_for_engine(text: str) -> str:
-    """A passage of a conversation as it may reach a prompt on a revision: never a value, whichever mode is on."""
-    return sensitive_text.replace_hits(text, sensitive_text.find(text), REMOVED_MARK) if text else text
+    """A passage of a conversation as it may reach a prompt on a revision. After a removal the chokepoint no longer knows
+    the value, so what a body used to say is masked here, whichever mode is on."""
+    return sensitive_text.replace_hits(text, sensitive_text.with_echoes(text, sensitive_text.find(text)),
+                                       REMOVED_MARK) if text else text
 
 
 def mark_read(fm: dict) -> None:
@@ -658,50 +682,147 @@ def _episode_path(memory_path: Path, episode_id: str) -> Path | None:
     return path if path is not None and Path(path).is_file() else None
 
 
-def remove_episode(memory_path: Path, episode_id: str) -> tuple[list[str], dict[str, str]]:
-    """Take what is flagged out of one conversation and out of every page that repeated it. ``(bank-relative paths
-    written, value -> mark)``. The caller holds admission and the page lock, and commits; the values leave with its
-    frame. The conversation's own words around them stay."""
-    memory_path = Path(memory_path)
+class RemovalRefused(RuntimeError):
+    """A removal that did not start, in a sentence for the person. Nothing was changed."""
+
+
+def _ids_to_kinds(body: str, hits: list[Hit]) -> dict[str, str]:
+    return {body[h.start:h.end]: h.kind for h in sensitive_text.with_echoes(body, hits)}
+
+
+def _echoing(memory_path: Path, values, skip: Path) -> list[Path]:
+    """Other conversations holding one of these distinctive values, as exact tokens. Bodies only; a substring test first,
+    since this reads a whole bank."""
+    values = [v for v in values if sensitive_text.distinctive(v)]
+    out: list[Path] = []
+    if not values:
+        return out
+    for f in bank_index.files(memory_path, "episodes"):
+        if f.path == skip:
+            continue
+        try:
+            body = f.body() or ""
+        except Exception as exc:  # noqa: BLE001 - one unreadable conversation is no echo
+            logger.debug(f"sensitive echo skipped one: {type(exc).__name__}")
+            continue
+        if any(v in body and sensitive_text.holds(body, v) for v in values):
+            out.append(f.path)
+    return out
+
+
+def _flagged_values(memory_path: Path, episode_id: str) -> tuple[Path | None, dict[str, str]]:
     path = _episode_path(memory_path, episode_id)
     if path is None:
-        return [], {}
+        return None, {}
+    parsed = markdown_parser.parse(path)
+    return path, _ids_to_kinds(parsed.body, hits_of(dict(parsed.frontmatter), parsed.body))
+
+
+def _take_out_echoes(path: Path, kinds_of: dict[str, str], at: str) -> bool:
+    """Another conversation that repeated the value. It keeps its words around it, and reads as a revision too."""
+    with episode_ids.episode_lock(path.parent):
+        parsed = markdown_parser.parse(path)
+        hits = [h for value, kind in kinds_of.items() if sensitive_text.distinctive(value)
+                for h in sensitive_text.occurrences(parsed.body, value, kind)]
+        if not hits:
+            return False
+        new_fm, new_body, _marks = _take_out(dict(parsed.frontmatter), parsed.body, hits, {h.kind for h in hits}, at=at,
+                                             pending=True)
+        markdown_parser.write(path, new_fm, new_body)
+    return True
+
+
+def remove_episode(memory_path: Path, episode_id: str, touched: list[str] | None = None) -> tuple[list[str], dict[str, str]]:
+    """Take what is flagged out of one conversation and out of everything that repeated it. ``(bank-relative paths
+    written, value -> mark)``. The caller holds admission and the page lock, committed the older version and commits this;
+    the values leave with its frame. **The body goes last:** when a write raises, the value is still findable in it, the
+    row still stands, and what was already written (in ``touched``, when given) is whole, since each file is replaced
+    atomically and doing it again changes nothing."""
+    memory_path = Path(memory_path)
+    written = touched if touched is not None else []
+    path, kinds_of = _flagged_values(memory_path, episode_id)
+    if path is None or not kinds_of:
+        return written, {}
+    marks = {v: REMOVED_MARK.format(kind=k) for v, k in kinds_of.items()}
+    at = episode_ids.utc_now_iso()
+    echoes = _echoing(memory_path, kinds_of, path)
+    tied = (episode_id, *(p.stem for p in echoes))
+    for target in sensitive_purge.bank_files(memory_path):
+        if sensitive_purge.clean_file(target, marks, tied_ids=tied):
+            written.append(target.relative_to(memory_path).as_posix())
+    for echo in echoes:
+        if _take_out_echoes(echo, kinds_of, at):
+            written.append(echo.relative_to(memory_path).as_posix())
     with episode_ids.episode_lock(path.parent):
         parsed = markdown_parser.parse(path)
         fm = dict(parsed.frontmatter)
         hits = hits_of(fm, parsed.body)
-        if not hits:
-            return [], {}
-        kinds = {h.kind for h in hits}
-        new_fm, new_body, marks = _take_out(fm, parsed.body, hits, kinds, at=episode_ids.utc_now_iso(), pending=True)
-        markdown_parser.write(path, new_fm, new_body)
-    written = [path.relative_to(memory_path).as_posix()]
-    written.extend(_purge_pages(memory_path, marks))
-    awake = memory_path / ".awake" / f"{episode_id}.json"
-    awake.unlink(missing_ok=True)
+        if hits:
+            new_fm, new_body, now = _take_out(fm, parsed.body, hits, {h.kind for h in hits}, at=at, pending=True)
+            marks.update(now)
+            markdown_parser.write(path, new_fm, new_body)
+            written.append(path.relative_to(memory_path).as_posix())
+    for stem in tied:
+        (memory_path / ".awake" / f"{stem}.json").unlink(missing_ok=True)
     return written, marks
 
 
-def _purge_pages(memory_path: Path, marks: dict[str, str]) -> list[str]:
-    """Each value, by exact whole-token match, out of everything Sleep and agents wrote: pages, claim fences and
-    ledgers, hubs, backlog items, inbox items."""
-    written: list[str] = []
-    ordered = sorted(marks, key=len, reverse=True)
-    for name in _PAGE_DIRS:
-        root = memory_path / name
-        if not root.is_dir():
+def _keep_older_versions(memory_path: Path, episode_ids_: list[str]) -> None:
+    """Commit what these conversations, and those holding the same value, say now, before a word changes: one still waiting
+    for Sleep was never committed, so git would otherwise hold no copy at all. The owner's ruling: git is local, history
+    keeps it. Verified against ``HEAD``; anything less refuses, and nothing has been written."""
+    from api.services import git_service
+
+    if not (memory_path / ".git").exists():
+        raise RemovalRefused("This memory has no history to keep the older version in.")
+    paths: list[Path] = []
+    for episode_id in episode_ids_:
+        path, kinds_of = _flagged_values(memory_path, episode_id)
+        if path is None:
             continue
-        for directory, _subdirs, files in os.walk(root):
-            for filename in files:
-                if not filename.endswith(_PAGE_SUFFIXES):
-                    continue
-                target = Path(directory) / filename
-                changed = False
-                for value in ordered:
-                    changed = _strip_file(target, (value,), marks[value]) or changed
-                if changed:
-                    written.append(target.relative_to(memory_path).as_posix())
-    return written
+        paths.append(path)
+        paths.extend(_echoing(memory_path, kinds_of, path))
+    rels = list(dict.fromkeys(p.relative_to(memory_path).as_posix() for p in paths))
+    if not rels:
+        return
+    day = date.today().isoformat()
+    try:
+        git_service.commit_touched_sync(
+            memory_path, git_service.build_commit_message(f"Older version kept before a removal {day}",
+                                                          [f"{rel}: updated (trigger: {TRIGGER_OLDER})" for rel in rels],
+                                                          authors=[]), rels)
+        for rel in rels:
+            if (git_service._git_sync(memory_path, "rev-parse", f"HEAD:{rel}").strip()
+                    != git_service._git_sync(memory_path, "hash-object", "--", rel).strip()):
+                raise RemovalRefused("The older version could not be kept, so nothing was removed.")
+    except git_service.GitError as exc:
+        logger.warning(f"Older version not kept: {type(exc).__name__}")
+        raise RemovalRefused("The older version could not be kept, so nothing was removed.") from exc
+
+
+@dataclass
+class Removed:
+    """What :func:`remove_rows` did. ``done`` and ``failed`` are conversation ids; ``still_found`` a count of files."""
+    done: list[str] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list)
+    touched: list[str] = field(default_factory=list)
+    marks: dict[str, str] = field(default_factory=dict)
+
+
+def remove_rows(memory_path: Path, episode_ids_: list[str]) -> Removed:
+    """Every step up to the commit, under the caller's page lock. One conversation failing stops only that one."""
+    out = Removed()
+    _keep_older_versions(memory_path, episode_ids_)
+    for episode_id in episode_ids_:
+        try:
+            _written, marks = remove_episode(memory_path, episode_id, out.touched)
+            out.marks.update(marks)
+            out.done.append(episode_id)
+        except Exception as exc:  # noqa: BLE001 - this row stands, its value still findable; the others go on
+            logger.warning(f"Sensitive removal stopped on one conversation: {type(exc).__name__}")
+            out.failed.append(episode_id)
+    out.touched[:] = list(dict.fromkeys(out.touched))
+    return out
 
 
 def keep_episode(memory_path: Path, episode_id: str) -> list[str]:
@@ -728,9 +849,10 @@ def keep_episode(memory_path: Path, episode_id: str) -> list[str]:
 _cleanup: threading.Thread | None = None
 
 
-def answer(memory_path: Path, path: Path, fm: dict, target: list[dict], label: str, before) -> None:
-    """The person's answer on these rows, committed as theirs: the conversations, the pages that repeated a value, and
-    the item. A failed commit stays uncommitted and is said in the log: restoring would put the words back."""
+def answer(memory_path: Path, path: Path, fm: dict, target: list[dict], label: str, before) -> dict:
+    """The person's answer on these rows, committed as theirs: the conversations, the files that repeated a value, and the
+    item. A row that could not be done stays in the item. A failed commit stays uncommitted and is said in the log:
+    restoring would put the words back. Raises :class:`RemovalRefused` when the older version cannot be kept."""
     global _cleanup
     from api.services import git_service, page_lock
 
@@ -739,16 +861,16 @@ def answer(memory_path: Path, path: Path, fm: dict, target: list[dict], label: s
     trigger = TRIGGER_REMOVED if label == REMOVE else TRIGGER_KEPT
     rel_item = f"inbox/{Path(path).name}"
     touched: list[str] = []
-    all_marks: dict[str, str] = {}
+    removed = Removed()
     with page_lock.page_lock(memory_path):
-        for row in target:
-            if label == REMOVE:
-                written, marks = remove_episode(memory_path, str(row.get("episode") or ""))
-                all_marks.update(marks)
-            else:
-                written = keep_episode(memory_path, str(row.get("episode") or ""))
-            touched.extend(w for w in written if w not in touched)
-        left = [r for r in rows if r not in target]
+        if label == REMOVE:
+            removed = remove_rows(memory_path, [str(r.get("episode") or "") for r in target])
+            touched.extend(removed.touched)
+        else:
+            for row in target:
+                touched.extend(w for w in keep_episode(memory_path, str(row.get("episode") or "")) if w not in touched)
+        answered = [r for r in target if str(r.get("episode") or "") not in removed.failed]
+        left = [r for r in rows if r not in answered]
         if left:
             _write_item(Path(path), dict(fm), left, fm.get("replaced"))
         else:
@@ -766,9 +888,11 @@ def answer(memory_path: Path, path: Path, fm: dict, target: list[dict], label: s
                                                 kept_trigger="inbox/kept-apart")
             except Exception as exc:  # noqa: BLE001 - never restore: that would put the words back
                 logger.warning(f"Sensitive answer left uncommitted: {type(exc).__name__}")
-    if all_marks:
-        _cleanup = threading.Thread(target=forget_in_indexes, args=(memory_path, all_marks), daemon=True)
+    if removed.marks:
+        _cleanup = threading.Thread(target=forget_in_indexes, args=(memory_path, removed.marks, tuple(removed.done)),
+                                    daemon=True)
         _cleanup.start()
+    return {"failed": len(removed.failed)}
 
 
 def plan(memory_path: Path) -> list[dict]:
@@ -805,30 +929,35 @@ _SESSION_SOURCES = frozenset({"claude-code", "codex", "cursor", "gemini", "gemin
                               "mcp", "mcp-remote", "cli"})
 
 
-def remove_planned(memory_path: Path, rows: list[str] | None, *, expected: int | None = None, before=None) -> dict:
-    """Remove on the conversations :func:`plan` lists: named ``rows``, or every one. ``expected`` is how many the caller's
-    dry run saw; anything else refuses before a word changes, so nothing is removed that was never looked at. Commits as
-    the person's, the conversations and every page that repeated a value together, and brings the review in step."""
-    global _cleanup
+def plan_stamp(rows: list[dict]) -> str:
+    """What a dry run saw, as one short word: each row's id, kinds with their counts and how many unsure. Ids and counts
+    only, so it says nothing of what the rows hold. A row swapped, added or grown since changes it."""
+    seen = sorted((r["row"], sorted(r["kinds"].items()), r["unsure"]) for r in rows)
+    return hashlib.sha256(json.dumps(seen).encode("utf-8")).hexdigest()[:16]
+
+
+def remove_planned(memory_path: Path, rows: list[str], *, stamp: str, before=None) -> dict:
+    """Remove on exactly the rows a dry run listed, named by id with that run's :func:`plan_stamp`. A row gone or a plan
+    changed refuses before a word changes, so nothing is removed that was never looked at. Commits as the person's, and
+    brings the review in step. Counts only; ``still_found`` is how many files still hold a removed value (a key field, a
+    file that does not parse), and ``committed`` whether the commit took."""
     from api.services import git_service, page_lock
 
     memory_path = Path(memory_path)
-    listed = plan(memory_path)
-    wanted = set(rows) if rows is not None else {r["row"] for r in listed}
-    target = [r for r in listed if r["row"] in wanted]
-    if expected is not None and len(target) != expected:
-        raise ValueError(f"expected {expected} conversation(s), the plan now holds {len(target)}")
-    touched: list[str] = []
-    all_marks: dict[str, str] = {}
+    listed = {r["row"]: r for r in plan(memory_path)}
+    if not set(rows) <= set(listed):
+        raise ValueError("A conversation in the dry run is no longer waiting. Run the dry run again.")
+    target = [listed[r] for r in dict.fromkeys(rows)]
+    if plan_stamp(target) != stamp:
+        raise ValueError("What the dry run listed has changed. Run the dry run again.")
+    committed = True
     with page_lock.page_lock(memory_path):
-        for row in target:
-            written, marks = remove_episode(memory_path, row["episode"])
-            all_marks.update(marks)
-            touched.extend(w for w in written if w not in touched)
+        removed = remove_rows(memory_path, [r["episode"] for r in target])
+        touched = removed.touched
         bank_index.invalidate(memory_path)
         review = sync_review(memory_path)
         touched.extend(p for p in review.paths if p not in touched)
-        if touched and (memory_path / ".git").exists():
+        if touched:
             day = date.today().isoformat()
             message = git_service.build_commit_message(f"Sensitive removal {day}",
                                                        [f"{rel}: updated (trigger: {TRIGGER_REMOVED})" for rel in touched],
@@ -838,17 +967,20 @@ def remove_planned(memory_path: Path, rows: list[str] | None, *, expected: int |
                                                 kept_subject=f"Uncommitted edit kept apart {day}",
                                                 kept_trigger="inbox/kept-apart")
             except Exception as exc:  # noqa: BLE001 - never restore: that would put the words back
+                committed = False
                 logger.warning(f"Sensitive removal left uncommitted: {type(exc).__name__}")
-    if all_marks:
-        _cleanup = threading.Thread(target=forget_in_indexes, args=(memory_path, all_marks), daemon=True)
-        _cleanup.start()
-    return {"removed": len(target), "files": len(touched), "left": len(plan(memory_path))}
+    if removed.marks:
+        forget_in_indexes(memory_path, removed.marks, tuple(removed.done))
+    return {"removed": len(removed.done), "failed": len(removed.failed), "files": len(touched), "committed": committed,
+            "left": len(plan(memory_path)), "still_found": sensitive_purge.residue(memory_path, removed.marks)}
 
 
-def forget_in_indexes(memory_path: Path, marks: dict[str, str]) -> None:
+def forget_in_indexes(memory_path: Path, marks: dict[str, str], episodes: tuple[str, ...] = ()) -> None:
     """The derived indexes hold text too. The word index is rebuilt on a new file (a dropped table's bytes stay in the
-    old one); the passages in the vector index that hold a value are deleted now, their bytes overwritten (the next
-    sync re-embeds what is left). Disposable, so a failure logs its class and never undoes the removal."""
+    old one). In the vector index the passages of these conversations, and any holding a distinctive value, are deleted
+    now, their bytes overwritten (the next sync re-embeds what is left). A word that is not distinctive is found only by
+    its conversation, so a passage that merely uses the word stays. Disposable, so a failure logs its class and never undoes
+    the removal."""
     from api.services import search_index, vector_index
 
     try:
@@ -856,6 +988,6 @@ def forget_in_indexes(memory_path: Path, marks: dict[str, str]) -> None:
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Search index rebuild after a removal failed: {type(exc).__name__}")
     try:
-        vector_index.forget_passages(Path(memory_path), tuple(marks))
+        vector_index.forget_passages(Path(memory_path), tuple(v for v in marks if sensitive_text.distinctive(v)), episodes)
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Vector index clean-up after a removal failed: {type(exc).__name__}")

@@ -78,7 +78,7 @@ def _sleep(memory, monkeypatch, prompts=None):
     _patch(monkeypatch, [])
 
     async def extract_with_fake_engine(episodes, settings, **kw):
-        return await real_extract(episodes, Settings(litellm_model="fake-engine", memory_path=memory), **kw)
+        return await real_extract(episodes, Settings(litellm_model="fake-engine", CICADA_MEMORY_ROOT=memory), **kw)
 
     monkeypatch.setattr(entity_extractor.litellm, "acompletion", fake_acompletion)
     monkeypatch.setattr("api.services.entity_extractor.extract", extract_with_fake_engine)
@@ -314,12 +314,6 @@ def test_a_conversation_holding_both_says_which_was_read_and_which_was_not(memor
     (item,) = _review(memory)
     (row,) = next(i for i in inbox_service.load_inbox(memory) if i.id == item.stem).sensitive_rows
     assert row.kinds == ["password"] and row.read_by == ["your API key"]    # the same kind, one of each: it was read
-
-
-def test_a_prompt_line_outside_stage_1_never_holds_a_confident_hit():
-    assert CANARY not in sf.engine_view(f"user said: my password is {CANARY}")
-    unsure = f"user said: my password is {UNSURE}."
-    assert sf.engine_view(unsure) == unsure
 
 
 # ------------------------------------------------------------------------------ remove
@@ -650,13 +644,15 @@ def test_a_source_outside_the_known_list_never_prints_its_name(memory):
 
 def test_remove_planned_refuses_when_the_plan_moved_and_otherwise_removes_all_of_it(memory):
     _flagged_bank(memory)
+    rows = sf.plan(memory)
+    ids = [r["row"] for r in rows]
     with pytest.raises(ValueError):
-        sf.remove_planned(memory, None, expected=5)
+        sf.remove_planned(memory, ids, stamp="something-else")
+    with pytest.raises(ValueError):
+        sf.remove_planned(memory, ["s-a-row-that-is-gone"], stamp=sf.plan_stamp(rows))
     assert CANARY in markdown_parser.parse(memory / "episodes" / f"{EP}.md").body     # refused before a word changed
-    out = sf.remove_planned(memory, None, expected=2)
-    if sf._cleanup is not None:
-        sf._cleanup.join(timeout=60)
-    assert out == {"removed": 2, "files": 2, "left": 0}
+    out = sf.remove_planned(memory, ids, stamp=sf.plan_stamp(rows))
+    assert out == {"removed": 2, "failed": 0, "files": 2, "committed": True, "left": 0, "still_found": 0}
     for path in (memory / "episodes").glob("*.md"):
         text = path.read_text()
         assert CANARY not in text and UNSURE not in text and "4539" not in text
@@ -666,22 +662,22 @@ def test_remove_planned_refuses_when_the_plan_moved_and_otherwise_removes_all_of
 
 def test_remove_planned_takes_only_the_named_rows(memory):
     _flagged_bank(memory)
-    out = sf.remove_planned(memory, [sf.row_id(EP)], expected=1)
-    if sf._cleanup is not None:
-        sf._cleanup.join(timeout=60)
+    one = [r for r in sf.plan(memory) if r["row"] == sf.row_id(EP)]
+    out = sf.remove_planned(memory, [sf.row_id(EP)], stamp=sf.plan_stamp(one))
     assert out["removed"] == 1 and out["left"] == 1
     assert UNSURE in markdown_parser.parse(memory / "episodes" / "ep_2026-11-02_001.md").body
 
 
-def test_the_route_refuses_an_agent_and_a_missing_count(memory):
+def test_the_route_refuses_an_agent_and_anything_but_what_the_dry_run_listed(memory):
     from api.routers import inbox as inbox_router
 
     _flagged_bank(memory)
     settings = _settings_for(memory)
-    for payload, code in (({"expected": 2, "via": "agent"}, 403), ({}, 400), ({"expected": 9}, 409)):
+    rows = sf.plan(memory)
+    good = {"rows": [r["row"] for r in rows], "plan": sf.plan_stamp(rows)}
+    for payload, code in (({**good, "via": "agent"}, 403), ({}, 400), ({"rows": good["rows"]}, 400),
+                          ({**good, "plan": "other"}, 409)):
         with pytest.raises(HTTPException) as err:
             asyncio.run(inbox_router.remove_sensitive(payload, settings))
         assert err.value.status_code == code
-    assert asyncio.run(inbox_router.remove_sensitive({"expected": 2}, settings))["left"] == 0
-    if sf._cleanup is not None:
-        sf._cleanup.join(timeout=60)
+    assert asyncio.run(inbox_router.remove_sensitive(good, settings))["left"] == 0

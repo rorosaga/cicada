@@ -249,6 +249,40 @@ def _throttle_refs(stream) -> dict:
     return refs
 
 
+def _held_back(call: LlmFn, settings, is_async: bool) -> LlmFn:
+    """G235, ruling 60: the one door to every engine (`sensitive_hold`). Every callable :func:`resolve_llm_fn` returns is
+    this one, so no caller can reach a model without it. Off the event loop on an awaited call: its first look at a bank
+    reads the bank."""
+    from api.services import sensitive_hold
+
+    def _bank():
+        return getattr(settings, "memory_path", None)
+
+    def held(*, messages, **kw):
+        if not is_async:
+            return call(messages=sensitive_hold.hold_back(messages, _bank()), **kw)
+
+        async def _sent():
+            safe = await asyncio.to_thread(sensitive_hold.hold_back, messages, _bank())
+            result = call(messages=safe, **kw)
+            return (await result) if inspect.isawaitable(result) else result
+
+        return _sent()
+
+    return held
+
+
+def _held_texts(embed, settings, memory_path=None):
+    """The same door for a hosted embedding model. A model on this Mac sends nothing anywhere and is not wrapped."""
+    from api.services import sensitive_hold
+
+    def held(texts, *, is_query: bool = False):
+        bank = memory_path if memory_path is not None else getattr(settings, "memory_path", None)
+        return embed(sensitive_hold.hold_texts(texts, bank), is_query=is_query)
+
+    return held
+
+
 def resolve_llm_fn(
     settings: Settings,
     *,
@@ -719,7 +753,7 @@ def resolve_llm_fn(
         return _agent_invoke_sync(messages, response_format, timeout, reasoning_off, web_search)
 
     if is_cli:
-        return _agent_call
+        return _held_back(_agent_call, settings, is_async)
 
     def _call(*, messages, response_format=None, **kw):
         # The web lookup on a metered engine: the provider's own search, one search per call
@@ -754,7 +788,7 @@ def resolve_llm_fn(
         _emit(result, started, ok=True)
         return result
 
-    return _call
+    return _held_back(_call, settings, is_async)
 
 
 # --------------------------------------------------------------------------- #
@@ -841,7 +875,8 @@ def resolve_embed_fn(
     model = settings.resolved_embedding_model
 
     if mode == "openrouter":
-        return _openrouter_embed_fn(settings, transport=transport)
+        embed, name = _openrouter_embed_fn(settings, transport=transport)
+        return _held_texts(embed, settings), name
 
     if mode == "openai":
         if openai_client_factory is None:
@@ -858,7 +893,7 @@ def resolve_embed_fn(
                 out.extend(d.embedding for d in resp.data)
             return np.asarray(out, dtype=np.float32)
 
-        return _openai_embed, model
+        return _held_texts(_openai_embed, settings), model
 
     # G182 — a bundled ONNX model (a release app's default) runs without torch.
     from api.services import onnx_embedder
@@ -984,7 +1019,7 @@ def resolve_embed_fn_for_model(
                 out.extend(d.embedding for d in resp.data)
             return np.asarray(out, dtype=np.float32)
 
-        return _openai_embed, mid
+        return _held_texts(_openai_embed, settings), mid
 
     if _model_is_openrouter(mid):
         api_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
@@ -1011,7 +1046,7 @@ def resolve_embed_fn_for_model(
                 out.extend(d["embedding"] for d in data)
             return np.asarray(out, dtype=np.float32)
 
-        return _or_embed, mid
+        return _held_texts(_or_embed, settings), mid
 
     # A bank built with a bundled ONNX model queries with it (G182) — whatever factory a
     # caller passed: `cached_embed_fn_for_model` always passes one.

@@ -81,7 +81,7 @@ from typing import Any
 
 from loguru import logger
 
-from api.services import authorship, bank_index, inbox_actor, inbox_questions, markdown_parser, sensitive_flags, text_fold
+from api.services import authorship, bank_index, inbox_actor, inbox_questions, markdown_parser, text_fold
 
 GROUP = "sleep"
 SETTLED_DIR = "settled"
@@ -1177,7 +1177,7 @@ def _evidence_lines(memory_path: Path, claim, limit: int = MAX_EVIDENCE_LINES) -
         if len(out) >= limit or not ev.is_span():
             continue
         text = evidence.source_text(Path(memory_path), ev.episode) or ""
-        line = sensitive_flags.engine_view(" ".join(text[ev.start:ev.end].split()))[:240]   # ruling 60
+        line = " ".join(text[ev.start:ev.end].split())[:240]
         if line:
             out.append(f"{ev.kind or 'text'} said: {line}")
     return out
@@ -1196,8 +1196,7 @@ def _mention_lines(memory_path: Path, fm: dict, limit: int = MAX_EVIDENCE_LINES)
         text = evidence.source_text(Path(memory_path), ref) or ""
         line = next((ln for ln in text.splitlines() if inbox_ask_gate.named_in(names_fm, ln)), "")
         if line:
-            out.append((episode_ids.parse_episode_id(ref)[0],
-                        sensitive_flags.engine_view(" ".join(line.split()))[:240]))   # ruling 60
+            out.append((episode_ids.parse_episode_id(ref)[0], " ".join(line.split())[:240]))
     return out
 
 
