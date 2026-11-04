@@ -140,10 +140,10 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
 
 
 def _write_scenario_ownership(bank_dir: Path, today: date) -> None:
-    """Ruling 45: the Projects page lists the person's own projects and suggests the rest. The demo shows both: the
-    Pick And Place Demo is one Bob started in the app (with his description); the Garden Sensor Project was born from a
-    repository an agent session ran in, so it waits under Suggested with that reason. (The Rover Arm Project is Bob's
-    already: he logged progress on it in the app.) Frontmatter only, through the ownership module's own writers."""
+    """Rulings 45 and 56: the Projects page lists the person's own projects. The Pick And Place Demo is one Bob started
+    in the app (with his description); the Garden Sensor Project is a page from a repository an agent session ran in,
+    which he never started, so it is not listed. (The Rover Arm Project is Bob's already: he logged progress on it in
+    the app.) Frontmatter only, through the ownership module's own writers."""
     from api.services import project_ownership
 
     ents = bank_dir / "entities"

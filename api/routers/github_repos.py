@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -345,6 +346,11 @@ async def repo_project(request: RepoProjectRequest, settings: Settings = Depends
                                                 remove=request.remove)
             except LookupError as exc:
                 raise HTTPException(404, f"{request.project!r} is not a project page") from exc
+            if not request.remove:
+                # Ruling 56: the person linking their repository to a page they never started is them starting it.
+                page = Path(memory_path) / "entities" / f"{request.project}.md"
+                if project_ownership.unstarted(markdown_parser.parse(page, ledger=False).frontmatter, page):
+                    paths = [*paths, *await asyncio.to_thread(project_ownership.accept, memory_path, request.project)]
             await _commit(memory_path, paths, "Repository unlinked from a project" if request.remove
                           else "Repository linked to its project")
             return request.project, False

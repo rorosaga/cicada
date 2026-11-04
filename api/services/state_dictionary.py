@@ -85,7 +85,7 @@ STATE_FILENAME = "_state.md"
 # happenings); both absolute, neither today-dependent.
 # 4: G150 — a project row carries backlog_open (items open or doing) when it
 # has any; a bank with no backlog renders as v3 did apart from this number.
-SCHEMA_VERSION = 5   # 5: ruling 56 — a project row says `started`
+SCHEMA_VERSION = 5   # 5: ruling 56 — `projects_started`, how many leading project rows the person started
 # R10: the handshake primer that embeds this file is budgeted at ~1,800
 # tokens; 6 KiB of cursor leaves room for the contract text around it.
 MAX_BYTES = 6 * 1024
@@ -660,9 +660,10 @@ def build(
         open_backlog = {}
 
     projects = []
-    for f, started in _ranked_projects(memory_path, today, _limit(settings, "state_projects")):
+    ranked_projects = _ranked_projects(memory_path, today, _limit(settings, "state_projects"))
+    for f, _started in ranked_projects:
         row = {
-            "id": f.stem, "name": _name(f), "one_liner": _one_liner(f), "started": started,
+            "id": f.stem, "name": _name(f), "one_liner": _one_liner(f),
             "confidence": round(float(f.frontmatter.get("confidence", 0.5) or 0.0), 2),
             "last_referenced": str(f.frontmatter.get("last_referenced") or "")[:10] or None,
         }
@@ -706,6 +707,7 @@ def build(
         "sleep": _sleep_block(memory_path, git_runner),
         "inbox": _inbox_block(memory_path),
         "projects": projects,
+        "projects_started": sum(1 for _f, started in ranked_projects if started),
         "people": people,
         "conversations": _conversations(memory_path, _limit(settings, "state_conversations")),
         "preferences": preferences,
@@ -743,11 +745,11 @@ def render_body(fm: dict) -> str:
         tail = f" — {p['one_liner']}" if p.get("one_liner") else ""
         return f"- [[{p['name']}]] (`{p['id']}`){tail}{_cursor(p)}" + (f" — repo: {repo_bits}" if repo_bits else "")
 
-    lines += [project_line(p) for p in fm["projects"] if p.get("started", True)]
-    recent = [p for p in fm["projects"] if not p.get("started", True)]
-    if recent:
-        lines += ["", "## Recent project pages, not started as projects"]
-        lines += [project_line(p) for p in recent]
+    started = fm.get("projects_started", len(fm["projects"]))
+    lines += [project_line(p) for p in fm["projects"][:started]]
+    if fm["projects"][started:]:
+        lines += ["", "## Recent pages, not started"]
+        lines += [project_line(p) for p in fm["projects"][started:]]
     if not fm["projects"]:
         lines.append("- (no active projects yet)")
     lines += ["", f"## In focus (last {FOCUS_WINDOW_DAYS} days)"]

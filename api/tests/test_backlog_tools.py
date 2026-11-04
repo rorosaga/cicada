@@ -109,12 +109,12 @@ def test_the_stdio_server_dispatches_the_three_tools(bank, monkeypatch):
 
 
 def test_the_primer_says_what_to_do_and_counts_open_items(bank):
-    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (23, 15)  # 23: G227 split / merge / undo; 22 / 15: lean reads (ask first, cicada_sources for an ep_ id); 21: codex AGENTS.md block; 20 / 14: G61 "Where to check" (ruling 36 D5); 19: G200 A7, no HTTP route and a desktop variant; 18 / 13: video lease token (ruling 34, #407); remote 12: ruling 32 capture; 17: G198 + natural questions (both took 16); 16 / 11: questions come up naturally; 15 / 10: G110 optional State guidance; 14 / 10: cicada_continue
+    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (24, 16)  # 24 / 16: ruling 56 (projects start on ask, agents tie); 23: G227 split / merge / undo; 22 / 15: lean reads (ask first, cicada_sources for an ep_ id); 21: codex AGENTS.md block; 20 / 14: G61 "Where to check" (ruling 36 D5); 19: G200 A7, no HTTP route and a desktop variant; 18 / 13: video lease token (ruling 34, #407); remote 12: ruling 32 capture; 17: G198 + natural questions (both took 16); 16 / 11: questions come up naturally; 15 / 10: G110 optional State guidance; 14 / 10: cicada_continue
     backlog.add_item(bank, project="alpha-project", title="One", author="user")
     backlog.add_item(bank, project="alpha-project", title="Two", author="user")
     state_dictionary.refresh(bank, _settings(bank), force=True, repo_resolver=_ok_repo)
     st = state_dictionary.read_state(bank)
-    assert st["schema_version"] == 4
+    assert st["schema_version"] == 5
     rows = {p["id"]: p for p in st["projects"]}
     assert rows["alpha-project"]["backlog_open"] == 2
     assert all("backlog_open" not in p for pid, p in rows.items() if pid != "alpha-project")

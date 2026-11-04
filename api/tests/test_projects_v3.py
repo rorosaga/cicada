@@ -125,7 +125,7 @@ def test_a_trusted_harness_ties_at_once_with_its_name_and_trailers(bank):
     reply = str(mcp_tools.link_entity(_ctx(bank), "alpha-project", "delta-tool", reason="Alpha runs on it."))
     assert "Tied delta-tool" in reply
     assert _fm(bank, "alpha-project")["entities_added"] == [
-        {"entity": "delta-tool", "by": "claude-code", "session": "ses_test"}]
+        {"entity": "delta-tool", "by": "claude-code", "session": "ses_test", "reason": "Alpha runs on it."}]
     row = _pages(bank)["delta-tool"]
     assert row.tie == "agent" and row.by == "claude-code"
     log = _git(bank, "log", "-1", "--format=%B")

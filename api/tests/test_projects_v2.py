@@ -1,4 +1,4 @@
-"""Projects v2 (TODO ruling 45, 2026-10-27): the list is the person's, detected projects are suggested; the person's
+"""Projects v2 (TODO ruling 45, 2026-10-27; ruling 56): the list is the person's; the person's
 description and name; every conversation tied, with why; influences. Synthetic projects only."""
 import subprocess
 from datetime import UTC, datetime
@@ -73,13 +73,12 @@ def test_progress_logged_in_the_app_counts_as_the_persons_on_day_one():
     assert project_ownership.mine_via({"not_mine": {"day": "x"}}, logged_progress=True) is None
 
 
-def test_the_list_splits_mine_from_suggested_and_keeps_every_row(client):
+def test_the_list_is_the_persons_and_a_new_project_joins_it(client):
     c, bank = client
     before = c.get("/projects").json()
-    assert before["projects"], "the demo has projects"
+    assert before["projects"], "the demo has projects of Bob's"
+    assert all(r["mine"] for r in before["projects"]) and before["suggested"] == []
     ids = {r["id"] for r in before["projects"]}
-    suggested = {s["id"] for s in before["suggested"]}
-    assert {r["id"] for r in before["projects"] if not r["mine"]} <= suggested
     r = c.post("/projects", json={"name": "Cedar Canoe Example", "description": "A strip-built canoe."})
     assert r.status_code == 200, r.text
     eid = r.json()["id"]
@@ -88,39 +87,40 @@ def test_the_list_splits_mine_from_suggested_and_keeps_every_row(client):
     assert row["mine"] and row["mineVia"] == "app" and row["description"] == "A strip-built canoe."
     assert row["oneLiner"] == "A strip-built canoe."
     assert ids <= {x["id"] for x in after["projects"]}          # nothing left the list
-    assert eid not in {s["id"] for s in after["suggested"]}
     log = _git(bank, "log", "-1", "--format=%B")
     assert "Cicada-Author: user" in log and f"entities/{eid}.md: created" in log
 
 
-def test_a_create_refuses_a_name_already_a_page(client):
-    c, _ = client
-    r = c.post("/projects", json={"name": "Rover Arm Project"})
-    assert r.status_code == 409 and "rover-arm-project" in r.json()["detail"]
-
-
-def test_accept_and_dismiss_never_archive_or_retype(client):
+def test_a_create_starts_the_page_already_there_and_refuses_one_that_cant_be_a_project(client):
     c, bank = client
-    target = next(s for s in c.get("/projects").json()["suggested"] if s["kind"] == "page")["id"]
+    r = c.post("/projects", json={"name": "Rover Arm Project"})
+    assert r.status_code == 200 and r.json()["id"] == "rover-arm-project"
+    _write(bank, "bob-example-person", {"name": "Bob Person", "type": "person", "status": "active"})
+    r = c.post("/projects", json={"name": "Bob Person"})
+    assert r.status_code == 409 and "bob-example-person" in r.json()["detail"]
+
+
+def test_add_and_remove_never_archive_or_retype(client):
+    c, bank = client
+    target = "garden-sensor-project"
+    assert target not in {r["id"] for r in c.get("/projects").json()["projects"]}
     status = _fm(bank, target).get("status")
-    assert c.post(f"/projects/{target}/dismiss").status_code == 200
-    fm = _fm(bank, target)
-    assert fm["not_mine"] and fm.get("status") == status and fm["type"] == "project"
-    listed = c.get("/projects").json()
-    assert listed["dismissed"] >= 1
-    assert next(s for s in listed["suggested"] if s["id"] == target)["dismissed"] is True
     assert c.post(f"/projects/{target}/accept").status_code == 200
     fm = _fm(bank, target)
-    assert "not_mine" not in fm and fm["mine"]["via"] == "accepted"
+    assert fm["mine"]["via"] == "accepted" and fm.get("status") == status and fm["type"] == "project"
     assert next(r for r in c.get("/projects").json()["projects"] if r["id"] == target)["mine"]
+    assert c.post(f"/projects/{target}/dismiss").status_code == 200
+    fm = _fm(bank, target)
+    assert fm["not_mine"] and "mine" not in fm and fm.get("status") == status and fm["type"] == "project"
+    assert target not in {r["id"] for r in c.get("/projects").json()["projects"]}
+    assert c.post(f"/projects/{target}/accept").status_code == 200
+    assert "not_mine" not in _fm(bank, target)
 
 
-def test_accepting_a_fallback_concept_retypes_it_in_place(client):
+def test_adding_a_fallback_concept_retypes_it_in_place(client):
     c, bank = client
     _write(bank, "cedar-canoe", {"name": "Cedar canoe", "type": "concept", "status": "active",
                                  "proposed_type": "project", "source_episodes": ["ep_2026-09-01_001"]})
-    s = next(x for x in c.get("/projects").json()["suggested"] if x["id"] == "cedar-canoe")
-    assert s["whyKind"] == "fallback" and "never called it a project" in s["why"]
     assert c.post("/projects/cedar-canoe/accept").status_code == 200
     fm = _fm(bank, "cedar-canoe")
     assert fm["type"] == "project" and "proposed_type" not in fm
@@ -175,21 +175,21 @@ def test_an_untie_overrides_every_signal_and_a_tie_brings_it_back(client):
     assert "added" in row["why"] and row["manual"]
 
 
-def test_a_provider_grouping_ties_and_an_unnamed_one_is_suggested(client):
+def test_a_provider_grouping_ties_to_the_page_that_records_it_and_is_never_offered(client):
     c, bank = client
     for n in (1, 2):
         _episode(bank, f"ep_2026-09-21_90{n}", "user: notes\nassistant: ok",
                  provider_project={"provider": "chatgpt", "id": "g-p-synthetic01"})
-    s = next(x for x in c.get("/projects").json()["suggested"] if x["id"] == "g-p-synthetic01")
-    assert s["kind"] == "group" and s["why"] == "A ChatGPT project, 2 conversations."
-    assert c.post("/projects/g-p-synthetic01/accept", json={}).status_code == 400   # named on accept
-    r = c.post("/projects/g-p-synthetic01/accept", json={"name": "Garden Plan Example"})
-    assert r.status_code == 200, r.text
+    assert c.get("/projects").json()["suggested"] == []       # ruling 56: a grouping with no page is not offered
+    assert c.post("/projects/g-p-synthetic01/accept", json={"name": "Garden Plan Example"}).status_code == 404
+    r = c.post("/projects", json={"name": "Garden Plan Example"})
     eid = r.json()["id"]
+    project_ownership._rewrite(bank, eid, lambda fm: project_ownership.add_provider(
+        fm, {"provider": "chatgpt", "id": "g-p-synthetic01"}))
+    bank_index.invalidate()
     rows = c.get(f"/projects/{eid}/conversations").json()["conversations"]
     assert {r["episodeId"] for r in rows} == {"ep_2026-09-21_901", "ep_2026-09-21_902"}
     assert all("provider" in r["why"] and r["providerLabel"] == "ChatGPT" for r in rows)
-    assert "g-p-synthetic01" not in {x["id"] for x in c.get("/projects").json()["suggested"]}
 
 
 def test_a_relayed_project_word_ties_as_the_apps(client):
@@ -279,21 +279,19 @@ def test_a_merge_carries_the_persons_keys(tmp_path):
 
 
 def test_the_shape_moves_so_caches_refetch_once():
-    assert project_timeline.PROJECT_SHAPE == "g141-9"   # g141-9: G227's qualifier on a page row
+    assert project_timeline.PROJECT_SHAPE == "g141-10"   # g141-10: ruling 56
 
 
-def test_a_dismissed_grouping_moves_the_lists_etag(client):
-    """Review of #492 (3): the groupings file rides the `entities` component, so the list never answers 304 after a
-    dismiss (and the app's `ProjectsRefresh`, which watches `entities`, asks again)."""
+def test_removing_a_project_moves_the_lists_etag(client):
+    """The list never answers 304 after "Remove from my projects"."""
     c, bank = client
-    _episode(bank, "ep_2026-09-21_911", "user: notes", provider_project={"provider": "chatgpt", "id": "g-p-etagtest1"})
+    target = c.get("/projects").json()["projects"][0]["id"]
     first = c.get("/projects")
     etag = first.headers["etag"]
     assert c.get("/projects", headers={"If-None-Match": etag}).status_code == 304
-    assert c.post("/projects/g-p-etagtest1/dismiss").status_code == 200
+    assert c.post(f"/projects/{target}/dismiss").status_code == 200
     again = c.get("/projects", headers={"If-None-Match": etag})
-    assert again.status_code == 200
-    assert next(s for s in again.json()["suggested"] if s["id"] == "g-p-etagtest1")["dismissed"] is True
+    assert again.status_code == 200 and target not in {r["id"] for r in again.json()["projects"]}
 
 
 def test_an_untie_holds_for_every_episode_of_the_conversation(client):

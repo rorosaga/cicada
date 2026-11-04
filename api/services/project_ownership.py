@@ -92,6 +92,11 @@ class OwnershipError(ValueError):
     """A change refused, with a sentence for the person or the agent. Nothing was written."""
 
 
+def name_taken(exc: Exception) -> bool:
+    """The refusal is about a name a page already holds (the route's 409)."""
+    return "already a page" in str(exc) or "Several pages answer" in str(exc)
+
+
 # --- reading -------------------------------------------------------------------------------------------------------
 
 

@@ -596,12 +596,12 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
         return f"  - `{p['id']}` {p['name']}{tail}{cursor}" + (f" [{repos}]" if repos else "")
 
     # Ruling 56: what the person started, then recent pages said to be what they are, never called their projects.
-    started = [p for p in projects if p.get("started", True)]
-    recent = [p for p in projects if not p.get("started", True)]
-    if started:
-        lines += ["- Current projects:", *(project_line(p) for p in started)]
-    if recent:
-        lines += ["- Recent project pages, not started as projects:", *(project_line(p) for p in recent)]
+    # `projects_started` is the leading rows they started; a state from before it reads as all of them.
+    started = state.get("projects_started", len(projects))
+    if projects[:started]:
+        lines += ["- Current projects:", *(project_line(p) for p in projects[:started])]
+    if projects[started:]:
+        lines += ["- Recent project pages, not started as projects:", *(project_line(p) for p in projects[started:])]
     focus = (state.get("focus") or []) if personal else []
     if focus:
         lines.append(f"- In focus (last {state_dictionary.FOCUS_WINDOW_DAYS} days): "

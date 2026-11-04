@@ -146,6 +146,9 @@ def _salted():
     (cicada_home() / workspace_identity.SALT_FILE).write_text(SALT)
 
 
+MINE = {"via": "app", "day": "2026-10-01", "by": "user"}
+
+
 def _project(memory, eid, **fm):
     markdown_parser.write(memory / "entities" / f"{eid}.md",
                           {"name": fm.pop("name", eid), "type": "project", "status": "active", **fm}, "A project.\n")
@@ -423,7 +426,7 @@ def test_a_project_links_its_own_checkouts_repository_by_the_hooks_salted_origin
     hashed = github_repos.remote_hash("https://github.com/bob-example/alpha-project", SALT)
     assert hashed == workspace_identity.remote_hash(
         workspace_identity.normalise_remote(b"git@github.com:bob-example/alpha-project.git"), SALT)
-    _project(bank, "renamed-thing", name="Renamed thing", born={"origin": "repo", "repo": {"remote": hashed}})
+    _project(bank, "renamed-thing", name="Renamed thing", born={"origin": "repo", "repo": {"remote": hashed}}, mine=MINE)
     _project(bank, "side-notes")
     _connect()
     assert _sync(bank, FakeGitHub())["status"] == "ok"
@@ -524,7 +527,7 @@ def test_a_project_lists_two_repositories_by_the_persons_link_and_each_links_bac
 def test_the_persons_unlink_is_remembered_and_no_automatic_link_puts_it_back(api, bank):
     _salted()
     hashed = github_repos.remote_hash("https://github.com/bob-example/alpha-project", SALT)
-    _project(bank, "renamed-thing", born={"origin": "repo", "repo": {"remote": hashed}})
+    _project(bank, "renamed-thing", born={"origin": "repo", "repo": {"remote": hashed}}, mine=MINE)
     _synced(api)
     assert markdown_parser.parse(bank / "entities" / "renamed-thing.md").frontmatter["repositories"]
     gone = api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project",
@@ -761,7 +764,7 @@ def test_a_project_merge_keeps_its_repositories_and_the_persons_unlink_wins(bank
 
     _salted()
     hashed = github_repos.remote_hash("https://github.com/bob-example/alpha-project", SALT)
-    _project(bank, "alpha", born={"origin": "repo", "repo": {"remote": hashed}})
+    _project(bank, "alpha", born={"origin": "repo", "repo": {"remote": hashed}}, mine=MINE)
     _project(bank, "alpha-two")
     _connect()
     _sync(bank, FakeGitHub())

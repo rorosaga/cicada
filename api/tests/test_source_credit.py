@@ -118,8 +118,9 @@ def test_an_existing_page_is_credited_by_every_conversation_in_the_batch(bank):
 
 
 def test_a_shorter_name_merging_into_an_in_cycle_page_brings_every_mention(bank):
-    long = [_extraction(n, name="alpha-project-suite") for n in (1, 2)]
-    short = [_extraction(n, name="alpha-project-suit") for n in (3, 4, 5)]  # fuzzy-same as the longer name
+    # A concept: since ruling 56 a name Stage 1 calls a project goes to the judge, and this file is about credit.
+    long = [_extraction(n, name="alpha-project-suite", type="concept") for n in (1, 2)]
+    short = [_extraction(n, name="alpha-project-suit", type="concept") for n in (3, 4, 5)]  # fuzzy-same as the longer name
     change = _only_change(_resolve(long + short, [], _settings(bank)), "alpha-project-suite")
     assert sorted(change["source_episodes"]) == sorted(x["episode_id"] for x in long + short)
     for x in short:

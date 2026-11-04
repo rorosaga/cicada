@@ -279,7 +279,7 @@ def test_the_same_repository_moved_under_its_own_name_is_its_page(tmp_path, monk
     assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", "alpha-project")]
 
 
-@pytest.mark.parametrize("verdict,expected", [("different", ("create", "alpha-renamed")),
+@pytest.mark.parametrize("verdict,expected", [("different", None),   # ruling 56: a repository alone holds the name
                                               ("same", ("update", "alpha-project"))])
 def test_a_renamed_repository_goes_to_the_judge_told_the_remote_matched(tmp_path, monkeypatch, verdict, expected):
     """A different folder name is never a silent join, even after the old checkout went quiet: a reused template
@@ -290,8 +290,8 @@ def test_a_renamed_repository_goes_to_the_judge_told_the_remote_matched(tmp_path
     page = _page("alpha-project", "alpha-project", _repo_birth("alpha-project", "a" * 16, ep=EP_A))
     out = _resolve(memory, _mention("alpha-renamed", _repo_birth("alpha-renamed", "b" * 16)), [page], monkeypatch,
                    verdict=verdict)
-    assert [(c["action"], c["id"]) for c in out["changes"]] == [expected]
-    assert any("same git repository" in c for c in out["judged"])
+    assert [(c["action"], c["id"]) for c in out["changes"]] == ([expected] if expected else [])
+    assert any("same git repository" in str(c) for c in out["judged"])
     if verdict == "same":   # the new name rides on as an alias, which is what lends the page that checkout's days
         assert "alpha-renamed" in repr(out["changes"][0]).lower()
 
@@ -328,7 +328,7 @@ def test_a_remote_the_page_only_once_had_is_never_a_join(tmp_path, monkeypatch):
                                               [("alpha-app", alpha["frontmatter"])], sessions=sessions) \
         == ("alpha-app", False)
     out = _resolve(memory, _mention("bravo", _repo_birth("bravo", "b" * 16, remote=TEMPLATE)), [alpha], monkeypatch)
-    assert [(c["action"], c["id"]) for c in out["changes"]] == [("create", "bravo")]
+    assert not any(c["id"] == "alpha-app" for c in out["changes"])   # never joined; a repository alone holds the name
     markdown_parser.write(memory / "entities" / "alpha-app.md", alpha["frontmatter"], "")
     bank = project_timeline._Bank(memory, None)
     assert "2026-04-01" not in project_timeline._repo_days(bank, ["alpha-app"])
@@ -343,12 +343,12 @@ def _template_clone(memory):
     _session(memory, EP_B, TEMPLATE_DIR, "b" * 16, TS_B, last="2026-10-22T10:00:00+00:00")
 
 
-def test_a_template_cloned_under_another_name_is_its_own_page(tmp_path, monkeypatch):
+def test_a_template_cloned_under_another_name_never_joins_the_page(tmp_path, monkeypatch):
     memory = _bank(tmp_path)
     _template_clone(memory)
     page = _page("alpha-project", "alpha-project", _repo_birth("alpha-project", "a" * 16, ep=EP_A))
     out = _resolve(memory, _mention("beta-app", _repo_birth("beta-app", "b" * 16)), [page], monkeypatch)
-    assert [(c["action"], c["id"]) for c in out["changes"]] == [("create", "beta-app")]
+    assert not out["changes"]   # held: a repository alone is no page (ruling 56)
     assert out["judged"]    # the remote brought the page to the judge; its "different" stood
 
 
@@ -381,11 +381,11 @@ def test_a_template_clone_lends_neither_page_its_days_or_conversations(tmp_path)
     {"remote": "1" * 16},                                   # another repository
     {"remote": None},                                       # no remote read: the old behaviour, a page of its own
 ])
-def test_without_the_same_remote_a_birth_is_its_own_page(tmp_path, monkeypatch, other):
+def test_without_the_same_remote_a_repository_joins_nothing(tmp_path, monkeypatch, other):
     memory = _bank(tmp_path)
     page = _page("alpha-project", "alpha-project", _repo_birth("alpha-project", "a" * 16, ep=EP_A))
     out = _resolve(memory, _mention("beta-tool", _repo_birth("beta-tool", "b" * 16, **other)), [page], monkeypatch)
-    assert [(c["action"], c["id"]) for c in out["changes"]] == [("create", "beta-tool")]
+    assert not out["changes"]
 
 
 def test_two_pages_on_one_remote_join_neither(tmp_path, monkeypatch):
@@ -393,7 +393,7 @@ def test_two_pages_on_one_remote_join_neither(tmp_path, monkeypatch):
     pages = [_page("alpha-project", "alpha-project", _repo_birth("alpha-project", "a" * 16, ep=EP_A)),
              _page("alpha-two", "alpha-two", _repo_birth("alpha-two", "c" * 16, ep=EP_A))]
     out = _resolve(memory, _mention("alpha-renamed", _repo_birth("alpha-renamed", "b" * 16)), pages, monkeypatch)
-    assert [(c["action"], c["id"]) for c in out["changes"]] == [("create", "alpha-renamed")]
+    assert not out["changes"]
 
 
 def test_a_birth_records_the_remote_and_the_repository_keeps_its_activity(tmp_path):
