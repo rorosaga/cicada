@@ -60,7 +60,9 @@ def test_a_first_sync_stages_one_episode_per_group_and_commits_once_as_the_perso
     episodes = _episodes(memory)
     alpha = next(ep for ep in episodes.values() if ep.body.startswith("# Tab group: alpha-project"))
     assert alpha.frontmatter["origin"] == "chrome-tab-group" and alpha.frontmatter["source"] == "tab-group"
-    assert alpha.frontmatter["tab_group_color"] == "blue" and alpha.frontmatter["processed"] is False
+    assert alpha.frontmatter["tab_group_color"] == "blue"
+    # Ruling 62: a group is a save with no reason: indexed, read by no model.
+    assert (alpha.frontmatter["processed"], alpha.frontmatter["processed_by"]) == (True, "index")
     assert alpha.body.startswith("# Tab group: alpha-project\n\n**Browser:** Chrome\n**Colour:** blue\n**Open tabs:** 2")
     assert "- Design doc — https://example.com/alpha/doc" in alpha.body
     log = subprocess.run(["git", "-C", str(memory), "log", "-1", "--format=%B"], capture_output=True, text=True,
@@ -77,7 +79,7 @@ def test_the_same_snapshot_again_changes_nothing_and_folding_a_group_is_not_a_ch
     assert _head(memory) == before
 
 
-def test_a_new_tab_rewrites_the_groups_episode_in_place_and_requeues_it(client):
+def test_a_new_tab_rewrites_the_groups_episode_in_place_and_spends_nothing(client):
     c, memory = client
     _post(c, [_group()])
     [(sid, first)] = _episodes(memory).items()
@@ -85,7 +87,7 @@ def test_a_new_tab_rewrites_the_groups_episode_in_place_and_requeues_it(client):
     tabs = _group()["tabs"] + [{"title": "Notes", "url": "https://example.com/alpha/notes"}]
     assert _post(c, [_group(tabs=tabs)]).json()["updated"] == 1
     [(sid2, second)] = _episodes(memory).items()
-    assert (sid2, second.frontmatter["id"], second.frontmatter["processed"]) == (sid, first_id, False)
+    assert (sid2, second.frontmatter["id"], second.frontmatter["processed"]) == (sid, first_id, True)
     assert "**Open tabs:** 3" in second.body
 
 

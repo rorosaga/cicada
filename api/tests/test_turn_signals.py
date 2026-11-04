@@ -462,6 +462,8 @@ def test_a_group_sitting_and_a_save_both_keep_whose_words_they_are(bank, monkeyp
     markdown_parser.write(bank / "episodes" / "ep_2026-10-01_001.md",
                           {"id": "ep_2026-10-01_001", "source": "article", "url": "https://example.com/alpha",
                            "media_entity_id": "media-alpha", "origin": "chrome-bookmark", "processed": False,
+                           # Ruling 62: a save Sleep reads is one the person talked about.
+                           "read_asked": {"why": "said-the-link", "at": "2026-10-01T10:00:00+00:00"},
                            "timestamp": "2026-10-01T10:00:00+00:00"}, SAVE_BODY)
     bank_index.invalidate()
     episodes = sleep_cycle._get_unprocessed_episodes(bank)

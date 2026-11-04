@@ -148,7 +148,7 @@ def test_a_relationship_cited_in_the_description_is_not_the_persons():
 def test_sleeps_episode_dict_carries_the_records_answer(tmp_path):
     from api.services import sleep_cycle
 
-    memory = _bank(tmp_path, {"processed": False, "timestamp": "2026-10-01T10:00:00+00:00"})
+    memory = _bank(tmp_path, {"processed": False, "timestamp": "2026-10-01T10:00:00+00:00", "has_note": True})
     [ep] = sleep_cycle._get_unprocessed_episodes(memory)
     assert authorship.of_episode(ep) == evidence.SAVE_KIND
     assert ep["evidence_kind"] is None   # the declared field is untouched: no agent name is read off a save

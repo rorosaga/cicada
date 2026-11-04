@@ -41,6 +41,7 @@ Output valid JSON with this exact structure:
       "decay_class": "durable|active|volatile",
       "website": "https://example.com   (optional; company, tool or project only)",
       "application": {"status": "drafted|filled|sent|registered|accepted|rejected|attended", "by": "user|assistant"},
+      "reading_status": {"status": "reading|finished|want|not_started", "quote": "the user's exact words", "on": "YYYY-MM-DD   (optional)"},
       "description": "Optional. Same content as summary; kept only for backward compatibility."
     }
   ],
@@ -169,6 +170,18 @@ or the assistant did one of those for them in their tools ("by": "assistant").
   ("<user> applied to <event>").
 - Never for a bookmark, a link saved for later, a thing only mentioned or considered, or an assistant only
   explaining how to apply. Omit the field otherwise.
+
+READING STATUS (optional, per entity) — only on a SPECIFIC book, named by its title, when the USER'S OWN line, read in
+the context of the conversation, says where THEY stand with it now:
+- status: reading (they started it or are in it), finished (they read it to the end), want (they mean to read it),
+  not_started (they have it and say they have not begun).
+- quote: their exact words, verbatim, at most 240 characters, from a line of the user's. "it" is fine when the
+  conversation makes plain which book ("How was <title>?" "Finished it last night.").
+- on: the day they started or finished it, only when the conversation states it (as ENDS says); else omit.
+- Omit the field for someone else's reading ("my friend finished <title>"), a wish or a plan about a book they are not
+  saying where they stand with ("I'd love to finish <title>"), a question, a thing they only asked about or looked up,
+  the film or series of the name, a book they are writing, and anything only the assistant said. This field is the
+  only place for it: no value for it in values[]. Unsure? Omit it.
 
 TIME (every conversation is written up as of its own date):
 - A note before the conversation gives the date it took place and today's date. Write what it says as of the
@@ -1062,6 +1075,15 @@ async def extract(
                 # gets its page from this one conversation, and the application lives there, not on the owner's.
                 app_values = _application_pages(all_entities, episode, ep_id, content, owner=owner, on_record=on_record,
                                                 day=ep_day.isoformat() if ep_day and not untimed else None, gaps=gaps)
+                # Ruling 61: what the person said about a book's status — the model's reading, checked on the record
+                # and carried on the result, never on the entity (`book_said`).
+                from api.services import book_said
+
+                said_books = [m for m in (book_said.at_extraction(
+                    entity, episode_id=ep_id, frontmatter=episode, text=content,
+                    day=ep_day.isoformat() if ep_day and not untimed else None,
+                    override=authorship.of_episode(episode), gaps=gaps)
+                    for entity in all_entities if isinstance(entity, dict)) if m]
                 narration = 0
                 for entity in all_entities:
                     facts = entity.get("key_facts")
@@ -1137,6 +1159,8 @@ async def extract(
                     "relationships": all_relationships,
                     "values": all_values,
                 }
+                if said_books:
+                    results[i][book_said.KEY] = said_books
                 if session_id:
                     # The session it was said in, from the episode's own record: every claim read from it carries
                     # it (`entities_to_claims`), so an agent's act names the session that did it.

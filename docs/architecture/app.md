@@ -1959,9 +1959,23 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   and what a book's cap left out, or the failure. The footer's Disconnect (asked first) stops it and deletes nothing.
   *Goodreads* (`GoodreadsSlot`): one *Import a file* way, the source's mark on a file, where the export comes from on
   its hover (a file importer); then the preview's counts as the line beside *Import*. No footer: nothing to refresh or
-  disconnect. Book scans have no control on the Mac and no catalogue entry (the phone scans; its overview row stays).
+  disconnect. *Book scans* (catalogue entry, 2026-11-04) has no control on the Mac: one line says the phone scans, and its
+  list is what the phone brought in.
   A book page shows no link preview (`MediaBlock.isBook`, the paper rule). The Mac camera scanner was made optional by the owner
   (2026-11-04) and is not built; the phone app scans (`cicada-app`, "Scan a book").
+  **Covers and status (ruling 61; DR-9, DR-12, DR-31, DR-38, DR-59).** After a sync the reader reads the covers Apple Books
+  keeps (`AppleBooksCovers`: `Library/Caches/BCCoverCache-1/BICDiskDataStore/<asset id>/` beside the same container's
+  `Documents`, read on macOS 27.2; the largest `jpg`/`heic` its file name states, never the `.astc` textures, drawn down to
+  a JPEG ≤ 600 pt and 512 KB through ImageIO; an asset id is only ever one path component; a PDF or an audiobook,
+  `ZCONTENTTYPE` 3 or 5, has none sent) and posts those not yet accepted,
+  25 a request, 200 a sync, by a fingerprint per memory (`cicada.appleBooks.covers.<bank>`). It is best-effort and says
+  nothing: a book with none draws nothing. A cover draws wherever a media page's picture does (`EntityPicture`: a tall
+  thumbnail is drawn whole at the well's height, `EntityPictureLayout.drawnFrame`, never cropped to the 3:2 well; the ring
+  follows the picture and the slot keeps its width) and in a door's list (`BookCoverThumb`, asked only when its row is
+  drawn, an empty slot for a book with none). A book's page opens on `BookStatusLine`: "Finished · 20 Oct 2026 · you said
+  so" and *Not right* when a conversation set it (no *Not right* on a door's record; one line, no explanation). Not a
+  Store domain: the card reads it on open and holds it in memory. The phone's scanner shows no cover: a capture-only device
+  reads nothing from the home.
 - **Reminders and Notion (G219, ruling 38: one way in, never written back; 2026-10-23).** *This Mac* gains
   **Reminders** after Contacts (`SourceCatalog.fixed`, id `reminders-local`, the installed Reminders app's icon,
   `com.apple.reminders`). Its detail is `RemindersRow`: `CalendarRow`'s line and buttons (Connect · Refresh ·
@@ -2235,7 +2249,8 @@ pending from that category, as a small notification."*
   (`SourceBlurb`, now with Messages, Apple Calendar and "Other agents"), then one state line with only what the row
   beside it can't say — when it last synced, the whole error in `warning`, or "Syncing now" with its × — never the
   row's own "Watching" / "Syncs when you ask" (`SourceDetailText.state`; no line at all when there is nothing), with
-  Sync now / Poll now inline, and **"Consolidate now · N waiting"** as a compact `NeutralButton` only while
+  Sync now / Poll now inline, one line for saves kept for lookup when there are any (ruling 62, `Copy.keptForLookup`,
+  the same words under the Sleep page's Waiting; DR-38, DR-51), and **"Consolidate now · N waiting"** as a compact `NeutralButton` only while
   `waiting > 0` (or a read runs); when other sources wait too it says "N here, M in all" (a read takes everything).
   The run state follows the Store's status and re-reads Sleep's status when it moves, so the button is never enabled
   during a run. The eyebrow stays the page's ("Sources · n connected") whatever is open — v3's position and group
