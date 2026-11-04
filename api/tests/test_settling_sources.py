@@ -114,12 +114,12 @@ def test_same_day_or_undated_stays_the_one_question_ruling_26(bank):
     assert report.settled == 0 and report.skipped.get("refused") == 1 and (bank / "inbox" / "inbox-501.md").exists()
 
 
-def test_a_quote_not_on_the_page_or_not_saying_the_option_settles_nothing(bank):
+def test_a_quote_not_on_the_page_settles_nothing(bank):
     _page(bank, [TRUSTED])
     _question(bank)
-    wrong = {"answer": {"sure": True, "option_key": "a", "url": SITE, "quote": "Nora Hidden is part of Globex now"}}
-    report = _run(bank, Stub(wrong))
-    assert report.settled == 0 and report.skipped == {"quote_unstated": 1}
+    wrong = {"answer": {"sure": True, "option_key": "b", "url": SITE, "quote": "words not on the page"}}
+    report = _run(bank, Stub(wrong, wrong, wrong))
+    assert report.settled == 0 and report.skipped == {"quote_not_on_page": 1}
 
 
 def test_a_walled_tracked_source_is_never_requested_stays_on_the_agents_list_and_the_question_stays(bank):
@@ -295,7 +295,7 @@ def test_a_private_pairs_tracked_source_settles_it_with_no_search_and_never_a_me
 
     async def fetch(url):
         return "ok", "<html><title>Nora Hidden</title><main>Nora Hidden writes as nora42 online.</main></html>", url
-    stub = Stub({"answer": {"sure": True, "sources": [{"url": site, "quote": "Nora Hidden writes as nora42 online."}]}})
+    stub = Stub({"answer": {"sure": True, "url": site, "quote": "Nora Hidden writes as nora42 online."}})
     report = asyncio.run(web_lookup.run_tail(bank, SimpleNamespace(web_check_per_run=8), user_triggered=True, llm_fn=stub,
                                              engine=("resolved", "claude-cli", "plan"), fetch=fetch))
     assert report.settled == 1 and stub.searches == 0
@@ -304,3 +304,57 @@ def test_a_private_pairs_tracked_source_settles_it_with_no_search_and_never_a_me
     assert (bank / "entities" / "nora42.md").exists()
     rec = markdown_parser.parse(bank / "inbox" / "settled" / "inbox-601.md").frontmatter["settled"]
     assert rec["scope"] == "source"
+
+
+def _changed_source(n: int) -> dict:
+    return {"ref": f"https://site-{n}-example.org/about", "kind": "url", "predicate": PREDICATE, "added_by": "user",
+            "added_at": "2026-09-01", "refresh": {"at": "2026-10-01", "outcome": "read", "good": "2026-10-01",
+                                                  "changed": "2026-10-01"}}
+
+
+def test_the_cap_on_changed_sources_counts_every_attempt_and_an_empty_read_backs_off(bank):
+    _page(bank, [_changed_source(n) for n in range(12)])
+    calls, fetched = [], []
+
+    def fn(*, messages, web_search=False, **_kw):
+        calls.append(1)
+        return {"choices": [{"message": {"content": json.dumps({"value": ""})}}], "model": "m"}
+
+    async def fetch(url):
+        fetched.append(url)
+        return "ok", HTML, url
+
+    def drain():
+        return asyncio.run(web_lookup.run_tail(bank, SimpleNamespace(web_check_per_run=8), user_triggered=True, llm_fn=fn,
+                                               engine=("resolved", "claude-cli", "plan"), fetch=fetch))
+    drain()
+    assert len(calls) == len(fetched) == settling_agent.UPDATES_PER_DRAIN
+    drain()
+    assert len(calls) == settling_agent.UPDATES_PER_DRAIN * 2      # the next five; the first five wait
+    drain()
+    assert len(calls) == 12                                         # the last two, and no page read twice
+    assert len(set(fetched)) == 12
+    drain()
+    assert len(calls) == 12
+
+
+def test_works_at_is_no_conflict_two_places_at_once_are_two_facts(bank):
+    """Owner, 2026-11-04: "I can be working in different things at the same time". Pinned for each path, a stale bank map
+    included: the seed's multi-valued list wins."""
+    from api.services import inbox_generator, predicates
+
+    (bank / "_predicates.yaml").write_text("single_valued:\n  - works-at\n", encoding="utf-8")
+    assert predicates.cardinality(bank, "works-at") == "multi"
+    assert predicates.build_cardinality_fn(bank)("works-at") is False
+    _page(bank, [TRUSTED])
+    inbox_generator.write_claim_nudges([{
+        "action": "conflict_nudge", "id": "nora-hidden", "predicate": "works-at", "question": "Where?",
+        "options": [{"key": "a", "label": "Initech"}, {"key": "b", "label": "Globex"}]}], bank)
+    assert not list((bank / "inbox").glob("inbox-*.md"))
+    markdown_parser.write(bank / "inbox" / "inbox-531.md", {
+        "kind": "conflict", "status": "pending", "priority": 0.6, "entity_id": "nora-hidden", "entity_name": "Nora Hidden",
+        "predicate": "works-at", "created_date": "2026-10-23", "allow_other": True, "allow_defer": True, "options": [
+            {"key": "a", "label": "Initech", "claim_id": "c-a"}, {"key": "b", "label": "Globex", "claim_id": "c-b"}]}, "x")
+    bank_index.invalidate(bank)
+    kinds: dict = {}
+    assert web_lookup.source_items(bank, web_settle.bank_facts(bank), already=set(), kinds=kinds) == [] and kinds == {}

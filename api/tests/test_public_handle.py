@@ -12,8 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from api.services import (bank_index, inbox_context, markdown_parser, name_guard, pair_evidence, people_directory,
-                          public_handle, settling_agent, web_lookup, web_settle)
+from api.services import (bank_index, inbox_context, markdown_parser, media_ingestor, name_guard, pair_evidence,
+                          people_directory, public_handle, settling_agent, web_lookup, web_settle)
 from api.services.claims import parse_claims
 from api.services.clarification_manager import ClarificationManager
 
@@ -48,6 +48,12 @@ def _question(memory: Path, item_id: str = "inbox-401", a: str = "bex42", b: str
     return path
 
 
+def _saved(title, url, description="", **kw) -> str:
+    """The real saved-link writer's body, never a shape of our own (a reviewer's finding, 2026-11-04)."""
+    meta = media_ingestor.MediaMeta(title=title, description=description, media_type="url")
+    return media_ingestor._episode_body(meta, url, "2026-10-21", kw.pop("note", None), **kw)
+
+
 @pytest.fixture
 def bank(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_ALLOW_CONNECTOR_FETCH", "on")
@@ -59,8 +65,8 @@ def bank(tmp_path, monkeypatch):
           "interesting.\n", source_episodes=["ep_2026-10-21_001"])
     _page(m, "bea-example", "Bea Example", "## Summary\nBea Example is a software engineer who gave a talk on agents.\n",
           aliases=["bex42"], source_episodes=["ep_2026-10-21_002"])
-    _episode(m, "ep_2026-10-21_001", "user: saved https://x.com/bex42/status/123 — bex42 on statecharts", "bookmark")
-    _episode(m, "ep_2026-10-21_002", "attachment [video]: Bea Example on agent workflows", "video-watch")
+    _episode(m, "ep_2026-10-21_001", _saved("Statecharts", "https://x.com/bex42/status/123", "bex42 on statecharts"), "url")
+    _episode(m, "ep_2026-10-21_002", "assistant: A talk.\nvideo [0:10]: Bea Example on agent workflows", "video-watch")
     # The owner shared a post BY the handle with a friend: the post, not the person (only inside a link).
     _episode(m, "ep_2026-10-21_003", "user: https://x.com/bex42/status/123\nuser: lol", "telegram-chats",
              title="Telegram with Cal Example")
@@ -160,89 +166,42 @@ def test_only_a_handle_against_a_full_name_and_never_the_owner_or_a_held_mention
     assert public_handle.test(bank, _fm(bank, "inbox-404"), facts).reason == "no_handle"
 
 
-# --------------------------------------------------------------------------- what settles (engine-free)
+# --------------------------------------------------------------------------- the citation (the one code check)
 
 
 def _opened(url, text, links=(), tracked_for=""):
     return settling_agent.Page(url=url, final=url, text=text, links=list(links), tracked_for=tracked_for)
 
 
-PAIR = public_handle.Pair(public_handle.REASON, handle_id="bex42", handle="bex42", named_id="bea-example",
-                          name="Bea Example", searchable=True)
 GH = _opened("https://github.com/bex42", "Bea Example (bex42)\nBea Example bex42. Software engineer.")
-BLOG = _opened("https://blog.example.org/bio", "About\nBea Example writes as bex42 on GitHub and talks about agents.")
 
 
-def test_a_single_profile_is_not_enough_anyone_can_type_a_name():
-    w = public_handle.weigh(PAIR, [{"url": GH.url, "quote": "Bea Example bex42."}], {GH.url: GH}, {})
-    assert not w.ok and w.reason == "one_source"
+def test_one_site_is_enough_when_the_model_is_sure_and_the_quote_is_on_it():
+    got = public_handle.cited({"url": GH.url, "quote": "Bea Example bex42.", "confidence": 0.92}, {GH.url: GH})
+    assert got.ok and (got.ref, got.quote, got.confidence) == (GH.url, "Bea Example bex42.", 0.92)
 
 
-def test_two_independent_pages_settle_it():
-    rows = [{"url": GH.url, "quote": "Bea Example bex42."}, {"url": BLOG.url, "quote": "Bea Example writes as bex42"}]
-    w = public_handle.weigh(PAIR, rows, {GH.url: GH, BLOG.url: BLOG}, {})
-    assert w.ok and w.ref == GH.url and w.also == ({"ref": BLOG.url, "quote": "Bea Example writes as bex42"},)
-
-
-RECORD = "Bea Example is a software engineer who gave a talk on agent workflows."
-
-
-def test_an_accounts_profile_and_site_are_one_voice_unless_the_site_fits_what_memory_says():
-    site = _opened("https://bex42.github.io/", "Bea Example\nI am bex42 on GitHub. I build agent workflows.")
-    rows = [{"url": GH.url, "quote": "Bea Example bex42."}, {"url": site.url, "quote": "I am bex42 on GitHub."}]
-    assert public_handle.weigh(PAIR, rows, {GH.url: GH, site.url: site}, {}).reason == "one_source"
-    assert public_handle.weigh(PAIR, rows, {GH.url: GH, site.url: site}, {}, record="A chef who runs a bakery.").reason == \
-        "one_source"                                       # a namesake's site does not fit
-    assert public_handle.weigh(PAIR, rows, {GH.url: GH, site.url: site}, {}, record=RECORD).ok
-
-
-def test_the_same_words_on_two_sites_are_one_source():
-    copy = _opened("https://mirror.example.net/bio", "About\nBea Example writes as bex42 on GitHub and talks about agents.")
-    rows = [{"url": BLOG.url, "quote": "Bea Example writes as bex42"}, {"url": copy.url, "quote": "Bea Example writes as bex42"}]
-    assert public_handle.weigh(PAIR, rows, {BLOG.url: BLOG, copy.url: copy}, {}).reason == "one_source"
-
-
-def test_an_encyclopedia_or_the_persons_own_domain_or_a_tracked_source_settles_alone():
-    wiki = _opened("https://en.wikipedia.org/wiki/Bea_Example", "Bea Example\nBea Example is an engineer. GitHub profile",
-                   links=["https://github.com/bex42"])
-    own = _opened("https://beaexample.dev/", "Bea Example\nI am Bea Example, bex42 everywhere. I build agent workflows.")
-    tracked = _opened("https://bio.example.org/", "Bea\nBea Example goes by bex42.", tracked_for="bea-example")
-    for page, quote in ((wiki, "Bea Example is an engineer."), (own, "I am Bea Example, bex42 everywhere."),
-                        (tracked, "Bea Example goes by bex42.")):
-        assert public_handle.weigh(PAIR, [{"url": page.url, "quote": quote}], {page.url: page}, {}, record=RECORD).ok, page.url
-
-
-def test_a_walled_profiles_search_result_counts_as_its_one_voice_and_is_never_opened():
-    results = {"https://x.com/bex42": "Bea Example (@bex42) / X"}
-    rows = [{"url": "https://x.com/bex42", "quote": ""}, {"url": BLOG.url, "quote": "Bea Example writes as bex42"}]
-    assert public_handle.weigh(PAIR, rows, {BLOG.url: BLOG}, results).ok
-    assert public_handle.weigh(PAIR, rows[:1], {}, results).reason == "no_source"     # never on that alone
-    wrong = {"https://x.com/bex42": "Someone Else (@bex42) / X"}
-    assert public_handle.weigh(PAIR, rows, {BLOG.url: BLOG}, wrong).reason == "one_source"
-
-
-@pytest.mark.parametrize("text, reason", [
-    ("Bea Example parody account. bex42 is not her.", "parody"),
-    ("An unofficial fan account: Bea Example, bex42.", "parody"),
-    ("Bea Example, formerly bex42, now elsewhere.", "stale"),
-    ("Bea Example no longer uses bex42.", "stale"),
+@pytest.mark.parametrize("answer, reason", [
+    ({"url": GH.url, "quote": "Bea Example is definitely bex42."}, "quote_not_on_page"),   # a model can invent one
+    ({"url": GH.url, "quote": ""}, "quote_not_on_page"),
+    ({"url": "https://x.com/bex42", "quote": "Bea Example bex42."}, "not_opened"),
+    ({"url": "", "quote": "Bea Example bex42."}, "not_opened"),
 ])
-def test_a_parody_or_a_stale_handle_leaves_it_open(text, reason):
-    page = _opened("https://blog.example.org/bio", text)
-    w = public_handle.weigh(PAIR, [{"url": page.url, "quote": text}, {"url": GH.url, "quote": "Bea Example bex42."}],
-                            {page.url: page, GH.url: GH}, {})
-    assert not w.ok and w.reason == reason
+def test_a_citation_that_is_not_real_settles_nothing(answer, reason):
+    got = public_handle.cited(answer, {GH.url: GH})
+    assert not got.ok and got.reason == reason
 
 
-def test_xs_own_formerly_twitter_aside_is_not_a_stale_handle():
-    page = _opened("https://blog.example.org/bio", "Bea Example is bex42 on X (formerly Twitter) and on GitHub.")
-    rows = [{"url": page.url, "quote": "Bea Example is bex42 on X"}, {"url": GH.url, "quote": "Bea Example bex42."}]
-    assert public_handle.weigh(PAIR, rows, {page.url: page, GH.url: GH}, {}).ok
+@pytest.mark.parametrize("given, kept", [(None, 0.8), ("high", 0.8), (1.7, 1.0), (-1, 0.0), (0.6, 0.6)])
+def test_the_models_confidence_is_kept_in_range(given, kept):
+    assert public_handle.cited({"url": GH.url, "quote": "bex42", "confidence": given}, {GH.url: GH}).confidence == kept
 
 
-def test_a_quote_that_is_not_on_the_page_counts_for_nothing():
-    rows = [{"url": GH.url, "quote": "Bea Example is definitely bex42."}, {"url": BLOG.url, "quote": "invented words"}]
-    assert public_handle.weigh(PAIR, rows, {GH.url: GH, BLOG.url: BLOG}, {}).reason == "no_source"
+def test_the_model_is_told_what_is_at_stake_and_not_how_to_judge():
+    prompt = settling_agent.HANDLE_RULES.lower()
+    assert "at stake" in prompt and "one site is enough" in prompt
+    for rule in ("two pages", "parody", "namesake", "profile alone", "encyclopedia"):
+        assert rule not in prompt
 
 
 # --------------------------------------------------------------------------- the loop, on a stub model
@@ -293,9 +252,7 @@ HITS = [{"title": "Bea Example (bex42)", "url": PROFILE}, {"title": "Bio", "url"
 def test_a_real_question_runs_search_open_answer_and_undo_takes_it_back(bank):
     stub = Stub([{"calls": [{"tool": "search", "query": "bex42 Bea Example"}]},
                  {"calls": [{"tool": "open", "url": PROFILE}, {"tool": "open", "url": BLOG_URL}]},
-                 {"answer": {"sure": True, "sources": [
-                     {"url": PROFILE, "quote": "Bea Example bex42."},
-                     {"url": BLOG_URL, "quote": "I am Bea Example, and I write about agents as bex42 on GitHub."}]}}],
+                 {"answer": {"sure": True, "confidence": 0.9, "url": PROFILE, "quote": "Bea Example bex42."}}],
                 hand={"bex42 Bea Example": HITS})
     report = _run(bank, stub, {PROFILE: PROFILE_HTML, BLOG_URL: SITE_HTML})
     assert report.settled == 1 and not (bank / "inbox" / "inbox-401.md").exists()
@@ -308,8 +265,8 @@ def test_a_real_question_runs_search_open_answer_and_undo_takes_it_back(bank):
     assert claims[0].evidence[0].kind == "page"
     assert {p.stem for p in (bank / "entities").glob("*.md")} >= {"bex42", "bea-example"}   # never a merge
     rec = markdown_parser.parse(bank / "inbox" / "settled" / "inbox-401.md").frontmatter["settled"]
-    assert (rec["relation"], rec["handle"], rec["ref"]) == ("goes_by", "bex42", PROFILE) and rec["also"][0]["ref"] == BLOG_URL
-    assert BLOG_URL in (bank / "episodes" / f"{rec['episode']}.md").read_text()
+    assert (rec["relation"], rec["handle"], rec["ref"]) == ("goes_by", "bex42", PROFILE)
+    assert PROFILE in (bank / "episodes" / f"{rec['episode']}.md").read_text() and claims[0].confidence == 0.9
     # While the claim stands, the pair is not asked again.
     assert ClarificationManager(bank).create(
         "bex42", "ep_2026-10-21_001", "Possible duplicate of Bea Example",
@@ -320,23 +277,22 @@ def test_a_real_question_runs_search_open_answer_and_undo_takes_it_back(bank):
     assert web_settle.classify(bank, _fm(bank), "", _facts(bank)) == (None, "undone")
 
 
-def test_a_sure_answer_on_one_voice_is_sent_back_for_a_second_and_then_holds(bank):
-    one = {"answer": {"sure": True, "sources": [{"url": PROFILE, "quote": "Bea Example bex42."}]}}
-    two = {"answer": {"sure": True, "sources": [
-        {"url": PROFILE, "quote": "Bea Example bex42."},
-        {"url": BLOG_URL, "quote": "I am Bea Example, and I write about agents as bex42 on GitHub."}]}}
-    stub = Stub([{"calls": [{"tool": "search", "query": "bex42"}]}, {"calls": [{"tool": "open", "url": PROFILE}]}, one,
-                 {"calls": [{"tool": "open", "url": BLOG_URL}]}, two], hand={"bex42": HITS})
-    report = _run(bank, stub, {PROFILE: PROFILE_HTML, BLOG_URL: SITE_HTML})
-    assert report.settled == 1 and "one voice" in stub.reader_prompts[3]
-
-
-def test_a_sure_answer_that_never_gets_its_second_source_settles_nothing(bank):
-    one = {"answer": {"sure": True, "sources": [{"url": PROFILE, "quote": "Bea Example bex42."}]}}
-    stub = Stub([{"calls": [{"tool": "search", "query": "bex42"}]}, {"calls": [{"tool": "open", "url": PROFILE}]},
-                 one, one, one, one], hand={"bex42": HITS})
+def test_a_sure_answer_with_an_invented_quote_is_sent_back_and_then_holds(bank):
+    bad = {"answer": {"sure": True, "url": PROFILE, "quote": "words not on it"}}
+    good = {"answer": {"sure": True, "url": PROFILE, "quote": "Bea Example bex42."}}
+    stub = Stub([{"calls": [{"tool": "search", "query": "bex42"}]}, {"calls": [{"tool": "open", "url": PROFILE}]}, bad, good],
+                hand={"bex42": HITS})
     report = _run(bank, stub, {PROFILE: PROFILE_HTML})
-    assert report.settled == 0 and report.skipped == {"one_source": 1}
+    assert report.settled == 1 and "Not recorded" in stub.reader_prompts[3]
+
+
+def test_a_quote_that_stays_invented_settles_nothing_and_is_not_a_paid_loop(bank):
+    bad = {"answer": {"sure": True, "url": PROFILE, "quote": "words not on it"}}
+    stub = Stub([{"calls": [{"tool": "search", "query": "bex42"}]}, {"calls": [{"tool": "open", "url": PROFILE}]},
+                 bad, bad, bad, bad, bad], hand={"bex42": HITS})
+    report = _run(bank, stub, {PROFILE: PROFILE_HTML})
+    assert report.settled == 0 and report.skipped == {"quote_not_on_page": 1}
+    assert len(stub.reader_prompts) == 2 + 1 + settling_agent.SEND_BACKS
 
 
 def test_a_query_the_model_writes_with_a_guarded_name_never_reaches_the_hand_and_counts(bank):
@@ -521,6 +477,106 @@ def test_the_owners_page_is_never_written_and_a_private_side_never_searched(bank
     report = asyncio.run(web_lookup.run_tail(bank, SimpleNamespace(web_check_per_run=8), user_triggered=True, llm_fn=fn,
                                              engine=("resolved", "claude-cli", "plan")))
     assert report.settled == 0 and report.looked_up == 0
+
+
+# --------------------------------------------------------------------------- blockers a reviewer found, 2026-11-04
+
+
+def test_the_persons_own_words_on_a_save_never_clear_a_friend_end_to_end(bank):
+    """A friend in one session, on a person page with a public cue, and in the person's note on a real saved link: the
+    name reaches no search."""
+    _episode(bank, "ep_2026-10-23_001", "user: Nora Hidden is a founder I know", "claude-code")
+    _episode(bank, "ep_2026-10-23_002", _saved("A post", "https://example.org/post", "A post about agents.",
+                                               note="Nora Hidden sent me this, her account is norahid99",
+                                               reason="Nora Hidden said read it", folder="Nora Hidden"), "url")
+    _page(bank, "nora-hidden", "Nora Hidden", "## Summary\nNora Hidden is a founder.\n")
+    _page(bank, "norahid99", "norahid99", "## Summary\nAn account.\n")
+    _question(bank, "inbox-411", a="norahid99", b="nora-hidden", title="Is norahid99 the same as Nora Hidden?")
+    bank_index.invalidate(bank)
+    assert public_handle.test(bank, _fm(bank, "inbox-411"), _facts(bank)).searchable is False
+    stub = Stub([{"calls": [{"tool": "search", "query": "Nora Hidden founder"}]}, {"answer": {"sure": False}}])
+    _run(bank, stub)
+    assert all("nora" not in q.lower() for q in stub.sent)
+
+
+@pytest.mark.parametrize("engine", [("resolved", "litellm", "metered"), ("resolved", "other", "no_search_tool")])
+def test_a_metered_engine_runs_no_part_of_the_settling_step_on_any_kind(bank, engine):
+    """A public conflict on a page with a tracked source goes straight to its own pinned search, reading nothing."""
+    _page(bank, "tool-a", "Tool A", "## Summary\nA tool.\n", type="tool", sources=[
+        {"ref": "https://tool-a-example.org/", "kind": "url", "predicate": "website", "added_by": "user"}])
+    markdown_parser.write(bank / "inbox" / "inbox-421.md", {
+        "kind": "conflict", "status": "pending", "priority": 0.5, "created_date": "2026-09-01", "allow_other": True,
+        "allow_defer": True, "entity_id": "tool-a", "entity_name": "Tool A", "predicate": "made-by",
+        "options": [{"key": "a", "label": "Acme", "claim_id": None}, {"key": "b", "label": "Globex", "claim_id": None}]},
+        "Which?")
+    bank_index.invalidate(bank)
+    readers: list = []
+    opened: list = []
+
+    def fn(*, messages, web_search=False, **_kw):
+        if not web_search:
+            readers.append(messages)
+        return {"choices": [{"message": {"content": json.dumps({"sure": False})}}], "model": "m",
+                "tool_uses": [["WebSearch", {"query": "Tool A"}]]}
+
+    async def fetch(url):
+        opened.append(url)
+        return "ok", PROFILE_HTML, url
+    report = asyncio.run(web_lookup.run_tail(bank, SimpleNamespace(web_check_per_run=8), user_triggered=True, llm_fn=fn,
+                                             engine=engine, fetch=fetch))
+    assert readers == [] and opened == [] and report.questions == []
+    assert report.skipped.get("metered_only") == 1          # the handle question, said in the same way
+
+
+def test_the_scan_runs_off_the_event_loop_and_the_loop_keeps_turning(bank, monkeypatch):
+    import threading
+    import time
+
+    loop_thread = threading.get_ident()
+    seen: list[int] = []
+    real = name_guard.build
+
+    def slow(*a, **kw):
+        seen.append(threading.get_ident())
+        time.sleep(0.2)
+        return real(*a, **kw)
+    monkeypatch.setattr(name_guard, "build", slow)
+
+    async def main():
+        ticks = 0
+
+        async def tick():
+            nonlocal ticks
+            while True:
+                ticks += 1
+                await asyncio.sleep(0.01)
+        task = asyncio.create_task(tick())
+        await web_lookup.run_tail(bank, SimpleNamespace(web_check_per_run=8), user_triggered=True,
+                                  llm_fn=Stub([{"answer": {"sure": False}}]), engine=("resolved", "claude-cli", "plan"),
+                                  fetch=_fetch({}))
+        task.cancel()
+        return ticks
+    ticks = asyncio.run(main())
+    assert seen and all(t != loop_thread for t in seen) and ticks > 5
+
+
+def test_a_settle_never_rebuilds_the_scan_under_the_banks_write_admission(bank, monkeypatch):
+    pair = public_handle.test(bank, _fm(bank), _facts(bank))
+    name_guard.release()
+
+    def boom(*_a, **_k):
+        raise AssertionError("a settle must not scan the record")
+    monkeypatch.setattr(name_guard, "build", boom)
+    done = public_handle.settle(bank, "inbox-401", ref=PROFILE, quote=QUOTE, checker="m", checker_kind="sleep",
+                                tested=pair, confidence=0.7)
+    assert done.entity_id == "bea-example"
+
+
+def test_what_memory_holds_reaches_the_model_fenced(bank):
+    stub = Stub([{"calls": [{"tool": "conversation", "id": "ep_2026-10-21_003"}]}, {"answer": {"sure": False}}])
+    _run(bank, stub)
+    prompt = stub.reader_prompts[1]
+    assert prompt.index(settling_agent.FENCE) < prompt.index("x.com/bex42/status/123") < prompt.index(settling_agent.FENCE_END)
 
 
 def test_the_guard_failing_to_read_stops_every_search(bank):

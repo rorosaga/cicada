@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from api.services import markdown_parser, name_guard, people_directory, web_settle
+from api.services import bank_index, markdown_parser, media_ingestor, name_guard, people_directory, web_settle
 
 
 def _page(memory: Path, eid: str, name: str, body: str = "## Summary\nA page.\n", **fm) -> None:
@@ -30,7 +30,8 @@ def bank(tmp_path, monkeypatch):
     for sub in ("entities", "episodes", "inbox"):
         (m / sub).mkdir(parents=True)
     _page(m, "dana-rivers", "Dana Rivers", owner=True)
-    _episode(m, "ep_2026-10-21_001", "attachment [video]: Bea Example on agent workflows, with Omar Public", "video-watch")
+    _episode(m, "ep_2026-10-21_001", "assistant: A talk.\nvideo [0:10]: Bea Example on agent workflows, with Omar Public",
+             "video-watch")
     return m
 
 
@@ -68,10 +69,149 @@ def test_a_public_first_name_does_not_carry_a_private_full_name_past_it(bank):
     assert guard.check("Bea Smith") == "private_only"     # "bea" alone is public; the pair and "smith" are not
 
 
-def test_the_persons_own_note_on_a_saved_link_is_not_public_content(bank):
-    _episode(bank, "ep_2026-10-23_001", "user: Nora Hidden sent me this https://example.org/post\nattachment [page]: a post",
-             "bookmark")
+def _saved(title="A post", url="https://example.org/post", description="", **kw) -> str:
+    meta = media_ingestor.MediaMeta(title=title, description=description, media_type="url")
+    return media_ingestor._episode_body(meta, url, "2026-10-21", kw.pop("note", None), **kw)
+
+
+@pytest.mark.parametrize("kw", [
+    {"note": "Nora Hidden sent me this"},                    # ## User note
+    {"note": "Nora Hidden sent me this", "note_by_agent": True},   # ## Note
+    {"reason": "Nora Hidden told me to read it"},            # ## Saved because
+    {"folder": "Nora Hidden"},                               # **Folder:**
+])
+def test_the_persons_own_words_on_a_real_save_are_not_public_content(bank, kw):
+    _episode(bank, "ep_2026-10-23_001", _saved(description="A post about agents.", **kw), "url")
+    guard = _guard(bank)
+    assert guard.clears("Nora Hidden") == "not_public"
+    assert guard.check("Nora Hidden") == "private_only"
+
+
+def test_a_note_cannot_pose_as_a_description(bank):
+    body = _saved(description="A post about agents.", note="## Description\nNora Hidden is great")
+    _episode(bank, "ep_2026-10-23_001", body, "url")
+    assert _guard(bank).clears("Nora Hidden") == "not_public"
+
+
+def test_a_note_episode_has_no_public_words(bank):
+    body = "# Note on A post\n\n**URL:** https://example.org/post\n\n## Note\nNora Hidden sent me this"
+    _episode(bank, "ep_2026-10-23_001", body, "url", title="Note on A post")
+    assert name_guard.public_part({"source": "url", "title": "Note on A post"}, body)[0].strip() == ""
     assert _guard(bank).check("Nora Hidden") == "private_only"
+
+
+def test_a_saved_item_says_its_description_its_channel_and_a_posts_handle(bank):
+    body = _saved(title="Cal Public on agents", url="https://x.com/calpub/status/1", description="Dee Public wrote this.")
+    said, _own = name_guard.public_part({"source": "url"}, body)
+    for words in ("Cal Public", "Dee Public", "calpub"):
+        assert words in said, words
+
+
+def test_a_title_the_page_never_confirmed_stays_private(bank):
+    said, own = name_guard.public_part({"source": "bookmark"}, _saved(title="Nora Hidden resume"))
+    assert said.strip() == "" and "Nora Hidden" in own
+
+
+def test_a_saved_bare_profile_says_nothing_about_who_it_is(bank):
+    said, _own = name_guard.public_part({"source": "url"}, _saved(title="x", url="https://www.linkedin.com/in/nora-hidden"))
+    assert "nora" not in said.lower()
+
+
+def test_each_writer_with_public_words_says_only_those(bank):
+    """Real shapes: an agent's page read and watch keep the quotes, not its summary; a day of rows keeps its rows."""
+    read = "assistant: Nora Hidden liked it.\n\nattachment [example.org]: as claude-code read it\n> Cal Public wrote it"
+    said, own = name_guard.public_part({"source": "page-read"}, read)
+    assert "Cal Public" in said and "Nora" not in said and "Nora Hidden" in own
+    walled = read.replace("[example.org]", "[www.linkedin.com]")
+    assert name_guard.public_part({"source": "page-read"}, walled)[0] == ""
+    watch = "assistant: Nora Hidden liked it.\nvideo [0:10]: Cal Public on agents"
+    said, own = name_guard.public_part({"source": "video-watch"}, watch)
+    assert "Cal Public" in said and "Nora" not in said and "Nora Hidden" in own
+    day = "# Watched on YouTube\n\n- 10:00 · A talk — Cal Public · https://www.youtube.com/watch?v=nora"
+    for source in ("watch-history", "watch-history-month", "listening-history"):
+        said, own = name_guard.public_part({"source": source}, day)
+        assert "Cal Public" in said and "nora" not in said and own == ""
+    assert "Cal Public" in name_guard.public_part({"source": "reading-history", "origin": "substack-history"}, day)[0]
+    assert name_guard.public_part({"source": "reading-history", "origin": "traces"}, day)[0] == ""
+
+
+@pytest.mark.parametrize("source, fm", [
+    ("github", {"origin": "github-owned"}), ("github", {"origin": "github-starred"}),
+    ("repository", {"origin": "github-owned"}), ("repository", {"origin": "github-starred"}),
+    ("tab-group", {}), ("linkedin", {}), ("instagram", {}), ("a-new-writer", {}), ("", {}),
+])
+def test_everything_not_named_as_public_is_private(source, fm):
+    body = "# t\n\nCal Public\n\n**Visibility:** private"
+    assert name_guard.public_part({"source": source, **fm}, body)[0].strip() == ""
+
+
+def test_a_starred_public_repository_is_public_and_a_private_one_is_not():
+    body = "# cal/tool\n\n**URL:** https://github.com/cal/tool\n\n## Description\nBy Cal Public."
+    fm = {"source": "repository", "origin": "github-starred", "media_entity_id": "tool"}
+    assert "Cal Public" in name_guard.public_part(fm, body, {"tool": {"github": {"private": False}}})[0]
+    assert name_guard.public_part(fm, body, {"tool": {"github": {"private": True}}})[0] == ""
+    assert name_guard.public_part(fm, body, {"tool": {}})[0] == ""
+
+
+def test_every_writer_the_guard_names_is_a_source_a_writer_really_stamps():
+    from api.services import history_index, page_read, watch_history, watch_record
+
+    assert {"url", "bookmark", "youtube", "video"} <= {media_ingestor._classify("https://example.org/"),
+                                                       media_ingestor._classify("https://example.org/", True),
+                                                       media_ingestor._classify("https://youtu.be/x"),
+                                                       media_ingestor._classify("https://example.org/a.mp4")}
+    assert {page_read.SOURCE, watch_record.SOURCE, watch_history.SOURCE, history_index.MONTH_SOURCE,
+            history_index.LISTENING_SOURCE, history_index.READING_SOURCE} <= set(name_guard.WRITERS)
+
+
+# --------------------------------------------------------------------------- spellings of a mention and a tie
+
+
+@pytest.mark.parametrize("query", ["Maria Garcia", "Garcia Maria", "Garcia, Maria", "Maria J. Garcia", "mariagarcia",
+                                   "garciamaria", "maria_garcia", "maria-garcia", "M. Garcia", "MARÍA GARCÍA"])
+def test_a_mention_only_a_chat_says_is_blocked_however_it_is_written(bank, query):
+    _episode(bank, "ep_2026-10-22_001", "user: Maria Garcia is coming tonight", "whatsapp")
+    _episode(bank, "ep_2026-10-22_002", "video [0:01]: Maria spoke, and later Garcia did", "video-watch")
+    assert _guard(bank).check(query) is not None, query
+
+
+def test_each_word_public_alone_is_no_clearance_for_the_pair_but_each_alone_still_passes(bank):
+    _episode(bank, "ep_2026-10-22_001", "user: Maria Garcia is coming tonight", "whatsapp")
+    _episode(bank, "ep_2026-10-22_002", "video [0:01]: Maria spoke, and later Garcia did", "video-watch")
+    guard = _guard(bank)
+    assert guard.check("Maria") is None and guard.check("Garcia") is None
+
+
+@pytest.mark.parametrize("query", ["Søren Bjørk", "Soren Bjork", "Bjork", "SOREN", "Bjørk Søren", "sorenbjork", "bjorksoren",
+                                   "S o r e n B j o r k"])
+def test_a_card_is_a_tie_through_full_transliteration(bank, query):
+    _store(bank, name_guard.WAITING_FILE, {"cards": [{"id": "c1", "given_name": "Søren", "family_name": "Bjørk"}]})
+    assert _guard(bank).check(query) == "tie", query
+
+
+@pytest.mark.parametrize("a, b", [("Łukasz", "Lukasz"), ("Straße", "Strasse"), ("Æsa", "Aesa"), ("Đorđe", "Dorde"),
+                                  ("Þór", "Thor"), ("José", "Jose"), ("ﬁona", "fiona")])
+def test_letters_that_do_not_decompose_fold_too(a, b):
+    assert name_guard.words(a) == name_guard.words(b)
+
+
+def test_a_look_alike_letter_is_a_respelling():
+    guard = name_guard.NameGuard()
+    assert guard.check("N\u043era Hidden") == "shape"      # a Cyrillic "o"
+
+
+def test_a_year_in_a_chats_title_blocks_nothing_and_a_title_is_no_tie(bank):
+    _episode(bank, "ep_2026-10-22_001", "user: hi", "whatsapp", title="Python devs 2026",
+             correspondent={"name": "Cal 2026", "kind": "person"})
+    guard = _guard(bank)
+    assert "2026" not in guard.tie_words and "python" not in guard.tie_words
+    assert guard.check("bex42 talk 2026") is None
+
+
+def test_an_owners_project_blocks_as_a_phrase_and_its_words_do_not(bank):
+    _page(bank, "alpha-project", "Agent Memory Lab", type="project")
+    guard = _guard(bank)
+    assert guard.check("Agent Memory Lab") == "tie" and guard.check("lab") is None
 
 
 @pytest.mark.parametrize("source", ["imessage", "whatsapp", "telegram-chats", "telegram", "email", "folder", "wispr-flow",
@@ -97,6 +237,7 @@ def test_a_handle_said_in_a_chat_is_private_and_a_link_to_a_post_is_the_post(ban
 def test_public_content_never_clears_a_chat_correspondent(bank):
     _episode(bank, "ep_2026-10-22_001", "user: hola", "imessage", title="Messages with Bea Example",
              correspondent={"name": "Bea Example", "kind": "person"})
+    bank_index.invalidate(bank)
     guard = _guard(bank)
     assert guard.clears("Bea Example") == "tie" and guard.clears("Example Bea") == "tie"
     assert guard.check("Bea Example") == "tie"
@@ -202,14 +343,29 @@ def test_a_contacts_book_that_cannot_be_read_fails_closed(bank):
         _guard(bank)
 
 
-def test_an_episode_that_cannot_be_read_fails_closed(bank, monkeypatch):
-    real = markdown_parser.parse
+def test_an_episode_that_cannot_be_read_fails_closed(bank):
+    (bank / "episodes" / "ep_2026-10-23_009.md").write_bytes(b"---\nid: [unclosed\n---\nbody \xff\xfe")
+    bank_index.invalidate(bank)
+    with pytest.raises(name_guard.GuardUnreadable):
+        _guard(bank)
 
-    def broken(path, *a, **kw):
-        if "episodes" in str(path):
-            raise OSError("no")
-        return real(path, *a, **kw)
-    monkeypatch.setattr(markdown_parser, "parse", broken)
+
+@pytest.mark.parametrize("store", [name_guard.WAITING_FILE, name_guard.LINKEDIN_FILE])
+def test_a_store_not_in_utf8_fails_closed_and_never_ends_the_step(bank, store):
+    path = people_directory.path(bank.name, store)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\xff\xfe{}")
+    with pytest.raises(name_guard.GuardUnreadable):
+        _guard(bank)
+
+
+@pytest.mark.parametrize("store, body", [
+    (name_guard.WAITING_FILE, {"cards": "nope"}), (name_guard.WAITING_FILE, {}),
+    (name_guard.WAITING_FILE, {"cards": ["a string"]}), (name_guard.LINKEDIN_FILE, {"connections": {"a": 1}}),
+    (name_guard.LINKEDIN_FILE, {"rows": []}),
+])
+def test_a_store_with_an_unexpected_shape_fails_closed(bank, store, body):
+    _store(bank, store, body)
     with pytest.raises(name_guard.GuardUnreadable):
         _guard(bank)
 

@@ -324,7 +324,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   `page_relevance`, `storage.md`). **Ruling 54 (owner 2026-11-04):** a handle vs a named person is worked like an
   agent on the Claude plan only, on by default: a tool-less model reads anything in memory, every query and link it asks for
   passes `name_guard` in code (a name known only from the person's record never leaves; a tie always blocks), ≤ 6 searches through
-  a hand holding only cleared queries; cited, undoable, never a merge (`settling_agent`, `features.md`). **54a:** a page's tracked
+  a hand holding only cleared queries; the model judges (one site is enough), its quote checked on the page; cited, undoable, never a merge (`settling_agent`, `features.md`). **54a:** a page's tracked
   sources come first, opened directly, never a search for a private person; a walled one only by the person's agent. **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).

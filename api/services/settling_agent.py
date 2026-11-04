@@ -15,9 +15,12 @@ exists to ask for. Reading the record stays between Cicada and that model.
 Cicada pins, ``--permission-prompt-tool`` needs MCP, and a search's query reaches the provider before the stream reports
 it. A model holding that tool beside the person's record could send anything. So the model that has read the record
 never holds it. A gated query goes to a **search hand** (:func:`_search`): a separate ``claude -p`` whose one tool is
-``WebSearch`` and whose whole prompt is the cleared queries, so it holds nothing to leak. What it reports is audited
-afterwards: a search that is not a cleared query word for word voids the round and stops the question (``strayed``);
-the reports count the real number of searches, the tool's own ``searchCount``. An engine with no such path does not run
+``WebSearch``. It holds :data:`HAND_PROMPT`, the cleared queries and what the CLI itself attaches to every spawn (the
+signed-in account's email, its scratch working directory, the platform and shell: ``agent_engine.CONTEXT_GUARD``, no flag
+removes the email); nothing from the person's record. Nothing mechanical stops a hand that disobeys from typing that email
+into a query: it is told not to, and what it reports is audited afterwards, so a search that is not a cleared query word
+for word voids the round and stops the question (``strayed``, and ``strayed_blocked`` when the guard would have refused
+it). The reports count the real number of searches, the tool's own ``searchCount``. An engine with no such path does not run
 this step (``web_lookup.engine_for``: only the Claude plan; a metered key, ChatGPT, a local model or another tool
 skips, in the words the rest of ruling 44 uses).
 
@@ -28,11 +31,16 @@ which holds none of those limits. Only a tracked source of the question's page (
 search returned also passes :meth:`name_guard.NameGuard.check_url`. A walled page is never requested; a tracked one is
 already on ruling 26's listing for the person's agent (``source_refresh.agent_due``), and the question stays open.
 
+**Judgement is the model's** (owner, 2026-11-04: "let the agent do this work don't tell it how to do it"). It is told the
+goal and what is at stake and says whether it is sure, with a confidence and a citation. Code holds only what leaves and
+whether the citation is real (:func:`public_handle.cited`).
+
 **Order (54a).** The page's own tracked sources are opened first, by this code, before the model's first turn. Search is
 offered only for a public handle both of whose sides the guard clears; for a private person it does not exist.
 
 **Page text is data.** It reaches the model between :data:`FENCE` markers it cannot forge; nothing it says can reach a
-search past the guard, or the bank past :func:`public_handle.weigh`, which checks each quote on the bytes opened here.
+search past the guard, and the bank holds only a quote really on the page it cites. A model's judgement can still be
+talked round by what it reads: that is what the citation and the person's undo are for.
 """
 from __future__ import annotations
 
@@ -93,21 +101,15 @@ _SEARCH_RULE = (
     f"search {{query}}: a web search, at most {SEARCH_BUDGET} for this question, each at most 12 words. A query leaves "
     "this machine. Never put in one the name of anyone you know only from the person's memory, nor a phone or an "
     "e-mail. Cicada checks every query and drops one that does, counting it; do not reword it, respell it or split "
-    "it, and if one is dropped, search for something else or answer. Memory rarely says this alone: search and open "
-    "what you find before you answer not sure.\n"
+    "it, and if one is dropped, search for something else or answer.\n"
 )
 HANDLE_RULES = (
-    "You answer one question: is this public handle this named person? A wrong answer is expensive; \"not sure\" costs "
-    "the person one tap. Read what memory says about the two to tell which person the person meant.\n"
-    "Answer {\"sure\": true, \"sources\": [{\"url\": <a page you opened>, \"quote\": <its exact words that name the "
-    "person and, where it says it, the handle>}]} only when pages say this handle is this person's. Say which pages "
-    "you relied on: a page the person's tracked sources list; the person's own site; an encyclopedia article; or two "
-    "pages on different sites that do not copy each other, where the account's profile and its site count as one. A "
-    "profile alone is not enough: anyone can type a name into one. Each quote is one unbroken run of the page's own "
-    "words, with no ellipsis.\n"
-    "Answer {\"sure\": false} for a parody or fan account, a namesake (a different person with this name, or an account "
-    "that does not fit what memory says about them), a handle the pages say is old or was given up, or when pages do "
-    "not say.\n"
+    "One question: is this public handle this named person? Work it out as you would if the person asked you now: what "
+    "memory says about them, the pages listed below, the web. Judge it yourself; one site is enough if it convinces you.\n"
+    "What is at stake: a sure answer becomes a claim on this person's page, citing the page you name, which they can undo. "
+    "A wrong one ties someone else's account to them. Not being sure costs them one tap.\n"
+    "Answer {\"sure\": true, \"confidence\": <0 to 1>, \"url\": <a page you opened>, \"quote\": <one unbroken run of "
+    "that page's own words that shows it>}, or {\"sure\": false}.\n"
 )
 SOURCE_RULES = (
     "You answer one question about a page from the sources the person trusts for it, opened for you below. Answer "
@@ -172,7 +174,7 @@ class Run:
     transcript: list[str] = field(default_factory=list)
     stop: str = ""
     model: str | None = None
-    #: What :func:`public_handle.weigh` says of a sure answer, in words, when more reading could still settle it.
+    #: What to send a sure answer back with, when its citation is not real.
     judge: Callable[[dict], str | None] | None = None
     sent_back: int = 0
 
@@ -395,7 +397,8 @@ async def _call(run: Run, call: dict) -> str:
             return "No reads left."
         run.ledger.reads += 1
         try:
-            return _cap(await asyncio.to_thread(reader, run.memory_path, str(call.get(key) or "")))
+            # What memory holds is someone's words too, a saved page's or a chat's: data, never an instruction.
+            return _fenced(_cap(await asyncio.to_thread(reader, run.memory_path, str(call.get(key) or ""))))
         except Exception as exc:  # noqa: BLE001 — a read that fails is a read that found nothing
             logger.debug(f"settling read failed: {type(exc).__name__}")
             return "Could not read that."
@@ -501,13 +504,9 @@ def tracked_public(memory_path: Path, page_ids: tuple[str, ...]) -> tuple[dict[s
     return urls, kinds
 
 
-#: Why a sure answer does not hold yet, while reading on could still make it hold.
-_SHORT = {
-    "one_source": "Not settled: that is one voice. Find a second page on another site, not the account's own, that says "
-                  "the same, or answer not sure.",
-    "no_source": "Not settled: no page you opened says it in those words. Quote a page you opened exactly, or answer "
-                 "not sure.",
-}
+#: A sure answer whose citation is not real: the one thing sent back. What convinces is the model's own.
+_NOT_CITED = ("Not recorded: the citation must be a page you opened and one unbroken run of its own words, as they stand on "
+              "the page. Give one, or answer not sure.")
 
 
 def _describe(memory_path: Path, page_id: str) -> str:
@@ -536,13 +535,7 @@ async def handle_question(fn, memory_path: Path, pair, *, guard: name_guard.Name
               allowed=(pair.name, pair.handle) if search_ok else (), tracked=tracked,
               page_ids=(pair.named_id, pair.handle_id), guard=guard, search_ok=search_ok, fetch=fetch)
 
-    def judge(answer: dict) -> str | None:
-        weighed = public_handle.weigh(pair, answer.get("sources"), run.pages, run.results,
-                                      record=_describe(memory_path, pair.named_id))
-        if weighed.ok or weighed.reason not in _SHORT:
-            return None
-        return _SHORT[weighed.reason]
-    run.judge = judge
+    run.judge = lambda answer: None if public_handle.cited(answer, run.pages).ok else _NOT_CITED
     return await drive(run)
 
 
@@ -555,7 +548,13 @@ async def source_question(fn, memory_path: Path, c, *, fetch=None) -> Result:
                           f"Fact in question: {c.predicate or 'what this is'}", f"Which is true now?\n{options}"])
     run = Run(memory_path=Path(memory_path), fn=fn, system=SOURCE_RULES + _RULES + _OPEN_RULE + PROPOSE_RULE,
               question=question, tracked=tracked, page_ids=(c.entity_id,), fetch=fetch)
+    run.judge = lambda answer: None if _on_opened(answer, run.pages) else _NOT_CITED
     return await drive(run)
+
+
+def _on_opened(answer: dict, pages: dict) -> bool:
+    page = pages.get(str(answer.get("url") or "").strip())
+    return page is not None and quote_on_page(page, str(answer.get("quote") or "").strip())
 
 
 def quote_on_page(page: Page, quote: str) -> bool:
@@ -612,23 +611,30 @@ UPDATE_RULES = (
 )
 
 
-async def read_changed(fn, memory_path: Path, *, cap: int = UPDATES_PER_DRAIN, fetch=None,
-                       skip: frozenset[str] = frozenset()) -> list[tuple[Any, Any]]:
+async def read_changed(fn, memory_path: Path, *, waiting: Callable[[str], bool], attempted: Callable[[str], None],
+                       cap: int = UPDATES_PER_DRAIN, fetch=None, skip: frozenset[str] = frozenset(),
+                       ) -> list[tuple[Any, Any]]:
     """Ruling 26's ``changed`` sources: a public tracked page whose words changed with no machine-readable fact waited
     for the person's agent. On a plan run the model reads it first, through the same fold (``source_refresh.apply``);
-    what it cannot read keeps waiting. Returns ``(due item, observation)`` to write; a walled source is never touched."""
+    what it cannot read keeps waiting. Returns ``(due item, observation)`` to write; a walled source is never touched.
+    ``cap`` counts every attempt, whatever it found, and an attempt is remembered (``attempted``): a page that states
+    nothing still says ``changed``, and ``waiting`` keeps it from being read again every drain."""
     from api.services import source_refresh as sr
 
     planned: list[tuple[Any, Any]] = []
     seen: set[str] = set()
+    tried = 0
     for d in await asyncio.to_thread(sr.due, Path(memory_path)) or []:
-        if len(planned) >= cap:
+        if tried >= cap:
             break
-        if d.reason != "changed" or sr.walled(d.ref) or d.site in seen or f"entities/{d.entity_id}.md" in skip:
+        if d.reason != "changed" or sr.walled(d.ref) or d.site in seen or f"entities/{d.entity_id}.md" in skip \
+                or waiting(d.key):
             continue
         seen.add(d.site)
         if _blocked(Path(memory_path), d):
             continue
+        tried += 1
+        attempted(d.key)
         status, html, final = await (fetch or _default_fetch)(d.ref)
         if status != "ok" or (final and sr.walled(final)):
             continue
@@ -656,11 +662,11 @@ def _blocked(memory_path: Path, d) -> bool:
 
 
 def _held_values(memory_path: Path, entity_id: str, predicate: str) -> str:
-    from api.services.claims import parse_claims
+    from api.services.claims import is_event, is_record, parse_claims
 
     path = memory_path / "entities" / f"{entity_id}.md"
     if not path.exists():
         return ""
     return "; ".join(str(c.object) for c in parse_claims(markdown_parser.parse(path).body)
-                     if c.valid_to is None and c.predicate == predicate)[:300]
+                     if c.valid_to is None and c.predicate == predicate and not is_event(c) and not is_record(c))[:300]
 

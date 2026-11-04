@@ -955,15 +955,12 @@ def _claim_id(entity_id: str, predicate: str, obj: str, today: str) -> str:
 
 
 def _write_episode(memory_path: Path, *, c: Candidate, ref: str, host: str, quote: str, checker_label: str,
-                   checker_kind: str, origin: str, session_frontmatter: dict | None,
-                   also: tuple[dict, ...] = ()) -> str:
+                   checker_kind: str, origin: str, session_frontmatter: dict | None) -> str:
     verb = (f"Checked {c.name} in the repository's history." if c.scope == "repo"
             else f"Checked {c.name} at the page's own source." if c.scope == "source"
             else f"Looked up {c.name} on the web.")
-    lines = [f"assistant: {verb}", "", f"attachment [{host}]: as {checker_label} read it at {ref}", f"> {quote}"]
-    for row in also:
-        lines += ["", f"attachment: also, at {row.get('ref')}", f"> {clean_quote(row.get('quote'))}"]
-    body = "\n".join(lines)
+    body = "\n".join([f"assistant: {verb}", "", f"attachment [{host}]: as {checker_label} read it at {ref}",
+                      f"> {quote}"])
     content_hash = hashlib.sha256(f"{c.item_id}\x00{ref}\x00{body}".encode("utf-8")).hexdigest()[:12]
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)

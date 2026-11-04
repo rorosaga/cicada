@@ -114,8 +114,8 @@ class Answer:
     quote: str = ""
     #: A pair's answer (2026-10-29): how the two are related (`entity_relations`), or ``different``.
     relation: str | None = None
-    #: Ruling 54: the settling step's other sources, its model, and the links it proposes (never opened until taken).
-    also: tuple[dict, ...] = ()
+    #: Ruling 54: the settling step's confidence, its model, and the links it proposes (never opened until taken).
+    confidence: float | None = None
     model: str | None = None
     proposals: list = field(default_factory=list)
     #: Ruling 54a: the page's own tracked source answered it (``web_settle.settle(via_source=True)``).
@@ -540,17 +540,8 @@ def source_items(memory_path: Path, facts: web_settle.BankFacts, *, already: set
     return out
 
 
-def _states_option(label: str, quote: str) -> bool:
-    """Does the page's quote say this option? At least one of its own words, beyond the generic ones."""
-    from api.services import name_guard, text_fold
-
-    words = [w for w in text_fold.words(label) if w not in name_guard.GENERIC and len(w) > 2]
-    said = set(text_fold.words(quote))
-    return bool(words) and any(w in said for w in words)
-
-
 async def _handle_answer(fn, memory_path: Path, c: web_settle.Candidate, facts, report: Report, fetch=None) -> Answer:
-    """Ruling 54: the settling step's answer, weighed here on what was opened."""
+    """Ruling 54: the settling step's answer: the model's judgement, its citation checked on what was opened."""
     from api.services import name_guard, public_handle, settling_agent
 
     guard = None
@@ -570,11 +561,10 @@ async def _handle_answer(fn, memory_path: Path, c: web_settle.Candidate, facts, 
     proposals = result.data.get("propose") if isinstance(result.data.get("propose"), list) else []
     if result.data.get("sure") is not True:
         return Answer(c.item_id, False, "unsure", model=result.run.model, proposals=proposals)
-    weighed = public_handle.weigh(c.handle, result.data.get("sources"), result.run.pages, result.run.results,
-                                 record=settling_agent._describe(memory_path, c.handle.named_id))
-    if not weighed.ok:
-        return Answer(c.item_id, False, weighed.reason, model=result.run.model, proposals=proposals)
-    return Answer(c.item_id, True, url=weighed.ref, quote=weighed.quote, relation="same", also=weighed.also,
+    citation = public_handle.cited(result.data, result.run.pages)
+    if not citation.ok:
+        return Answer(c.item_id, False, citation.reason, model=result.run.model, proposals=proposals)
+    return Answer(c.item_id, True, url=citation.ref, quote=citation.quote, relation="same", confidence=citation.confidence,
                   model=result.run.model, proposals=proposals)
 
 
@@ -597,8 +587,8 @@ async def _source_answer(fn, memory_path: Path, c: web_settle.Candidate, report:
     page = result.run.pages.get(url)
     if label is None:
         return Answer(c.item_id, False, "no_option", model=result.run.model, proposals=proposals)
-    if page is None or not settling_agent.quote_on_page(page, quote) or not _states_option(label, quote):
-        return Answer(c.item_id, False, "quote_unstated", model=result.run.model, proposals=proposals)
+    if page is None or not settling_agent.quote_on_page(page, quote):
+        return Answer(c.item_id, False, "quote_not_on_page", model=result.run.model, proposals=proposals)
     return Answer(c.item_id, True, option_key=key, url=url, quote=quote, via_source=True, model=result.run.model,
                   proposals=proposals)
 
@@ -606,20 +596,27 @@ async def _source_answer(fn, memory_path: Path, c: web_settle.Candidate, report:
 async def look_up(fn: Callable[..., Any], todo: list[tuple[web_settle.Candidate, list[str]]], report: Report,
                   raw_sink: Callable[[web_settle.Candidate, Any], None] | None = None, *,
                   memory_path: Path | None = None, facts: web_settle.BankFacts | None = None, fetch=None,
-                  ) -> list[tuple[web_settle.Candidate, Answer]]:
+                  settling: bool = False) -> list[tuple[web_settle.Candidate, Answer]]:
     """One engine call per question; an answer counts only when every search was the pinned query. Writes nothing.
     ``raw_sink`` (the dry-run script's ``--trace-raw``, for the person's own eyes) is handed each raw response.
-    A public handle goes to the settling step, and any conflict whose page tracks a source reads that first (54a)."""
+    ``settling``: this engine is the Claude plan (``engine_for``'s ``plan``), the one place the settling step is allowed.
+    Then a public handle goes to that step, and any conflict whose page tracks a source reads that first (54a). Without
+    it, a handle or a source-only question is not worked, and a public conflict goes straight to its pinned search."""
     from api.services import settling_agent
 
     answers: list[tuple[web_settle.Candidate, Answer]] = []
     for c, context in todo:
         report.looked_up += 1
         try:
-            if memory_path is not None and c.handle is not None:
+            if c.handle is not None or c.scope == "source":
+                if not settling or memory_path is None:
+                    answers.append((c, Answer(c.item_id, False, "metered_only")))
+                    continue
+            if c.handle is not None:
                 answers.append((c, await _handle_answer(fn, Path(memory_path), c, facts, report, fetch=fetch)))
                 continue
-            if memory_path is not None and c.kind == "conflict" and c.entity_id != (facts.owner_id if facts else None) \
+            if settling and memory_path is not None and c.kind == "conflict" \
+                    and c.entity_id != (facts.owner_id if facts else None) \
                     and len(report.questions) < settling_agent.QUESTIONS_PER_DRAIN \
                     and settling_agent.tracked_public(Path(memory_path), (c.entity_id,))[0]:
                 answer = await _source_answer(fn, Path(memory_path), c, report, fetch=fetch)
@@ -686,20 +683,28 @@ async def run_tail(
         name_guard.release()
 
 
-def _changed_sources(memory_path: Path) -> bool:
+def _changed_key(key: str) -> str:
+    return f"changed:{key}"
+
+
+def _changed_sources(memory_path: Path, memo: dict[str, dict], today: date) -> bool:
     from api.services import source_refresh
 
-    return any(d.reason == "changed" and not source_refresh.walled(d.ref) for d in source_refresh.due(memory_path) or [])
+    return any(d.reason == "changed" and not source_refresh.walled(d.ref) and not _recent(memo, _changed_key(d.key), today)
+               for d in source_refresh.due(memory_path) or [])
 
 
 async def _read_changed(fn, memory_path: Path, report: Report, *, by: str, skip: frozenset[str], today: date,
-                        fetch=None) -> None:
+                        memo: dict[str, dict], fetch=None) -> None:
     """Ruling 54a, the update path: what ruling 26 could not read off a tracked public page, the model reads now,
     through ruling 26's own fold. Nothing here is a second refresher: it only fills ``changed``'s gap."""
     from api.services import page_lock, settling_agent, source_refresh
 
     try:
-        planned = await settling_agent.read_changed(fn, memory_path, fetch=fetch, skip=skip)
+        planned = await settling_agent.read_changed(
+            fn, memory_path, fetch=fetch, skip=skip,
+            waiting=lambda key: _recent(memo, _changed_key(key), today),
+            attempted=lambda key: memo.__setitem__(_changed_key(key), {"at": today.isoformat(), "outcome": "read"}))
     except Exception as exc:  # noqa: BLE001 — what it could not read keeps waiting for the person's agent
         logger.info(f"web check: a tracked source was not read ({type(exc).__name__})")
         return
@@ -740,13 +745,14 @@ async def _run_tail(
     if not network_allowed():
         report.reason = "gate"
         return report
-    facts = web_settle.bank_facts(memory_path)
+    facts = await asyncio.to_thread(web_settle.bank_facts, memory_path)
     memo = load_memo(memory_path)
     from api.services import pending_store
 
-    todo, _eligible = select(memory_path, facts, memo, today, cap=cap, skip=skip)
-    source_items(memory_path, facts, already=set(), kinds=report.source_kinds)
-    changed = await asyncio.to_thread(_changed_sources, memory_path)
+    # Off the event loop: a handle question makes the guard scan the whole record (`name_guard`).
+    todo, _eligible = await asyncio.to_thread(select, memory_path, facts, memo, today, cap=cap, skip=skip)
+    await asyncio.to_thread(source_items, memory_path, facts, already=set(), kinds=report.source_kinds)
+    changed = await asyncio.to_thread(_changed_sources, memory_path, memo, today)
     if not todo and not changed:
         report.reason = "nothing"
         return report
@@ -760,7 +766,7 @@ async def _run_tail(
         return report
     todo = _plan_only(memory_path, todo, why, label, report)
     fn = llm_fn or default_llm_fn(resolved)
-    answers = await look_up(fn, todo, report, memory_path=memory_path, facts=facts, fetch=fetch)
+    answers = await look_up(fn, todo, report, memory_path=memory_path, facts=facts, fetch=fetch, settling=why == "plan")
     by = report.models[0] if report.models else (label or "agent")
     for c, a in answers:
         if a.proposals:
@@ -794,9 +800,9 @@ async def _run_tail(
         report.lines += done.lines
         web_settle.record_event(memory_path, action="settle", item_id=c.item_id, entity_id=c.entity_id,
                                 by_kind="sleep", engine=label)
-    save_memo(memory_path, memo)
     if why == "plan" and changed:
-        await _read_changed(fn, memory_path, report, by=by, skip=skip, today=today, fetch=fetch)
+        await _read_changed(fn, memory_path, report, by=by, skip=skip, today=today, memo=memo, fetch=fetch)
+    save_memo(memory_path, memo)
     return report
 
 
@@ -819,8 +825,9 @@ def settle_answer(memory_path: Path, c: web_settle.Candidate, a: Answer, *, by: 
         from api.services import public_handle
 
         return public_handle.settle(memory_path, c.item_id, ref=a.url, quote=a.quote, checker=by,
-                                    checker_kind="sleep", origin="sleep", engine=label, facts=facts, weighed=True,
-                                    also=a.also)
+                                    checker_kind="sleep", origin="sleep", engine=label, facts=facts, tested=c.handle,
+                                    confidence=a.confidence if a.confidence is not None
+                                    else public_handle.DEFAULT_CONFIDENCE)
     if a.via_source:
         return web_settle.settle(memory_path, c.item_id, ref=a.url, quote=a.quote, option_key=a.option_key,
                                  checker=by, checker_kind="sleep", origin="sleep", engine=label, facts=facts,
@@ -856,9 +863,9 @@ async def dry_run(memory_path: Path, settings, *, limit: int, include_recent: bo
     out: dict[str, Any] = {"gate": "on" if network_allowed() else "off", "eligible": 0, "looked_up": 0,
                            "would_settle": 0, "with_mentions": 0, "with_description": 0, "bare_name_queries": 0,
                            "by_kind": {}}
-    facts = web_settle.bank_facts(memory_path)
-    todo, out["eligible"] = select(memory_path, facts, load_memo(memory_path), today, cap=max(0, int(limit)),
-                                   include_recent=include_recent)
+    facts = await asyncio.to_thread(web_settle.bank_facts, memory_path)
+    todo, out["eligible"] = await asyncio.to_thread(select, memory_path, facts, load_memo(memory_path), today,
+                                                    cap=max(0, int(limit)), include_recent=include_recent)
     if not todo:
         out["reason"] = "nothing"
         return out
@@ -874,7 +881,7 @@ async def dry_run(memory_path: Path, settings, *, limit: int, include_recent: bo
     report = Report(engine=label)
     fn = llm_fn or default_llm_fn(resolved, sink=lambda _event: None)
     todo = _plan_only(memory_path, todo, why, label, report, record=False)
-    answers = await look_up(fn, todo, report, memory_path=memory_path, facts=facts)
+    answers = await look_up(fn, todo, report, memory_path=memory_path, facts=facts, settling=why == "plan")
     name_guard.release()
     out["looked_up"] = report.looked_up
     out["settling"] = report.totals()
@@ -983,10 +990,10 @@ async def sweep(memory_path: Path, settings, *, dry_run: bool = True, limit: int
     today = today or date.today()
     if dry_run and limit is None:
         limit = SWEEP_DRY_RUN_LIMIT
-    facts = web_settle.bank_facts(memory_path)
+    facts = await asyncio.to_thread(web_settle.bank_facts, memory_path)
     out: dict[str, Any] = {"dry_run": dry_run, "gate": "on" if network_allowed() else "off", "eligible": 0,
                            "looked_up": 0, "settled": 0, "would_settle": 0, "by_kind": {},
-                           "census": web_settle.census(memory_path, facts)}
+                           "census": await asyncio.to_thread(web_settle.census, memory_path, facts)}
     if not dry_run:
         _SWEEP.update(running=True, report=out, started_at=_now_iso(), bank=str(memory_path))
     try:
@@ -995,7 +1002,8 @@ async def sweep(memory_path: Path, settings, *, dry_run: bool = True, limit: int
             return out
         memo = load_memo(memory_path)
         cap = max(0, int(limit)) if limit is not None else 10 ** 6
-        todo, out["eligible"] = select(memory_path, facts, memo, today, cap=cap, include_recent=include_recent)
+        todo, out["eligible"] = await asyncio.to_thread(select, memory_path, facts, memo, today, cap=cap,
+                                                        include_recent=include_recent)
         if not todo:
             out["reason"] = "census_only" if cap == 0 else "nothing"
             return out
@@ -1014,7 +1022,7 @@ async def sweep(memory_path: Path, settings, *, dry_run: bool = True, limit: int
                     out["stopped"] = "sleep_running"
                     break
                 (_c, a), = await look_up(fn, [(c, context)], report, raw_sink=raw_sink, memory_path=memory_path,
-                                         facts=facts)
+                                         facts=facts, settling=why == "plan")
                 out["settling"] = report.totals()
                 out["looked_up"] = report.looked_up
                 if on_lookup is not None:

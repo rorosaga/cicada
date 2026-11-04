@@ -117,7 +117,7 @@ async def _check(rows: list[dict], memory: Path, settings) -> None:
     report = web_lookup.Report(engine=label)
     fn = web_lookup.default_llm_fn(resolved, sink=lambda *_a, **_k: None)
     by_id = {r["id"]: r for r in rows}
-    for c, a in await web_lookup.look_up(fn, todo, report, memory_path=memory):
+    for c, a in await web_lookup.look_up(fn, todo, report, memory_path=memory, facts=facts, settling=why == "plan"):
         by_id[c.item_id]["check"] = {"ok": a.ok, "reason": a.reason, "relation": a.relation, "url": a.url,
                                      "quote": a.quote, "queries": list(web_settle.queries_for(c))}
 

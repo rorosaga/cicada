@@ -18,17 +18,11 @@ owner, not a role-only page). Then, by what can answer it:
 Otherwise it stays for the person, with the reason (``guarded_tie``, ``guarded_not_public``, ``walled_source``,
 ``proposed_source``, ``no_public_cue`` …).
 
-**What settles** (:func:`weigh`, checked here on the bytes opened, never on the model's word). Each source must be a page
-Cicada opened whose text names the person and the handle (in words, or by a link to the account), with a quote that is
-really on it. Then ONE is enough only when it is: a tracked source of either page; an encyclopedia article; **the person's
-own site** — a domain at their name or at the handle (``<handle>.github.io``) — that also fits what memory says about them
-(two of the page's distinctive words, :func:`_fits`: a namesake's site does not). Otherwise TWO independent voices:
-different sites, not the same words, with an account's profile and site counting as one voice. A walled profile is
-never opened: its search result counts as that one voice only when the result is the account's own link and its title
-names the person. **A profile alone never settles** (anyone can type a name into one); there is no reading of a "verified"
-mark, since the walled sites that have one are never opened. **Parody, stale, namesake:** a source whose surroundings say
-parody, fan account, unofficial, formerly, no longer (X's own "formerly Twitter" aside) leaves it open, and the model is
-told to answer not sure for a namesake. Anything else leaves it open.
+**What settles is the model's judgement** (owner, 2026-11-04: "One site is enough to settle a question, let the agent do
+this work don't tell it how to do it. That why we depend on Claude code as the intelligence for consolidation, because if I
+asked you now you'd resolve it."). It is given the goal and what is at stake, and answers with whether it is sure, a confidence
+and a citation. It decides what convinces it, a parody or a namesake included. The one code check (:func:`cited`): the
+citation is real, a page Cicada opened with the quote really on it. A sure answer whose citation is not is sent back.
 
 **What it writes** (:func:`settle`): one cited claim on the named person's page — "<Name> goes by “<handle>” online",
 predicate ``goes-by``, its object the handle's page (observer ``agent``, ``source_trust: external``, origin
@@ -51,8 +45,6 @@ from pathlib import Path
 
 from api.services import name_guard, pair_evidence, person_leads
 
-#: Conversations that ARE public content the person read or saved (an episode's ``source``).
-PUBLIC_CONTENT_SOURCES = name_guard.PUBLIC_SOURCES
 #: Chats and the person's address book: a name said here (outside a link) is someone from their life.
 CHAT_SOURCES = frozenset({
     "imessage", "messages", "whatsapp", "telegram-chats", "email", "gmail", "contacts", "linkedin",
@@ -64,6 +56,8 @@ SEARCH_PER_NAME = 40
 #: A side with more spellings than this cannot be read for every chat: it stays private (``unbounded``).
 MAX_SPELLINGS = 8
 REASON = "public_handle"
+#: The claim's confidence when the model gave none.
+DEFAULT_CONFIDENCE = 0.8
 _URL = re.compile(r"https?://[^\s)>\]\"']+")
 _CHAT_FIELDS = ("title", "correspondent", "participants", "chat", "chat_name", "sender", "from", "to")
 
@@ -156,7 +150,8 @@ def _read_side(memory_path: Path, page_fm: dict, names: list[str], own: list[str
                 return "chat", False, ""
         if not pair_evidence.names_in(own, text) and not (handle and _links_handle(text, handle)):
             continue
-        if source in PUBLIC_CONTENT_SOURCES:
+        said, _own = name_guard.public_part(ep_fm, text)
+        if pair_evidence.names_in(own, said):
             public = True
         if handle and not site:
             site = _site_in(text, handle)
@@ -184,10 +179,23 @@ def enabled() -> bool:
 
 def test(memory_path: Path, fm: dict, facts, *, agent: bool = False) -> Pair:
     """Ruling 54's test for one ``merge_suggestion``: :attr:`Pair.public` when the settling step, or (``agent``) the
-    person's own local agent on their ask, may work it. Sleep's step only when :func:`enabled`."""
+    person's own local agent on their ask, may work it. Sleep's step only when :func:`enabled`. Sleep's reads the whole
+    record through the guard: blocking, so a caller on the event loop runs it in a thread."""
     memory_path = Path(memory_path)
     if not agent and not enabled():
         return Pair("off")
+    shape = _shape(fm, facts)
+    if not shape.public:
+        return shape
+    if agent:
+        names = {shape.handle_id: shape.handle, shape.named_id: shape.name}
+        return _agent_test(memory_path, facts, shape.handle_id, shape.handle, shape.named_id, shape.name, names)
+    return _settling_test(memory_path, facts, shape.handle_id, shape.handle, shape.named_id, shape.name)
+
+
+def _shape(fm: dict, facts) -> Pair:
+    """What the question is, reading no conversation and no store: :attr:`Pair.public` for a handle against a full name
+    between two person pages, neither the owner nor a role-only page."""
     if fm.get("held_mention"):
         return Pair("held_mention")
     a_id, b_id = str(fm.get("entity_id") or ""), str(fm.get("merge_target_hint") or "")
@@ -214,9 +222,7 @@ def test(memory_path: Path, fm: dict, facts, *, agent: bool = False) -> Pair:
 
     if text_fold.fold(name) in facts.owner_names or handle in facts.owner_names:
         return Pair("owner")
-    if agent:
-        return _agent_test(memory_path, facts, handle_id, handle, named_id, name, names)
-    return _settling_test(memory_path, facts, handle_id, handle, named_id, name)
+    return Pair(REASON, handle_id=handle_id, handle=handle, named_id=named_id, name=name)
 
 
 def _private_on_record(memory_path: Path, facts, handle_id: str, named_id: str) -> str | None:
@@ -302,148 +308,46 @@ def queries(pair: Pair) -> tuple[str, str]:
 
 
 def quote_states(pair: Pair, quote: str) -> bool:
-    """Do the quoted words name both the handle and the name? Checked here, never taken on the model's word."""
+    """Do the quoted words name both the handle and the name? The person's own agent's answer, on their ask."""
     return (pair_evidence.names_in([pair_evidence.spelling(pair.handle)], quote)
             and pair_evidence.names_in([pair_evidence.spelling(pair.name)], quote))
 
 
 @dataclass(frozen=True)
-class Weighed:
+class Citation:
     ok: bool
     reason: str = ""
     ref: str = ""
     quote: str = ""
-    also: tuple[dict, ...] = ()
+    confidence: float = DEFAULT_CONFIDENCE
 
 
-#: Words that say an account is not, or no longer, the person's: read around the quote on the page.
-_NOT_THEM = re.compile(r"\b(parody|satire|fan (?:account|page)|unofficial|not affiliated|impersonat\w+)\b", re.IGNORECASE)
-_STALE = re.compile(r"\b(formerly|previously|used to be|old (?:handle|account|username)|no longer|renamed|moved to)\b",
-                    re.IGNORECASE)
-_TWITTER_ASIDE = re.compile(r"\(?\b(?:formerly|previously)(?: known as)? twitter\b\)?", re.IGNORECASE)
-_ENCYCLOPEDIA = ("wikipedia.org", "wikidata.org")
-_AROUND = 200
-
-
-def _on(host: str, domain: str) -> bool:
-    return host == domain or host.endswith(f".{domain}")
-
-
-def _handle_site(url: str, handle: str) -> bool:
-    """A site at the handle itself: ``<handle>.github.io``, ``<handle>.dev``."""
-    from api.services import reading_hosts
-
-    host = (reading_hosts.host_of(url) or "").removeprefix("www.")
-    return len(handle) >= 4 and host.split(".")[0].replace("-", "") == handle.replace("-", "").replace("_", "")
-
-
-def _fits(record: str, text: str, name: str) -> bool:
-    """Does this page fit what memory says about the person? Two distinctive words in common, past their own name."""
-    said = set(pair_evidence._fold(text))
-    own = set(pair_evidence._fold(name))
-    wanted = {w for w in pair_evidence._fold(record) if len(w) >= 4 and w not in name_guard.GENERIC and w not in own}
-    return len(wanted & said) >= 2
-
-
-def _voice(url: str, handle: str) -> tuple[str, str]:
-    """``(who is speaking, kind)``: an account's own pages are one voice whatever the site."""
-    from api.services import reading_hosts
-
-    host = reading_hosts.host_of(url) or ""
-    found = person_leads.profile_handle(url)
-    if found is not None and found[1] == handle:
-        return f"account:{handle}", "account"
-    if _handle_site(url, handle):
-        return f"account:{handle}", "site"
-    if any(_on(host, d) for d in _ENCYCLOPEDIA):
-        return reading_hosts.site_of(url), "encyclopedia"
-    return reading_hosts.site_of(url), "other"
-
-
-def _own_domain(url: str, name: str) -> bool:
-    from api.services import reading_hosts
-
-    squeezed = "".join(pair_evidence.spelling(name).split())
-    label = (reading_hosts.host_of(url) or "").removeprefix("www.").split(".")[0].replace("-", "")
-    return len(squeezed) >= 5 and label == squeezed
-
-
-def _links_account(links: list[str], handle: str) -> bool:
-    return any((person_leads.profile_handle(link) or ("", ""))[1] == handle or _handle_site(link, handle) for link in links)
-
-
-def weigh(pair: Pair, rows, pages: dict, results: dict[str, str], *, record: str = "") -> Weighed:
-    """Do these sources settle it? Engine-free, on the bytes Cicada opened (see the module docstring). ``record``: what
-    memory says about the named person, which the person's own site must fit."""
+def cited(answer: dict, pages: dict) -> Citation:
+    """The one thing not left to the model's judgement: its citation is real. ``url`` is a page Cicada opened in this
+    question and ``quote`` is on those bytes (exact, then whitespace, then case; never fuzzy, G118), since a model can
+    invent one. Whether the page convinces is the model's to say."""
     from api.services import evidence
 
-    name_key, handle_key = pair_evidence.spelling(pair.name), pair_evidence.spelling(pair.handle)
-    voices: dict[str, dict] = {}
-    alone: dict | None = None
-    quotes: set[str] = set()
-    for row in (rows if isinstance(rows, list) else [])[:8]:
-        if not isinstance(row, dict):
-            continue
-        url, quote = str(row.get("url") or "").strip(), str(row.get("quote") or "").strip()
-        page = pages.get(url)
-        if page is None:
-            title = results.get(url)
-            found = person_leads.profile_handle(url)
-            if title and found is not None and found[1] == pair.handle \
-                    and pair_evidence.names_in([name_key], title):
-                voices.setdefault(f"account:{pair.handle}", {"ref": url, "quote": title, "opened": False})
-            continue
-        hit = evidence.locate(page.text, quote) if quote else None
-        if hit is None:
-            continue
-        around = _TWITTER_ASIDE.sub(" ", page.text[max(0, hit[0] - _AROUND):hit[1] + _AROUND])
-        if _NOT_THEM.search(around):
-            return Weighed(False, "parody")
-        if _STALE.search(around):
-            return Weighed(False, "stale")
-        voice, kind = _voice(url, pair.handle)
-        linked = _links_account(page.links, pair.handle)
-        quote_name = pair_evidence.names_in([name_key], quote)
-        quote_handle = pair_evidence.names_in([handle_key], quote)
-        trusted_page = bool(page.tracked_for) or kind != "other" or _own_domain(url, pair.name)
-        if trusted_page:
-            says = (pair_evidence.names_in([name_key], page.text)
-                    and (quote_handle or linked or kind in ("account", "site")
-                         or pair_evidence.names_in([handle_key], page.text)))
-        else:   # someone else's page: the quote itself says it
-            says = quote_name and (quote_handle or linked)
-        if not says:
-            continue
-        folded = pair_evidence.spelling(quote)
-        if folded in quotes:
-            continue   # the same words on two sites: one source copied the other
-        quotes.add(folded)
-        entry = {"ref": url, "quote": quote, "opened": True}
-        own_site = (kind == "site" or _own_domain(url, pair.name)) and _fits(record, page.text, pair.name)
-        if page.tracked_for or kind == "encyclopedia" or own_site:
-            alone = alone or entry
-        current = voices.get(voice)
-        if current is None or not current.get("opened"):
-            voices[voice] = entry
-    opened = [v for v in voices.values() if v.get("opened")]
-    if not opened:
-        return Weighed(False, "no_source")
-    if alone is not None:
-        also = tuple({"ref": v["ref"], "quote": v["quote"]} for v in opened if v["ref"] != alone["ref"])
-        return Weighed(True, ref=alone["ref"], quote=alone["quote"], also=also)
-    if len(voices) >= 2:
-        first = opened[0]
-        also = tuple({"ref": v["ref"], "quote": v["quote"]} for v in voices.values() if v["ref"] != first["ref"])
-        return Weighed(True, ref=first["ref"], quote=first["quote"], also=also)
-    return Weighed(False, "one_source")
+    url, quote = str(answer.get("url") or "").strip(), str(answer.get("quote") or "").strip()
+    page = pages.get(url)
+    if page is None:
+        return Citation(False, "not_opened")
+    if not quote or evidence.locate(page.text, quote) is None:
+        return Citation(False, "quote_not_on_page")
+    try:
+        confidence = max(0.0, min(1.0, float(answer.get("confidence"))))
+    except (TypeError, ValueError):
+        confidence = DEFAULT_CONFIDENCE
+    return Citation(True, ref=url, quote=quote, confidence=confidence)
 
 
 def settle(memory_path: Path, item_id: str, *, ref: str, quote: str, checker: str, checker_kind: str,
            origin: str = "sleep", engine: str | None = None, session_frontmatter: dict | None = None,
-           facts=None, weighed: bool = False, also: tuple[dict, ...] = ()):
+           facts=None, tested: Pair | None = None, confidence: float = DEFAULT_CONFIDENCE):
     """Settle one public-handle question with a cited ``goes-by`` claim on the named page (see the module docstring).
-    ``weighed``: :func:`weigh` already held the sources up on the bytes opened (Sleep's step). An agent's answer has
-    only its quote, which must name both. Raises ``web_settle.NotSettleable`` with nothing written."""
+    ``tested``: Sleep's step already tested this pair and checked its citation on the bytes opened (:func:`cited`). It is
+    only re-shaped here, since this runs under the bank's write admission and must not rebuild the guard's scan. An agent's
+    answer has only its quote, which must name both. Raises ``web_settle.NotSettleable`` with nothing written."""
     from api.services import bank_index, episode_ids, markdown_parser, web_settle
     from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 
@@ -454,16 +358,24 @@ def settle(memory_path: Path, item_id: str, *, ref: str, quote: str, checker: st
     facts = facts or web_settle.bank_facts(memory_path)
     parsed_item = markdown_parser.parse(item_path)
     agent = checker_kind == "agent"
-    if web_settle.classify(memory_path, parsed_item.frontmatter, parsed_item.body, facts,
-                           agent=agent) != ("public", REASON):
-        raise web_settle.NotSettleable("That question is not about a public handle a lookup may answer; it stays for "
-                                       "the person.")
-    pair = test(memory_path, parsed_item.frontmatter, facts, agent=agent)
+    if tested is not None:
+        shape = _shape(parsed_item.frontmatter, facts)
+        if parsed_item.frontmatter.get(web_settle.UNDONE_KEY) == "undone" or not enabled() or not shape.public or (
+                shape.handle_id, shape.named_id) != (tested.handle_id, tested.named_id):
+            raise web_settle.NotSettleable("That question is not about a public handle a lookup may answer; it stays "
+                                           "for the person.")
+        pair = tested
+    else:
+        if web_settle.classify(memory_path, parsed_item.frontmatter, parsed_item.body, facts,
+                               agent=agent) != ("public", REASON):
+            raise web_settle.NotSettleable("That question is not about a public handle a lookup may answer; it stays "
+                                           "for the person.")
+        pair = test(memory_path, parsed_item.frontmatter, facts, agent=agent)
     ref, host = web_settle.check_ref(ref, "public")
     quote = web_settle.clean_quote(quote)
     if not quote:
         raise web_settle.NotSettleable("The answer needs a short quote from the page, in its own words.")
-    if not weighed and not quote_states(pair, quote):
+    if tested is None and not quote_states(pair, quote):
         raise web_settle.NotSettleable("The quote must name both the handle and the person, as the page says them.")
     if pair.named_id == facts.owner_id or pair.handle_id == facts.owner_id:
         raise web_settle.NotSettleable("Never on the owner's own page; the question stays.")
@@ -487,13 +399,13 @@ def settle(memory_path: Path, item_id: str, *, ref: str, quote: str, checker: st
     episode_id = web_settle._write_episode(memory_path, c=c, ref=ref, host=host, quote=quote,
                                            checker_label=checker if checker and checker != "agent" else "an agent",
                                            checker_kind=checker_kind, origin=origin,
-                                           session_frontmatter=session_frontmatter, also=also)
+                                           session_frontmatter=session_frontmatter)
     answer = f"{pair.name} goes by “{pair.handle}” online"
     try:
         claim = Claim(
             id=claim_id, text=answer, subject=pair.named_id, predicate=predicate, object=pair.handle_id,
             object_kind="node", observer="agent", source_trust="external", origin=web_settle.ORIGIN,
-            authored_by=checker or "agent", confidence=0.8, valid_from=today, recorded_at=today,
+            authored_by=checker or "agent", confidence=confidence, valid_from=today, recorded_at=today,
             evidence=list(web_settle._evidence_for(memory_path, episode_id, quote)))
         claims.append(claim)
         markdown_parser.write(entity_path, page.frontmatter, write_claims(page.body, claims))
@@ -512,7 +424,6 @@ def settle(memory_path: Path, item_id: str, *, ref: str, quote: str, checker: st
         "pair": [str(parsed_item.frontmatter.get("entity_id") or ""),
                  str(parsed_item.frontmatter.get("merge_target_hint") or "")],
         "handle": pair.handle_id, **({"engine": engine} if engine else {}),
-        **({"also": [{"ref": str(x.get("ref") or ""), "quote": str(x.get("quote") or "")} for x in also]} if also else {}),
     }
     markdown_parser.write(settled_dir / f"{item_id}.md", {**parsed_item.frontmatter, "settled": record},
                           parsed_item.body)

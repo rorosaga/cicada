@@ -3070,46 +3070,48 @@ A whole row moves to DONE only after its remaining implementation and required a
     **The limit (`name_guard`), enforced in code on every query and every link:** no query may contain the name of someone
     known only from the person's record. A **tie** blocks always, and public content never clears it: a Contacts card (the
     waiting set, the contacts book, a page carrying a card), a LinkedIn connection and its slug, a chat's correspondent,
-    a group member, a speaker label in a chat or meeting, a chat's title, a page the record says the person knows, a person
-    page or held name the public record never says, the owner's names and projects; one-part names and either word order
-    included. A **mention** (the words said in any episode that is not public content, an unknown source counting as
-    private) blocks unless the same words are also said in public content the person read or saved, so a public figure
-    the person also talked about passes and a neighbour does not. Every run of one to three words is asked. A blocked query
-    is dropped, counted against the budget, never rewritten; two blocks stop the question. If a store that exists cannot be
-    read, nothing leaves (reading is not stopped). A link leaves too: only a link a search returned or the page's own
+    a group member, a speaker label in a chat or meeting, a page the record says the person knows, a person page or held
+    name public content never says, the owner's names; an owner's project as a whole phrase. A **mention** (words said
+    anywhere that is not public content) blocks unless the same words are also said in public content, so a public figure
+    the person also talked about passes and a neighbour does not. **Public content is a positive decision per writer and
+    section, defaulting to private** (`name_guard.WRITERS`): a saved link's description and, when the page was really read, its
+    title, never its note, reason or folder; an agent's quotes from a page or a video; a watched, listened or Substack day's
+    rows. A LinkedIn or Instagram save, a tab group, a day read across every site, the person's own repositories and any
+    unknown source are private. Every pair of a query's words, and every window of three, is asked in every order; a
+    long unknown token is asked as every split of it; a middle initial changes nothing, and an initial makes the word beside
+    it stricter; folding is full (NFKD plus a table for ø, ł, ß and the like). A blocked query is dropped, counted against the
+    budget, never rewritten; two blocks stop the question. If a store that exists cannot be read or holds an unexpected
+    shape, nothing leaves (reading is not stopped). A link leaves too: only a link a search returned or the page's own
     tracked source may be opened, exact to the character, and a returned one passes the same guard.
     **How it runs (`settling_agent`).** The plan's own web tool cannot be intercepted: hooks are off in the pinned
     `--safe-mode`, a permission tool needs MCP, and a query reaches the provider before the stream reports it. So the model
     that reads holds no tool (`--tools ""`, the unchanged pinned argv, `CICADA_CAPTURE=off`, `CICADA_RECALL=off`); each turn
     it names calls from a table this process runs (`recall`, `page`, `conversation`, `where_to_check`, `contacts`, `open`,
     `search`), with no writing call to ask for. `ask` is left out: it is a model call over the same reads. A cleared query
-    goes to a separate search hand, `claude -p` with `WebSearch` alone, whose whole prompt is the cleared queries; what it
-    reports is audited, and a search that differs voids the round and stops the question. It can differ only by what the
-    hand has: the query. Pages are opened by Cicada on the link rail (`_stream_html`: 4 s, ≤ 512 KB, no cookies,
+    goes to a separate search hand, `claude -p` with `WebSearch` alone. It holds its prompt, the cleared queries and what the
+    CLI attaches to every spawn (the account's email, its scratch working directory, the platform and shell; no flag
+    removes the email), nothing from the person's record. Nothing mechanical stops a hand that disobeys from typing that
+    email into a query: it is told not to, and what it reports is audited, so a search that differs voids the round and
+    stops the question. The scan behind the guard runs off the event loop, from `bank_index`'s cached headers into one
+    in-memory index, and never under write admission. Pages are opened by Cicada on the link rail (`_stream_html`: 4 s, ≤ 512 KB, no cookies,
     `net_guard`, a block never retried, walls retired without a byte), never by the plan's web fetch, which holds none of
     those limits. **Every other engine does not run the step** (`metered_only`, or `engine_for`'s reason): a metered key,
     the ChatGPT plan, a local model, Cursor, OpenCode, Grok.
     **Budget, one question:** 6 searches (the tool's own `searchCount`, a dropped query included), 6 pages, 12 reads, 8 model
     turns, 2 sends-back. **Per drain or sweep:** 3 handle questions, 5 questions worked in all, 5 changed-source reads,
     inside `web_check_per_run`. A question left open waits 30 days. Worst case one question is 14 spawns.
-    **What settles (`public_handle.weigh`, on the bytes opened, never the model's word).** A page Cicada opened that names
-    the person and the handle (in words or by a link to the account), its quote really on it. One is enough only for a
-    tracked source of either page, an encyclopedia article, or the person's own site (a domain at their name or the handle)
-    that also fits what memory says (two distinctive words in common). Otherwise two independent voices: different sites,
-    not the same words, an account's profile and site counting as one. A walled profile is never opened; its search result
-    counts as that one voice only when it is the account's own link and its title names the person. **A profile alone never
-    settles**, and no "verified" mark is read, since the sites that have one are walled. **Left open:** parody, fan or
-    unofficial words around the quote; "formerly", "no longer" (not X's own "formerly Twitter"); a namesake (the model's
-    judgement, and the fit test for an own site); a quote not on the page; anything short of the above. A sure answer that
-    does not hold is sent back at most twice, then counts as what it is.
+    **What settles is the model's judgement (owner, 2026-11-04):** "One site is enough to settle a question, let the agent do
+    this work don't tell it how to do it. That why we depend on Claude code as the intelligence for consolidation, because
+    if I asked you now you'd resolve it." So there is no list of what counts, no two-source rule, and no parody or namesake
+    rule: the prompt gives the goal and what is at stake, and the model answers whether it is sure, with a confidence and a
+    citation. **The one code check** (`public_handle.cited`): the citation is real, a page Cicada opened with the quote on
+    it (exact, whitespace, case; never fuzzy), since a model can invent one. One that is not real is sent back at most
+    twice. A signed-in page is never opened, so it cannot be cited. Parody, a namesake, a stale handle are the model's to judge;
+    the person's undo is the floor under it.
     **The person's own local agent** (`cicada_record_check`, on their ask) keeps the stricter proposed test and its two
     searches: Cicada cannot see that agent's queries, so the limit there can only be who is offered.
     **Measured** on synthetic banks with one widely known public figure, on the plan with haiku; the shipped tier
-    (`web_check_agent_model`) was not run. A real Sleep on the final code settled it: 1 search, 2 pages opened, 1 link
-    dropped by the guard, 4 reads, 4 turns, 31.0 s; on an earlier build undo put the question back. Two questions measured
-    apart, each with its plan usage (`equiv_cost_usd`): 2 searches, 3 pages, 5 spawns, 30.3 s, 19,690 input tokens, 2,597
-    output, $0.0155; and 3 searches, 2 pages, 7 spawns, 44.3 s, 37,986 input, 3,190 output, $0.0425. A private friend in the
-    same bank got no model call. Wikipedia answered 403 to Cicada's `User-Agent` in every run (never retried), so its encyclopedia
+    (`web_check_agent_model`) was not run. MEASURED_PLACEHOLDER A private friend in the same bank got no model call. Wikipedia answered 403 to Cicada's `User-Agent` in every run (never retried), so its encyclopedia
     route did not fire. **Disclosed deviation (2026-11-04):** while the text was only proposed, an earlier worker ran
     four lookups for one pair on a copy of the owner's bank, sending a real full name to the plan's web search; each
     answered "not sure" and nothing was written. No lookup has touched that bank since.
@@ -3121,8 +3123,12 @@ A whole row moves to DONE only after its remaining implementation and required a
     never reaches one. It also answers an open conflict on any page, a private person's included, from those sources alone.
     **Which rule writes:** ruling 26. A tracked source's reading is a dated citation, the newest evidence wins, and the same
     day or undated stays the one question it already is; only a predicate the vocabulary knows is single-valued closes
-    another value, so `works-at` and every unknown predicate are not settled this way (ruling 26's own fold adds their
-    values). **The one new dated exception to the S3 rail:** that reading may also close the question it answers, undoable
+    another value, so every unknown predicate is not settled this way (ruling 26's own fold adds its values). **`works-at`
+    is no conflict at all (owner, 2026-11-04: "Works at really doesn't matter … And I can be working in different things at
+    the same time"):** checked, and nothing needed changing. It has been multi-valued in the seed since 2026-10-14, the seed
+    wins over a stale bank map (`build_cardinality_fn`, `cardinality`), the nudge writer drops a conflict on it, Sleep's tending
+    dismisses an open card as `multi_valued`, and a re-check adds its value. Pinned by a test. "Are you still working at
+    <org>?" (`still_questions`, owner 2026-10-28) is a different question and stays. **The one new dated exception to the S3 rail:** that reading may also close the question it answers, undoable
     under "Settled by a check". `check_record` stays shadow. **The update path is ruling 26's, unchanged, with one gap
     filled:** a tracked public page that changed with no machine-readable fact waited for the person's agent; on a plan run
     the model now reads it first, through `source_refresh.apply`, and what it cannot read keeps waiting.
