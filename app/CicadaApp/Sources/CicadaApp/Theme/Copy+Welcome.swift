@@ -129,6 +129,13 @@ extension Copy {
     /// instead of asking the person to go and change a system setting.
     static let reminderNotificationsOff = "Notifications are off, so the reminder waits here and in the menu bar."
     static func reminderTitle(_ vendor: String) -> String { "Your \(vendor) export should be in your email." }
+    // G197 layer c (2026-11-04): a weekly nudge to ask for a fresh export, and the export picked up from Downloads.
+    static let reminderEveryWeek = "Every week"
+    static let reminderStopWeekly = "Stop the weekly reminder"
+    static func reminderWeeklyTitle(_ vendor: String) -> String { "Time for a fresh \(vendor) export." }
+    static let reminderWeeklyBody = "Ask for it, and Cicada picks up the .zip when it lands in Downloads."
+    static func reminderArrivedTitle(_ vendor: String) -> String { "Your \(vendor) export arrived." }
+    static let reminderArrivedBody = "Open Cicada to bring it in."
     static func reminderStripLine(_ vendor: String, requested: String) -> String {
         "Waiting for your \(vendor) export · requested \(requested)"
     }
@@ -154,6 +161,8 @@ extension Copy {
         welcomeRemoveDrop, welcomeHello("Ada"), welcomeNotYou("Ada"), welcomeNameFromMac,
         reminderRemindMe, reminderInThreeHours, reminderTomorrowMorning, reminderInTwoDays, reminderBody,
         reminderDropHere, reminderDismiss, welcomeAskForOne,
+        reminderEveryWeek, reminderStopWeekly, reminderWeeklyTitle("ChatGPT"), reminderArrivedTitle("ChatGPT"),
+        reminderArrivedBody,
         reminderRowLine(requested: "2 hours ago", reminder: "in 21 hours"),
     ]
     /// Longer sentences — the vocabulary rule only.
@@ -161,6 +170,7 @@ extension Copy {
     static let welcomeHomeSentences: [String] = [welcomeDemoFailed("the service is not running"),
                                                  gsNothingYet, gsLeaveWhileReading,
                                                  reminderNotificationsOff, reminderTitle("ChatGPT"),
+                                                 reminderWeeklyBody,
                                                  reminderStripLine("ChatGPT", requested: "2 hours ago"),
                                                  reminderMenuLine("ChatGPT", requested: "2 hours ago")]
 }

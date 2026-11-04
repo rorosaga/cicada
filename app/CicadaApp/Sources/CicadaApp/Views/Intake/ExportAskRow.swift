@@ -39,6 +39,7 @@ struct ExportAskRow: View {
                             Task { denied = !(await waits.remind(vendor: vendor.rawValue, bank: store.bank, delay: delay)) }
                         }
                     }
+                    WeeklyReminderItems(vendor: vendor) { denied = true }
                 } label: {
                     Label(Copy.reminderRemindMe, systemImage: "bell")
                 }
@@ -90,6 +91,7 @@ struct ExportAskMenu: View {
                         }
                     }
                 }
+                WeeklyReminderItems(vendor: vendor, onDenied: onDenied)
             }
         } label: {
             HStack(spacing: CicadaTheme.spacingXS) {
@@ -117,10 +119,31 @@ struct ExportReminderMenu: View {
                     Task { if !(await waits.remind(vendor: vendor.rawValue, bank: store.bank, delay: delay)) { denied = true } }
                 }
             }
+            WeeklyReminderItems(vendor: vendor) { denied = true }
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help(denied ? Copy.reminderNotificationsOff : Copy.reminderRemindMe)
+    }
+}
+
+/// G197 layer c (2026-11-04) — the *Remind me* menus' standing half: *Every week* asks for the permission the
+/// one-off delays ask for, and once on, the same place turns it off. No setting elsewhere.
+struct WeeklyReminderItems: View {
+    let vendor: ChatVendor
+    var onDenied: () -> Void = {}
+    @Environment(ExportWaitStore.self) private var waits
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        Divider()
+        if waits.weekly(vendor: vendor.rawValue, bank: store.bank) {
+            Button(Copy.reminderStopWeekly) { waits.stopWeekly(vendor: vendor.rawValue, bank: store.bank) }
+        } else {
+            Button(Copy.reminderEveryWeek) {
+                Task { if !(await waits.startWeekly(vendor: vendor.rawValue, bank: store.bank)) { onDenied() } }
+            }
+        }
     }
 }
 

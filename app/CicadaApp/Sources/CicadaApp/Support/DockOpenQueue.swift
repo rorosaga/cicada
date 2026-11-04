@@ -77,8 +77,10 @@ final class CicadaAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificati
             return
         }
         let vendor = info[LiveReminderScheduler.userInfoVendor] as? String
+        // A reminder from before G197 layer c carries no kind: it was the "should be in your email" one.
+        let kind = (info[LiveReminderScheduler.userInfoKind] as? String).flatMap(ReminderTapKind.init) ?? .due
         Task { @MainActor in
-            if let vendor, let v = ChatVendor(rawValue: vendor) { self.reminderTaps.receive(v) }
+            if let vendor, let v = ChatVendor(rawValue: vendor) { self.reminderTaps.receive(ReminderTap(vendor: v, kind: kind)) }
         }
         completionHandler()
     }

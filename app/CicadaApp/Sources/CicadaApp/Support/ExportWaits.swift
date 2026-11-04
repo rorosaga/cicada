@@ -35,10 +35,33 @@ enum ReminderDelay: String, CaseIterable, Identifiable {
     }
 }
 
+/// G197 layer c (2026-11-04) — a standing weekly nudge to ask a vendor for a fresh export, so the person's own
+/// export is a stream rather than a one-off seed. Same weekday the person turned it on, at 9:00 local; tapping it
+/// opens that vendor's export page in the person's own browser (Cicada clicks nothing there) and opens a wait, which
+/// is what arms the Downloads pickup (`ExportArrivalWatcher`). One per bank × vendor; a per-viewer convenience in
+/// defaults, like the waits — never memory, never a bank, never the network.
+struct ExportHabit: Codable, Equatable, Identifiable {
+    let vendor: String
+    let bank: String
+    /// `Calendar` weekday, 1 = Sunday.
+    let weekday: Int
+    let hour: Int
+    let minute: Int
+    var id: String { "\(bank)|\(vendor)" }
+
+    static func starting(vendor: String, bank: String, from now: Date,
+                         calendar: Calendar = .autoupdatingCurrent) -> ExportHabit {
+        ExportHabit(vendor: vendor, bank: bank, weekday: calendar.component(.weekday, from: now), hour: 9, minute: 0)
+    }
+
+    var dateComponents: DateComponents { DateComponents(hour: hour, minute: minute, weekday: weekday) }
+}
+
 /// Track I part b (design §5.5, R-IB22) — the pure half: one wait per bank ×
 /// vendor, gone after 14 days, and the three sentences the twins show.
 enum ExportWaits {
     static let defaultsKey = "cicada.exportWaits"
+    static let habitsKey = "cicada.exportHabits"
     static let maxAge: TimeInterval = 14 * 86_400
     /// How often a shown "requested 2 hours ago" is recomputed (the Feed strip,
     /// Getting started) — a minute is the finest unit the formatter's lines need.
@@ -91,6 +114,9 @@ enum ExportWaits {
 @Observable
 final class ExportWaitStore {
     private(set) var waits: [ExportWait]
+    private(set) var habits: [ExportHabit]
+    /// Called after every change to the waits — the Downloads pickup opens and closes on it (`ExportArrivalWatcher`).
+    @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let scheduler: ReminderScheduling
     @ObservationIgnored private let now: () -> Date
@@ -103,7 +129,37 @@ final class ExportWaitStore {
         let stored = (defaults.data(forKey: ExportWaits.defaultsKey))
             .flatMap { try? JSONDecoder().decode([ExportWait].self, from: $0) } ?? []
         waits = ExportWaits.pruned(stored, now: now())
+        habits = (defaults.data(forKey: ExportWaits.habitsKey))
+            .flatMap { try? JSONDecoder().decode([ExportHabit].self, from: $0) } ?? []
         persist()
+    }
+
+    var anyWait: Bool { !ExportWaits.pruned(waits, now: now()).isEmpty }
+
+    func weekly(vendor: String, bank: String) -> Bool { habits.contains { $0.vendor == vendor && $0.bank == bank } }
+
+    /// *Every week*: the habit is recorded whatever the permission says (the menu says it is on), and scheduled only
+    /// with it — the same rule as `remind`. `false` when notifications are off.
+    @discardableResult
+    func startWeekly(vendor: String, bank: String) async -> Bool {
+        let habit = ExportHabit.starting(vendor: vendor, bank: bank, from: now())
+        habits = habits.filter { $0.id != habit.id } + [habit]
+        persistHabits()
+        guard await scheduler.requestPermission() else { return false }
+        await scheduler.scheduleWeekly(habit)
+        return true
+    }
+
+    func stopWeekly(vendor: String, bank: String) {
+        for h in habits where h.vendor == vendor && h.bank == bank { scheduler.cancelWeekly(h) }
+        habits = habits.filter { !($0.vendor == vendor && $0.bank == bank) }
+        persistHabits()
+    }
+
+    /// The weekly nudge was tapped: the person is about to ask for the export, so a wait opens — its reminder the
+    /// next morning, as if they had chosen it — and with it the Downloads pickup.
+    func weeklyTapped(vendor: String, bank: String) async {
+        _ = await remind(vendor: vendor, bank: bank, delay: .tomorrowMorning)
     }
 
     func active(bank: String) -> [ExportWait] { ExportWaits.active(waits, bank: bank, now: now()) }
@@ -133,5 +189,10 @@ final class ExportWaitStore {
 
     private func persist() {
         defaults.set(try? JSONEncoder().encode(waits), forKey: ExportWaits.defaultsKey)
+        onChange?()
+    }
+
+    private func persistHabits() {
+        defaults.set(try? JSONEncoder().encode(habits), forKey: ExportWaits.habitsKey)
     }
 }

@@ -12,6 +12,28 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
+  `claude-desktop-capture`).** Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."
+  Diagnosis, from the live install's numbers: one relayed episode ever, and every Claude chat in the bank from one
+  October export. The remote connector was off, so claude.ai had no way in. The desktop app's only Cicada server is
+  stdio, which never serves `cicada_capture_turns`, and its primer asks for no relay. Of the four ways in
+  (`capture-and-sleep.md`, "Hookless chat apps"): the desktop app keeps no chat history on disk for a claude.ai account
+  (counts only, no content read); reading claude.ai through the person's browser by an agent is the "automated or
+  non-human means" Anthropic's Consumer Terms §3 bar; the official export is the one path with no model in it; relay
+  stays ruling 32's model-dependent exception. Built (app only): while an export wait is open, the vendor's zip in
+  Downloads, identified by its central directory's member names, opens the one intake's preview; *Every week* in every
+  *Remind me* menu nudges the person to ask for a fresh export. Tests: `ExportArrivalsTests` 13, plus touched suites
+  (77 across five) and `--filter Lint` (85), all green. **Needs the owner (DECIDE):**
+  (1) the remote stdio relay: should the local stdio server serve `cicada_capture_turns` to the Claude desktop app
+  (`clientInfo` `claude-ai`) with the desktop primer asking for it? That would amend ruling 32's "through the remote
+  connector" for an app that has no hook on stdio either. **Recommended yes**, as a layer under the export, never
+  instead of it. (2) Reading the person's claude.ai list through their own browser by their agent: **recommended no**
+  under the ToS rail, unless Anthropic explicitly permits it. (3) D6′ (one-click Funnel for the connector) is already
+  waiting (2026-11-03); **recommended yes**, since it is what makes the phone's claude.ai reachable at all. (4) Listing
+  `~/Downloads` (names, sizes, dates; a zip's member names) while an export wait is open, which may raise macOS's one
+  Files and Folders prompt after *Remind me*: **recommended yes**, as built. Open: the export carries no schedule or
+  API, so the person still clicks Export and the email's link once a week. For the owner's own hands: turn the
+  connector on and add it on claude.ai, and turn *Every week* on for Claude.
 - **2026-11-03 — GitHub connects with a code; your repositories are pages; a project lists its repositories (ruling
   53, G230; branch `feat/g230-oauth-sync`).** Owner: "why are you asking for a token for github? cant we just do oauth?"
   and "always sync and make their initial markdowns … a project might reference several repos". Connect GitHub shows

@@ -148,6 +148,8 @@ struct CicadaApp: App {
     /// defaults, told by the Feed, the menu bar and Getting started whether or
     /// not notifications were allowed.
     @State private var exportWaits = ExportWaitStore()
+    /// G197 layer c — the Downloads pickup for an awaited export; open only while a wait is.
+    @State private var exportArrivals = ExportArrivalWatcher()
     /// R-IA25 — the one AppKit hook SwiftUI's `App` lacks: a Dock "Open With"
     /// or a drop on the Dock icon. Its queue holds a cold launch's URLs until
     /// `.onAppear` attaches the router.
@@ -587,10 +589,34 @@ struct CicadaApp: App {
         }
         // A tapped reminder opens the one intake idle for that vendor —
         // never a cycle (G125 R10). Queued until now on a cold launch.
-        appDelegate.reminderTaps.attach { [intakeRouter, appRouter] vendor in
-            appRouter.showMainWindow()
-            intakeRouter.present(from: .reminder(vendor))
+        // G197 layer c: the weekly nudge opens the vendor's export page in the person's own browser and a wait; the
+        // arrival notice only brings the window, whose preview is already open.
+        appDelegate.reminderTaps.attach { [intakeRouter, appRouter, exportWaits, store] tap in
+            switch tap.kind {
+            case .due:
+                appRouter.showMainWindow()
+                intakeRouter.present(from: .reminder(tap.vendor))
+            case .weekly:
+                NSWorkspace.shared.open(tap.vendor.walkthrough.exportURL)
+                Task { await exportWaits.weeklyTapped(vendor: tap.vendor.rawValue, bank: store.bank) }
+            case .arrived:
+                appRouter.showMainWindow()
+            }
         }
+        // G197 layer c — while an export is awaited, the vendor's zip landing in Downloads opens its preview.
+        exportArrivals.waitedVendors = { [exportWaits, store] in
+            Set(exportWaits.active(bank: store.bank).compactMap { ChatVendor(rawValue: $0.vendor) })
+        }
+        exportArrivals.deliver = { [intakeRouter] url, vendor in
+            switch intakeRouter.accept(urls: [url], from: .reminder(vendor)) {
+            case .busy: return false
+            case .accepted, .refused: break
+            }
+            if !NSApp.isActive { Task { await LiveReminderScheduler().announceArrival(vendor) } }
+            return true
+        }
+        exportWaits.onChange = { [exportWaits, exportArrivals] in exportArrivals.sync(anyWait: exportWaits.anyWait) }
+        exportArrivals.sync(anyWait: exportWaits.anyWait)
         // When SleepViewModel observes a cycle finish (running ->
         // idle, no error), refresh the graph/topics layer in
         // place. Without this, Sleep finishes successfully but
