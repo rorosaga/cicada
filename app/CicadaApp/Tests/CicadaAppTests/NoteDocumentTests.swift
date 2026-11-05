@@ -319,4 +319,11 @@ final class NoteDocumentTests: XCTestCase {
             try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("note-\(mode).png"))
         }
     }
+
+    /// Measured on real notes: Notes writes entities with no semicolon, which left 10 of 39 notes plain.
+    func testAnEntityWithNoSemicolonIsItsCharacterAndALinkQueryIsNot() {
+        XCTAssertEqual(NoteHTML.Tokens.entities("a &gt b &quotword&quot &ampA &lt c"), "a > b \"word\" &A < c")
+        XCTAssertEqual(NoteHTML.Tokens.entities("x?a=1&utm=2&rcm=3"), "x?a=1&utm=2&rcm=3")
+        XCTAssertEqual(NoteHTML.Tokens.entities("&gt; &#x2014; &amp;"), "> \u{2014} &")
+    }
 }

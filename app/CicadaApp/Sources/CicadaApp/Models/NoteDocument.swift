@@ -691,6 +691,10 @@ enum NoteHTML {
             "hellip": "…", "lsquo": "‘", "rsquo": "’", "ldquo": "“", "rdquo": "”", "bull": "•", "middot": "·",
         ]
 
+        /// Measured on real notes: Notes writes these with no semicolon ("&gt ", "&quotword", "&ampA"), so a note holding
+        /// one read as changed and stayed plain. HTML's own legacy forms, and nothing else: "&utm=" stays as it is.
+        private static let bare: [(String, String)] = [("amp", "&"), ("lt", "<"), ("gt", ">"), ("quot", "\""), ("nbsp", "\u{00A0}")]
+
         static func entities(_ text: String) -> String {
             guard text.contains("&") else { return text }
             var out = ""
@@ -701,6 +705,9 @@ enum NoteHTML {
                 if let semi = after.prefix(12).firstIndex(of: ";"), let decoded = entity(String(after[..<semi])) {
                     out += decoded
                     rest = after[after.index(after: semi)...]
+                } else if let (word, decoded) = bare.first(where: { after.hasPrefix($0.0) }) {
+                    out += decoded
+                    rest = after.dropFirst(word.count)
                 } else {
                     out += "&"
                     rest = after
