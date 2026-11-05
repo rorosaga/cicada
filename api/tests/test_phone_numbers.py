@@ -18,8 +18,8 @@ from fastapi.testclient import TestClient
 from api import config, main
 from api.models.schemas import InboxResolveRequest
 from api.services import (agentic_write, bank_index, chat_live, claim_pipeline, claim_reconciler, contacts_local,
-                          episode_scrub, inbox_generator, inbox_service, markdown_parser, pending_store, people_directory,
-                          phone_numbers, whatsapp_source)
+                          entity_resolver, episode_scrub, inbox_generator, inbox_service, markdown_parser, pending_store,
+                          people_directory, phone_numbers, role_people, whatsapp_source)
 from api.services.claims import Claim, Evidence, parse_claims
 
 SPEC = whatsapp_source.SPEC
@@ -2163,6 +2163,61 @@ def test_ruling_55_a_plus_number_with_no_card_is_kept_never_blanked_and_only_the
     assert body.count("[redacted]") == 1 and "2079460000" in body and "7946 0999" not in body
     entities, values = took(memory, body, ep=next(iter(stored(memory))))
     assert not values and not entities, "an unmatched token stays a token, and Stage 1 decides"
+
+
+# A miss leaves digits as they are; a wrong match rewrites someone's words for good (#626 review, invented digits).
+CARD_9 = "612345678"
+CARD_7 = "5551234"
+
+
+@pytest.mark.parametrize("line", [
+    "order 987612345678", "account 111222612345678", "iban 4400 1612 345 678", "2026-612-345-678",
+    "card 4000 1111 2612 3456 78", "4000 1111 2612 3456 78", "2026 612 345 678", "987612345678", "111222612345678",
+    "order 612345678", "612345678 pesos", "34612345678", "3 612345678", "6123456.78", "00612345678", "000612345678",
+])
+def test_ruling_55_a_run_that_is_more_than_the_cards_number_stays_byte_identical(memory, line):
+    sync_cards(memory, (C1, "Ana", "Diaz", [CARD_9]))
+    assert phone_numbers.tokenise(line, memory) == (line, 0)
+    assert phone_numbers.tokenise(CARD_9, memory)[1] == 1, "the number now in the vault"
+    assert phone_numbers.tokenise(line, memory) == (line, 0), "and holding it there changes nothing"
+
+
+@pytest.mark.parametrize("written", ["+34 612 345 678", "612345678", "612 345 678", "0034612345678", "0034 612 345 678",
+                                     "0612345678", "call 612345678 now"])
+def test_ruling_55_the_cards_number_in_its_own_shapes_still_matches(memory, written):
+    sync_cards(memory, (C1, "Ana", "Diaz", [CARD_9]))
+    line, count = phone_numbers.tokenise(written, memory)
+    assert count == 1 and phone_numbers.token_ids(line) == [card_key(memory.name, CARD_9)] and not re.search(r"\d", line)
+
+
+def test_ruling_55_each_number_alone_with_a_plus_still_matches_its_card(memory):
+    sync_cards(memory, (C1, "Ana", "Diaz", [CARD_9]), (C2, "Bea", "Example", ["+12025550177"]))
+    line, count = phone_numbers.tokenise("+34 612 345 678\n+1 202-555-0177\nsend them the invite", memory)
+    assert count == 2 and not re.search(r"\d", line) and len(phone_numbers.token_ids(line)) == 2
+
+
+@pytest.mark.parametrize("line", ["order 5551234", "mi renta es 5551234", "llamé 5551234 ayer", "5551234 y algo"])
+def test_ruling_55_a_short_card_number_inside_a_sentence_stays(memory, line):
+    sync_cards(memory, (C1, "Ana", "Diaz", [CARD_7]))
+    assert phone_numbers.tokenise(line, memory) == (line, 0)
+
+
+@pytest.mark.parametrize("written", ["5551234", "hola\n5551234\nadiós"])
+def test_ruling_55_a_short_card_number_alone_on_its_line_matches(memory, written):
+    sync_cards(memory, (C1, "Ana", "Diaz", [CARD_7]))
+    line, count = phone_numbers.tokenise(written, memory)
+    assert count == 1 and phone_numbers.token_ids(line) == [card_key(memory.name, CARD_7)]
+
+
+def test_ruling_55_a_card_named_by_a_relation_never_makes_a_page(memory):
+    sync_cards(memory, (C1, "Mom", "", [A]), (C2, "Ricky", "", [B]))
+    settings = settings_for(memory)
+    mention = {"type": "person", phone_numbers.CARD_KEY: C1, "name": "Mom"}
+    assert entity_resolver._number_card(mention, [], settings) is None
+    named = {"type": "person", phone_numbers.CARD_KEY: C2, "name": "Ricky"}
+    assert entity_resolver._number_card(named, [], settings)["id"] == C2
+    assert entity_resolver._number_card({**named, role_people.UNNAMED_KEY: True}, [], settings) is None
+    assert entity_resolver._number_card(named, [{"name": "my brother", role_people.UNNAMED_KEY: True}], settings) is None
 
 
 def test_ruling_55_a_page_carrying_the_card_takes_the_number_with_no_name_said(memory):

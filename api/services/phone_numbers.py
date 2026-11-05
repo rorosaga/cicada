@@ -640,6 +640,27 @@ def _added(text: str, m: re.Match[str]) -> bool:
             and bool(_ADD_BEFORE.search(text[:m.start("name")])) and bool(_CLAUSE_ENDS.match(text, m.end("num"))))
 
 
+def _whole_number(raw: str) -> bool:
+    """Whether a written run is one phone number and nothing more. Only the last nine digits identify a number, so what a
+    run holds in front of them is read here: "+", or "00" and a country code; a trunk zero; the "1" and ten digits or the
+    bare ten of a national form. Anything longer is an id, an account or a date whose tail happens to match. Ten digits
+    can't be told from a stray digit in front of a nine-digit number, since a card posts only that hash; a lone first
+    digit ("3 612345678") and a decimal ("6123456.78") can, and don't count."""
+    text = raw.strip()
+    digits = _digits(text)
+    if text.startswith("+"):
+        return True
+    if re.fullmatch(r"\d+\.\d+", text):
+        return False
+    if digits.startswith("00"):
+        return digits[2] != "0" and len(digits) > MATCH_DIGITS + 2
+    if digits.startswith("0"):
+        return len(digits) <= MATCH_DIGITS + 3
+    if len(digits) == 11:
+        return digits[0] == "1"
+    return len(digits) <= MATCH_DIGITS or (len(digits) == 10 and bool(re.match(r"\(?\d{2}", text)))
+
+
 def _known_runs(text: str, bank) -> list[tuple[int, int, str]]:
     """Every run of nine digits or more the vault holds, standing alone: an agent's "Updated Ana to 2025550144." is that
     number with no signal needed. Shorter runs never match by value, because a vault entry of 1500000 would otherwise blank
@@ -650,7 +671,8 @@ def _known_runs(text: str, bank) -> list[tuple[int, int, str]]:
         return []
 
     def stands(m: re.Match[str]) -> bool:
-        return (len(_digits(m.group(0))) >= MATCH_DIGITS and _plausible(m.group(0)) and _stands_alone(text, m.start(), m.end())
+        return (len(_digits(m.group(0))) >= MATCH_DIGITS and _whole_number(m.group(0)) and _plausible(m.group(0))
+                and _stands_alone(text, m.start(), m.end())
                 and not _before(text, m.start()) & _NOT_A_PHONE and not _UNIT_AFTER.match(text, m.end()))
 
     runs = [m for m in re.finditer(rf"(?<![\w.]){_DIGITS}(?!\w)", text) if stands(m)]
@@ -678,9 +700,18 @@ def _windows(m: re.Match[str]) -> Iterable[tuple[int, int]]:
             yield start, pieces[j][1]
 
 
+def _alone_on_its_line(text: str, start: int, end: int) -> bool:
+    line_end = text.find("\n", end)
+    return (not text[text.rfind("\n", 0, start) + 1:start].strip()
+            and not text[end:len(text) if line_end == -1 else line_end].strip())
+
+
 def _card_runs(text: str, bank) -> list[tuple[int, int, str]]:
     """Every number in the person's own line a Contacts card holds, by value: the keyed hash the app posted, against the
-    same hash of these digits. No word around it counts, so a digit run reads as a number only when it IS a contact's."""
+    same hash of these digits. A miss leaves digits as they are and a wrong match rewrites someone's words for good, so a
+    run counts only when ALL of it is card numbers (:func:`_whole_number`; "+1 202 555 0143 202 555 0177" holds two, the
+    end of a grouped card number none; a dash never splits one), each plausible, standing alone, with no word before it
+    saying it is something else and no unit after. Under nine digits it also needs a "+" or a line of its own."""
     if not bank:
         return []
     cards = cards_of(bank)
@@ -692,17 +723,27 @@ def _card_runs(text: str, bank) -> list[tuple[int, int, str]]:
         return []
     if not data:
         return []
+
+    def counts(start: int, end: int) -> bool:
+        raw = text[start:end]
+        digits = match_digits(raw)
+        return bool(digits) and _token_id(data["key"], digits) in cards and _whole_number(raw) and _plausible(raw) \
+            and _stands_alone(text, start, end) and not _before(text, start) & _NOT_A_PHONE \
+            and not _UNIT_AFTER.match(text, end) \
+            and (len(_digits(raw)) >= MATCH_DIGITS or raw.startswith("+") or _alone_on_its_line(text, start, end))
+
     found: list[tuple[int, int, str]] = []
     for m in _RUN.finditer(text):
-        at = m.start()
-        for start, end in _windows(m):
-            if start < at:
-                continue
-            digits = match_digits(text[start:end])
-            if (digits and _token_id(data["key"], digits) in cards and _stands_alone(text, start, end)
-                    and not _UNIT_AFTER.match(text, end)):
-                found.append((start, end, text[start:end]))
-                at = end
+        pieces = [(p.start() + m.start(), p.end() + m.start()) for p in re.finditer(r"\S*\d\S*", m.group(0))]
+        spans, i = [], 0
+        while i < len(pieces):
+            j = next((j for j in range(len(pieces) - 1, i - 1, -1) if counts(pieces[i][0], pieces[j][1])), None)
+            if j is None:
+                spans = []
+                break
+            spans.append((pieces[i][0], pieces[j][1], text[pieces[i][0]:pieces[j][1]]))
+            i = j + 1
+        found += spans
     return found
 
 

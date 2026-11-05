@@ -1272,11 +1272,14 @@ def _card_for(entity: dict, siblings: list[dict], waiting: "contacts_local.Waiti
 
 def _number_card(entity: dict, siblings: list[dict], settings: Settings) -> dict | None:
     """The waiting card whose number this mention's conversation gave (`phone_numbers.take`), found by its id, a one-part
-    nickname's too, since a number is not a name two people can share. A card taken back since matches nothing; a demo
-    bank has none."""
+    nickname's too, since a number is not a name two people can share. Never a person known by a relation, in the mention
+    or on the card ("Mom", read as a bare word here, where a wrong miss costs nothing: `role_people`): the number stays a
+    token. A card taken back since matches nothing; a demo bank has none."""
     ids = {str(e.get(phone_numbers.CARD_KEY)) for e in (entity, *siblings) if e.get(phone_numbers.CARD_KEY)}
     memory_path = getattr(settings, "memory_path", None)
     if len(ids) != 1 or not memory_path or entity_types.in_set(entity.get("type")) != "person":
+        return None
+    if any(e.get(role_people.UNNAMED_KEY) for e in (entity, *siblings)):
         return None
     from api.services import demo_guard
 
@@ -1284,7 +1287,8 @@ def _number_card(entity: dict, siblings: list[dict], settings: Settings) -> dict
         return None
     wanted = next(iter(ids))
     return next((c for c in contacts_local.load_waiting(Path(memory_path).name)
-                 if str(c.get("id")) == wanted and contacts_local.card_live(c)), None)
+                 if str(c.get("id")) == wanted and contacts_local.card_live(c)
+                 and not role_people.parse(contacts_local.card_name(c), bare=True)), None)
 
 
 def _card_entity(entity: dict, card: dict) -> dict:

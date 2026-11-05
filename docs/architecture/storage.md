@@ -1576,11 +1576,14 @@ while off. No claim's value comes from a card, and no digit does.
 
 **A number on a Contacts card (ruling 55, owner 2026-11-05).** Only a line the person typed in a ticked chat (`tokenise`), while on:
 
-- **By value** (`_card_runs`): each digit run standing alone is hashed with the vault's key and looked up in `contact_numbers.json`,
-  whatever the line says, alone on a line, with or without `+`, any spacing, national against international, since both sides hash the
-  last nine digits. A run may hold two numbers with only a space between them (`_windows`). A link's piece, a piece of a longer
-  dashed run and a digit run before a unit never match. The cost is what a last-nine hash can't see: another country's number,
-  or an id ending in the same nine digits, reads as the card's.
+- **By value** (`_card_runs`): a digit run standing alone is hashed with the vault's key and looked up in `contact_numbers.json`,
+  national against international, since both sides hash the last nine digits. A miss leaves digits as they are and a wrong match
+  rewrites someone's words for good, so all of a run must be card numbers (it may hold two with only a space between them), each its whole
+  shape (`_whole_number`, which the vault's own match uses too): only `+`, `00` and a country code, a trunk zero, `1` and ten digits, or a
+  bare ten may differ from the nine, never an id or a date's longer tail, nor the end of a grouped card number. `_plausible`, the
+  `_NOT_A_PHONE` word before it and a unit after it all veto. Under nine digits it needs `+` or a line of its own. The cost is what a
+  last-nine hash can't see: a ten-digit run with a stray first digit, or another country's number, reads as the card's. A card named by a
+  relation ("Mom") never makes a page (`_number_card`); the number stays a token.
 - **A `+` number with no card** (`episode_scrub.plus_numbers`, exactly what the scrub would blank) is kept as a token. Other speakers'
   lines and a bracketed shape are the scrub's as before; a bare run no card holds stays in clear. Neither widens page prose
   (`own=True` only from `tokenise`).
