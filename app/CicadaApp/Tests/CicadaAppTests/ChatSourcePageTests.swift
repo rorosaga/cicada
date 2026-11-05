@@ -13,7 +13,7 @@ final class ChatSourcePageTests: XCTestCase {
     // MARK: 3 — page actions only where they apply
 
     private func entry(_ id: String, site: String? = nil) -> SourceCatalogEntry {
-        SourceCatalogEntry(id: id, group: .accounts, title: id, origin: id, channels: [], site: site)
+        SourceCatalogEntry(id: id, group: .accounts, category: .social, title: id, origin: id, channels: [], site: site)
     }
 
     func testReadingInTheBrowserShowsOnlyOnTheSourcesItActsOn() {
@@ -30,15 +30,14 @@ final class ChatSourcePageTests: XCTestCase {
         XCTAssertEqual(SourcePageActions.of(browser, exploreGone: true), [])
     }
 
-    // MARK: 6 — connected first inside each section
+    // MARK: 6 — what is set up comes first (ROR-7: at the top of the page, no longer of each section)
 
-    func testASectionListsWhatIsSetUpFirstAndKeepsTheCataloguesOrderInEachPart() {
+    func testWhatIsSetUpComesFirstAndKeepsTheCataloguesOrderInEachPart() {
         let entries = [entry("a"), entry("b"), entry("c"), entry("d")]
         let status: [String: SourceCatalogStatus] = ["a": .off, "b": .connected, "c": .off, "d": .needsSignIn]
         let rows = entries.map { SourceCatalogRow(entry: $0, status: status[$0.id]!, lastSync: nil) }
-        let section = SourceCatalog.grouped(rows).first { $0.group == .accounts }
-        XCTAssertEqual(section?.rows.map(\.id), ["b", "d", "a", "c"])
-        XCTAssertEqual(SourceCatalog.drawnOrder(rows).map(\.id), ["b", "d", "a", "c"], "the keys walk what is drawn")
+        XCTAssertEqual(SourceGrid.sections(rows).map(\.section), [.needsYou, .connected, .category(.social)])
+        XCTAssertEqual(SourceGrid.drawnOrder(rows).map(\.id), ["d", "b", "a", "c"], "the keys walk what is drawn")
     }
 
     // MARK: 7 — a date thousands of years ahead is a sort key, not a date

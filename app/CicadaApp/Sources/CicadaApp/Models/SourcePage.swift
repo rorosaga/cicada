@@ -54,9 +54,15 @@ enum SourcePageStatus: Equatable {
     case notInstalled
 
     static func of(row: SourceCatalogStatus, run: SourceRowStatus, latest: String?,
-                   check: ChatCheck? = nil, notInstalled: Bool = false) -> SourcePageStatus {
+                   check: ChatCheck? = nil, notInstalled: Bool = false,
+                   waitingOn: String? = nil) -> SourcePageStatus {
         if notInstalled { return .notInstalled }
         if case .syncing(let detail, _, _) = run { return .syncing(detail: detail) }
+        // ROR-7 — a read waiting on the person reads the same on the tile and on the page it opens, whether its reader
+        // reads Off (a permission taken away) or still Connected (the person's own attempt that macOS refused).
+        if let waitingOn {
+            return .needsYou(waitingOn == Copy.sourceNeedsAccess ? Copy.SourcePage.allowAccess : waitingOn)
+        }
         switch row {
         case .needsSignIn: return .needsYou(Copy.SourcePage.signInAgain)
         case .waitingForAgent: return .needsYou(Copy.SourcePage.connectAnAgent)

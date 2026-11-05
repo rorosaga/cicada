@@ -193,4 +193,5 @@ enum RowMetrics {
     static let menuItem: CGFloat = 30   // a menu's item: the D-Sleep mock's engine rows (DR-34)
     static let keyValue: CGFloat = 32   // a key–value row: the D-Sleep mock's readout (DR-34)
     static let videoPick: CGFloat = 64  // a video in the picker: an 88 × 50 frame and three lines (G162, §9 2026-09-30)
+    static let sourceTile: CGFloat = 60 // a source on the Sources grid: its 36 pt mark beside two lines (ROR-7)
 }

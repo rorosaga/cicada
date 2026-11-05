@@ -181,7 +181,8 @@ enum OriginIconography {
 
     static func symbol(for origin: String) -> String {
         switch origin {
-        case "mcp", "claude-code", "cursor", "codex", "claude-desktop": "bubble.left.and.bubble.right"
+        case "mcp", "claude-code", "cursor", "codex", "claude-desktop", SourceCatalog.chatExportsOrigin:
+            "bubble.left.and.bubble.right"
         case "chrome-bookmark", "brave-bookmark", "vivaldi-bookmark", "comet-bookmark", "dia-bookmark": "globe"
         case "chrome-tab-group": "square.stack"
         case "safari-bookmark", "safari-tab": "safari"
@@ -312,6 +313,7 @@ enum OriginIconography {
         // installed icon and then a globe.
         case "brave-bookmark": "brave"
         case "rss": "rss"
+        case "notion-export", "notion-api": "notion"
         case "telegram", "telegram-chats": "telegram"
         case "whatsapp": "whatsapp"
         // 2026-11-04 (owner: "whisperflow in the sources page doesn't have the logo of Whisperflow") — the vendor's own

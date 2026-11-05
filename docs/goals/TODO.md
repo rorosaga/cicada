@@ -16,6 +16,12 @@
   pages: a parse of the whole pending store per project page per project name with no page. Fixed and moved off the
   loop. **For the owner:** the auto-updater reads a timed-out `/sleep/status` as nothing running, so a stall past 2 s lets
   an install stop the backend during a run (G238, open item a). Left as it is, pinned by a test, pending a ruling.
+- **2026-11-05 — the Sources root is a grid of apps (ROR-7, G217, G161; branch `ror7-sources-grid`).** Needs you, Connected,
+  Suggested, then categories by what a source is; a search with no network and no model; one click opens the standard
+  source page. A company is a search word, never a group (the reasoning is on G217). The Connected section is exactly what
+  the eyebrow counts, so the row #619 left reading Connected for a borrowed reader keeps its dot in its own category.
+  No new route: everything is derived from what the page already held.
+
 - **2026-11-04 — phone numbers on the right page, proposed ruling 55 (G81; PR #603, branch `g81-phone-numbers`).** Owner: he texted
   an agent two people's numbers and expected memory to map and follow them. Built OFF (the switch file `numbers_switch.json`), never
   run on real data: a token in the bank, the digits in a vault on this Mac, shown on the person's page and in the Reader.
