@@ -19,25 +19,21 @@ the backend, a stdio MCP server, the CLI. Never an environment variable, which o
 nothing is minted and every path is byte for byte what it was. A bank that already holds tokens keeps being read right
 (the note and the conversion follow the token, not the switch), so turning it off never strands them.
 
-**What counts as a number.** A token replaces the digits in the stored words, so a bare digit run needs a positive signal
-that it is a phone: a phone word right before it ("phone:", "su celular es"), a number word somebody owns ("her number is",
-not "my order number is"), a call to reach them ("call Ana at"), a pronoun ("she's on"), or a person's name right beside
-it with the run ending the clause ("Ana 2025550143", "add Ana, 2025550143", "Bob Example 2025550177"): how a number is
-really typed to a texted agent. Beside a word, nine digits or more need a capital or an "add"/"save" in front; seven or
-eight need a capital and either that verb or the distinctive first name or surname of a person in this memory
-(:func:`_person_words`). A function word ("de", "la", "the") or a word that says the digits are something else ("Order",
-"Invoice", "Monday") never vouches. A run of nine digits or more the vault already holds counts when it stands alone
-(:func:`_known_runs`). Absence of a negative is not a signal. A bare run with none of these stays in the words, exactly
-as today: false negatives over lost words (#502). A stored line never moves back, so a wrong rewrite is data loss, and
-a digit left in clear is what today does.
+**What counts as a number.** A token replaces the digits in the stored words for good, so only what is explicit counts. In
+the person's own line: (a) a phone word tied to the digits ("her number is N", "su teléfono es N", "mi celular N"); (b) an
+"add"/"save" and a capitalised name before nine digits or more ("add Ana, N", "guarda a Ana N"); (c) a change said with a
+phone word ("changed her number to N"); (d) a run of nine digits or more the vault already holds, standing alone
+(:func:`_known_runs`). In anyone else's line: only (a) with a phone word somebody owns, and (d). A bare "Ana N" is no signal:
+a miss costs digits in clear, which is what today does; a wrong match is a person's words rewritten for good. A ``+`` or a
+bracketed shape counts only inside (a) or (b); elsewhere the chat scrub takes it, as it always has.
 
 **Why old chats are not re-read.** A stored sitting is rebuilt from its own body, so a stored line never passes through
 here; and a line a reader posts again keeps its stored words when they are what the old scrub or this one makes of it
 (:func:`tokenise_batch`). Only a new message, or a real edit, can hold a new token. Numbers already ``[redacted]`` stay
 redacted: the app could re-post them, but that is a person-started read for the owner to ask for, not what a switch does.
 
-**Whose words.** Only the person's own lines are tokenised. An agent's reply and another speaker's line are redacted by the
-same rule, bare digits included: the agent's echo is not evidence, and a correspondent's "my new number is X" is exactly
+**Whose words.** Only the person's own lines are tokenised. An agent's reply and another speaker's line are redacted by
+their narrower rule: the agent's echo is not evidence, and a correspondent's "my new number is X" is exactly
 the shape of the "hi, it's me, new number" fraud, so it never reaches a page. A forwarded message is someone else's words
 too.
 
@@ -70,7 +66,7 @@ from typing import Iterable
 
 from loguru import logger
 
-from api.services import episode_scrub, people_directory, text_fold
+from api.services import episode_scrub, people_directory
 
 #: The claim predicate a number lands under: the one `contacts_local.FACT_PREDICATES` already names for a card's fact.
 PREDICATE = "phone"
@@ -549,47 +545,43 @@ def reveal(bank, token_ids_wanted: Iterable[str]) -> dict[str, str]:
 
 # ---- the person's own lines --------------------------------------------------------------------------------------
 
-_PHONE_WORD = (r"phone|telephone|cell(?:phone)?|mobile|m[oó]vil|celular|cel|tel[eé]fono|t[eé]l[eé]phone|portable|telefon|"
-               r"handy|whatsapp|wsp|tel\.?")
+_PHONE_WORD = r"phone|telephone|cell(?:phone)?|mobile|m[oó]vil|celular|cel|tel[eé]fono|t[eé]l[eé]phone|telefon|whatsapp|wsp|tel\.?"
 _NUMBER_WORD = r"numbers?|n[uú]meros?|num[eé]ros?|nummer"
 _QUALIFIER = (r"new|old|current|work|home|personal|second|other|former|previous|private|nuevo|nueva|viejo|vieja|antiguo|"
               r"antigua|otro|otra|actual|nouveau|nouvelle|ancien|ancienne|autre|novo|nova|neue?|alte?")
-#: Who owns a number word: without one, "number 123456789" is an order, a seat, a flight, anything.
-_WHOSE = (r"[^\W\d_]+['’]s|[^\W\d_]+s['’]|my|his|her|their|your|mi|su|tu|sa|son|ma|meu|seu|mein|sein|ihre?|"
-          r"(?:el|la|le|o|a)\s+(?:" + _QUALIFIER + r")?\s*(?:de|del|d['’])\s*[^\W\d_]+")
+#: Who owns a number word: without one, "number 123456789" is an order, a seat, a flight, anything. A possessive only on a
+#: capital, never "this year's", and never a contraction ("it's number 1500000") or a day ("Today's number").
+_WHOSE = (r"(?!(?:it|that|he|she|here|there|what|who|let|today|yesterday|tomorrow)['’]s)(?-i:[A-ZÀ-ÖØ-Þ])[^\W\d_]*['’]s|"
+          r"my|his|her|their|your|mi|su|tu|sa|son|ma|meu|seu|mein|sein|ihre?")
 _DIGITS = r"\+?\(?\d[\d .\-()]{5,20}\d"
-#: No dot: a decimal, a version or a coordinate is not how a bare phone beside a name is written.
-_BARE = r"\(?\d[\d \-()]{5,20}\d"
-_LINK = (r"\s*[:=\-–→,]?\s*(?:(?:it['’]?s|it is|that['’]?s|is|was|are|were|es|son|era|est|ist|é|now|ahora|from|de|desde|von|"
-         r"to|a|at|on|por|al)\s+){0,3}")
-#: A positive signal, nothing less: a phone word, a number word somebody owns, or a call to reach them.
-_SAID_RE = re.compile(
-    r"(?i)(?<![\w])(?:"
-    rf"(?:{_PHONE_WORD})(?:\s+(?:{_NUMBER_WORD}|no\.?|\#))?"
-    rf"|(?:{_WHOSE})\s+(?:(?:{_QUALIFIER}|{_PHONE_WORD})\s+){{0,2}}(?:{_NUMBER_WORD})"
-    rf"|(?:{_NUMBER_WORD})\s+de\s+[^\W\d_]+"
-    r"|(?:call(?:ing)?|text(?:ing)?|ring|message|reach|llam\w*|escr[ií]b\w*)\s+(?:[^\W\d_]+\s+){0,2}(?:at|on|al|en)\s+"
-    rf"){_LINK}(?P<num>{_DIGITS})")
-#: "the old one was 2025550177": a number only when the line already holds one or names one.
-_ONE_RE = re.compile(rf"(?i)\b(?:{_QUALIFIER})\s+one\s+(?:was|is|es|era)\s+(?P<num>{_BARE})")
-#: "she's on 2025550143", "he is at 2025550143".
-_PRONOUN_RE = re.compile(rf"(?i)(?<![\w])(?:she|he|they|ella|[eé]l|ellos)(?:['’]s|['’]re|\s+is|\s+are|\s+est[aá])?\s+"
-                         rf"(?:on|at|en|al)\s+(?P<num>{_BARE})")
-#: A word or two and then the number: "Ana 2025550143", "add Ana, 2025550143", "Bob Example: 202 555 0143", "Ana at …".
-_NAMED_RE = re.compile(rf"(?P<name>[^\W\d_][\w'’\-]*)(?:['’]s)?(?:\s*[:,\-–]\s*|\s+(?:at|on|al|en)\s+|\s+)(?P<num>{_BARE})")
-#: "from <number> to <number>", "<number> and <number>": once one is a number, the next in the list is too.
-_NEXT_RE = re.compile(rf"(?i)\s*(?:,|and|y|or|o|to|a|por|→|->|/)\s*(?P<num>{_DIGITS})")
-#: After a bare number beside a name, the clause must end: "Bob 1500000 dollars" is not a phone, nor is "1500000 is the
-#: budget". The words here are the ones that follow a phone.
-_CLAUSE_ENDS = re.compile(r"(?i)\s*(?:$|[,.;!?)\n]|(?:and|y|or|o|thanks|thank you|please|pls|gracias|por favor|merci|danke|"
-                          r"is (?:her|his|their|my)|es (?:su|mi)|now|ahora)\b)")
-#: After a strong signal the clause may go on, but not into a unit.
+#: No dot: a decimal, a version or a coordinate is not how a number after an "add" is written.
+_BARE = r"\+?\(?\d[\d \-()]{5,20}\d"
+#: What ties the word to the digits: a verb of being and nothing else. "de", "a" and "por" are how a sum is said
+#: ("mi celular por 1500000"), and "at" and "on" how a place is.
+_LINK = r"\s*[:=\-–→]?\s*(?:(?:['’]s|it['’]?s|it is|that['’]?s|is|was|are|were|es|son|era|est|ist|é|now|ahora)[:=]?\s+){0,3}"
+_OWNED = (rf"(?:{_WHOSE})\s+(?:(?:{_QUALIFIER}|{_PHONE_WORD})\s+){{0,2}}(?:{_NUMBER_WORD}|{_PHONE_WORD})"
+          rf"(?:\s+de\s+(?:{_PHONE_WORD}|contacto))?")
+_PHONE_TERM = rf"(?:{_PHONE_WORD})(?:\s+(?:{_NUMBER_WORD}|no\.?|\#))?"
+#: (a) in the person's own line.
+_SAID_RE = re.compile(rf"(?i)(?<!\w)(?:{_OWNED}|{_PHONE_TERM}|(?:{_NUMBER_WORD})\s+de\s+contacto){_LINK}(?P<num>{_DIGITS})")
+#: (a) in anyone else's: the phone word must be somebody's.
+_OWNED_RE = re.compile(rf"(?i)(?<!\w){_OWNED}{_LINK}(?P<num>{_DIGITS})")
+_CHANGE_VERB = r"(?:chang\w+|updat\w+|switch\w+|replac\w+|cambi\w+|actualiz\w+|mudou|ge[aä]ndert)"
+#: (c) "changed her number to N", "su número cambió a N", "updated her phone from N to M".
+_CHANGE_RE = re.compile(rf"(?i)(?<!\w)(?:{_CHANGE_VERB}\s+(?:de\s+)?(?:{_OWNED}|{_PHONE_TERM})"
+                        rf"|(?:{_OWNED}|{_PHONE_TERM})\s+(?:has\s+|just\s+)?{_CHANGE_VERB})"
+                        rf"\s*(?:to|a|por|from|de|desde|von|:|=|,\s*(?:it['’]?s|now|ahora))?\s*(?P<num>{_DIGITS})")
+_CHANGE_NEXT_RE = re.compile(rf"(?i)\s*(?:to|a|por|→|->)\s*(?P<num>{_DIGITS})")
+#: (b) the word right before the digits, read with :data:`_ADD_BEFORE`: "add Ana, N", "add Bob Example N".
+_NAMED_RE = re.compile(rf"(?P<name>[^\W\d_][\w'’\-]*)(?:\s*[:,\-–]\s*|\s+)(?P<num>{_BARE})")
+_ADD_BEFORE = re.compile(r"(?i)(?<!\w)(?:add|added|save|saved|añade|añadir|agrega|agregar|guarda|guardar|apunta|apuntar|ajoute|"
+                         r"enregistre)\s+(?:[^\W\d_]+\s+){0,2}$")
+#: After the digits of (b) the clause must end: "add Bob 1500000 dollars" is not a phone.
+_CLAUSE_ENDS = re.compile(r"(?i)\s*(?:$|[,.;!?)\n]|(?:and|y|thanks|thank you|please|pls|gracias|por favor|merci|danke)\b)")
+#: After a phone word the clause may go on, but not into a unit.
 _UNIT_AFTER = re.compile(r"(?i)\s*(?:%|\$|€|£|usd|eur|gbp|mxn|dollars?|euros?|pesos?|pounds?|km|kg|miles|users|people|"
                          r"followers|views|times|visits|items|is the\b|are the\b|was the\b)")
-#: Who may ask a run of 7 or 8 digits to be a phone: too few digits for a capitalised word alone to say so.
-_ADD_VERBS = frozenset("add added adding save saved saving store stored note noted put keep remember añade añadir agrega agregar "
-                       "guarda guardar apunta apuntar ajoute enregistre".split())
-#: The word before that says this is not somebody's phone, whatever else is near.
+#: A veto only, it never makes a number: the word before that says this is not somebody's phone, whatever else is near.
 _NOT_A_PHONE = frozenset(
     "order orders tracking account invoice flight booking reservation reference ref case ticket confirmation serial "
     "card room rooms seat table page pages version model part sku item id code zip postcode price cost total paid pay "
@@ -602,13 +594,6 @@ _NOT_A_PHONE = frozenset(
     "monday tuesday wednesday thursday friday saturday sunday january february march april may june july august september "
     "october november december lunes martes miércoles jueves viernes sábado domingo enero febrero marzo abril mayo "
     "junio julio agosto septiembre octubre noviembre diciembre".split())
-#: Never a name beside a number: "de 1500000", "la 1234567", "hit the 1500000". A word in both a function list and common
-#: use as a first name stays a name.
-_FUNCTION_WORDS = (text_fold.SUBJECT_STOPWORDS | text_fold.SPANISH_STOPWORDS) - {"will", "ella", "han"}
-#: First names that are everyday words, capitalised at the head of a line: "Bill 1500000", "Luz 1500000" (the power bill).
-_ORDINARY_NAMES = frozenset("bill mark rose rosa grace hope art luz mar sol paz".split())
-#: A word on more person pages than this names nobody in particular (`entity_resolver.MAX_NAME_HOLDERS`'s bound).
-_MAX_NAME_HOLDERS = 5
 #: A date, alone or with a time after it, only when it holds a real year: "12 03 2026 14 30" is a date, and "06 12 34 56 78"
 #: and "0612 34 56 78" are a number's usual spellings. A two-digit year counts only when it ends the run.
 _DATEISH = re.compile(r"^(?:(?:19|20)\d{2}[-/. ]\d{1,2}[-/. ]\d{1,2}(?:\D|$)"
@@ -640,73 +625,17 @@ def _stands_alone(text: str, start: int, end: int) -> bool:
 
 
 def _before(text: str, at: int) -> set[str]:
-    """The three words before ``at``: "my order number is 123456789" is an order's whichever of them the rule read."""
-    return {w.lower() for w in re.findall(r"[^\W\d_]+", text[:at])[-3:]}
+    """The four words before ``at`` ("Order's number is" is four): an order's whichever of them the rule read."""
+    return {w.lower() for w in re.findall(r"[^\W\d_]+", text[:at])[-4:]}
 
 
-def _person_words(name: str) -> set[str]:
-    """What of a page's name or alias can vouch: its first and last word, capitalised there as a name is, three letters or
-    more. Never a word in the middle ("de", "la" in "Maria de la Cruz"), and nothing of a name that opens with a function
-    word: "The Boss" and "La Jefa" describe someone. An ordinary word is what the person meant by it far more often than
-    the page, and leaving digits in clear costs what today costs."""
-    words = name.split()
-    if not words or text_fold.fold(words[0]) in _FUNCTION_WORDS:
-        return set()
-    out = set()
-    for word in {words[0], words[-1]}:
-        folded = text_fold.fold(word)
-        if word[0].isupper() and len(folded) >= 3 and not ({folded, word.casefold()} & (_FUNCTION_WORDS | _NOT_A_PHONE | _ORDINARY_NAMES)):
-            out.add(folded)
-    return out
-
-
-def _known_person(bank, word: str) -> bool:
-    """Whether ``word`` is a distinctive first name or surname of a person page here (:func:`_person_words`). Also not a
-    word of any other kind of page's name ("Cruz" with a page "Cruz Roja"), nor one more than :data:`_MAX_NAME_HOLDERS`
-    people share: common in this bank, so it says nothing. Reads the cached index, only for a capitalised word beside a run
-    of 7 or 8 digits with no "add" or "save"."""
-    if not isinstance(bank, Path):
-        return False
-    fold = text_fold.fold(word)
-    holders = 0
-    try:
-        from api.services import bank_index
-
-        for f in bank_index.files(bank, "entities"):
-            fm = f.frontmatter or {}
-            names = [str(fm.get("name") or "")]
-            if fm.get("type") != "person":
-                if fold in text_fold.fold(names[0]).split():
-                    return False
-                continue
-            # A page titled by a relation ("Her Sister") has no name of its own yet.
-            names = [] if fm.get("unnamed") else names
-            names += [str(a) for a in fm.get("aliases") or []]
-            holders += any(fold in _person_words(n) for n in names)
-    except Exception:  # noqa: BLE001 - an unreadable index vouches for nothing; the digits stay in the words
-        return False
-    return 0 < holders <= _MAX_NAME_HOLDERS
-
-
-def _named(text: str, m: re.Match[str], bank) -> bool:
-    """Whether the word before a bare run is a person's name, and the run a phone. A lowercase word vouches only after
-    "add" or "save" and at nine digits or more; prefer digits in clear to a rewritten line."""
-    word, raw = m.group("name"), m.group("num")
-    if word.casefold().rstrip("'’s") in _NOT_A_PHONE or word.casefold() in _NOT_A_PHONE:
-        return False
-    if text_fold.fold(word) in _FUNCTION_WORDS:
-        return False
-    if _before(text, m.start("num")) & _NOT_A_PHONE:
-        return False
-    if not _CLAUSE_ENDS.match(text, m.end("num")):
-        return False
-    words_before = re.findall(r"[^\W\d_]+", text[:m.start("name")])
-    # "add my sister Ana": the verb may stand a word or two back.
-    asked = bool(set(w.casefold() for w in words_before[-3:]) & _ADD_VERBS)
-    capital = word[0].isupper()
-    if len(_digits(raw)) >= MATCH_DIGITS:
-        return capital or asked
-    return capital and (asked or _known_person(bank, word))
+def _added(text: str, m: re.Match[str]) -> bool:
+    """(b): nine digits or more ending the clause, right after a capitalised word an "add" or "save" stands before."""
+    word = m.group("name")
+    return (word[0].isupper() and len(_digits(m.group("num"))) >= MATCH_DIGITS
+            and word.casefold() not in _NOT_A_PHONE and word.casefold().rstrip("'’s") not in _NOT_A_PHONE
+            and not _before(text, m.start("num")) & _NOT_A_PHONE
+            and bool(_ADD_BEFORE.search(text[:m.start("name")])) and bool(_CLAUSE_ENDS.match(text, m.end("num"))))
 
 
 def _known_runs(text: str, bank) -> list[tuple[int, int, str]]:
@@ -734,40 +663,34 @@ def _known_runs(text: str, bank) -> list[tuple[int, int, str]]:
     return [(m.start(), m.end(), m.group(0)) for m in runs if _token_for(data, _digits(m.group(0))) in data["numbers"]]
 
 
-def _spans(text: str, bank="") -> list[tuple[int, int, str]]:
-    """Every number in the person's line: ``(start, end, raw)``, earliest first, none overlapping."""
+def _spans(text: str, bank="", *, person: bool = True) -> list[tuple[int, int, str]]:
+    """Every number in a line, ``(start, end, raw)``, earliest first, none overlapping. ``person=False`` is anyone else's
+    line: only a phone word somebody owns, and a number the vault holds."""
     found: list[tuple[int, int, str]] = []
 
     def add(start: int, end: int, raw: str) -> None:
         if not any(start < e and s < end for s, e, _ in found):
             found.append((start, end, raw))
 
-    def bare(m: re.Match[str]) -> bool:
+    def good(m: re.Match[str]) -> bool:
         return _plausible(m.group("num")) and _stands_alone(text, m.start("num"), m.end("num"))
 
-    for rx in episode_scrub.PHONE_SHAPES:   # the shapes the chat scrub already destroys: a token loses less
-        for m in rx.finditer(text):
-            if episode_scrub.phone_shaped(m):
-                add(m.start(), m.end(), m.group(0))
-    for m in _SAID_RE.finditer(text):
-        if not bare(m) or _UNIT_AFTER.match(text, m.end("num")):
-            continue
-        if _before(text, m.start()) & _NOT_A_PHONE or _before(text, m.start("num")) & _NOT_A_PHONE:
-            continue
-        add(m.start("num"), m.end("num"), m.group("num"))
-        end = m.end("num")
-        while (follow := _NEXT_RE.match(text, end)) and bare(follow) and _CLAUSE_ENDS.match(text, follow.end("num")):
-            add(follow.start("num"), follow.end("num"), follow.group("num"))
-            end = follow.end("num")
-    for m in _PRONOUN_RE.finditer(text):
-        if bare(m) and _CLAUSE_ENDS.match(text, m.end("num")):
+    def tied(m: re.Match[str]) -> bool:
+        return (good(m) and not _UNIT_AFTER.match(text, m.end("num"))
+                and not (_before(text, m.start()) | _before(text, m.start("num"))) & _NOT_A_PHONE)
+
+    for m in (_SAID_RE if person else _OWNED_RE).finditer(text):
+        if tied(m):
             add(m.start("num"), m.end("num"), m.group("num"))
-    for m in _NAMED_RE.finditer(text):
-        if bare(m) and _named(text, m, bank):
-            add(m.start("num"), m.end("num"), m.group("num"))
-    if found or re.search(rf"(?i)\b(?:{_NUMBER_WORD}|{_PHONE_WORD})\b", text):
-        for m in _ONE_RE.finditer(text):
-            if bare(m) and _CLAUSE_ENDS.match(text, m.end("num")):
+    if person:
+        for m in _CHANGE_RE.finditer(text):
+            if tied(m):
+                add(m.start("num"), m.end("num"), m.group("num"))
+                follow = _CHANGE_NEXT_RE.match(text, m.end("num"))
+                if follow and good(follow) and not _UNIT_AFTER.match(text, follow.end("num")):
+                    add(follow.start("num"), follow.end("num"), follow.group("num"))
+        for m in _NAMED_RE.finditer(text):
+            if good(m) and _added(text, m):
                 add(m.start("num"), m.end("num"), m.group("num"))
     for start, end, raw in _known_runs(text, bank):
         add(start, end, raw)
@@ -797,24 +720,13 @@ def tokenise(text: str, bank) -> tuple[str, int]:
 
 
 def redact(text: str, bank) -> str:
-    """Somebody else's line: what this rule calls a number, redacted, bare digits included. Never in the vault: it is not
-    the person's word."""
-    spans = _spans(text or "", bank)
+    """Somebody else's line: a phone word they own, or a number the vault holds, redacted. Never in the vault: it is not the
+    person's word."""
+    spans = _spans(text or "", bank, person=False)
     out, last = [], 0
     for start, end, _raw in spans:
         out += [text[last:start], episode_scrub.REDACTED]
         last = end
-    return "".join(out) + text[last:]
-
-
-def _retoken(text: str, bank) -> str:
-    """The line as this rule would store it, minting nothing: a number the vault doesn't know stays as digits."""
-    out, last = [], 0
-    for start, end, raw in _spans(text or "", bank):
-        tid = known_id(bank, raw)
-        if tid:
-            out += [text[last:start], token(tid)]
-            last = end
     return "".join(out) + text[last:]
 
 
@@ -833,17 +745,18 @@ def _vault_knows(tokens: list[str], bank) -> bool:
 
 
 def _is_stored_line(posted: str, stored: str, writer: str, bank) -> bool:
-    """Whether a line posted again is the line already stored: what today's scrub, or this rule, makes of it. The token of
-    an EDITED number differs, so a real edit is never read as a re-post while the vault knows the stored line's numbers.
-    While it doesn't (damaged, missing, or a new one begun), the line's words decide: a stored line is never rewritten for
-    a lost vault, in any direction. The cost: an edit to only the digits of a number waits for a vault to be readable."""
+    """Whether a line posted again is the line already stored. Never the rule run again: the rule rests on a vault that grows,
+    so the comparison rests only on the stored line's own tokens, by value. The token of an EDITED number differs, so a real
+    edit is never read as a re-post while the vault knows the stored line's numbers. While it doesn't (damaged, missing, or a
+    new one begun), the line's words decide: a stored line is never rewritten for a lost vault, in any direction. The cost:
+    an edit to only the digits of a number waits for a vault to be readable."""
     cleaned = episode_scrub.scrub_for(posted, writer)[0]
     if cleaned == stored:
         return True
     tokens = token_ids(stored)
     if tokens:
         if _vault_knows(tokens, bank):
-            return episode_scrub.scrub_for(_retoken(posted, bank), writer)[0] == stored
+            return episode_scrub.scrub_for(_retoken_any(posted, bank, only=set(tokens)), writer)[0] == stored
         return _shape(cleaned) == _shape(stored)
     # A number once redacted: somebody else's line, or a lost vault. What it redacted may rest on a vault that is gone
     # now, so the words decide here too; the line was, and stays, redacted.
@@ -961,8 +874,8 @@ _LINK_TARGET = re.compile(r"\]\([^)\n]*\)|<[a-z]+:[^>\n]*>|\b(?:https?://|www\.)
 def clean_prose(text: str, bank, *, keep: bool = True) -> str:
     """Prose with no number, while the feature is on: each kept in the vault, so nothing is lost, and said as "a number".
     A link's target is never touched. With the vault unavailable the words stay: a damaged file never costs a page words.
-    ``keep=False`` is Stage 1's prose: a model's words, resting on a conversation that still holds what it holds, so
-    nothing in them enters the vault."""
+    ``keep=False`` is Stage 1's prose and an agent's claim sentence: resting on a conversation that still holds what it
+    holds, so nothing in them enters the vault."""
     text = text or ""
     if not enabled():
         return text
@@ -1104,14 +1017,12 @@ _DEVICE = r"(?:phone|cell(?:phone)?|mobile|m[oó]vil|celular|tel[eé]fono|telefo
 _NUM = rf"(?:{_NUM_ONLY}|{_DEVICE})"
 _OLD = r"(?:old|former|previous|antigu[oa]|viej[oa]|anterior|ancien(?:ne)?|velho|alte[rs]?)"
 _NEW = r"(?:new|nuev[oa]|nouveau|nouvelle|novo|nova|neue?[rs]?)"
-_CHANGE_VERB = r"(?:chang\w+|updat\w+|switch\w+|replac\w+|cambi\w+|actualiz\w+|mudou|ge[aä]ndert)"
 _IS = r"(?:is|es|est|ist|era|:|=|-)"
 #: Each must lead straight to the number: "new job", "got a new phone, her number is X" and "her new number, I only have X"
 #: say nothing about X, so they ask. A device word counts only when it is what is being given ("her new mobile is X").
-_ON_NOW = r"(?:she|he|they|ella|[eé]l)(?:['’]s|['’]re|\s+is|\s+are|\s+est[aá])?\s+(?:now\s+)?(?:on|at|en)"
 _CHANGED_BEFORE = re.compile(
     rf"(?i)\b{_NEW}\s+(?:{_DEVICE}\s+)?{_NUM}(?:\s+de\s+[^\W\d_]+)?\s*(?:{_IS}|now|ahora)?\s*(?:now\s*|ahora\s*)?$"
-    rf"|\b{_CHANGE_VERB}\s+(?:[^\W\d_]+\s+){{0,2}}{_NUM}\s*(?:to|a|por|,\s*it['’]?s|,\s*now|:|=|,\s*{_ON_NOW})?\s*$"
+    rf"|\b{_CHANGE_VERB}\s+(?:[^\W\d_]+\s+){{0,2}}{_NUM}\s*(?:to|a|por|,\s*it['’]?s|,\s*now|:|=)?\s*$"
     rf"|\b{_NUM}\s+(?:has\s+|just\s+)?{_CHANGE_VERB}\s*(?:to|a|por|:|=)?\s*$"
     rf"|\b{_NUM}\s+(?:is|es|est)\s+(?:now|ahora|maintenant)\s*$"
     rf"|\b(?:now|ahora)\s+(?:[^\W\d_]+\s+){{0,2}}{_NUM}\s+(?:is|es)\s*$")
@@ -1294,12 +1205,13 @@ def annotate(incoming: list, memory_path: Path, owner_id: str | None) -> tuple[l
     return kept, audit
 
 
-def _retoken_any(line: str, bank) -> str:
+def _retoken_any(line: str, bank, *, only: set[str] | None = None) -> str:
     """A line from a writer that kept its digits, with each digit run as its token if the vault knows it: so a claim
-    resting on it is read clause by clause like any other."""
+    resting on it is read clause by clause like any other. ``only``: just these tokens, so a run the vault learned after
+    the line was stored stays as digits."""
     def one(m: re.Match[str]) -> str:
         tid = known_id(bank, m.group(0))
-        return token(tid) if tid else m.group(0)
+        return token(tid) if tid and (only is None or tid in only) else m.group(0)
 
     return re.sub(_DIGITS, one, line)
 

@@ -95,6 +95,11 @@ extension Copy {
         static let dropHint = "A chat export from ChatGPT, Claude or Gemini, a bookmarks file or another export. "
             + "You can also drop one anywhere on the window."
         static func eyebrow(_ connected: Int) -> String { "\(connected) connected" }
+        /// `channel_registry.FEED_FETCH_OFF`, for a poll the person asked for.
+        static let feedsNotChecked =
+            "Feeds and calendar links aren't being checked: turn on Keep memory working in Settings → General."
+        /// The one action beside it: the row that holds that switch.
+        static let feedsTurnOn = "Open setting"
 
         // 2026-10-23 — connectors that work, said as they work.
         static let disconnect = "Disconnect"

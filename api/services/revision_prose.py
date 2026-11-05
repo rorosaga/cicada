@@ -60,10 +60,9 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import (entity_article, entity_body, episode_revision, evidence, markdown_parser, page_edits,
-                          sensitive_flags,
-                          section_provenance)
-from api.services.claims import Evidence
+from api.services import (book_marks, entity_article, entity_body, episode_revision, evidence, markdown_parser,
+                          page_edits, sensitive_flags, section_provenance)
+from api.services.claims import HIGHLIGHTED, Evidence
 
 #: Cicada's own inbox proposal for a held passage (`page_edits.write_proposal`'s ``origin``).
 ORIGIN = "revision"
@@ -122,8 +121,10 @@ def changes_of(rev) -> list[Change]:
     masked_prior = sensitive_flags.masked_for_engine(rev.prior)
     body, prior = tokens(rev.body), tokens(masked_prior)
     out = []
+    # Ruling 64: a passage the person un-highlighted is the book's words, closed by `book_marks`; a note is still theirs.
+    passages = [m for m in book_marks.parse(rev.prior) if m.predicate == HIGHLIGHTED] if rev.book else []
     for tag, i1, i2, j1, j2 in rev.blocks:
-        if tag not in ("replace", "delete"):
+        if tag not in ("replace", "delete") or any(m.start < i2 and m.end > i1 for m in passages):
             continue
         after = _unmarked(rev.body[j1:j2]) if tag == "replace" else ""
         # A value with no hit of its own (an echo of one flagged elsewhere) must not be quoted to a model either.

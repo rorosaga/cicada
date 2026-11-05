@@ -129,6 +129,7 @@ final class RunCardModelTests: XCTestCase {
         XCTAssertEqual(RunCardModel.Outcome.pausedPlanLimit.words, "Paused at your plan's limit")
         XCTAssertTrue(RunCardModel.Outcome.failed.needsYou)
         XCTAssertFalse(RunCardModel.Outcome.finished.needsYou)
+        XCTAssertLessThan(Copy.SleepV5.spendHelp.count, 100, "one line (owner: no explanatory paragraphs)")
     }
 
     func testAScheduledRunSaysSo() throws {

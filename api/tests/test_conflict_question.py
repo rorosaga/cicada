@@ -54,3 +54,11 @@ def test_build_entity_question_survives_a_null_payload():
 def test_contradiction_prompt_asks_for_question_and_descriptions():
     assert '"question"' in conflict_resolver._CONTRADICTION_RULES
     assert '"description"' in conflict_resolver._CONTRADICTION_RULES
+
+
+def test_a_measured_quantity_that_moves_is_never_a_contradiction_in_either_rule_set():
+    """ROR-41 (G98): a quantity that changes by nature is an update; an agreed price two people dispute may still ask."""
+    for rules in (conflict_resolver._CONTRADICTION_RULES, conflict_resolver._CONTRADICTIONS_RULES):
+        line = next(ln for ln in rules.splitlines() if ln.startswith("A measured quantity that naturally changes"))
+        assert "same date" in line and "history keeps the earlier value" in line
+        assert "price" not in line

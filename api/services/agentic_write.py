@@ -77,6 +77,14 @@ _TYPE_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
+def _person_subject(memory_path: Path, subject: str) -> bool:
+    """Whether a claim on ``subject`` lands on a person's page. With no page yet, yes: digits never wait in git on a guess."""
+    page = resolve_entity_file(memory_path, subject)
+    if page is None:
+        return True
+    return str(markdown_parser.parse(page).frontmatter.get("type") or "person") == "person"
+
+
 def _infer_entity_type(predicate: str) -> str:
     """Infer a closed-set entity type from the predicate label, else 'concept'."""
     p = (predicate or "").strip().lower()
@@ -356,17 +364,19 @@ def write_claim(
     predicate_raw = (predicate or "").strip()
     object_raw = (object or "").strip()
     observer = (observer or "agent").strip() or "agent"
-    # Proposed ruling 55: an agent's write holds no digits either, whatever door it came through.
+    # Proposed ruling 55: an agent's write on a person's page holds no digits either, whatever door it came through. Only a
+    # claim naming a phone there adds to the vault; its sentence never does, and any other page's digits are not this rule's.
+    person_page = phone_numbers.enabled() and _person_subject(Path(memory_path), subject_raw)
     try:
-        number = phone_numbers.claim_value(Path(memory_path), predicate_raw, object_raw)
+        number = phone_numbers.claim_value(Path(memory_path), predicate_raw, object_raw) if person_page else None
     except phone_numbers.VaultUnavailable as exc:
         # Never the digits as a claim: the sentence says why, and nothing is written.
         return {"subject": subject_raw, "entity_id": None, "claim_id": None, "action": "error", "observer": observer,
                 "error": str(exc)}
     if number is not None:
         predicate_raw, object_raw, object_kind, text = phone_numbers.PREDICATE, number, "literal", None
-    elif text:
-        text = phone_numbers.clean_prose(text, Path(memory_path))   # a claim's sentence holds no number either
+    elif text and person_page:
+        text = phone_numbers.clean_prose(text, Path(memory_path), keep=False)   # a claim's sentence holds no number either
     from api.config import get_settings
     from api.services import owner_identity
     # `get_settings()` (not `None`) so a `CICADA_OBSERVER_OWNER` power-user

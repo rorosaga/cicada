@@ -38,9 +38,11 @@ def context(body: str, *, name: str, entity_type: str, fields: dict,
     claims.raw_claim_entries(body)  # fail closed on unterminated/repeated fences
     sections = entity_body.parse_sections(claims.strip_claims_block(body))
     # Never expose closed/withdrawal claims as present beliefs. Prose itself may
-    # contain obsolete statements: the prompt explicitly labels it unverified.
+    # contain obsolete statements: the prompt explicitly labels it unverified. Ruling 64: nor what the person marked in
+    # a book: no model that writes a page reads those words.
     current = [asdict(c) for c in claims.parse_claims(body, strict=True)
-               if claims.is_current(c, now=date.fromisoformat(today)) and not claims.is_record(c)]
+               if claims.is_current(c, now=date.fromisoformat(today)) and not claims.is_record(c)
+               and not claims.is_mark(c)]
     data = dict(name=name, type=entity_type, today=today, source_dates=source_dates,
                 existing_sections=sections, incoming=fields, current_claims=current,
                 sources=sources or [])

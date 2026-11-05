@@ -48,6 +48,19 @@ struct PageBlocks: Codable, Equatable {
         var verbatim: Bool?
     }
 
+    /// What the person marked in a book, word for word (ruling 64). Both words are null for a caller without `sources`.
+    struct Marks: Codable, Equatable {
+        struct Item: Codable, Equatable {
+            var claimId: String
+            var day: String?
+            var text: String?
+            var note: String?
+        }
+
+        var items: [Item]
+        var total: Int
+    }
+
     struct Coordinates: Codable, Equatable {
         var lat: Double
         var lon: Double
@@ -232,6 +245,7 @@ struct PageBlocks: Codable, Equatable {
     var summary: InShort?
     var ongoing: [Ongoing]
     var ongoingTotal: Int
+    var marks: Marks?
     var coordinates: Coordinates?
     var looks: [Look]
     var sources: Sources?
@@ -239,7 +253,7 @@ struct PageBlocks: Codable, Equatable {
     var history: History?
 
     enum CodingKeys: String, CodingKey {
-        case shape, order, relevance, summary, ongoing, ongoingTotal, coordinates, looks, sources, citations, history
+        case shape, order, relevance, summary, ongoing, ongoingTotal, marks, coordinates, looks, sources, citations, history
     }
 
     init(from decoder: Decoder) throws {
@@ -250,6 +264,7 @@ struct PageBlocks: Codable, Equatable {
         summary = (try? c.decodeIfPresent(InShort.self, forKey: .summary)) ?? nil
         ongoing = (try? c.decodeIfPresent([Ongoing].self, forKey: .ongoing)) ?? []
         ongoingTotal = (try? c.decodeIfPresent(Int.self, forKey: .ongoingTotal)) ?? ongoing.count
+        marks = (try? c.decodeIfPresent(Marks.self, forKey: .marks)) ?? nil
         coordinates = (try? c.decodeIfPresent(Coordinates.self, forKey: .coordinates)) ?? nil
         looks = (try? c.decodeIfPresent([Look].self, forKey: .looks)) ?? []
         sources = (try? c.decodeIfPresent(Sources.self, forKey: .sources)) ?? nil

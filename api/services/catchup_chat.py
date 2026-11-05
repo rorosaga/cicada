@@ -116,7 +116,7 @@ def context_lines(memory_path: Path, entity_id: str, ctx=None, *, limit: int = 4
     conversations, and a few current beliefs in their own sentences. Shared by the app's turn and the harness's
     ``mode="catchup"`` so both doors converse from the same facts."""
     from api.services import inbox_context
-    from api.services.claims import is_current
+    from api.services.claims import is_current, is_mark
 
     if not entity_id:
         return []
@@ -132,7 +132,8 @@ def context_lines(memory_path: Path, entity_id: str, ctx=None, *, limit: int = 4
     if isinstance(eps, list) and eps:
         head.append(f"in {len(eps)} conversation{'s' if len(eps) != 1 else ''}")
     lines = [f"{fm.get('name') or entity_id}: " + ", ".join(head)]
-    beliefs = [c for c in ctx.claims(entity_id) if is_current(c) and str(getattr(c, "text", "") or "").strip()]
+    beliefs = [c for c in ctx.claims(entity_id)
+               if is_current(c) and not is_mark(c) and str(getattr(c, "text", "") or "").strip()]
     beliefs.sort(key=lambda c: str(getattr(c, "recorded_at", "") or getattr(c, "valid_from", "") or ""), reverse=True)
     for c in beliefs[:limit]:
         lines.append("- " + " ".join(str(c.text).split())[:200])

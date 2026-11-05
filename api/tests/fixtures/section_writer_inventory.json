@@ -1625,6 +1625,12 @@
       "disposition": "preserve_frontmatter_guarded"
     },
     {
+      "function": "_stamp_marks",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, MARKS_KEY: digest}",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
       "function": "_stamp_episode",
       "method": "write",
       "frontmatter": "fm",
@@ -1688,6 +1694,14 @@
       "function": "clean_file",
       "method": "write_document",
       "frontmatter": "new",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/book_marks.py": [
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
       "disposition": "preserve_frontmatter_guarded"
     }
   ]

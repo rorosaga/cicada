@@ -28,15 +28,16 @@ import threading
 from datetime import date
 from pathlib import Path
 
-from api.services import bank_index, design_refs, page_citations
+from api.services import bank_index, book_marks, design_refs, page_citations
 
 #: The wire's version; it rides the card's ETag, so a new shape revalidates every held card.
-SHAPE = "blocks-3"
+SHAPE = "blocks-4"
 #: Every block, in the order a page reads them — the redesign proposal's page order (2026-10-28 §0/§1): why it matters,
 #: In short (part B, 2026-10-29: Sleep's summary of a long, busy page, ``in_short``), where to check, the type block
-#: (a map from stored coordinates, a look), what is ongoing, the article's citations (ruling 48 (16),
+#: (a map from stored coordinates, a look), what is ongoing, what the person marked in a book (ruling 64,
+#: ``book_marks``), the article's citations (ruling 48 (16),
 #: ``page_citations``: its markers, References and belief sentences), then who changed it.
-KINDS = ("relevance", "summary", "sources", "coordinates", "looks", "ongoing", "citations", "history")
+KINDS = ("relevance", "summary", "sources", "coordinates", "looks", "ongoing", "marks", "citations", "history")
 MAX_ONGOING = 8
 MAX_SOURCES = 12
 MAX_LOOKS = 6
@@ -253,12 +254,16 @@ def build(memory_path: Path, entity_id: str, *, fm: dict, claims: list, relevanc
     today = today or date.today()
     page_type = str(fm.get("type") or "concept").strip().lower()
     out: dict = {"shape": SHAPE, "order": [], "relevance": relevance, "summary": summary(fm), "ongoing": [],
-                 "ongoingTotal": 0, "coordinates": None, "looks": [], "sources": None, "citations": None,
+                 "ongoingTotal": 0, "marks": None, "coordinates": None, "looks": [], "sources": None, "citations": None,
                  "history": None}
     try:
         open_events = ongoing(claims)
         out["ongoing"], out["ongoingTotal"] = open_events[:MAX_ONGOING], len(open_events)
     except Exception:  # noqa: BLE001 — a derived block never fails a page read
+        pass
+    try:
+        out["marks"] = book_marks.block(claims)
+    except Exception:  # noqa: BLE001
         pass
     out["coordinates"] = coordinates(fm, str(fm.get("name") or entity_id))
     try:
@@ -276,7 +281,7 @@ def build(memory_path: Path, entity_id: str, *, fm: dict, claims: list, relevanc
             pass
     out["history"] = history(history_entries or [], history_truncated)
     present = {"relevance": bool(relevance) and relevance.get("tense") != "self", "summary": out["summary"] is not None,
-               "ongoing": bool(out["ongoing"]),
+               "ongoing": bool(out["ongoing"]), "marks": out["marks"] is not None,
                "coordinates": out["coordinates"] is not None, "looks": bool(out["looks"]), "sources": out["sources"] is not None,
                "citations": out["citations"] is not None, "history": out["history"] is not None}
     out["order"] = [k for k in KINDS if present[k]]
@@ -372,7 +377,8 @@ def for_page(memory_path: Path, entity_id: str, kinds: tuple[str, ...]) -> dict:
 
     path = Path(memory_path) / "entities" / f"{entity_id}.md"
     try:
-        parsed = markdown_parser.parse(path, ledger=False)
+        # A book's marks are the first claims to spill into a ledger; every other block reads the fence alone.
+        parsed = markdown_parser.parse(path, ledger="marks" in kinds)
         claims = parse_claims(parsed.body or "")
     except Exception:  # noqa: BLE001
         return {"shape": SHAPE, "order": []}
@@ -405,7 +411,7 @@ def for_caller(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool) -> dict:
     the input is never changed."""
     out = {"shape": blocks.get("shape", SHAPE), "order": [k for k in blocks.get("order") or [] if k in kinds]}
     empty = {"relevance": None, "summary": None, "sources": None, "coordinates": None, "looks": [], "ongoing": [],
-             "citations": None,
+             "marks": None, "citations": None,
              "history": None}
     for kind in KINDS:
         out[kind] = blocks.get(kind, empty[kind]) if kind in kinds else empty[kind]
@@ -414,6 +420,8 @@ def for_caller(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool) -> dict:
         out["ongoing"] = [dict(item, text=OWN_WORDS) if item.get("verbatim") else dict(item)
                           for item in out["ongoing"]]
     out["citations"] = page_citations.for_caller(out["citations"], verbatim=verbatim)
+    if not verbatim:
+        out["marks"] = book_marks.for_caller(out["marks"])
     return out
 
 
@@ -456,6 +464,20 @@ def words(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool = True) -> str
                 when = (f", planned for {item['target']}" if item.get("target")
                         else f", since {item['since']}" if item.get("since") else "")
                 lines.append(f"  - {item['kind']} {item['status']}{when}: {text} [{item['claimId']}]")
+        elif kind == "marks":
+            m = blocks["marks"] if verbatim else book_marks.for_caller(blocks["marks"])
+            lines.append(f"- marked by the person in this book: {m['total']} (a highlight is the book's words, which they "
+                         "chose; a note is theirs)")
+            for item in m["items"]:
+                day = f" ({item['day']})" if item.get("day") else ""
+                if item.get("text"):
+                    lines.append(f"  - highlight{day}: {item['text']} [{item['claimId']}]")
+                if item.get("note"):
+                    lines.append(f"  - their note{day}: {item['note']}")
+                if not item.get("text") and not item.get("note"):
+                    lines.append(f"  - {OWN_WORDS}{day} [{item['claimId']}]")
+            if m["total"] > len(m["items"]):
+                lines.append(f"  - … and {m['total'] - len(m['items'])} more, found by search")
         elif kind == "citations":
             c = page_citations.for_caller(blocks["citations"], verbatim=verbatim)
             lines.append(f"- citations: {c['total']} sources ({c.get('conversations', 0)} conversations, "

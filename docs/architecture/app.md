@@ -804,7 +804,8 @@ Sources page while it shows (`AgentLiveProbe`, ids and times only). An allowed w
 (X, Instagram, LinkedIn) and YouTube's Watch later / history read **Connected** only with one; turned on with none they
 read **On · waits for your agent** (`SourceCatalogStatus.waitingForAgent`, a grey dot — nothing is broken, nothing is
 read), the detail says why under the word, no last-sync line shows, and the header ("Sources · N connected") does not
-count them. Onboarding's Sources tiles use the same rule, and the saved-lists step says "No agent is connected yet…"
+count them. The header counts one reader once (ROR-41): Chrome's YouTube history reads Connected on both rows and counts
+as one, Chrome's (`SourceCatalog.readerHome`; a test fails on a shared channel with no home). Onboarding's Sources tiles use the same rule, and the saved-lists step says "No agent is connected yet…"
 when none is. (2) **Report a problem…** (Help menu, and Settings → General beside Version): `ReportProblemSheet` shows the
 whole report before anything leaves the Mac — the app's version and build and the macOS version on top
 (`ProblemReport.header`), then the backend's half from `GET /diagnostics/report` (`api/services/diagnostics.py`: backend
@@ -2042,7 +2043,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   person's rows drawing the link kind's glyph, never a site icon (G159); proposals one "N suggested links · Review" line
   whose popover takes or drops each; at most five rows, then *All N* in a popover; a right-click removes; *Add a link*),
   the type block (the brand block, `PageBrandBlock`, above the article when looks are what the page is about — two or
-  more, or no article — then the look tiles; a folder, a repository), *Ongoing* (`PageOngoing`, open happenings and
+  more, or no article — then the look tiles; a folder, a repository), *Marked* (`PageMarks`, ruling 64: a book's highlights word for word, each note under its passage, the day), *Ongoing* (`PageOngoing`, open happenings and
   planned milestones on the Projects band's hollow node, at most five), the article carrying its beliefs, and
   *References* (`PageReferences`, at most six numbered lines, then "N conversations and M web pages in all · who wrote
   each change is in History", with a History link). **The article carries the beliefs (DR-80):** every line the
@@ -2711,7 +2712,7 @@ Past reads otherwise (`SleepTab.resolve`), and a tab switch is instant and close
 **Videos** are the Feed's lists (above, *Clusters and Sleep's saved lists*); **Past reads** (`SleepPastReads`) is Last
 cycle · Readout · Past nights; Last cycle's rows in words, "Rested" as a sentence, the readout as key–value rows.
 **Past nights is one card per consolidation** (owner 2026-10-26, `RunCardModel` / `RunCardView`): a run that read in batches
-is one card, a plain cycle one card, a decay pass or an inbox resolution none. The card says when it ran and who started
+is one card, a plain cycle one card, a decay pass or an inbox resolution none. The card says when it ran, only an ending other than finished (DR-38, ROR-41), and who started
 it ("You started it" / "On schedule", a catch-up's missed time), one line of what it included ("12 conversations · 3 new
 pages · 18 updates · 2 questions" — the server's whole-run figures on `SleepRunRef`: `created`, `updated`,
 `models`, `usageSummary`; the questions are the dropdown's own count, raised + settled, asked for each card as it
@@ -2955,7 +2956,7 @@ and Saved hide at a count of zero (`SleepTab.visible(waitingHasRows:saved:export
 parked conversation, a run's block or an unreadable queue, never for the "your own page" note alone; Saved stays while
 an export is being waited on, because `ExportWaitStrip` heads it, R-IB22), so a fresh page opens on Past reads. *Options…* (`ReadingOptionsSheet`, 720 pt) sets batch size
 10/25/50 and *Continue by itself when my plan resets* (off) on change; it has no Read faster row, no engine advice and no site list. The engine
-menu's *Stop a run at* (ROR-102: one line for a run charged per use, Off or a dollar figure, suggested $5; its help says how far past a run can go and what the limit does not cover; DR-81, ruling 12's home for the figure) and *Keep plan free* (Off or 5–30 % of the window, plan engines only, a line not a guarantee, an unreported window said so) is one of ruling
+menu's *Stop a run at* (ROR-102: one line for a run charged per use, Off or a dollar figure, suggested $5; its help is one line: Sleep runs only, about one read over at most not cover; DR-81, ruling 12's home for the figure) and *Keep plan free* (Off or 5–30 % of the window, plan engines only, a line not a guarantee, an unreported window said so) is one of ruling
 12's two homes; the page's lists are the other (Past reads and Waiting, Details until 2026-10-16): Last cycle's run rows (`LastCycleRow.runRows`, merged over the pre-v5 drain rows), per-source counts and
 per-conversation rows from `GET /sleep/queue` (refetched when the run's counts move, never per tick) with Retry for a parked one — offered only while no run reads or waits paused, since the
 server refuses it then (`LastCycleRow.canRetryParked`) — a scheduled run's spend note billed from the run's own usage, never today's preview, and Past nights

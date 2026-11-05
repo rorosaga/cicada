@@ -20,7 +20,8 @@ something a sentence about passwords does not have:
 **Who said it matters** (:class:`Context`). A person's line, or a chat member's, is read for every kind. An agent's reply
 (the bulk of every coding session) is read only for validated numbers and vendor shapes, plus "your password is <strong
 value>"; a harness session's person turns need "my"/"mi" or a named system ("the wifi password is"); a line inside a code
-fence is read only for the shapes. A saved page, a feed item and a media line are someone else's public words: never read.
+fence is read only for the shapes. A saved page, a feed item and a media line are someone else's public words: never read; the person's own section of one
+(``evidence.PERSON_SECTIONS``) is theirs and is.
 
 **Not detected, on purpose:** medical and legal details. They have no shape, they are what a life is made of, and a
 person telling an agent about a diagnosis is the record working; every health conversation would be an alarm. Also not
@@ -651,6 +652,9 @@ def find(text: str, *, harness: bool = False, override: str | None = None, gaps=
     speaker = "skip" if saved else ("agent" if override in ("assistant", evidence.AGENT_KIND) else "person")
     for raw in text.splitlines(keepends=True):
         line = raw.rstrip("\r\n")
+        if saved and line.startswith("## "):
+            # The person's own section of a saved record (a reason, a book's note) is theirs, not the page's (ROR-95).
+            speaker = "person" if line.rstrip() in evidence.PERSON_SECTIONS else "skip"
         marker = evidence._marker(line)
         content_at = 0
         if marker is not None:

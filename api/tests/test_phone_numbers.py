@@ -137,17 +137,21 @@ def test_a_written_form_with_a_plus_replaces_one_without(home):
 # ---- what counts as a number in the person's own line ----
 
 @pytest.mark.parametrize("line", [
-    f"Bob's number is {A}", "call him on (202) 555-0143", "202.555.0143 is Bob", "tel:+12025550143",
-    "her number is 202 555 0143", "phone: 2025550143", "su celular es 202 555 0143", "Ana's new number is 2025550143",
-    "call Ana at 202-555-0143", "mi móvil: 202 555 0143", "I was texting Ana on 2025550143",
-    # The owner's own scenario: how a number is really typed to a texted agent.
-    "Ana 2025550143", "add Ana, 2025550143", "Bob Example 2025550177", "she's on 2025550143", "Ana: 202 555 0143",
-    "Bob Example: 202 555 0143", "Ana at 2025550143", "add ana 2025550143", "Ana 612 345 678", "Ana 06 12 34 56 78", "Ana 0612 34 56 78",
-    "save my sister Ana 5550143", "Ana 2025550143 please", "he is on 2025550143",
+    # (a) a phone word tied to the digits.
+    f"Bob's number is {A}", "her number is 202 555 0143", "phone: 2025550143", "su celular es 202 555 0143",
+    "Ana's new number is 2025550143", "mi móvil: 202 555 0143", "tel:+12025550143", "su teléfono es 2025550143",
+    "mi celular 2025550143", "número de teléfono 2025550143", "su número de teléfono es 2025550143",
+    "mi número de contacto es 2025550143", "her number's 2025550143", "her number is +34 612 345 678",
+    # (b) "add" or "save", a capitalised name, nine digits or more.
+    "add Ana, 2025550143", "guarda a Ana 2025550143", "add Bob Example 2025550177", "add Ana: 202 555 0143",
+    "save my sister Ana 2025550143", "add Ana 2025550143 please", "add Ana, +34 612 345 678", "add Ana, (202) 555-0143",
+    "add Ana 06 12 34 56 78",
+    # (c) a change said with a phone word.
+    "changed her number to 2025550143", "su número cambió a 2025550143", "updated Ana's phone to 2025550143",
 ])
 def test_these_are_numbers(home, line):
     out, n = phone_numbers.tokenise(line, "b")
-    assert n == 1 and "555" not in out and phone_numbers.has_token(out)
+    assert n == 1 and not re.search(r"\d", out) and phone_numbers.has_token(out)
 
 
 @pytest.mark.parametrize("line", [
@@ -166,9 +170,25 @@ def test_these_are_numbers(home, line):
     "Bob 1500000", "Tesla 1500000", "Sold 123456789", "Invoice 123456789", "Order 1234567890", "Monday 12 03 2026", "Ana 12 03 2026 14 30",
     "Room 101 102 103", "Years 2024 2025 2026", "Bob 1 299 000 000", "Bob 2025550143 dollars", "Grew by 1500000 users",
     "Ana 1999-2003-2010", "Ana 2026-10-28 10:30", "2025550143", "ping Ana 192.168.1.10", "Budget 1500000",
+    # Ruling 55 as cut down, a name or a pronoun beside digits says nothing: digits in clear over a rewritten line.
+    "Ana 2025550143", "Bob Example 2025550177", "and Bob Example 2025550177", "Ana: 202 555 0143", "Ana at 2025550143",
+    "Ana 612 345 678", "Ana 06 12 34 56 78", "Tesla 2025550143", "Le debo a Ana 1500000", "she's on 2025550143",
+    "he is on 2025550143", "call Ana at 202-555-0143", "I was texting Ana on 2025550143", "the old one was 2025550178",
+    "add ana 2025550143", "add Ana, 5550143", "note Ana 2025550143", "keep Ana 2025550143", "add Ana 2025550143 dollars",
+    # A phone word tied by anything but a verb of being, or a number word nobody owns.
+    "vendí mi celular por 1500000", "el celular es de 1500000", "un celular a 1500000", "the phone at 1500000",
+    "it's number 1500000", "that's number 1500000", "He's number 1500000", "Today's number is 1500000",
+    "this year's number is 1500000", "the number 1500000", "Order's number is 123456789",
 ])
 def test_these_are_not(home, line):
     assert phone_numbers.tokenise(line, "b") == (line, 0)
+
+
+def test_a_plus_or_bracketed_shape_alone_is_the_scrubs_as_it_always_was(bank, on):
+    ingest(bank, [row("AAA1", T0, f"call him on {A}", me=True), row("AAA2", T0 + 5, "or (202) 555-0177", me=True)])
+    body = joined(bank)
+    assert body.count("[redacted]") == 2 and not phone_numbers.has_token(body)
+    assert not people_directory.path(bank.name, phone_numbers.VAULT_FILE).exists()
 
 
 def test_a_token_survives_the_chat_scrub_unchanged(home):
@@ -202,7 +222,7 @@ def test_only_the_persons_own_words_are_tokened(bank, on):
 
 
 def test_a_forwarded_message_is_someone_elses_words(bank, on):
-    message = SimpleNamespace(key="k", from_me=True, unsent=False, forwarded_from={"name": "x"}, text=f"call {A}")
+    message = SimpleNamespace(key="k", from_me=True, unsent=False, forwarded_from={"name": "x"}, text=f"my number is {A}")
     phone_numbers.tokenise_batch([message], {}, writer="whatsapp", bank=bank.name)
     assert "[redacted]" in message.text and not phone_numbers.has_token(message.text)
 
@@ -495,7 +515,7 @@ Y = "[number:yyyyyyyyyy]"
 @pytest.mark.parametrize(("line", "kind"), [
     (f"Ana's new number is {X}", phone_numbers.CHANGED), (f"she changed her number to {X}", phone_numbers.CHANGED),
     (f"her number is now {X}", phone_numbers.CHANGED), (f"el nuevo número de Ana es {X}", phone_numbers.CHANGED),
-    (f"Ana changed her number, it's {X} now", phone_numbers.CHANGED), (f"Ana changed her number, she's on {X}", phone_numbers.CHANGED), (f"{X} is her new number", phone_numbers.CHANGED),
+    (f"Ana changed her number, it's {X} now", phone_numbers.CHANGED), (f"{X} is her new number", phone_numbers.CHANGED),
     (f"Ana's work number is {X}", phone_numbers.ADDITIONAL), (f"she also has {X}", phone_numbers.ADDITIONAL),
     (f"su otro móvil es {X}", phone_numbers.ADDITIONAL), (f"her old number was {X}", phone_numbers.PAST),
     (f"Ana is {X}", phone_numbers.UNKNOWN), (f"Ana's number is {X}", phone_numbers.UNKNOWN),
@@ -906,7 +926,7 @@ def _messages_chat(tmp_path, memory):
     agent = db.chat("+15550100001")
     db.message(agent, utc(2026, 9, 3, 10, 0), from_me=True, text=f"Add Ana Diaz, her number is {A}")
     db.message(agent, utc(2026, 9, 3, 10, 1), from_me=False, text=f"Added Ana Diaz at {A}")
-    db.message(agent, utc(2026, 9, 3, 10, 2), from_me=True, text="and Bob Example 2025550177")
+    db.message(agent, utc(2026, 9, 3, 10, 2), from_me=True, text="and add Bob Example 2025550177")
     db.db.commit()
     messages_source.update_settings(memory, conversation={"id": conversation_id(db.chat_guid(agent)), "name": "Agent Example",
                                                           "ticked": True, "history": True})
@@ -1477,12 +1497,12 @@ def _harness_session(memory, line):
 
 def test_round_3_the_owners_own_lines_through_a_real_ingest(bank, on):
     ingest(bank, [row("AAA1", T0, "add Ana, 2025550143", me=True), row("AAA2", T0 + 5, "Added Ana at 2025550143"),
-                  row("AAA3", T0 + 9, "Bob Example 2025550177", me=True), row("AAA4", T0 + 14, "she's on 2025550143", me=True),
+                  row("AAA3", T0 + 9, "add Bob Example 2025550177", me=True), row("AAA4", T0 + 14, "her number is 2025550143", me=True),
                   row("AAA5", T0 + 20, "and my new number is 2025550166")])
     (body, _fm), = stored(bank).values()
     lines = body.split("\n")
     assert phone_numbers.has_token(lines[0]) and phone_numbers.has_token(lines[2]) and phone_numbers.has_token(lines[3])
-    assert lines[0].split(", ")[1] == lines[3].split("on ")[1]     # one number, one token
+    assert lines[0].split(", ")[1] == lines[3].split("is ")[1]     # one number, one token
     assert "[redacted]" in lines[1] and "[redacted]" in lines[4]
     assert "[number:" not in lines[1] and "[number:" not in lines[4]
     raw = every_byte(bank)
@@ -1521,20 +1541,20 @@ def test_round_3_a_bare_number_beside_a_name_reaches_the_page_as_a_token(memory)
     assert _phones(memory)[t].valid_to is None
 
 
-def test_round_3_seven_digits_beside_a_person_this_memory_knows(memory):
+def test_a_person_this_memory_knows_vouches_for_nothing(memory):
     page(memory, "ana-diaz", "Ana Diaz", aliases=["Anita"])
     bank_index.invalidate()
-    assert phone_numbers.tokenise("Ana 5550143", memory)[1] == 1
-    assert phone_numbers.tokenise("Anita 5550143", memory)[1] == 1
-    assert phone_numbers.tokenise("Tesla 5550144", memory)[1] == 0
+    for line in ("Ana 5550143", "Anita 5550143", "Ana Diaz 2025550143", "Ana 1500000"):
+        assert phone_numbers.tokenise(line, memory) == (line, 0)
 
 
-def test_round_3_a_known_false_positive_is_pinned_and_the_digits_are_kept(memory):
-    """A capitalised word no list knows, then nine digits or more, ending the clause: read as a name. The vault keeps it."""
-    line, n = phone_numbers.tokenise("Tesla 2025550143", memory)
+def test_a_false_positive_the_question_names_is_pinned_and_the_digits_are_kept(memory):
+    """An "add" and any capitalised word, then nine digits or more, ending the clause: read as a name. The vault keeps it."""
+    line, n = phone_numbers.tokenise("add Tesla 2025550143", memory)
     assert n == 1
     tid = phone_numbers.token_ids(line)[0]
     assert phone_numbers.reveal(memory, [tid])[tid] == "2025550143"
+    assert phone_numbers.tokenise("vendí mi celular 1500000", memory)[1] == 1
 
 
 def test_round_3_item_1_a_session_that_mentions_the_shape_is_no_token(memory):
@@ -1702,9 +1722,9 @@ def test_round_3_item_8_a_claims_sentence_holds_no_number(memory):
     assert A_DIGITS not in (memory / "entities" / "ana-diaz.md").read_text()
 
 
-def test_round_3_item_8_the_old_one_was_when_a_number_is_on_the_line(home):
+def test_the_old_one_was_is_no_signal(home):
     out, n = phone_numbers.tokenise("her new number is 2025550143, the old one was 2025550177", "b")
-    assert n == 2 and not any(c.isdigit() for c in out)
+    assert n == 1 and "2025550177" in out     # no phone word on it: in clear, disclosed at ruling 55
     assert phone_numbers.tokenise("the old one was 2025550178", "b")[1] == 0
 
 
@@ -1729,7 +1749,7 @@ def test_round_3_the_count_only_script_prints_counts_only(memory):
 
     ep = "ep_2026-08-20_001"
     markdown_parser.write(memory / "episodes" / f"{ep}.md", {"id": ep, "origin": "whatsapp", "source": "whatsapp"},
-                          "user: Ana 2025550143\nuser: order 2025550177\nassistant: Added Ana at 2025550143")
+                          "user: add Ana, 2025550143\nuser: order 2025550177\nassistant: Ana's number is 2025550143\nassistant: Ana 2025550143")
     counts = numbers_rule_dry_run.run(memory)
     assert counts["would_token"] == 1 and counts["digit_runs_left"] == 1 and counts["other_lines_would_redact"] == 1
     assert all(isinstance(v, int) for v in counts.values())
@@ -1744,19 +1764,19 @@ def joined(bank) -> str:
 
 
 def test_round_4_an_echo_of_a_number_the_vault_holds_is_redacted_with_no_signal(bank, on):
-    ingest(bank, [row("AAA1", T0, "Carla Example 2025550144", me=True),
+    ingest(bank, [row("AAA1", T0, "add Carla Example, 2025550144", me=True),
                   row("AAA2", T0 + 5, "Updated Carla Example to 202 555 0144.")])
     body = joined(bank)
     assert "2025550144" not in re.sub(r"[ .-]", "", body) and "[redacted]" in body and phone_numbers.has_token(body)
 
 
 def test_round_4_an_echo_before_the_persons_line_in_one_post_is_redacted_too(bank, on):
-    ingest(bank, [row("AAA1", T0, "is it 2025550144 now?"), row("AAA2", T0 + 5, "Carla Example 2025550144", me=True)])
+    ingest(bank, [row("AAA1", T0, "is it 2025550144 now?"), row("AAA2", T0 + 5, "add Carla Example, 2025550144", me=True)])
     assert "2025550144" not in joined(bank)
 
 
 def test_round_4_the_person_repeating_a_held_number_gets_its_one_token(bank, on):
-    ingest(bank, [row("AAA1", T0, "Carla Example 2025550144", me=True),
+    ingest(bank, [row("AAA1", T0, "add Carla Example, 2025550144", me=True),
                   row("AAA2", T0 + 5, "ring back 202 555 0144 later", me=True)])
     body = joined(bank)
     tokens = phone_numbers.token_ids(body)
@@ -1764,13 +1784,13 @@ def test_round_4_the_person_repeating_a_held_number_gets_its_one_token(bank, on)
 
 
 def test_round_4_a_run_the_vault_does_not_hold_stays_in_the_words(bank, on):
-    ingest(bank, [row("AAA1", T0, "Carla Example 2025550144", me=True),
+    ingest(bank, [row("AAA1", T0, "add Carla Example, 2025550144", me=True),
                   row("AAA2", T0 + 5, "ticket closed under 2025559999 today")])
     assert "2025559999" in joined(bank)
 
 
 def test_round_4_an_echo_posted_again_with_the_vault_gone_stays_redacted(bank, on, home):
-    rows = [row("AAA1", T0, "Carla Example 2025550144", me=True),
+    rows = [row("AAA1", T0, "add Carla Example, 2025550144", me=True),
             row("AAA2", T0 + 5, "Updated Carla Example to 2025550144.")]
     ingest(bank, rows)
     before = stored(bank)
@@ -1799,48 +1819,9 @@ def _maria(memory):
     "De 1500000", "La 1234567", "The 1500000", "the boss 1500000", "boss 1500000", "maria 5550143", "cruz 5550143",
     "keep the 123456789", "remember de 123456789", "ana 2025550143", "add ana 5550144",
 ])
-def test_round_5_an_ordinary_word_of_a_persons_name_or_alias_does_not_vouch(memory, line):
+def test_a_word_of_a_persons_name_or_alias_does_not_vouch(memory, line):
     _maria(memory)
     assert phone_numbers.tokenise(line, memory) == (line, 0)
-
-
-@pytest.mark.parametrize("line", ["Maria 5550143", "Cruz 5550143", "add Ana, 5550143", "add ana 2025550143", "Ana Diaz 2025550143"])
-def test_round_5_a_distinctive_name_still_does(memory, line):
-    _maria(memory)
-    assert phone_numbers.tokenise(line, memory)[1] == 1
-
-
-@pytest.mark.parametrize("name,word", [
-    ("The Boss", "Boss"), ("La Jefa", "Jefa"), ("Luz Marin", "Luz"), ("Bill Example", "Bill"), ("Maria De La Cruz", "La"),
-    ("Jo Example", "Jo"),
-])
-def test_round_5_what_a_page_name_cannot_vouch_for(memory, name, word):
-    page(memory, "someone", name)
-    bank_index.invalidate()
-    assert phone_numbers.tokenise(f"{word} 5550143", memory)[1] == 0
-
-
-def test_round_5_a_word_common_in_this_bank_says_nothing(memory):
-    page(memory, "cruz-roja", "Cruz Roja", type_="organization")
-    page(memory, "maria-cruz", "Maria Cruz")
-    for i in range(6):
-        page(memory, f"sol-{i}", f"Nadia Example{i}")
-    bank_index.invalidate()
-    assert phone_numbers.tokenise("Cruz 5550143", memory)[1] == 0     # another kind of page's word too
-    assert phone_numbers.tokenise("Maria 5550143", memory)[1] == 1
-    assert phone_numbers.tokenise("Nadia 5550143", memory)[1] == 0    # six people share it
-
-
-def test_round_5_a_relations_title_does_not_vouch(memory):
-    page(memory, "her-sister", "Sister Example", unnamed=True)
-    bank_index.invalidate()
-    assert phone_numbers.tokenise("Sister 5550143", memory)[1] == 0
-
-
-def test_round_5_a_false_positive_on_a_known_name_is_pinned(memory):
-    """The owner's question names this: a sum beside a known name reads as that person's number."""
-    _maria(memory)
-    assert phone_numbers.tokenise("Le debo a Ana 1500000", memory)[1] == 1
 
 
 @pytest.mark.parametrize("line", [
@@ -1870,14 +1851,14 @@ def test_round_5_a_nine_digit_entry_keeps_every_check(memory, line):
 def test_round_5_a_correspondents_rent_is_never_blanked_after_a_wrong_entry(bank, on):
     page(bank, "ana-diaz", "Ana Diaz")
     bank_index.invalidate()
-    ingest(bank, [row("AAA1", T0, "Ana 1500000", me=True), row("AAA2", T0 + 5, "mi renta es 1500000")])
+    ingest(bank, [row("AAA1", T0, "her number is 1500000", me=True), row("AAA2", T0 + 5, "mi renta es 1500000")])
     assert "mi renta es 1500000" in joined(bank)
 
 
 def test_round_5_an_agents_echo_of_a_short_number_stays_in_clear_as_the_question_says(bank, on):
     page(bank, "ana-diaz", "Ana Diaz")
     bank_index.invalidate()
-    ingest(bank, [row("AAA1", T0, "Ana 5550143", me=True), row("AAA2", T0 + 5, "Updated Ana to 5550143.")])
+    ingest(bank, [row("AAA1", T0, "her number is 5550143", me=True), row("AAA2", T0 + 5, "Updated Ana to 5550143.")])
     assert "Updated Ana to 5550143." in joined(bank)
 
 
@@ -1937,7 +1918,141 @@ def test_round_5_a_persons_line_still_files_a_models_digit_value(memory):
 
 def test_round_5_two_long_numbers_with_only_a_space_stay_and_a_short_pair_is_one_token(memory):
     """Disclosed at ruling 55, not fixed."""
-    _maria(memory)
-    for line in ("Ana 2025550143 2025550144", "her number is 2025550143 2025550144"):
+    for line in ("add Ana 2025550143 2025550144", "her number is 2025550143 2025550144"):
         assert phone_numbers.tokenise(line, memory) == (line, 0)
-    assert phone_numbers.tokenise("Ana 5550143 5550144", memory)[1] == 1
+    assert phone_numbers.tokenise("her number is 5550143 5550144", memory)[1] == 1
+
+
+# ---- ruling 55 cut down to what is explicit: what no line, in anyone's mouth, may lose ----
+
+NOT_A_PHONE_ANYWHERE = [
+    *(f"Tu número de {word} es 202555015" for word in
+      ("confirmación", "referencia", "orden", "folio", "guía", "cliente", "contrato", "tarjeta", "serie", "póliza")),
+    "numéro de dossier 202555015", "Confirmación 202555015", "Referencia 202555015", "Transaction 202555015",
+    "Payment 202555015", "They are at 1500000.", "Ella está en 1500000", "un préstamo de 1500000", "order 1500000",
+    "$1500000", "https://x.example/item/202555015", "[the item](https://x.example/item/202555015)", "see you on 2026-11-05",
+    "el número de Ana es 202555015",
+]
+
+
+@pytest.mark.parametrize("line", NOT_A_PHONE_ANYWHERE)
+def test_no_line_changes_in_anyones_words(memory, line):
+    phone_numbers.mint_many(memory, [A_DIGITS, "1500000"])   # a vault with something in it, a wrong short entry too
+    assert phone_numbers.tokenise(line, memory) == (line, 0)
+    assert phone_numbers.redact(line, memory) == line
+
+
+@pytest.mark.parametrize("line", NOT_A_PHONE_ANYWHERE)
+def test_no_line_changes_through_a_real_ingest(bank, on, line):
+    ingest(bank, [row("AAA1", T0, line, me=True), row("AAA2", T0 + 5, line)])
+    (body, _fm), = stored(bank).values()
+    assert body.count(line) == 2 and not phone_numbers.has_token(body) and "[redacted]" not in body
+    assert not people_directory.path(bank.name, phone_numbers.VAULT_FILE).exists()
+
+
+@pytest.mark.parametrize("line", ["Ana 2025550143", "she's on 2025550143", "phone: 2025550143", "number 2025550143",
+                                  "add Ana, 2025550143", "changed the number to 2025550143"])
+def test_someone_elses_line_has_no_name_or_pronoun_rule_and_no_unowned_phone_word(memory, line):
+    assert phone_numbers.redact(line, memory) == line
+
+
+@pytest.mark.parametrize("line", ["my number is 2025550143", "her phone number is 2025550143", "mi celular es 2025550143",
+                                  "su número de teléfono es 2025550143", "Ana's number is 2025550143"])
+def test_someone_elses_line_with_an_owned_phone_word_is_redacted(memory, line):
+    out = phone_numbers.redact(line, memory)
+    assert "[redacted]" in out and A_DIGITS not in out
+    assert not people_directory.path(memory.name, phone_numbers.VAULT_FILE).exists()
+
+
+def test_the_true_cases_through_a_real_ingest(bank, on):
+    ingest(bank, [row("AAA1", T0, "her number is 2025550143", me=True), row("AAA2", T0 + 5, "add Ana, 2025550177", me=True),
+                  row("AAA3", T0 + 9, "changed her number to 2025550166", me=True),
+                  row("AAA4", T0 + 14, "Updated Ana to 202 555 0166."), row("AAA5", T0 + 20, "Ana 2025550188")])
+    lines = next(iter(stored(bank).values()))[0].split("\n")
+    assert all(phone_numbers.has_token(line) and not re.search(r"\d", line) for line in lines[:3])
+    assert "[redacted]" in lines[3]             # an agent's echo, by value
+    assert lines[4].endswith("Ana 2025550188")     # a correspondent's name and digits stay in clear
+    vault = people_directory.path(bank.name, phone_numbers.VAULT_FILE).read_text()
+    assert "2025550188" not in vault
+
+
+def test_a_change_with_a_phone_word_closes_on_the_line_it_reads(home):
+    line, n = phone_numbers.tokenise("changed her number from 2025550143 to 2025550177", "b")
+    assert n == 2
+    read = phone_numbers.read_line(line)
+    assert sorted(kind for kind, _ in read.values()) == [phone_numbers.CHANGED, phone_numbers.PAST]
+
+
+# ---- a stored line never moves ----
+
+STORED_LINES = [("her number is 2025550143", True), ("add Ana, 2025550177", True), ("Maria 5550143", True),
+                ("my new number is 2025550166", False), ("Maria 5550143", False)]
+
+
+def _stored_rows():
+    return [row(f"AAA{i}", T0 + i * 5, line, me=me) for i, (line, me) in enumerate(STORED_LINES)]
+
+
+def test_a_stored_line_does_not_move_when_the_banks_pages_change(bank, on):
+    rows = _stored_rows()
+    ingest(bank, rows)
+    before = stored(bank)
+    page(bank, "maria-cruz", "Maria de la Cruz")
+    page(bank, "ana-diaz", "Ana Diaz")
+    bank_index.invalidate()
+    assert ingest(bank, rows)["updated"] == 0
+    assert stored(bank) == before
+
+
+def test_a_stored_line_does_not_move_when_the_vault_learns_a_run_beside_its_token(memory):
+    tid = phone_numbers.mint_many(memory, [A_DIGITS])[A_DIGITS]
+    kept = SimpleNamespace(text=f"her number is {phone_numbers.token(tid)} and Bob 2025559999")
+    phone_numbers.mint_many(memory, ["2025559999"])
+    posted = SimpleNamespace(key="k", text=f"her number is {A_DIGITS} and Bob 2025559999", unsent=False, from_me=True)
+    phone_numbers.tokenise_batch([posted], {"k": kept}, writer="whatsapp", bank=memory)
+    assert posted.text == kept.text
+
+
+@pytest.mark.parametrize("change", ["off", "vault_gone", "vault_new"])
+def test_a_stored_line_does_not_move_off_or_with_the_vault_lost(bank, on, change):
+    rows = _stored_rows()
+    ingest(bank, rows)
+    before = stored(bank)
+    vault = people_directory.path(bank.name, phone_numbers.VAULT_FILE)
+    if change == "off":
+        phone_numbers.set_enabled(False)
+    else:
+        vault.unlink()
+        if change == "vault_new":
+            phone_numbers.new_vault(bank)
+    assert ingest(bank, rows)["updated"] == 0
+    assert stored(bank) == before
+
+
+def test_an_edit_of_a_tokened_line_is_still_read_as_an_edit(bank, on):
+    ingest(bank, [row("AAA1", T0, "her number is 2025550143", me=True)])
+    out = ingest(bank, [row("AAA1", T0, "her number is 2025550177", me=True)])
+    assert out["updated"] == 1
+
+
+# ---- an agent's claim ----
+
+def test_an_agents_sentence_adds_nothing_to_the_vault(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    agentic_write.write_claim(memory, "Ana Diaz", "knows", "Bob Example", observer="external:claude-code",
+                              text="her number is 2025550188")
+    assert "2025550188" not in (memory / "entities" / "ana-diaz.md").read_text()
+    assert phone_numbers.known_id(memory, "2025550188") is None
+
+
+def test_an_agents_phone_claim_on_a_person_page_is_held_and_on_any_other_is_not(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    page(memory, "tesla", "Tesla", type_="organization")
+    agentic_write.write_claim(memory, "Ana Diaz", "phone", "2025550143", observer="external:claude-code", object_kind="literal")
+    agentic_write.write_claim(memory, "Tesla", "phone", "2025550188", observer="external:claude-code", object_kind="literal")
+    agentic_write.write_claim(memory, "Tesla", "knows", "Ana Diaz", observer="external:claude-code",
+                              text="Tesla 2025550199, and its number is 2025550198")
+    assert phone_numbers.known_id(memory, "2025550143")
+    for digits in ("2025550188", "2025550198", "2025550199"):
+        assert phone_numbers.known_id(memory, digits) is None
+    assert "2025550188" in (memory / "entities" / "tesla.md").read_text()

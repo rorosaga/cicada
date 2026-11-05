@@ -43,7 +43,7 @@ from api.services import (
     transclusion_resolver,
     turn_authorship,
 )
-from api.services.claims import Claim, is_event, is_record, parse_claims
+from api.services.claims import Claim, is_event, is_mark, is_record, parse_claims
 from api.services.id_utils import resolve_entity_file
 
 router = APIRouter()
@@ -68,7 +68,8 @@ def _load_subject_claims(memory_path: Path, entity_id: str) -> list[Claim]:
     about another claim, never a belief, so it is dropped here through the one
     ``claims.is_record`` test every claim-listing surface shares. Served, two withdrawals in one context grouped
     into a "Contested beliefs" row named ``retracts`` whose values were raw
-    claim ids (final review) — jargon the app's plain voice never shows.
+    claim ids (final review) — jargon the app's plain voice never shows. What the person marked in a book is no belief
+    either (ruling 64): the page's own block draws it.
     """
     page = resolve_entity_file(memory_path, entity_id)
     if page is None or not page.exists():
@@ -77,7 +78,7 @@ def _load_subject_claims(memory_path: Path, entity_id: str) -> list[Claim]:
         parsed = markdown_parser.parse(page)
     except Exception:
         return []
-    return [c for c in parse_claims(parsed.body) if not is_record(c)]
+    return [c for c in parse_claims(parsed.body) if not is_record(c) and not is_mark(c)]
 
 
 @router.get("/entities/{entity_id}/claims", response_model=ClaimListResponse)

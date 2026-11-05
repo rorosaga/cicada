@@ -33,10 +33,10 @@ def run(bank: Path) -> dict[str, int]:
         counts["chat_episodes"] += 1
         for line in parsed.body.split("\n"):
             marker, _sep, words = line.partition(": ")
-            spans = phone_numbers._spans(words, bank)
             if marker != "user":
-                counts["other_lines_would_redact"] += 1 if spans else 0
+                counts["other_lines_would_redact"] += 1 if phone_numbers._spans(words, bank, person=False) else 0
                 continue
+            spans = phone_numbers._spans(words, bank)
             counts["person_lines"] += 1
             counts["would_token"] += len(spans)
             taken = [(a, b) for a, b, _raw in spans]

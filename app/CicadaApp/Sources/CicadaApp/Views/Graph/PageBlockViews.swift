@@ -239,6 +239,47 @@ struct WhereToCheckBox: View {
     }
 }
 
+// MARK: Marks (ruling 64)
+
+/// Ruling 64: what the person marked in this book, word for word. A passage reads as a quote in the book's voice, the note
+/// under it as their own (DR-3, DR-78).
+struct PageMarks: View {
+    let marks: PageBlocks.Marks
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            SectionLabel("\(Copy.Pages.marked) · \(UsageFormat.count(marks.total))")
+            ForEach(marks.items, id: \.claimId) { item in
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                    if let text = item.text {
+                        Text(text)
+                            .font(CicadaTheme.bodyFont)
+                            .italic()
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
+                    if let note = item.note {
+                        Text(note)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
+                    if let day = item.day, !day.isEmpty {
+                        Text(day).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                    }
+                }
+            }
+            if marks.total > marks.items.count {
+                Text(Copy.Pages.markedMore(marks.total - marks.items.count))
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+            }
+        }
+    }
+}
+
 // MARK: Ongoing (ruling 48 (4))
 
 /// Open threads and planned dates on any page (G141's open happenings and milestones), each on the Projects band's

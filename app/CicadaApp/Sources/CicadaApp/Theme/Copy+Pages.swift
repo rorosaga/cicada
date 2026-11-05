@@ -6,6 +6,8 @@ extension Copy {
     enum Pages {
         // In short (DR-78): Sleep's summary lands here in part B; today the why-it-matters line and its counts.
         static let inShort = "In short"
+        static let marked = "Marked"
+        static func markedMore(_ count: Int) -> String { "\(count) more, found by search" }
 
         // Where to check (DR-79)
         static let whereToCheck = "Where to check"

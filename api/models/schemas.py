@@ -537,6 +537,21 @@ class EntityRelevance(CamelModel):
 # --- Page blocks (vision item 5, 2026-10-28): what a page holds, for a layout and an agent alike ---
 
 
+class PageBlockMark(CamelModel):
+    """One passage the person highlighted in a book, with their note under it, or a note of its own (``book_marks``,
+    ruling 64). Both words are null for a caller without ``sources``."""
+
+    claim_id: str
+    day: str = ""
+    text: Optional[str] = None
+    note: Optional[str] = None
+
+
+class PageBlockMarks(CamelModel):
+    items: list[PageBlockMark] = []
+    total: int = 0
+
+
 class PageBlockOngoing(CamelModel):
     """An open event on the page (G141): a happening still ``ongoing`` or a milestone still ``planned``, its head only.
     ``verbatim`` — its words are the person's own sentence (``claims.is_persons_words``)."""
@@ -682,6 +697,7 @@ class PageBlocks(CamelModel):
     summary: Optional[PageBlockSummary] = None
     ongoing: list[PageBlockOngoing] = []
     ongoing_total: int = 0
+    marks: Optional[PageBlockMarks] = None
     coordinates: Optional[PageBlockCoordinates] = None
     looks: list[PageBlockLook] = []
     sources: Optional[PageBlockSources] = None

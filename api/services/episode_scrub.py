@@ -236,16 +236,6 @@ def _phone(m: re.Match[str]) -> str:
     return "@someone" if keep_at else REDACTED
 
 
-#: The shapes :func:`scrub_phones` calls a phone, the mention aside: a mention names a member, the person gave no number.
-#: Read by `phone_numbers`, which keeps what this scrub would destroy when the person is the one who wrote it (ruling 55).
-PHONE_SHAPES = tuple(rx for i, rx in enumerate(_PHONE_RES) if i != 1)
-
-
-def phone_shaped(m: re.Match[str]) -> bool:
-    """Whether a match of :data:`PHONE_SHAPES` is one this scrub would replace (its digit counts, not only its shape)."""
-    return _phone(m) != m.group(0)
-
-
 def scrub_phones(text: str) -> tuple[str, int]:
     """Phone numbers out of a chat's words (:data:`PHONE_WRITERS`); ``(text, replacements)``. A mention keeps its
     ``@`` and reads "@someone"."""

@@ -148,8 +148,8 @@ final class AppleBooksReaderTests: XCTestCase {
 
     func testTheStoresAreFoundByPrefixAndReadFromACopy() throws {
         makeStores()
-        XCTAssertNotNil(AppleBooksPaths.library(in: dir))
-        XCTAssertNotNil(AppleBooksPaths.annotations(in: dir))
+        XCTAssertNotNil(try AppleBooksPaths.library(in: dir))
+        XCTAssertNotNil(try AppleBooksPaths.annotations(in: dir))
         let books = try AppleBooksStore.snapshot(documents: dir)
         XCTAssertEqual(books.map(\.assetId).sorted(), ["A1", "A2"])
         let lantern = try XCTUnwrap(books.first { $0.assetId == "A1" })
@@ -169,6 +169,32 @@ final class AppleBooksReaderTests: XCTestCase {
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: FileManager.default.temporaryDirectory.path)
             .filter { $0.hasPrefix("cicada-apple-books-") }
         XCTAssertTrue(leftovers.isEmpty)
+    }
+
+    /// ROR-41: a folder the system refuses to list is the permission fix, never "Open Apple Books once".
+    func testARefusedLibraryFolderIsTheExactFixNeverNotInstalled() throws {
+        let folder = dir.appendingPathComponent("BKLibrary", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path) }
+        XCTAssertThrowsError(try AppleBooksStore.snapshot(documents: dir)) { error in
+            guard case BrowserFileError.notReadable(.appleBooksLibrary, _) = error else {
+                return XCTFail("a refusal read as \(error)")
+            }
+            XCTAssertTrue((error as? BrowserFileError)?.userMessage.contains("Full Disk Access") == true)
+        }
+    }
+
+    func testARefusedStoreFileIsTheExactFixToo() throws {
+        makeStores()
+        let store = try XCTUnwrap(try AppleBooksPaths.library(in: dir))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: store.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: store.path) }
+        XCTAssertThrowsError(try AppleBooksStore.snapshot(documents: dir)) { error in
+            guard case BrowserFileError.notReadable(.appleBooksLibrary, _) = error else {
+                return XCTFail("a refusal read as \(error)")
+            }
+        }
     }
 
     func testAMissingLibraryIsSaidInWords() {

@@ -126,9 +126,11 @@ _CLI_FALLBACK_DIRS: tuple[str, ...] = (
 #: spawns the tool (the same read as ``api/remote/reach.py``'s Tailscale app). On Linux they are simply not there.
 APP_DIRS: tuple[str, ...] = ("/Applications", "~/Applications")
 
-#: A vendor CLI a Mac app carries inside itself and does not put on PATH: logical name -> (app, path inside it).
-APP_BUNDLED_TOOLS: dict[str, tuple[str, str]] = {
-    "opencode": ("OpenCode.app", "Contents/MacOS/opencode-cli"),
+#: A vendor CLI a Mac app carries inside itself and does not put on PATH: logical name -> (app, paths inside it, first
+#: that runs). OpenCode's Electron desktop carries it in ``process.resourcesPath``, ``Contents/Resources`` on a Mac
+#: (its ``packages/desktop``'s ``desktop-cli.ts``, read 2026-11-05); its older build in ``Contents/MacOS``.
+APP_BUNDLED_TOOLS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "opencode": ("OpenCode.app", ("Contents/Resources/opencode-cli", "Contents/MacOS/opencode-cli")),
 }
 
 
@@ -147,8 +149,11 @@ def bundled_tool(name: str) -> str | None:
     where = app_path(entry[0]) if entry else None
     if not where:
         return None
-    candidate = os.path.join(where, entry[1])
-    return candidate if os.path.isfile(candidate) and os.access(candidate, os.X_OK) else None
+    for inside in entry[1]:
+        candidate = os.path.join(where, inside)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
 
 
 def resolve_binary(name: str) -> str | None:

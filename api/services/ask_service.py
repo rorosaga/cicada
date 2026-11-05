@@ -25,7 +25,9 @@ tests inject both.
 from __future__ import annotations
 
 import json
+import dataclasses
 import re
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Callable
 
@@ -216,6 +218,10 @@ def _history_query(query: str) -> str:
     return " ".join(t for t in text_fold.query_tokens(query) if t not in stop)
 
 
+#: Ruling 64: a caller without ``sources`` gets no answer built on what the person marked in a book (`answer_query`).
+_HIDE_MARKS: ContextVar[bool] = ContextVar("ask_hide_marks", default=False)
+
+
 def _load_entity(memory_path: Path, entity_id: str) -> dict | None:
     """Read an entity's markdown to back a citation. Returns None if missing — and for an id that is not one page
     name (a separator, or a sentence longer than any file name: ``id_utils.is_page``)."""
@@ -233,6 +239,10 @@ def _load_entity(memory_path: Path, entity_id: str) -> dict | None:
         return None
     from api.services import same_name
 
+    if _HIDE_MARKS.get():
+        from api.services import book_marks
+
+        parsed = dataclasses.replace(parsed, body=book_marks.without_marks(parsed.body or ""))
     return {
         "entity_id": entity_id,
         "entity_name": str(fm.get("name", entity_id.replace("-", " ").title())),
@@ -1495,6 +1505,7 @@ def answer_query(
     CONVERSATIONS the answer used).
     """
     memory_path = Path(memory_path)
+    _HIDE_MARKS.set(not source_words)
     query = (query or "").strip()
 
     # Empty/whitespace query: nothing to ground on — short-circuit before
