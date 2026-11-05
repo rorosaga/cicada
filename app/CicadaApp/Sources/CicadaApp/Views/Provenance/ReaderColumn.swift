@@ -40,35 +40,18 @@ struct ReaderColumn: View {
     }
 
     @State private var phase: Phase = .loading
-    @State private var washVisible = false
-    @State private var landingToken = 0
+    /// What the drawn source keeps between draws (`SourceSpansView`).
+    @State private var spansState = SourceSpansState()
     @State private var conversations = ConversationsViewModel()
     /// P4 — what this document taught Cicada (`/citations`, G106 (ii)).
     @State private var citations: EpisodeCitations?
     /// A navigator step or a "Noted" row re-focuses the Reader IN PLACE on
     /// that citation; the router trail is for moving between documents.
     @State private var jump: EpisodeCitation?
-    /// The chat layout's unfolded long messages, by turn (owner, 2026-10-19); emptied on every load.
-    @State private var unfolded: Set<Int> = []
-    /// The chat row at the top of the column, as the scroll view reports it (`scrollPosition(id:)`) — the keys move
-    /// from here, so a trackpad scroll moves their starting point too — and the scroll a key asked for.
-    @State private var topRow: AnyHashable?
-    @State private var keyScroll: KeyScroll?
-    /// The last layout built, so a key press or a hover redraw does not rebuild a 500-turn chat (`LayoutMemo`).
-    @State private var memo = LayoutMemo()
     /// How the last in-place jump was asked for (owner, 2026-10-20): a pointer's jump hides the wash while the column
-    /// moves, shows it once landed and gives the landed message a brief ring that fades (`citedEmphasis`); a
-    /// keyboard's (⌥↑ / ⌥↓, ⏎ on a noted row) lands in one frame with the wash kept and no ring (DR-60).
+    /// moves, shows it once landed and gives the landed message a brief ring that fades; a keyboard's (⌥↑ / ⌥↓, ⏎ on a
+    /// noted row) lands in one frame with the wash kept and no ring (DR-60).
     @State private var jumpTrigger: LooksZoom.Trigger = .pointer
-    @State private var citedEmphasis: Double = 0
-    @State private var emphasisFade: Task<Void, Never>?
-
-    /// A keyboard scroll: the row, the edge it lines up with, and a token so asking for the same row twice still moves.
-    struct KeyScroll: Equatable {
-        let id: AnyHashable
-        let alignsTop: Bool
-        let token: Int
-    }
 
     /// DR-61 / §5.4 — the column's horizontal inset, shared by the header's
     /// leading edge, the pinned row and the text, so all three align.
@@ -111,7 +94,7 @@ struct ReaderColumn: View {
         .onExitCommand { Instant.run { router.close() } }
         // DR-68 — in a chat: ↑ / ↓ a message, the page keys five, ⌘↑ / Home to the start, ⌘↓ / End to the newest.
         .onKeyPress(keys: [.upArrow, .downArrow, .pageUp, .pageDown, .home, .end]) { press in
-            chatKey(press)
+            spansState.key(press)
         }
         .environment(\.revealedNumbers, revealed)
         .task(id: router.current) { await load() }
@@ -123,13 +106,9 @@ struct ReaderColumn: View {
     private func load() async {
         guard let target = router.current else { return }
         phase = .loading
-        washVisible = false
+        spansState.reset()
         jump = nil
-        emphasisFade?.cancel()
-        citedEmphasis = 0
         citations = nil
-        unfolded = []
-        topRow = nil
         let result = await cache.document(episode: target.episode, focus: target.query)
         // `.task(id:)` cancels a superseded load, but cancellation is
         // cooperative: a slow fetch for the previous target must never land
@@ -147,7 +126,7 @@ struct ReaderColumn: View {
                 revealed = answer.numbers
             }
             guard !Task.isCancelled, router.current == target else { return }
-            landingToken &+= 1
+            spansState.landAgain()
             let cited = await cache.citations(episode: target.episode).value
             guard !Task.isCancelled, router.current == target else { return }
             citations = cited
@@ -215,226 +194,39 @@ struct ReaderColumn: View {
             .padding(.top, CicadaTheme.scaled(4))
     }
 
-    /// Everything the body and the keys need from a loaded document, computed once per draw by one function.
-    private struct Layout {
-        let presentation: ReaderPresentation
-        let blocks: [ReaderBlock]
-        let stops: [Range<Int>]
-        let rows: [EpisodeCitation]
-        /// The chat rows, or nil for a document (`ReaderChat.isChat`).
-        let chat: [ReaderChat.Row]?
-        let landingBlock: ReaderBlock.Key?
-    }
-
-    /// One built layout and what it was built from. A class held in `@State`, so filling it while a body is drawn
-    /// mutates no view state.
-    private final class LayoutMemo {
-        struct Key: Hashable {
-            let target: ReaderTarget
-            let episode: String
-            let hash: String
-            let length: Int
-            let unfolded: Set<Int>
-            let jump: EpisodeCitation?
-            let citations: EpisodeCitations?
-        }
-        var key: Key?
-        var layout: Layout?
-    }
-
-    private func layout(_ doc: EpisodeText, scalars: ScalarText, target: ReaderTarget) -> Layout {
-        let key = LayoutMemo.Key(target: target, episode: doc.episode, hash: doc.hash, length: doc.length,
-                                 unfolded: unfolded, jump: jump, citations: citations)
-        if memo.key == key, let built = memo.layout { return built }
-        let built = buildLayout(doc, scalars: scalars, target: target)
-        memo.key = key
-        memo.layout = built
-        return built
-    }
-
-    private func buildLayout(_ doc: EpisodeText, scalars: ScalarText, target: ReaderTarget) -> Layout {
+    private func document(_ doc: EpisodeText, scalars: ScalarText, target: ReaderTarget) -> some View {
         let presentation = jump.map {
             ReaderPresentation.citation($0, truncated: doc.truncated, textCount: scalars.count)
         } ?? ReaderPresentation.resolve(target: target, doc: doc, textCount: scalars.count)
         let rows = citations?.citations ?? []
         let stops = ReaderNavigator.stops(rows, subjectId: target.subjectId)
-        let blocks = ReaderLayout.blocks(doc: doc, scalars: scalars, focus: presentation.focus,
-                                         focusStyle: presentation.focusStyle,
-                                         others: stops.filter { $0 != presentation.focus })
-        let landingBlock = presentation.landing.flatMap { ReaderLayout.blockID(containing: $0, in: blocks) }
-        var chat: [ReaderChat.Row]?
-        if ReaderChat.isChat(doc) {
-            // A turn holding the cited words, or the one landed on, never folds: the wash is always on screen.
-            chat = ReaderChat.rows(blocks: blocks, doc: doc, expanded: unfolded,
-                                   keepOpen: ReaderChat.keepOpen(blocks: blocks, landing: landingBlock))
-        }
-        return Layout(presentation: presentation, blocks: blocks, stops: stops, rows: rows, chat: chat,
-                      landingBlock: landingBlock)
-    }
-
-    private func document(_ doc: EpisodeText, scalars: ScalarText, target: ReaderTarget) -> some View {
-        let layout = layout(doc, scalars: scalars, target: target)
-        let presentation = layout.presentation
-        let rows = layout.rows
-        let stops = layout.stops
-        let blocks = layout.blocks
-        let landingBlock = layout.landingBlock
         let position = ReaderNavigator.position(of: presentation.focus, in: stops)
         let captureLine = ReaderHeader.captureLine(doc)
-        // One rotor stop per cited turn, even when the words straddle two of
-        // its chunks — the rotor names turns, not layout pieces.
-        var citedTurns = Set<Int>()
-        let citedBlocks = blocks.filter { $0.holdsFocus && citedTurns.insert($0.index).inserted }
-        // A chat names a message by who and when; the document view by who and which turn.
-        let citedStops: [RotorStop] = layout.chat.map { chat in
-            chat.compactMap(Self.citedMessage).map(RotorStop.init(message:))
-        } ?? citedBlocks.map(RotorStop.init(block:))
-        let turnStops: [RotorStop] = layout.chat.map { chat in
-            chat.compactMap(Self.turnStart).map(RotorStop.init(message:))
-        } ?? blocks.filter(\.startsTurn).map(RotorStop.init(block:))
-        return ScrollViewReader { proxy in
-            VStack(alignment: .leading, spacing: 0) {
-                // Pinned ABOVE the text, never inside it: landing scrolls the
-                // cited turn to the centre, so a bar at the top of the scrolled
-                // stack would leave the screen the moment the Reader arrives
-                // (and, lazily unrealised, take ⌥↑ / ⌥↓ with it).
-                if captureLine != nil || stops.count > 1 {
-                    HStack(alignment: .center, spacing: CicadaTheme.spacingXS) {
-                        if let captureLine {
-                            // DR-53 — no `info.circle`: a glyph that adds nothing.
-                            Text(captureLine)
-                                .font(CicadaTheme.metaFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        Spacer(minLength: CicadaTheme.spacingSM)
-                        if stops.count > 1 {
-                            navigator(stops: stops, rows: rows, subjectId: target.subjectId, position: position)
-                        }
+        return SourceSpansView(state: spansState, doc: doc, scalars: scalars, presentation: presentation, others: stops,
+                               jump: jump == nil ? nil : jumpTrigger) {
+            if captureLine != nil || stops.count > 1 {
+                HStack(alignment: .center, spacing: CicadaTheme.spacingXS) {
+                    if let captureLine {
+                        // DR-53 — no `info.circle`: a glyph that adds nothing.
+                        Text(captureLine)
+                            .font(CicadaTheme.metaFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(.horizontal, CicadaTheme.scaled(Self.inset))
-                    .padding(.bottom, CicadaTheme.spacingSM)
-                }
-                // A chat opens at its newest message, so what the banners say ("only the first part is shown", "the
-                // words may have moved") is pinned here rather than left at the top of the history.
-                if layout.chat != nil, !presentation.banners.isEmpty {
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        ForEach(presentation.banners, id: \.self) { ReaderBannerView(banner: $0) }
-                    }
-                    .padding(.horizontal, CicadaTheme.scaled(Self.inset))
-                    .padding(.bottom, CicadaTheme.spacingSM)
-                }
-                ScrollView {
-                    // Spacing 0 so a long turn's chunks (`ReaderLayout.chunks`)
-                    // read on as one text; the gap goes between turns instead.
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if layout.chat == nil {
-                            ForEach(presentation.banners, id: \.self) { banner in
-                                ReaderBannerView(banner: banner)
-                                    .padding(.bottom, CicadaTheme.spacingMD)
-                            }
-                        }
-                        if blocks.isEmpty {
-                            Text(Copy.Provenance.empty)
-                                .font(CicadaTheme.detailBodyFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                        }
-                        // Flattened into this lazy stack, so a 400,000-character
-                        // conversation's chunks are still realised on demand.
-                        if let chat = layout.chat {
-                            ReaderChatRows(rows: chat, landingTurn: presentation.focus == nil ? nil : landingBlock?.turn,
-                                           revealed: washVisible, messagesChat: ReaderChat.messagesChat(doc),
-                                           emphasis: citedEmphasis,
-                                           onToggle: { turn in
-                                               if unfolded.contains(turn) { unfolded.remove(turn) } else { unfolded.insert(turn) }
-                                           },
-                                           onJump: { key in
-                                               // A reply's target: one frame, never animated (DR-60).
-                                               keyScroll = KeyScroll(id: AnyHashable(key), alignsTop: true,
-                                                                     token: (keyScroll?.token ?? 0) &+ 1)
-                                           })
-                        } else {
-                            ReaderTurnRows(blocks: blocks, landingTurn: landingBlock?.turn, revealed: washVisible)
-                        }
-                        if let citations {
-                            notedList(citations, doc: doc, currentRange: presentation.focus)
-                                .padding(.top, CicadaTheme.scaled(32))
-                        }
-                    }
-                    .scrollTargetLayout()
-                    .padding(.top, CicadaTheme.scaled(4))
-                    .padding(.horizontal, CicadaTheme.scaled(Self.inset))
-                    .padding(.bottom, CicadaTheme.scaled(layout.chat == nil ? 72 : 24))
-                }
-                .scrollPosition(id: $topRow, anchor: .top)
-                .accessibilityRotor("Cited passages") {
-                    ForEach(citedStops, id: \.id) { stop in
-                        AccessibilityRotorEntry(Text(stop.label), id: stop.id)
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    if stops.count > 1 {
+                        navigator(stops: stops, rows: rows, subjectId: target.subjectId, position: position)
                     }
                 }
-                .accessibilityRotor("Turns") {
-                    ForEach(turnStops, id: \.id) { stop in
-                        AccessibilityRotorEntry(Text(stop.label), id: stop.id)
-                    }
-                }
-                .onChange(of: landingToken, initial: true) { _, _ in
-                    land(proxy: proxy, block: landingBlock, blocks: blocks, presentation: presentation, chat: layout.chat)
-                }
-                .onChange(of: keyScroll) { _, request in
-                    // DR-60 — a key moves the column in one frame.
-                    guard let request else { return }
-                    Instant.run { proxy.scrollTo(request.id, anchor: request.alignsTop ? .top : .bottom) }
-                }
+                .padding(.horizontal, CicadaTheme.scaled(Self.inset))
+                .padding(.bottom, CicadaTheme.spacingSM)
+            }
+        } below: {
+            if let citations {
+                notedList(citations, doc: doc, currentRange: presentation.focus)
+                    .padding(.top, CicadaTheme.scaled(32))
             }
         }
-    }
-
-    private struct RotorStop {
-        let id: ReaderBlock.Key
-        let label: String
-        init(block: ReaderBlock) {
-            id = block.id
-            label = Copy.Provenance.rotorLabel(speaker: block.speaker, turn: block.index)
-        }
-        init(message: ReaderChat.Message) {
-            id = message.block.id
-            label = Copy.Provenance.chatRotorLabel(speaker: message.speaker, time: message.time)
-        }
-    }
-
-    /// The chat rows a rotor names: each message that holds a cited span, and each turn's first message.
-    private static func citedMessage(_ row: ReaderChat.Row) -> ReaderChat.Message? {
-        guard case let .message(message) = row.kind, message.block.holdsFocus else { return nil }
-        return message
-    }
-
-    private static func turnStart(_ row: ReaderChat.Row) -> ReaderChat.Message? {
-        guard case let .message(message) = row.kind, message.block.startsTurn else { return nil }
-        return message
-    }
-
-    // MARK: Keys (a chat)
-
-    private func chatKey(_ press: KeyPress) -> KeyPress.Result {
-        // ⌥↑ / ⌥↓ belong to the navigator; anything else with a modifier but ⌘ is not ours.
-        guard !press.modifiers.contains(.option), !press.modifiers.contains(.control),
-              case let .loaded(doc, scalars) = phase, let target = router.current,
-              let chat = layout(doc, scalars: scalars, target: target).chat, !chat.isEmpty else { return .ignored }
-        let command = press.modifiers.contains(.command)
-        let move: ReaderChatKeys.Move
-        switch press.key {
-        case .upArrow: move = command ? .first : .previous
-        case .downArrow: move = command ? .last : .next
-        case .pageUp: move = .pageUp
-        case .pageDown: move = .pageDown
-        case .home: move = .first
-        case .end: move = .last
-        default: return .ignored
-        }
-        let top = topRow.flatMap { id in chat.firstIndex { $0.scrollID == id } }
-        guard let to = ReaderChatKeys.target(move, top: top, count: chat.count) else { return .ignored }
-        keyScroll = KeyScroll(id: chat[to.index].scrollID, alignsTop: to.alignsTop, token: (keyScroll?.token ?? 0) &+ 1)
-        return .handled
     }
 
     // MARK: Navigator (P4)
@@ -487,27 +279,9 @@ struct ReaderColumn: View {
         guard let citation, citation.range != nil else { return }
         let trigger = ReaderJumpAsk.trigger(ask, eventType: NSApp.currentEvent?.type)
         jumpTrigger = trigger
-        emphasisFade?.cancel()
-        Instant.run {
-            citedEmphasis = 0
-            // DR-60 — a keyboard jump keeps the wash where it is: nothing fades out and back in.
-            if trigger == .pointer { washVisible = false }
-        }
+        spansState.prepareJump(trigger)
         jump = citation
-        landingToken &+= 1
-    }
-
-    /// The brief ring on the message a pointer jump landed on: held, then faded (`rowHighlightHold` /
-    /// `rowHighlightFade`, the landed Settings row's timing); under Reduce Motion held for both and removed in one
-    /// frame (R-O7). Never after a keyboard jump (DR-60) and never on opening the Reader.
-    private func emphasise() {
-        Instant.run { citedEmphasis = 1 }
-        emphasisFade = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(CicadaMotion.rowHighlightHold))
-            if reduceMotion { try? await Task.sleep(for: .seconds(CicadaMotion.rowHighlightFadeDuration)) }
-            guard !Task.isCancelled else { return }
-            withAnimation(CicadaMotion.rowHighlightFade(reduceMotion: reduceMotion)) { citedEmphasis = 0 }
-        }
+        spansState.landAgain()
     }
 
     // MARK: Noted from this conversation (P4, G106 (ii))
@@ -517,7 +291,7 @@ struct ReaderColumn: View {
         let alsoOn = payload.entities.filter { !citedIds.contains($0.entityId) }
             .map { $0.name.isEmpty ? $0.entityId : $0.name }
         return ReaderNotedList(
-            rows: payload.citations, currentRange: currentRange, isPage: doc.isPage,
+            rows: payload.citations, currentRange: currentRange, sourceKind: doc.isPage ? "page" : doc.sourceKind,
             agent: EvidenceSpeaker.agentName(harness: doc.harness, origin: doc.origin), source: doc.source,
             origin: doc.origin, alsoOn: alsoOn, partial: payload.partial,
             onJump: { jumpTo($0, ask: $1) },
@@ -525,43 +299,6 @@ struct ReaderColumn: View {
                 appRouter.pendingTab = .graph
                 graphVM.revealEntity(id: row.subjectId)
             })
-    }
-
-    /// Scroll to the cited turn after the first layout, show the wash, then say what was landed on (§4.4 Landing).
-    /// The wash appears in one step: a `CitedPassage`'s marks are attributes of its selectable string, which no
-    /// animation interpolates, so `spanReveal` here times only what can move with it.
-    private func land(proxy: ScrollViewProxy, block: ReaderBlock.Key?, blocks: [ReaderBlock],
-                      presentation: ReaderPresentation, chat: [ReaderChat.Row]?) {
-        Task { @MainActor in
-            await Task.yield()
-            if let block {
-                proxy.scrollTo(block, anchor: .center)
-            } else if let chat, let newest = chat.last {
-                // A chat opens at its newest message, history above (owner, 2026-10-19). A lazy stack places what it
-                // has not measured by estimate, so it is asked twice: the second lands on the measured rows.
-                proxy.scrollTo(newest.scrollID, anchor: .bottom)
-                await Task.yield()
-                proxy.scrollTo(newest.scrollID, anchor: .bottom)
-            }
-            switch ReaderLandingMotion.choose(isJump: jump != nil, trigger: jumpTrigger, isChat: chat != nil,
-                                              landed: block != nil) {
-            case .instant:
-                Instant.run { washVisible = true }
-            case .reveal:
-                withAnimation(CicadaMotion.spanReveal(reduceMotion: reduceMotion)) { washVisible = true }
-            case .revealAndEmphasise:
-                withAnimation(CicadaMotion.spanReveal(reduceMotion: reduceMotion)) { washVisible = true }
-                emphasise()
-            }
-            // The first block's piece of the words: a chunk holds at least
-            // `chunkLimit / 2` scalars, so the 120 announced almost always sit
-            // in one block, and never read a marker line out loud.
-            guard presentation.focus != nil, let hit = blocks.first(where: { $0.holdsFocus }),
-                  let wash = hit.washes.first(where: { $0.style != .other }) else { return }
-            let words = ScalarText(hit.text).slice(wash.range.lowerBound, wash.range.upperBound)
-            AccessibilityNotification.Announcement(Copy.Provenance.citedPassage(String(words.prefix(120))))
-                .post()
-        }
     }
 }
 
@@ -744,9 +481,11 @@ struct ReaderTurnView: View {
                     Text(block.speaker)
                         .font(CicadaTheme.metaMediumFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
-                    Text("· " + Copy.Provenance.turn(block.index))
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
+                    if block.showsTurnNumber {
+                        Text("· " + Copy.Provenance.turn(block.index))
+                            .font(CicadaTheme.metaFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                    }
                     if let time = block.time {
                         Text(time)
                             .font(CicadaTheme.metaFont)
@@ -766,7 +505,7 @@ struct ReaderTurnView: View {
     /// What VoiceOver reads for a block of the document view: the chat's cited words first when it holds a cited span
     /// (review of #383, 2026-10-20 — the tint is seen, never only seen), then the speaker line and the words.
     static func accessibilityWords(_ block: ReaderBlock) -> String {
-        let words = block.speaker.isEmpty || !block.startsTurn
+        let words = block.speaker.isEmpty || !block.startsTurn || !block.showsTurnNumber
             ? block.text
             : Copy.Provenance.turnLabel(speaker: block.speaker, turn: block.index, text: block.text)
         switch ReaderChat.citedMark(block) {
@@ -786,7 +525,8 @@ struct ReaderTurnView: View {
 struct ReaderNotedList: View {
     let rows: [EpisodeCitation]
     let currentRange: Range<Int>?
-    let isPage: Bool
+    /// What the document is, for the list's own title (`source_spans.kind_of`).
+    let sourceKind: String?
     let agent: String?
     /// The document's episode `source`; `page-read` relabels a page quote as the agent's reading.
     var source: String? = nil
@@ -802,7 +542,7 @@ struct ReaderNotedList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            SectionLabel(Copy.Provenance.noted(count: rows.count, isPage: isPage))
+            SectionLabel(Copy.Provenance.noted(count: rows.count, kind: sourceKind))
                 .padding(.bottom, CicadaTheme.spacingXS)
             ForEach(rows) { row in
                 ReaderNotedRow(row: row, isCurrent: row.range != nil && row.range == currentRange, agent: agent, source: source,
@@ -914,9 +654,7 @@ struct ReaderBannerView: View {
         switch banner {
         case .stale: Copy.Provenance.stale
         case .grown: Copy.Provenance.grown
-        case .inferred: Copy.Provenance.inferred
         case .derived: Copy.Provenance.derived
-        case .notFound: Copy.Provenance.notFound
         case .truncated: Copy.Provenance.truncated
         }
     }
@@ -925,9 +663,7 @@ struct ReaderBannerView: View {
         switch banner {
         case .stale: "exclamationmark.triangle"
         case .grown: "arrow.down.to.line"
-        case .inferred: "lightbulb"
         case .derived: "text.magnifyingglass"
-        case .notFound: "magnifyingglass"
         case .truncated: "scissors"
         }
     }

@@ -216,7 +216,7 @@ struct CitationPopover: View {
             }
             Spacer(minLength: 0)
             if router != nil, target(d) != nil {
-                TextButton(title: Copy.Pages.showInConversation + " ›") { open(d) }
+                TextButton(title: Copy.Provenance.showIn(d.sourceKind ?? d.kind) + " ›") { open(d) }
                     .fixedSize()
             }
         }
@@ -226,8 +226,9 @@ struct CitationPopover: View {
         if let span = d.span {
             return ReaderTarget.best(span, subjectId: entityId, knownTitle: d.title, knownHarness: d.harness)
         }
-        guard let episode = d.episodeId, d.kind != "page" else { return nil }
-        return ReaderTarget(episode: episode, focus: .inferred, subjectId: entityId, knownTitle: d.title,
+        // ROR-16 — nothing located still opens the source; no quote, no apology.
+        guard let episode = d.episodeId else { return nil }
+        return ReaderTarget(episode: episode, focus: .none, subjectId: entityId, knownTitle: d.title,
                             knownHarness: d.harness)
     }
 

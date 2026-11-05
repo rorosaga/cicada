@@ -238,14 +238,14 @@ final class ReaderTurnsTests: XCTestCase {
         let missed = conversation(focus: nil)
         let p = present(.mention(entityId: "bob-example"), doc: missed)
         XCTAssertNil(p.focus)
-        XCTAssertEqual(p.banners, [.notFound])
+        XCTAssertEqual(p.banners, [], "no apology (ROR-16)")
         XCTAssertNil(p.landing, "nothing found opens at the top")
     }
 
-    func testInferredAndStaleTargetsOpenAtTheTopUnderTheirBanner() {
-        XCTAssertEqual(present(.inferred, doc: conversation()).banners, [.inferred])
+    func testNothingToLocateSaysNothingAndAStaleTargetSaysSo() {
+        XCTAssertEqual(present(.none, doc: conversation()).banners, [])
         XCTAssertEqual(present(.stale, doc: conversation()).banners, [.stale])
-        XCTAssertNil(present(.inferred, doc: conversation()).landing)
+        XCTAssertNil(present(.none, doc: conversation()).landing)
     }
 
     func testWordsPastTheCapAreNotWashedAndTheTruncationIsSaid() {

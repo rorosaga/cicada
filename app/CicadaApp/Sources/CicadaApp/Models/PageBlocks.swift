@@ -55,6 +55,8 @@ struct PageBlocks: Codable, Equatable {
             var day: String?
             var text: String?
             var note: String?
+            /// ROR-16 — where the passage stands in the book's record; the Reader's read judges it when opened.
+            var evidence: Evidence?
         }
 
         var items: [Item]
@@ -286,6 +288,8 @@ struct PageCitationDetail: Codable, Equatable {
     var last: String?
     var episodeId: String?
     var conversationId: String?
+    /// ROR-16 — what the source is, so a citation says what it opens.
+    var sourceKind: String?
     var evidenceKind: String?
     var status: String?
     var span: ProvenanceSpan?
