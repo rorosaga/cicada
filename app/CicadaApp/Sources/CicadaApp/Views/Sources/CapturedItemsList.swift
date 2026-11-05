@@ -95,7 +95,7 @@ struct CapturedItemsList: View {
                         SavedItemRow(item: item, today: today,
                                      route: CapturedItemRoute.of(item, interactive: interactive), open: go,
                                      leftLine: CapturedItems.leftLine(item, channel: channel),
-                                     placeChannel: interactive ? channel : nil)
+                                            placeChannel: interactive ? channel : nil)
                     }
                 }
                 if list.hasMore { showMore(list, loading: cache.isLoadingMore(channel), cache: cache) }
@@ -113,7 +113,7 @@ struct CapturedItemsList: View {
                             CapturedItemRow(item: item, today: today,
                                             route: CapturedItemRoute.of(item, interactive: interactive), open: go,
                                             leftLine: CapturedItems.leftLine(item, channel: channel),
-                                     placeChannel: interactive ? channel : nil)
+                                            placeChannel: interactive ? channel : nil)
                         }
                     }
                 }

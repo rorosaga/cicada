@@ -69,7 +69,6 @@ extension APIClient: ChannelItemsAPI {
         try await getConditional(Self.channelItemsPath(channel, offset: offset, limit: limit), etag: etag)
     }
 
-    /// 2026-11-04 — where a channel's items live (`GET /sources/channels/{id}/collections`).
     /// G161 (ROR-111) — where one listed item lives, read on the person's click, never kept. Encoded as a list's path.
     nonisolated static func itemPlacePath(channel: String, item: String) -> String {
         var allowed = CharacterSet.urlPathAllowed
@@ -86,6 +85,7 @@ extension APIClient: ChannelItemsAPI {
         return place
     }
 
+    /// 2026-11-04 — where a channel's items live (`GET /sources/channels/{id}/collections`).
     func fetchChannelCollections(channel: String, etag: String?) async throws -> Conditional<ChannelCollections> {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#")
