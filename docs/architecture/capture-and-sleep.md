@@ -1593,6 +1593,25 @@ or `updated` write queues anything. A job held back by Sleep, a re-embed or the 
   ceiling exists (more new conversations than recall's 3 excerpt slots can hold on one topic, or questions that need
   a fact joined across conversations).
 
+#### A rename at the source (ROR-122, ruling 69)
+
+One module, `source_names`, holds the rule; each source that owns a page calls it inside the write it already makes, under
+its own admission, page lock and commit (the module touches no file). `apply(fm, door, name, day=, was=, door_was=)`
+returns `baseline`, `same`, `rename` (name changed, the old one an alias) or `kept` (the person's name stands, the
+source's new one an alias). The frontmatter keeps `names_seen` (door -> the name it last reported), `name_source` (the
+door, name and day a source last wrote the page's `name`) and, from the person, `name_by` (`project_ownership.apply_header`:
+the app's and the agent door's rename). A removed alias (`aliases_removed`) is never re-added (`page_edits.keep_aliases`).
+
+| Source | A rename before | After |
+|---|---|---|
+| Apple Books, Goodreads, scans (`books`) | the first real title stayed; the new spelling became an alias only | `ensure_page` queues the door's changed title (`BookIndex.renames`); `apply_renames` applies it after the person's own commit and commits it as `cicada` (`books/rename`); two doors: the one that last changed wins |
+| GitHub repositories (`github_repos.upsert`) | the `github:` block followed, the page name stayed | the page found by GitHub's id takes the new `owner/name`, the old one an alias, in the sync's one commit |
+| Added files, Voice Memos (`media_pages`, `media_files`) | a store rename with the same bytes was `unchanged` and never reached the page | the name alone is kept (the words stay), the next page sync renames the page; the Mac posts a name-only row when a posted recording's title changed (`VoiceMemosReader.renamed`) |
+| RSS, Substack feeds (`feed_registry.note_feed_title`) | the title filled once and never moved | the channel's newest title replaces it; the old one stays in `aka` |
+| Notes, Calendar, Reminders, Linear, Notion, chats, transcript folders (episodes) | the title followed only when the body changed | `episode_staging` also shows a changed title when no word moved: frontmatter only, not re-queued, nothing a revision |
+
+Not built: a project's name from its repository (the person's, ruling 56); Apple Books entries whose title is a file name.
+
 #### Books: a scanned ISBN, Apple Books, a Goodreads export (G39, G233, 2026-11-04)
 
 Three doors, one writer. Each door stages episodes through `episode_staging` (scrub, one id rule, both dates, the demo

@@ -1,4 +1,4 @@
-"""A rename at the source renames the thing in Cicada (ROR-122, ruling 70, owner 2026-11-05).
+"""A rename at the source renames the thing in Cicada (ROR-122, ruling 69, owner 2026-11-05).
 
 The owner: "I think these two-way updates should be in all sources. So if a voice memo changes the name and stuff, like I
 think this stuff should be synced and they should change names, don't you think?"

@@ -254,7 +254,7 @@ final class VoiceMemosReader {
 
     /// A recording already posted whose title changed since: the name alone goes, with its bytes' hash (the backend
     /// keeps the words when the bytes are the same). One never posted under a title is only noted, never renamed.
-    static func renamed(_ records: [VoiceMemoRecord], sent: [String: String], names: [String: String])
+    nonisolated static func renamed(_ records: [VoiceMemoRecord], sent: [String: String], names: [String: String])
         -> (rows: [VoiceMemoRecord], names: [String: String]) {
         var next = names
         var rows: [VoiceMemoRecord] = []

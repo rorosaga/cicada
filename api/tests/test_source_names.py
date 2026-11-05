@@ -1,4 +1,4 @@
-"""ROR-122 (ruling 70): a rename at the source renames the thing in Cicada, for every source that gives a page or a row
+"""ROR-122 (ruling 69): a rename at the source renames the thing in Cicada, for every source that gives a page or a row
 its name. The shared rules (`source_names`), then each source that owns one: books (two doors), repositories, files
 and Voice Memos, feeds, episodes. Synthetic names only."""
 from __future__ import annotations
