@@ -562,6 +562,7 @@ struct GitHubRepoRow: View {
                 }
             }
             .frame(minHeight: CicadaTheme.scaled(RowMetrics.twoLine))
+            .padding(.trailing, ItemPlaceControl.reserve(.github))
             .padding(.horizontal, CicadaTheme.scaled(10))
             .rowHoverFill(hovering: hovering)
             .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
@@ -580,6 +581,9 @@ struct GitHubRepoRow: View {
         }
         .accessibilityLabel([GitHubReposLogic.name(repo, showOwner: showOwner), repo.description, repo.language]
             .compactMap { $0 }.joined(separator: ", "))
+        .modifier(ItemPlaceControl(kind: .github, title: repo.fullName) {
+            ItemPlace(kind: ItemPlaceKind.github.rawValue, url: repo.url)
+        })
     }
 
     private func open() {

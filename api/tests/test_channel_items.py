@@ -529,3 +529,101 @@ def test_a_list_reads_only_its_own_sources_episodes(bank, monkeypatch):
     assert built == ["ep_2026-09-14_001"]   # the one new episode; the unchanged ones are kept rows
     built.clear()
     assert channel_items.items(bank, "chat-export:gemini")["total"] == 0 and built == []
+
+
+# --- where an item lives (G161, ROR-111) ------------------------------------------------------------------------------
+
+_NOTE = "x-coredata://0000AAAA-1111-2222-3333-444455556666/ICNote/p7"
+
+
+def _note_with_id(b):
+    _episode(b, "ep_2026-09-06_001", title="Placed", origin="apple-notes", timestamp="2026-09-06T08:00:00+00:00",
+             note_id=_NOTE)
+    _json(b, "sources/notes_index.json", {_NOTE: {"episode_id": "ep_2026-09-06_001", "modified": "a"}})
+    bank_index.invalidate()
+
+
+def test_a_note_says_it_has_a_place_and_only_the_click_gets_its_id(bank):
+    _note_with_id(bank)
+    page = channel_items.items(bank, "notes")
+    row = next(r for r in page["items"] if r["id"] == "ep_2026-09-06_001")
+    assert row["place"] == "notes"
+    assert "x-coredata" not in json.dumps(page), "a list never carries a note's id"
+    assert channel_items.place(bank, "notes", "ep_2026-09-06_001") == {"kind": "notes", "note_id": _NOTE}
+
+
+def test_a_note_with_no_real_id_has_no_place(bank):
+    rows = channel_items.items(bank, "notes")["items"]
+    assert rows and all("place" not in r for r in rows), "the fixture's ids are not Notes' own"
+    assert channel_items.place(bank, "notes", rows[0]["id"]) is None
+
+
+def test_a_locked_note_has_no_row_and_no_place(bank):
+    from api.services import evidence
+
+    _episode(bank, "ep_2026-09-06_001", title="Locked note", origin="apple-notes",
+             timestamp="2026-09-06T08:00:00+00:00", source_deleted_at="2026-09-05T00:00:00+00:00",
+             **{evidence.LOCKED_NOTE_KEY: True})
+    _json(bank, "sources/notes_index.json", {_NOTE: {"episode_id": "ep_2026-09-06_001", "note_id": _NOTE}})
+    bank_index.invalidate()
+    assert channel_items.items(bank, "notes")["items"] == []
+    assert channel_items.place(bank, "notes", "ep_2026-09-06_001") is None
+
+
+def test_a_saved_link_says_its_kind_and_the_list_never_its_url(bank):
+    page = channel_items.items(bank, "chrome-bookmarks")
+    assert page["items"] and all(r["place"] == "web" for r in page["items"])
+    assert "https" not in json.dumps(page)
+    assert channel_items.place(bank, "chrome-bookmarks", "media-one") == {"kind": "web",
+                                                                         "url": "https://example.com/1"}
+
+
+@pytest.mark.parametrize("url,kind", [
+    ("https://github.com/owner/repo", "github"),
+    ("HTTPS://GitHub.com/owner/repo", "github"),
+    ("https://www.github.com/owner/repo", "github"),
+    ("https://github.com.example.net/owner/repo", "web"),
+    ("http://example.com/a?b=c#d", "web"),
+])
+def test_only_a_plain_web_link_is_a_place_and_the_host_says_github(url, kind):
+    assert channel_items._web_place(url) == {"kind": kind, "url": url}
+
+
+@pytest.mark.parametrize("url", [
+    "file:///etc/hosts", "cicada://open", "x-apple.systempreferences:foo", "javascript:alert(1)", "ftp://example.com/a",
+    "mailto:someone@example.com", "https:no-host", "https://", "//example.com/a", "example.com/a", "",
+    None, "https://user:pw@example.com/", "https://github.com@example.com/", "https://example.com\\@github.com/",
+    " https://example.com/", "https://exa mple.com/", "https://example.com/\n", "https://example.com:port/",
+])
+def test_anything_else_stored_is_no_place(url):
+    assert channel_items._web_place(url) is None
+
+
+def test_a_stored_file_link_shows_no_control(bank):
+    entries = json.loads((bank / "sources" / "url_index.json").read_text())
+    entries["h1"]["url"] = "file:///etc/hosts"
+    _json(bank, "sources/url_index.json", entries)
+    bank_index.invalidate()
+    rows = {r["id"]: r for r in channel_items.items(bank, "chrome-bookmarks")["items"]}
+    assert "place" not in rows["media-one"]
+    assert channel_items.place(bank, "chrome-bookmarks", "media-one") is None
+
+
+def test_an_item_of_another_channel_or_an_unknown_channel_gets_nothing(bank):
+    assert channel_items.place(bank, "notes", "media-one") is None
+    assert channel_items.place(bank, "no-such-channel", "media-one") is None
+
+
+def test_the_route_answers_a_place_and_404s_the_rest(bank, client):
+    _note_with_id(bank)
+    ok = client.get("/sources/channels/notes/items/ep_2026-09-06_001/place")
+    assert ok.status_code == 200 and ok.json() == {"kind": "notes", "note_id": _NOTE}
+    assert client.get("/sources/channels/notes/items/nope/place").status_code == 404
+    assert client.get("/sources/channels/no-such/items/ep_2026-09-06_001/place").status_code == 404
+
+
+def test_a_demo_bank_lists_and_answers_like_any_other(bank):
+    (bank / "_bank.yaml").write_text("demo: true\n", encoding="utf-8")
+    _note_with_id(bank)
+    assert channel_items.items(bank, "notes")["total"] >= 1
+    assert channel_items.place(bank, "notes", "ep_2026-09-06_001")["kind"] == "notes"
