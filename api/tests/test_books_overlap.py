@@ -199,3 +199,19 @@ def test_words_that_are_the_same_set_aside_only_case_accents_and_punctuation():
     assert books.title_forms("Title", "A Novel") >= {"title", "title a novel"}
     # A volume number is part of the words, never set aside.
     assert books.norm_words("Berserk (Volume 1)") != books.norm_words("Berserk (Volume 2)")
+
+
+def _series_facts(subtitle, isbn, title_from="openlibrary"):
+    return books.BookFacts(title="Harbour", subtitle=subtitle, authors=["Wren Example"], isbns=[isbn], title_from=title_from)
+
+
+def test_a_series_volumes_stay_two_books_and_a_bare_title_asks(tmp_path):
+    """Review of #643: the bare main title alone joined "Harbour: Book One" and "Harbour: Book Two"."""
+    (tmp_path / "entities").mkdir()
+    index = books.BookIndex(tmp_path)
+    index.add("harbour", [], {"name": "Harbour", "book": {"title": "Harbour", "subtitle": "Book One",
+                                                          "authors": ["Wren Example"]}})
+    assert index.find_words(_series_facts("Book Two", "9780000000002")) == (None, [])
+    assert index.find_words(_series_facts("Book One", "9780000000001")) == ("harbour", [])
+    assert index.find_words(_series_facts(None, "9780000000003")) == (None, ["harbour"]), "unsure: it asks"
+

@@ -259,6 +259,10 @@ class BookIndex:
         #: A title as it reads → the book pages that carry it; a page → its author set. Exact words only.
         self.by_title: dict[str, set[str]] = {}
         self.authors: dict[str, frozenset[str]] = {}
+        #: A page → what its whole title reads as, a bare title not among them when it has a subtitle ("Harbour" is not
+        #: "Harbour: Book Two"), and whether it has one.
+        self.whole: dict[str, frozenset[str]] = {}
+        self.subtitled: dict[str, bool] = {}
         #: A page :func:`ensure_page` just made → the pages it might be the same book as (never joined; asked).
         self.unsure: dict[str, list[str]] = {}
         for f in bank_index.files(memory_path, "entities"):
@@ -275,8 +279,13 @@ class BookIndex:
         if fm is not None:
             book = fm.get("book") if isinstance(fm.get("book"), dict) else {}
             spellings = [fm.get("name"), *[a for a in fm.get("aliases") or [] if not _ISBN_LIKE.fullmatch(str(a))]]
-            for form in title_forms(book.get("title") or fm.get("name"), book.get("subtitle"), spellings):
+            title, subtitle = book.get("title") or fm.get("name"), book.get("subtitle")
+            for form in title_forms(title, subtitle, spellings):
                 self.by_title.setdefault(form, set()).add(entity_id)
+            bare = norm_words(title)
+            self.subtitled[entity_id] = bool(subtitle)
+            self.whole[entity_id] = frozenset(
+                form for form in title_forms(title, subtitle, spellings) if not subtitle or form != bare)
             self.authors[entity_id] = author_set(book.get("authors"))
 
     def find(self, facts: BookFacts) -> str | None:
@@ -291,12 +300,16 @@ class BookIndex:
             return None, []
         mine = author_set(facts.authors)
         same = sorted({p for f in title_forms(facts.title, facts.subtitle) for p in self.by_title.get(f, ())})
-        exact = [p for p in same if mine and self.authors.get(p) == mine]
+        # A join needs the whole title on both sides. Two subtitles that differ are two books (a series' volumes); a
+        # bare title against a subtitled one may or may not be, so it asks.
+        whole = norm_words(f"{facts.title} {facts.subtitle}" if facts.subtitle else facts.title)
+        exact = [p for p in same if mine and self.authors.get(p) == mine and whole in self.whole.get(p, ())]
         if len(exact) == 1:
             return exact[0], []
         if exact:
             return None, exact
-        return None, [p for p in same if not mine or not self.authors.get(p) or mine & self.authors[p]]
+        return None, [p for p in same if not (facts.subtitle and self.subtitled.get(p))
+                      and (not mine or not self.authors.get(p) or mine & self.authors[p])]
 
 
 def _new_id(index: BookIndex, facts: BookFacts) -> str:

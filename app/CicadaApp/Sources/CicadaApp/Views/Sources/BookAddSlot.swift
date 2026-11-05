@@ -59,6 +59,9 @@ struct BookAddSlot: View {
             }
         }
         .onDisappear { camera.stop() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
+            camera.stop()   // Not left watching a room while the person is in another app.
+        }
     }
 
     /// The one fix when the camera cannot open, in words.

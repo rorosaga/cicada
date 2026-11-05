@@ -63,6 +63,8 @@ final class BookBarcodeCamera {
         case .notDetermined:
             state = .starting
             guard await AVCaptureDevice.requestAccess(for: .video) else { state = .denied; return }
+            // The person may have left while macOS asked: stop() set this to off, and the camera stays closed.
+            guard state == .starting else { return }
         default:
             state = .denied
             return
