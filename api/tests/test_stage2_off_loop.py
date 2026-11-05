@@ -6,15 +6,19 @@ the owner's scale is the `bench` tier (`make test-bench`), like every wall-clock
 from __future__ import annotations
 
 import asyncio
+import socket
 import threading
 import time
+import urllib.error
+import urllib.request
 from types import SimpleNamespace
 
 import pytest
+import uvicorn
 
 from _stage2_bench_bank import batch as bench_batch
 from _stage2_bench_bank import build as build_bench_bank
-from drain_harness import git, install, settings
+from drain_harness import git, install
 
 from api.services import engine_errors, entity_resolver, markdown_parser, pending_store, sleep_cycle, vector_index
 
@@ -295,7 +299,7 @@ def test_stage_2_at_the_owners_scale_answers_within_a_second(bench_bank, monkeyp
         try:
             existing = await asyncio.to_thread(_existing, bench_bank)
             return await entity_resolver.resolve_off_loop(
-                bench_batch(), existing, _settings(bench_bank, ) )
+                bench_batch(), existing, _settings(bench_bank))
         finally:
             done.set()
             await beat
@@ -308,9 +312,11 @@ def test_stage_2_at_the_owners_scale_answers_within_a_second(bench_bank, monkeyp
 
 
 @pytest.mark.bench
-def test_a_whole_batch_at_the_owners_scale_never_stalls_the_loop_a_second(bench_bank, monkeypatch):
-    """Every stage of a batch, by stage: the one that blocks past the bound is the one named."""
+def test_a_whole_batch_at_the_owners_scale_answers_healthz_within_a_second(bench_bank, monkeypatch):
+    """The symptom itself: a real uvicorn, Sleep on its loop, `/healthz` and `/sleep/status` asked over a socket all
+    through a batch. The judge is a stub, so this bounds what the bank's size costs, never a model's own time."""
     rig = install(monkeypatch)
+    from api import config, main
     from api.services import entity_extractor
 
     async def extract(episodes, settings_, **kw):
@@ -322,33 +328,50 @@ def test_a_whole_batch_at_the_owners_scale_never_stalls_the_loop_a_second(bench_
     monkeypatch.setattr(entity_extractor, "extract", extract)
     monkeypatch.setattr(entity_resolver, "resolve", REAL_RESOLVE)
     _stub_judges(monkeypatch)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(bench_bank))
+    config.get_settings.cache_clear()
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(main.app, host="127.0.0.1", port=port, lifespan="off", log_level="error"))
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=lambda: loop.run_until_complete(server.serve()), daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 15
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert server.started
+    done = threading.Event()
     worst: dict[str, float] = {}
-    state = sleep_cycle.get_sleep_state()
 
-    async def go():
-        done = asyncio.Event()
+    def ask(path: str) -> None:
+        while not done.is_set():
+            t0 = time.monotonic()
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=30) as reply:
+                    reply.read()
+            except urllib.error.HTTPError:
+                pass
+            worst[path] = max(worst.get(path, 0.0), time.monotonic() - t0)
+            time.sleep(0.05)
 
-        async def heartbeat():
-            while not done.is_set():
-                before = str(state.stage)
-                t0 = time.monotonic()
-                await asyncio.sleep(0.02)
-                lag = time.monotonic() - t0 - 0.02
-                worst[before] = max(worst.get(before, 0.0), lag)
-
-        beat = asyncio.create_task(heartbeat())
-        try:
-            await sleep_cycle.run(settings(bench_bank, sleep_promotion_threshold=2, sleep_resolve_concurrency=10,
-                                           sleep_max_episodes_per_cycle=25),
-                                  "sleep_bench", user_triggered=True, drain=True)
-        finally:
-            done.set()
-            await beat
-
-    asyncio.run(go())
-    assert len(rig.extract_batches) >= 1
-    over = {stage: round(lag, 2) for stage, lag in worst.items() if lag >= 1.0}
-    assert not over, f"the loop stalled past a second, by stage reached: {over}"
+    askers = [threading.Thread(target=ask, args=(p,), daemon=True) for p in ("/healthz", "/sleep/status")]
+    for asker in askers:
+        asker.start()
+    try:
+        asyncio.run_coroutine_threadsafe(
+            sleep_cycle.run(config.get_settings(), "sleep_bench", user_triggered=True, drain=True), loop,
+        ).result(timeout=540)
+    finally:
+        done.set()
+        for asker in askers:
+            asker.join(35)
+        server.should_exit = True
+        thread.join(15)
+        config.get_settings.cache_clear()
+    assert rig.extract_batches, "the batch never ran"
+    over = {path: round(lag, 2) for path, lag in worst.items() if lag >= 1.0}
+    assert set(worst) == {"/healthz", "/sleep/status"} and not over, f"a request waited past a second: {worst}"
 
 
 REAL_RESOLVE = entity_resolver.resolve
