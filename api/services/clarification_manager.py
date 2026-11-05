@@ -140,6 +140,9 @@ class ClarificationManager:
             # through another of the pages that share its name is the same question.
             open_path = next((p for p in (find_open(self.memory_path, kind, sanitize_id(entity_name), str(pid))
                                           for pid in same_title if str(pid) != second) if p is not None), None)
+        if open_path is None and why_asked and not is_duplicate:
+            # G239: one question a name, whatever the mention's own wording made of its type.
+            open_path = self._open_question(sanitize_id(entity_name))
         if open_path is not None:
             parsed = markdown_parser.parse(open_path)
             parsed.frontmatter["updated_date"] = str(date.today())
@@ -293,6 +296,16 @@ class ClarificationManager:
                 or parsed.frontmatter.get("entity_mention", "")
             ).strip().lower()
             if _same_mention(mention, target):
+                return filepath
+        return None
+
+    def _open_question(self, entity_id: str) -> Path | None:
+        for filepath in sorted(self.dir.glob("inbox-*.md")):
+            try:
+                fm = markdown_parser.parse(filepath).frontmatter
+            except Exception:  # noqa: BLE001
+                continue
+            if fm.get("kind") == "clarification" and fm.get("status") == "pending" and fm.get("entity_id") == entity_id:
                 return filepath
         return None
 

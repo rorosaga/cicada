@@ -408,7 +408,7 @@ async def resolve(
     }
 
     def ask(name: str, entity: dict, siblings: list[dict]) -> None:
-        """"Who or what is <name>?", only when Stage 1 said only the person can answer and something rests on it
+        """"Who or what is <name>?" (the page's own name when it has one, one open question a name), only when Stage 1 said only the person can answer and something rests on it
         (`ask_person`, G239). A low confidence alone asks nothing: it is certainty about a name's attributes, and a name
         below the bar already waits in the index with what was said about it. A placeholder person is asked for a name
         once it has a page (`role_people`), never this, whose answer would become the page's prose, not its name."""
@@ -586,6 +586,8 @@ async def resolve(
                         )
                     else:
                         _merge_into_create(resolved_creates[candidate["id"]], incoming)
+                if candidate["id"] != owner_id:
+                    ask(_candidate_display_name(candidate), entity, siblings)   # a stake on a page already there (G239)
                 change = (resolved_updates if candidate["source"] == "existing" else resolved_creates)[candidate["id"]]
                 if _is_fallback(candidate):
                     _settle_fallback(change, project_birth.birth_of(entity, siblings))
@@ -644,7 +646,8 @@ async def resolve(
                                                        key=person_leads.handle_key(name))}
                     ambiguous_match = True
             if ambiguous_match and _unaskable_pair(settings.memory_path, name, entity, match["candidate"], owner_id,
-                                                   two_places=bool(match.get("heard_in"))):
+                                                   two_places=bool(match.get("heard_in")),
+                                                   judged=match.get("lead") is None):
                 # Owner 2026-11-04 (`pair_evidence`): a question that may not be asked — the owner's page with no words
                 # of theirs naming themselves so, or two people no conversation names together — holds nothing back:
                 # the name goes on by the usual rule.
@@ -2717,10 +2720,11 @@ def _batch_connections(
 
 
 def _unaskable_pair(memory_path, name: str, entity: dict, candidate: dict, owner_id: str | None, *,
-                    two_places: bool = False) -> str | None:
+                    two_places: bool = False, judged: bool = False) -> str | None:
     """Why "is this mention that person?" may not be asked (owner 2026-11-04, `pair_evidence`), or ``None``: the
     owner's page with no words of the person's naming themselves by this name, or two people that no conversation
-    names together. Only a person pair; engine-free."""
+    names together, or (``judged``, the judge's UNSURE rather than a lead) two whose names share nothing and that no
+    line names together. Only a person pair; engine-free."""
     if memory_path is None or not candidate or not candidate.get("id"):
         return None
     if not (_is_person(entity) or _candidate_type(candidate) == "person"):
@@ -2729,7 +2733,8 @@ def _unaskable_pair(memory_path, name: str, entity: dict, candidate: dict, owner
         Path(memory_path), a_id=sanitize_id(name), a_name=name, b_id=str(candidate["id"]),
         b_name=_candidate_display_name(candidate), person=True,
         source_episode=str(entity.get("source_episode") or ""), owner=owner_id or "", fresh=False,
-        two_places=two_places)
+        two_places=two_places,
+        judged=judged and not (candidate.get("alias") or candidate.get("shared_alias") or candidate.get("close")))
     return None if verdict.ask else verdict.reason
 
 
@@ -3089,7 +3094,7 @@ def _lead_note(new_name: str, candidate: dict) -> str:
     parts = []
     if candidate.get("together"):
         parts.append(f'B and "{candidate["together"]}" were named together in one conversation, and its extraction '
-                     "tied them by an alias.")
+                     "tied them by an alias. Two people named together are usually two people.")
     if candidate.get("shared_name"):
         parts.append(f'Several people in this memory are called "{candidate["shared_name"]}" (a name or a nickname '
                      "they share), so the name alone does not tell which one B is.")
@@ -3585,6 +3590,12 @@ MAX_TOGETHER_CHARS = 300
 BATCH_EPISODES = "_batch_episodes"
 
 
+#: Two people whose names share nothing (owner 2026-11-05): being named together says they are two.
+_UNTIED_PEOPLE_NOTE = ("Note: these two names share no word and no close spelling, and neither goes by the other. Naming "
+                       "two people in one conversation is evidence they are two. Say UNSURE only when what the "
+                       "conversation says suggests one person under two names; otherwise say DIFFERENT.\n")
+
+
 def _with_said_together(candidate: dict, new_entity: dict, settings: Settings) -> dict:
     """``candidate`` with what B's own conversations say where they name both sides, for the judge (G239): "Lina has the
     keys, not Lena" tells two people apart and "might be the same guy" tells a reason to ask, and neither reaches a
@@ -3602,99 +3613,15 @@ def _with_said_together(candidate: dict, new_entity: dict, settings: Settings) -
             text = pair_evidence._text(Path(memory_path), str(episode or ""))
         except Exception:  # noqa: BLE001 — the judge reads less, never fails on it
             continue
-        lines += [" ".join(line.split())[:MAX_TOGETHER_CHARS] for line in text.splitlines()
-                  if pair_evidence.names_in(mention, line) and pair_evidence.names_in(other, line)]
+        lines += [line[:MAX_TOGETHER_CHARS] for line in pair_evidence.lines_naming_both(text, mention, other)]
     if not lines:
         return candidate
+    aliases = [str(a) for a in new_entity.get("aliases") or []]
+    untied = _candidate_type(candidate) == "person" and not pair_evidence.names_tied(
+        [*mention, *(n for a in aliases for n in pair_evidence.side_names(None, "", a))], other)
     said = "; ".join(f'"{line}"' for line in lines[:MAX_TOGETHER_LINES])
-    return {**candidate, "note": f"{candidate.get('note') or ''}B's conversations name both: {said}\n"}
-
-
-async def _judge_candidates(
-    new_entity: dict,
-    candidates: list[dict],
-    cache: dict[tuple[str, str], str],
-    settings: Settings,
-    *,
-    gate: asyncio.Semaphore | None = None,
-    stop: Callable[[], bool] | None = None,
-    connections: str = "",
-) -> list[tuple[dict, str]]:
-    """Judge ``candidates`` in order, up to ``JUDGE_BATCH`` of them a call, stopping after the first call (or cached
-    decision) that says ``same``.
-
-    Returns ``(candidate, decision)`` per candidate judged, in order — always a prefix of ``candidates``, which may
-    run past the first ``same`` within its call (`_pick_match` takes the first). ``gate`` bounds the calls in flight
-    across every name ``resolve`` is judging; ``stop`` is polled before each call so a cancel or a plan limit starts
-    nothing new. A candidate an alias brought is judged with the alias note, the page's context first
-    (``_alias_page_context``) and the name's ``connections`` in the batch. A call over one candidate is the one-pair
-    judge (`_llm_judge_same_entity`), over several `_llm_judge_batch`."""
-    new_name = new_entity.get("name") or ""
-    new_name_lower = new_name.lower()
-    new_type = (new_entity.get("type") or "concept").lower()
-    # What the extraction said about the name: Stage 1 fills `summary`; `description` is a legacy field it almost
-    # never fills (1 of 79 entities on the synthetic night, 2026-10-20), so the judge used to read "(empty)" for B.
-    new_description = _effective_summary(new_entity)
-    judged: list[tuple[dict, str]] = []
-    index = 0
-    while index < len(candidates):
-        cached = cache.get((new_name_lower, candidates[index]["id"]))
-        if cached is not None:
-            judged.append((candidates[index], cached))
-            index += 1
-            if cached == "same":
-                break
-            continue
-        chunk: list[dict] = []
-        while (index + len(chunk) < len(candidates) and len(chunk) < JUDGE_BATCH
-               and (new_name_lower, candidates[index + len(chunk)]["id"]) not in cache):
-            chunk.append(candidates[index + len(chunk)])
-        if stop is not None and stop():
-            break
-
-        async def ask(chunk=chunk) -> list[str]:
-            chunk = [_with_said_together(c, new_entity, settings) for c in chunk]
-            if len(chunk) == 1:
-                candidate = chunk[0]
-                kwargs = dict(
-                    new_name=new_name,
-                    new_type=new_type,
-                    new_description=new_description,
-                    existing_name=_candidate_display_name(candidate),
-                    existing_type=_judge_type(candidate, new_type),
-                    existing_body=_candidate_description(candidate),
-                    settings=settings,
-                )
-                if candidate.get("alias"):
-                    kwargs.update(existing_body=_alias_context(candidate), recorded_alias=True,
-                                  new_connections=connections)
-                    if candidate.get("note"):
-                        kwargs.update(note=candidate["note"])
-                elif candidate.get("note"):
-                    kwargs.update(note=candidate["note"])
-                return [await _llm_judge_same_entity(**kwargs)]
-            entries = [{"name": _candidate_display_name(c), "type": _judge_type(c, new_type),
-                        "alias": bool(c.get("alias")), **({"note": c["note"]} if c.get("note") else {}),
-                        "body": _alias_context(c) if c.get("alias") else _candidate_description(c)}
-                       for c in chunk]
-            return await _llm_judge_batch(
-                new_name, new_type, new_description, entries, settings,
-                new_connections=connections if any(c.get("alias") for c in chunk) else "")
-
-        if gate is None:
-            decisions = await ask()
-        else:
-            async with gate:
-                if stop is not None and stop():  # stopped while waiting for a slot
-                    break
-                decisions = await ask()
-        for candidate, decision in zip(chunk, decisions):
-            cache[(new_name_lower, candidate["id"])] = decision
-            judged.append((candidate, decision))
-        index += len(chunk)
-        if "same" in decisions:
-            break
-    return judged
+    return {**candidate, "note": f"{candidate.get('note') or ''}{_UNTIED_PEOPLE_NOTE if untied else ''}"
+                                 f"B's conversations name both: {said}\n"}
 
 
 def _pick_match(new_name: str, judged: list[tuple[dict, str]]) -> dict | None:

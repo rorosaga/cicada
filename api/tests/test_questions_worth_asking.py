@@ -243,3 +243,43 @@ def test_a_reason_carrying_the_plan_account_is_dropped_and_the_question_with_it(
     entities = [{"name": "Bob", "type": "person", "ask_person": "acct-alpha owes him"}]
     engine_identity.scrub_extraction(entities, [], [], "Bob owes money.", frozenset({"acct-alpha"}))
     assert not entities[0]["ask_person"]
+
+
+def test_a_stake_on_a_page_already_there_asks_once(tmp_path):
+    """Owner 2026-11-05: a project in motion that has a page still gets its question, under the page's name, one open."""
+    memory = _bank(tmp_path)
+    page = _page("alpha-project", "Alpha Project", "project")
+    said = _name("Alpha Project", type="project", ask_person="it will matter when the launch comes", confidence=0.9)
+    for wording in ("Short.", "A longer description that makes the inferred type of the question differ from before."):
+        out = asyncio.run(entity_resolver.resolve(_extracted({**said, "description": wording}), [page], _settings(memory)))
+        assert "alpha-project" in {c["id"] for c in out["changes"] if c.get("action") == "update"}
+    (fm,) = _questions(memory)
+    assert fm["entity_name"] == "Alpha Project" and fm["why_asked"] == "it will matter when the launch comes"
+
+
+def test_a_page_with_no_stake_raises_nothing_and_the_owners_page_never_does(tmp_path):
+    memory = _bank(tmp_path)
+    plain = _page("alpha-project", "Alpha Project", "project")
+    asyncio.run(entity_resolver.resolve(_extracted(_name("Alpha Project", type="project", confidence=0.9)), [plain],
+                                        _settings(memory)))
+    owner = _page("sam-owner", "Sam Owner", "person")
+    owner["frontmatter"]["owner"] = True
+    asyncio.run(entity_resolver.resolve(_extracted(_name("Sam Owner", ask_person="the lease", confidence=0.9)), [owner],
+                                        _settings(memory)))
+    assert _questions(memory) == []
+
+
+def test_stage_one_counts_a_thing_in_motion_as_a_stake():
+    prompt = " ".join(entity_extractor.EXTRACTION_SYSTEM_PROMPT.split())
+    assert "still in motion that will matter later" in prompt and "a list with nothing depending on it" in prompt
+
+
+def test_the_judge_is_told_two_people_named_together_are_two(tmp_path):
+    memory = _bank(tmp_path)
+    _episode(memory, "ep_2026-01-01_001", "Tomas, Lena and I split the bill.")
+    candidate = {"source": "existing", "id": "lena", "data": _page("lena", "Lena", "person")}
+    note = entity_resolver._with_said_together(candidate, _name("Tomas"), _settings(memory))["note"]
+    assert "evidence they are two" in note and 'name both: "Tomas, Lena and I split the bill."' in note
+    tied = entity_resolver._with_said_together({**candidate, "data": _page("lena", "Lena Tomas", "person")}, _name("Tomas"),
+                                               _settings(memory))
+    assert "evidence they are two" not in tied.get("note", "")
