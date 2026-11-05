@@ -997,11 +997,7 @@ class SqliteVecIndexer:
         return self._load_pending()
 
     def pending_by_name(self, name: str) -> PendingEntity | None:
-        name_lower = name.lower()
-        for e in self._load_pending():
-            if e.name.lower() == name_lower:
-                return e
-        return None
+        return _store.held_line(self.memory_path, name)
 
     def promote_from_pending(self, entity_name: str) -> PendingEntity | None:
         """Remove and return an entry from the pending store, rebuild the index.

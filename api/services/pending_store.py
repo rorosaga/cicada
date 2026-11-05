@@ -285,6 +285,56 @@ def load(memory_path: Path) -> list[PendingEntity]:
     return out
 
 
+#: ``held_line``'s and ``apart_of``'s one index: (store path, (mtime_ns, size, inode), first line's text by lower-cased name,
+#: the pages said apart by lower-cased name). Text, never parsed lines: a large store stays a few untracked strings for
+#: the collector, and each hit parses a fresh ``PendingEntity`` its caller may change. ``save`` replaces the file, so
+#: every write gets a new inode and the next read sees it.
+_INDEX: tuple[str, tuple[int, int, int], dict[str, str], dict[str, frozenset[str]]] | None = None
+
+
+def _index(memory_path: Path) -> tuple[dict[str, str], dict[str, frozenset[str]]]:
+    """The store's lookups, read once per change of the file (the stall of 2026-11-05: Stage 2 asked by name thousands
+    of times a batch, and each ask parsed every line)."""
+    global _INDEX
+    path = store_path(memory_path)
+    try:
+        st = path.stat()
+    except OSError:
+        return {}, {}
+    stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
+    cached = _INDEX
+    if cached is not None and cached[0] == str(path) and cached[1] == stamp:
+        return cached[2], cached[3]
+    by_name: dict[str, str] = {}
+    apart: dict[str, set[str]] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            entry = PendingEntity.from_dict(json.loads(raw))
+        except Exception:
+            continue
+        key = entry.name.lower()
+        by_name.setdefault(key, raw)
+        if entry.apart_pages():
+            apart.setdefault(key, set()).update(entry.apart_pages())
+    frozen = {key: frozenset(pages) for key, pages in apart.items()}
+    _INDEX = (str(path), stamp, by_name, frozen)
+    return by_name, frozen
+
+
+def held_line(memory_path: Path, name: str) -> PendingEntity | None:
+    """The first line held under ``name`` (any case), as ``load`` would find it, without parsing the others."""
+    raw = _index(memory_path)[0].get((name or "").lower())
+    return PendingEntity.from_dict(json.loads(raw)) if raw is not None else None
+
+
+def apart_of(memory_path: Path, name: str) -> frozenset[str]:
+    """The pages the person said a mention held under ``name`` is not, over every line of that name (G227)."""
+    return _index(memory_path)[1].get((name or "").strip().lower(), frozenset())
+
+
 #: ``waiting_ids``' cache: store path -> ((mtime_ns, size), the ids). An inbox read asks it once per question.
 _IDS_CACHE: dict[str, tuple[tuple[int, int], frozenset[str]]] = {}
 

@@ -12,6 +12,10 @@
 
 ## Current state and evidence
 
+- **2026-11-05 — the Stage 2 stall (G238, PR #620).** A scheduled Sleep held the event loop about 7 minutes at 8,500
+  pages: a parse of the whole pending store per project page per project name with no page. Fixed and moved off the
+  loop. **For the owner:** the auto-updater reads a timed-out `/sleep/status` as nothing running, so a stall past 2 s lets
+  an install stop the backend during a run (G238, open item a). Left as it is, pinned by a test, pending a ruling.
 - **2026-11-05 — the Sources root is a grid of apps (ROR-7, G217, G161; branch `ror7-sources-grid`).** Needs you, Connected,
   Suggested, then categories by what a source is; a search with no network and no model; one click opens the standard
   source page. A company is a search word, never a group (the reasoning is on G217). The Connected section is exactly what

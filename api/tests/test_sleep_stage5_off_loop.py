@@ -25,8 +25,9 @@ def _idle_state():
 
 def _record_threads(monkeypatch, seen: dict[str, list[int]]):
     """Wrap each bank-wide step so it records the thread it ran in (each keeps its real behaviour)."""
-    from api.services import (claim_pipeline, graph_builder, hub_builder, inbox_generator, inbox_questions,
-                              media_ingestor, wikilink_resolver)
+    from api.services import (claim_pipeline, episode_revision, graph_builder, hub_builder, inbox_generator,
+                              inbox_questions, media_ingestor, sensitive_flags, sleep_parked, sleep_progress,
+                              wikilink_resolver)
 
     targets = [
         (sleep_cycle, "_load_existing_entities"), (sleep_cycle, "_mark_episodes_processed"),
@@ -34,6 +35,10 @@ def _record_threads(monkeypatch, seen: dict[str, list[int]]):
         (wikilink_resolver, "materialize_wikilink_edges"), (media_ingestor, "inject_media_edges"),
         (claim_pipeline, "run_claim_pipeline"), (inbox_questions, "refresh_open_questions"),
         (hub_builder, "regenerate_hubs_and_index"), (graph_builder, "regenerate_edges_from_claims"),
+        # The Stage 2 stall (2026-11-05): the stage itself, and every bank-wide read of the run's start and a batch's.
+        (entity_resolver, "resolve"), (sleep_cycle, "_get_unprocessed_episodes"), (sleep_parked, "valid"),
+        (sleep_progress, "unprocessed_ids"), (sleep_progress, "origin_of_ids"), (sleep_progress, "sizes_of"),
+        (sleep_progress, "owner_beliefs"), (sensitive_flags, "reapply_waiting"), (episode_revision, "attach"),
     ]
     for module, name in targets:
         real = getattr(module, name)

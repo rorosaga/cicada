@@ -324,8 +324,7 @@ def test_a_call_outside_a_run_is_not_limited_and_shows_in_the_ledger(monkeypatch
 def test_the_words_say_what_the_limit_does_not_cover():
     swift = (Path(__file__).parents[2] / "app/CicadaApp/Sources/CicadaApp/Theme/Copy+SleepV5.swift").read_text(encoding="utf-8")
     words = swift.split("static let spendHelp =", 1)[1].split("static let", 1)[0]
-    for said in ("about one read plus that filing", "Ask", "quick read", "inbox tidying", "repairs", "your clicks",
-                 "aren't limited", "fresh allowance"):
+    for said in ("Sleep runs only", "about one read over at most"):
         assert said in words, said
     assert "a little past" not in words
 

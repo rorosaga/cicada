@@ -2239,10 +2239,11 @@ async def _drain(
     opts = sleep_run_prefs.load(registry) if registry is not None else sleep_run_prefs.RunOptions()
     size = sleep_run_prefs.effective_batch_size(opts, settings)
 
-    parked_map = sleep_parked.valid(memory_path)
+    # Every read of the run's start walks the bank (9,500 headers on the owner's): off the event loop.
+    parked_map = await asyncio.to_thread(sleep_parked.valid, memory_path)
     parked_now = set(parked_map)
-    waiting_map = sleep_progress.unprocessed_ids(memory_path)
-    queue = [e["id"] for e in _get_unprocessed_episodes(memory_path, with_body=False)]
+    waiting_map = await asyncio.to_thread(sleep_progress.unprocessed_ids, memory_path)
+    queue = [e["id"] for e in await asyncio.to_thread(_get_unprocessed_episodes, memory_path, with_body=False)]
     if continue_from:
         ids = [str(i) for i in continue_from.get("frozen_ids") or []]
         remaining = [i for i in ids if i in waiting_map and i not in parked_now]
@@ -2273,7 +2274,7 @@ async def _drain(
     )
     ds.catch_up_for = catch_up_for if not user_triggered else None
     ds.memory_path = memory_path
-    ds.origin_of = sleep_progress.origin_of_ids(memory_path, ids)
+    ds.origin_of = await asyncio.to_thread(sleep_progress.origin_of_ids, memory_path, ids)
     ds.parked = {i: str((parked_map.get(i) or {}).get("reason") or "other") for i in ids if i in parked_now}
     ds.settled = set(ds.parked)
     if continue_from:
@@ -2308,9 +2309,9 @@ async def _drain(
             ds.first_run = (await sleep_debt._last_cycle_at(memory_path)) is None
         except Exception:  # noqa: BLE001
             ds.first_run = False
-        _sample_owner(ds, memory_path, "at_start")
+        await asyncio.to_thread(_sample_owner, ds, memory_path, "at_start")
     # Ruling 62: a batch is bounded by what it holds as well as by count (`sleep_drain.BATCH_BYTES`).
-    sizes = sleep_progress.sizes_of(memory_path, remaining)
+    sizes = await asyncio.to_thread(sleep_progress.sizes_of, memory_path, remaining)
     ds.batches = ds.batch + sleep_drain.batches_left(remaining, size, sizes)
     ds.new_since = sleep_progress.new_since_by_origin(
         {i: o for i, o in waiting_map.items() if i not in parked_now}, set(ids))
@@ -2421,9 +2422,9 @@ async def _drain(
                 f"The memory bank changed — stopped after batch {ds.committed_batches} of {ds.batches}; "
                 "what was already filed stays filed.")
             break
-        waiting_map = sleep_progress.unprocessed_ids(memory_path)
+        waiting_map = await asyncio.to_thread(sleep_progress.unprocessed_ids, memory_path)
         waiting = set(waiting_map)
-        parked_all = sleep_parked.ids(memory_path)
+        parked_all = await asyncio.to_thread(sleep_parked.ids, memory_path)
         ds.new_since = sleep_progress.new_since_by_origin(
             {i: o for i, o in waiting_map.items() if i not in parked_all}, set(ids))
         gone = {i for i in ids if i not in ds.settled and i not in waiting}
@@ -2470,7 +2471,7 @@ async def _drain(
         if ds.spend is not None and last.committed:
             ds.spend.note_filed(len(last.filed_ids))
         if last.committed and ds.owner_beliefs is not None and ds.owner_beliefs.get("after_first_batch") is None:
-            _sample_owner(ds, memory_path, "after_first_batch")
+            await asyncio.to_thread(_sample_owner, ds, memory_path, "after_first_batch")
         if last.committed:
             _write_run_record(ds, memory_path, phase="running", engine_label=engine_lbl)
 
@@ -2500,7 +2501,7 @@ async def _drain(
             # late — but only when frozen ids are still waiting beyond this batch. A last batch
             # is a finished run: what it could not read stays queued for the next one, the note
             # is logged, and the tail's link backfill still runs.
-            left = set(sleep_progress.unprocessed_ids(memory_path))
+            left = set(await asyncio.to_thread(sleep_progress.unprocessed_ids, memory_path))
             own = set(batch_ids)
             if not is_last and any(i not in ds.settled and i in left and i not in own for i in ids):
                 if last.breaker:
@@ -2540,11 +2541,12 @@ async def _drain(
         stop = last.stop
 
     try:
-        now_waiting = sleep_progress.unprocessed_ids(memory_path)
-        ds.arrived_since = len({i for i, _ in now_waiting.items()} - set(ids) - set(sleep_parked.ids(memory_path)))
+        now_waiting = await asyncio.to_thread(sleep_progress.unprocessed_ids, memory_path)
+        parked_end = await asyncio.to_thread(sleep_parked.ids, memory_path)
+        ds.arrived_since = len({i for i, _ in now_waiting.items()} - set(ids) - set(parked_end))
     except Exception:  # a count for the sentence, never worth failing a run
         ds.arrived_since = None
-    _sample_owner(ds, memory_path)
+    await asyncio.to_thread(_sample_owner, ds, memory_path)
 
     if stop is not None:
         _apply_drain_stop(ds, stop)
@@ -2891,18 +2893,18 @@ async def _run_stages(
 
     # Collect unprocessed episodes
     if batch is None:
-        episodes = _get_unprocessed_episodes(memory_path)
+        episodes = await asyncio.to_thread(_get_unprocessed_episodes, memory_path)
     elif decay_only:
         episodes = []
     else:
-        episodes = _get_unprocessed_episodes(memory_path, only_ids=set(batch.only_ids))
+        episodes = await asyncio.to_thread(_get_unprocessed_episodes, memory_path, only_ids=set(batch.only_ids))
     # G235: text the person removed that some writer brought back comes out again, before anything below reads it.
     from api.services import sensitive_flags
 
-    sensitive_flags.reapply_waiting(episodes)
+    await asyncio.to_thread(sensitive_flags.reapply_waiting, episodes)
     # G104 (owner 2026-11-03): a conversation read before and edited since is a revision of it — diffed against the
     # version Sleep read (git's), read where it changed, its spans moved and what only the removed text said closed.
-    revisions = episode_revision.attach(memory_path, episodes) if episodes else {}
+    revisions = await asyncio.to_thread(episode_revision.attach, memory_path, episodes) if episodes else {}
     if not episodes and not decay_only:
         logger.info("No unprocessed episodes found — skipping")
         _state.progress = "No unprocessed episodes"
@@ -3228,11 +3230,11 @@ async def _run_stages(
     # below — on the loop each step froze every request (`GET /sleep/status` measured at seconds
     # per batch on a 3,600-page bank) for as long as it ran.
     existing = await asyncio.to_thread(_load_existing_entities, memory_path)
-    from api.services.entity_resolver import resolve
+    from api.services.entity_resolver import resolve, resolve_off_loop
     if decay_only:
         resolved_result = {"changes": [], "relationships": [], "episode_cooccurrences": {}, "name_to_id": {}}
     else:
-        resolved_result = await resolve(
+        resolved_result = await resolve_off_loop(
             extracted, existing, settings, cancel_check=_cancel_requested,
             **(_accepting(resolve, progress_callback=_sort_progress(live)) if live is not None else {}))
     resolved_changes = resolved_result["changes"]
