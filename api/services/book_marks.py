@@ -12,7 +12,7 @@ So every highlight and every note is a claim on the book's page, written here at
 is exactly what the body says: the same passage again is the same claim, a span follows the body when a status line or
 an earlier section moves it, a passage removed from the record is closed (``valid_to``) and comes back open if the
 person marks it again. Sleep's revision step never closes one (``episode_revision._closable``). One the person took back
-(a ``retracts`` record) is never written again.
+(a ``retracts`` record) is never written again, and a re-sync reopens neither recovered history nor one a successor closed.
 
 **The words stay private the way the person's own do:** :func:`claims.is_mark` makes each one ``is_persons_words``, so a
 remote caller without ``sources`` is told a passage exists, never what it says. What the sensitive detector flags is
@@ -204,7 +204,9 @@ def apply(memory_path: Path, entity_id: str, episode_id: str, *, observer: str, 
                                 authored_by="user", evidence=[span]))
             changed = True
             continue
-        if is_recovered_history(old):
+        # Marked again reopens only this writer's own close. Recovered history stays history (G148), and a mark closed in
+        # favour of something else stays closed: the person's answer on a conflict is not undone by a re-sync.
+        if is_recovered_history(old) or (old.valid_to and old.superseded_by):
             continue
         # Both merged pages held this passage: one mark, resting on what both rest on.
         twins = [by_id[i] for i in ids if i != cid and i in by_id and not by_id[i].valid_to]

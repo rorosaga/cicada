@@ -122,6 +122,9 @@ test_evidence.py::test_verify_falls_back_to_reasoning_never_a_faked_span
 test_claims_evidence.py::test_evidence_round_trips_through_the_claims_block
 test_claims_jsonl.py::test_append_keeps_every_existing_byte_and_writes_json_lines
 
+## Recovered history is never reopened by any writer (G148): a scan of the whole tree, so CI sees a new writer
+test_claim_recovery.py::test_every_reopen_in_the_code_consults_the_recovered_history_test
+
 ## A page's claims ledger: a write never drops a ledger line; git commits and restores a page with its ledger
 test_hub_pages.py::test_a_write_from_the_page_alone_never_drops_a_ledger_line
 test_hub_pages.py::test_a_commit_naming_the_page_takes_its_ledger_and_a_checkout_puts_it_back

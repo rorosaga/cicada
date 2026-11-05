@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -22,16 +23,54 @@ from api.services import claims_ledger, git_service, markdown_parser, write_admi
 
 @pytest.fixture
 def counted(monkeypatch):
-    """How many real parses ran (the cache's misses), by path name."""
+    """How many real parses this test's work ran (the cache's misses), by path name: its own thread and every thread
+    started from one of those, however deep. A thread an earlier test left running, or one that thread starts, parses
+    its own pages and is not this test's count."""
     calls: list[str] = []
     real = markdown_parser._parse
+    real_start = threading.Thread.start
+    ours = {threading.current_thread()}
+
+    def start(self):
+        if threading.current_thread() in ours:
+            ours.add(self)
+        real_start(self)
 
     def spy(filepath, *, ledger=True):
-        calls.append(Path(filepath).name)
+        if threading.current_thread() in ours:
+            calls.append(Path(filepath).name)
         return real(filepath, ledger=ledger)
 
+    monkeypatch.setattr(threading.Thread, "start", start)
     monkeypatch.setattr(markdown_parser, "_parse", spy)
     return calls
+
+
+@pytest.fixture
+def leftover():
+    """A thread already running when the test starts, as an earlier test can leave one: on `go`, it starts a child that
+    parses `page`."""
+    box: dict = {}
+    go = threading.Event()
+
+    def run():
+        go.wait(30)
+        child = threading.Thread(target=markdown_parser.parse, args=(box["page"],))
+        child.start()
+        child.join()
+
+    thread = threading.Thread(target=run, name="leftover-of-an-earlier-test")
+    thread.start()
+
+    def finish(page):
+        box["page"] = page
+        go.set()
+        thread.join(30)
+        assert not thread.is_alive()
+
+    yield finish
+    go.set()
+    thread.join(30)
 
 
 def _bank(tmp_path: Path) -> Path:
@@ -42,6 +81,21 @@ def _bank(tmp_path: Path) -> Path:
                               {"name": eid.replace("-", " ").title(), "type": "project", "tags": ["synthetic"]},
                               f"## Summary\n{eid} is a synthetic page.")
     return bank
+
+
+def test_the_count_is_this_tests_threads_and_what_they_start_never_a_leftover(tmp_path, leftover, counted):
+    bank = _bank(tmp_path)
+    leftover(bank / "entities" / "beta-tool.md")
+    assert counted == [], "a thread from before the test, and its child, are not this test's work"
+
+    def nested():
+        child = threading.Thread(target=markdown_parser.parse, args=(bank / "entities" / "alpha-project.md",))
+        child.start()
+        child.join()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pool.submit(nested).result()
+    assert counted == ["alpha-project.md"], "a real parse in a thread the work started still counts"
 
 
 def test_an_unchanged_page_is_parsed_once_per_batch_and_each_caller_gets_its_own_copy(tmp_path, counted):
