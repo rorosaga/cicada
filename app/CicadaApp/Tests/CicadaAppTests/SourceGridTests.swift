@@ -13,7 +13,7 @@ final class SourceGridTests: XCTestCase {
                       notInstalled: Set<String> = [], browsers: [BrowserSpec]? = nil,
                       watch: @escaping (String) -> BrowserWatchState? = { _ in nil }) -> [SourceCatalogRow] {
         let entries = SourceCatalog.entries(browsers: browsers ?? [chrome, safari], wisprPresent: false, hexPresent: true,
-                                            overview: [])
+                                            overview: [], channels: channels)
         return SourceCatalog.rows(entries: entries, channels: channels, overview: [], readableSites: [],
                                   localReaders: localReaders, savedListsOn: savedLists, notInstalled: notInstalled,
                                   waitingOn: waitingOn, suggested: suggested, watch: watch)
@@ -184,7 +184,10 @@ final class SourceGridTests: XCTestCase {
     }
 
     func testACategoryOrASectionFindsItsWholeGroup() {
-        XCTAssertEqual(Set(found("messaging")), Set(["imessage", WhatsAppWatcher.channel, "telegram", TelegramChats.channel]))
+        // Owner 2026-11-05: the Telegram bot's tile (a token in a file) shows only for a bot already set up.
+        XCTAssertEqual(Set(found("messaging")), Set(["imessage", WhatsAppWatcher.channel, TelegramChats.channel]))
+        XCTAssertEqual(Set(found("messaging", in: rows(channels: [channel("telegram")]))),
+                       Set(["imessage", WhatsAppWatcher.channel, "telegram", TelegramChats.channel]))
         XCTAssertEqual(found("connected", in: rows(channels: [channel("reddit")])), ["reddit"])
     }
 

@@ -64,8 +64,9 @@ API_BASE = "https://api.notion.com/v1/"
 ALSO_ALLOWED = (notion_mcp.ORIGIN + "/",)
 NOTION_VERSION = "2026-03-11"
 TOKEN_HELP = None   # no app surface asks for a token any more (owner 2026-11-05)
-#: One short line (owner 2026-11-03); the panel adds where the token comes from while it is not connected.
-READS = "Read-only: the pages you can open in Notion."
+#: One plain line, said before Connect (ruling 47; owner 2026-11-05): the sign-in acts as the person, unlike the
+#: connection it replaces, which saw only the pages shared with it.
+READS = "Read-only. Signs in as you: every page you can open, not only pages shared with a connection."
 #: A walk through everything shared that found nothing: a first connection reads 0 pages until one is shared with it.
 NOTHING_SHARED_WORDS = ("Nothing is shared with the connection yet. In Notion, open a page's ••• menu, choose "
                         "Connections and add it; that page and the pages under it come in at the next sync.")

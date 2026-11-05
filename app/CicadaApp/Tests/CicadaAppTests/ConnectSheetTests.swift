@@ -146,22 +146,14 @@ final class ConnectSheetTests: XCTestCase {
         XCTAssertEqual(api.telegramConnects, 1)
     }
 
-    func testAConnectorStepHasOnePrimary() {
-        func status(tier: Int?, oauth: Bool, present: Bool) -> ConnectorStatus {
-            ConnectorStatus(id: "x", label: "X", connected: false,
-                            fields: [ConnectorField(name: "token", label: "Token", secret: true, present: present)],
-                            lastSync: nil, lastError: nil, detail: nil, loginMode: oauth ? "oauth" : "credentials",
-                            tier: tier)
+    func testAConnectorStepHasOnePrimaryAndOnlyWhenThereIsASignIn() {
+        func status(signIn: Bool?) -> ConnectorStatus {
+            ConnectorStatus(id: "x", label: "X", connected: false, fields: [], lastSync: nil, lastError: nil,
+                            detail: nil, loginMode: "oauth", appSignIn: signIn)
         }
-        XCTAssertEqual(ConnectorSetupState.primaryAction(status(tier: 2, oauth: false, present: false), draftsEmpty: true),
-                       .connect)
-        XCTAssertEqual(ConnectorSetupState.primaryAction(status(tier: nil, oauth: true, present: false), draftsEmpty: false),
-                       .saveKeys)
-        XCTAssertEqual(ConnectorSetupState.primaryAction(status(tier: nil, oauth: true, present: true), draftsEmpty: true),
-                       .authorize)
-        // Keys saved but new ones typed: saving them is the one action, authorizing comes after.
-        XCTAssertEqual(ConnectorSetupState.primaryAction(status(tier: nil, oauth: true, present: true), draftsEmpty: false),
-                       .saveKeys)
+        XCTAssertEqual(ConnectorSetupState.action(status(signIn: true)), .connect)
+        XCTAssertEqual(ConnectorSetupState.action(status(signIn: false)), .none)
+        XCTAssertEqual(ConnectorSetupState.action(status(signIn: nil)), .none)
     }
 
     /// The Telegram sheet draws no "Done" before it is connected, and no stacked prominent buttons.
