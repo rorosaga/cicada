@@ -934,6 +934,9 @@ Round 4 (C2–C4):
   engine-free step's `agent` proposals and Contacts cards stay on their pages. Engine-free, read from the frontmatter
   cache, ETag over `entities` plus `source_roster.SHAPE`; it writes nothing — the Sources area adds and removes through
   the page's own routes, so `fact_sources` stays the one writer.
+  **A plan run reads a changed page first (54a, 2026-11-04):** a tracked public page marked `changed` is read by the settling
+  step's model through `source_refresh.apply`, its quote checked on the bytes opened, and keeps waiting for the person's agent
+  if it cannot be read. A conflict on the page may be answered from its tracked sources too (`features.md`).
   **Re-checked, dated, the newest evidence wins (G61, TODO ruling 26, owner 2026-10-14).** A tracked source (trusted, not
   `only_me`, a `url`) keeps its re-check state on its own entry: `refresh: {at, outcome, good, episode, hash, changed?,
   asked?, tries?, blocked?, misses?: [{at, outcome}], dead?: {since, at, outcome}}` and the person's cadence
@@ -1490,13 +1493,27 @@ any ISBN, the Open Library work id, a source's own id. **Title and author never 
 with no shared identifier keeps its own page. Every ISBN-13 (and, for 978, its ISBN-10) and each source's own spelling
 of the title are aliases. Decay is
 evergreen, `enrichment_attempted: true` (never scraped), `media.url` the Open Library work or edition — a link to open,
-never fetched for a card (the app shows no preview for `kind: book`).
+never fetched for a card (the app shows no link preview for `kind: book`).
+
+**Its picture (ruling 61, owner 2026-11-04: "I want the book covers, yes").** The picture precedence's "a media thumbnail"
+rung, by `media_preview._book_source`, from the frontmatter alone: (1) `book.local_cover`, the cover of the person's own
+copy, read by the app from Apple Books' cache and kept at `$CICADA_HOME/books/covers/<bank>/<sha>.<ext>` with an `index.json`
+(asset id → sha; `book_covers`), stamped on the page by `books.apply_pending` so a picture arriving moves its ETag; (2)
+Open Library's by `book.cover_id`; (3) by the page's first ISBN. Neither: no picture, and nothing is drawn in its place
+(owner 2026-10-28). **Never a title**: a title search is a guess at a work (the reason title and author never join two
+pages, B1) and would send the person's reading list out where nothing else needs it. A page whose kept cover is not on this
+computer (a bank moved) falls back to (2) and (3). What was fetched is stored and served like every preview
+(`$CICADA_HOME/previews/<bank>/`, outside every bank; `network.md`).
 
 Claims, all written by `books.py` (the event-readers gate names it) except happenings:
 
 - `reading-status` (literal `reading` · `finished` · `want` · `not_started`): one per record, dated `valid_from` the
-  record's day; the newest by day (on one day, the later record) is open, every earlier one closed on the next one's
-  day with `superseded_by` — never deleted. `GET /sources/books` counts pages by the open one.
+  record's day; the newest by day (on one day, the later record; for a conversation's word, the one further along,
+  ruling 61) is open, every earlier one closed on the next one's day with `superseded_by` — never deleted. `GET
+  /sources/books` counts pages by the open one. A conversation's word writes the same record (`book_said`,
+  `capture-and-sleep.md`), its evidence a located span of the person's own turn. *Not right* (`books.undo_status`) closes a
+  record behind a `retracts` record, opens the one before and the reading thread its finish settled, and is never written
+  again. A conversation that only says the status again joins the record as evidence.
 - `happened` through `progress.record_happening` (the one event writer): "Started reading" (`ongoing`) and "Finished
   reading" (`done`, settling an open "Started reading" that began before it) — **only on a day that is the act's
   own** (review of #600, B2): a scan's (`date_basis: episode`), or a finish date the source gives (Apple Books'
@@ -1506,7 +1523,8 @@ Claims, all written by `books.py` (the event-readers gate names it) except happe
 
 Whose act: the span's kind comes from the episode (`authorship`). A scan is the person's act (`user`) and lights the
 page; an Apple Books or Goodreads record is `page`, and a want-to-read or not-started scan is stamped
-`media_entity_id` (a save, ruling 30) — so an imported library and a shelf stay quiet (`quiet_pages`) until the person
+`media_entity_id` (a save, ruling 30; its `book` record keeps it out of ruling 62's lean pass, whose `saved` kind is for
+what has no such record) — so an imported library and a shelf stay quiet (`quiet_pages`) until the person
 writes or talks about the book (a note, a review, a chat).
 
 ### Backlogs (G150)
@@ -2584,3 +2602,8 @@ time alone may leave them behind until the next Sleep or sync (normally at most
 one Sleep). A paused Sleep delays that refresh. Read-time vector checks still
 exclude expired results, but cannot add a previously future claim until sync.
 The graph's Store-domain ETag remains tied to its existing version vector.
+
+**`read_asked` (ruling 62, 2026-11-04).** On a bare save's episode: `{why, at}`, written once by `history_index.wake` when the
+person talked about it (`said-the-link`, `said-the-title`, `page-mentioned`). It takes the episode out of the `saved` kind for
+good, so its one real read happens once and says why. A save's page keeps `decay_class: evergreen` and stays quiet
+(`quiet_pages`) until a conversation or the person's words reach it; being indexed writes nothing on it.

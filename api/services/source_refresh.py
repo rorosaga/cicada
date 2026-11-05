@@ -28,7 +28,8 @@ example.com: …, was …"), the commit is one manifest line per file (``cicada_
 behind ``CICADA_ALLOW_CONNECTOR_FETCH``, on the link rail's one transport: 4 s, ≤ 512 KB, no cookies, a block never
 retried). That read is deterministic — no model: it states only what the page says in machine-readable form
 (schema.org JSON-LD: ``jobTitle``, ``worksFor``, ``homeLocation``…, :data:`FIELDS`), and a page whose words changed
-with no such field is marked ``changed`` and handed to the person's agent. A login-walled source (LinkedIn and the
+with no such field is marked ``changed`` and handed to the person's agent — on a plan run the settling step's model reads
+it first, through this module's own :func:`apply` (ruling 54a, ``settling_agent.read_changed``; it backs off 30 days). A login-walled source (LinkedIn and the
 like, ``reading_hosts.is_walled`` / ``fact_sources.is_refused_host``) is NEVER fetched by the backend: only the
 person's own agent reads it, through this module's small lease queue (:func:`claim`, the explore queue's rules: one
 live lease per site, 15 minutes, a wall pauses the site a week), in the signed-in session only while the person's

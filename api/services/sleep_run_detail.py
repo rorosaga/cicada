@@ -95,6 +95,7 @@ async def build(memory_path: Path, drain_id: str) -> SleepRunDetail | None:
                               resets_at=p.get("resets_at") if isinstance(p.get("resets_at"), int) else None)
                 for p in summary.get("pauses") or []],
         questions_raised=summary.get("questions_raised"),
+        replaced=len(summary["replaced_ids"]) if "replaced_ids" in summary else None,
         owner=SleepDrainOwnerPage(**{k: owner.get(k) for k in ("beliefs", "at_start", "after_first_batch")})
         if isinstance(owner, dict) and owner.get("beliefs") is not None else None,
         batches=batches, models=list(usage.models) if usage else [], usage=usage,

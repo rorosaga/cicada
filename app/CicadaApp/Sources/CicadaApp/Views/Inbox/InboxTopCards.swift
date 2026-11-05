@@ -54,13 +54,14 @@ enum LinkWords {
 struct InboxTopCards: View {
     let requests: [InboxItem]
     let reviews: [InboxItem]
+    var sensitive: [InboxItem] = []
     let answer: (InboxItem, QuestionResolution) -> Void
     var openPage: (String) -> Void = { _ in }
 
     @State private var notifier = AgentRequestNotifier.shared
 
     var body: some View {
-        if !requests.isEmpty || !reviews.isEmpty {
+        if !requests.isEmpty || !reviews.isEmpty || !sensitive.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 ForEach(requests) { item in
                     AgentRequestCard(item: item, answer: answer)
@@ -74,6 +75,9 @@ struct InboxTopCards: View {
                         }
                     }
                     .padding(.horizontal, CicadaTheme.scaled(10))
+                }
+                ForEach(sensitive) { item in
+                    SensitiveReviewCard(item: item)
                 }
                 ForEach(reviews) { item in
                     WhereToCheckReviewCard(item: item, openPage: openPage)

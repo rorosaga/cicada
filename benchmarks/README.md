@@ -1,5 +1,8 @@
 # Cicada benchmark harnesses
 
+**Engine parity** (G237): `python -m benchmarks.engine_parity` runs the same synthetic conversations through the production
+drain on the plan and on a Claude key, and compares what each made. The key leg spends money and takes `--yes-spend` and a cap.
+
 **Start here for answer quality** (G148, 2026-10-17 — the method and the survey behind it are in
 [`docs/research/2026-10-17-memory-benchmarks.md`](../docs/research/2026-10-17-memory-benchmarks.md)):
 

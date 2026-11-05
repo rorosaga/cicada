@@ -183,9 +183,24 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         c, _s(a, "id"), a.get("option_key"), a.get("answer"), bool(a.get("defer", False)), a.get("remind_days"),
         skip=bool(a.get("skip", False)), reject=bool(a.get("reject", False)), quote=a.get("quote")),
 }
+
+
+def _relay_turn(ctx: mcp_tools.ToolContext, args: dict, options: dict):
+    """Ruling 57: a client's Claude desktop app, or this computer's own stdio server with its backend up. The door asks
+    the same question the stdio door did; the caller's environment is that process's, and it answered there."""
+    from api.services import relay_capture
+
+    if not relay_capture.local_relay_allowed(ctx.client_name, ctx.harness, env={}):
+        return mcp_tools.Reply(f"Error: Unknown tool: {relay_capture.TOOL}", code="invalid_arguments")
+    offset = options.get("utc_offset_minutes")
+    return relay_capture.capture_local(ctx, args.get("message"), args.get("previous_reply"), args.get("conversation"),
+                                       args.get("project"), said_at=options.get("said_at"),
+                                       utc_offset_minutes=offset if isinstance(offset, int) else None)
+
+
 #: Bodies outside `mcp_tools`, run below with what they need.
 SPECIAL = frozenset({"cicada_handshake", "cicada_continue", "cicada_pending", "cicada_mark_processed",
-                     "cicada_repo_context"})
+                     "cicada_repo_context", "cicada_capture_turns"})
 
 
 def tools() -> frozenset[str]:
@@ -290,6 +305,8 @@ def _run(tool, args, *, ctx, state, surface, options, root, memory_path, bank_na
             return mcp_tools.recall_detail(ctx, _s(args, "entity_id"), start=mcp_tools.line_number(args.get("start")),
                                            whole=bool(options.get("whole")))
         return DISPATCH[tool](ctx, args)
+    if tool == "cicada_capture_turns":
+        return _relay_turn(ctx, args, options)
     if tool == "cicada_handshake":
         from api.services import handshake
 
@@ -305,7 +322,7 @@ def _run(tool, args, *, ctx, state, surface, options, root, memory_path, bank_na
             return Answer(text=text, data={"tokens_est": len(text) // 4})
         delivery = options.get("delivery") if options.get("delivery") in ("initialize", "tool") else "tool"
         text, meta = handshake.load_or_build(memory_path, ctx.client_name, bank_name=bank_name,
-                                             server=_server(options))
+                                             server=_server(options), relay=options.get("relay") is True)
         handshake.record(delivery, meta, bank=memory_path.name, harness=ctx.harness,
                          client_name=ctx.client_name or None)
         return text

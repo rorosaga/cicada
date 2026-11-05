@@ -116,6 +116,8 @@ SAME_BY_CONTENT = {
     "POST /sources/reminders-local/sync", "POST /sources/sync-bookmarks", "POST /sources/sync-notes",
     # G39: one episode per book, staged by its asset id — a resend is the same edit in place.
     "POST /sources/apple-books/sync",
+    # Ruling 61: a cover is stored by its bytes' hash under its asset id — a resend answers `unchanged`.
+    "POST /sources/apple-books/covers",
     "POST /sources/sync-safari-tabs", "POST /sources/tab-groups/sync", "POST /sources/traces/sync",
     "POST /sources/watch-history/sync", "POST /sources/whatsapp/sync", "POST /files/media",
     "POST /files/{file_id}/frames",

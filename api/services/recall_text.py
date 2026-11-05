@@ -27,6 +27,12 @@ TOPIC_HEADER = (INJECTION_PREFIX + " by Cicada's hook, not typed by them) — no
 TOPIC_FOOTER = ("More on this topic: `cicada_recall(query)`; a page whole: `cicada_recall_detail(entity_id)`.")
 
 
+#: Ruling 62: saved links the message's words find. Nobody has read them; a line is the page's words, not the person's.
+SAVED_HEADER = (INJECTION_PREFIX + " by Cicada's hook, not typed by them) — links the person saved that share this "
+                "message's words; no reason given and nobody has read them:")
+SAVED_FOOTER = "Each is the page's words, not the person's. Following a link is how to look further."
+
+
 def is_injection(text: str | None) -> bool:
     """True when ``text`` is one of Cicada's own notes (either header)."""
     return (text or "").lstrip().startswith(INJECTION_PREFIX)

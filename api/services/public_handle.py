@@ -1,49 +1,39 @@
-"""Is a public handle a named person? A web lookup may say, with a cited claim (PROPOSED ruling 54, owner direction
-2026-11-04; amends ruling 44's public test for this one question; built behind this rule, the owner decides).
+"""Is a public handle a named person? (Ruling 54 and 54a, owner 2026-11-04; amends ruling 44's public test for this one
+question.)
 
 The owner, on "is <handle> the same as <full name>?": "could've been resolved from a search, like how claude code would
-solve it if i ask it rn." Ruling 44 lets a person be looked up only when Wikidata has exactly ONE human with an
-encyclopedia article by that name — a developer known by a handle almost never has one, so the question stayed in the
-inbox though a public profile answers it.
+solve it if i ask it rn." Sleep's own lookup is ON on plan runs (``CICADA_PUBLIC_HANDLE_LOOKUP=off`` turns it off); the
+step that works it is ``settling_agent``, its limit on what leaves is ``name_guard``. This module is the question.
 
-**Which questions** (:func:`test`, engine-free, err private; anything that fails stays for the person): an open
-"Is A the same as B?" between two person PAGES (never a held mention), where
+**Which questions** (:func:`test`, engine-free): an open "Is A the same as B?" between two person PAGES (never a held
+mention), exactly one side a handle (``person_leads.is_handle``) and the other a full name (not relation-shaped, not the
+owner, not a role-only page). Then, by what can answer it:
 
-1. exactly one side is a handle (``person_leads.is_handle``: ``@name`` or one lowercase token) and the other a full
-   name (two words or more, not relation-shaped, not the owner, not a role-only page);
-2. neither page is known personally on the record — ruling 44's own checks (``web_context.known_personally``: an
-   acquaintance relation, a sentence naming the owner with an acquaintance word, a conversation from a personal
-   channel) — and the named side carries ruling 44's public cue (a public role or public work);
-3. neither page carries the person's address book or LinkedIn connections (a card's source, its photo, an import's
-   source);
-4. no conversation from a chat (Messages, WhatsApp, Telegram chats, e-mail, LinkedIn, a profile read on request) says
-   either name outside a link to public content, or has it in its title or as its correspondent — a shared link to a
-   post by that account is the post, not the person; and
-5. each name is said in at least one conversation that IS public content the person read or saved (a saved link or
-   bookmark, a watched video, a read page, a paper, a repository, a tab group) — :data:`PUBLIC_CONTENT_SOURCES`.
+* a tracked source on either page (ruling 26's ``tracked``: the person's own, one they took, one Cicada's read confirmed)
+  — the page's Where to check is opened first, whoever the person is (54a); opening a link already on the page is not a
+  search;
+* a web search only when neither page is known personally, the named side carries ruling 44's public cue, and both
+  names clear ``name_guard`` (:attr:`Pair.searchable`). A private person's name never goes in a search.
 
-Bounded: :data:`SEARCH_PER_NAME` conversations per spelling from the lexical index, plus each page's own; a spelling
-whose search fills that bound could hide a chat, so it fails (``unbounded``).
+Otherwise it stays for the person, with the reason (``guarded_tie``, ``guarded_not_public``, ``walled_source``,
+``proposed_source``, ``no_public_cue`` …).
 
-**What is sent where** (:func:`queries`): to the plan's own web search tool (the ``claude -p`` call with web search
-as its one tool, ``web_lookup``), exactly two pinned queries, each alone: the handle with the one platform word the
-record links it on (``<handle> github``, ``<handle> twitter``, ``<handle> instagram``, ``<handle> linkedin``), else
-``@<handle>``; and the full name alone. Nothing else is searched; every search the engine reports is held to those
-two, word for word, or nothing is settled. The prompt itself goes to the same engine that already read these
-conversations in Sleep, with at most two scrubbed lines of where the handle was mentioned (``web_settle.local_context``,
-other people's names taken out). A metered key is never spent on it: plan runs only.
+**What settles is the model's judgement** (owner, 2026-11-04: "One site is enough to settle a question, let the agent do
+this work don't tell it how to do it. That why we depend on Claude code as the intelligence for consolidation, because if I
+asked you now you'd resolve it."). It is given the goal and what is at stake, and answers with whether it is sure, a confidence
+and a citation. It decides what convinces it, a parody or a namesake included. The one code check (:func:`cited`): the
+citation is real, a page Cicada opened with the quote really on it. A sure answer whose citation is not is sent back.
 
-**What settles** (:func:`settle`): only a sure answer that the handle IS that person, with the link of a public page
-whose quoted words name both the handle and the name (checked here, not taken on the model's word). It writes one
-cited claim on the named person's page — "<Name> goes by “<handle>” online", predicate ``goes-by``, its object the
-handle's page (observer ``agent``, ``source_trust: external``, origin ``web-check``) — its citation in one
-``web-check`` episode, and moves the question to "Settled by a check" (``web_settle.undo`` takes it all back and the
-question returns, never checked again). Never a merge: the two pages stay, and the person merges them with one tap
-if they want (a handle page may also hold other things, such as an agent named after the handle). While the claim
-stands, the pair is not asked again (``pair_evidence.answered_by_check``). Any other answer settles nothing.
+**What it writes** (:func:`settle`): one cited claim on the named person's page — "<Name> goes by “<handle>” online",
+predicate ``goes-by``, its object the handle's page (observer ``agent``, ``source_trust: external``, origin
+``web-check``) — its citations in one ``web-check`` episode, and moves the question to "Settled by a check"
+(``web_settle.undo`` takes it all back and the question returns, never checked again). Never a merge: the two pages
+stay, and the person merges them with one tap. Never the owner's page. While the claim stands, the pair is not asked
+again (``pair_evidence.answered_by_check``).
 
-Sleep's own lookup is OFF until the owner rules (``CICADA_PUBLIC_HANDLE_LOOKUP=on`` turns it on, :func:`enabled`); the
-person's own local agent, asked by them, may settle one through ``cicada_record_check`` either way.
+**The person's own local agent**, on their ask (``cicada_record_check``), keeps the stricter test below (:func:`_agent_test`)
+and its two pinned searches (:func:`queries`): Cicada cannot observe that agent's searches, so the limit there can only
+be who is offered at all.
 """
 from __future__ import annotations
 
@@ -53,13 +43,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from api.services import pair_evidence, person_leads
+from api.services import name_guard, pair_evidence, person_leads
 
-#: Conversations that ARE public content the person read or saved (an episode's ``source``).
-PUBLIC_CONTENT_SOURCES = frozenset({
-    "youtube", "watch-history", "watch-history-month", "video-watch", "bookmark", "url", "link", "media", "tab-group",
-    "reading-history", "page-read", "listening-history", "arxiv", "crossref", "github",
-})
 #: Chats and the person's address book: a name said here (outside a link) is someone from their life.
 CHAT_SOURCES = frozenset({
     "imessage", "messages", "whatsapp", "telegram-chats", "email", "gmail", "contacts", "linkedin",
@@ -71,6 +56,8 @@ SEARCH_PER_NAME = 40
 #: A side with more spellings than this cannot be read for every chat: it stays private (``unbounded``).
 MAX_SPELLINGS = 8
 REASON = "public_handle"
+#: The claim's confidence when the model gave none.
+DEFAULT_CONFIDENCE = 0.8
 _URL = re.compile(r"https?://[^\s)>\]\"']+")
 _CHAT_FIELDS = ("title", "correspondent", "participants", "chat", "chat_name", "sender", "from", "to")
 
@@ -84,6 +71,8 @@ class Pair:
     named_id: str = ""
     name: str = ""
     site: str = ""
+    #: May a web search be tried (both names clear ``name_guard``)? False: only the pages' tracked sources.
+    searchable: bool = False
 
     @property
     def public(self) -> bool:
@@ -161,7 +150,8 @@ def _read_side(memory_path: Path, page_fm: dict, names: list[str], own: list[str
                 return "chat", False, ""
         if not pair_evidence.names_in(own, text) and not (handle and _links_handle(text, handle)):
             continue
-        if source in PUBLIC_CONTENT_SOURCES:
+        said, _own = name_guard.public_part(ep_fm, text)
+        if pair_evidence.names_in(own, said):
             public = True
         if handle and not site:
             site = _site_in(text, handle)
@@ -182,20 +172,30 @@ def _site_in(text: str, handle: str) -> str:
 
 
 def enabled() -> bool:
-    """Sleep's own lookup: OFF until the owner rules on proposed ruling 54 (coordinator, 2026-11-04: a privacy-rail
-    change is built switched off and decided by the owner); ``CICADA_PUBLIC_HANDLE_LOOKUP=on`` turns it on."""
-    return os.environ.get("CICADA_PUBLIC_HANDLE_LOOKUP", "off").strip().lower() in ("on", "1", "true", "yes")
+    """Sleep's own lookup: on (ruling 54, owner 2026-11-04); ``CICADA_PUBLIC_HANDLE_LOOKUP=off`` turns it off, as the
+    variable always did. ``CICADA_ALLOW_CONNECTOR_FETCH``'s reading: opt out, anything else is on."""
+    return os.environ.get("CICADA_PUBLIC_HANDLE_LOOKUP", "on").strip().lower() not in ("off", "0", "false", "no")
 
 
 def test(memory_path: Path, fm: dict, facts, *, agent: bool = False) -> Pair:
-    """Proposed ruling 54's test for one ``merge_suggestion``: :attr:`Pair.public` when a lookup may answer it.
-    ``agent``: the person's own local agent asked, on their ask (``cicada_record_check``) — the same test, whatever the
-    switch; Sleep's own lookup only when :func:`enabled`."""
-    from api.services import web_context
-
+    """Ruling 54's test for one ``merge_suggestion``: :attr:`Pair.public` when the settling step, or (``agent``) the
+    person's own local agent on their ask, may work it. Sleep's step only when :func:`enabled`. Sleep's reads the whole
+    record through the guard: blocking, so a caller on the event loop runs it in a thread."""
     memory_path = Path(memory_path)
     if not agent and not enabled():
         return Pair("off")
+    shape = _shape(fm, facts)
+    if not shape.public:
+        return shape
+    if agent:
+        names = {shape.handle_id: shape.handle, shape.named_id: shape.name}
+        return _agent_test(memory_path, facts, shape.handle_id, shape.handle, shape.named_id, shape.name, names)
+    return _settling_test(memory_path, facts, shape.handle_id, shape.handle, shape.named_id, shape.name)
+
+
+def _shape(fm: dict, facts) -> Pair:
+    """What the question is, reading no conversation and no store: :attr:`Pair.public` for a handle against a full name
+    between two person pages, neither the owner nor a role-only page."""
     if fm.get("held_mention"):
         return Pair("held_mention")
     a_id, b_id = str(fm.get("entity_id") or ""), str(fm.get("merge_target_hint") or "")
@@ -218,23 +218,75 @@ def test(memory_path: Path, fm: dict, facts, *, agent: bool = False) -> Pair:
             return Pair("owner")
         if page_fm.get("unnamed") or page_fm.get("owner_roles"):
             return Pair("relation_only")
-        if _in_contacts(page_fm):
-            return Pair("contacts")
     from api.services import text_fold
 
     if text_fold.fold(name) in facts.owner_names or handle in facts.owner_names:
         return Pair("owner")
+    return Pair(REASON, handle_id=handle_id, handle=handle, named_id=named_id, name=name)
+
+
+def _private_on_record(memory_path: Path, facts, handle_id: str, named_id: str) -> str | None:
+    """Ruling 44's own local checks: a page the record says the person knows, or a named side with no public cue."""
+    from api.services import web_context
+
     for eid in (handle_id, named_id):
         page = web_context.load_page(memory_path, eid)
         if page is None:
-            return Pair("no_page")
+            return "no_page"
         private = web_context.known_personally(memory_path, page, facts)
         if private:
-            return Pair(private)
+            return private
         if eid == named_id and not web_context.PUBLIC_ROLE.search(" ".join([
                 web_context._prose(page.body), " ".join(str(t) for t in page.fm.get("tags") or []),
                 " ".join(str(c.text or "") for c in page.claims)])):
-            return Pair("no_public_cue")
+            return "no_public_cue"
+    return None
+
+
+def _settling_test(memory_path: Path, facts, handle_id: str, handle: str, named_id: str, name: str) -> Pair:
+    """Sleep's step: the question stands when something may answer it — a tracked source, or a search both names clear."""
+    from api.services import settling_agent
+
+    why = _private_on_record(memory_path, facts, handle_id, named_id)
+    if why is None:
+        try:
+            guard = name_guard.guard_for(memory_path, facts)
+        except name_guard.GuardUnreadable:
+            why = "guard_unreadable"
+        else:
+            why = next((f"guarded_{r}" for r in (guard.clears(name), guard.clears(handle)) if r), None)
+    tracked, kinds = settling_agent.tracked_public(memory_path, (named_id, handle_id))
+    if why is not None and not tracked:
+        return Pair("walled_source" if kinds["walled"] else "on_ask_source" if kinds["on_ask"]
+                    else "proposed_source" if kinds["proposed"] else why)
+    return Pair(REASON, handle_id=handle_id, handle=handle, named_id=named_id, name=name,
+                site=_site_on_record(memory_path, facts.pages.get(handle_id) or {}, handle), searchable=why is None)
+
+
+def _site_on_record(memory_path: Path, page_fm: dict, handle: str) -> str:
+    from api.services import evidence
+
+    for eid in [str(e) for e in (page_fm.get("source_episodes") or [])][:8]:
+        doc = evidence.source_document(memory_path, eid)
+        if doc is not None and (site := _site_in(doc[1], handle)):
+            return site
+    return ""
+
+
+def site_hint(pair: Pair) -> str:
+    word = SITE_WORDS.get(pair.site, "")
+    return f" Memory links this account on {word}." if word else ""
+
+
+def _agent_test(memory_path: Path, facts, handle_id: str, handle: str, named_id: str, name: str,
+                names: dict[str, str]) -> Pair:
+    """The person's own local agent, whose searches Cicada cannot see: only a pair no chat or card touches is offered."""
+    for page_fm in (facts.pages[handle_id], facts.pages[named_id]):
+        if _in_contacts(page_fm):
+            return Pair("contacts")
+    private = _private_on_record(memory_path, facts, handle_id, named_id)
+    if private:
+        return Pair(private)
     site = ""
     spellings = {eid: pair_evidence.side_names(memory_path, eid, names[eid]) for eid in (handle_id, named_id)}
     for eid, page_fm in ((handle_id, facts.pages[handle_id]), (named_id, facts.pages[named_id])):
@@ -247,26 +299,66 @@ def test(memory_path: Path, fm: dict, facts, *, agent: bool = False) -> Pair:
         if not public:
             return Pair("no_public_content")
         site = site or found_site
-    return Pair(REASON, handle_id=handle_id, handle=handle, named_id=named_id, name=name, site=site)
+    return Pair(REASON, handle_id=handle_id, handle=handle, named_id=named_id, name=name, site=site, searchable=True)
 
 
 def queries(pair: Pair) -> tuple[str, str]:
-    """The two searches, and only these: the handle with its platform word (or ``@``), and the full name alone."""
+    """The person's own agent's two searches: the handle with its platform word (or ``@``), and the full name alone."""
     word = SITE_WORDS.get(pair.site, "")
     return (f"{pair.handle} {word}" if word else f"@{pair.handle}", pair.name)
 
 
 def quote_states(pair: Pair, quote: str) -> bool:
-    """Do the quoted words name both the handle and the name? Checked here, never taken on the model's word."""
+    """Do the quoted words name both the handle and the name? The person's own agent's answer, on their ask."""
     return (pair_evidence.names_in([pair_evidence.spelling(pair.handle)], quote)
             and pair_evidence.names_in([pair_evidence.spelling(pair.name)], quote))
 
 
+@dataclass(frozen=True)
+class Citation:
+    ok: bool
+    reason: str = ""
+    ref: str = ""
+    quote: str = ""
+    confidence: float = DEFAULT_CONFIDENCE
+
+
+def cited(answer: dict, pages: dict) -> Citation:
+    """The one thing not left to the model's judgement: its citation is real. ``url`` is a page Cicada opened in this
+    question and all of ``quote`` is on those bytes, since a model can invent one; what is stored is the page's own text. A
+    sure answer also says how sure: 0, a negative or not a number is no answer. Whether the page convinces is the
+    model's to say."""
+    import math
+
+    from api.services import settling_agent
+
+    page = pages.get(str(answer.get("url") or "").strip())
+    if page is None:
+        return Citation(False, "not_opened")
+    quote = settling_agent.located_quote(page, answer.get("quote"))
+    if quote is None:
+        return Citation(False, "quote_not_on_page")
+    raw = answer.get("confidence")
+    if raw is None:
+        confidence = DEFAULT_CONFIDENCE
+    else:
+        try:
+            confidence = float(raw)
+        except (TypeError, ValueError):
+            return Citation(False, "no_confidence")
+        if not math.isfinite(confidence) or confidence <= 0:
+            return Citation(False, "no_confidence")
+        confidence = min(confidence, 1.0)
+    return Citation(True, ref=page.url, quote=quote, confidence=confidence)
+
+
 def settle(memory_path: Path, item_id: str, *, ref: str, quote: str, checker: str, checker_kind: str,
            origin: str = "sleep", engine: str | None = None, session_frontmatter: dict | None = None,
-           facts=None):
+           facts=None, tested: Pair | None = None, confidence: float = DEFAULT_CONFIDENCE):
     """Settle one public-handle question with a cited ``goes-by`` claim on the named page (see the module docstring).
-    Raises ``web_settle.NotSettleable`` with nothing written."""
+    ``tested``: Sleep's step already tested this pair and checked its citation on the bytes opened (:func:`cited`). It is
+    only re-shaped here, since this runs under the bank's write admission and must not rebuild the guard's scan. An agent's
+    answer has only its quote, which must name both. Raises ``web_settle.NotSettleable`` with nothing written."""
     from api.services import bank_index, episode_ids, markdown_parser, web_settle
     from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 
@@ -277,17 +369,27 @@ def settle(memory_path: Path, item_id: str, *, ref: str, quote: str, checker: st
     facts = facts or web_settle.bank_facts(memory_path)
     parsed_item = markdown_parser.parse(item_path)
     agent = checker_kind == "agent"
-    if web_settle.classify(memory_path, parsed_item.frontmatter, parsed_item.body, facts,
-                           agent=agent) != ("public", REASON):
-        raise web_settle.NotSettleable("That question is not about a public handle a lookup may answer; it stays for "
-                                       "the person.")
-    pair = test(memory_path, parsed_item.frontmatter, facts, agent=agent)
+    if tested is not None:
+        shape = _shape(parsed_item.frontmatter, facts)
+        if parsed_item.frontmatter.get(web_settle.UNDONE_KEY) == "undone" or not enabled() or not shape.public or (
+                shape.handle_id, shape.named_id) != (tested.handle_id, tested.named_id):
+            raise web_settle.NotSettleable("That question is not about a public handle a lookup may answer; it stays "
+                                           "for the person.")
+        pair = tested
+    else:
+        if web_settle.classify(memory_path, parsed_item.frontmatter, parsed_item.body, facts,
+                               agent=agent) != ("public", REASON):
+            raise web_settle.NotSettleable("That question is not about a public handle a lookup may answer; it stays "
+                                           "for the person.")
+        pair = test(memory_path, parsed_item.frontmatter, facts, agent=agent)
     ref, host = web_settle.check_ref(ref, "public")
     quote = web_settle.clean_quote(quote)
     if not quote:
         raise web_settle.NotSettleable("The answer needs a short quote from the page, in its own words.")
-    if not quote_states(pair, quote):
+    if tested is None and not quote_states(pair, quote):
         raise web_settle.NotSettleable("The quote must name both the handle and the person, as the page says them.")
+    if pair.named_id == facts.owner_id or pair.handle_id == facts.owner_id:
+        raise web_settle.NotSettleable("Never on the owner's own page; the question stays.")
     entity_path = memory_path / "entities" / f"{pair.named_id}.md"
     if not entity_path.exists():
         raise web_settle.NotSettleable("The named person's page is gone; the question stays.")
@@ -314,7 +416,7 @@ def settle(memory_path: Path, item_id: str, *, ref: str, quote: str, checker: st
         claim = Claim(
             id=claim_id, text=answer, subject=pair.named_id, predicate=predicate, object=pair.handle_id,
             object_kind="node", observer="agent", source_trust="external", origin=web_settle.ORIGIN,
-            authored_by=checker or "agent", confidence=0.8, valid_from=today, recorded_at=today,
+            authored_by=checker or "agent", confidence=confidence, valid_from=today, recorded_at=today,
             evidence=list(web_settle._evidence_for(memory_path, episode_id, quote)))
         claims.append(claim)
         markdown_parser.write(entity_path, page.frontmatter, write_claims(page.body, claims))
@@ -325,7 +427,8 @@ def settle(memory_path: Path, item_id: str, *, ref: str, quote: str, checker: st
     settled_dir = memory_path / "inbox" / web_settle.SETTLED_DIR
     settled_dir.mkdir(parents=True, exist_ok=True)
     record = {
-        "at": episode_ids.utc_now_iso(), "by": checker or "agent", "by_kind": checker_kind, "scope": "public",
+        "at": episode_ids.utc_now_iso(), "by": checker or "agent", "by_kind": checker_kind,
+        "scope": "public" if pair.searchable else "source",
         "ref": ref, "host": host, "quote": quote, "answer": answer, "predicate": predicate,
         "entity_id": pair.named_id, "entity_name": pair.name, "claim_id": claim.id, "claim_ids": [claim.id],
         "episode": episode_id, "held": False, "closed": [], "relation": "goes_by",

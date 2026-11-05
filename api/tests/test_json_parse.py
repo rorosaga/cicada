@@ -184,3 +184,10 @@ def test_strict_parse_wins_on_a_top_level_scalar_carving_cannot_handle():
     respected outright, never overridden by a later carve attempt."""
     assert json_parse.parse_json_object('"hello world"') == "hello world"
     assert json_parse.parse_json_object("42") == 42
+
+
+def test_a_stray_brace_in_the_preamble_never_hides_the_answer():
+    """Review of #614: a key has no schema to hold the answer to, so `{note}` before the object sent the judge to unsure."""
+    raw = 'Weighing the {two names} first.\n{"decision": "same", "reason": "One page."}'
+    assert json_parse.parse_json_object(raw) == {"decision": "same", "reason": "One page."}
+    assert json_parse.parse_json_object_or(raw, {"decision": "unsure"})["decision"] == "same"

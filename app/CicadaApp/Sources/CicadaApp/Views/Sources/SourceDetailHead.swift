@@ -148,6 +148,11 @@ struct SourceDetailHead: View {
                 stateLine(watch: watch, now: context.date)
             }
             .padding(.leading, indent)
+            if let kept = Copy.keptForLookup(source.kept) {
+                Text(kept).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, indent)
+            }
             // R-D6 kept: the Full Disk Access fix is shown exactly where the read failed.
             if watch == .blocked, let id = source.channelId, let error = watcher.error(for: id) {
                 FullDiskAccessHint(error: error).padding(.leading, indent)
@@ -195,7 +200,9 @@ struct SourceDetailHead: View {
             }
             Spacer(minLength: CicadaTheme.spacingSM)
             if let channel {
-                if channel.actions.contains("sync"), let localSources {
+                // What Wispr Flow brought in stays openable from search and Sleep; it reads nothing more, so no Refresh.
+                if channel.actions.contains("sync"), let localSources,
+                   SourceCatalog.wisprOffered || channel.id != SourceCatalog.wisprChannel {
                     actionButton("Refresh") {
                         try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources,
                                                       calendar: calendarReader, tabGroups: tabGroups,

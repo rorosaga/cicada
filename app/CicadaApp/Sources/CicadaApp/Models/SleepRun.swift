@@ -45,6 +45,23 @@ struct SleepReserveInfo: Codable, Equatable, Hashable {
 
 /// `GET /sleep/engine`'s `reserve`: the line, its choices, whether it applies to the engine a run
 /// you start would use (a plan), and which windows the last run could enforce.
+struct SleepSpendStatus: Codable, Equatable, Hashable {
+    var limitUsd: Double?
+    var choices: [Int]
+    var applies: Bool
+
+    init(limitUsd: Double? = nil, choices: [Int] = [], applies: Bool = false) {
+        self.limitUsd = limitUsd; self.choices = choices; self.applies = applies
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        limitUsd = (try? c.decodeIfPresent(Double.self, forKey: .limitUsd)) ?? nil
+        choices = ((try? c.decodeIfPresent([Int].self, forKey: .choices)) ?? nil) ?? []
+        applies = ((try? c.decodeIfPresent(Bool.self, forKey: .applies)) ?? nil) ?? false
+    }
+}
+
 struct SleepReserveStatus: Codable, Equatable, Hashable {
     var pct: Int?
     var choices: [Int]
@@ -192,9 +209,13 @@ struct SleepRunOptions: Codable, Equatable {
     /// TODO ruling 4b (owner, 2026-10-16; amended 2026-10-19): this machine lets scheduled runs use the person's plan.
     /// On by default; only the person's explicit off stops it.
     var scheduledUsePlan: Bool
+    /// ROR-102: a run on a key stops at this figure; `nil` is the person's off.
+    var spendLimitUsd: Double?
 
     init(batchSize: Int = 25, batchSizeChoices: [Int] = [10, 25, 50], continueAfterReset: Bool = false,
-         reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30], scheduledUsePlan: Bool = true) {
+         reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30], scheduledUsePlan: Bool = true,
+         spendLimitUsd: Double? = 5) {
+        self.spendLimitUsd = spendLimitUsd
         self.batchSize = batchSize; self.batchSizeChoices = batchSizeChoices
         self.continueAfterReset = continueAfterReset; self.reservePct = reservePct; self.reserveChoices = reserveChoices
         self.scheduledUsePlan = scheduledUsePlan
@@ -209,9 +230,10 @@ struct SleepRunOptions: Codable, Equatable {
         reserveChoices = ((try? c.decodeIfPresent([Int].self, forKey: .reserveChoices)) ?? nil) ?? []
         // An older server has no such switch: its scheduled runs never used a plan.
         scheduledUsePlan = ((try? c.decodeIfPresent(Bool.self, forKey: .scheduledUsePlan)) ?? nil) ?? false
+        spendLimitUsd = (try? c.decodeIfPresent(Double.self, forKey: .spendLimitUsd)) ?? nil
     }
     enum CodingKeys: String, CodingKey {
-        case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices, scheduledUsePlan
+        case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices, scheduledUsePlan, spendLimitUsd
     }
 }
 
@@ -223,12 +245,15 @@ enum SleepRunOptionsChange: Equatable {
     case reservePct(Int?)
     /// Ruling 4b: the machine's "Scheduled runs may use my plan" switch.
     case scheduledUsePlan(Bool)
+    /// ROR-102: the spending limit; `nil` is off.
+    case spendLimitUsd(Double?)
 
     var body: [String: Any] {
         switch self {
         case .batchSize(let n): ["batchSize": n]
         case .continueAfterReset(let on): ["continueAfterReset": on]
         case .reservePct(let pct): ["reservePct": pct.map { $0 as Any } ?? NSNull()]
+        case .spendLimitUsd(let usd): ["spendLimitUsd": usd.map { $0 as Any } ?? NSNull()]
         case .scheduledUsePlan(let on): ["scheduledUsePlan": on]
         }
     }
@@ -272,9 +297,11 @@ struct SleepQueueResponse: Codable, Equatable {
     var total: Int
     var offset: Int
     var items: [SleepQueueItem]
+    /// Ruling 62 — saves kept for lookup: no model read them, and one is read when the person talks about it.
+    var kept: Int
 
-    init(total: Int = 0, offset: Int = 0, items: [SleepQueueItem] = []) {
-        self.total = total; self.offset = offset; self.items = items
+    init(total: Int = 0, offset: Int = 0, items: [SleepQueueItem] = [], kept: Int = 0) {
+        self.total = total; self.offset = offset; self.items = items; self.kept = kept
     }
 
     init(from decoder: Decoder) throws {
@@ -282,8 +309,9 @@ struct SleepQueueResponse: Codable, Equatable {
         total = ((try? c.decodeIfPresent(Int.self, forKey: .total)) ?? nil) ?? 0
         offset = ((try? c.decodeIfPresent(Int.self, forKey: .offset)) ?? nil) ?? 0
         items = ((try? c.decodeIfPresent([SleepQueueItem].self, forKey: .items)) ?? nil) ?? []
+        kept = ((try? c.decodeIfPresent(Int.self, forKey: .kept)) ?? nil) ?? 0
     }
-    enum CodingKeys: String, CodingKey { case total, offset, items }
+    enum CodingKeys: String, CodingKey { case total, offset, items, kept }
 }
 
 /// The owner page's beliefs, sampled at a run's start and after its first batch. `nil` on the wire
@@ -331,6 +359,13 @@ struct SleepRunRef: Codable, Equatable {
     var questionsRaised: Int?
     var usageSummary: CycleUsageSummary?
     var models: [String] = []
+    /// G235 — how many conversations this run read holding something likely sensitive, and which kinds; `nil`: none.
+    var sensitive: Sensitive? = nil
+
+    struct Sensitive: Codable, Equatable {
+        var conversations: Int
+        var kinds: [String]
+    }
 
     init(id: String, batches: Int = 0, filed: Int = 0, parked: Int = 0, frozen: Int = 0, pauses: Int = 0,
          readMs: Int = 0, pausedMs: Int = 0, startedAt: String? = nil, finishedAt: String? = nil,
@@ -360,8 +395,10 @@ struct SleepRunRef: Codable, Equatable {
         questionsRaised = (try? c.decodeIfPresent(Int.self, forKey: .questionsRaised)) ?? nil
         usageSummary = (try? c.decodeIfPresent(CycleUsageSummary.self, forKey: .usageSummary)) ?? nil
         models = ((try? c.decodeIfPresent([String].self, forKey: .models)) ?? nil) ?? []
+        sensitive = (try? c.decodeIfPresent(Sensitive.self, forKey: .sensitive)) ?? nil
     }
     enum CodingKeys: String, CodingKey {
+        case sensitive
         case id, batches, filed, parked, frozen, pauses, readMs, pausedMs, startedAt, finishedAt, state, startedBy
         case catchUpFor, created, updated, questionsRaised, usageSummary, models
     }
@@ -455,6 +492,8 @@ struct SleepRunDetail: Codable, Equatable {
     var pausedMs: Int?
     var pauses: [Pause]
     var questionsRaised: Int?
+    /// G235 — conversations in this run holding something replaced before it was stored; `nil`: not recorded.
+    var replaced: Int?
     var owner: SleepOwnerPageCount?
     var batches: [Batch]
     var models: [CycleUsageModel]
@@ -474,6 +513,7 @@ struct SleepRunDetail: Codable, Equatable {
         calls = opt(.calls); readMs = opt(.readMs); pausedMs = opt(.pausedMs)
         pauses = ((try? c.decodeIfPresent([Pause].self, forKey: .pauses)) ?? nil) ?? []
         questionsRaised = opt(.questionsRaised)
+        replaced = opt(.replaced)
         owner = (try? c.decodeIfPresent(SleepOwnerPageCount.self, forKey: .owner)) ?? nil
         batches = ((try? c.decodeIfPresent([Batch].self, forKey: .batches)) ?? nil) ?? []
         models = ((try? c.decodeIfPresent([CycleUsageModel].self, forKey: .models)) ?? nil) ?? []
@@ -483,6 +523,6 @@ struct SleepRunDetail: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id, startedBy, startedAt, finishedAt, state, filed, frozen, parked, skipped, calls, readMs, pausedMs
-        case pauses, questionsRaised, owner, batches, models, usage, pages
+        case pauses, questionsRaised, replaced, owner, batches, models, usage, pages
     }
 }

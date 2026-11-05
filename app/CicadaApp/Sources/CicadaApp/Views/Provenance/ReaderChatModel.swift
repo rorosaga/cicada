@@ -42,7 +42,7 @@ enum ReaderChat {
     /// `speaker:` family); an attachment, a video line or Cicada's gap are not a conversation by themselves.
     static func conversationMarker(_ marker: String?) -> Bool {
         guard let m = marker?.lowercased() else { return false }
-        return ["user", "human", "assistant", "ai"].contains(m) || m.hasPrefix("speaker")
+        return ["user", "human", "assistant", "ai"].contains(m) || m.hasPrefix("speaker") || relayedApp(m) != nil
     }
 
     /// Which side the WRITTEN marker puts a turn on, or nil when the turn has none (a block before the first marker,
@@ -50,7 +50,14 @@ enum ReaderChat {
     /// `assistant` while keeping each line's marker as written, so only the marker still says who spoke.
     static func markerSide(_ marker: String?) -> Side? {
         guard let m = marker?.lowercased(), m != "gap" else { return nil }
-        return ["user", "human", "system", "unknown"].contains(m) ? .person : .other
+        return ["user", "human", "system", "unknown"].contains(m) || relayedApp(m) != nil ? .person : .other
+    }
+
+    /// Ruling 58: the app named by a later turn's `relayed [Claude]` marker, in a chat that went on after its import.
+    static func relayedApp(_ marker: String?) -> String? {
+        guard let m = marker, m.lowercased().hasPrefix("relayed"), let open = m.firstIndex(of: "["),
+              let close = m.lastIndex(of: "]"), open < close else { return nil }
+        return String(m[m.index(after: open)..<close])
     }
 
     /// The party a chat's header already names — its correspondent, else its agent with the latest turn's model, as
@@ -313,7 +320,9 @@ enum ReaderChat {
 
             let side = markerSide(turn?.marker) ?? (turn?.marker == nil && position > 0 ? last?.side : nil)
                 ?? side(of: head)
-            let speaker = side == .person ? (relayed ?? head.speaker) : head.speaker
+            // Ruling 58: the imported part is theirs; a later relayed turn says who relayed it, turn by turn.
+            let laterRelay = relayedApp(turn?.marker).map { Copy.Provenance.relayedBy($0) }
+            let speaker = side == .person ? (laterRelay ?? relayed ?? head.speaker) : head.speaker
             let startsRun: Bool = {
                 guard let last else { return true }
                 if last.side != side || last.speaker != speaker { return true }

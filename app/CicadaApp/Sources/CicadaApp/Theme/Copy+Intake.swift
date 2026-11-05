@@ -116,7 +116,7 @@ extension Copy {
         case "claude-cli": "your Claude plan"
         case "codex-cli": "your ChatGPT plan"
         case "ollama": "Ollama on this Mac"
-        case "litellm": "your API key"
+        case "litellm", "anthropic-api": "your API key"
         case "none": "no engine yet"
         default: engineLabel(engine)
         }

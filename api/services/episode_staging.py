@@ -71,7 +71,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
-from api.services import agent_turns, bank_index, episode_ids, episode_scrub, markdown_parser, turn_extras
+from api.services import (agent_turns, bank_index, episode_ids, episode_scrub, evidence, history_index, markdown_parser,
+                          sensitive_flags, turn_extras)
 
 #: Keys of one ``turns`` sidecar entry (R-PB4) — the coordination contract, exactly.
 #: Round 4 C1 adds ``model``/``effort``: written on an agent turn only, only when the
@@ -361,7 +362,7 @@ RELAY_UPGRADES = {"claude": "claude", "chatgpt": "chatgpt"}
 #: How far apart a relayed conversation's start and the export's may be and still be one conversation.
 RELAY_WINDOW_S = 2 * 86400
 #: Writer-owned keys of a relayed episode that describe the relayed body, dropped when an export replaces it.
-_RELAY_BODY_KEYS = ("evidence_kind", "hook_turns", "capture_gap", "capture_flags")
+_RELAY_BODY_KEYS = ("evidence_kind", "hook_turns", "capture_gap", "capture_flags", "tail_turns")
 
 
 def relay_candidates(episodes_dir: Path) -> dict[tuple[str, str], list[IndexEntry]]:
@@ -430,14 +431,23 @@ def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict], body: str |
     _apply_extras(fm, _extras_matching(draft, body) if body is not None else {})
     if draft.content_sha:
         fm["content_sha"] = draft.content_sha
-    if draft.queue_for_sleep:
+    if draft.queue_for_sleep or _read_owed(fm, draft):
         fm["processed"] = False
         # G114 R6: `processed_by` is written only beside `processed: true`.
         fm.pop("processed_by", None)
     else:
         fm["processed"] = True
         fm["processed_by"] = draft.processed_by
+        if draft.processed_by == history_index.INDEXED_BY:
+            # Its one read was of the old words: these are a bare save again, found and woken like any other.
+            fm.pop(history_index.WOKEN_KEY, None)
     set_turn_stamps(fm, stamps)
+
+
+def _read_owed(fm: dict, draft: EpisodeDraft) -> bool:
+    """Ruling 62: a lean writer's draft (a tab group, a saved list) says nothing about a read the person's own mention
+    or reason queued: a sync before that read leaves it queued, whatever the sync changed."""
+    return draft.processed_by == history_index.INDEXED_BY and history_index.owes_a_read(fm)
 
 
 def set_turn_stamps(fm: dict, stamps: list[dict]) -> None:
@@ -502,7 +512,7 @@ def _under_episode_lock(fn):
 #: reads the episode again, absent while no revision was ever consolidated. The earlier body is in git.
 REVISED_KEY = "revised"
 #: ``processed_by`` values that mean nothing consolidated the body (R-LS10's parser, ``history_index.INDEXED_BY``).
-_NOT_CONSOLIDATED_BY = frozenset({PARSED_ONLY, "index"})
+_NOT_CONSOLIDATED_BY = frozenset({PARSED_ONLY, history_index.INDEXED_BY})
 
 
 def revision_record(fm: dict, *, at: str | None = None) -> dict:
@@ -546,7 +556,7 @@ def upgrade_relay(path: Path, draft: EpisodeDraft, body: str, digest: str, stamp
     fm = dict(markdown_parser.parse(path).frontmatter)
     for key in _RELAY_BODY_KEYS:
         fm.pop(key, None)
-    fm["relay"] = {**(fm.get("relay") or {}), "upgraded_at": at, "upgraded_by": draft.source}
+    fm["relay"] = {**(fm.get("relay") or {}), "upgraded_at": at, "upgraded_by": draft.source, "imported_hash": digest}
     fm["source"] = draft.source
     fm["title"] = _title(draft) or fm.get("title", "Untitled")
     fm["content_hash"] = digest
@@ -556,6 +566,102 @@ def upgrade_relay(path: Path, draft: EpisodeDraft, body: str, digest: str, stamp
         fm["origin"] = draft.origin
     _apply_common(fm, draft, stamps, body)
     markdown_parser.write(path, fm, body)
+
+
+def has_relayed_tail(fm: dict | None) -> bool:
+    """Ruling 58: this upgraded episode holds later turns its model relayed after the imported part."""
+    relay = (fm or {}).get("relay")
+    return isinstance(relay, dict) and isinstance(relay.get("tail_at"), int) and bool(relay.get("imported_hash"))
+
+
+def append_relayed(path: Path, fm: dict, body: str, rows: list[dict], *, at: str, project: str | None = None) -> str:
+    """Ruling 58 (owner, 2026-11-04): a chat continued after its one-time import keeps its later turns in the same episode,
+    after the imported part, whose offsets never move. ``rows`` are ``{marker, speaker, text, ts}``, cleaned and scrubbed
+    by the caller. Each person's turn carries its own ``relayed [...]:`` marker, so it reads as the relaying model's words
+    (`evidence._marker`) beside the imported part's ``user:`` lines; no episode-wide ``evidence_kind`` could say both. Any
+    line that would open a turn is quoted. A revision of itself (``revised``), re-queued, so Sleep reads only what grew
+    (`episode_revision`). The caller holds the episode lock. Returns the new ``content_hash``."""
+    fm = dict(fm)
+    relay = dict(fm.get("relay") or {})
+    if not has_relayed_tail(fm):
+        relay["imported_hash"] = str(fm.get("content_hash") or content_hash(body))     # what is here, a removal included
+        relay["tail_at"] = len(body) + 1
+    if project:
+        relay["project"] = project
+    fm[REVISED_KEY] = revision_record(fm)
+    stamps = [dict(e) for e in fm.get("turns") or [] if isinstance(e, dict)] if isinstance(fm.get("turns"), list) else []
+    out = body
+    for row in rows:
+        out += "\n"
+        if row["ts"] and len(stamps) < MAX_TURN_STAMPS:
+            stamps.append({"offset": len(out), "ts": row["ts"], "speaker": row["speaker"]})
+        out += f"{row['marker']}: {evidence.quote_markers(row['text'])}"
+    digest = content_hash(out)
+    fm["relay"] = relay
+    fm["content_hash"] = digest
+    fm["last_turn_at"] = at
+    if isinstance(fm.get("turn_count"), int):
+        fm["turn_count"] += len(rows)
+    fm["processed"] = False
+    fm.pop("processed_by", None)
+    set_turn_stamps(fm, stamps)
+    markdown_parser.write(path, fm, out)
+    return digest
+
+
+def _turn_key(text: str) -> str:
+    """A turn's words, however its door rendered them: the export's and the relay's cleaning differ (code fences, caps)."""
+    return "".join(c for c in (text or "").casefold() if c.isalnum())[:400]
+
+
+def relayed_tail(fm: dict, body: str) -> list[evidence.TurnSpan]:
+    """The later relayed turns of an upgraded episode, with offsets into ``body``."""
+    if not has_relayed_tail(fm):
+        return []
+    return [t for t in evidence.turns(body) if t.start >= fm["relay"]["tail_at"] and t.marker]
+
+
+@_under_episode_lock
+def merge_relayed_tail(path: Path, draft: EpisodeDraft, export_body: str, digest: str, stamps: list[dict]) -> str:
+    """Ruling 58: another import of a chat that went on. The export's body replaces the imported part, and of the later
+    relayed turns only those it does not hold stay after it, unchanged: a turn the export holds is the person's own now,
+    never kept twice. In order, so a repeated "yes" is matched to its own place. Returns the new ``content_hash``."""
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    fm[REVISED_KEY] = revision_record(fm)
+    held = [(t.speaker, _turn_key(t.text)) for t in draft.turns if (t.text or "").strip()]
+    at = 0
+    kept: list[evidence.TurnSpan] = []
+    for turn in relayed_tail(fm, parsed.body):
+        speaker = "assistant" if turn.marker in ("assistant", "ai") else "user"
+        words = _turn_key(parsed.body[turn.content_start:turn.end])
+        found = next((i for i in range(at, len(held)) if held[i] == (speaker, words)), None)
+        if found is None:
+            kept.append(turn)
+        else:
+            at = found + 1
+    old_stamps = {e.get("offset"): e for e in fm.get("turns") or [] if isinstance(e, dict)} \
+        if isinstance(fm.get("turns"), list) else {}
+    out = export_body
+    all_stamps = list(stamps)
+    for turn in kept:
+        out += "\n"
+        if (stamp := old_stamps.get(turn.start)) is not None and len(all_stamps) < MAX_TURN_STAMPS:
+            all_stamps.append({**stamp, "offset": len(out)})
+        out += parsed.body[turn.start:turn.end]
+    relay = {**(fm.get("relay") or {}), "imported_hash": digest, "upgraded_by": draft.source}
+    if kept:
+        relay["tail_at"] = len(export_body) + 1
+    else:
+        relay.pop("tail_at", None)
+    merged = content_hash(out)
+    fm["relay"] = relay
+    fm["title"] = _title(draft) or fm.get("title", "Untitled")
+    fm["content_hash"] = merged
+    fm["source_updated_at"] = draft.source_updated_at
+    _apply_common(fm, draft, all_stamps, export_body)
+    markdown_parser.write(path, fm, out)
+    return merged
 
 
 @_under_episode_lock
@@ -594,7 +700,7 @@ def _requeue_for_authorship(fm: dict, draft: EpisodeDraft) -> None:
         fm["processed"] = False
         # G114 R6: `processed_by` is written only beside `processed: true`.
         fm.pop("processed_by", None)
-    elif not draft.queue_for_sleep and not fm.get("processed"):
+    elif not draft.queue_for_sleep and not fm.get("processed") and not _read_owed(fm, draft):
         fm["processed"] = True
         fm["processed_by"] = draft.processed_by
 
@@ -815,6 +921,12 @@ def mark_removed(path: Path, at: str | None) -> bool:
         return True
 
 
+def keep_turns_last(fm: dict) -> None:
+    """R-PB4: the sidecar stays the last key, for a writer that just added one (G235's record)."""
+    if "turns" in fm:
+        fm["turns"] = fm.pop("turns")
+
+
 @_under_episode_lock
 def _tombstone(path: Path, at: str) -> None:
     parsed = markdown_parser.parse(path)
@@ -889,6 +1001,10 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
     relays: dict[tuple[str, str], list[IndexEntry]] | None = None
     for draft in drafts:
         writer = draft.writer
+        # G235: the person took text out of this conversation; a source sending it again never brings it back.
+        known = index.get(draft.source_id) if draft.source_id else None
+        if known is not None and sensitive_flags.removed_kinds(known.fm):
+            draft = sensitive_flags.reapply_draft(draft, known.fm)
         body, stamps, n = render(draft)
         result.scrubbed += n
         digest = content_hash(body)
@@ -937,7 +1053,10 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                 _mark(result, "created", sid, entry, episodes_dir)
                 _report(progress, "created")
                 continue
-            same_body = entry.fm.get("content_hash") in (digest, legacy)
+            # Ruling 58: what an export is compared with is what an export wrote, never the later turns after it.
+            tail = has_relayed_tail(entry.fm)
+            same_body = entry.fm.get("content_hash") in (digest, legacy) or (
+                tail and entry.fm["relay"]["imported_hash"] in (digest, legacy))
             same_meta = (entry.fm.get("evidence_kind") == draft.extra.get("evidence_kind")
                          and not entry.fm.get("source_deleted_at"))
             redated = draft.redate and _moved(entry.fm.get("timestamp"), draft.timestamp)
@@ -960,7 +1079,7 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     entry.fm[PROVIDER_PROJECT_KEY] = grouping
                     if (rel := _rel(entry.path, episodes_dir)) not in result.paths:
                         result.paths.append(rel)
-                extras = render_extras(draft, raw=entry.fm.get("content_hash") != digest)
+                extras = render_extras(draft, raw=not tail and entry.fm.get("content_hash") != digest)
                 if extras != turn_extras.stored(entry.fm):
                     # A reaction, an unsend or a reply's target moved and no word did (turn_extras): frontmatter only.
                     if write:
@@ -977,10 +1096,13 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
             if same_body and write:
                 _refresh(entry.path, draft)
             elif not same_body:
-                if write:
+                merged = digest
+                if write and tail:
+                    merged = merge_relayed_tail(entry.path, draft, body, digest, stamps)
+                elif write:
                     update_in_place(entry.path, draft, body, digest, stamps)
                 known_hashes.add(digest)
-                entry.fm["content_hash"] = digest
+                entry.fm["content_hash"] = merged
             if redated:
                 if write:
                     _redate(entry.path, draft, stamps)

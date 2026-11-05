@@ -403,8 +403,8 @@ struct EpisodeWatch: Codable, Hashable {
     }
 }
 
-/// Ruling 32 — a conversation a hookless app's model relayed through the remote connector, until an export upgrades
-/// it: `app` is the connector catalog's id, `label` its name ("ChatGPT"), the person's own app. Both may be nil.
+/// Rulings 32, 57 — a conversation a hookless app's model relayed (the remote connector, or the desktop app's own
+/// connection), until an export upgrades it: `app` is the connector catalog's id, `label` its name ("ChatGPT"), the person's own app. Both may be nil.
 struct EpisodeRelay: Codable, Hashable {
     var app: String? = nil
     var label: String? = nil

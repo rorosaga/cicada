@@ -12,6 +12,57 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — waiting on Reddit, not the owner.** Reddit API access was requested 2026-11-04. When Reddit approves,
+  register the installed app per `network.md` ("Registering Cicada's Reddit app") and set `reddit.CLIENT_ID`.
+- **2026-11-04 — hookless apps relay as they talk; exports are one-time (rulings 57, 58, below; G105, G197; branch
+  `ruling-57-58-relay-and-one-time-exports`, PR #604).** The Claude desktop app's local connection is offered and asked for
+  `cicada_capture_turns` by exact client name; a hook-captured harness never is, whatever it calls itself. #592's weekly
+  nudge and Downloads pickup are gone; it never reached a release. claude.ai on web and phone and ChatGPT reach the
+  relay only through a public address: ruling 59's one click, whose first real run is the owner's. A chat that goes on after its import keeps its later turns, marked as relayed, in the same episode
+  (ruling 58, amended the same day).
+- **2026-11-04 — Sleep on a Claude key through the official SDK (G237, ruling 63; branch `g237-claude-key-parity`).** Owner:
+  "having cicada work the same or as good as through Claude code is crucial and priority." The audit found a Claude key
+  could not have run Sleep through LiteLLM at all. `anthropic_engine` serves it now, with `direct_engines` as the seam the
+  next provider's SDK slots into. Caching, the key's own model list, tiers, retired ids moved forward in words, prices with
+  their basis, a 429 as a pause. Proved on stand-ins at the HTTP layer, the real SDK in between; the plan leg ran for real
+  on Haiku 5.5. The review's four blockers are fixed; a run on a key now stops at the person's spending limit (ROR-102,
+  ruling 63 (g), suggested $5 a run), about one read past it plus filing, and only runs are covered. **Pick up here:** the owner enters a key and runs G237's one command (a cap of 40,000
+  uncached tokens, expected about $0.02), checking the SDK's Bearer header first. Nothing has reached the real API yet.
+  **The owner decides:** the plan-only steps, the web lookup a key now runs by default (ruling 63 (i)), and whether a
+  scheduled run at its limit should wait for a click, as built.
+- **2026-11-04 — what may be sensitive: held back or reported, one review, Remove (G235, ROR-94, ruling 60; branch
+  `g235-sensitive-flags`, PR #611).** Owner: "surface anything that may be sensitive… so the person knows if it passed
+  through a provider"; "Yes hold them back"; "remove any sensitive data". Numbers, measured kinds and what stays open are
+  on the row. Real bank: 16 conversations of 9,478 hold a hit; **precision on real data is unknown, since nobody read a
+  value.** **Pick up here:** the owner's "remove any sensitive data" is applied with `scripts/sensitive_removal.py`:
+  read its dry run, then `--apply --plan <its stamp>`. It commits the older version first, then removes from memory only: a password stays in the Notes app or chat that holds it,
+  and any real one among these should be changed, because what an engine read cannot be unread.
+- **2026-11-04 — a save with no reason gets a lean pass; a batch is bounded by what it holds (ruling 62, G236; branch
+  `feat/g236-lean-pass`).** Owner: "a leaner initial pass … on those things who have no reason/user intent attached, but
+  enough info so that it can come up in a relevant conversation and an agent can look further into it." A bare save is
+  `history_index.kind` `saved`: indexed with no engine, found by recall, Ask and the hook (`saved_lookup`), read once when
+  the person talks about it (`saved_mentions`). 25 bookmarks: 57 calls and 272k input tokens before, 0 after; recall 12/12
+  both, the hook 3/12 to 12/12. A batch also stops at 60,000 bytes, so the owner's 22-item shape commits after 11 calls, not
+  54. **Pick up here:** the real bank's first run retires what waits (`history_index_dry_run` counts it first); the Swift
+  suites and the two app lines want the coordinator's shell (the harness refused a scratch `HOME`); the 180-call run's split
+  is in its ledger. Review: a sync no longer takes back a woken group's read; Ask shows a tab group only with `sources`.
+- **2026-11-04 — books: a chat changes a status, covers (ruling 61, ROR-95; branch `ror95-books-status-covers`).** Stage 1's
+  `reading_status` mark, checked on the record (`book_said`), through `books.set_status` and `progress.py`; held on the episode
+  when no page is clear; *Not right* on the book's page. Covers: Apple Books' own from the app, else Open Library by id or
+  ISBN, never a title. *Book scans* on Sources. Highlights quality is untouched (under separate test). Verified end to end on
+  scratch state at haiku (`capture-and-sleep.md`). **Not yet seen on screen:** the app builds, its tests and a look at the
+  cover and status line wait on the coordinator's run (a scratch `HOME` and the harness are refused in this worktree).
+- **2026-11-04 — rulings 54, 54a: the settling step works like an agent; what leaves is held in code; a page's own
+  sources come first (G209, G61; branch `g209-ruling-54`).** A model with no tool reads anything in memory through a table
+  Cicada runs; `name_guard` checks every query and link; a separate search hand holds only cleared queries; Cicada opens
+  pages on the link rail. On by default on the Claude plan, off everywhere else. 6 searches, 6 pages, 8 turns a question; 3
+  handles and 5 questions a drain. `contacts_book`'s names (#602) are guarded too. Owner decisions are in the ruling's row and the PR.
+- **2026-11-04 — one click to a public address for the connector (ruling 59, G135, G132's D6′; branch
+  `feat/g135-funnel-one-click`).** Owner: yes to D6′, since claude.ai and the phone apps can only reach a public address
+  and `/remote/status` on the live install reported no listener and no funnel. Built and proved on a stand-in binary and a
+  scratch listener; **no real funnel has run**, that is the owner's click. Read-only `tailscale status --json` on this Mac
+  (key names only): HTTPS certificates and the `funnel` attribute are not yet granted, so the first click meets the
+  tailnet step and shows Tailscale's link. Waiting on the owner: that first click and a request from a device off the tailnet.
 - **2026-11-04 — the Contacts page shows every card (G154, G161; branch `g154-contacts-grid`, PR #602).** Owner: "only 6
   contacts synced". Coordinator's numbers: 370 cards waiting, 6 matched, and the page listed the 6; one-part names were
   kept nowhere (196 + 139 raw records across two account sources, which overlap). `contacts_book` keeps every card's names
@@ -23,6 +74,16 @@
   Detail: `capture-and-sleep.md`, `app.md`. **Known residue:** `UserDefaults(suiteName:)` in Swift tests lands in the real
   `~/Library/Preferences` whatever `HOME` says (cfprefsd ignores it): 5,621 `contacts-<uuid>.plist` files since 2026-09-24,
   test values only. These two suites now empty theirs, leaving a 42-byte file; the class is not fixed.
+- **2026-11-04 — Wispr Flow off the offer for now (G134; branch `wispr-hide-from-sources`, #613).** Owner: "remove
+  wisprflow also from sources for now." `SourceCatalog.wisprOffered = false` is the one line that brings it back. Gone from
+  Sources, onboarding, the notch and Settings' list of Noes; a Getting started row that ticked it drops. The Permissions
+  step and the find palette never offered it (⌘K lists a source only with evidence, and that row opens what came in, with
+  no Refresh). **The reader stops for everyone, connected or not**, because a row that is gone cannot explain a reader
+  still running; the setting and cursor stay, so it resumes where it stopped. Nothing captured is deleted or retired.
+  **Kept on purpose:** the routes, the channel row and `source_overview.CATALOG` (it names old episodes' origin, and a row
+  there needs evidence, so it offers nothing), so an older app keeps working. Wispr's own hosted connector stays among the
+  recommended skills: it is not a source Cicada reads, and the owner's words were about sources.
+
 - **2026-11-04 — three owner reports: a tool inside its app, a plan that is back, one inbox (G50, ROR-52, ROR-96, ROR-46;
   branch `fix/g50-bundled-tool-detection`).** OpenCode.app's `opencode-cli` is found; an app without the tool Sleep needs
   says *Not ready* and the line to run, on the cards and in Auto's skip sentence (`Status.not_ready`). The real bundled
@@ -68,8 +129,8 @@
   conversation naming both (it becomes the card's evidence); the guess is the pair's, ≤ 0.8; Sleep retires the open
   ones that should never have been asked (`owner_unsaid`, `no_pair_evidence`, undoable). Copy of the owner's bank, 210
   open duplicate questions: 1 owner pair, 148 on a conversation not naming both, 20 between people → 4 retired, 16
-  left, all 16 cards on a conversation naming both (10 before). **Proposed ruling 54 below waits for the owner:** a
-  public handle settled by a web lookup (built behind it, off until the owner rules; 1 of the 20 qualifies).
+  left, all 16 cards on a conversation naming both (10 before). Ruling 54 (decided the same day, see its row) settles a
+  public handle; 1 of the 20 qualified under the proposed test.
 - **2026-11-04 — one layout for every source page; GitHub syncs on connect (G161, G230; branch
   `sources-standard-layout`, PR #593).** Owner, from screenshots: "so much text", the export drop showing "the logos of
   AI companies instead of the logo of Spotify", "standardize the layout for all the sources pages". Every source page is
@@ -102,8 +163,9 @@
   the tick's own request, never again — now on every start and sign-in. **Owner's check:** open the own WhatsApp
   chat on the Sources page; on Telegram, restart the backend once so the photos are asked.
 - **2026-11-04 — New project is a page; an empty Projects list says nothing (G222; branch `feat/projects-new-page`).** Owner: "remove the text that appears when no projects" and "more like claude desktop app, and not two input text lines". New project opens as the detail column: the name as the H1, a large editor for the person's own paragraphs (kept as written, ≤ 4,000 characters, the page's lead; Sleep never writes it), and a picker over every page in memory by kind with each page's picture or its source's mark. Create is one `POST /projects` with `pages` (checked first, one person commit; a repository joins `repositories:` under ruling 53); `POST /projects/{id}/pages` routes a repository the same way, and the day the person started a project counts as activity, so a new one sits in Current. Verified on a scratch app (light and dark). **For the owner:** the live install suggests 750 projects; by construction that is every project page with no `mine` mark (the ~700 pre-D4 pages, `whyKind: none`) plus fallback concepts and repository births — whether legacy `none` pages are suggested at all is a ruling-45 call (G222's row).
-- **2026-11-04 — Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
-  `claude-desktop-capture`).** Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."
+- **2026-11-04 — SUPERSEDED by rulings 57 and 58 the same day: what follows was built in #592 and removed, its DECIDE
+  list answered.** Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
+  `claude-desktop-capture`). Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."
   Diagnosis, from the live install's numbers: one relayed episode ever, and every Claude chat in the bank from one
   October export. The remote connector was off, so claude.ai had no way in. The desktop app's only Cicada server is
   stdio, which never serves `cicada_capture_turns`, and its primer asks for no relay. Of the four ways in
@@ -1412,6 +1474,27 @@ These are attached to permanent rows instead of becoming a second queue. Older d
 - **G7:** centrality premise remains unproved; no tracked measurement was found, so it is not archived as done.
 - **G92/G19:** old bank-history size is historical, not permission to rewrite git history. No destructive cleanup is implied.
 
+## Open on the remote listener's public face (review of #607, 2026-11-04)
+
+- **A stranger can hold `/register` at its limit** (`oauth.Limits.register`: one global bucket, 10 then 2 a minute), which
+  blocks a real app's sign-in by registration while it lasts. Pre-existing, and now one click from public. A metadata
+  document client is not affected. Not fixed in #607: a per-source bucket needs its own look, since a tunnel's forwarded
+  source is what the limit would rest on. Row growth from `/authorize` itself is fixed there.
+- **Nothing pushes "another program is public" to a person who never opens the page.** The log and `cicada funnel status`
+  say it too. A Home notice would need its own design.
+- **A notice on Home for an address left open (G135, ruling 59). Required before the one-click address goes beyond the
+  owner and testers.** The mapping is the daemon's and survives a crash, a reboot or a read that couldn't check it at the
+  moment the switch went off (`funnelNote`, seen once). With the connector down, only the page, the log and
+  `cicada funnel status` say so today.
+  Home should say it, read from Tailscale, with the off, whenever an address is open and the listener isn't up.
+
+## Known flaky tests
+
+A test here is not fixed and not skipped: each line says what was seen and on what basis. Look here before chasing a
+failure; add to the counts when one comes back.
+
+None at present.
+
 ## Maintaining this queue
 
 A whole row moves to DONE only after its remaining implementation and required acceptance are complete. If only one slice ships, name the remaining slice and keep the G ID active. Update this file and the reasoning row together; never renumber or silently discard an unresolved seam. Use [working-method.md](working-method.md) for the implementation bar and [BACKLOG_CONTEXT.md](BACKLOG_CONTEXT.md) for original prompts rather than loading old execution logs as current instructions.
@@ -1698,7 +1781,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     ruling 13's "scheduled = one batch". `sleep_scheduler` passes `drain=True` from both entry points (the daily/interval
     cron and the after-import probe); `user_triggered=False` still keeps every plan engine out, so an unattended run
     reads on the scheduled engine — a key, OpenRouter or Ollama — and **on a metered engine it spends until the queue is
-    empty, with no limit Cicada sets.** That is said in words where the person chooses it (the engine menu's Scheduled
+    empty, with no limit Cicada sets** (amended by ruling 63 (g), 2026-11-04: up to the person's spending limit). That is said in words where the person chooses it (the engine menu's Scheduled
     row and Past reads' Last cycle, never a price outside them — ruling 12) rather than prevented. Consequences built with
     it: a scheduled drain pins its bank for hours and holds the same 409 on switch/export/delete as any run (disclosed,
     not fixed); a scheduled run that stops leaves a paused record and **the scheduler then starts nothing until the
@@ -3109,3 +3192,279 @@ A whole row moves to DONE only after its remaining implementation and required a
     search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
     No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
     test called public turns out to be someone they know.
+62. **A save with no reason gets a lean pass: indexed, findable, read once when the person talks about it (owner, 2026-11-04;
+    G236; amends rulings 13, 16 and 30 and G102).** Owner: "For chrome bookmarks, and the rest of things I told you we can do a
+    leaner initial pass for consolidation on those things who have no reason/user intent attached, but enough info so that it
+    can come up in a relevant conversation and an agent can look further into it." **1 — What is lean:** a bare save, by its
+    own record (`history_index.kind` `saved`): a bookmark, tab group, saved link, feed item, connector poll, with no note and no
+    reason. Ruling 30's "a browser bookmark, a single URL save, a connector poll … are read by Sleep as before" is replaced; a
+    save carrying a reason or an agent's note, a book's record, an agent's report and a conversation are read as before. **2 —
+    What it does:** captured read (`processed_by: index`); no model call, no engine needed, no claim, no page minted, no
+    question, and no link backfill or recon on its page (`lean_page`, narrowing G102 to saves someone said something about). It
+    keeps its title, link, site, date and any description already held, found through recall, Ask and the hook's note
+    (`saved_lookup`). **3 — The way back:** read once, normally, when the person's own words name its link or whole title, when a
+    conversation lights its page, or when they give a reason (`saved_mentions`, `read_asked`). A retrieval hit never does, and
+    nothing on a read path writes. An agent's `cicada_record_read` is its own read. A save's text stays `page`, never the
+    person's words. **4 — "Consolidate reads everything" still holds:** a lean read is a read; everything waiting when a run
+    starts is consolidated by its end, the lean part with no model. **5 — Existing items:** the first run retires what waits in
+    its existing `cicada` commits, before ids freeze, nothing else touched; a save a model already read keeps what it made and
+    is never treated as lean. **6 — A batch is bounded by what it holds too:** the person's count and 60,000 bytes of episode
+    files (`sleep_drain.BATCH_BYTES`), never fewer than one episode. Rulings 13 and 16 say a stop loses at most the batch in
+    progress, and by count alone 22 items were one batch, so a plan limit lost 180 calls' work. **Why.** Measured on scratch banks, Claude plan at haiku: 25 bookmarks cost 56 to 57 calls and about 270k input tokens to restate their titles, and recall found the same links without any of it (12/12 words, 3/3 meaning, before and after); the hook's note went from 3/12 to 12/12 because a saved page never reached it. The owner's 22-item run committed nothing because it was one batch: on the same shape the first commit comes after 54 to 66 calls by count alone, after 11 to 21 bounded. Numbers on the G236 row. **Revisit** if the
+    person asks why something they saved was never read and a wake rule should have caught it; if `read_asked` wakes prove too
+    few or too many on a real bank (count them); if a saved item the person wanted does not come up (the retrieval check is
+    `test_lean_pass.py` and the G236 row's numbers); or when G163's journal of paid answers lands, which may let the bound grow.
+61. **A chat can change a book's status, and books have covers (owner, 2026-11-04; G233, G39, ROR-95).** The owner's words:
+    "Yes, change the book status in that case. But it has to be in the context, we can always go back and correct that's what
+    cicada is about." and "I want the book covers, yes." **(a)** Reverses G233's recommendation to keep status to the person's
+    explicit acts: the person saying "I finished X" changes it, **judged by Stage 1's model in context, never by keywords**
+    (the owner relies on the model as consolidation's intelligence), as a dated `reading-status` claim with a located span of
+    their own turn. Only a `user` turn counts; "my friend finished X", "I'd love to finish X", an agent's "you finished X" and
+    the film of the name do not (measured on haiku, `capture-and-sleep.md`). It lands only on one clear book page (title or
+    alias, then the title without its subtitle, then Stage 2's own join); two pages is unclear and nothing is written. A first
+    mention stays under the promotion rules and ruling 42 is not extended: the mark is held on the episode and applied when
+    a door makes the page, dated as said. Dated by the conversation or the day it states, so a late read never overrides a
+    newer status; one day's clash goes to the status further along, and the person's word saying less than a record asks
+    once (the existing conflict path). No second writer: `books.set_status`, and `progress.py` alone for happenings.
+    *Not right* takes it back, the status before and the reading thread its finish settled reopen, and that conversation never
+    writes it again, whatever day or wording a re-read gives. Said again later with nothing different between: only its episode
+    joins the record as evidence. **(b)** A book's picture: the person's own
+    copy's cover from Apple Books' cache (the app reads, the backend keeps it outside every bank; 1 of 283 assets on the owner's
+    Mac carries an ISBN, 285 cover folders, counts only), else Open Library's by cover id or ISBN behind
+    `CICADA_ALLOW_LOGO_FETCH`, under their limits. **What leaves the Mac:** a book's ISBN-13 or cover id and the address, on a
+    view of that book, Goodreads books included; a cover id redirects through `archive.org` to `ia*.us.archive.org`, so the
+    Internet Archive sees it too. A 403's `Retry-After` is honoured per book (at least an hour, a week at most), and the 90
+    asks per 5 minutes is this process's count, starting again on a restart. **No lookup by title**: not a private name, but it reveals reading beyond
+    what a scan does and answers with a guess at a work (B1). None: nothing drawn. **Revisit** (a) if the person's *Not right*
+    rate on chat-set statuses shows the model misjudging (`resolution` events, `kind: book-status`); (b) a title lookup if
+    Goodreads rows with no ISBN are common and the owner wants them drawn.
+54. **The settling step: a question worked the way an agent would, with what leaves held in code (owner, decided
+    2026-11-04; G209; amends ruling 44's public test and ruling 27 for this one question; branch `g209-ruling-54`).** The
+    owner, on "is <handle> the same as <person>?": "could've been resolved from a search, like how claude code would solve
+    it if i ask it rn." Proposed that day as two pinned searches behind an off switch; approved and **widened** the same
+    day, then corrected: "the settling step works like an agent does now", reading is allowed ("that stays between Cicada
+    and the plan's model"), and "the one limit is on what leaves in a web search".
+    **What widened:** on by default on plan runs (`CICADA_PUBLIC_HANDLE_LOOKUP=off` still closes it; no new setting); no
+    pinned queries, no two-search cap; the model may read chats and contacts. **What stayed:** a cited claim, undoable
+    under "Settled by a check", never a merge, never the owner's page, plan runs only.
+    **The limit (`name_guard`), enforced in code on every query and every link:** no query may contain the name of someone
+    known only from the person's record. A **tie** blocks always, and public content never clears it: a Contacts card (the
+    waiting set, the contacts book, a page carrying a card), a LinkedIn connection and its slug, a chat's correspondent,
+    a group member, a speaker label in a chat or meeting, a page the record says the person knows, a person page or held
+    name public content never says, the owner's names; an owner's project as a whole phrase. A **mention** (words said
+    anywhere that is not public content) blocks unless the same words are also said in public content, so a public figure
+    the person also talked about passes and a neighbour does not. **A mention is a name, not any words someone used:** a
+    query's words are asked only when name-shaped (capitalised in the query, written as a name in the record, a handle's
+    shape, or a pair said in a chat, where names are typed in lower case); generic words alone are never asked. **Public
+    content is a positive decision per writer and section, defaulting to private** (`name_guard.WRITERS`): a saved link's
+    description and, when the page was really read, its title, never its note, reason, folder or a line the writer does not
+    name; an agent's quotes from a page or a video; a watched, listened or Substack day's rows. A LinkedIn or Instagram save, a
+    tab group, a day read across every site, the person's own repositories and any unknown source are private. A real name is
+    held in every word order, through initials, squeezed forms and full transliteration. A blocked query is dropped, counted
+    against the budget, never rewritten; two blocks stop the question. If a store that exists cannot be read or holds an
+    unexpected shape, nothing leaves; one malformed episode is read as private text and stops nothing. A link leaves too: only
+    a link a search returned or the page's own tracked source may be opened, exact to the character. A returned link is held to
+    ties only, since the model did not choose it, and a blocked one never counts toward the stop.
+    **How it runs (`settling_agent`).** The plan's own web tool cannot be intercepted: hooks are off in the pinned
+    `--safe-mode`, a permission tool needs MCP, and a query reaches the provider before the stream reports it. So the model
+    that reads holds no tool (`--tools ""`, the unchanged pinned argv, `CICADA_CAPTURE=off`, `CICADA_RECALL=off`); each turn
+    it names calls from a table this process runs (`recall`, `page`, `conversation`, `where_to_check`, `contacts`, `open`,
+    `search`), with no writing call to ask for. `ask` is left out: it is a model call over the same reads. A cleared query
+    goes to a separate search hand, `claude -p` with `WebSearch` alone. It holds its prompt, the cleared queries and what the
+    CLI attaches to every spawn (the account's email, its scratch working directory, the platform and shell; no flag
+    removes the email), nothing from the person's record. Nothing mechanical stops a hand that disobeys from typing that
+    email into a query: it is told not to, and what it reports is audited, so a search that differs voids the round and
+    stops the question. The scan behind the guard runs off the event loop, from `bank_index`'s cached headers into one
+    in-memory index, and never under write admission. Pages are opened by Cicada on the link rail (`_stream_html`: 4 s, ≤ 512 KB, no cookies,
+    `net_guard`, a block never retried, walls retired without a byte), never by the plan's web fetch, which holds none of
+    those limits. **Every other engine does not run the step** (`metered_only`, or `engine_for`'s reason): a metered key,
+    the ChatGPT plan, a local model, Cursor, OpenCode, Grok.
+    **Budget, one question:** 6 searches (the tool's own `searchCount`, a dropped query included), 6 pages, 12 reads, 8 model
+    turns, 2 sends-back. **Per drain or sweep:** 3 handle questions, 5 questions worked in all, 5 changed-source reads,
+    inside `web_check_per_run`. A question left open waits 30 days. Worst case one question is 14 spawns.
+    **What settles is the model's judgement (owner, 2026-11-04):** "One site is enough to settle a question, let the agent do
+    this work don't tell it how to do it. That why we depend on Claude code as the intelligence for consolidation, because
+    if I asked you now you'd resolve it." So there is no list of what counts, no two-source rule, and no parody or namesake
+    rule: the prompt gives the goal and what is at stake, and the model answers whether it is sure, with a confidence and a
+    citation. **The one code check** (`public_handle.cited`): the citation is real, a page Cicada opened with all of the
+    quote on it (exact, whitespace, case; never fuzzy; 12 characters at least), since a model can invent one, and it is the
+    page's own text that is stored. A confidence of 0 or not a number is no answer. One that is not real is sent back at most
+    twice. A signed-in page is never opened, so it cannot be cited. Parody, a namesake, a stale handle are the model's to judge;
+    the person's undo is the floor under it.
+    **The person's own local agent** (`cicada_record_check`, on their ask) keeps the stricter proposed test and its two
+    searches: Cicada cannot see that agent's queries, so the limit there can only be who is offered.
+    **Measured** on synthetic banks with one widely known public figure, on the plan with haiku; the shipped tier
+    (`web_check_agent_model`) was not run. A real Sleep settled it on one site at the model's own confidence (0.95): 1 search, 2 pages opened, no
+    query or link blocked, 6 reads, 5 turns, 34.7 s; undo put the question back. One question measured apart, with its plan usage
+    (`equiv_cost_usd`): 1 search, 2 pages, 5 spawns, 26.1 s, 17,644 input tokens, 1,403 output, $0.0146. The guard's scan on a
+    synthetic bank of the live shape (9,478 episodes, 62 MB): 12.5 s off the event loop, most of it inside SQLite, then
+    about a millisecond a query. A private friend in the same bank got no model call. Wikipedia answered 403 to Cicada's `User-Agent` in every run (never retried), so its encyclopedia
+    route did not fire. **Disclosed deviation (2026-11-04):** while the text was only proposed, an earlier worker ran
+    four lookups for one pair on a copy of the owner's bank, sending a real full name to the plan's web search; each
+    answered "not sure" and nothing was written. No lookup has touched that bank since.
+    **Revisit** if a settled handle is undone by the person, if a name the guard cleared turns out to be someone they know,
+    or if the CLI offers a way to intercept a query before it leaves (the hand could go).
+    **54a (owner, 2026-11-04): "for a private person, the way to learn and update facts is not a search engine but the
+    page's Where to check sources".** The settling step opens a page's tracked sources first, by code, before the model's
+    first turn; a search comes only for a public handle or public thing, when no source answered; a private person's name
+    never reaches one. It also answers an open conflict on any page, a private person's included, from those sources alone.
+    **Which rule writes:** ruling 26. A tracked source's reading is a dated citation, the newest evidence wins, and the same
+    day or undated stays the one question it already is; only a predicate the vocabulary knows is single-valued closes
+    another value, so every unknown predicate is not settled this way (ruling 26's own fold adds its values). **`works-at`
+    is no conflict at all (owner, 2026-11-04: "Works at really doesn't matter … And I can be working in different things at
+    the same time"):** checked, and nothing needed changing. It has been multi-valued in the seed since 2026-10-14, the seed
+    wins over a stale bank map (`build_cardinality_fn`, `cardinality`), the nudge writer drops a conflict on it, Sleep's tending
+    dismisses an open card as `multi_valued`, and a re-check adds its value. Pinned by a test. "Are you still working at
+    <org>?" (`still_questions`, owner 2026-10-28) is a different question and stays. **The one new dated exception to the S3 rail:** that reading may also close the question it answers, undoable
+    under "Settled by a check". `check_record` stays shadow. **The update path is ruling 26's, unchanged, with one gap
+    filled:** a tracked public page that changed with no machine-readable fact waited for the person's agent; on a plan run
+    the model now reads it first, through `source_refresh.apply`, and what it cannot read keeps waiting.
+    `web_context` reads a public page's tracked sources before its pinned search. `org_sites` and `source_proposals` are
+    unchanged. No second refresher.
+    **Walled:** a tracked walled source is never requested. It is already on ruling 26's listing (`agent_due`), gated by the
+    person's Reading switches, so Sleep queues nothing and the question stays open.
+    **Imported LinkedIn links (owner, 2026-11-04):** "maybe for LinkedIn only when asked or limit it to the most frequently
+    talked about people, and do save the links as resources to check." Saving already existed (`linkedin_people`, existing
+    people only, never minting a page, a removal remembered). A link on a confident match now counts as given as a place to
+    check, the photo rung's own rule (`from_connections`); an alias-only one stays what it was, a guess saved with `match:
+    alias` that counts for nothing until the person takes it; `cicada_record_profile` refuses it, saying so, and writes no
+    `works-at` or `role` from it until then. A confident link is deliberately NOT `trusted`: that would make it a tracked
+    source, which ruling 26 lists for a visit on a cadence. **Reading one stays on the person's ask** (`cicada_record_profile`,
+    ≤ 10 a day, stdio only, their own agent and browser). A standing read of the most talked-about people is a small later
+    switch, not built: automated visits risk the person's LinkedIn account.
+    **First names (owner, 2026-11-04: "Yeah leave it allowed"):** a first name said only in chats does not block a full name
+    public content says. A name known only from chats or contacts stays blocked.
+    **Finding a source:** the model may propose a link literally in a conversation it names, on a page of the question;
+    it lands as a proposal in the one grouped review (ruling 36 D5), never opened, trusted or re-checked until taken. Never
+    guessed from a name; `sources_removed` holds. A sweep writes no proposals; Sleep does.
+57. **Capture for apps without hooks defaults to the tool their model calls as they talk (owner, 2026-11-04; amends ruling 32
+    and G105 for those apps only; G197).** `cicada_capture_turns` on the Claude desktop app's local connection and on the
+    remote connector, and the primer asks for it. Hook capture is exactly as it was for Claude Code, Codex, Cursor, Gemini
+    CLI and the rest. **The evidence that made it worth a model's cooperation:** #592's diagnosis of the owner's bank, one
+    relayed episode ever and every Claude chat from one export; the desktop app keeps no history on disk for a claude.ai
+    account, and reading claude.ai through a browser is what its terms bar. **What it binds:** a client is told apart by one
+    predicate (`relay_capture.local_relay_allowed`): the exact self-reported name, no session a harness named, not
+    `CICADA_CAPTURE=off`; anything else is not offered and not asked, so a hook-captured turn is never captured twice (Claude Code
+    calling itself `claude-ai` is refused by the session id it injects). Stored as relayed, never the person's own words;
+    one episode per conversation by a handle the tool mints where the call arrives; an app's two connections keep one copy.
+    **Disclosed trade-off (2026-11-04):** a person's message repeated exactly, as the first message of a new chat on the app's
+    other connection, within 10 minutes of saying it there, is read as the same conversation, and the new chat is not kept.
+    The person is told in
+    words: the tool's description, the app's own first-use ask, one line when it connects, one sentence in the conversation.
+    No new setting. **Disclosed limit:** a harness with a hook that calls itself `claude-ai` and injects no session would keep
+    a second, relayed copy. **Revisit** if a client is seen doing that, or if the desktop app gains a hook or a readable store.
+58. **Exports are one-time (owner, 2026-11-04, verbatim: "never really agreed with the path of the weekly exports; exports
+    should only exist for starting a brand new memory bank or importing data from AI providers like OpenAI and Anthropic.").**
+    #592's weekly nudge and Downloads pickup are removed; a one-time import, its upgrade in place and the one-off *Remind
+    me* stay (that reminder predates #592 and exists because an export comes by email hours later). **Amended (owner,
+    2026-11-04: "Yes I like that alternative you mention for exported chats that continue. That makes sense."):** a chat that
+    goes on after its import keeps its later turns in the same episode, marked as relayed, with the imported part still the
+    person's own words; a relay into an upgraded conversation no longer writes nothing (ruling 32's sentence). One conversation for every
+    count (G104), each part its own provenance by a `relayed [<app>]:` marker the one marker grammar reads as the model's, the
+    imported part's offsets untouched, Sleep reading only what grew, another import upgrading the turns it holds without a
+    duplicate (`capture-and-sleep.md`, "A chat that goes on after its import"). **Revisit** only if the owner asks for a repeating import.
+59. **One click may open the connector's own port to the internet (owner, 2026-11-04: "YES to one-click Tailscale Funnel
+    for the claude.ai and phone connector"; G135, G132's D6′; amends G132 (c), the headless rail's "never `funnel`" and the
+    2026-10-29 one-click rail; branch `feat/g135-funnel-one-click`).** Why: claude.ai and the phone apps relay through the
+    remote connector (ruling 32, 57) and can only reach it at a public address. **The rule:** the person's click, or
+    their own shell, may run exactly the shown `tailscale funnel --bg --https=<443|10000> <the connector's port>`, or that
+    one mapping's off (`tailscale funnel --https=<its port> --set-path=/ off`). Off until clicked; never at install, on
+    start, by an agent, or from an agent's shell. No port or argv from a request; the API's port and the door's refused;
+    never `up`, a login or `reset`; a port holding anything is never used; 8443 (the backend's tailnet mapping) is never a
+    candidate; nothing about it is stored, every answer is read back from Tailscale. What is exposed stays MCP and `/v1` on
+    that listener with its tokens and OAuth as they are, consent only in the app by typing the code. **Evidence that decides
+    the code, read from Tailscale's CLI source (v1.104, `serve_v2.go`), not its docs:** a funnel on a held port replaces
+    its `/` without asking and opens every other path on it; an off with no `--set-path` deletes every handler on the port;
+    with Funnel not allowed it prints a link and waits, or exits 0 having changed nothing, so the return code never decides.
+    The obvious `tailscale funnel --bg 8765` from our own docs fights `headless.md`'s example serve of the API on 443: it
+    would have silently taken that serve away and made the connector public there, and made public anything mounted on
+    another path of that port, an API included. Details: `network.md`. **Revisit** if embedded `tsnet` (D6′'s "later") is built, if
+    Tailscale changes those behaviours, or if an app refuses the 10000 address. **In the same PR, the same class on this
+    seam:** `/remote/status`'s `funnelCommand` no longer offers the bare command that took over a held 443 (the port the
+    click would use, or a harmless shell comment when none is safe); `cicada setup` says `cicada funnel on`; *Stop serving*
+    and the copy-only unfunnel now name `--set-path=/`, since without it the CLI deletes every handler on the port (the
+    2026-10-29 rail's shown command changes with them); and what enabling HTTPS publishes, for good, is said before the
+    click. The off keeps its confirmation, as *Stop serving* does (coordinator 2026-11-04; the owner can overrule). **Review
+    of #607, the mapping outlives the listener:** the switch now closes the connector's address in the same act (amends "the
+    switch never touches Tailscale"); a down listener's port is asked, never assumed free; other public mappings are shown
+    with their off to copy and never run, since Cicada keeps no record of what it opened; a clean quit still leaves it open,
+    because only a click may reopen it (`network.md`).
+63. **A Claude key is served by Anthropic's own SDK, and the next provider's SDK slots in the same way (owner, 2026-11-04;
+    G237; amends the G50 note that every key goes through LiteLLM).** Owner: "Well having cicada work the same or as good
+    as through Claude code is crucial and priority." And: "have all official sdk's integrated where possible." **The
+    finding that decided it:** with a stub client on LiteLLM 1.83.4, a Claude key could not have run Sleep. `extra_body`
+    reached the API as a literal top-level field on every extraction and judge call (the API refuses unknown fields),
+    `response_format` was dropped, every model its table does not list got `max_tokens: 4096` while thinking counts
+    toward it, `temperature` went out (a 400 on current models), no `cache_control` was ever sent, and no current model
+    had a price. **What is binding:**
+    (a) `direct_engines` is the seam: a key whose provider has a row there is served by that provider's own SDK, behind
+    the plan's own semaphore, breaker, drain retry and ledger, and raises only `engine_errors`. Every other key stays on
+    LiteLLM. `openrouter/anthropic/…` is OpenRouter's. The wire's engine id stays `litellm` (to the app it means "the API
+    key engine"); the ledger and `Cicada-Engine` say `anthropic-api`.
+    (b) Caching: one breakpoint at the end of the system prompt, 1-hour TTL, the first call on a prefix goes first. All
+    three are measured or documented: `claude -p` writes 1-hour entries and reads them after 5.5 minutes; three parallel
+    calls read nothing and write three times (2026-11-04, Haiku 5.5, 19,338-character extraction prompt).
+    (c) The model list is the key's own (Models API: `line`, `lifecycle`, limits, capabilities), read on a save, on
+    Refresh and once a day at a run's start, never on a page view. Tiers follow the vendor's lines; a saved `anthropic/sonnet`
+    is the plan's alias. A retired or refused id moves to its line's newest, said in words. With no key, a documented floor.
+    (d) A key reads every stage on its own provider: another provider's `CICADA_CONSOLIDATION_MODEL` is set aside and the
+    judge is the small tier, as on the plan.
+    (e) Prices live in `price_supplement` with their basis and read date (the API gives none); a model newer than the table
+    reads unknown with its tokens shown, never a guess.
+    (f) A key's rate limit is a pause with the provider-neutral words, `limit: key_limit`, never the person's plan; the SDK
+    rides out `retry-after` first (4 retries), and a limit lifting within 2 minutes is waited out by the batch's later
+    stages so what was already read is filed.
+    (g) **The spending limit (ROR-102; owner, 2026-11-04: "from cicada you can put a limit on spending"; amends ruling 4's
+    and ruling 16's "no limit Cicada sets").** A run on a metered engine stops at the person's figure, set on one line of
+    the engine menu or `cicada sleep options --spend-limit`: suggested $5 a run, on unless they turn it off. It is the
+    reserve's soft stop (`sleep_spend`, reason `reserve`, `limit: spend`, pause reason `spend`): reads stop going out, what
+    was read is filed, the rest wait. **The bound, in words (2026-11-04, the #614 review measured "a little past" as three
+    times the figure):** one read past it when reads cost about the same; if a read costs far more than any before it, every read then out, at most 3 on a Claude key and 10 on another; plus filing what was read. Each read is checked again after it holds its permit, the run's first call goes alone to
+    learn the price, and a batch is sized to the allowance left (recent spend per conversation; before that the most one
+    read may write). Filing is never refused, since otherwise the reads already paid for are lost. Stub drain on Opus 5.5
+    at 64k tokens a read, one script before and after: $5 on a batch of 25, $14.32 to $5.27; $1 on a batch of 25, $13.03 to
+    $1.36; $5 on a batch of 50 holding 6 conversations, $7.84 with no stop to $5.27 with a stop. Per run: a Continue is the
+    person's click and a new allowance. A scheduled run that reaches it waits for that click; the schedule never replaces
+    it. A scheduled run that paused on `restart`, `engine` or `busy` is replaced (`SCHEDULE_REPLACEABLE`) with a fresh
+    allowance. **Only runs are covered:** Ask, the inbox's tidy and catch-up, a click's web sweep, repairs and the quick read
+    are not limited, and are in the ledger at what they cost. The figure is the ledger's, each call's list price with a
+    failed call's spend included; a charged call whose cost cannot be read stops the run, like no price. **A model with no known price stops the run, before any read when it is known up front, else at the first
+    unpriced call; tokens are not counted against a dollar figure and no price is guessed.** Choosing that was the point
+    of the review: a limit that silently stops holding on a new model is worse than a pause that says why.
+    (h) **A failed call is still a paid one.** A call that failed after the provider started answering (cut off, refused,
+    the connection lost mid-stream) reaches the ledger with what it reported (`_paid`), and Past reads and the limit read
+    that; a request refused before an answer costs nothing. A connection lost inside an open stream is the engine's,
+    never the conversation's; a stream that closes before the model finished is never an answer; only a status is ever
+    called a refused request (the #614 review measured a cut parking a conversation).
+    (i) **Disclosed, the owner has not ruled:** the price rows turn on the web lookup for a Claude key (ruling 27's own
+    `metered` path), up to `web_check_per_run` (8) questions a run, scheduled runs included, about 1¢ a search plus its
+    tokens, counted against the limit. It stays allowed under ruling 27. One click's sweep on a metered key is now capped
+    at the same 8 (`capped_at`); a plan's stays as it was. A run past its limit skips these paid steps, a run with nothing
+    left to read included, and each call is checked (`LINE_STAGES`; link backfill's spend now counts as the run's).
+    (j) **The SDK is pinned to 2.1.0** (2026-10-21; 2.5.0 was published the day this was reviewed). Every 2.x sends API
+    version `2026-10-21` and the key as `Authorization: Bearer`, never `x-api-key`, which the vendor documents and a test
+    pins on the stand-in. **Check that first on the owner's capped run**, since nothing here has reached the real API.
+    **Decided against, for now:** the Message Batches API (50% off, but 29-day retention and no zero-retention option for
+    a person's words, up to 24 hours a stage, and no pause; worth cents a batch on Haiku 5.5. **Revisit** for a large first
+    import on Sonnet, on the owner's word). **Plan-only steps stay plan-only, on the owner's ruling:** ruling 44's web
+    context (`web_context.py`, the `metered_only` branch) and proposed ruling 54's handle settling (`web_lookup.py`'s
+    `why != "plan"`); each is a one-line change, costed in G237. Changed-source reads need no engine at all (`source_refresh`).
+    **Not yet proved:** no call has reached the real API; G237 names the one small run that does. **Revisit** if that run
+    differs from the plan's own spread on pages, claims or spans, or if the first real 429 does not read as designed.
+60. **A confident sensitive hit is held back from the engine; an unsure one is reported (owner 2026-11-04, G235).** Asked
+    "hold back confident hits and only report unsure ones", the owner: "Yes hold them back." Before any engine read,
+    `sensitive_text` finds likely credentials, card and bank numbers and ID numbers with no model. Confident
+    (`Hit.sure`: a number that passed its own checksum, a vendor shape, a value in a connection URL or a secret's env line,
+    a password with letters and digits together, digits someone claimed; a weak word like "clave" or "pass" only with the
+    system it belongs to): every engine Cicada runs, on every job, reads a
+    typed mark wherever that value stands (one door, `sensitive_hold`, Ask's own model included); the stored body and every
+    offset stay. An agent the person talks to reads the record as stored until they remove it: their own agent, on their own
+    ask. Unsure (letters only, digits no one claimed, an account or ID number nothing can check): read,
+    and the person is told. No setting. Either way the value is taken back out of what the model answered, and a flag never
+    repeats it, nor a hash of it. **Why not hold back everything:** a held-back wrong alarm costs a word the record may
+    need, and the detector's precision on real data is unmeasured; unsure is where that risk sits. The owner also ruled that
+    git history stays as it is, since it is local only. **A wrong alarm never rewrites something unrelated:** only a confident,
+    distinctive value rare in the bank (three other conversations, six other files) leaves more than its own conversation
+    and the lines speaking of a secret in what cites it, and a token more than a few conversations hold is not masked by value
+    at the door. **Revisit** on the Remove and Leave it answers (G113): if Leave it
+    dominates a confident class, that class moves to unsure.

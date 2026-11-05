@@ -2450,6 +2450,11 @@ actor APIClient {
 
     /// G61 "Where to check" (#422) — one row of the grouped review answered: `yes` takes that link on its page, `no`
     /// removes it (remembered, never proposed again). The item keeps the rows not answered.
+    /// G235 — one conversation of the sensitive review: `remove` or `keep`.
+    func resolveSensitiveRow(id: String, row: String, key: String) async throws {
+        try await post("/inbox/\(encodedID(id))/resolve", body: ["action": "resolve", "optionKey": key, "row": row])
+    }
+
     func resolveWhereToCheckRow(id: String, row: String, take: Bool) async throws {
         try await post("/inbox/\(encodedID(id))/resolve",
                        body: ["action": take ? "resolve" : "dismiss", "optionKey": take ? "yes" : "no", "row": row])
@@ -2752,6 +2757,23 @@ actor APIClient {
     /// `POST /sources/apple-books/sync` — the books that changed since this memory last accepted them.
     func syncAppleBooks(_ payload: AppleBooksSyncPayload) async throws -> AppleBooksSyncResult {
         try await postData("/sources/apple-books/sync", json: try JSONEncoder().encode(payload))
+    }
+
+    /// `POST /sources/apple-books/covers` — ruling 61: the covers read from Apple Books' cache on this Mac.
+    func postAppleBooksCovers(_ post: AppleBooksCoverPost) async throws -> AppleBooksCoverReply {
+        try await postData("/sources/apple-books/covers", json: try JSONEncoder().encode(post))
+    }
+
+    /// `GET /entities/{id}/book-status` — the book's open status record; 404 for none. Not a Store domain: the card
+    /// reads it on open and holds it in memory.
+    func fetchBookStatus(id: String) async throws -> BookStatusRecord {
+        try await get("/entities/\(encodedID(id))/book-status")
+    }
+
+    /// `POST /entities/{id}/book-status/undo` — "Not right": that record is taken back, the one before it opens.
+    func undoBookStatus(id: String, claimId: String) async throws {
+        let _: BookStatusUndoReply = try await post("/entities/\(encodedID(id))/book-status/undo",
+                                                    body: ["claimId": claimId])
     }
 
     /// `GET /sources/books` — book pages by status and the scans waiting for their lookup. Not a Store domain.
@@ -3828,6 +3850,19 @@ actor APIClient {
         if let enabled { body["enabled"] = enabled }
         if let publicBaseURL { body["publicBaseUrl"] = publicBaseURL }
         return try await put("/remote/settings", body: body)
+    }
+
+    /// Ruling 59. `check` fetches this machine's own public address, up to 3 s.
+    func fetchRemoteFunnel(check: Bool = false) async throws -> RemoteFunnel {
+        try await get("/remote/funnel" + (check ? "?check=true" : ""), timeout: check ? 15 : nil)
+    }
+
+    /// Ruling 59. The app sends the action and the command the person read, compared and never run: the backend builds
+    /// the argv from its own connector port.
+    func runRemoteFunnel(action: String, shown: String?) async throws -> RemoteFunnelRun {
+        var body: [String: Any] = ["action": action]
+        if let shown { body["shown"] = shown }
+        return try await post("/remote/funnel", body: body)
     }
 
     func fetchRemoteConnectors() async throws -> [RemoteConnector] {

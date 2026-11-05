@@ -53,6 +53,11 @@ class EngineExhausted(EngineError):
         self.resets_at = resets_at
 
 
+class SpendLimitReached(EngineExhausted):
+    """The person's spending limit (``sleep_spend``): this call was never sent, so it cost nothing and is nobody's
+    failure. A read goes back to wait; a paid step past the line stops the way it stops at a plan's limit."""
+
+
 class EngineOverage(EngineExhausted):
     """The plan's included usage is spent and the CLI is billing (or would
     bill) extra usage the person has not opted into — G117's explicit choice,
@@ -92,6 +97,12 @@ class EngineConnectionLost(EngineFailed):
     Retryable like an unnamed failure, but never a conversation's timeout:
     continuing during an outage must not park the episodes it was reading.
     """
+
+
+class EngineRefused(ValueError):
+    """The model declined this one conversation (G237: ``stop_reason: refusal``, HTTP 200). No usable answer, never an
+    engine failure: a ``ValueError`` so the later stages take their no-answer path, and ``sleep_drain`` files it as
+    the conversation's ``refused``. Not retried."""
 
 
 def is_connectivity_error(message: str) -> bool:

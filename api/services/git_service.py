@@ -61,7 +61,7 @@ SESSION_TRAILER = "Cicada-Session"
 _SESSION_RE = re.compile(rf"^{SESSION_TRAILER}:\s*(.+?)\s*$")
 
 # Engine trailer (G74(a) Task 6). Records WHICH ENGINE drove a Sleep commit —
-# "claude-cli" | "codex-cli" | "ollama" | "litellm" — mirroring `/sleep/status`'s
+# "claude-cli" | "codex-cli" | "ollama" | "litellm" | "anthropic-api" (G237: a Claude key, its own SDK) — mirroring `/sleep/status`'s
 # `lastEngine` field into the git history so `/sleep/history` can stop being
 # the one place in the app "reflects what actually ran" (Ruling 4) never
 # reached. Singular (one trailer, not a list like authors/sessions): a commit
@@ -174,6 +174,9 @@ def build_commit_message(
     id equal to a session id emits both. ``engine`` defaults to ``None``
     (no trailer at all) so every pre-existing call site stays byte-identical.
     """
+    from api.services import direct_engines
+
+    engine = direct_engines.trailer_engine(engine, authors)
     parts = [subject]
     if body_lines:
         parts.append("\n".join(body_lines))

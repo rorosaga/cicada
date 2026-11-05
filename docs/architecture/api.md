@@ -199,7 +199,7 @@ before it is decoded (`messages_photos.B64_MAX`, 422 as before).
 **Schedule and reading options (ruling 4b, owner decision 2).** `GET/PUT /sleep/schedule` answer the schedule plus,
 while it runs on its own, `warning` and `warningCode` when a scheduled run would have no engine it may use
 (`ScheduleResponse`, `engine_readiness`); the PUT body is unchanged and the app never sends them back.
-`GET/PUT /sleep/run-options` carry `scheduledUsePlan` (machine-wide, on unless the person turned it off — ruling 4c,
+`GET/PUT /sleep/run-options` carry `spendLimitUsd` (ROR-102: a figure, or `null` for the person's off; 422 otherwise; `sleep_spend`), and `scheduledUsePlan` (machine-wide, on unless the person turned it off — ruling 4c,
 2026-10-19; an off is stored as `false`; `null` is 422).
 `POST /ask` with no engine — an API model with no key, or Auto with no plan and no local model (ruling 31: never a key
 nobody chose) — answers that it has no engine, naming the pages it found, and calls nothing.
@@ -334,16 +334,27 @@ party: no relay, no account, no public port (the T3-Connect comparison is in the
   turn-on, serve, unfunnel, ready` (`reach.GUIDE_STEPS`; `unfunnel` comes first whenever the backend port is
   funnelled, even beside a tailnet-only serve of it — every ServeConfig entry is read, and no address goes in a QR
   while it is open); `command` the exact command to copy (`tailscale serve --bg
-  --https=8443 <port>`, or `tailscale funnel --https=<p> off` for a funnelled backend port); `url` only at `ready`, from
+  --https=8443 <port>`, or `tailscale funnel --https=<p> --set-path=/ off` for a funnelled backend port; each off leaves any other handler on the port); `url` only at `ready`, from
   the ServeConfig read `tailnet_backend` already makes. `check=true` fetches this machine's own served `/healthz` the
   way a phone would — no token, no redirect, no proxy env, 3 s (`reach.self_check`) — and answers `{ok, failed, ms}`,
   `failed` one of `dns, overlay, backend, not-cicada, other-cicada` (version and memory id compared). At `ready` it also
-  carries `stopCommand` (`tailscale serve --https=<that mapping's port> off`). Not a Store domain, no ETag.
+  carries `stopCommand` (`tailscale serve --https=<that mapping's port> --set-path=/ off`). Not a Store domain, no ETag.
 - **One click: `POST /devices/reach/serve {action: serve|stop}`** (master token; owner 2026-10-29, "Yes, one click").
   Runs exactly the guide's `command` on the `serve` step or its `stopCommand` on `ready` (`reach.run_serve`: argv built
   from the backend's port and the ServeConfig, never from the body; argv only; 10 s; stdin closed), then answers
   `{ok, message, ran, reach}` — `reach` the fresh guide, checked when served. Any other step runs nothing and answers
   `ok: false` with the sentence; an unknown action is 422. Never `up` or `funnel`. Write admission: outside every bank.
+- **The connector's public address: `GET /remote/funnel[?check=true]`, `POST /remote/funnel {action: on|off, shown}`
+  (ruling 59; the POST is master-token, `network.md`).** `{step, message, command, stopCommand, url, answers, fixUrl}`:
+  `step` one of `reach.FUNNEL_STEPS` (`install, open, sign-in, turn-on, update, port, unknown, address, taken, terminal,
+  off, on`), `command` only at `off`, `stopCommand` only at `on`, `url` only when `check=true` and the probe passed,
+  `answers` true, false, or null when nothing was asked, `otherProgram` true when the listener is down and something else
+  holds its port, `others` every other public mapping on this machine, each `{url, port, message, command, kind}`, the
+  command to copy. `PUT /remote/settings` turning the connector off also closes its address and answers `funnelNote` (null only when it read Tailscale and there was nothing to close, or Tailscale isn't installed). The POST answers `{ok, message, fixUrl, ran, funnel}`; an unknown
+  action is 422, any other step runs nothing and says why. `/remote/status` keeps every field and meaning (Hyrum):
+  `detectedUrl` stays the ServeConfig's say-so, and `funnelCommand` stays a non-empty string to copy, whose value now names
+  a port safe on this machine, or is a harmless shell comment when none is (`network.md`). Not a Store domain, no ETag. Write
+  admission: outside every bank; on a replica, refused.
 - **Cost (measured 2026-10-29, TestClient in process, synthetic bank, N = 300 each, p95):** the proof verify alone
   0.06 ms; the device store's verify 0.98 → 0.57 ms (its DDL now runs once per process, not per request); a phone's
   `POST /capture/note` 5.62 ms before, 4.79 unbound, 5.44 bound; `GET /capture/mine` 4.76 / 3.92 / 4.94; a client's
@@ -361,8 +372,8 @@ stay off both. 27 operations. **Stable, frozen as #424 shipped them:** `recall`,
 `cli_map`'s `api_op` column spells the seven that are not their CLI command). **Added, each its `cli_map` command
 spelled with underscores (`Row.operation`):** `hub`, `perspective`, `source_list`, `source_add`, `source_change`,
 `progress_add`, `backlog_list`, `backlog_add`, `backlog_note`, `inbox_record_check`, `video_queue`, `video_claim`,
-`video_record`, `read_queue`, `read_record`, and `capture_turns` (remote-only, so named in
-`agent_api.REMOTE_ONLY_OPS`: a relayed turn is stored `evidence_kind: assistant` with `relay.connector`, never the
+`video_record`, `read_queue`, `read_record`, and `capture_turns` (`capture-turns` in `cli_map`, MCP only: a relayed turn
+is stored `evidence_kind: assistant` with `relay.connector`, never the
 person's own words). **One episode per conversation (ruling 32, G104):** `capture_turns` alone keeps the
 `conversation` argument on `/v1`. `"conversation": "new"` starts one — Cicada mints the handle (`mint_handle`) and
 answers it as `data.conversation` — and every later turn passes that handle back; a handle another token got (or any
@@ -703,6 +714,13 @@ spends, 8 s per command, Cursor's two side by side); the GET serves the last kno
 tool never holds the Sleep page. A scheduled preview of a chosen Grok is `none` (it reads only when you start one). Previews name `cursor-cli` / `opencode-cli` / `grok-cli` with `billing: plan`; the field is named
 `billingNote`, never a cost or price, because prices ride only `usage`/`modelPrices` (ruling 12).
 
+**A Claude key's card (G237, ruling 63; `anthropic_models`).** With a Claude model chosen, the `byok` card's `models` are the
+saved choice (first, so a tap keeps it), then the small, standard and top tiers, then every other active model, read from the
+key's own Models API answer (`catalogue.source: your key`) or a documented floor (`documented`); `modelNote` says when a saved id
+moved forward. `POST /sleep/engine/models/refresh` with `byok` re-reads it when a Claude key is held (422 otherwise, as for any
+other key). A key's save reads it in the background, and a run on the key once a day. `modelPrices[…].basis` names where a price
+Cicada keeps was read (ruling 12); `providers[…].defaultModel` for Anthropic is the list's small tier.
+
 **The model catalogue on every card (vision item 4, 2026-10-28; `model_catalogue`).** Each candidate gains an
 optional `catalogue`: `{engine, source, asOf, drift, models: [{id, source, asOf, family, firstSeen, new, resolvesTo,
 resolvedAt}]}` describing its `models` (unchanged, so an older app and the R-HS7 first-model tap read what they read).
@@ -1011,3 +1029,15 @@ or future start changes currentness at midnight even if no page was edited.
 These are on-demand reads with in-memory caches, not Store domains, and add
 no VersionVector component or wire field. Search's Swift decoder now consumes
 its already-existing event day/state fields so a closed event stays dated.
+
+**`POST /sensitive/remove` (G235):** Remove on exactly what `scripts/sensitive_removal.py` listed: `{rows, plan}`, both
+required, `plan` the dry run's stamp over each row's id, kinds with counts and unsure count. 409 when a row is gone, the
+stamp differs, the older version cannot be committed, or Sleep holds the pages; 403 for `via: agent`. Answers counts only:
+`{removed, failed, files, committed, left, still_found, stayed}` (`still_found`: files, conversations included, still holding
+what it was to take out: a distinctive value anywhere, any other on a line that speaks of a secret, tied or not; `stayed`: tokens left in other files on purpose, unsure or
+common in the bank). A row in the card's own resolve that could not be done answers 409 and stays.
+**Saves kept for lookup (ruling 62, 2026-11-04).** `GET /sleep/queue` and each row of `GET /sources/overview` carry `kept`:
+the saves indexed with no model read, unread until the person talks about one (`history_index.kind` `saved`,
+`capture-and-sleep.md`, *The lean pass*). `SHAPE` `overview-v17` moves the overview's ETag with the field and the app decodes
+it leniently; `/sleep/queue` has no ETag and is not a Store domain. Neither lists a kept save as waiting, and
+`GET /sleep/episodes?processed=false` no longer lists one a run has not retired yet. The hook's `reason` gains `saved`.

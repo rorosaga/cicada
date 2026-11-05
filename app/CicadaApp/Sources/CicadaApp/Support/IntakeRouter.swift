@@ -194,9 +194,6 @@ enum FeedRefusal: String, Equatable, CaseIterable {
     }
 }
 
-/// `offerArrival`'s answer: on the panel now, try again later, or refused by the guard (said in the panel).
-enum ArrivalOffer: Equatable { case opened, wait, refused }
-
 /// `accept`'s answer (Z-B6), so a door that speaks for itself can.
 enum IntakeAcceptance: Equatable {
     case accepted
@@ -450,23 +447,6 @@ final class IntakeRouter {
         if host == .overlay { isOverlayPresented = true }
         if case .reading = phase { cancel() }
         if case .failed = phase { phase = .idle }
-    }
-
-    /// G197 layer c — an awaited export found in Downloads, offered without anyone dropping it. It is the drop's door
-    /// (`accept`, `.reminder(vendor)`) with two differences, because nobody is looking: it never speaks for a busy
-    /// router (no "finish the import" toast, which a retry every look would repeat) and it never takes the panel from
-    /// a sniff, preview or import the person has open — it answers `.wait`, and the watcher offers it again later.
-    func offerArrival(_ url: URL, vendor: ChatVendor) -> ArrivalOffer {
-        guard inFlight == 0 else { return .wait }
-        switch phase {
-        case .reading, .preview, .importing: return .wait
-        case .idle, .done, .failed: break
-        }
-        switch accept(urls: [url], from: .reminder(vendor)) {
-        case .accepted: return .opened
-        case .busy: return .wait
-        case .refused: return .refused
-        }
     }
 
     /// Files arrived. Public on purpose: Track Z's Sleep-room worm calls this
