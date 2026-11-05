@@ -524,7 +524,7 @@ def forget_waiting(connection: str | None = None) -> int:
     with _WAITING_LOCK:
         if root.is_dir():
             forgotten = _forget_files(root)
-            phone_numbers.forget_cards(root)   # proposed ruling 55: a card's hashes go with the card; no reader keeps them
+            phone_numbers.forget_cards(root)   # ruling 55: a card's hashes go with the card; no reader keeps them
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
         ended = [c for c in (_marker_body().get("ended") or []) if isinstance(c, str)]
         if isinstance(connection, str) and _CONNECTION_ID.fullmatch(connection) and connection not in ended:

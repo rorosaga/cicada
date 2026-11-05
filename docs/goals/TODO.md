@@ -22,11 +22,11 @@
   the eyebrow counts, so the row #619 left reading Connected for a borrowed reader keeps its dot in its own category.
   No new route: everything is derived from what the page already held.
 
-- **2026-11-04 — phone numbers on the right page, proposed ruling 55 (G81; PR #603, branch `g81-phone-numbers`).** Owner: he texted
+- **2026-11-04 — phone numbers on the right page, ruling 55, decided 2026-11-05 (G81; PR #603, branch `g81-phone-numbers`).** Owner: he texted
   an agent two people's numbers and expected memory to map and follow them. Built OFF (the switch file `numbers_switch.json`), never
   run on real data: a token in the bank, the digits in a vault on this Mac, shown on the person's page and in the Reader.
   Proved through real Sleeps at haiku on scratch state, with a restatement, a change, a held name and a question.
-  2026-11-05: cut down to what is explicit after four review rounds: a phone word, an add/save with a capital at 9+, a change with a phone word, or 9+ the vault holds; "Ana N" stays in clear (ruling 55). **Needs the owner:** the question at ruling 55. **Pick up after a yes:** the sub-answers.
+  2026-11-05: cut down to what is explicit after four review rounds: a phone word, an add/save with a capital at 9+, a change with a phone word, or 9+ the vault holds; "Ana N" stays in clear (ruling 55). **Owner 2026-11-05: yes**, amended: a number on a Contacts card is that card's by value, and a `+` number is kept (branch `g81-contacts`). **Pick up:** the sub-answers; whether a one-time recovery of blanked numbers is wanted.
 - **2026-11-05 — integration-test defects (ROR-41; branch `ror41-integration-defects`, PR #619).** The embedding children are
   all capped (ONNX text child 677 % to 344 % CPU, synthetic bank); Apple Books' refusal names its fix; a gated feed's
   line names the switch that turns it on; a reader counts once in the Sources eyebrow; `install_app.sh` signals by path;
@@ -3213,7 +3213,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     needing an installation for the account's own repositories (the install step goes), or if the person unlinks most
     of what the origin rule links.
 
-55. **PROPOSED, off until the owner rules (coordinator, from the owner's message of 2026-11-04; G81, G154, G179): a
+55. **DECIDED, owner 2026-11-05 (coordinator's proposal from the owner's message of 2026-11-04; G81, G154, G179): a
     number the person gives for someone consolidates onto that person's page as a token; the digits stay in a vault on
     this Mac, outside every bank.** The owner texted an agent the numbers of two people and expected memory to map each
     to the right page and follow a change. Today it cannot be relied on: the chat scrub destroys a `+` number before
@@ -3435,7 +3435,25 @@ A whole row moves to DONE only after its remaining implementation and required a
     > (c) **Should numbers you type to Claude Code or a note become codes too?** Recommended: yes, as a follow-up.
     > (d) **If you hand this memory to someone or move it to another computer, the private file stays behind**, so the page says "a number" and a number said again reads as a new one. Is that right? Recommended: yes for a hand-over; carry it sealed when your own home moves, as a follow-up.
 
-    **Revisit** on a yes (each sub-answer is its own follow-up), or on a measured case of a number on the wrong page, of a
+    **Decided, owner 2026-11-05: yes.** The feature still runs only with its switch on. **Amendment, same day (the owner's
+    real message, invented here as `+1 202-555-0143`, `+1 202-555-0177`, then a line about an invite: no phone word, no name).**
+    The owner: "From having contacts synced you can see who I'm referring to. Even if saved under a nickname. Names sometimes
+    have hints as to where u know the person from example: Ricky (ie). That would be my friend I know from uni for example."
+    With the switch on, in the person's own line of a ticked chat: (1) a number whose keyed hash a Contacts card holds is that
+    card's number, whatever the line says, by value, however it is written (last nine digits; a digit run reads as a number only
+    when it IS a contact's). It becomes a token. (2) A `+` number with no card is kept as a token where the scrub used to blank it
+    with no copy; other speakers' lines are as they were. (3) A token that matched one card is linked to it: Sleep files the
+    number on that card's page, and the person giving the number counts as naming that one waiting card, so its page is born by
+    the Contacts promotion rail, a one-part nickname's too. The card's whole name, its bracket included, reaches the model as a
+    hint it judges; no rule decodes a suffix. An unmatched token stays a token and Stage 1 decides. Two cards on one number:
+    never a guess, one question in the existing form, on a page; with no page yet it is held on a name and asks when that page
+    exists. (4) The faces store is not read: the hashes and the waiting cards only. Off stays a true no-op, a stored line never
+    moves, and numbers already blanked in old chats stay blanked (`storage.md`, "A number on a Contacts card").
+    **Recorded, not built (owner 2026-11-05):** a local-only tool for an agent to ask for a number on the person's ask; numbers
+    typed to Claude Code or in a note also becoming codes, "as long as it doesn't hurt the UX or the performance"; the file
+    travelling sealed when a person's own home moves, documented, "not to work on yet".
+
+    **Revisit** on each sub-answer (its own follow-up), or on a measured case of a number on the wrong page, of a
     wrong close, or of questions asked where the line plainly said (the word lists are `read_line`'s).
 56. **A project starts only from the person or an agent on their ask; things link to the projects that exist by context
     (owner, 2026-11-04; G141, G222; amends ruling 36 D4 and ruling 45; branch `ruling-56-projects-by-ask`).** The owner's

@@ -1,4 +1,4 @@
-"""G81, proposed ruling 55: a number the person gives lands on the right page as a token; its digits stay outside the bank.
+"""G81, ruling 55: a number the person gives lands on the right page as a token; its digits stay outside the bank.
 
 Every number is synthetic, in the 555-01xx range. Covers: one number written many ways is one token, what counts as a
 number, the switch (off, nothing moves), whose words are kept, no re-read of old chats, what Stage 1's output becomes,

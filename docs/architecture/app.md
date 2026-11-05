@@ -911,9 +911,9 @@ off by default; `cicada.saveWhy.enabled`, per Mac like the watch's consent flags
 on also turns on the bookmark watch of every installed browser Cicada can sync (`SaveWhySetup`), named under the switch
 before the flip — see *Ask why* below.
 **Calendars, contacts & feeds** offers Calendar on this Mac and
-Contacts (G154), both app-owned rows. (Proposed ruling 55, off: the sync hashes a card's numbers with `PhoneNumberKeys`,
+Contacts (G154), both app-owned rows. (Ruling 55, behind its switch: the sync hashes a card's numbers with `PhoneNumberKeys`,
 under a key `GET /people/numbers/match-key` gives only while the feature is on; `storage.md`, "Phone numbers".)
-**A person's numbers (proposed ruling 55, off; DR-78, DR-81):** `PersonNumbersRow` draws a person's current numbers on their
+**A person's numbers (ruling 55, behind its switch; DR-78, DR-81):** `PersonNumbersRow` draws a person's current numbers on their
 page, nothing when there are none; the Reader and `QuoteBlock` show a token's digits, asked of `POST /people/numbers/reveal`
 for what is on screen and held in memory by the view (`NumberTokens`). A token it can't answer reads "a number". A row
 rather than a block of `GET /entities/{id}`, because blocks reach other clients and must never carry a digit. Number claims

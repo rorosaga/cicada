@@ -1104,7 +1104,7 @@ async def extract(
                                                               kind_override=authorship.of_episode(episode), gaps=gaps)
                     all_values.extend(chunk_values)
 
-                # Proposed ruling 55: what the model made of a number, resting on the person's own line or dropped;
+                # Ruling 55: what the model made of a number, resting on the person's own line or dropped;
                 # no token reaches a page's prose. Before any reading of these lists below.
                 phone_numbers.take(all_entities, all_relationships, all_values, content, ep_id,
                                    bank=getattr(settings, "memory_path", None) or "",
@@ -1518,7 +1518,7 @@ def _value_claim(value: dict, episode_id: str, origin: str, to_id: Callable[[str
     entity = str(value.get("entity", "") or "").strip()
     attribute = str(value.get("attribute", "") or "").strip()
     stated = " ".join(str(value.get("value", "") or "").split())
-    # Proposed ruling 55: a number is a fact of its own, not a value one later value replaces (a person has several).
+    # Ruling 55: a number is a fact of its own, not a value one later value replaces (a person has several).
     predicate = "phone" if value.get("number_token") else value_predicate(attribute)
     if not entity or not predicate or not stated or len(stated) > 120:
         return None

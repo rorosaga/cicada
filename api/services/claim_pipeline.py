@@ -531,7 +531,7 @@ def run_claim_pipeline(
     emitted_ids = stage1_ids | {c.id for c in released}
     if extra_claims:
         incoming = incoming + list(extra_claims)
-    # Proposed ruling 55: what the person's line says of each number, and whether its page may take it (held ones too).
+    # Ruling 55: what the person's line says of each number, and whether its page may take it (held ones too).
     incoming, number_audit = phone_numbers.annotate(incoming, memory_path, owner_id)
 
     # ---- G104: an edited conversation's spans re-anchored, what only its removed text said marked ----
@@ -637,7 +637,7 @@ def run_claim_pipeline(
                 f"claim write-back skipped for {subject}: {type(e).__name__}: {e}"
             )
 
-    # Proposed ruling 55: two people holding one current number is a duplicate-people signal (G209): a question.
+    # Ruling 55: two people holding one current number is a duplicate-people signal (G209): a question.
     _ask_shared_numbers(memory_path, reconciled, incoming, owner_id)
 
     for slug, claims in held_offers.items():

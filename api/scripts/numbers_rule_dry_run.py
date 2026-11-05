@@ -1,4 +1,4 @@
-"""Proposed ruling 55, read-only and count-only: what the number rule would do on a bank, for the person to read before a yes.
+"""Ruling 55, read-only and count-only: what the number rule would do on a bank, for the person to read before a yes.
 
 `python -m api.scripts.numbers_rule_dry_run <bank path>`. It writes nothing, mints nothing and calls nothing; it prints
 counts and never a word or a digit of what it read.

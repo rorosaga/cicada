@@ -1213,7 +1213,7 @@ def reconcile_stage3(
             continue
 
         if phone_numbers.is_number_claim(new):
-            # Proposed ruling 55: a number has its own table — several can be true, and only the person's words close one.
+            # Ruling 55: a number has its own table — several can be true, and only the person's words close one.
             _place_number(new, slot, settings, today, nudges, audit, untimed, revised=revised)
             continue
 

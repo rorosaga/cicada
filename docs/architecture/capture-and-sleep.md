@@ -777,7 +777,7 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   chat writer's words (`episode_scrub.PHONE_WRITERS`: Messages, WhatsApp, Telegram) pass a phone rule — `+`-prefixed,
   `@`-mention, `tel:`/`wa.me/`, a bracketed area code and the North American dotted form. **False negatives over lost
   words** (#502 re-check): the scrub runs before storage, so an unbracketed grouped number ("555 010 1234") and a bare
-  digit run are left alone — the same shapes are timestamps, year lists, ranges, prices, SKUs, room lists and ids (proposed ruling 55, off: the person's own number kept as a token, `storage.md`). FSEvents on the container, 3 s debounce,
+  digit run are left alone — the same shapes are timestamps, year lists, ranges, prices, SKUs, room lists and ids (ruling 55, behind its switch: the person's own number kept as a token, `storage.md`). FSEvents on the container, 3 s debounce,
   15 s floor; every read is `Task.detached`. The backend (`whatsapp_source` → `chat_live`): type 6 is a group
   event (skipped), 14 a delete for everyone (its place kept in `unsent_turns`, its words never), 4 and 5 a contact card
   and a location (named only), a media row an attachment named and described; a quoted reply is `ZMETADATA`'s
@@ -3081,7 +3081,7 @@ listed as an alias. Four gaps caused it, each closed:
   `merge_rejections`, never a merge; the card says the conversation named the full name and the page carries only
   the given name.
 
-- **A number in a chat (PROPOSED ruling 55, off; `storage.md`, "Phone numbers").** With its switch on, the person's own new
+- **A number in a chat (ruling 55, behind its switch; `storage.md`, "Phone numbers").** With its switch on, the person's own new
   lines hold a token instead of a redaction (`phone_numbers.tokenise_batch`, before the stager, in both chat ingests),
   for a phone word tied to the digits, an "add" or "save" with a capitalised name at 9+ digits, a change said with a phone word, or a run of 9+ the vault
   already holds; an agent's reply, another speaker's line and a forwarded message are redacted only for a phone word somebody owns or a run of 9+ the

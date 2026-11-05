@@ -1,4 +1,4 @@
-"""A number the person gives for someone: consolidated, kept out of every bank (G81, PROPOSED ruling 55, 2026-11-04).
+"""A number the person gives for someone: consolidated, kept out of every bank (G81, ruling 55, owner 2026-11-05).
 
 The owner texted an agent the numbers of two people and expected memory to file each on the right page and follow it
 when it changes. A chat's scrub (`episode_scrub.scrub_phones`) destroys a ``+`` number before it is stored, so whether
@@ -123,7 +123,7 @@ _switch_memo: tuple[tuple[str, int, int], bool] | None = None
 
 
 def enabled() -> bool:
-    """OFF until the owner rules on proposed ruling 55. The answer is :data:`SWITCH_FILE`'s, read again whenever the file
+    """OFF until the owner rules on ruling 55. The answer is :data:`SWITCH_FILE`'s, read again whenever the file
     moves: the backend, a stdio MCP server and the CLI can never disagree. No file, or a damaged one, is off."""
     global _switch_memo
     path = _switch_path()
