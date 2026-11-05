@@ -12,7 +12,7 @@
 
 ## Current state and evidence
 
-- **2026-11-05 — integration-test defects (ROR-41; branch `ror41-integration-defects`).** The embedding children are
+- **2026-11-05 — integration-test defects (ROR-41; branch `ror41-integration-defects`, PR #619).** The embedding children are
   all capped (ONNX text child 677 % to 344 % CPU, synthetic bank); Apple Books' refusal names its fix; a gated feed's
   line names the switch that turns it on; a reader counts once in the Sources eyebrow; `install_app.sh` signals by path;
   Grok's install line is the command; OpenCode's Electron path is found; a number that moves is no contradiction (G98).
