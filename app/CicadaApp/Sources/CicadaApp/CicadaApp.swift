@@ -115,6 +115,7 @@ struct CicadaApp: App {
     /// G219: the Reminders lists the person ticks, read by the app through EventKit only after Connect, one way.
     @State private var remindersReader = RemindersReader.shared
     @State private var appleBooksReader = AppleBooksReader.shared
+    @State private var voiceMemosReader = VoiceMemosReader.shared
     /// Round 4 (G160 first slice): Chrome's open tab groups, read by the app from its session file only after the
     /// person turns on their own switch (R-SR3), and posted per memory.
     @State private var tabGroups: TabGroupWatcher
@@ -375,6 +376,7 @@ struct CicadaApp: App {
             Task { await remindersReader.bankChanged() }
             // G39 — the new memory gets the books it has not seen.
             Task { await appleBooksReader.bankChanged() }
+            Task { await voiceMemosReader.bankChanged() }
             // G160 — the new memory gets the open groups too (its digest is its own).
             Task { await tabGroups.bankChanged() }
             // G71 — the new memory's YouTube history, past its own cursor.
@@ -426,6 +428,7 @@ struct CicadaApp: App {
             .environment(notesWatcher)
             .environment(remindersReader)
             .environment(appleBooksReader)
+            .environment(voiceMemosReader)
             .environment(tabGroups)
             .environment(watchHistory)
             .environment(contactsReader)
@@ -567,6 +570,8 @@ struct CicadaApp: App {
         remindersReader.start()
         // G39 — reads only if the person turned Apple Books on.
         appleBooksReader.start()
+        // G43 — reads only if the person turned Voice Memos on.
+        voiceMemosReader.start()
         // G160 (R-SR3) — reads only if the person turned the tab-groups switch on.
         tabGroups.start()
         // G71 — reads only if the person turned the YouTube history switch on.

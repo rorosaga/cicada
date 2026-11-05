@@ -157,6 +157,12 @@ enum SourceCatalog {
                            channels: [], verb: .connect(Copy.Traces.turnOn)),
         SourceCatalogEntry(id: "notes", group: .thisMac, category: .notes, title: "Apple Notes", origin: "apple-notes",
                            channels: ["notes"], tile: .appleNotes, verb: .connect(Copy.Catalog.connectNotes)),
+        // G43 — Voice Memos on this Mac, read by the app (`VoiceMemosReader`) only after Connect; words only, the
+        // recording's own (`media_files`), never read by Sleep.
+        SourceCatalogEntry(id: VoiceMemosReader.channel, group: .thisMac, category: .meetings,
+                           title: Copy.voiceMemosTitle, origin: VoiceMemosReader.channel,
+                           channels: [VoiceMemosReader.channel],
+                           verb: .connect(Copy.SourceLayout.connect(Copy.voiceMemosTitle))),
         SourceCatalogEntry(id: "folders", group: .thisMac, category: .files, title: Copy.Catalog.folders,
                            origin: "folder", channels: [], verb: .connect(Copy.Catalog.addFolder)),
         // G39 — Apple Books on this Mac, read by the app (`AppleBooksReader`) only after Connect; G233 — a Goodreads
