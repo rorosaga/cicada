@@ -178,6 +178,7 @@ enum SourceGrid {
         "reddit": ["saved posts", "upvoted"],
         "pinterest": ["pins", "boards"],
         "github": ["Microsoft", "repositories", "stars", "code"],
+        "linear": ["issues", "tickets", "comments", "projects"],
         "spotify": ["podcasts", "liked songs", "listening"],
         "tiktok": ["ByteDance", "favorites", "videos"],
         SourceCatalog.substackId: ["newsletters"],

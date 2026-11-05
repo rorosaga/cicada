@@ -83,7 +83,7 @@ enum LogoSet {
     static let sourceMarks: [String] = [
         "x", "instagram", "youtube", "linkedin", "reddit", "tiktok", "github", "scholar", "telegram", "whatsapp",
         "spotify", "pinterest", "chrome", "firefox", "arc", "brave", "rss", "gmail", "google-calendar", "wispr",
-        "notion", "readwise", "raindrop", "tailscale",
+        "notion", "linear", "readwise", "raindrop", "tailscale",
     ]
     static var all: [String] { umbrellaMarks + sourceMarks }
 }
