@@ -23,7 +23,9 @@ final class SystemContactStore: ContactStore, @unchecked Sendable {
     func historyToken() -> Data? { store.currentHistoryToken }
 
     /// Every card, mapped. Detached at utility priority: a large address book takes a moment, never on the main actor.
-    func snapshot() async -> [ContactRecord] {
+    func snapshot() async -> [ContactRecord] { await snapshot(numberKey: nil) }
+
+    func snapshot(numberKey: String?) async -> [ContactRecord] {
         let store = self.store
         return await Task.detached(priority: .utility) { () -> [ContactRecord] in
             let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactOrganizationNameKey,
@@ -42,7 +44,9 @@ final class SystemContactStore: ContactStore, @unchecked Sendable {
                         organization: contact.organizationName, jobTitle: contact.jobTitle,
                         emails: contact.emailAddresses.count, phones: contact.phoneNumbers.count,
                         hasBirthday: contact.birthday != nil, thumbnail: contact.thumbnailImageData,
-                        isMe: contact.identifier == meId))
+                        isMe: contact.identifier == meId,
+                        phoneKeys: PhoneNumberKeys.keys(keyBase64: numberKey,
+                                                        numbers: contact.phoneNumbers.map(\.value.stringValue))))
                 }
             } catch {
                 return []   // never posted (R-SR10)

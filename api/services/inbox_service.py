@@ -32,6 +32,7 @@ from api.services import (
     inbox_review,
     markdown_parser,
     pair_evidence,
+    phone_numbers,
     predicates,
     quiet_pages,
     same_name_pick,
@@ -1100,6 +1101,8 @@ def recommended_key(kind: str, fm: dict, options: list[dict]) -> str | None:
     if kind in ("merge_suggestion", "clarification", "removal", "followup", "page_edit"):
         # G141 PJ-6: a follow-up proposes nothing — it asks how it went. G198: Cicada proposed no edit; an agent did.
         return None
+    if fm.get("trigger") == "sleep/phone_number":
+        return None    # proposed ruling 55: it asks because the person's line did not say; Sleep has no proposal
     if kind == "decay" and not options:
         options = inbox_questions.normalize_options(
             inbox_questions.decay_question("", None, str(date.today()))["options"]
@@ -2455,7 +2458,28 @@ async def _resolve_divergence(path, parsed, request, settings, item_id: str) -> 
     new = by_id.get(_opt_str(fm.get("claim_id")) or "")
     existing = by_id.get(_opt_str(fm.get("existing_claim_id")) or "")
     today = str(date.today())
-    if new is not None and existing is not None:
+    if new is not None and new.context == phone_numbers.ASKED:
+        # Proposed ruling 55: the number waited closed on the page; the answer opens it or leaves it closed, in the
+        # person's own hand. "1" also ends the one it was asked against; "2" keeps both.
+        if key == "0":
+            new.context = phone_numbers.REFUSED
+            if existing is not None:
+                existing.confidence = max(float(existing.confidence or 0), 0.9)
+        elif key == "1" and existing is not None and existing.valid_to is not None:
+            # "Use the new one", answered after the one it was asked against was itself replaced: it was right for a
+            # while. History, in the person's hand; the number that replaced them both stays current.
+            new.context, new.source_trust, new.origin = "general", "user_stated", "clarification"
+            new.valid_to, new.superseded_by = existing.valid_to, existing.superseded_by
+        else:
+            new.context, new.valid_to, new.source_trust, new.origin = "general", None, "user_stated", "clarification"
+            new.confidence = max(float(new.confidence or 0), 0.9)
+            if key == "1" and existing is not None:
+                _close_today(existing, by=new, today=today)
+        efm = entity.frontmatter
+        efm["last_referenced"] = today
+        efm["version"] = int(efm.get("version", 1) or 1) + 1
+        markdown_parser.write(entity_path, efm, write_claims(entity.body, claims))
+    elif new is not None and existing is not None:
         if key == "0":  # keep my statement: the new reading loses
             _close_today(new, by=existing, today=today)
             existing.confidence = max(float(existing.confidence or 0), 0.9)

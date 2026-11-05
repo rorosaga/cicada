@@ -304,7 +304,7 @@ final class ContactsReader {
     private func perform(bank: String) async throws -> String {
         let run = beginBook()   // this run posts the book itself, for the memory on screen
         let token = store.historyToken()
-        let records = await store.snapshot()
+        let records = await store.snapshot(numberKey: await api.numberMatchKey())
         if Task.isCancelled { bookFailed(CancellationError(), run: run) }
         try Task.checkCancellation()
         guard !records.isEmpty else {

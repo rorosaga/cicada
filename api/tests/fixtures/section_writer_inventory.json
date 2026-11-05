@@ -81,6 +81,12 @@
       "disposition": "preserve_frontmatter_guarded"
     },
     {
+      "function": "_ask_shared_numbers",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
       "function": "run_claim_pipeline",
       "method": "write",
       "frontmatter": "parsed.frontmatter",
@@ -734,6 +740,12 @@
       "function": "_resolve_conflict",
       "method": "write",
       "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_resolve_divergence",
+      "method": "write",
+      "frontmatter": "efm",
       "disposition": "uninstrumented_guarded"
     },
     {
