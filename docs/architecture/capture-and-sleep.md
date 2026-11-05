@@ -2657,8 +2657,14 @@ else stays a mention in the index (`pending_store`), never lost, and comes back 
   It used to be raised on a low extraction confidence (below 0.5, 0.3 when absent), which measures certainty about a name's
   attributes and only ever fired for a first mention: a name with a lease resting on it reads confidently and was never
   asked, and a stray first name read as unsure and always was.
-- **A question asked on purpose stays with the person:** `why_asked` keeps it out of `in_passing` (`passing_rule`) and out of
-  a web lookup (`web_settle.classify`, `person_context`), since the model read it as nothing public could answer.
+- **A question asked on purpose stays with the person:** `why_asked` keeps it out of `in_passing` (`passing_rule`), out of
+  a web lookup (`web_settle.classify`, `person_context`), since the model read it as nothing public could answer, and out of
+  the organic close (`check_organic_resolution`), since a confident later mention says nothing about the stake. The person's
+  answer closes it, or their own located words (`inbox_tend`, ruling 29). A stake said on a question already open is added to
+  that card (`ClarificationManager.create`).
+- **Open for the owner (proposed ruling 65):** a public thing with `ask_person` is never looked up, a narrow exception to
+  ruling 27; and `ask_person` on a name that matches an existing page raises no question, only `ask` in the hold and create
+  branches does.
 - **"Is A the same as B?" takes a reason on the record.** The judge's UNSURE (`_UNSURE_GUIDELINE`, both prompts) is told it
   puts a question in front of the person, and that names which look alike or little to go on are DIFFERENT: two entries,
   nothing lost, a later conversation can join them. It used to be told "if you are hesitating, return UNSURE", on leads that

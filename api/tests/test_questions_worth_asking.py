@@ -86,6 +86,62 @@ def test_a_new_page_the_model_asks_about_keeps_its_question(tmp_path):
     assert fm["why_asked"] == "the deposit is his"
 
 
+def _stake_card(memory: Path) -> None:
+    """Run 1: a name with something resting on it, no page yet."""
+    asyncio.run(entity_resolver.resolve(
+        _extracted(_name("Bob", ask_person="the lease depends on him", confidence=0.8)), [], _settings(memory)))
+    (fm,) = _questions(memory)
+    assert fm["why_asked"] == "the lease depends on him"
+
+
+def _second_mention(episode: str = "ep_2026-01-02_001") -> list[dict]:
+    return [{"episode_id": episode, "relationships": [], "entities": [_name("Bob", source_episode=episode, confidence=0.8)]}]
+
+
+def test_a_later_conversation_that_creates_the_page_leaves_the_stake_question_open(tmp_path):
+    """Run 2 names Bob confidently with no `ask_person`: the page is born (entity_resolver's create branch) and the
+    person's question stands."""
+    memory = _bank(tmp_path)
+    _stake_card(memory)
+    out = asyncio.run(entity_resolver.resolve(_second_mention(), [], _settings(memory)))
+    assert "bob" in {c["id"] for c in out["changes"] if c.get("action") == "create"}
+    (fm,) = _questions(memory)
+    assert fm["why_asked"] == "the lease depends on him"
+
+
+def test_a_mention_matching_the_page_leaves_the_stake_question_open(tmp_path):
+    """Bob's page is already there: run 2 matches it (the "same" branch) and the question still stands."""
+    memory = _bank(tmp_path)
+    _stake_card(memory)
+    page = _page("bob", "Bob", "person")
+    out = asyncio.run(entity_resolver.resolve(_second_mention(), [page], _settings(memory)))
+    assert "bob" in {c["id"] for c in out["changes"] if c.get("action") == "update"}
+    (fm,) = _questions(memory)
+    assert fm["why_asked"] == "the lease depends on him"
+
+
+def test_a_question_with_no_stake_still_closes_on_a_confident_mention(tmp_path):
+    memory = _bank(tmp_path)
+    clarifier = clarification_manager.ClarificationManager(memory)
+    clarifier.create("Bob", "ep_2026-01-01_001", "Insufficient context to classify", "person — came up", 0.4, "Came up.")
+    assert clarifier.check_organic_resolution("Bob", 0.4) is False
+    assert clarifier.check_organic_resolution("Bob", 0.8) is True
+    assert _questions(memory) == []
+
+
+def test_a_stake_said_on_a_question_already_open_keeps_it_open_too(tmp_path):
+    """A card raised before G239 has no stake; the model's word on the same question gives it one, or the next confident
+    mention would delete what was just asked on purpose."""
+    memory = _bank(tmp_path)
+    clarifier = clarification_manager.ClarificationManager(memory)
+    args = ("Bob", "ep_2026-01-01_001", "Insufficient context to classify", "person — came up", 0.4, "Came up.")
+    assert clarifier.create(*args) is not None
+    assert clarifier.create(*args, why_asked="the lease depends on him") is None
+    assert clarifier.check_organic_resolution("Bob", 0.8) is False
+    (fm,) = _questions(memory)
+    assert fm["why_asked"] == "the lease depends on him"
+
+
 def test_a_question_asked_on_purpose_is_never_closed_as_said_in_passing_nor_looked_up(tmp_path):
     memory = _bank(tmp_path)
     clarifier = clarification_manager.ClarificationManager(memory)

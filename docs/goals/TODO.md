@@ -18,6 +18,7 @@
   works. Two real Sleeps a side on invented notes: questions 7, 6 to 4, 3, noise 5, 4 to 1, 1, phrase `skill` pages 3, 2 to 0, 0,
   the question that matters 0 of 2 to 2 of 2. Nothing has run on the real bank. **The owner decides (proposed ruling 65):** questions on the model's stake rather
   than a low confidence, and a Stage-1 skill on 2+ conversations. On yes, CLAUDE.md's "A Stage-4 skill" line says "A skill".
+  **Within it, for him to rule on:** a public thing that gets `ask_person` stays with the person and is never looked up (`web_settle.py`, `person_context`), a narrow exception to ruling 27; and `ask_person` on a name matching an existing page raises no question. A question asked on purpose is closed only by the person's answer or their own located words (ruling 29), never by a later confident mention.
   **Also his:** whether two notes should ground a Stage-4 skill, and whether the existing person questions should be tidied by a new rule; `passing_rule` and `_merge_rule` keep
   them, by design. `POST /inbox/tidy?dryRun=true` on a copy counts what the rules already close.
 - **2026-11-05 — the Stage 2 stall (G238, PR #620).** A scheduled Sleep held the event loop about 7 minutes at 8,500

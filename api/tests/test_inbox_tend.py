@@ -579,6 +579,24 @@ def test_a_clarification_answered_in_conversation_is_sleeps_reading_not_the_pers
     assert claim.evidence and claim.evidence[0].kind == "user" and claim.evidence[0].is_span()
 
 
+@pytest.mark.parametrize("has_page", [True, False])
+def test_a_question_asked_on_purpose_is_still_settled_by_the_persons_own_words(memory, has_page):
+    """G239 keeps it from a mention, a lookup and the in-passing rule; ruling 29's located words are the person's answer."""
+    if has_page:
+        _entity(memory, "example-gadget", type="tool", name="Example Gadget", status="active")
+    _item(memory, "inbox-001", kind="clarification", entity_id="example-gadget", entity_name="Example Gadget",
+          title="Who or what is Example Gadget?", source_episode="ep_2026-09-01_001",
+          why_asked="the repair depends on it")
+    ep = _episode(memory, "ep_2026-10-03_001", "user: Example Gadget is the soldering station on my desk.")
+    _commit(memory)
+    fn = _fake({"answered": True, "answer": "a soldering station",
+                "quote": "Example Gadget is the soldering station on my desk"})
+    report = run(inbox_tend.tend(memory, _Settings(memory), episodes=[ep], run_policy=False, llm_fn=fn))
+    assert report.settled == 1
+    assert not (memory / "inbox" / "inbox-001.md").exists()
+    assert (memory / "inbox" / "settled" / "inbox-001.md").exists()
+
+
 # --------------------------------------------------------------------------- review blockers (2026-10-17)
 
 
