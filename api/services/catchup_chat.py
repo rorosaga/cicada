@@ -329,6 +329,29 @@ def ground_all(message: str, data: dict, current, answerable: dict, pairs: list)
     return list(found.values()), unjoined
 
 
+def _spare_the_owner(memory_path: Path, readings: list[Reading], unjoined: list[dict], answerable: dict):
+    """A located quote shows the person said something, not that it means what the model read. Everything else is cheap
+    to take back; folding a page into the person's own is not, and "never the owner's page without the person's own
+    words naming themselves so" (CLAUDE.md, "Same person?"). So a typed "same" touching the owner's page is never applied
+    from here: the chat says it could not join them, the question stays open, and its taps stay (review of #637)."""
+    from api.services import owner_identity
+
+    owner = owner_identity.owner_page_id(None, memory_path)
+    if not owner:
+        return readings, unjoined
+    kept: list[Reading] = []
+    for reading in readings:
+        item = answerable.get(reading.item_id)
+        pages = {getattr(item, "entity_id", None), reading.merge_target or getattr(item, "merge_target_hint", None)}
+        if reading.option_key == "same" and owner in pages and getattr(item.kind, "value", "") == "merge_suggestion":
+            subject = getattr(item, "entity_id", None)
+            other = getattr(item, "entity_name", None) if subject != owner else reading.target_name
+            unjoined.append({"a": other or "them", "b": owner_identity.owner_name(memory_path) or "you"})
+            continue
+        kept.append(reading)
+    return kept, unjoined
+
+
 def turn(memory_path: Path, item_id: str, message: str, history: list, upcoming: list[str], llm_fn,
          *, today: str | None = None) -> dict:
     """One turn: ``{reply, readings, unjoined, move, nextId, engine: True}``. ``llm_fn(system, prompt) -> str``.
@@ -379,7 +402,8 @@ def turn(memory_path: Path, item_id: str, message: str, history: list, upcoming:
     if next_id not in {n["id"] for n in nexts}:
         next_id = None
     readings, unjoined = ground_all(message, data, item, answerable, pairs)
-    if not reply and not readings and move != "later":
+    readings, unjoined = _spare_the_owner(memory_path, readings, unjoined, answerable)
+    if not reply and not readings and not unjoined and move != "later":
         # The model said nothing usable: the app keeps the question open and offers the person's own words.
         return {"reply": None, "readings": [], "unjoined": [], "move": "stay", "nextId": None, "engine": True}
     return {"reply": reply or None, "readings": [r.to_wire() for r in readings], "unjoined": unjoined, "move": move,

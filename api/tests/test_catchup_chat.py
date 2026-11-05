@@ -167,6 +167,20 @@ def test_the_resolver_carries_a_join_on_a_parted_pair_and_the_quote_is_kept(clie
     assert "handle-a" in (bank / "entities" / "person-b.md").read_text()
 
 
+def test_a_same_on_the_owners_page_is_never_applied_from_typed_words(bank, monkeypatch):
+    """Review of #637: the quote is real, but "I am <owner>" does not say the handle is the owner."""
+    from api.services import owner_identity
+
+    trio(bank)
+    monkeypatch.setattr(owner_identity, "owner_page_id", lambda *a, **k: "owner-x")
+    first = pair(bank, 1, "handle-a", "handle-a", "owner-x")
+    llm, _ = fake({"reply": "", "move": "next", "readings": [
+        {"item_id": first, "option_key": "same", "quote": "nothing to do with her"}]})
+    out = catchup_chat.turn(bank, first, TWO_PARTS, [], [], llm)
+    assert out["readings"] == []
+    assert [u["a"] for u in out["unjoined"]] == ["handle-a"], "the page's name, for the chat's line"
+
+
 def test_a_join_no_question_can_carry_is_named_and_closes_nothing(bank):
     # Both pairs have the owner as their subject, and a question they did not answer is never closed to carry it.
     trio(bank)
