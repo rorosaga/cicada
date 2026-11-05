@@ -23,6 +23,7 @@ enum AppleNotesReader {
     /// both out, so neither is ever posted in the dump.
     static let lockedMark = "cicada-locked"
     static let statsMark = "cicada-stats"
+    static let lockedNameMark = "cicada-locked-name"
 
     /// One batched script: every account → folder, properties fetched in BULK per folder (`id of every note of
     /// fld` is one Apple event for the whole folder, not five per note — a 217-note library blew a 30 s budget
@@ -38,18 +39,19 @@ enum AppleNotesReader {
     /// browses account → folder → notes (`notes_sync._ACCOUNT_FIELDS`); never part of a note's dedup key.
     ///
     /// G234 (owner: "locked notes must be unavailable to read") — every property of a note is asked through `whose
-    /// password protected is false`, evaluated inside Notes, so no event ever names a locked note's `plaintext`, `name`
-    /// or dates; filtering a bulk read afterwards would still have requested the body. Measured on macOS 27 on one
+    /// password protected is false`, evaluated inside Notes, so no event ever names a locked note's `plaintext` or
+    /// dates; filtering a bulk read afterwards would still have requested the body. Measured on macOS 27 on one
     /// throwaway note: the filter returns an unlocked note's text, and an empty match is an empty list, not an error.
-    /// A locked note gives only its id (`lockedMark` records), which is what lets the backend retire what it already
-    /// kept. The bulk lists are separate events, so the ids are read again last: if a note was locked, unlocked, added
+    /// A locked note gives only its id and name (`lockedMark`, `lockedNameMark`), which is what lets the backend retire
+    /// what it already kept. The bulk lists are separate events, so the ids are read again last: if a note was locked, unlocked, added
     /// or removed in between, the lists no longer line up and the folder waits for the next read rather than risk one
     /// note's text under another's id. A folder that cannot be read at all is counted (`statsMark`).
     ///
-    /// Measured 2026-11-04 on a throwaway note: **locking gives a note a new id**, while its name and both dates survive.
-    /// So what Cicada kept under the old id is found by those three instead: read here, hashed by `lockedKeys`, and
-    /// the name and dates never leave the app. A locked note's `plaintext` is returned in full while it is open in the
-    /// session and `password protected` stays true, which is why the filter is what keeps it out.
+    /// Measured 2026-11-04 on a throwaway note: **locking gives a note a new id**, while its name survives. So what
+    /// Cicada kept under the old id is found by the name: read here, hashed in `split` (`lockedKey`), and only the hash
+    /// leaves the app. A locked note's `plaintext` is returned in full while it is open in the session and `password
+    /// protected` stays true, which is why the filter is what keeps it out. The name is its own event and its own
+    /// `try`: a refusal there never costs the folder or the ids.
     static let script = """
     set FS to (ASCII character 30)
     set RS to (ASCII character 29)
@@ -66,12 +68,17 @@ enum AppleNotesReader {
             repeat with fld in folders of acc
                 try
                     set lockedIds to id of (every note of fld whose password protected is true)
-                    set lockedNames to name of (every note of fld whose password protected is true)
-                    set lockedCreated to creation date of (every note of fld whose password protected is true)
-                    set lockedModified to modification date of (every note of fld whose password protected is true)
-                    repeat with i from 1 to count of lockedIds
-                        set end of outList to "\(lockedMark)" & FS & (item i of lockedIds as string) & FS & (item i of lockedNames as string) & FS & (item i of lockedCreated as string) & FS & (item i of lockedModified as string)
+                    repeat with lockedId in lockedIds
+                        set end of outList to "\(lockedMark)" & FS & (lockedId as string)
                     end repeat
+                    if (count of lockedIds) > 0 then
+                        try
+                            set lockedNames to name of (every note of fld whose password protected is true)
+                            repeat with lockedName in lockedNames
+                                set end of outList to "\(lockedNameMark)" & FS & (lockedName as string)
+                            end repeat
+                        end try
+                    end if
                     set folderName to name of fld as string
                     set noteIds to id of (every note of fld whose password protected is false)
                     set noteNames to name of (every note of fld whose password protected is false)
@@ -155,12 +162,15 @@ enum AppleNotesReader {
         var foldersRead = 0, foldersFailed = 0
         let records = raw.components(separatedBy: recordSeparator).compactMap { record -> String? in
             var fields = record.components(separatedBy: fieldSeparator)
-            if fields.count == 5, fields[0] == lockedMark {
+            if fields.count == 2, fields[0] == lockedMark {
                 let id = fields[1].trimmingCharacters(in: .whitespacesAndNewlines)
                 if !id.isEmpty, !locked.contains(id) { locked.append(id) }
-                for key in [lockedKey(name: fields[2], when: fields[3]), lockedKey(name: fields[2], when: fields[4])]
-                where !lockedKeys.contains(key) {
-                    lockedKeys.append(key)
+                return nil
+            }
+            if fields.count == 2, fields[0] == lockedNameMark {
+                if !fields[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let key = lockedKey(name: fields[1])
+                    if !lockedKeys.contains(key) { lockedKeys.append(key) }
                 }
                 return nil
             }
@@ -178,10 +188,9 @@ enum AppleNotesReader {
         return (records.joined(separator: recordSeparator), accounts, locked, lockedKeys, foldersRead, foldersFailed)
     }
 
-    /// `notes_sync.locked_key`: a locked note's name with one of its dates, hashed, so the name never leaves the app.
-    static func lockedKey(name: String, when: String) -> String {
-        let text = name.trimmingCharacters(in: .whitespacesAndNewlines) + "\u{1F}"
-            + when.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// `notes_sync.locked_key`: a locked note's name, hashed, so the name never leaves the app.
+    static func lockedKey(name: String) -> String {
+        let text = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return SHA256.hash(data: Data(text.precomposedStringWithCanonicalMapping.utf8))
             .map { String(format: "%02x", $0) }.joined()
     }

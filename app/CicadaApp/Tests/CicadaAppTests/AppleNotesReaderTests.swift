@@ -57,10 +57,11 @@ final class AppleNotesReaderTests: XCTestCase {
             XCTAssertTrue(script.contains("set \(property == "id" ? "noteIds" : variable(property)) to \(property) of "
                                               + "(every note of fld whose password protected is false)"), property)
         }
-        // A locked note yields its id, name and dates, and never its text.
+        // A locked note yields its id and its name, and nothing else.
         let locked = script.components(separatedBy: .newlines).filter { $0.contains("whose password protected is true") }
-        XCTAssertEqual(locked.count, 4)
-        XCTAssertFalse(locked.contains { $0.contains("plaintext") || $0.contains(" body") })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        XCTAssertEqual(locked, ["set lockedIds to id of (every note of fld whose password protected is true)",
+                                "set lockedNames to name of (every note of fld whose password protected is true)"])
         XCTAssertFalse(script.contains(" body of "), "the HTML body is never asked for")
     }
 
@@ -83,17 +84,16 @@ final class AppleNotesReaderTests: XCTestCase {
         let fs = AppleNotesReader.fieldSeparator, rs = AppleNotesReader.recordSeparator
         let note = ["id-1", "alpha-project", "body", "c", "m", "Notes", "2026-11-01T10:00:00", "0", "iCloud"]
             .joined(separator: fs)
-        let lockedRecord = [AppleNotesReader.lockedMark, "id-locked", "canary-title", "created-day", "modified-day"]
-            .joined(separator: fs)
-        let raw = [lockedRecord, note, lockedRecord,
+        let lockedId = AppleNotesReader.lockedMark + fs + "id-locked"
+        let lockedName = AppleNotesReader.lockedNameMark + fs + "canary-title"
+        let raw = [lockedId, lockedName, note, lockedId, lockedName, AppleNotesReader.lockedNameMark + fs + " ",
                    AppleNotesReader.statsMark + fs + "3" + fs + "1"].joined(separator: rs)
         let parts = AppleNotesReader.split(raw)
         XCTAssertEqual(parts.locked, ["id-locked"])
         XCTAssertEqual(parts.foldersRead, 3)
         XCTAssertEqual(parts.foldersFailed, 1)
         XCTAssertEqual(parts.accounts, ["id-1": "iCloud"])
-        XCTAssertEqual(parts.lockedKeys, [AppleNotesReader.lockedKey(name: "canary-title", when: "created-day"),
-                                          AppleNotesReader.lockedKey(name: "canary-title", when: "modified-day")])
+        XCTAssertEqual(parts.lockedKeys, [AppleNotesReader.lockedKey(name: "canary-title")])
         XCTAssertFalse(parts.lockedKeys.joined().contains("canary-title"))
         XCTAssertFalse(parts.dump.contains("canary-title"))
         XCTAssertFalse(parts.dump.contains("id-locked"))
@@ -117,8 +117,8 @@ final class AppleNotesReaderTests: XCTestCase {
 
     /// The same bytes as `notes_sync.locked_key` (`test_locked_notes.py` pins this digest).
     func testALockedKeyMatchesTheBackendsHash() {
-        XCTAssertEqual(AppleNotesReader.lockedKey(name: " Caf\u{0065}\u{0301} note\n", when: " m1 "),
-                       "55a4b50e7caa56136c3c868f2f67a0508dce2c05267e178e6de99a3eefc57e46")
+        XCTAssertEqual(AppleNotesReader.lockedKey(name: " Caf\u{0065}\u{0301} note\n"),
+                       "1fc84b3abc2277e7d078a0b58f2dbf8e84f5d5d91e30059993db72f3e0999314")
     }
 
     func testThePageLineSaysTheCountAndIsAbsentAtZero() {

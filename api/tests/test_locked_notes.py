@@ -8,16 +8,23 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
+from datetime import date
+from pathlib import Path
 
 import pytest
 
 from api.services import (
     channel_items,
+    claims,
     evidence,
     history_index,
+    inbox_context,
     markdown_parser,
+    mcp_tools,
     notes_sync,
+    provenance,
     search_index,
+    search_service,
     sleep_cycle,
     sync_state,
 )
@@ -138,15 +145,19 @@ def test_a_sync_retires_a_stub_leaving_no_title_or_folder(memory):
     assert TITLE not in held and FOLDER not in held and "n-locked" not in held
 
 
-def test_a_note_locked_after_it_was_read_is_hidden_with_its_text_left_for_the_persons_call(memory):
-    run(notes_sync.sync_notes(memory, dump=_record("n-later", SECRET, name=TITLE)))
+def test_a_note_locked_after_it_was_read_leaves_episodes_and_its_text_waits_for_the_persons_call(memory):
+    run(notes_sync.sync_notes(memory, dump=_record("n-later", SECRET, name=TITLE, folder=FOLDER)))
     path = _episodes(memory)[0]
     result = run(notes_sync.sync_notes(memory, dump="", locked_ids=["n-later"]))
     assert result["retired"] == 1
     parsed = markdown_parser.parse(path)
-    assert SECRET in parsed.body   # destruction is the person's call
+    assert parsed.body.strip() == ""
+    assert parsed.frontmatter["title"] == notes_sync.LOCKED_TITLE
     assert parsed.frontmatter[evidence.LOCKED_NOTE_KEY] is True
     assert parsed.frontmatter["processed"] is True
+    kept = notes_sync.kept_path(memory, path.stem)
+    assert SECRET in kept.read_text(encoding="utf-8")   # destruction is the person's call
+    assert kept.suffix not in (".md", ".json", ".jsonl", ".yaml", ".yml")   # nothing that walks a bank's text reaches it
     assert evidence.source_document(memory, parsed.frontmatter["id"]) is None
     assert evidence.source_text(memory, parsed.frontmatter["id"]) is None
     assert "n-later" not in (memory / "sources" / "notes_index.json").read_text()
@@ -272,62 +283,166 @@ def test_a_retired_notes_words_leave_the_index_on_refresh_and_its_vectors_never_
 
 
 def test_a_note_locked_after_it_was_read_is_found_though_locking_gave_it_a_new_id(memory):
-    """Measured on real Notes: the id changes at the lock; the name and both dates do not."""
-    run(notes_sync.sync_notes(memory, dump=_record("id-before", SECRET, name=TITLE, modified="m1")))
+    """Measured on real Notes: the id changes at the lock; the name does not."""
+    run(notes_sync.sync_notes(memory, dump=_record("id-before", SECRET, name=TITLE)))
     path = _episodes(memory)[0]
-    keys = [notes_sync.locked_key(TITLE, "c1"), notes_sync.locked_key(TITLE, "m1")]
-    result = run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"], locked_keys=keys))
+    result = run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"], locked_keys=[notes_sync.locked_key(TITLE)]))
     assert result["retired"] == 1
     assert markdown_parser.parse(path).frontmatter[evidence.LOCKED_NOTE_KEY] is True
     assert not history_index.waits_for_model(markdown_parser.parse(path).frontmatter)
     assert TITLE not in (memory / "sources" / "notes_index.json").read_text()
 
 
-def test_an_episode_from_before_note_created_was_kept_is_found_by_its_modified_line(memory):
-    run(notes_sync.sync_notes(memory, dump=_record("id-before", SECRET, name=TITLE, modified="m1")))
-    path = _episodes(memory)[0]
-    parsed = markdown_parser.parse(path)
-    fm = dict(parsed.frontmatter)
-    fm.pop("note_created")
-    markdown_parser.write(path, fm, parsed.body)
-    result = run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"],
-                                       locked_keys=[notes_sync.locked_key(TITLE, "m1")]))
+def test_a_note_edited_before_it_was_locked_is_found_too(memory):
+    """The usual way a secret reaches a note: no date Cicada kept matches any more."""
+    run(notes_sync.sync_notes(memory, dump=_record("id-before", "before", name=TITLE, modified="an older day")))
+    result = run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"], locked_keys=[notes_sync.locked_key(TITLE)]))
     assert result["retired"] == 1
 
 
 def test_older_episodes_of_the_same_old_id_go_with_it(memory):
     run(notes_sync.sync_notes(memory, dump=_record("id-before", "first", name="Old title", modified="m1")))
     run(notes_sync.sync_notes(memory, dump=_record("id-before", SECRET, name=TITLE, modified="m2")))
-    result = run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"],
-                                       locked_keys=[notes_sync.locked_key(TITLE, "m2")]))
+    result = run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"], locked_keys=[notes_sync.locked_key(TITLE)]))
     assert result["retired"] == 2
 
 
-def test_a_different_note_with_the_same_title_stays(memory):
-    run(notes_sync.sync_notes(memory, dump=_record("other", "kept words", name=TITLE, modified="m9")))
-    fm = markdown_parser.parse(_episodes(memory)[0]).frontmatter
-    run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"],
-                              locked_keys=[notes_sync.locked_key(TITLE, "m1"), notes_sync.locked_key(TITLE, "c7")]))
-    fm = markdown_parser.parse(_episodes(memory)[0]).frontmatter
-    assert fm.get(evidence.LOCKED_NOTE_KEY) is None
-
-
-def test_the_keys_are_never_stored_and_the_stub_keeps_no_creation_date(memory):
-    key = notes_sync.locked_key(TITLE, "m1")
-    run(notes_sync.sync_notes(memory, dump=_record("id-before", "", name=TITLE, modified="m1"), locked_ids=[],
-                              locked_keys=[key]))
-    assert key not in _everything(memory)
-    run(notes_sync.sync_notes(memory, dump=_record("id-before", "text", name=TITLE, modified="m1")))
+def test_a_note_this_read_saw_unlocked_stays_whatever_its_title(memory):
+    run(notes_sync.sync_notes(memory, dump=_record("other", "kept words", name=TITLE)))
     path = _episodes(memory)[0]
-    parsed = markdown_parser.parse(path)
-    markdown_parser.write(path, dict(parsed.frontmatter), "# T\n\n")
-    notes_sync.retire_locked(memory, set())
-    assert "note_created" not in markdown_parser.parse(path).frontmatter
+    result = run(notes_sync.sync_notes(memory, dump=_record("other", "kept words", name=TITLE), locked_ids=["id-after"],
+                                       locked_keys=[notes_sync.locked_key(TITLE)]))
+    assert result["retired"] == 0 and result["skipped"] == 1
+    assert markdown_parser.parse(path).frontmatter.get(evidence.LOCKED_NOTE_KEY) is None
+
+
+def test_a_false_match_in_a_partial_read_comes_back_on_the_next_read(memory):
+    """A folder that waited this read looks like a gone note: same title, retired, then simply new when it is seen."""
+    run(notes_sync.sync_notes(memory, dump=_record("waiting", "its words", name=TITLE)))
+    run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"], locked_keys=[notes_sync.locked_key(TITLE)]))
+    result = run(notes_sync.sync_notes(memory, dump=_record("waiting", "its words", name=TITLE), locked_ids=["id-after"],
+                                       locked_keys=[notes_sync.locked_key(TITLE)]))
+    assert result["new"] == 1 and result["retired"] == 0
+
+
+def test_the_keys_are_never_stored(memory):
+    key = notes_sync.locked_key(TITLE)
+    run(notes_sync.sync_notes(memory, dump=_record("id-before", "words", name=TITLE), locked_ids=[], locked_keys=[key]))
+    assert key not in _everything(memory)
+    run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"], locked_keys=[key]))
+    assert key not in _everything(memory)
 
 
 def test_the_key_is_the_apps_hash_byte_for_byte():
     """`AppleNotesReaderTests.testALockedKeyMatchesTheBackendsHash` pins the same digest."""
-    import hashlib
+    digest = "1fc84b3abc2277e7d078a0b58f2dbf8e84f5d5d91e30059993db72f3e0999314"
+    assert notes_sync.locked_key(" Cafe\u0301 note\n") == digest
 
-    want = hashlib.sha256("Caf\u00e9 note\x1fm1".encode()).hexdigest()
-    assert notes_sync.locked_key(" Cafe\u0301 note\n", " m1 ") == want
+
+def test_an_episode_an_earlier_version_only_stamped_is_finished_before_sleep_reads_anything(memory):
+    run(notes_sync.sync_notes(memory, dump=_record("n-old", SECRET, name=TITLE, folder=FOLDER)))
+    path = _episodes(memory)[0]
+    parsed = markdown_parser.parse(path)
+    stamped = {**parsed.frontmatter, evidence.LOCKED_NOTE_KEY: True, "source_deleted_at": "2026-11-04T00:00:00Z"}
+    markdown_parser.write(path, stamped, parsed.body)
+    run(notes_sync.retire_stubs_safely(memory))
+    after = markdown_parser.parse(path)
+    assert after.body.strip() == "" and after.frontmatter["title"] == notes_sync.LOCKED_TITLE
+    assert after.frontmatter["source_deleted_at"] == "2026-11-04T00:00:00Z"
+    assert SECRET in notes_sync.kept_path(memory, path.stem).read_text(encoding="utf-8")
+
+
+def test_nothing_but_the_retirement_names_where_the_text_waits():
+    """The class guard: every other module reads `episodes/` and finds an empty record, so a new reader cannot leak."""
+    services = Path(__file__).resolve().parents[1]
+    named = [p.name for folder in ("services", "routers") for p in (services / folder).rglob("*.py")
+             if ("KEPT_DIRNAME" in p.read_text(encoding="utf-8") or "kept_path" in p.read_text(encoding="utf-8")
+                 or "locked_notes/" in p.read_text(encoding="utf-8"))]
+    assert named == ["notes_sync.py"]
+
+
+# --- Every door, after a note the bank had already read was locked -------------------------------------------------
+
+
+@pytest.fixture
+def read_then_locked(memory):
+    """A note read and cited by a claim and an inbox question, then locked under a new id."""
+    run(notes_sync.sync_notes(memory, dump=_record("id-before", f"{SECRET} is what this says", name=TITLE, folder=FOLDER)))
+    path = _episodes(memory)[0]
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, {**parsed.frontmatter, "processed": True, "processed_by": "sleep"}, parsed.body)
+    ep = path.stem
+    span = evidence.verify(memory, ep, SECRET)
+    assert span.is_span() and span.start == parsed.body.index(SECRET)
+    claim = claims.Claim(id="c-one", text="a safe summary", subject="alpha-project", evidence=[span])
+    page = memory / "entities" / "alpha-project.md"
+    markdown_parser.write(page, {"id": "alpha-project", "name": "Alpha project", "type": "project", "status": "active",
+                                 "source_episodes": [ep]}, claims.write_claims("Alpha project.\n", [claim]))
+    (memory / "inbox").mkdir(exist_ok=True)
+    markdown_parser.write(memory / "inbox" / "q-one.md",
+                          {"id": "q-one", "kind": "clarification", "status": "pending", "entity_id": "alpha-project",
+                           "entity_name": "Alpha project", "source_episode": ep, "question": "Which one?"}, "Which one?\n")
+    if search_index.fts5_available():
+        search_index.rebuild(memory)
+    run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"], locked_keys=[notes_sync.locked_key(TITLE)]))
+    return memory, ep, page
+
+
+def _clean(value) -> None:
+    text = value if isinstance(value, str) else json.dumps(value, default=str, ensure_ascii=False)
+    for canary in (SECRET, TITLE, FOLDER):
+        assert canary not in text
+
+
+def test_the_words_exist_only_in_the_kept_file(read_then_locked):
+    memory, ep, _page = read_then_locked
+    holders = [p.relative_to(memory).as_posix() for p in memory.rglob("*")
+               if p.is_file() and ".git" not in p.parts and not p.name.startswith("search_index")
+               and (SECRET in (text := p.read_text(encoding="utf-8", errors="replace")) or TITLE in text)]
+    assert holders == [f"sources/{notes_sync.KEPT_DIRNAME}/{ep}{notes_sync.KEPT_SUFFIX}"]
+
+
+def test_the_reader_and_the_card_read_nothing(read_then_locked):
+    memory, ep, page = read_then_locked
+    assert provenance.episode_document(memory, ep) is None
+    _clean(repr(provenance.entity_provenance(memory, page)))
+    _clean(repr(provenance.episode_citations(memory, ep)))
+
+
+def test_an_inbox_card_reads_nothing(read_then_locked):
+    memory, ep, _page = read_then_locked
+    ctx = inbox_context.InboxContext(memory, today=date(2026, 11, 5))
+    indexed = ctx.episode(ep)
+    assert ctx._body(indexed).strip() == ""
+    _clean(str(ctx._excerpt(indexed, ep, None, TITLE, "alpha-project")))
+
+
+@pytest.mark.skipif(not search_index.fts5_available(), reason="no FTS5")
+def test_search_finds_nothing_at_once_with_no_wait_for_the_index(read_then_locked):
+    memory, _ep, _page = read_then_locked
+    conn = search_index._open(search_index.db_path(memory))
+    try:
+        assert conn.execute("SELECT doc_key FROM docs WHERE doc_key LIKE 'episodes/%'").fetchall() == []
+    finally:
+        conn.close()
+    for query in (SECRET, TITLE):
+        found = search_service.search(memory, query, kinds=("entity", "episode"), mode="lexical", vectors=False)
+        _clean(repr(found))
+
+
+def test_the_vectors_are_dropped_at_the_retirement_not_at_the_next_sleep(memory, monkeypatch):
+    from api.services import vector_index
+
+    asked = []
+    monkeypatch.setattr(vector_index, "forget_passages", lambda bank, values, episodes: asked.append((values, episodes)))
+    run(notes_sync.sync_notes(memory, dump=_record("id-before", SECRET, name=TITLE)))
+    stem = _episodes(memory)[0].stem
+    run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-before"]))
+    assert asked == [((), (stem,))]
+
+
+def test_mcp_sources_says_locked(read_then_locked):
+    memory, ep, _page = read_then_locked
+    ctx = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="ses_l", harness="claude-code")
+    _clean(str(mcp_tools.sources(ctx, ep)))
+    _clean(str(mcp_tools.recall_detail(ctx, "alpha-project")))

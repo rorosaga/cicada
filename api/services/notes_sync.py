@@ -71,6 +71,9 @@ ORIGIN = "apple-notes"
 LOCKED_COUNT_KEY = "locked"
 #: What a retired stub is titled, since its own title is exactly what must not stay.
 LOCKED_TITLE = "Locked note"
+#: What an episode held from before its note was locked, moved out of `episodes/` (`kept_path`).
+KEPT_DIRNAME = "locked_notes"
+KEPT_SUFFIX = ".locked"
 #: Everything a retired stub keeps: the record that an episode existed, and none of what named it.
 _STUB_KEEPS = ("id", "timestamp", "received_at", "source", "origin", "processed", "processed_by")
 #: Serialises the Notes index between a sync and Sleep's retirement in its worker thread.
@@ -223,8 +226,6 @@ def _write_note_episode(episodes_dir: Path, note: NoteRecord) -> str:
         "note_id": note.note_id,
         "folder": note.folder or None,
         "account": note.account or None,
-        # G234: the note's own creation date survives a lock, as its id does not (`locked_key`).
-        "note_created": note.created or None,
         # Folder name as a tag hint for the Sleep extractor/entity tagging —
         # mirrors bookmark_sync tagging synced items with their origin.
         "tags": [note.folder] if note.folder else [],
@@ -240,6 +241,8 @@ def _write_note_episode(episodes_dir: Path, note: NoteRecord) -> str:
 class Retired:
     #: memory-relative paths written, for a scoped commit.
     paths: list[str] = field(default_factory=list)
+    #: the episode ids retired.
+    episodes: list[str] = field(default_factory=list)
     #: stubs emptied of their title and folder.
     stubs: int = 0
     #: episodes that hold the note's text from before it was locked: hidden everywhere, the text left in place. Whether
@@ -256,29 +259,12 @@ def locked_count(memory_path: Path) -> int:
         return 0
 
 
-def locked_key(name: str, when: str) -> str:
-    """A locked note's name with one of its dates, hashed (`AppleNotesReader.lockedKey`, the same bytes). Measured
-    2026-11-04: locking gives a note a new id while its name and both dates survive, so this is what finds an episode
-    kept under the id it had before. The app hashes it, so a name never travels."""
-    text = f"{(name or '').strip()}\x1f{(when or '').strip()}"
-    return hashlib.sha256(unicodedata.normalize("NFC", text).encode()).hexdigest()
-
-
-def _modified_line(body: str) -> str:
-    for line in (body or "").splitlines()[:6]:
-        if line.startswith("**Modified:**"):
-            return line.removeprefix("**Modified:**").strip()
-    return ""
-
-
-def _keys_of(fm: dict, body: str) -> set[str]:
-    """What identifies a kept episode's note without its id: its title with the modified date in its body, and, on an
-    episode written since this was added, with its creation date."""
-    title = str(fm.get("title") or "")
-    keys = {locked_key(title, _modified_line(body))}
-    if fm.get("note_created"):
-        keys.add(locked_key(title, str(fm["note_created"])))
-    return keys
+def locked_key(name: str) -> str:
+    """A locked note's name, hashed (`AppleNotesReader.lockedKey`, the same bytes), so the name never leaves the app.
+    Measured 2026-11-04: locking gives a note a new id and its name survives, so this finds an episode kept under the
+    id it had before. Not its dates: they would miss a note edited before the lock (the usual way a secret gets into
+    one), and the stored date is a string in the locale and time zone of the read that wrote it."""
+    return hashlib.sha256(unicodedata.normalize("NFC", (name or "").strip()).encode()).hexdigest()
 
 
 def is_stub(body: str) -> bool:
@@ -292,29 +278,43 @@ def is_stub(body: str) -> bool:
     return not lines
 
 
-def _retire_file(path: Path, at: str, out: Retired) -> bool:
-    """Retire one episode, under the episode lock: never unlinked, never read again. A stub keeps no title, folder or
-    note id (git still holds its earlier version until the person decides otherwise); an episode with text is
-    stamped only. Returns whether it changed."""
+def kept_path(memory_path: Path, stem: str) -> Path:
+    """Where an episode's text from before its note was locked waits for the person's decision. Not an episode and no
+    `.md`, so no reader, index or bank walk reaches it; `api/tests/test_locked_notes.py` fails if another module names it."""
+    return Path(memory_path) / "sources" / KEPT_DIRNAME / f"{stem}{KEPT_SUFFIX}"
+
+
+def _retire_file(memory_path: Path, path: Path, at: str, out: Retired) -> bool:
+    """Retire one episode, under the episode lock: the file stays, as an empty record with no title, folder or note id,
+    so its id is never reused and whatever cites it finds nothing. Text from before the lock moves whole to
+    `kept_path`, because destroying it is the person's call and every reader of `episodes/` must find it gone (git
+    still holds the earlier versions either way). Also finishes an episode an earlier version only stamped. Returns
+    whether it changed."""
     with episode_ids.episode_lock(path.parent):
         parsed = markdown_parser.parse(path)
         fm = dict(parsed.frontmatter or {})
-        if fm.get(evidence.LOCKED_NOTE_KEY):
-            return False
         stub = is_stub(parsed.body)
-        if stub:
-            fm = {key: fm[key] for key in _STUB_KEEPS if key in fm}
-            fm["title"] = LOCKED_TITLE
-        if not fm.get("processed"):
-            fm["processed"] = True
-            fm["processed_by"] = history_index.INDEXED_BY
-        fm[evidence.LOCKED_NOTE_KEY] = True
-        fm["source_deleted_at"] = at
-        markdown_parser.write(path, fm, "" if stub else parsed.body)
+        if fm.get(evidence.LOCKED_NOTE_KEY) and stub:
+            return False
+        kept = None
+        if not stub:
+            kept = kept_path(memory_path, path.stem)
+            kept.parent.mkdir(parents=True, exist_ok=True)
+            markdown_parser.write(kept, fm, parsed.body)
+        retired_at = fm.get("source_deleted_at") if fm.get(evidence.LOCKED_NOTE_KEY) else None
+        record = {key: fm[key] for key in _STUB_KEEPS if key in fm}
+        record["title"] = LOCKED_TITLE
+        if not record.get("processed"):
+            record["processed"] = True
+            record["processed_by"] = history_index.INDEXED_BY
+        record[evidence.LOCKED_NOTE_KEY] = True
+        record["source_deleted_at"] = retired_at or at
+        markdown_parser.write(path, record, "")
     out.paths.append(f"episodes/{path.name}")
-    if stub:
+    if kept is None:
         out.stubs += 1
     else:
+        out.paths.append(kept.relative_to(memory_path).as_posix())
         out.with_text += 1
     return True
 
@@ -334,39 +334,52 @@ def _forget_in_index(memory_path: Path, retired_ids: set[str], note_ids: set[str
     return bool(gone)
 
 
-def retire_locked(memory_path: Path, note_ids: set[str], keys: set[str] | None = None) -> Retired:
+def retire_locked(memory_path: Path, note_ids: set[str], keys: set[str] | None = None,
+                  unlocked_ids: set[str] | None = None) -> Retired:
     """Retire every episode of these notes, and every Notes episode with no text. Keyed on the episodes' own `note_id`,
-    not the index, which points only at a note's latest episode; `keys` (`locked_key`) find an episode kept under the
-    id the note had before it was locked, and with it every episode of that older id. Pure files; the caller commits
-    `paths`."""
+    not the index, which points only at a note's latest episode. `keys` (`locked_key`) find an episode kept under the
+    id the note had before it was locked, and with it every episode of that older id; a note this same read saw
+    unlocked (`unlocked_ids`) is never one of them, however its title reads. Pure files; the caller commits `paths`."""
     memory_path = Path(memory_path)
     out = Retired()
     at = episode_ids.utc_now_seconds()
     retired_ids: set[str] = set()
-    live = [f for f in bank_index.files(memory_path, "episodes")
-            if (f.frontmatter or {}).get("origin") == ORIGIN and not (f.frontmatter or {}).get(evidence.LOCKED_NOTE_KEY)]
+    notes = [f for f in bank_index.files(memory_path, "episodes") if (f.frontmatter or {}).get("origin") == ORIGIN]
     note_ids = set(note_ids)
-    if keys:
-        for f in live:
-            fm = f.frontmatter or {}
-            older_id = str(fm.get("note_id") or "")
-            try:
-                if older_id and older_id not in note_ids and _keys_of(fm, f.body()) & keys:
-                    note_ids.add(older_id)
-            except Exception as exc:  # noqa: BLE001 — one unreadable file never stops the rest
-                logger.warning(f"Notes: could not read an episode: {type(exc).__name__}")
-    for f in live:
+    for f in notes:
+        fm = f.frontmatter or {}
+        older_id = str(fm.get("note_id") or "")
+        if keys and older_id and older_id not in (unlocked_ids or ()) and locked_key(str(fm.get("title") or "")) in keys:
+            note_ids.add(older_id)
+    for f in notes:
         fm = f.frontmatter or {}
         try:
             if str(fm.get("note_id") or "") not in note_ids and not is_stub(f.body()):
-                continue
-            if _retire_file(f.path, at, out):
+                # An episode stamped by an earlier version keeps its text: finished here, whatever the post named.
+                if not fm.get(evidence.LOCKED_NOTE_KEY):
+                    continue
+            if _retire_file(memory_path, f.path, at, out):
                 retired_ids.add(str(fm.get("id") or f.path.stem))
+                out.episodes.append(f.path.stem)
         except Exception as exc:  # noqa: BLE001 — one unreadable file never stops the rest
             logger.warning(f"Notes: could not retire an episode: {type(exc).__name__}")
     if _forget_in_index(memory_path, retired_ids, note_ids):
         out.paths.append(f"sources/{NOTES_INDEX_FILENAME}")
     return out
+
+
+def _forget_derived(memory_path: Path, retired: Retired) -> None:
+    """The retired words leave both derived indexes now: the words index would serve its rows for a few seconds and
+    the vectors keep theirs until Sleep's next whole sync (`vector_index._without_locked_notes` holds until then if
+    this fails). Never raises: a disposable index is never the reason a retirement fails."""
+    from api.services import search_index, vector_index
+
+    try:
+        search_index.ensure_fresh(Path(memory_path), wait=True, max_age_s=0)
+        if retired.episodes:
+            vector_index.forget_passages(Path(memory_path), (), tuple(retired.episodes))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Notes: could not clear a retired note from an index: {type(exc).__name__}")
 
 
 async def _commit_retired(memory_path: Path, paths: list[str], author: str, trigger: str) -> None:
@@ -388,6 +401,7 @@ async def retire_stubs_safely(memory_path: Path) -> None:
         retired = await asyncio.to_thread(retire_locked, memory_path, set())
         if retired.paths:
             logger.info(f"Notes: {retired.stubs} locked note stub(s) retired before reading")
+            await asyncio.to_thread(_forget_derived, memory_path, retired)
             await _commit_retired(memory_path, retired.paths, "cicada", "sleep/locked_notes")
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Notes: retiring locked stubs failed: {type(exc).__name__}")
@@ -436,9 +450,11 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
     memory_path = Path(memory_path)
     flagged = {str(i).strip() for i in (locked_ids or []) if str(i).strip()}
     readable: list[NoteRecord] = []
+    unlocked_ids: set[str] = set()
     for note in parse_notes_dump(dump):
         if note.note_id in flagged:
             continue
+        unlocked_ids.add(note.note_id)
         if not note.body.strip():
             if locked_ids is None and note.note_id:
                 flagged.add(note.note_id)
@@ -447,9 +463,10 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
     notes = readable
     locked_found = len(flagged)
     keys = {str(k) for k in (locked_keys or []) if k}
-    retired = retire_locked(memory_path, flagged, keys) if flagged or keys else Retired()
+    retired = retire_locked(memory_path, flagged, keys, unlocked_ids) if flagged or keys else Retired()
     if retired.paths:
         logger.info(f"Notes: {len(retired.paths)} path(s) retired for locked notes")
+        await asyncio.to_thread(_forget_derived, memory_path, retired)
         try:
             await _commit_retired(memory_path, retired.paths, "user", "user/notes_sync")
         except Exception as e:
