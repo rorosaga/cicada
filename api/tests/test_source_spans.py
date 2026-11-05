@@ -261,3 +261,18 @@ def test_the_demo_cites_every_kind_to_its_words(tmp_path):
             seen.setdefault(spans.source_kind, set()).update(s.status for s in group.spans)
     assert {"note", "meeting", "book", "save", "conversation", "page"} <= set(seen), seen
     assert {CURRENT, STALE, HELD} <= seen["note"], seen
+
+
+def test_a_page_removed_since_the_index_was_read_cites_nothing(memory, monkeypatch):
+    """Review of #624: the index names a page the bank no longer holds, which answered a 500."""
+    real = source_spans._bank
+
+    def stale(path):
+        bank = real(path)
+        bank.citing[NOTE_ID] = [*bank.citing.get(NOTE_ID, ()), "gone-example.md"]
+        return bank
+
+    monkeypatch.setattr(source_spans, "_bank", stale)
+    found = source_spans.for_source(memory, NOTE_ID)
+    assert found is not None
+    assert "gone-example" not in repr(found)

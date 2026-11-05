@@ -319,7 +319,9 @@ def for_source(memory_path: Path, doc_id: str) -> SourceSpans | None:
     groups: list[SourceSpanGroup] = []
     directory = Path(memory_path) / "entities"
     for name in bank.citing.get(doc_id, ()):
-        page = bank.pages[name]
+        page = bank.pages.get(name)   # A page removed since the index was read cites nothing now.
+        if page is None:
+            continue
         if page.rows is None:
             _parse_rows(page, directory / name)
         rows = page.rows.get(doc_id)

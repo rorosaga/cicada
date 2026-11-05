@@ -66,7 +66,8 @@ async def get_episode_span(
     override = authorship.of(fm)
     gaps = evidence.gap_ranges(fm, text) if is_episode else ()   # gate B2: from the episode's own record
     # ROR-16 (G235): the words a hover preview shows. Held, or beside what is held, they stay out of it.
-    held = source_spans.Source.of(episode_id, fm, text).held
+    # Off the loop: the sensitive scan behind `held` takes about a second on a 1.5M-character source.
+    held = (await run_in_threadpool(source_spans.Source.of, episode_id, fm, text)).held
     before, after = text[max(0, start - context):start], text[end:end + context]
     is_held = source_spans.overlaps_held(start, end, held)
     if source_spans.overlaps_held(max(0, start - context), start, held):

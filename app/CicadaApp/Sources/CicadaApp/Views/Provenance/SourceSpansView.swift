@@ -114,8 +114,10 @@ struct SourceSpansView<Pinned: View, Below: View>: View {
         let label: String
         init(block: ReaderBlock) {
             id = block.id
-            label = block.showsTurnNumber ? Copy.Provenance.rotorLabel(speaker: block.speaker, turn: block.index)
-                                          : block.speaker
+            // A note, a book or a save has no speaker: VoiceOver reads its place, never a blank stop.
+            label = block.speaker.isEmpty ? Copy.Provenance.rotorPassage(block.index)
+                : block.showsTurnNumber ? Copy.Provenance.rotorLabel(speaker: block.speaker, turn: block.index)
+                : block.speaker
         }
         init(message: ReaderChat.Message) {
             id = message.block.id

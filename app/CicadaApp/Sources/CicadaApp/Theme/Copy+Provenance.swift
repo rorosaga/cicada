@@ -98,6 +98,7 @@ extension Copy {
             return "\(title) (\(UsageFormat.count(count)))"
         }
         /// A rotor entry's words, composed here so no `Text(` line interpolates a count (R-DI23).
+        static func rotorPassage(_ n: Int) -> String { "Passage \(n)" }
         static func rotorLabel(speaker: String, turn n: Int) -> String { "\(speaker), \(turn(n))" }
         /// A turn's accessibility label: who spoke, which turn, the words.
         static func turnLabel(speaker: String, turn n: Int, text: String) -> String {
