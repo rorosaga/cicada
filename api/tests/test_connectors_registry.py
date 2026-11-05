@@ -65,7 +65,8 @@ def test_every_connector_module_is_registered_in_adapters():
         if not info.ispkg
     }
     # tier2: the ruling-47 framework; github_auth: GitHub's sign-in by a code (G230), the github adapter's own.
-    non_adapter_modules = {"base", "tier2", "github_auth"}
+    # notion_mcp: Notion's sign-in and MCP reader, the notion adapter's own.
+    non_adapter_modules = {"base", "tier2", "github_auth", "notion_mcp"}
     expected_adapter_modules = module_names - non_adapter_modules
 
     registered_modules = {

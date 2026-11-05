@@ -204,8 +204,11 @@ enum SourceCatalog {
     /// the Agents page holds them — one per agent whose conversations the overview lists.
     static func entries(browsers: [BrowserSpec], wisprPresent: Bool, hexPresent: Bool = false,
                         meetingFolders: [FolderRegistration] = [],
-                        overview: [SourceOverview]) -> [SourceCatalogEntry] {
-        var all = fixed
+                        overview: [SourceOverview], channels: [SourceChannel] = []) -> [SourceCatalogEntry] {
+        // Owner 2026-11-05: a Telegram bot needs a token the person would have to paste into a file, so its tile shows
+        // only for a bot already set up; one that is keeps its row.
+        let botSetUp = channels.contains { $0.id == "telegram" && $0.connected }
+        var all = fixed.filter { $0.id != "telegram" || botSetUp }
         let browserEntries = browsers.map { spec in
             SourceCatalogEntry(id: browserPrefix + spec.id, group: .thisMac, category: .browsers, title: spec.name,
                                origin: spec.origin,

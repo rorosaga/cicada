@@ -7,6 +7,9 @@ extension Copy {
         static let back = "Back"
         static let continueStep = "Continue"
         static let connect = "Connect"
+        static func connect(_ label: String) -> String { "Connect \(label)" }
+        /// Where a source with no sign-in comes in instead (owner 2026-11-05: no token, key or password is asked for).
+        static let noSignIn = "No sign-in here. Use your browser or a file."
         static let done = "Done"
         static let whatItReads = "What Cicada reads"
         static let phonePrompt = "Phone number"

@@ -365,7 +365,7 @@ def test_the_connect_area_for_each_source(api, memory):
     assert spotify["primary"] is None and set(_by_kind(spotify)) == {"file"} and spotify["recommended"] == "file"
     assert {n["kind"] for n in spotify["notOffered"]} == {"account", "browser"}
     reddit_area = by["reddit"]
-    assert reddit_area["primary"] is None and reddit_area["ownApp"] is True and reddit_area["recommended"] == "browser"
+    assert reddit_area["primary"] is None and reddit_area["ownApp"] is False and reddit_area["recommended"] == "browser"
     assert set(_by_kind(reddit_area)) == {"browser", "file"}
     assert _by_kind(reddit_area)["file"]["requestUrl"] == "https://www.reddit.com/settings/data-request"
     assert set(_by_kind(by["pinterest"])) == {"browser"}

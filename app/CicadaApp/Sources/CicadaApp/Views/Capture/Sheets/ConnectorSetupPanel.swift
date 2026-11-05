@@ -4,42 +4,27 @@ import SwiftUI
 /// The pure copy decisions, hoisted so they are testable without SwiftUI.
 enum ConnectorSetupState {
 
-    /// Where the user is in a two-step OAuth setup, or "Connected".
-    static func stepLabel(_ status: ConnectorStatus) -> String {
+    /// The one thing a not-connected panel offers (owner 2026-11-05: nothing is asked for a token, a key or a
+    /// password): a browser sign-in, or, when the backend has none for it, nothing but a line.
+    enum Action: Equatable {
+        case none, connect, signInAgain
+    }
+
+    static func action(_ status: ConnectorStatus) -> Action {
+        guard !status.connected, status.appSignIn == true else { return .none }
+        return status.reconnect == true || status.how == "reconnect" ? .signInAgain : .connect
+    }
+
+    /// The panel's first line: "Connected", or, with no sign-in to offer, where the source comes in instead.
+    static func stepLabel(_ status: ConnectorStatus) -> String? {
         if status.connected { return "Connected" }
-        if status.isTokenConnector { return "Paste your own token" }
-        guard status.isOAuth else { return "Enter your app credentials" }
-        let allPresent = !status.fields.isEmpty && status.fields.allSatisfy(\.present)
-        return allPresent
-            ? "Step 2 of 2 — authorize in your browser"
-            : "Step 1 of 2 — save your app keys"
+        return action(status) == .none ? Copy.Connect.noSignIn : nil
     }
 
-    /// The step's one primary action (owner 2026-10-29, the connect sheets): a token connector connects on save; an
-    /// OAuth connector saves its keys, then — keys saved and nothing new typed — authorizes in the browser.
-    enum Primary: Equatable {
-        case connect, saveKeys, authorize
-
-        var title: String {
-            switch self {
-            case .connect: Copy.Connect.connect
-            case .saveKeys: Copy.Connect.continueStep
-            case .authorize: "Authorize in your browser"
-            }
-        }
-    }
-
-    static func primaryAction(_ status: ConnectorStatus, draftsEmpty: Bool) -> Primary {
-        if status.needsAuthorization && draftsEmpty { return .authorize }
-        return status.isTokenConnector ? .connect : .saveKeys
-    }
-
-    /// Ruling 47 tier 2's words, said once (owner 2026-11-03: "this text is extremely unnecessary in all pages that
-    /// have it, remove it"): what it reads, and — until it is connected — where the token comes from, on one line.
+    /// Ruling 47 tier 2's words, said once and before anything is connected (owner 2026-11-03): what it reads.
     static func readsLine(_ status: ConnectorStatus) -> String? {
-        let help = status.connected ? nil : status.tokenHelp.map { "Get a token at \($0)." }
-        let parts = [status.reads, help].compactMap { $0 }.filter { !$0.isEmpty }
-        return parts.isEmpty ? nil : parts.joined(separator: " ")
+        guard let reads = status.reads, !reads.isEmpty else { return nil }
+        return reads
     }
 
     /// What a "Sync now" press actually did — never a bare "done".
@@ -74,7 +59,6 @@ struct ConnectorSetupPanel: View {
     @Environment(Store.self) private var store
 
     @State private var status: ConnectorStatus?
-    @State private var drafts: [String: String] = [:]
     @State private var busy = false
     @State private var message: String?
     @State private var error: String?
@@ -99,9 +83,11 @@ struct ConnectorSetupPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             if let status {
-                Text(ConnectorSetupState.stepLabel(status))
-                    .font(CicadaTheme.font(size: 12, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textPrimary)
+                if let label = ConnectorSetupState.stepLabel(status) {
+                    Text(label)
+                        .font(CicadaTheme.font(size: 12, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                }
 
                 if let detail = status.detail ?? status.lastError {
                     Text(detail)
@@ -110,7 +96,7 @@ struct ConnectorSetupPanel: View {
                                          ? CicadaTheme.textSecondary : CicadaTheme.danger)
                 }
 
-                // Ruling 47 tier 2: what it reads is said in words before anything is saved, and stays said.
+                // Ruling 47 tier 2: what it reads is said in words before anything is connected, and stays said.
                 if let reads = ConnectorSetupState.readsLine(status) {
                     Text(reads)
                         .font(CicadaTheme.captionFont)
@@ -129,13 +115,9 @@ struct ConnectorSetupPanel: View {
                             .disabled(busy)
                     }
                 } else {
-                    ForEach(status.fields) { field in
-                        credentialRow(field)
-                    }
-                    // The connect sheets' one shape (DESIGN_RULES §9, 2026-10-29): one primary per step — save the
-                    // keys or token, or, once saved, authorize — and a quiet "Check status" while a browser finishes.
-                    let draftsEmpty = drafts.values.allSatisfy { $0.isEmpty }
-                    let primary = ConnectorSetupState.primaryAction(status, draftsEmpty: draftsEmpty)
+                    // The one action is the browser sign-in (DESIGN_RULES §9, 2026-10-29: one primary), and a quiet
+                    // "Check status" while the browser finishes. No field is drawn: nothing here takes a secret.
+                    let action = ConnectorSetupState.action(status)
                     HStack(spacing: CicadaTheme.spacingSM) {
                         if awaitingAuthorization {
                             TextButton(title: "Check status", flushLeading: true) { Task { await checkStatus() } }
@@ -143,12 +125,14 @@ struct ConnectorSetupPanel: View {
                                 .accessibilityLabel("Check whether \(status.label) finished connecting")
                         }
                         Spacer(minLength: CicadaTheme.spacingSM)
-                        PrimaryActionButton(title: primary.title) {
-                            Task { primary == .authorize ? await authorize() : await save() }
+                        if action != .none {
+                            let title = action == .signInAgain ? Copy.SourceLayout.reconnect
+                                                               : Copy.Connect.connect(status.label)
+                            // No return shortcut: this panel also sits inline on a source's detail, where it is the page's.
+                            PrimaryActionButton(title: title) { Task { await authorize() } }
+                                .disabled(busy)
+                                .accessibilityLabel(title)
                         }
-                        // No ⏎ shortcut: this panel also sits inline on a source's detail, where ⏎ is the page's.
-                        .disabled(busy || (primary != .authorize && draftsEmpty))
-                        .accessibilityLabel(primary == .authorize ? "Authorize Cicada with \(status.label)" : primary.title)
                     }
                 }
             } else {
@@ -181,56 +165,10 @@ struct ConnectorSetupPanel: View {
         }
     }
 
-    @ViewBuilder
-    private func credentialRow(_ field: ConnectorField) -> some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            Text(field.label)
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .frame(width: 120, alignment: .leading)
-            if field.secret {
-                SecureField(field.present ? "Saved — paste to replace" : "Paste value",
-                            text: binding(for: field))
-                    .textFieldStyle(.roundedBorder)
-            } else {
-                TextField(field.present ? "Saved — type to replace" : "Paste value",
-                          text: binding(for: field))
-                    .textFieldStyle(.roundedBorder)
-            }
-        }
-        .accessibilityLabel("\(field.label), \(field.present ? "saved" : "not saved")")
-    }
-
-    private func binding(for field: ConnectorField) -> Binding<String> {
-        Binding(get: { drafts[field.name] ?? "" },
-                set: { drafts[field.name] = $0 })
-    }
-
     private func load() async {
         do {
             let all = try await APIClient.shared.fetchConnectors()
             status = all.first { $0.id == connectorId }
-        } catch {
-            self.error = AddSourceSheet.friendlyError(error)
-        }
-    }
-
-    private func save() async {
-        busy = true
-        defer { busy = false }
-        let filled = drafts.filter { !$0.value.trimmingCharacters(in: .whitespaces).isEmpty }
-        guard !filled.isEmpty else { return }
-        do {
-            status = try await APIClient.shared.saveConnectorCredentials(connectorId, fields: filled)
-            drafts = [:]
-            message = "Saved."
-            error = nil
-            // Fix round 1, M2 (app side): the backend now bumps
-            // sync_state.json on a credential save, so the SSE version
-            // vector will eventually catch up — this makes the Feed page's
-            // channel badge reflect it immediately instead of waiting on
-            // the next poll tick.
-            await store.refresh([.channels])
         } catch {
             self.error = AddSourceSheet.friendlyError(error)
         }

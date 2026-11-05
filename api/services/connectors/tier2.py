@@ -99,8 +99,20 @@ async def http_transport(method: str, url: str, *, headers: dict, params: dict |
         try:
             body = resp.json()
         except ValueError:
-            body = None
+            body = _event_stream_message(resp.text) if "event-stream" in resp.headers.get("content-type", "") else None
     return Response(resp.status_code, body, {k.lower(): v for k, v in resp.headers.items()})
+
+
+def _event_stream_message(text: str) -> Any:
+    """The last JSON message of a ``text/event-stream`` reply (an MCP server may answer a POST that way)."""
+    found: Any = None
+    for line in text.splitlines():
+        if line.startswith("data:"):
+            try:
+                found = json.loads(line[5:].strip())
+            except ValueError:
+                continue
+    return found
 
 
 class Client:
@@ -114,12 +126,14 @@ class Client:
         self._transport = transport or getattr(adapter, "TRANSPORT", None) or http_transport
         self._sleep = sleep
         self.requests = 0
+        #: The headers of the latest reply (an MCP session id rides one).
+        self.last_headers: dict = {}
 
     async def request(self, method: str, path: str, *, params: dict | None = None, json: dict | None = None,
                       headers: dict | None = None) -> Any:
         base_url = self.adapter.API_BASE
         url = path if path.startswith("https://") else base_url + path
-        if not url.startswith(base_url):
+        if not url.startswith((base_url, *getattr(self.adapter, "ALSO_ALLOWED", ()))):
             raise base.ConnectorError(f"{self.adapter.LABEL}: a request off its own host was refused")
         headers = {**self.adapter.auth_headers(self._token), **(headers or {})}
         for attempt in (1, 2):
@@ -127,6 +141,7 @@ class Client:
             resp = self._transport(method, url, headers=headers, params=params, json=json)
             if inspect.isawaitable(resp):
                 resp = await resp
+            self.last_headers = dict(resp.headers or {})
             if resp.status == 429 and attempt == 1:
                 await (self._sleep or wait)(_retry_after(resp.headers))
                 continue

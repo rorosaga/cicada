@@ -64,8 +64,7 @@ TIKTOK_NO_ACCOUNT = ("TikTok's API gives an app your profile and your own public
 INSTAGRAM_NO_ACCOUNT = ("Instagram's API serves business and creator accounts only, and returns no saved or liked "
                         "posts for any account.")
 PINTEREST_OWN_APP = ("Pinterest has no sign-in an app can use without a server: its sign-in needs an app secret, and "
-                     "apps registered since 14 September 2026 can't read a personal account's boards. A Pinterest app "
-                     "you registered before then can connect under “Use your own app”.")
+                     "apps registered since 14 September 2026 can't read a personal account's boards.")
 PINTEREST_FILE = ("Pinterest's data download (Settings → Privacy and data → Request your data) isn't read yet: "
                   "Pinterest doesn't document what it holds, so Cicada can't read it until one has been looked at.")
 
@@ -185,7 +184,7 @@ def recommended(primary: dict | None, ways: list[dict]) -> str:
 def describe(source_id: str, memory_path: Path) -> dict | None:
     """One source's connect area: ``state``, the ``primary`` action (``connect`` · ``reconnect`` · ``connected``, or
     null), one ``line``, the ``ways`` (``browser`` and ``file`` rows), the ``account`` details (null without a
-    connector), ``ownApp`` (the person's own app may connect, behind "Use your own app") and ``notOffered`` (a way
+    connector), ``ownApp`` (always false: no app asks for an app key or secret, owner 2026-11-05) and ``notOffered`` (a way
     that does not exist, with the reason in words)."""
     src = SOURCES.get(source_id)
     if src is None:
@@ -196,7 +195,7 @@ def describe(source_id: str, memory_path: Path) -> dict | None:
     offered = {w["kind"] for w in ways} | ({"account"} if primary is not None else set())
     return {"source": src.id, "label": src.label, "state": state, "primary": primary, "line": line,
             "lineIsAttention": attention, "ways": ways, "account": account,
-            "ownApp": account is not None and not account["connected"],
+            "ownApp": False,
             "recommended": recommended(primary, ways),
             "notOffered": [{"kind": k, "words": v} for k, v in src.not_offered.items() if k not in offered]
             + ([{"kind": "account", "words": getattr(_adapter(src), "NOT_SET_UP", "")}]
