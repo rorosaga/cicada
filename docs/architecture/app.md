@@ -3631,7 +3631,7 @@ semver, refusing a release that needs a newer macOS), downloads the zip, and `Up
 sha256 and the Ed25519 signature against `CicadaUpdatePublicKey` (`UpdateVerifier`, CryptoKit) before unzipping,
 checks the bundle id, distribution and version and `codesign --verify`, and copies it beside the installed app. It
 installs when the person quits — or at once with *Restart to update* — never while Sleep is writing. **A slow answer
-is busy (owner 2026-11-05, ruling 65):** only nothing listening counts as idle; a timeout, a dropped or unreadable
+is busy (owner 2026-11-05, ruling 66):** only nothing listening counts as idle; a timeout, a dropped or unreadable
 answer defers. `BackendSilence` is what keeps a hung backend updatable: three looks ten minutes apart with no real
 answer, two hours from the first to now, and no drain's `running` record (`$CICADA_HOME/sleep/<bank>/run.json`, rewritten
 at every batch commit) touched in those two hours. The looks are kept in `~/.cicada/update-backend-silent.json`, so they

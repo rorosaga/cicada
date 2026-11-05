@@ -3512,7 +3512,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     **Revisit** when the person has listed 3 or more projects (measure the `named` rows they untie, and whether the guard
     misses what they re-tie); if they turn down most of a harness's links (the trust list is wrong for links); or if they
     ask to mark pages in bulk, which needs per-item answers first.
-65. **A slow answer is busy; a hung backend still updates (owner, 2026-11-05; G182).** The owner's words: yes, a slow
+66. **A slow answer is busy; a hung backend still updates (owner, 2026-11-05; G182).** The owner's words: yes, a slow
     answer is busy, and "the problem you describe... should be taken into account and resolved". The updater read a
     `/sleep/status` timeout as nothing running, so a slow answer during Sleep let an update stop the backend mid-batch (a
     review measured 2.22 s against a 2 s limit, after the stall fix). A test deliberately kept a hung backend updatable,
