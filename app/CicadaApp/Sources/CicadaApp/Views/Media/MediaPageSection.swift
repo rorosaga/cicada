@@ -43,6 +43,12 @@ enum MediaPageModel {
         }
     }
 
+    /// Who made these words (owner 2026-11-05: the model that transcribed it is named). Nil when none was recorded.
+    static func transcribedLine(_ transcript: FileTranscript) -> String? {
+        guard let name = transcript.transcribedBy?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return nil }
+        return Copy.mediaTranscribedBy(name)
+    }
+
     /// A timestamp seeks only when a player is there to seek: a photo, or a file that is not on this Mac, has none.
     static func canSeek(_ target: MediaViewerModel.Target) -> Bool {
         if case .play = target { return true }
@@ -128,14 +134,20 @@ struct MediaPageTranscript: View {
     @State private var transcript: FileTranscript?
 
     var body: some View {
-        Group {
+        // Not a `Group`: it passes modifiers to its children, and with no words yet it has none, so the task never ran.
+        VStack(alignment: .leading, spacing: 0) {
             if MediaPageModel.hasWords(transcript), let transcript {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     SectionLabel(Copy.mediaWordsTitle)
+                    if let line = MediaPageModel.transcribedLine(transcript) {
+                        Text(line).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                    }
                     LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                         ForEach(Array(transcript.segments.enumerated()), id: \.offset) { _, segment in row(segment) }
                     }
                 }
+            } else {
+                Color.clear.frame(height: 0)
             }
         }
         .task(id: fileId) { transcript = try? await APIClient.shared.fileTranscript(id: fileId) }

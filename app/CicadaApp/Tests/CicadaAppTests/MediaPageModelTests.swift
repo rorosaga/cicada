@@ -12,6 +12,13 @@ final class MediaPageModelTests: XCTestCase {
         try JSONDecoder().decode(MediaBlock.self, from: Data(json.utf8))
     }
 
+    func testTheTranscriberIsNamedOnlyWhenRecorded() {
+        let named = FileTranscript(segments: [], transcribedBy: "A recogniser", language: nil)
+        XCTAssertEqual(MediaPageModel.transcribedLine(named), "Transcribed by A recogniser")
+        XCTAssertNil(MediaPageModel.transcribedLine(FileTranscript(segments: [], transcribedBy: nil, language: nil)))
+        XCTAssertNil(MediaPageModel.transcribedLine(FileTranscript(segments: [], transcribedBy: " ", language: nil)))
+    }
+
     func testAFilePageDecodesWithNoLinkAndOlderBackendsDecodeWithoutTheKeys() throws {
         let file = try block(#"{"url":"","mediaType":"recording","kind":"file","fileId":"0123456789abcdef","durationS":65,"recordedAt":"2026-03-02T10:00:00+00:00"}"#)
         XCTAssertTrue(file.isFile)

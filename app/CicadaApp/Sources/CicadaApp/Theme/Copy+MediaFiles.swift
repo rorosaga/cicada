@@ -58,6 +58,7 @@ extension Copy {
     static let mediaOpenPage = "Open page"
     // MARK: A recording's page (ROR-117) — the player, the facts, then the words.
     static let mediaWordsTitle = "The recording's words"
+    static func mediaTranscribedBy(_ name: String) -> String { "Transcribed by \(name)" }
     static let mediaKindRecording = "Recording"
     static let mediaKindVideo = "Video"
     static let mediaKindPhoto = "Photo"
