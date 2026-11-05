@@ -90,6 +90,8 @@ class Revision:
     closes: bool = True
     override: str | None = None
     gaps: tuple = ()
+    #: A book's record (ruling 64): a highlight taken out of it is no removed fact and never goes to a page's writer.
+    book: bool = False
     _hashes: dict = field(default_factory=dict, repr=False)
 
     @property
@@ -172,7 +174,7 @@ def build(episode: dict, prior: str) -> Revision | None:
     noop = not changed and not removed and _norm(prior) == _norm(body)
     if not changed and not removed and not noop:
         return None   # only line breaks moved inside words: read it whole, as before
-    from api.services import authorship, sensitive_flags
+    from api.services import authorship, book_marks, sensitive_flags
 
     # G235: the person took flagged text out. A transcript's revision closes nothing because its cap slides turns out;
     # this one is the person's act. And when that is ALL that changed, nothing needs reading.
@@ -182,7 +184,8 @@ def build(episode: dict, prior: str) -> Revision | None:
         episode_id=str(episode["id"]), prior=prior, body=body, noop=noop, changed=changed, removed=removed,
         windows=() if noop or only_removal else _windows(body, changed), blocks=blocks,
         closes=removal or str(episode.get("capture_kind") or "") != "transcript",
-        override=authorship.of_episode(episode), gaps=tuple(episode.get("gaps") or ()))
+        override=authorship.of_episode(episode), gaps=tuple(episode.get("gaps") or ()),
+        book=book_marks.is_book_record(episode))
 
 
 # --------------------------------------------------------------------------- #

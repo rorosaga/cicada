@@ -21,7 +21,7 @@ written as its typed mark, never repeated on the page (rail G235).
 **The page draws them from the claims** (:func:`block`, ``page_blocks``): derived on read, no section in the prose, so no
 merge carries a copy and no model reads them when it rewrites a page.
 
-**What Sleep reads** (:func:`note`, :func:`plan_read`). Since the words are safe, Stage 1 reads a book's record for what
+**What Sleep reads** (:func:`note`, :func:`plan_read`, :func:`of_a_read`). Since the words are safe, Stage 1 reads a book's record for what
 the words alone cannot give: what the marked passages share. It is told so in a source note, it never sees the status
 lines (:func:`mask_status`), and it reads one chunk at most per book: a book past :data:`READ_CHARS` is read as its notes
 and passages spread evenly across it, so the cost is bounded by how many books the person marked, never by how much they
@@ -34,12 +34,14 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 from loguru import logger
 
 from api.services import evidence, markdown_parser
 from api.services.claims import (HIGHLIGHTED, MARK_ORIGIN, NOTED, RETRACT_PREDICATE, Claim, Evidence,
-                                 MalformedClaimsBlockError, is_mark, is_recovered_history, parse_claims, write_claims)
+                                 MalformedClaimsBlockError, is_mark, is_persons_words, is_recovered_history, parse_claims,
+                                 write_claims)
 
 #: The most marks one card carries (the claims hold them all, and search finds them all).
 MAX_SHOWN = 500
@@ -98,12 +100,16 @@ def parse(body: str) -> list[Mark]:
     return [m for m in out if m.text]
 
 
-def holds_marks(episode: dict) -> bool:
-    """A book's record (its frontmatter block and door) with a highlight or a note in it."""
+def is_book_record(episode: dict) -> bool:
+    """A book's record, by its frontmatter block and door."""
     from api.services import books
 
-    return (isinstance(episode.get(books.EPISODE_KEY), dict) and str(episode.get("origin") or "") in books.DOORS
-            and _HEAD.search(str(episode.get("content") or "")) is not None)
+    return isinstance(episode.get(books.EPISODE_KEY), dict) and str(episode.get("origin") or "") in books.DOORS
+
+
+def holds_marks(episode: dict) -> bool:
+    """A book's record with a highlight or a note in it."""
+    return is_book_record(episode) and _HEAD.search(str(episode.get("content") or "")) is not None
 
 
 def _digest(text: str) -> str:
@@ -156,6 +162,9 @@ def apply(memory_path: Path, entity_id: str, episode_id: str, *, observer: str, 
     fm, body = doc
     marks = parse(body)
     path = memory_path / "entities" / f"{entity_id}.md"
+    if not path.is_file():
+        logger.warning("a book's marks have no page to go on; the record keeps them")
+        return False
     parsed = markdown_parser.parse(path)
     try:
         claims = parse_claims(parsed.body, strict=True)
@@ -244,22 +253,22 @@ def for_caller(marks: dict | None) -> dict | None:
                       for i in marks.get("items") or []]}
 
 
-#: What a mark reads as for a caller that may not see the words: the person's own, or a passage they chose.
-HIDDEN = "(what the person marked: this connection can't read it)"
+#: What a claim in the person's own words reads as for a caller that may not see them: theirs, or a passage they chose.
+HIDDEN = "(the person's own: this connection can't read it)"
 
 
 def masked_page(text: str) -> str:
-    """A page as an agent reads the file (fence and ledger lines), with each mark's words taken out. A line that does not
-    parse is left to the reader that already refuses it."""
+    """A page as an agent reads the file (fence and ledger lines), with the words of each claim gated like the person's
+    own (`claims.is_persons_words`) taken out. A line that does not parse is left to the reader that already refuses it."""
     out = []
     for line in text.splitlines(keepends=True):
-        if line.startswith('{"id": "clm_book_') and f'"origin": "{MARK_ORIGIN}"' in line:
+        if line.startswith('{"id": "') and '"origin": "' in line:
             try:
                 row = json.loads(line)
             except ValueError:
                 out.append(line)
                 continue
-            if row.get("predicate") in (HIGHLIGHTED, NOTED):
+            if isinstance(row, dict) and is_persons_words(SimpleNamespace(**row)):
                 row["text"], row["object"] = HIDDEN, ""
                 line = json.dumps(row, ensure_ascii=False) + ("\n" if line.endswith("\n") else "")
         out.append(line)
@@ -345,14 +354,54 @@ def theme_hints(memory_path: Path) -> list[str]:
     return list(dict.fromkeys(names))[:MAX_THEMES]
 
 
-def without_restating(entities: list, episode: dict, *, is_owner) -> list:
-    """The read's entities minus what only restates the marks. Told not to, a small model still wrote "highlighted a
-    passage saying …" onto the book's page three times over and onto the owner's (haiku, 2026-11-05), and every word of
-    that is held verbatim. The book's own entry goes: the page exists, so its links still land on it by name (an entry
-    emptied instead was held as a new name beside its page). The owner's goes unless the person wrote a note here, whose
-    decision belongs on their page."""
+def owner_test(owner_fm: dict | None, entities=()):
+    """Is a name the owner's, as a read of a book must take it: a self-reference, or what Stage 2 could join to their page,
+    which is any name made only of their page's words (`role_people.owner_names`: the name, its first word, its aliases)
+    or a close spelling of one (`entity_resolver.fuzzy_same`). A name this read itself types as no person keeps its own
+    facts, as in G169: a concept "Hope" on the page of someone called Hope."""
+    from api.services import entity_resolver, owner_identity, role_people, text_fold
+
+    names = [text_fold.fold(n) for n in role_people.owner_names(owner_fm)]
+    words = {w for n in names for w in n.split()}
+    apart = {text_fold.fold(" ".join(str(e.get("name") or "").split())) for e in entities
+             if isinstance(e, dict) and str(e.get("type") or "person").strip().lower() != "person"}
+
+    def is_owner(name) -> bool:
+        said = text_fold.fold(" ".join(str(name or "").split()))
+        if not said or said in apart:
+            return False
+        return (owner_identity.is_self_reference(said) or set(said.split()) <= words
+                or any(entity_resolver.fuzzy_same(said, n) for n in names))
+
+    return is_owner
+
+
+def in_a_note(row: dict, content: str) -> bool:
+    """A read's relationship or value whose evidence is located in the person's own note on this record: a ``user`` span
+    inside a ``## User note`` section, never a passage, the header or someone else's words."""
+    if str(row.get("observer") or "").startswith("external:"):
+        return False
+    notes = [m for m in parse(content) if m.predicate == NOTED]
+    return any(isinstance(ev, dict) and ev.get("kind") == "user"
+               and any(m.start <= int(ev.get("start", -1)) < m.end for m in notes) for ev in row.get("evidence") or [])
+
+
+def of_a_read(entities: list, relationships: list, values: list, episode: dict,
+              *, owner_fm: dict | None) -> tuple[list, list, list]:
+    """What a read of a book's record may add (ruling 64): its themes and what the person's own notes say. Told not to, a
+    small model still wrote "highlighted a passage saying …" onto the book's page and "practices sourdough baking" onto
+    the owner's from a highlight about bread (haiku, 2026-11-05).
+
+    The book's entry goes: the page exists and every word of that is held verbatim, and its links still land on it by name
+    (an entry emptied instead was held as a new name beside its page). The owner's entry goes too, note or no note: a
+    summary or a fact on it rests on no span. What reaches their page is a relationship or a value located in a note, and
+    only that, under their page's name so a first name lands there."""
+    from api.services.owner_identity import is_self_reference
+
     title = " ".join(str((episode.get("book") or {}).get("title") or "").split()).casefold()
-    noted = any(m.group("note") for m in _HEAD.finditer(str(episode.get("content") or "")))
+    content = str(episode.get("content") or "")
+    is_owner = owner_test(owner_fm, entities)
+    own_name = str((owner_fm or {}).get("name") or "").strip()
 
     def restates(entity) -> bool:
         if not isinstance(entity, dict):
@@ -360,18 +409,19 @@ def without_restating(entities: list, episode: dict, *, is_owner) -> list:
         name = " ".join(str(entity.get("name") or "").split()).casefold()
         if title and name and (name == title or title.startswith(f"{name}:") or name.startswith(f"{title}:")):
             return True
-        return not noted and is_owner(entity)
+        return is_owner(entity.get("name"))
 
-    return [e for e in entities if not restates(e)]
+    def kept(rows: list, keys: tuple[str, ...]) -> list:
+        out = []
+        for row in rows:
+            theirs = [k for k in keys if is_owner(row.get(k))]
+            if theirs and not in_a_note(row, content):
+                continue
+            out.append({**row, **{k: own_name for k in theirs if own_name and not is_self_reference(str(row.get(k)))}})
+        return out
 
-
-def in_their_words_only(rows: list, key: str, *, is_owner) -> list:
-    """Of what a read says of the owner (a relationship by its ``source``, a value by its ``entity``), only what rests on
-    their own words. A passage is the book's: "practices sourdough baking" from a highlight about bread is no fact about
-    them (haiku, 2026-11-05), whatever the note told the model."""
-    from api.services import promotion
-
-    return [r for r in rows if not is_owner({"name": r.get(key)}) or promotion.person_said(r)]
+    return ([e for e in entities if not restates(e)], kept(relationships, ("source", "target")),
+            kept(values, ("entity",)))
 
 
 def new_themes(result: dict | None, known: list[str]) -> list[str]:
@@ -394,7 +444,8 @@ def note(episode: dict, *, themes=(), shown: tuple[int, int] | None = None) -> s
     sample = f" This book holds {shown[1]} marked sections; {shown[0]} spread across it are shown." if shown else ""
     return (f'{NOTE_PREFIX}.{sample} Each line starting ">" is a passage from the book that the person chose to '
             'highlight: the book\'s words, never the person\'s, never what the person believes, and never a fact about '
-            'their life. A "## User note" section is the person\'s own words; read it as anything they say. Every '
+            'their life. A "## User note" section is the person\'s own words: what one says about them goes in a '
+            'relationship or a value whose evidence_quote is from that note, never in an entity for them. Every '
             "passage and note is already kept word for word on the book's page, and the book's reading status is "
             "recorded elsewhere, so give the book no history_entries, key_facts or summary about what was highlighted "
             "or when, and write no reading status, no value of a status, and no relationship saying the person read or "

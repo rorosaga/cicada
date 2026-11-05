@@ -897,6 +897,21 @@ async def extract(
         owner = owner_identity.owner_name(getattr(settings, "memory_path", None), settings)
     except Exception:  # noqa: BLE001 - a missing name costs the prompt line, never the read
         owner = None
+    owner_held: list[dict | None] = []
+
+    def owner_fm() -> dict | None:
+        """The owner page's frontmatter, read once and only for a book's record (ruling 64)."""
+        if not owner_held:
+            from api.services import role_people
+
+            bank = getattr(settings, "memory_path", None)
+            try:
+                owner_held.append(role_people.owner_frontmatter(Path(bank), settings) if bank else None)
+            except Exception:  # noqa: BLE001 - the read keeps less rather than fail: the name alone still decides
+                owner_held.append(None)
+            owner_held[0] = owner_held[0] or ({"name": owner} if owner else None)
+        return owner_held[0]
+
     # R-E22: the per-episode reasons name the engine that actually ran.
     from api.services import engine_select
 
@@ -1102,10 +1117,8 @@ async def extract(
                         logger.info(f"  {ep_id}: revision — {left} item(s) from unchanged lines left as first read")
                 if book:
                     # What a read of a book's record may add is its themes and the person's own notes (ruling 64).
-                    is_them = lambda e: _is_owner(e, owner)   # noqa: E731
-                    all_entities = book_marks.without_restating(all_entities, episode, is_owner=is_them)
-                    all_relationships = book_marks.in_their_words_only(all_relationships, "source", is_owner=is_them)
-                    all_values = book_marks.in_their_words_only(all_values, "entity", is_owner=is_them)
+                    all_entities, all_relationships, all_values = book_marks.of_a_read(
+                        all_entities, all_relationships, all_values, episode, owner_fm=owner_fm())
                 # G235: a value is taken back out of what the model answered, whatever it was shown; a page never
                 # repeats it. After the spans above: a quote is consumed there and never stored.
                 all_entities, all_relationships, all_values = guard.clean(all_entities, all_relationships, all_values)

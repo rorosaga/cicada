@@ -337,8 +337,10 @@ def build(*, name: str, entity_type: str, frontmatter: dict, original_body: str,
 
     now = source_dates.parse_day(today) or date.today()
     try:
+        # Ruling 64: what the person marked in a book is kept word for word and no writer reads it, so it never counts as
+        # material for an article and its words never reach prose, which the `sources` scope does not gate.
         current = [c for c in claims.parse_claims(original_body or "")
-                   if claims.is_current(c, now=now) and not claims.is_record(c)]
+                   if claims.is_current(c, now=now) and not claims.is_record(c) and not claims.is_mark(c)]
     except Exception:  # noqa: BLE001 - a fence that cannot be read costs the claims as inputs, never the article
         current = []
     for claim in current:

@@ -239,10 +239,8 @@ struct WhereToCheckBox: View {
     }
 }
 
-// MARK: Ongoing (ruling 48 (4))
+// MARK: Marks (ruling 64)
 
-/// Open threads and planned dates on any page (G141's open happenings and milestones), each on the Projects band's
-/// hollow node. At most five, then the count. It replaced a person's *What's happening*.
 /// Ruling 64: what the person marked in this book, word for word. A passage reads as a quote in the book's voice, the note
 /// under it as their own (DR-3, DR-78).
 struct PageMarks: View {
@@ -282,6 +280,10 @@ struct PageMarks: View {
     }
 }
 
+// MARK: Ongoing (ruling 48 (4))
+
+/// Open threads and planned dates on any page (G141's open happenings and milestones), each on the Projects band's
+/// hollow node. At most five, then the count. It replaced a person's *What's happening*.
 struct PageOngoing: View {
     let items: [PageBlocks.Ongoing]
     let total: Int

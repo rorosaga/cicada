@@ -11,7 +11,7 @@ import pytest
 
 from api.services import apple_books, bank_index, book_marks, books, entity_extractor, evidence, goodreads_export, \
     markdown_parser, page_blocks, quiet_pages, sensitive_text
-from api.services.claims import HIGHLIGHTED, NOTED, is_mark, is_persons_words, parse_claims
+from api.services.claims import HIGHLIGHTED, NOTED, is_mark, is_persons_words, parse_claims, write_claims
 
 NOW = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
 TODAY = date(2026, 10, 1)
@@ -392,20 +392,8 @@ def test_a_read_of_a_record_never_writes_about_the_marks_on_the_books_own_page()
     episode = _episode("x", book={"title": "The Lantern Orchard: A Novel"})
     book = {"name": "The Lantern Orchard", "type": "media", "summary": "s", "key_facts": ["k"]}
     theme = {"name": "Focus", "type": "concept", "summary": "kept", "key_facts": ["kept"]}
-    owner = {"name": "Owner", "type": "person", "key_facts": ["highlighted a passage"]}
-    is_owner = lambda e: e["name"] == "Owner"   # noqa: E731
-    assert book_marks.without_restating([book, owner, theme], episode, is_owner=is_owner) == [theme]
-    assert book_marks.without_restating([theme], _episode("x", book={}), is_owner=is_owner) == [theme]
-    noted = _episode("## User note\nI decided to walk home.", book={"title": "The Lantern Orchard"})
-    assert book_marks.without_restating([book, owner], noted, is_owner=is_owner) == [owner], "a note's words are theirs"
-
-
-def test_nothing_a_passage_says_becomes_a_fact_about_the_owner():
-    is_owner = lambda e: e["name"] == "Owner"   # noqa: E731
-    page = {"source": "Owner", "label": "practices", "target": "Baking", "evidence": [{"kind": "page", "start": 5, "end": 9}]}
-    own = {"source": "Owner", "label": "decided", "target": "Walking", "evidence": [{"kind": "user", "start": 5, "end": 9}]}
-    theme = {"source": "The Book", "label": "explores-theme", "target": "Focus", "evidence": [{"kind": "page", "start": 5, "end": 9}]}
-    assert book_marks.in_their_words_only([page, own, theme], "source", is_owner=is_owner) == [own, theme]
+    assert book_marks.of_a_read([book, theme], [], [], episode, owner_fm=None)[0] == [theme]
+    assert book_marks.of_a_read([theme], [], [], _episode("x", book={}), owner_fm=None)[0] == [theme]
 
 
 def test_the_page_says_why_it_matters_in_a_count_and_never_in_the_words(bank):
@@ -434,3 +422,161 @@ def test_theme_hints_name_pages_books_link_to_and_names_held_from_a_book(bank):
     bank_index.invalidate(bank)
     hints = book_marks.theme_hints(bank)
     assert "Slow attention" in hints and "Walking home" in hints and "A chat name" not in hints
+
+
+# ---- a record applied before ruling 64, its page merged away since --------------------------------------------------
+
+
+def _applied_before_marks(bank):
+    """A record whose page exists and whose marks were never written: as a record applied before ruling 64 reads."""
+    _sync(bank, _book([_note(PASSAGE_A, uuid="1", note=NOTE_A)]))
+    parsed = markdown_parser.parse(bank / "entities" / "the-lantern-orchard.md")
+    plain = [c for c in parse_claims(parsed.body) if not is_mark(c)]
+    markdown_parser.write(bank / "entities" / "the-lantern-orchard.md", parsed.frontmatter,
+                          write_claims(parsed.body, plain))
+    ep = next((bank / "episodes").glob("*.md"))
+    parsed = markdown_parser.parse(ep)
+    markdown_parser.write(ep, {k: v for k, v in parsed.frontmatter.items() if k != books.MARKS_KEY}, parsed.body)
+    bank_index.invalidate(bank)
+    return ep
+
+
+def test_a_record_applied_before_marks_follows_its_page_through_a_merge(bank):
+    from api.services import entity_merge
+
+    ep = _applied_before_marks(bank)
+    (bank / "entities" / "the-orchard-book.md").write_text(
+        "---\nname: The Orchard Book\ntype: media\nsource_episodes: []\n---\n\n## Summary\nA book.\n")
+    entity_merge.merge_entities(bank, "the-lantern-orchard", "the-orchard-book")
+    assert not (bank / "entities" / "the-lantern-orchard.md").exists()
+    bank_index.invalidate(bank)
+
+    books.apply_pending(bank, today=TODAY)
+    bank_index.invalidate(bank)
+
+    words = [c.text for c in _marks(bank, "the-orchard-book")]
+    assert any(PASSAGE_A in w for w in words) and any(NOTE_A in w for w in words)
+    assert markdown_parser.parse(ep).frontmatter.get(books.MARKS_KEY), "stamped, so it is not tried again"
+    assert not (bank / "entities" / "the-lantern-orchard.md").exists(), "the old page is not brought back"
+
+
+def test_a_record_whose_page_is_gone_with_no_redirect_stops_being_tried(bank):
+    ep = _applied_before_marks(bank)
+    (bank / "entities" / "the-lantern-orchard.md").unlink()
+    bank_index.invalidate(bank)
+    books.apply_pending(bank, today=TODAY)
+    bank_index.invalidate(bank)
+    assert not (bank / "entities" / "the-lantern-orchard.md").exists()
+    assert markdown_parser.parse(ep).frontmatter.get(books.MARKS_KEY)
+    assert not books.pending(bank)
+
+
+# ---- no model that writes a page reads a mark -----------------------------------------------------------------------
+
+
+def test_a_page_writer_reads_no_mark_and_a_mark_is_no_reason_to_write(bank):
+    from api.services import catchup_chat, conflict_resolver, entity_article, entity_orientation
+
+    many = [_note(f"Passage {i}: the lanterns of the orchard number {i}.", uuid=f"{i}", note=NOTE_A if i == 0 else "")
+            for i in range(8)]
+    _sync(bank, _book(many))
+    parsed, claims = _page(bank)
+    assert len([c for c in claims if is_mark(c)]) == 9
+    fm, body = parsed.frontmatter, parsed.body
+
+    context = {"today": "2026-10-02", "owner": None, "names": {}, "known": set(), "max_chars": 40_000}
+    change = {"id": "the-lantern-orchard", "source_episode": "ep_2026-10-02_001"}
+    new = {"name": "The Lantern Orchard", "type": "media", "summary": "I finished it and loved it."}
+    job = conflict_resolver._article_job(change, {"frontmatter": fm, "body": body}, new, context)
+    assert job is not None and "lanterns" not in job["prompt"] and NOTE_A not in job["prompt"]
+    assert entity_article.material(job["inputs"]) < entity_article.MIN_MATERIAL, "the marks are no material"
+    assert not entity_article.worth_writing({}, ["ep_2026-10-02_001"], job["inputs"]), "nine marks write no article"
+
+    data = entity_orientation.context(body, name="The Lantern Orchard", entity_type="media", fields={},
+                                      today="2026-10-02", source_dates=[])
+    assert "lanterns" not in str(data["current_claims"]) and NOTE_A not in str(data)
+
+    assert "lanterns" not in str(catchup_chat.context_lines(bank, "the-lantern-orchard", limit=40))
+
+
+def test_a_passage_taken_out_of_a_record_never_reaches_a_page_writer_and_a_note_does(bank):
+    from api.services import episode_revision, revision_prose
+
+    prior = ("**Status:** Reading\n\n## Highlight, 2026-05-01\n\n> The lanterns were lit long before dusk.\n\n"
+             "## User note\n\nI keep walking back the slow way.\n")
+    both_out = "**Status:** Reading\n"
+    episode = {"id": "ep_2026-05-01_001", "origin": books.APPLE_ORIGIN, "book": {"title": "x"}, "content": both_out}
+    rev = episode_revision.build(episode, prior)
+    said = " ".join(c.before for c in revision_prose.changes_of(rev))
+    assert rev.book and "lanterns" not in said
+    plain = {"id": "ep_2026-05-01_002", "origin": "claude-code", "content": both_out}
+    assert "lanterns" in " ".join(c.before for c in revision_prose.changes_of(episode_revision.build(plain, prior)))
+
+    only_note = prior.split("## User note")[0]
+    rev = episode_revision.build({**episode, "content": only_note}, prior)
+    said = " ".join(c.before for c in revision_prose.changes_of(rev))
+    assert "walking back" in said and "lanterns" not in said, "a note is the person's: what it said can still be undone"
+
+
+# ---- what a read may put on the owner's page -----------------------------------------------------------------------
+
+
+OWNER_FM = {"name": "Ada Lovelace", "owner": True, "aliases": ["Countess"]}
+
+
+def _record(note=NOTE_A):
+    content = f"**Status:** Reading\n\n## Highlight, 2026-05-01\n\n> {PASSAGE_A}\n\n## User note\n\n{note}\n"
+    return {"id": "ep_2026-05-01_001", "origin": books.APPLE_ORIGIN, "book": {"title": "The Lantern Orchard"},
+            "content": content}
+
+
+def _span(episode, quote, kind):
+    start = episode["content"].index(quote)
+    return [{"episode": episode["id"], "start": start, "end": start + len(quote), "kind": kind}]
+
+
+@pytest.mark.parametrize("name", ["Ada Lovelace", "Ada", "ada", "Countess", "Ada Lovelase", "the user", "Lovelace"])
+def test_no_entry_for_the_owner_under_any_name_they_go_by_note_or_no_note(name):
+    theme = {"name": "Slow walks", "type": "concept"}
+    book = {"name": "The Lantern Orchard", "type": "media", "summary": "x"}
+    owner = {"name": name, "type": "person", "summary": "practices sourdough baking", "key_facts": ["bakes"],
+             "history_entries": ["bakes"]}
+    entities, _rels, _vals = book_marks.of_a_read([book, owner, theme], [], [], _record(), owner_fm=OWNER_FM)
+    assert entities == [theme]
+
+
+def test_a_concept_that_shares_the_owners_first_name_keeps_its_own_entry():
+    ada = {"name": "Ada", "type": "concept"}
+    assert book_marks.of_a_read([ada], [], [], _record(), owner_fm=OWNER_FM)[0] == [ada]
+
+
+def test_only_what_is_located_in_a_note_reaches_the_owner():
+    episode = _record()
+    note = _span(episode, "the slow walk back", "user")
+    passage = _span(episode, "lanterns were lit", "page")
+    held_in_passage_but_user = _span(episode, "lanterns were lit", "user")
+    rels = [
+        {"source": "Ada", "target": "Baking", "label": "practices", "evidence": passage},
+        {"source": "The Lantern Orchard", "target": "Ada Lovelace", "label": "taught", "evidence": passage},
+        {"source": "Ada Lovelace", "target": "Baking", "label": "does", "evidence": held_in_passage_but_user},
+        {"source": "Ada Lovelace", "target": "Baking", "label": "does", "evidence": []},
+        {"source": "Ada Lovelace", "target": "Baking", "label": "someone else", "evidence": note,
+         "observer": "external:bob"},
+        {"source": "Ada", "target": "Walking", "label": "cares about", "evidence": note},
+        {"source": "The Lantern Orchard", "target": "Focus", "label": "explores-theme", "evidence": passage},
+    ]
+    values = [{"entity": "Ada", "attribute": "hobby", "value": "baking", "evidence": passage},
+              {"entity": "Ada", "attribute": "walks", "value": "slowly", "evidence": note}]
+    _ents, kept_rels, kept_vals = book_marks.of_a_read([], rels, values, episode, owner_fm=OWNER_FM)
+    assert [r["label"] for r in kept_rels] == ["cares about", "explores-theme"]
+    assert kept_rels[0]["source"] == "Ada Lovelace", "a first name lands on their page, not beside it"
+    assert [(v["entity"], v["attribute"]) for v in kept_vals] == [("Ada Lovelace", "walks")]
+
+
+def test_a_self_reference_is_left_for_the_resolver_and_a_bank_with_no_owner_page_still_holds_the_line():
+    episode = _record()
+    note, passage = _span(episode, "the slow walk back", "user"), _span(episode, "lanterns were lit", "page")
+    rels = [{"source": "the user", "target": "Walking", "label": "a", "evidence": note},
+            {"source": "the user", "target": "Baking", "label": "b", "evidence": passage}]
+    kept = book_marks.of_a_read([], rels, [], episode, owner_fm=None)[1]
+    assert [(r["source"], r["label"]) for r in kept] == [("the user", "a")]

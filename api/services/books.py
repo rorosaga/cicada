@@ -796,9 +796,12 @@ def _apply_marks(memory_path: Path, entity_id: str, episode_id: str, ep_path: Pa
                  today: str) -> list[str]:
     """What the person marked, word for word (``book_marks``, ruling 64), then its stamp. A page's marks are written
     before the stamp, so a stop re-does them, and the writer is idempotent."""
-    from api.services import book_marks
+    from api.services import book_marks, page_redirects
 
     rel = [f"episodes/{ep_path.name}"]
+    # The page may have been merged away since the record was applied: its marks follow the page it became. One with no
+    # page at all has nowhere to go until a re-sync makes one, so it is stamped, not retried on every apply.
+    entity_id = page_redirects.resolve(memory_path, entity_id) or entity_id
     if book_marks.apply(memory_path, entity_id, episode_id, observer=observer, today=today):
         rel.append(f"entities/{entity_id}.md")
     _stamp_marks(ep_path, digest)
