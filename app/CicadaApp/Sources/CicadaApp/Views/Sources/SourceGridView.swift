@@ -6,6 +6,13 @@ struct SourceGridSearch: Equatable {
     var text = ""
     /// The tile ↑/↓ moved to; nil is the best result (`SourceGrid.highlighted`).
     var cursor: String?
+
+    /// New words start at the best result again. Return commits the field with the words it already holds just before it
+    /// submits, and that must not lose the tile the arrows moved to.
+    mutating func typed(_ words: String) {
+        guard words != text else { return }
+        self = SourceGridSearch(text: words)
+    }
 }
 
 /// One source as its app (owner: "each source as its app, with its icon, rather than a list"): the one logo tile (DR-52),

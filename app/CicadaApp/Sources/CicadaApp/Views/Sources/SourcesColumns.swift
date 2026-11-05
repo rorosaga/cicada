@@ -157,7 +157,7 @@ struct SourcesOverviewColumn: View {
 
     /// New words start again from the best result.
     private var textBinding: Binding<String> {
-        Binding(get: { search.wrappedValue.text }, set: { search.wrappedValue = SourceGridSearch(text: $0) })
+        Binding(get: { search.wrappedValue.text }, set: { search.wrappedValue.typed($0) })
     }
 
     private var found: [SourceCatalogRow] { SourceGrid.results(catalog, query: search.wrappedValue.text) }

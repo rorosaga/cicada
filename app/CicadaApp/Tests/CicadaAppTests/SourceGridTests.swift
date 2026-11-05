@@ -90,6 +90,15 @@ final class SourceGridTests: XCTestCase {
         XCTAssertNil(OriginIconography.logoName(for: exports.entry.origin), "it takes every assistant's export")
     }
 
+    /// Seen in the app: Return commits the field's own words first, which sent ⏎ to the best result, not the arrowed tile.
+    func testReturnKeepsTheTileTheArrowsMovedTo() {
+        var search = SourceGridSearch(text: "google", cursor: "calendar")
+        search.typed("google")
+        XCTAssertEqual(search.cursor, "calendar")
+        search.typed("googl")
+        XCTAssertNil(search.cursor, "new words start at the best result")
+    }
+
     func testAReaderThatCannotReadWaitsOnThePersonAndTheTileAndThePageAgree() {
         let blocked = SourceCatalog.browserPrefix + "chrome"
         let bookmarks = chrome.bookmarksChannel!
