@@ -5,6 +5,17 @@ import XCTest
 /// them, and absence is the test — an older backend (or any non-video page)
 /// must decode with neither key present.
 final class MediaBlockDecodeTests: XCTestCase {
+    /// A recording's page has no link: its block must still reach the card, or the page draws no player and no words.
+    func testAFilePageKeepsItsBlockThoughItHasNoLink() throws {
+        let base = #""id":"alpha","name":"Alpha","type":"location","status":"active","confidence":0.8,"created":"2026-09-01","lastReferenced":"2026-10-20","decayRate":0.01,"version":1,"markdownContent":"x","history":[{"date":"2026-10-20","changeType":"updated","description":"d","author":"user","commitHash":"abc","sessions":[],"trigger":"sleep/extraction","via":"sleep"}]"#
+        let media = #"{"url":"","mediaType":"video","kind":"file","fileId":"0123456789abcdef","durationS":20}"#
+        let json = "{" + base.replacingOccurrences(of: #""type":"location""#, with: #""type":"media""#) + #","media":"# + media + "}"
+        let entity = try JSONDecoder().decode(Entity.self, from: Data(json.utf8))
+        XCTAssertEqual(entity.type, .media)
+        XCTAssertEqual(entity.media?.fileId, "0123456789abcdef")
+        XCTAssertEqual(entity.media?.isFile, true)
+    }
+
     func testMediaBlockDecodesWithoutTheNewKeys() throws {
         let json = #"{"url":"https://example.com/a","mediaType":"bookmark"}"#
         let block = try JSONDecoder().decode(MediaBlock.self, from: Data(json.utf8))

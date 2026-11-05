@@ -934,7 +934,7 @@ struct Entity: Identifiable, Codable {
         // Prefer the backend-surfaced `media` block; if absent (older backend
         // that drops the nested block), reconstruct it from the `media:` YAML
         // in `rawMarkdown` so previews still work. Skip for non-media entities.
-        if let decoded = try c.decodeIfPresent(MediaBlock.self, forKey: .media), decoded.hasURL {
+        if let decoded = try c.decodeIfPresent(MediaBlock.self, forKey: .media), decoded.hasURL || decoded.isFile {
             media = decoded
         } else if type == .media {
             media = Entity.parseMediaFrontmatter(rawMarkdown)

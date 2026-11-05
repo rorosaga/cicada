@@ -289,7 +289,8 @@ struct EntityDetailCard: View {
                 // served why-it-matters line in the same slot.
                 if let summary = blocks?.summary {
                     InShortBlock(summary: summary)
-                } else {
+                } else if entity.media?.isFile != true {
+                    // ROR-117: an added file has its own Why it matters section, or none; "no relation" isn't news.
                     PageInShort(relevance: blocks?.relevance ?? entity.relevance)
                 }
                 // Proposed ruling 55: a page with no number draws nothing and asks nothing (DR-81).
