@@ -3512,6 +3512,23 @@ disclosure or Reader UI. In 1b, the graph-node stub has no `pageBodyHash`: it mu
 no section controls until a full entity response supplies a matching non-nil token;
 nil tokens must never match. Server identity/ranges must not be recreated in Swift.
 
+**An Apple Note as Notes draws it (ROR-15, G161; DR-5, DR-9, DR-18, DR-19, DR-31, DR-60).** With an Apple Note on screen the
+Reader shows the stored text at once, then asks Notes for that one note's `body` (`AppleNotesReader.formatted`, the app's own
+`osascript`, id as an argument, 5 s, off the main actor) and, if every word matches, replaces the plain rows with one row per
+line (`NoteDocument`, `NotePageRows`): headings, bullet, dash and numbered lists with their depth, checklists, bold, italic,
+underline, strikethrough, monospaced text, quotes, tables and links. The note's first line is left to the header when it is
+the header's title and no span lies on it. The HTML stays in memory for the note on screen; it is never posted or stored, the
+sync is unchanged, so spans stay valid and nothing reads as revised. Spans wash through the same offsets and `CitedSpan.marks`
+as the plain view. **Parsing:** a small closed reader into Cicada's own blocks, native SwiftUI, no web view; `script`, `style`,
+`iframe`, `svg` and the like give nothing; no picture is drawn, inline or remote; a link keeps only what
+`ItemPlaceOpen.webURL` allows and is checked again on the click. **Matching:** the whole note walks the stored text (after
+`_episode_body`'s header) on `evidence.locate`'s ladder, exact, whitespace, case, never fuzzy; what may differ is whitespace, an
+object character (U+FFFC, an attachment), and a list marker at the start of a stored list item's line. **Plain text, saying
+nothing, when:** Automation is not already granted (checked with `askUserIfNeeded` false, so no prompt), Notes is closed (it is
+never launched for this), the note is gone or locked, the words differ (changed since stored, scrubbed, a number token,
+truncated), a server connection or another device's note, a timeout, or a span the page cannot show (on a `**Folder:**` line).
+Tick state and table shape come only as far as `body` carries them; a tick the HTML drops draws as a bullet until part 2.
+
 **One drawing of a source (ROR-16, DR-18, DR-31, DR-60).** `SourceSpansView` takes a document (`EpisodeText`), what to wash
 in it (`ReaderPresentation`, plus `others`), and two slots: `pinned` over the scroll, `below` in it. It chooses the chat or
 the document rows, scrolls to the words, reveals the wash and owns the rotors. `SourceSpansState` is held by its host,

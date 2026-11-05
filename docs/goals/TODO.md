@@ -20,6 +20,11 @@
   `swift test` were refused by guards in the worker's shell (`HOME=`, sourcing `harness.sh`, overlays over the window), so
   they wait for the coordinator; then ROR-15 as the thin use `app.md` describes.
 
+- **2026-11-05 — an Apple Note reads as the note (ROR-15 part 1, G161; branch `ror15-notes-formatted-view`).** The Reader shows
+  the stored text, then the note's `body` from Notes (one note, on view, locked filter inside Notes, memory only, never posted)
+  as native blocks tied to the stored offsets; any mismatch or failure stays plain with nothing said; Notes closed stays plain
+  (never launched). Not yet seen on a real note: the HTML shapes come from Notes' dictionary and knowledge, not from reading
+  the owner's notes. **Pick up here:** first open of a real note with Notes running, then part 2 (pinned notes).
 - **2026-11-05 — open a source's item where it lives (ROR-111, G161; PR #630, branch `ror-111-open-in-place`).** One control on the
   item row: Notes by its own id, GitHub, saved links, feed items, saved videos. A list says only the kind; the place is
   read on the click. Not yet seen in the real app: the first press against a real note is the person's. Which sources

@@ -1582,6 +1582,9 @@ class EpisodeText(CamelModel):
     #: Owner 2026-10-20: a saved link's site key (``channel_items.saved_episode_url`` → ``reading_hosts.mark_key``), so
     #: the Reader's header wears the link's own site mark; null for every other episode and for a page.
     site: Optional[str] = None
+    #: ROR-15: Notes' own id for an Apple Note, so the app can ask Notes for the note on screen as Notes draws it. Null
+    #: for every other episode and for a page.
+    note_id: Optional[str] = None
     turns: list[EpisodeTurn] = []
     focus: Optional[EpisodeFocus] = None
     agent: Optional[EpisodeAgent] = None

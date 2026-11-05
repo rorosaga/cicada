@@ -240,3 +240,18 @@ def test_a_focus_that_names_a_file_outside_entities_is_refused(memory):
     with TestClient(main.app) as client:
         focus = client.get(URL, params={"focus": "../outside"}).json()["focus"]
     assert focus is None
+
+
+def test_an_apple_note_carries_its_note_id_and_nothing_else_does(memory):
+    """ROR-15: the app asks Notes for the note on screen by this id; the id is on no other document."""
+    note_id = "x-coredata://AAAA-BBBB/ICNote/p1"
+    markdown_parser.write(memory / "episodes" / "ep_2026-09-04_001.md",
+                          {"id": "ep_2026-09-04_001", "title": "Trip plan", "source": "apple-notes", "note_id": note_id},
+                          "# Trip plan\n\nBoots\n")
+    markdown_parser.write(memory / "episodes" / "ep_2026-09-04_002.md",
+                          {"id": "ep_2026-09-04_002", "title": "Other", "source": "manual", "note_id": note_id},
+                          "Words\n")
+    with TestClient(main.app) as client:
+        assert client.get("/episodes/ep_2026-09-04_001/text").json()["noteId"] == note_id
+        assert client.get("/episodes/ep_2026-09-04_002/text").json()["noteId"] is None
+        assert client.get(URL).json()["noteId"] is None

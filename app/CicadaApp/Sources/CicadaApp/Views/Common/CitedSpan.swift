@@ -33,25 +33,30 @@ enum CitedSpan {
                width: run.width + 2 * padding, height: underlineThickness)
     }
 
+    /// What a mark adds to a stretch of a selectable string, whatever else the string carries (a note's own bold, ROR-15).
+    static func marks(_ mark: Mark, reveal: Double = 1) -> AttributeContainer {
+        var marks = AttributeContainer()
+        switch mark {
+        case .plain: break
+        case .current:
+            marks.swiftUI.backgroundColor = CicadaTheme.wash.opacity(reveal)
+            marks.swiftUI.underlineStyle = Text.LineStyle(pattern: .solid, color: CicadaTheme.accent.opacity(reveal))
+        case .other:
+            marks.swiftUI.backgroundColor = CicadaTheme.washSoft.opacity(reveal)
+        case .mention:
+            // Found, not quoted: emphasis only, no fill (R-DI11).
+            marks.inlinePresentationIntent = .stronglyEmphasized
+        }
+        return marks
+    }
+
     /// macOS 14 — the fill and the underline colour; no offset, no radius. Written through the
     /// SwiftUI scope explicitly: AppKit's scope has its own `backgroundColor` (an `NSColor`) and
     /// `underlineStyle`, and the bare names are ambiguous on macOS.
     static func fallback(_ segments: [Segment], reveal: Double = 1) -> AttributedString {
         segments.reduce(into: AttributedString()) { out, segment in
             var piece = AttributedString(segment.text)
-            var marks = AttributeContainer()
-            switch segment.mark {
-            case .plain: break
-            case .current:
-                marks.swiftUI.backgroundColor = CicadaTheme.wash.opacity(reveal)
-                marks.swiftUI.underlineStyle = Text.LineStyle(pattern: .solid, color: CicadaTheme.accent.opacity(reveal))
-            case .other:
-                marks.swiftUI.backgroundColor = CicadaTheme.washSoft.opacity(reveal)
-            case .mention:
-                // Found, not quoted: emphasis only, no fill (R-DI11).
-                marks.inlinePresentationIntent = .stronglyEmphasized
-            }
-            piece.mergeAttributes(marks)
+            piece.mergeAttributes(marks(segment.mark, reveal: reveal))
             out.append(piece)
         }
     }

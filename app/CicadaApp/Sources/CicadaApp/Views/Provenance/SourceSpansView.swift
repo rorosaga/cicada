@@ -14,6 +14,8 @@ struct SourceSpansView<Pinned: View, Below: View>: View {
     let scalars: ScalarText
     let presentation: ReaderPresentation
     var others: [Range<Int>] = []
+    /// ROR-15: the note as Notes draws it, once it arrives; the same spans wash it. Nil draws the stored text.
+    var note: NoteDocument? = nil
     /// Set while an in-place jump is what moved the column, and who asked (DR-60); nil on opening.
     var jump: LooksZoom.Trigger? = nil
     /// Above the scroll, never in it: landing moves the scroll, and a bar inside it would leave the screen.
@@ -24,7 +26,7 @@ struct SourceSpansView<Pinned: View, Below: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let layout = state.layout(doc, scalars: scalars, presentation: presentation, others: others)
+        let layout = state.layout(doc, scalars: scalars, presentation: presentation, others: others, note: note)
         let blocks = layout.blocks
         let landingBlock = layout.landingBlock
         // One rotor stop per cited turn, even when the words straddle two of
@@ -76,6 +78,8 @@ struct SourceSpansView<Pinned: View, Below: View>: View {
                                                // A reply's target: one frame, never animated (DR-60).
                                                state.scroll(to: AnyHashable(key), alignsTop: true)
                                            })
+                        } else if let rows = layout.noteRows {
+                            NotePageRows(rows: rows, revealed: state.washVisible)
                         } else {
                             ReaderTurnRows(blocks: blocks, landingTurn: landingBlock?.turn, revealed: state.washVisible)
                         }
@@ -99,6 +103,15 @@ struct SourceSpansView<Pinned: View, Below: View>: View {
                 }
                 .onChange(of: state.landingToken, initial: true) { _, _ in
                     land(proxy: proxy, block: landingBlock, blocks: blocks, chat: layout.chat)
+                }
+                // The note's formatted page replaced the plain one under the same words: stay on them, no fade, no second
+                // announcement (DR-60).
+                .onChange(of: layout.noteRows != nil) { _, _ in
+                    guard let landingBlock else { return }
+                    Task { @MainActor in
+                        await Task.yield()
+                        Instant.run { proxy.scrollTo(landingBlock, anchor: .center) }
+                    }
                 }
                 .onChange(of: state.keyScroll) { _, request in
                     // DR-60 — a key moves the column in one frame.
@@ -191,6 +204,8 @@ final class SourceSpansState {
         /// The chat rows, or nil for a document (`ReaderChat.isChat`).
         let chat: [ReaderChat.Row]?
         let landingBlock: ReaderBlock.Key?
+        /// A note's formatted rows (`blocks` then holds the same lines); nil draws `blocks` or `chat`.
+        var noteRows: [NotePageRow]? = nil
     }
 
     var washVisible = false
@@ -215,6 +230,7 @@ final class SourceSpansState {
         let unfolded: Set<Int>
         let presentation: ReaderPresentation
         let others: [Range<Int>]
+        let note: UUID?
     }
 
     /// Another source is opening: forget where this one stood.
@@ -262,10 +278,21 @@ final class SourceSpansState {
     }
 
     func layout(_ doc: EpisodeText, scalars: ScalarText, presentation: ReaderPresentation,
-                others: [Range<Int>]) -> Layout {
+                others: [Range<Int>], note: NoteDocument? = nil) -> Layout {
         let key = MemoKey(episode: doc.episode, hash: doc.hash, length: doc.length, unfolded: unfolded,
-                          presentation: presentation, others: others)
+                          presentation: presentation, others: others, note: note?.id)
         if memoKey == key, let memo { return memo }
+        // A span the formatted page cannot show keeps the plain page: a citation's words are never lost to formatting.
+        if let note, !ReaderChat.isChat(doc), (others + [presentation.focus].compactMap { $0 }).allSatisfy(note.draws) {
+            let rows = note.rows(doc: doc, turn: doc.turns.first?.index ?? 0, focus: presentation.focus,
+                                 focusStyle: presentation.focusStyle, others: others)
+            let blocks = rows.map(\.reader)
+            let landing = presentation.landing.flatMap { ReaderLayout.blockID(containing: $0, in: blocks) }
+            let built = Layout(blocks: blocks, chat: nil, landingBlock: landing, noteRows: rows)
+            memoKey = key
+            memo = built
+            return built
+        }
         let blocks = ReaderLayout.blocks(doc: doc, scalars: scalars, focus: presentation.focus,
                                          focusStyle: presentation.focusStyle,
                                          others: others.filter { $0 != presentation.focus })

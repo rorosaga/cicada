@@ -42,6 +42,8 @@ struct ReaderColumn: View {
     @State private var phase: Phase = .loading
     /// What the drawn source keeps between draws (`SourceSpansView`).
     @State private var spansState = SourceSpansState()
+    /// ROR-15: the note on screen as Notes draws it, in memory only, for as long as it is on screen.
+    @State private var note: NoteDocument?
     @State private var conversations = ConversationsViewModel()
     /// P4 — what this document taught Cicada (`/citations`, G106 (ii)).
     @State private var citations: EpisodeCitations?
@@ -98,14 +100,26 @@ struct ReaderColumn: View {
         }
         .environment(\.revealedNumbers, revealed)
         .task(id: router.current) { await load() }
+        .task(id: loadedDoc?.noteId) { await loadNote() }
         .onAppear { DeviceDirectory.shared.ensureLoaded() }
     }
 
     // MARK: Loading
 
+    /// The plain text is already on screen; a formatted page replaces it only if every word matches, and nothing is said
+    /// when it does not. A note posted from another device, or held by a server, is not this Mac's to ask about.
+    private func loadNote() async {
+        guard let doc = loadedDoc, let noteId = doc.noteId, !doc.truncated, doc.device == nil,
+              !APIClient.shared.connection.isServer else { return }
+        let formatted = await AppleNotesReader.formatted(noteId: noteId, stored: doc.text)
+        guard !Task.isCancelled, loadedDoc?.episode == doc.episode, loadedDoc?.hash == doc.hash else { return }
+        Instant.run { note = formatted }
+    }
+
     private func load() async {
         guard let target = router.current else { return }
         phase = .loading
+        note = nil
         spansState.reset()
         jump = nil
         citations = nil
@@ -203,7 +217,7 @@ struct ReaderColumn: View {
         let position = ReaderNavigator.position(of: presentation.focus, in: stops)
         let captureLine = ReaderHeader.captureLine(doc)
         return SourceSpansView(state: spansState, doc: doc, scalars: scalars, presentation: presentation, others: stops,
-                               jump: jump == nil ? nil : jumpTrigger) {
+                               note: note, jump: jump == nil ? nil : jumpTrigger) {
             if captureLine != nil || stops.count > 1 {
                 HStack(alignment: .center, spacing: CicadaTheme.spacingXS) {
                     if let captureLine {
