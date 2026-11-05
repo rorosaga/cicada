@@ -342,6 +342,19 @@
       "umbrella": "Instinct"
     },
     {
+      "file": "linear.png",
+      "id": "linear",
+      "licence": "Vendor’s own published asset; no licence beyond nominative use",
+      "origin": "set",
+      "restrictions": "Trademark of Linear Orbit, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/linear.png",
+      "sha256": "1303f077eca8044667b57bef3321bea490fe6c3edc1c98641884deb5d1b2b82f",
+      "sourceTier": "official site",
+      "sourceUrl": "https://static.linear.app/design-assets/Linear-Brand-Assets.zip",
+      "svgSha256": "71e283ee5e493d8d87d770afe716278a644b14974227b3879dc9ae3681765f02",
+      "umbrella": "Linear"
+    },
+    {
       "file": "linkedin.png",
       "id": "linkedin",
       "licence": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",

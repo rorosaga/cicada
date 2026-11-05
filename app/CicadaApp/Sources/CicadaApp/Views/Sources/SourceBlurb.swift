@@ -92,6 +92,9 @@ enum SourceBlurb {
         "notion": "Pages and database rows from a Notion export.",
         // Ruling 47 tier 2.
         "notion-api": "The Notion pages you shared with your own connection, kept current.",
+        // ROR-115.
+        "linear": "Your Linear issues and the discussion on them, kept current.",
+        "linear-api": "Your Linear issues and the discussion on them, kept current.",
         // G230.
         "github": "Repositories you starred or added, each with a preview of its README, and the ones you own.",
         // G32.

@@ -35,7 +35,9 @@ from api.services.transcript_extract import CLAUDE_HARNESS_TAGS, CODE_OMITTED, C
 TITLE_MAX = 72
 PRODUCT = {"claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor", "gemini-cli": "Gemini CLI"}
 #: A chat export's origin -> the app whose assistant lines it holds (`entity_extractor.assistant_observer`).
-CHAT_EXPORTS = {"chatgpt-export": "chatgpt", "claude-export": "claude", "gemini-export": "gemini"}
+CHAT_EXPORTS = {"chatgpt-export": "chatgpt", "claude-export": "claude", "gemini-export": "gemini",
+                # ROR-115: a Linear thread's `assistant:` lines are text written under an account, never the person's own.
+                "linear-api": "linear"}
 
 
 def assistant_of(origin: str | None) -> str | None:

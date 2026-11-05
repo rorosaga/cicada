@@ -217,6 +217,9 @@ enum SourceCatalog {
         // G230: the repositories the person owns and the ones they starred, through their own GitHub token.
         SourceCatalogEntry(id: "github", group: .accounts, category: .notes, title: "GitHub", origin: "github",
                            channels: ["github"]),
+        // ROR-115: the issues the person created or holds in Linear and their comments, read after a browser sign-in.
+        SourceCatalogEntry(id: "linear", group: .accounts, category: .notes, title: "Linear", origin: "linear-api",
+                           channels: ["linear-api"]),
         // G32: Spotify is export-only (its terms bar an API connector): the library and the listening, from the
         // person's own download.
         SourceCatalogEntry(id: "spotify", group: .accounts, category: .media, title: "Spotify", origin: "spotify-saved",
@@ -386,7 +389,7 @@ enum SourceCatalog {
     /// The channels a person signs in to (`ChannelActions.connectorChannels`). Only these can need a sign-in: a reader
     /// on this Mac whose failure happens to say "not authorized" or "token" needs a permission or a retry, never an
     /// account (2026-10-23).
-    static let signInChannels: Set<String> = ["pinterest", "reddit", "x", "notion-api", "github"]
+    static let signInChannels: Set<String> = ["pinterest", "reddit", "x", "notion-api", "github", "linear-api"]
     /// G206 (#426): the sites whose saved list the person's own agent can keep current from their signed-in browser
     /// (`reading_settings.SAVED_LISTS`).
     static let savedListSites: Set<String> = ["x", "instagram", "linkedin", "reddit", "pinterest", "tiktok"]

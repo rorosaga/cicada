@@ -69,7 +69,7 @@ from __future__ import annotations
 
 from types import ModuleType
 
-from api.services.connectors import github, notion, pinterest, reddit, x
+from api.services.connectors import github, linear, notion, pinterest, reddit, x
 
 ADAPTERS: dict[str, ModuleType] = {
     pinterest.CHANNEL_ID: pinterest,
@@ -79,4 +79,6 @@ ADAPTERS: dict[str, ModuleType] = {
     notion.CHANNEL_ID: notion,
     # G230: the person's own repositories and their stars, through their own GitHub token.
     github.CHANNEL_ID: github,
+    # ROR-115: the issues the person created or holds and their comments, through a browser sign-in (read-only).
+    linear.CHANNEL_ID: linear,
 }

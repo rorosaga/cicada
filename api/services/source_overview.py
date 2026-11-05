@@ -143,6 +143,8 @@ CATALOG: tuple[SourceSpec, ...] = (
     # Ruling 47 tier 2: the pages shared with the person's own Notion connection, live — its own row beside the
     # export's, so each says what came in its way.
     SourceSpec("notion-api", "Notion (live)", "import", "notion-export", ("notion-api",), "notion-api"),
+    # ROR-115: the issues the person created or holds in Linear and their comments, live through a sign-in.
+    SourceSpec("linear-api", "Linear", "import", "linear-api", ("linear-api",), "linear-api"),
     # G230: the person's GitHub — the repositories they starred (saves, each a page) and the ones they own (offered).
     SourceSpec("github", "GitHub", "social", "github", ("github-starred", "github-owned", "github-added"), "github"),
     SourceSpec("files", "Files & links", "import", "bookmark", ("saved-link",), "files"),

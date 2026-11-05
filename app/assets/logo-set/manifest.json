@@ -1,6 +1,6 @@
 {
  "generated": "2026-11-05",
- "count": 52,
+ "count": 53,
  "needs_a_mac": [
   "Calendar",
   "Contacts",
@@ -880,6 +880,26 @@
    "trademark": "Trademark of Wispr AI; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
    "note": null,
    "upstream_sha256": "bcd62d7ca4ecd8dfc0e427d9834958a51860a8613fc384b636ed99f0ca453371"
+  },
+  {
+   "slug": "linear",
+   "group": "source",
+   "file": "linear.png",
+   "format": "png",
+   "pixels": 512,
+   "meets_bar": true,
+   "source_tier": "official site",
+   "source_url": "https://static.linear.app/design-assets/Linear-Brand-Assets.zip",
+   "fetched": "2026-11-05",
+   "sha256": "71e283ee5e493d8d87d770afe716278a644b14974227b3879dc9ae3681765f02",
+   "umbrella": "Linear",
+   "sub_products": [],
+   "dark_variant": null,
+   "replaces_bundled": [],
+   "license": "Vendor’s own published asset; no licence beyond nominative use",
+   "trademark": "Trademark of Linear Orbit, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+   "note": "The app icon from Linear's own brand-assets download (linear.app/brand), 1024 px, resized to 512; the URL serves the zip, so `upstream_sha256` is the zip's.",
+   "upstream_sha256": "94e12fb9c93933e85e2e81cfeb535636ae535a82303fe9ee355e93cd35cc920a"
   },
   {
    "slug": "notion",

@@ -57,6 +57,8 @@ enum OriginIconography {
         // Ruling 47 tier 2: the live Notion connection (`notion.py`). Readwise was removed as a source by owner
         // direction (2026-11-03); its mark stays so a bank's earlier Readwise episodes still draw it in the Reader.
         "readwise", "notion-api",
+        // ROR-115: a Linear issue and its comments.
+        "linear-api",
         // G230: GitHub — a starred repository, a pasted one, one the person owns (`connectors/github.py`).
         "github", "github-starred", "github-added", "github-owned",
         // G32: Spotify's own download — its library (saved) and its plays (listening days).
@@ -120,6 +122,7 @@ enum OriginIconography {
         case "book-scan": "Book scan"
         case "notion-export", "notion-api": "Notion"
         case "readwise": "Readwise"
+        case "linear-api": "Linear"
         case "github", "github-added", "github-owned": "GitHub"
         case "github-starred": "GitHub stars"
         case "imessage": "Messages"
@@ -211,6 +214,7 @@ enum OriginIconography {
         // ROR-107: what the phone's camera read off a book's barcode; two tiles never wore one book (Goodreads has its mark).
         case "book-scan": "barcode.viewfinder"
         case "notion-export", "notion-api": "doc.text"
+        case "linear-api": "checklist"
         case "readwise": "highlighter"
         case "github", "github-starred", "github-added", "github-owned": "chevron.left.forwardslash.chevron.right"
         case "imessage": "message.fill"
@@ -330,6 +334,7 @@ enum OriginIconography {
         case "brave-bookmark": "brave"
         case "rss": "rss"
         case "notion-export", "notion-api": "notion"
+        case "linear-api": "linear"
         case "telegram", "telegram-chats": "telegram"
         case "whatsapp": "whatsapp"
         // 2026-11-04 (owner: "whisperflow in the sources page doesn't have the logo of Whisperflow") — the vendor's own
