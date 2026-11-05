@@ -60,7 +60,7 @@ struct VoiceMemoRecord: Equatable, Sendable {
     let title: String
     /// The recording's own date (ruling 39).
     let recordedAt: Date
-    let duration: Double?
+    let duration: Double?  // motion-lint:ok — a recording's length
     let file: URL
 }
 
@@ -107,7 +107,7 @@ enum VoiceMemosStore {
             // A row with no date is dated by its file, never by "now".
             guard let when = seconds > 0 ? Date(timeIntervalSinceReferenceDate: seconds) : modified else { return nil }
             return VoiceMemoRecord(key: key, title: label.isEmpty ? file.deletingPathExtension().lastPathComponent : label,
-                                   recordedAt: when, duration: (row["ZDURATION"] as? NSNumber)?.doubleValue, file: file)
+                                   recordedAt: when, duration: (row["ZDURATION"] as? NSNumber)?.doubleValue, file: file)  // motion-lint:ok — a recording's length
         }.sorted { ($0.recordedAt, $0.key) < ($1.recordedAt, $1.key) }
     }
 

@@ -23,6 +23,12 @@
   `CloudRecordings.db` columns by hand (never in development). **Owner decisions, undecided:** may Sleep read memos and as
   whose words; a page per added file (rulings 56, 62 and the files-outside-the-bank rail); naming the transcriber as a
   contributor (copy rail). YouTube extraction stays out (G162).
+- **2026-11-05 — agents can look into what Sleep has not read (ROR-29, G207; branch `ror29-ask-unread`).** Ask reads an
+  unread conversation or note whole when short, else by its matching passages, in one 4,000-character budget per question,
+  labelled "not yet read by Sleep"; Citations are what the answer rests on (an empty `used_entities` no longer means every
+  retrieved page); `cicada_pending(query)` uses recall's two legs and leads with the newest; the primer says so (+~31 tokens).
+  Index-only records and locked notes are still never read; no setting. **Not run:** an `answer_eval` comparison on haiku
+  (needs the scratch-home harness). **Pick up here:** decide whether to run it. Detail: `memory-evolution.md` G207, `mcp.md`.
 - **2026-11-05 — a citation opens its source on its words, one standard (ROR-16, G118; branch `ror16-evidence-spans`).** One
   judge and wire shape (`source_spans`), one drawing (`SourceSpansView`), `GET /episodes/{id}/spans` by page; the demo gains
   a note, a meeting and a book, plus one stale and one held. **Pick up here:** the click proof in the scratch app and
