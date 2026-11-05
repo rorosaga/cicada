@@ -36,8 +36,8 @@ from typing import Any
 
 from loguru import logger
 
-from api.services import (bank_index, episode_ids, episode_scrub, evidence, history_index, markdown_parser, sensitive_flags,
-                          sync_state, write_admission)
+from api.services import (bank_index, episode_ids, episode_scrub, episode_staging, evidence, history_index, markdown_parser,
+                          sensitive_flags, sync_state, write_admission)
 
 NOTES_INDEX_FILENAME = "notes_index.json"
 
@@ -203,7 +203,7 @@ def _episode_body(note: NoteRecord) -> str:
     return "\n".join(lines)
 
 
-def _write_note_episode(episodes_dir: Path, note: NoteRecord) -> str:
+def _write_note_episode(episodes_dir: Path, note: NoteRecord, pinned: bool = False) -> str:
     episodes_dir.mkdir(parents=True, exist_ok=True)
     # Read on time (owner 2026-10-16): a note is dated when it was last written, not the day it was synced — a first
     # sync of a years-old library is never a library of mentions today. An older app sends no date: now, as before.
@@ -231,6 +231,8 @@ def _write_note_episode(episodes_dir: Path, note: NoteRecord) -> str:
         # mirrors bookmark_sync tagging synced items with their origin.
         "tags": [note.folder] if note.folder else [],
     }
+    if pinned:
+        frontmatter[episode_staging.PINNED_KEY] = True   # ROR-15: not in `content_hash`; see `_apply_pins`
     episode_id = episode_ids.create_episode(episodes_dir, frontmatter, body)
     return episode_id
 
@@ -457,14 +459,45 @@ def _placement(note: NoteRecord, known: dict | None = None) -> tuple[str | None,
     return note.account or (known or {}).get("account") or None, note.folder or None
 
 
-def _index_entry(episode_id: str, note: NoteRecord, known: dict | None = None) -> dict:
+def _index_entry(episode_id: str, note: NoteRecord, known: dict | None = None, pinned: bool = False) -> dict:
     account, folder = _placement(note, known)
-    return {"episode_id": episode_id, "modified": note.modified, "note_id": note.note_id,
-            "account": account, "folder": folder}
+    entry = {"episode_id": episode_id, "modified": note.modified, "note_id": note.note_id,
+             "account": account, "folder": folder}
+    if pinned:
+        entry["pinned"] = True   # only ever present when true: an unpinned library's index is byte-for-byte what it was
+    return entry
+
+
+def _apply_pin(memory_path: Path, existing: dict, pinned: bool) -> bool:
+    """ROR-15: a pin moved in Notes while the note itself did not. The index entry and the note's latest episode take
+    the new state through `episode_staging.set_pinned` (one frontmatter key, under the episode lock): the body, the hash,
+    ``processed`` and ``revised`` stay as they were, so nothing is queued and Sleep reads nothing again. A pin that
+    changes on a note Sleep already read does nothing to memory. Returns whether anything changed."""
+    if bool(existing.get("pinned")) == pinned:
+        return False
+    if pinned:
+        existing["pinned"] = True
+    else:
+        existing.pop("pinned", None)
+    path = _episode_path(memory_path, str(existing.get("episode_id") or ""))
+    if path is not None:
+        try:
+            episode_staging.set_pinned(path, pinned)
+        except Exception as exc:  # noqa: BLE001 — a pin is metadata: it never fails a sync
+            logger.warning(f"Notes: could not record a pin: {type(exc).__name__}")
+    return True
+
+
+def _episode_path(memory_path: Path, episode_id: str) -> Path | None:
+    if not episode_id or "/" in episode_id or "\\" in episode_id or ".." in episode_id:
+        return None
+    path = Path(memory_path) / "episodes" / f"{episode_id}.md"
+    return path if path.is_file() else None
 
 
 async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] | None = None,
-                     locked_ids: list[str] | None = None, locked_keys: list[str] | None = None) -> dict[str, Any]:
+                     locked_ids: list[str] | None = None, locked_keys: list[str] | None = None,
+                     pinned_ids: list[str] | None = None) -> dict[str, Any]:
     """Parse ``dump`` and write one episode per new or modified note.
 
     A brand-new note id -> new episode. A previously-seen note whose
@@ -481,6 +514,11 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
     text is never staged either. An older app sends no ``locked_ids``, so its blank records
     are taken as locked (that is what Notes returned for a locked note); what it cannot be protected from is a body it
     reads while a locked note is open, which looks like any other note.
+
+    ROR-15: ``pinned_ids`` are the notes the person pinned in Notes (the app maps them from Notes' store, only with Full
+    Disk Access it already holds). ``None`` means the app could not tell, and leaves every pin as it was; a list, empty
+    included, is the whole truth. A pin is frontmatter metadata that never reaches the content hash or the queue
+    (:func:`_apply_pin`); an id that names no readable note in this post is ignored.
 
     Folder exclusion: ``CICADA_NOTES_EXCLUDE_FOLDERS`` (comma-separated,
     case-insensitive folder names, default empty) drops matching notes
@@ -536,6 +574,8 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
     new_count = 0
     updated_count = 0
     skipped_count = 0
+    pins_moved = 0
+    pins = None if pinned_ids is None else {str(i).strip() for i in pinned_ids if str(i).strip()}
     episodes_dir = memory_path / "episodes"
 
     placed = 0
@@ -545,16 +585,19 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
         for note in notes:
             key = _note_key(note)
             existing = idx.get(key)
+            pinned = bool((existing or {}).get("pinned")) if pins is None else note.note_id in pins
             if existing is None:
-                episode_id = _write_note_episode(episodes_dir, note)
-                idx[key] = _index_entry(episode_id, note)
+                episode_id = _write_note_episode(episodes_dir, note, pinned)
+                idx[key] = _index_entry(episode_id, note, pinned=pinned)
                 new_count += 1
             elif existing.get("modified") != note.modified:
-                episode_id = _write_note_episode(episodes_dir, note)
-                idx[key] = _index_entry(episode_id, note, existing)
+                episode_id = _write_note_episode(episodes_dir, note, pinned)
+                idx[key] = _index_entry(episode_id, note, existing, pinned)
                 updated_count += 1
             else:
                 skipped_count += 1
+                if _apply_pin(memory_path, existing, pinned):
+                    pins_moved += 1
                 # 2026-11-04 — where a note lives (its account and folder) is kept current in the index alone: a note moved
                 # to another folder, or kept by a sync from before accounts were sent, is placed without a new episode
                 # (nothing Sleep reads changed).
@@ -562,12 +605,12 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
                 if now_placed != (existing.get("account"), existing.get("folder")):
                     existing["account"], existing["folder"] = now_placed
                     placed += 1
-        if new_count or updated_count or placed:
+        if new_count or updated_count or placed or pins_moved:
             _save_notes_index(memory_path, idx)
     finally:
         _INDEX_LOCK.release()
 
-    if new_count or updated_count or placed:
+    if new_count or updated_count or placed or pins_moved:
         try:
             await _commit_notes_sync(memory_path, new_count, updated_count)
         except Exception as e:

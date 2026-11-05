@@ -1740,7 +1740,8 @@ async def sync_notes(
     memory_path = settings.memory_path
 
     result = await notes_sync.sync_notes(memory_path, dump=request.notes_dump, accounts=request.note_accounts,
-                                         locked_ids=request.locked_note_ids, locked_keys=request.locked_note_keys)
+                                         locked_ids=request.locked_note_ids, locked_keys=request.locked_note_keys,
+                                         pinned_ids=request.pinned_note_ids)
 
     # G234: a locked note leaves only this count in the bank; the ids posted beside the dump are never stored.
     sync_state.record_sync(memory_path, "notes", count=int(result.get("total") or 0),
