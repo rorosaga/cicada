@@ -14,6 +14,8 @@ struct SourceGridSearch: Equatable {
 struct SourceAppTile: View {
     let row: SourceCatalogRow
     var highlighted = false
+    /// It sits under a section's heading, not in search results.
+    var headed = false
     let now: Date
     let open: () -> Void
 
@@ -30,7 +32,7 @@ struct SourceAppTile: View {
                         .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
-                    if let line = SourceGrid.line(row, now: now) {
+                    if let line = SourceGrid.line(row, now: now, headed: headed) {
                         StatusWord(word: line.word, tone: line.tone).monospacedDigit()
                     }
                 }
@@ -61,7 +63,7 @@ struct SourceGridView: View {
     /// The empty search's one way on: what the person looks for may arrive as a file.
     let importFiles: () -> Void
 
-    private var columns: [GridItem] {
+    fileprivate static var columns: [GridItem] {
         [GridItem(.adaptive(minimum: CicadaTheme.scaled(SourceGrid.tileMinWidth)), spacing: CicadaTheme.spacingSM,
                   alignment: .leading)]
     }
@@ -75,7 +77,7 @@ struct SourceGridView: View {
                     ForEach(SourceGrid.sections(rows), id: \.section) { group in
                         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                             SectionLabel(group.section.title)
-                            grid(group.rows, highlighted: nil, now: context.date)
+                            grid(group.rows, highlighted: nil, headed: true, now: context.date)
                         }
                     }
                 }
@@ -90,16 +92,34 @@ struct SourceGridView: View {
             EmptyStateView(title: Copy.Catalog.noMatch(search.text.trimmingCharacters(in: .whitespacesAndNewlines)),
                            message: "", actionLabel: Copy.Catalog.importChatsOrFiles, action: importFiles)
         } else {
-            grid(found, highlighted: SourceGrid.highlighted(found, cursor: search.cursor), now: now)
+            grid(found, highlighted: SourceGrid.highlighted(found, cursor: search.cursor), headed: false,
+                 now: now)
         }
     }
 
-    private func grid(_ rows: [SourceCatalogRow], highlighted: String?, now: Date) -> some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: CicadaTheme.spacingSM) {
+    private func grid(_ rows: [SourceCatalogRow], highlighted: String?, headed: Bool, now: Date) -> some View {
+        LazyVGrid(columns: Self.columns, alignment: .leading, spacing: CicadaTheme.spacingSM) {
             ForEach(rows) { row in
-                SourceAppTile(row: row, highlighted: row.id == highlighted, now: now) { open(.entry(row.id)) }
+                SourceAppTile(row: row, highlighted: row.id == highlighted, headed: headed, now: now) {
+                    open(.entry(row.id))
+                }
                     .id(SourcesSelection.entry(row.id))
             }
         }
+    }
+}
+
+/// Placeholder tiles at the real size, no motion: a page that knows its shape draws it (never blank).
+struct SourceGridSkeleton: View {
+    var body: some View {
+        LazyVGrid(columns: SourceGridView.columns, spacing: CicadaTheme.spacingSM) {
+            ForEach(0..<8, id: \.self) { _ in
+                CicadaTheme.shape(CicadaTheme.cornerRadius)
+                    .fill(CicadaTheme.bgSelected)
+                    .frame(height: CicadaTheme.scaled(RowMetrics.sourceTile))
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Reading your sources")
     }
 }

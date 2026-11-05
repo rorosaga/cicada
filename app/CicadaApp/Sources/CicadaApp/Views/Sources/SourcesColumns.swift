@@ -131,7 +131,7 @@ struct SourcesOverviewColumn: View {
                         // G166 exploring — the run's one line of progress, Stop and Copy for an agent, while a run exists.
                         if exploreCache.showsCard { ExploreRunCard().frame(maxWidth: textCap, alignment: .leading) }
                         if !hasLoaded {
-                            skeleton
+                            SourceGridSkeleton()
                         } else {
                             // G217 — every way in, on or off, so the page is never empty (a dropped export lands on the
                             // window's own intake, and on Files and links).
@@ -176,21 +176,6 @@ struct SourcesOverviewColumn: View {
 
     private func liveness(_ row: SourceOverview) -> SourceLiveness {
         SourceLiveness.of(row: row, channel: nil, watch: row.channelId.flatMap { watcher.state(for: $0) })
-    }
-
-    /// Placeholder tiles at the real size, no motion — a page that knows its shape draws it (never blank).
-    private var skeleton: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(SourceGrid.tileMinWidth)),
-                                     spacing: CicadaTheme.spacingSM)],
-                  spacing: CicadaTheme.spacingSM) {
-            ForEach(0..<8, id: \.self) { _ in
-                CicadaTheme.shape(CicadaTheme.cornerRadius)
-                    .fill(CicadaTheme.bgSelected)
-                    .frame(height: CicadaTheme.scaled(RowMetrics.sourceTile))
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Reading your sources")
     }
 
     /// R-DL23 (DR-39) — one quiet, remembered disclosure, on the same `cicada.usageMode` key, so an existing choice

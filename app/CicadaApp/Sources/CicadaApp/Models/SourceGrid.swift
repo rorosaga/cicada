@@ -112,15 +112,17 @@ enum SourceGrid {
         let tone: StatusWord.Tone
     }
 
-    /// The one line under a tile's name, only when it says something. The section already says Connected, so a
-    /// connected tile says when it last read; an off tile says nothing at all: no dot is the word.
-    static func line(_ row: SourceCatalogRow, now: Date, locale: Locale = .autoupdatingCurrent) -> Line? {
+    /// The one line under a tile's name, only when it says something. A connected tile says when it last read, and
+    /// `headed` (it sits under the Connected heading) drops the word that would repeat it; an off tile says nothing at
+    /// all: no dot is the word.
+    static func line(_ row: SourceCatalogRow, now: Date, headed: Bool = false,
+                     locale: Locale = .autoupdatingCurrent) -> Line? {
         if row.notInstalled { return Line(word: Copy.SourcePage.notInstalledRow, tone: .off) }
         if row.status == .waitingForAgent { return Line(word: Copy.Catalog.waitsForAgent, tone: .off) }
         if row.needsYou { return Line(word: row.word, tone: row.tone) }
         guard row.status == .connected else { return nil }
-        return Line(word: row.lastSync.map { SourceCatalog.ago($0, now: now, locale: locale) } ?? row.status.word,
-                    tone: .on)
+        if let lastSync = row.lastSync { return Line(word: SourceCatalog.ago(lastSync, now: now, locale: locale), tone: .on) }
+        return headed && row.section == .connected ? nil : Line(word: row.status.word, tone: .on)
     }
 
     // MARK: - Search

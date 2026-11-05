@@ -1788,7 +1788,8 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   and music · Reading · Notes and work · Meeting recorders · Files and activity · Agents' conversations). A source sits in one
   section. `SourceCatalogGroup` (how it comes in) stays the rules' word and is never drawn. A tile is the one `LogoTile`,
   the name, and one line only when it says something: when it last read, the waiting word, *Not installed*; off says
-  nothing, no dot is the word. One click opens the standard source page; the rows beside it use the same sections.
+  nothing, no dot is the word, and *Connected* is never repeated under its own heading (it returns in search results and on
+  a row that only borrows a reader). The Chat exports tile takes every assistant's export, so it wears a neutral glyph. One click opens the standard source page; the rows beside it use the same sections.
   **Search** is always drawn (⌘F focuses it): the one ranker (`QuickMatch`) over the name, `SourceGrid.alsoKnownAs` (a
   company, an old name, what it holds; never drawn) and the section, with no network and no model. ↑/↓ walk the results,
   ⏎ opens the highlighted one, neither animated (DR-60); nothing found is `EmptyStateView` with the page's own import.

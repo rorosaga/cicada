@@ -81,6 +81,8 @@ struct SourceCatalogRow: Identifiable, Equatable {
 }
 
 enum SourceCatalog {
+    /// The chat-exports tile takes every assistant's export, so it wears no one company's mark (provider-neutral copy).
+    static let chatExportsOrigin = "chat-exports"
     static let folderPrefix = "folder:"
     static let browserPrefix = "browser:"
     /// `LocalSourceWatcher.wisprChannel` (main-actor isolated there).
@@ -173,7 +175,7 @@ enum SourceCatalog {
         SourceCatalogEntry(id: "notion", group: .exports, category: .notes, title: "Notion", origin: "notion-export",
                            channels: ["notion", "notion-api"], verb: .importFile),
         SourceCatalogEntry(id: "chat-exports", group: .exports, category: .agents, title: Copy.Catalog.chatExports,
-                           origin: "claude-export",
+                           origin: chatExportsOrigin,
                            channels: ["chat-export:claude", "chat-export:chatgpt", "chat-export:gemini"],
                            verb: .importFile),
         SourceCatalogEntry(id: "rss", group: .feeds, category: .reading, title: "RSS", origin: "rss", channels: ["rss"],

@@ -74,6 +74,22 @@ final class SourceGridTests: XCTestCase {
         XCTAssertEqual(line?.tone, .on)
     }
 
+    /// A heading already says it: the word returns only in search results, where no heading stands above the tile.
+    func testAConnectedTileNeverRepeatsItsHeading() throws {
+        let all = rows(channels: [channel("reddit")])
+        let row = try XCTUnwrap(all.first { $0.id == "reddit" })
+        XCTAssertEqual(row.section, .connected)
+        XCTAssertNil(SourceGrid.line(row, now: Date(), headed: true))
+        XCTAssertEqual(SourceGrid.line(row, now: Date())?.word, row.status.word)
+    }
+
+    func testAMarkBelongsToItsSourceAndNoCompanyWearsAShelf() throws {
+        let notion = try XCTUnwrap(rows().first { $0.id == "notion" })
+        XCTAssertEqual(OriginIconography.logoName(for: notion.entry.origin), "notion")
+        let exports = try XCTUnwrap(rows().first { $0.id == "chat-exports" })
+        XCTAssertNil(OriginIconography.logoName(for: exports.entry.origin), "it takes every assistant's export")
+    }
+
     func testAReaderThatCannotReadWaitsOnThePersonAndTheTileAndThePageAgree() {
         let blocked = SourceCatalog.browserPrefix + "chrome"
         let bookmarks = chrome.bookmarksChannel!
@@ -273,6 +289,34 @@ final class SourceGridTests: XCTestCase {
                 let renderer = ImageRenderer(content: view)
                 XCTAssertNotNil(renderer.nsImage, "\(mode) at \(width)")
             }
+        }
+    }
+
+    /// The states the demo bank never shows: a lapsed sign-in, a permission taken away, an agent awaited, a missing app.
+    @MainActor func testRenderTheStatesTheDemoNeverShows() throws {
+        guard let dir = ProcessInfo.processInfo.environment["SOURCE_GRID_RENDER_DIR"], !dir.isEmpty else {
+            throw XCTSkip("set SOURCE_GRID_RENDER_DIR to render the Sources grid's states")
+        }
+        let held = CicadaTheme.mode
+        defer { CicadaTheme.mode = held }
+        let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
+        let all = rows(channels: [channel("github", error: "401 token expired"), channel("reddit")],
+                       waitingOn: ["calendar-local": Copy.sourceNeedsAccess], suggested: [WhatsAppWatcher.channel],
+                       notInstalled: ["imessage"])
+        for mode in [AppColorScheme.light, .dark] {
+            CicadaTheme.mode = mode
+            let view = SourceGridView(rows: all, search: SourceGridSearch(), open: { _ in }, importFiles: {})
+                .padding(CicadaTheme.spacingXL)
+                .frame(width: 900, alignment: .topLeading)
+                .background(CicadaTheme.bgBase)
+                .environment(store)
+                .environment(\.colorScheme, mode == .dark ? .dark : .light)
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            let image = try XCTUnwrap(renderer.nsImage?.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+            let png = try XCTUnwrap(image.representation(using: .png, properties: [:]))
+            try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("grid-states-\(mode).png"))
         }
     }
 
