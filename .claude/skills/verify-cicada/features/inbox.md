@@ -30,3 +30,4 @@ Preconditions:
 
 - A two-conversation journey about a project may file no question: `Needs you · nothing right now` is the seed, not a failure.
 - Option keys are words (`rather_not_say`, `apply`, `dismiss`), not letters.
+- A follow-up cannot rise on a same-day scratch bank: a milestone's target must be in the future, and a thread's quiet clock counts from when it was last heard, even when the happening is backdated. Proving what Sleep does to one needs a pending file in `followups.propose`'s shape, planted in its own commit; say so in the evidence.

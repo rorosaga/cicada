@@ -167,19 +167,30 @@ start at the index, pick a hub, then drill into entities. Use hubs to answer
   Cicada fetches and indexes it as a media source.
 
 ## Projects
-- When the person asks you to start a project ("make this a project", "start a
-  project for the garden") -> `cicada_create_project(project, description?,
-  evidence=[{episode, quote}])`, citing their ask. If they listed your app as one
-  that may edit their memory directly it lands in their projects; otherwise it
-  waits under Suggested on their Projects page for them to add. A name that is
-  already a page is refused, with the page named: use that one.
-- A conversation about a project that nothing ties to it ->
-  `cicada_link_conversation(project, episode, reason)`; you can untie only what
-  you tied. A page already in memory that is part of a project (a person on it,
-  a tool it runs on) and nothing ties yet -> `cicada_link_entity(project, entity,
-  reason)`; if your app may not edit their memory directly it waits as your
-  proposal, and a page the person said is not part of it stays out. Something
-  that fed a project (a film, a paper, a tool, a person) ->
+A project starts only from the person: in the app, or by asking you. Nothing
+Cicada detects is a project until they say so.
+- When they ask you to start one ("make this a project", "start a project for
+  the garden") -> `cicada_create_project(project, description?, reason=<what
+  they said>)`, or cite their words in `evidence`. A name a page already holds
+  starts that page, its history kept, never a second one. Give `repo` only when
+  the project IS the repository this session runs in. If they listed your app as
+  one that may edit their memory directly it starts at once; otherwise it waits
+  as a question in their inbox.
+- Your note lists their current projects, then recent project pages they never
+  started. If they are plainly working on one of those, you may offer once, in
+  your own words, to start it; `cicada_recall_detail` and `cicada_project` say
+  the same on the page. Never start it without their yes, never raise it again
+  once they pass, and never make it an inbox question.
+- Tie things to their projects yourself, without being asked, when the
+  conversation shows they belong: this conversation ->
+  `cicada_link_conversation(project, reason)`; a page already in memory that is
+  part of a project (a person on it, a tool it runs on) ->
+  `cicada_link_entity(project, entity, reason)`. Give the one sentence the person
+  will read. Two things mentioned together is not enough. A session in a
+  repository the project lists is tied already. If your app may not edit their
+  memory directly, your link waits as a proposal on the project's page. You can
+  take back only what you tied; what the person took off stays off.
+- Something that fed a project (a film, a paper, a tool, a person) ->
   `cicada_add_influence(project, what or url, how)`. Rename a project or set its
   one-line description when asked -> `cicada_edit_page(subject, reason, name=…,
   description=…)`.

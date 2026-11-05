@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,7 +21,8 @@ from loguru import logger
 from api.config import Settings, get_settings
 from api.models.schemas import CamelModel
 from api.routers.capture import refuse_capture_into_demo
-from api.services import git_service, github_repos, markdown_parser, media_preview, sync_state, write_admission
+from api.services import (git_service, github_repos, markdown_parser, media_preview, state_dictionary, sync_state,
+                          write_admission)
 from api.services.connectors import github, github_auth, tier2
 from api.services.sleep_refusal import SleepWriting
 
@@ -345,8 +347,14 @@ async def repo_project(request: RepoProjectRequest, settings: Settings = Depends
                                                 remove=request.remove)
             except LookupError as exc:
                 raise HTTPException(404, f"{request.project!r} is not a project page") from exc
+            if not request.remove:
+                # Ruling 56: the person linking their repository to a page they never started is them starting it.
+                page = Path(memory_path) / "entities" / f"{request.project}.md"
+                if project_ownership.unstarted(markdown_parser.parse(page, ledger=False).frontmatter, page):
+                    paths = [*paths, *await asyncio.to_thread(project_ownership.accept, memory_path, request.project)]
             await _commit(memory_path, paths, "Repository unlinked from a project" if request.remove
                           else "Repository linked to its project")
+            await state_dictionary.refresh_held(memory_path, settings)   # a link may have started it (ruling 56)
             return request.project, False
         repo = await asyncio.to_thread(_page_record, memory_path, entity_id)
         if repo is None:
@@ -356,6 +364,7 @@ async def repo_project(request: RepoProjectRequest, settings: Settings = Depends
         except project_ownership.OwnershipError as exc:
             raise HTTPException(409, str(exc)) from exc
         await _commit(memory_path, paths, "Project made from a repository")
+        await state_dictionary.refresh_held(memory_path, settings)
         return eid, True
 
     project, created = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(BUSY))

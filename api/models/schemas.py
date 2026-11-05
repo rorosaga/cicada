@@ -2075,9 +2075,8 @@ class ProjectRow(ProjectRef):
 
 
 class SuggestedProject(CamelModel):
-    """A project Cicada noticed that the person has not claimed (ruling 45): never archived or deleted, shown under
-    Suggested with why. ``kind`` is ``page`` (a project page or a fallback concept, ``id`` its page) or ``group`` (a
-    provider's project with no page yet — a ChatGPT ``g-p-`` grouping; ``id`` is the grouping, named on accept)."""
+    """Deprecated by ruling 56: nothing is suggested any more, and ``ProjectsResponse.suggested`` is always empty. Kept
+    one release so a client built against g141-7..9 still reads the shape (remove after 0.9)."""
     id: str
     kind: str = "page"
     name: str = ""
@@ -2098,8 +2097,8 @@ class ProjectsResponse(CamelModel):
     projects: list[ProjectRow] = []
     tz_name: str = "UTC"
     partial: bool = False
-    # g141-7 (ruling 45): `projects` keeps every live project page (each row says `mine`); the page draws the person's
-    # own and folds the rest, plus fallback pages and provider groupings, under Suggested (strongest first).
+    # Ruling 56 (g141-10): the route sends the person's own rows; every other page stays reachable as a page. The two
+    # fields below are always empty, kept one release for a client built against g141-7..9 (remove after 0.9).
     suggested: list[SuggestedProject] = []
     dismissed: int = 0
 
@@ -2154,6 +2153,7 @@ class ProjectPageRow(CamelModel):
     # G227 (g141-9): when another page shares this title, the qualifier and the name to show. Additive.
     qualifier: Optional[str] = None
     display_name: Optional[str] = None
+    reason: Optional[str] = None    # ruling 56 (g141-10): an agent's one sentence on why it tied or proposed it
 
 
 class ProjectInfluence(CamelModel):
@@ -2193,6 +2193,8 @@ class ProjectConversationRow(TimelineConversation):
     relayed: bool = False
     provider_label: Optional[str] = None
     manual: bool = False
+    by: Optional[str] = None        # ruling 56 (g141-10): the agent that tied or proposed it, and its one sentence why
+    reason: Optional[str] = None
 
 
 class ProjectConversations(CamelModel):
@@ -2202,6 +2204,7 @@ class ProjectConversations(CamelModel):
     conversations: list[ProjectConversationRow] = []
     offset: int = 0
     partial: bool = False
+    proposed: list[ProjectConversationRow] = []   # ruling 56: an agent's proposals, never counted until the person takes one
 
 
 class ProjectCreate(CamelModel):
@@ -2255,6 +2258,7 @@ class ProjectOwnershipResponse(CamelModel):
     claim_id: Optional[str] = None
     page: Optional[str] = None
     episode_id: Optional[str] = None
+    retyped: bool = False   # ruling 56: Remove gave the page back as what it was, so it has no project view now
 
 
 ProjectTimeline.model_rebuild()

@@ -40,7 +40,7 @@ from api.models.schemas import (ConversationTie, HappeningCreate, InfluenceCreat
                                 PageTie, ProjectOwnershipResponse, ProjectPatch, ProjectsResponse, ProjectTimeline,
                                 ProjectWriteResponse, ThreadSettle, WithdrawRequest)
 from api.services import (bank_index, episode_scrub, sync_ticker, git_service, handshake, markdown_parser, owner_identity,
-                          progress, project_timeline, search_index, sync_service, telemetry,
+                          progress, project_timeline, search_index, state_dictionary, sync_service, telemetry,
                           turn_authorship, when, write_admission)
 from api.services.claim_reconciler import is_human
 from api.services.claims import HAPPENED, MILESTONE, Claim, MalformedClaimsBlockError, is_event, parse_claims
@@ -100,7 +100,8 @@ async def _list_projects(request: Request, response: Response, settings: Setting
     index_state = await run_in_threadpool(_index_state, mp)
     result = await run_in_threadpool(project_timeline.list_projects, mp, tz_name=tz)
     _unpin_degraded(response, index_state, result)
-    return result
+    # Ruling 56: the list is the person's own. Follow-ups and the read model still see every page; this door does not.
+    return result.model_copy(update={"projects": [r for r in result.projects if r.mine]})
 
 
 @router.get("/projects/{project_id}/timeline", response_model=ProjectTimeline)
@@ -441,7 +442,7 @@ PROJECT_TRIGGER = "user/companion_app"
 
 
 def _suggestable_stem(memory_path, project_id: str) -> str:
-    """A live project page or a fallback page (a thing called a project) — what accept and dismiss act on."""
+    """A live project page or a fallback page (a thing called a project) — what add and remove act on."""
     from api.services import project_ownership
 
     page = resolve_entity_file(memory_path, project_id)
@@ -472,7 +473,8 @@ def _refuse(exc: Exception) -> HTTPException:
 @router.post("/projects", response_model=ProjectOwnershipResponse)
 @_admitted
 async def create_project(body: ProjectCreate, settings: Settings = Depends(get_settings)):
-    """New project (the page's one add button): the person typed a name and a description — theirs, listed."""
+    """New project (the page's one add button): the person typed a name and a description — theirs, listed. A name a
+    page already answers to starts that page, its history kept; nothing is minted beside it (ruling 56)."""
     from api.services import project_ownership
 
     mp = settings.memory_path
@@ -487,28 +489,19 @@ async def create_project(body: ProjectCreate, settings: Settings = Depends(get_s
                 via=project_ownership.VIA_CLI if body.via == "cli" else project_ownership.VIA_APP, by="user",
                 today=_now().date())
         except project_ownership.OwnershipError as exc:
-            raise HTTPException(409 if "already a page" in str(exc) else 400, str(exc))
+            raise HTTPException(409 if project_ownership.name_taken(exc) else 400, str(exc))
         # One commit, the person's: the new page created, each repository page's back-link updated (G230).
-        await _commit_as(mp, f"Project created {eid}", paths, verbs={p: "created" for p in created})
-    return ProjectOwnershipResponse(id=eid, action="created", mine=True)
-
-
-def _group_provider(memory_path, group: str) -> str:
-    from api.services import project_conversations
-
-    for f in bank_index.files(memory_path, "episodes"):
-        p = project_conversations.ep_provider(f.frontmatter or {})
-        if p is not None and p[1] == group:
-            return p[0]
-    raise HTTPException(404, f"No conversations carry {group!r}")
+        await _commit_as(mp, f"Project {'created' if created else 'started'} {eid}", paths,
+                         verbs={p: "created" for p in created})
+    await state_dictionary.refresh_held(mp, settings)   # the next agent's primer has it now, not after the next Sleep
+    return ProjectOwnershipResponse(id=eid, action="created" if created else "started", mine=True)
 
 
 @router.post("/projects/{project_id}/accept", response_model=ProjectOwnershipResponse)
 @_admitted
 async def accept_project(project_id: str, body: Optional[ProjectAccept] = None,
                          settings: Settings = Depends(get_settings)):
-    """"Add to my projects". A fallback page becomes the project in place; a provider grouping with no page becomes a
-    new project page, named by the person, that records the grouping (its conversations are then tied to it)."""
+    """"Add to my projects", on a page that already exists. A fallback page becomes the project in place."""
     from api.services import project_ownership
 
     mp = settings.memory_path
@@ -516,46 +509,38 @@ async def accept_project(project_id: str, body: Optional[ProjectAccept] = None,
     async with _write_lock:
         today = _now().date()
         try:
-            if project_ownership.is_group_id(project_id):
-                if not name:
-                    raise HTTPException(400, "Name the project to add it")
-                provider = _group_provider(mp, project_id)
-                eid, paths = await run_in_threadpool(
-                    project_ownership.create, mp, name, "", via=project_ownership.VIA_ACCEPTED, by="user",
-                    listed=True, provider={"provider": provider, "id": project_id}, today=today)
-                await _commit_as(mp, f"Project accepted {eid}", paths, "created")
-                return ProjectOwnershipResponse(id=eid, action="created", mine=True)
             stem = _suggestable_stem(mp, project_id)
             paths = await run_in_threadpool(project_ownership.accept, mp, stem, name=name, today=today)
         except project_ownership.OwnershipError as exc:
             raise _refuse(exc)
         if paths:
             await _commit_as(mp, f"Project accepted {stem}", paths)
+    if paths:
+        await state_dictionary.refresh_held(mp, settings)
     return ProjectOwnershipResponse(id=stem, action="accepted" if paths else "unchanged", mine=True)
 
 
 @router.post("/projects/{project_id}/dismiss", response_model=ProjectOwnershipResponse)
 @_admitted
 async def dismiss_project(project_id: str, settings: Settings = Depends(get_settings)):
-    """"Not mine": nothing is archived, deleted or retyped; the suggestion waits behind "N dismissed"."""
+    """"Remove from my projects": nothing is archived, deleted or retyped; the page can be added again."""
     from api.services import project_ownership
 
     mp = settings.memory_path
     async with _write_lock:
         today = _now().date()
         try:
-            if project_ownership.is_group_id(project_id):
-                _group_provider(mp, project_id)
-                paths = await run_in_threadpool(project_ownership.dismiss_group, mp, project_id, today=today)
-                stem = project_id
-            else:
-                stem = _suggestable_stem(mp, project_id)
-                paths = await run_in_threadpool(project_ownership.dismiss, mp, stem, today=today)
+            stem = _suggestable_stem(mp, project_id)
+            paths = await run_in_threadpool(project_ownership.dismiss, mp, stem, today=today)
         except project_ownership.OwnershipError as exc:
             raise _refuse(exc)
         if paths:
             await _commit_as(mp, f"Project dismissed {stem}", paths)
-    return ProjectOwnershipResponse(id=stem, action="dismissed" if paths else "unchanged", mine=False)
+        kind = (markdown_parser.parse(Path(mp) / "entities" / f"{stem}.md", ledger=False).frontmatter or {}).get("type")
+    if paths:
+        await state_dictionary.refresh_held(mp, settings)
+    return ProjectOwnershipResponse(id=stem, action="dismissed" if paths else "unchanged", mine=False,
+                                    retyped=kind != "project")
 
 
 @router.patch("/projects/{project_id}", response_model=ProjectOwnershipResponse)

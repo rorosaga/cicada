@@ -2426,16 +2426,17 @@ project whose happenings cite hundreds of pages opens at once (round-4 D6). Ever
 the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`, pinned by
 `api/tests/test_projects_app_fixture.py`.
 
-**Projects v2 redesign — the person's own list, Suggested, the knowledge panel (TODO ruling 45, 2026-10-27; wire
-g141-7; DESIGN_RULES §9 2026-10-27).** The page is back on the rail (`PageSwitches.projectsPage`, ⌘8). What it does:
+**Projects v2 redesign — the person's own list, the knowledge panel (TODO rulings 45 and 56; wire g141-10; DESIGN_RULES §9
+2026-10-27, 2026-11-04).** The page is back on the rail (`PageSwitches.projectsPage`, ⌘8). What it does:
 - **The list draws only the person's own** (`ProjectRow.mine`; an older server's rows, with no `mine`, all count as
-  theirs). After the rows, a *Suggested · N* fold (`ProjectsSuggestedSection`): each suggestion's reason glyph, its
-  reason in words (`why`), the person's located sentence for a words birth, and two neutral buttons, *Add to my
-  projects* and *Not mine*. It opens the first time and is remembered (`cicada.projects.suggestedOpen`); dismissed ones
-  sit behind "N dismissed · Show". A provider grouping (`kind: group`) asks for a name on accept (`ProjectNameSheet`).
-  With none of the person's own yet, the list draws no words at all (owner 2026-11-04: "just have it look empty"):
-  the column is empty and calm, the eyebrow's New project is the way in, and Cicada's suggestions stay one quiet line,
-  "N suggested · Review", its count in tertiary ink (`ProjectsSuggestedLine`).
+  theirs; its `suggested` is ignored). Nothing is suggested (ruling 56). With none of the person's own yet, the list draws
+  no words at all (owner 2026-11-04: "just have it look empty"): the column is empty and calm, and the eyebrow's New
+  project is the way in. A name a page already holds starts that page, its history kept.
+- **A page not started** stays reachable from search and the graph and opens in the detail column; it stays open when the
+  list refreshes (`ProjectsPage` keeps an open id `store.entityNames` knows). Its head shows one neutral *Add to my
+  projects* (DR-40); a listed project has *Remove from my projects* in its ⋯ menu. Neither touches the page.
+- **An agent's link** says who and why: the row's tag names the agent, `.help` holds its reason. A proposal draws its name
+  on its own line with *Add* and *Not about this project* / *Not part of it* (DR-40), at the head of its block.
 - **New project is a page (owner 2026-11-04, DESIGN_RULES §9 2026-11-04).** The eyebrow row's `PageAddButton` opens
   `ProjectNewColumn` as the detail column (`ProjectsPage.newColumn`, an id no slug can take): the project page it will
   become, before it exists. The card is the name as the page's H1 (a 22 pt field with no chrome, "Project name" in
@@ -2525,9 +2526,7 @@ part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page 
   influences, each capped with its own "All N". Writes are `ProjectChange.tiePage` through `Store.perform`, painted at
   once (`ProjectPagesPaint`). **The list:** sub-projects sit indented under their parent, always shown (no chevron —
   amends 2026-10-19's "dropdown that moves if I press again", the owner's newer preference); the quiet projects sit
-  under a static *Gone quiet* label (`ProjectsEntry.quiet`), never a fold; Suggested is one line, "N suggested ·
-  Review" (`ProjectsSuggestedLine`; "by Cicada" dropped 2026-11-04), which opens the suggestions as the detail column
-  (`ProjectsSuggestedColumn`: DR-74's head, text tabs Suggested · Not mine). ← on a sub-project opens its parent; →
+  under a static *Gone quiet* label (`ProjectsEntry.quiet`), never a fold. ← on a sub-project opens its parent; →
   has nothing left to unfold. The bullets below describe v2; where they name a fold, v3's open section replaces it.
 - **The list (v2):** text tabs **Current · Past** with counts (`ProjectsModel.tabs`; tapping the selected one keeps
   it). A project's group is `ProjectState`'s section (`ProjectsGroup`): in motion → Current; quiet → **Fading**, one

@@ -73,8 +73,10 @@ def test_the_create_branch_holds_the_set_even_when_a_payload_slipped_through(tmp
          {"id": "study-example", "action": "create", "entity": {"name": "Study Example", "type": "program"}}],
         tmp_path,
     )
+    # `program` maps to `project`, and Stage 5 never makes one (ruling 56): the fallback concept, marked.
     assert [_fm(tmp_path, e)["type"] for e in ("acme-example", "widget-example", "study-example")] == [
-        "company", "tool", "project"]
+        "company", "tool", "concept"]
+    assert _fm(tmp_path, "study-example")["proposed_type"] == "project"
 
 
 def test_an_inbox_answer_that_creates_a_page_holds_the_set(tmp_path):

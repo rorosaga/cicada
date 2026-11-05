@@ -259,20 +259,6 @@ def _url_key(url: str) -> str:
     return f"{host}{(p.path or '').rstrip('/')}".lower() if host else ""
 
 
-def _logged_progress(page: Path) -> bool:
-    """Ruling 45's last door, derived on read like the Projects page does: the person logged progress on it in the app."""
-    from api.services.claims import parse_claims
-
-    try:
-        # Cheap first: a page whose bytes never name the app's progress origin cannot pass (measured on a copy of the
-        # owner's bank, 707 project pages: parsing each took ~95 ms warm; this read ~10).
-        if project_ownership._HUMAN_PROGRESS_ORIGIN not in page.read_text(encoding="utf-8", errors="replace"):
-            return False
-        return project_ownership.logged_progress(parse_claims(markdown_parser.parse(page).body))
-    except Exception:  # noqa: BLE001 — an unreadable page is not the person's by this door
-        return False
-
-
 def owned_projects(memory_path: Path) -> list[ProjectKey]:
     """The person's own projects (ruling 45, ``project_ownership.is_mine``), each with its folders (``paths:``), the
     repositories it declares (``repos:``) or was born from (``born.repo``), and the local paths and addresses the
@@ -282,7 +268,7 @@ def owned_projects(memory_path: Path) -> list[ProjectKey]:
         fm = f.frontmatter or {}
         if fm.get("type") != "project" or fm.get("status") in ("archived", "dropped"):
             continue
-        if not project_ownership.is_mine(fm) and not _logged_progress(f.path):
+        if not project_ownership.listed(fm, f.path):
             continue
         key = ProjectKey(id=f.path.stem, name=str(fm.get("name") or f.path.stem))
         for p in fm.get("paths") or []:

@@ -139,13 +139,13 @@ def test_dismissing_a_grouping_keeps_what_the_import_remembers(bank):
     _import(bank, PROJECTS)
     (bank / "entities" / "empty-example.md").unlink()
     bank_index.invalidate()
-    project_ownership.dismiss_group(bank, "g-p-synthetic99")
+    project_ownership.update_groupings(bank, "dismissed", ["g-p-synthetic99"])
     data = project_ownership.read_groupings(bank)
     assert data["dismissed"] == ["g-p-synthetic99"] and data["imported"]
     _import(bank, PROJECTS)
     assert "empty-example" not in _pages(bank), "a deleted page never comes back"
     _import(bank, PROJECTS)
-    assert project_ownership.dismissed_groups(bank) == {"g-p-synthetic99"}
+    assert project_ownership.read_groupings(bank)["dismissed"] == ["g-p-synthetic99"]
 
 
 def test_while_sleep_holds_the_pages_the_projects_wait_and_nothing_is_remembered(bank, monkeypatch):

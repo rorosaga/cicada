@@ -2,7 +2,7 @@ import SwiftUI
 
 /// G141 PJ-5, v2 (owner 2026-10-19; DESIGN_RULES §9, §10) — the Projects page: a list page in progressive columns
 /// (§5.3). STATE 0 is Current — the projects in motion as calm two-line rows, sub-projects indented under them, then
-/// *Gone quiet* under a static label, and Suggested as one line (Projects v3: no folds, decision 17) — or Past,
+/// *Gone quiet* under a static label (Projects v3: no folds, decision 17; ruling 56: nothing suggested) — or Past,
 /// searchable and paged; a click narrows the list to the triage column and opens the project beside it; its evidence
 /// opens the Reader as the third column, which this page hosts itself (`AppTab.hostsOwnReader`, R-DL7). Projects
 /// clicked again in the rail comes back here (`AppRouter.reselect`). Its data is `ProjectsCache` — not a Store
@@ -30,16 +30,14 @@ struct ProjectsPage: View {
     /// R-PP17 / R-B21 — the third column's one slot besides the Reader: an entity's card or a backlog item.
     @State private var trailing: ProjectTrailing?
 
-    /// Ruling 45 (Q1): the list is the person's own; the rest waits under Suggested (with every pending accept or
-    /// dismiss painted over what the server last said).
+    /// Rulings 45 and 56: the list is the person's own (with every pending add or remove painted over what the server
+    /// last said); every other page stays reachable as a page.
     private var rows: [ProjectRow] { cache.displayList?.projects.filter(\.mine) ?? [] }
-    private var suggested: [SuggestedProject] { cache.displayList?.suggested ?? [] }
     /// Decision 17 — the open project's "All N" full list (Esc closes it before the project).
     @State private var detailFull: ProjectOpen.Full?
     /// Owner 2026-11-04 — New project's draft: kept while the column is closed, forgotten by Cancel or a create.
     @State private var draft = ProjectDraft()
     @State private var attachCache = ProjectAttachCache()
-    @State private var naming: SuggestedProject?
     /// R-PP20 — Sleep is writing: the list's writes wait, their reason in `.help`.
     private var blocked: Bool { ProjectWriteGate.blocked(store.status.value) }
 
@@ -48,9 +46,6 @@ struct ProjectsPage: View {
 
     private var options: ProjectsListOptions { ProjectsListOptions(pastLimit: pastLimit) }
 
-    /// Decision 9 — "N suggested by Cicada · Review" opens the suggestions in the detail slot under this id, which no
-    /// page can have (a slug never starts with a space).
-    static let suggestedColumn = " suggested"
     /// Owner 2026-11-04 — New project opens as the detail column under this id (a slug never starts with a space).
     static let newColumn = " new"
 
@@ -97,7 +92,6 @@ struct ProjectsPage: View {
             ProjectsListColumn(
                 entries: entries, style: plan.listStyle, today: today,
                 state: ProjectsListState.of(phase: cache.listPhase, hasList: cache.list != nil, rows: rows.count,
-                                            suggestions: suggested.count,
                                             lines: entries.count,
                                             finding: !activeQuery.trimmingCharacters(in: .whitespaces).isEmpty),
                 tab: tab, query: query, findOpen: $findOpen, findText: $query, openId: openId,
@@ -105,17 +99,7 @@ struct ProjectsPage: View {
                 showMore: { Instant.run { pastLimit += ProjectsModel.pageSize } },
                 move: { move($0) }, side: { side($0, in: lines) },
                 focusDetail: { focus = .detail }, escape: { escape() },
-                retry: { Task { await cache.refreshList() } },
-                suggestedFold: {
-                    AnyView(Group {
-                        let live = suggested.filter { !$0.dismissed }.count
-                        if live > 0 && plan.listStyle != .titles && plan.listStyle != .hidden {
-                            ProjectsSuggestedLine(count: live, selected: openId == Self.suggestedColumn,
-                                                  review: { openProject(Self.suggestedColumn) })
-                                .padding(.top, CicadaTheme.scaled(14))
-                        }
-                    })
-                })
+                retry: { Task { await cache.refreshList() } })
                 .focused($focus, equals: .list)
                 .tourAnchor(.projects)
         } detail: { plan in
@@ -127,17 +111,6 @@ struct ProjectsPage: View {
                     onCancel: { draft = ProjectDraft(); closeProject() }, onEscape: { escape() },
                     create: { createDraft() })
                     .focused($focus, equals: .detail)
-            } else if openId == Self.suggestedColumn {
-                ProjectsSuggestedColumn(
-                    suggested: suggested, blocked: blocked, gutter: plan.gutter,
-                    hiddenListCount: plan.listHidden ? lines.count : nil, onShowList: { showList() },
-                    onClose: { closeProject() },
-                    accept: { s in
-                        if s.needsName { naming = s } else { Task { await change(.accept(id: s.id, name: nil)) } }
-                    },
-                    dismiss: { s in Task { await change(.dismiss(id: s.id)) } })
-                    .focused($focus, equals: .detail)
-                    .onExitCommand { escape() }
             } else if let id = openId {
                 let row = rows.first { $0.id == id }
                 ProjectDetailColumn(
@@ -168,14 +141,6 @@ struct ProjectsPage: View {
             }
         }
         .background(CicadaTheme.bgBase)
-        .sheet(item: $naming) { s in
-            ProjectNameSheet(title: Copy.ProjectsMine.nameItTitle, message: Copy.ProjectsMine.nameItMessage,
-                             confirm: Copy.ProjectsMine.addToMine) { name in
-                Task {
-                    if let made = await change(.accept(id: s.id, name: name)) { openProject(made.id) }
-                }
-            }
-        }
         // DR-46 — ⌘F opens Current's find row; published from a leaf (Clusters' reason: an if/else on the page rebuilt
         // it). Past's field is always there and takes ⌘F itself.
         .background { Color.clear.publishesPageFind(enabled: !findOpen && tab == .current) { findOpen = true } }
@@ -187,7 +152,10 @@ struct ProjectsPage: View {
         .onChange(of: router.pendingProject) { _, _ in openPendingProject() }
         .onChange(of: cache.list?.projects.map(\.id)) { _, ids in
             guard let ids else { return }
-            columns.reconcile(present: Set(ids).union([Self.suggestedColumn, Self.newColumn]))
+            // Ruling 56 — the list holds only the person's own; a page they opened from search or the graph stays open
+            // until it is gone from memory.
+            let open = columns.openId.flatMap { store.entityNames.name(for: $0) == nil ? nil : $0 }
+            columns.reconcile(present: Set(ids).union([Self.newColumn]).union(open.map { [$0] } ?? []))
             if !tabChosen { tab = ProjectsModel.defaultTab(ProjectsModel.counts(rows, today: today)) }
         }
         // R-PP3 / R-B18 — a sync version event that moved what an ETag folds asks again (a 304 costs nothing).
