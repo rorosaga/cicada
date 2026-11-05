@@ -97,8 +97,8 @@ enum SourceListText {
     }
 }
 
-/// STATE 0 — the root: the explore run (when one exists), the two groups as rows, then one quiet disclosure,
-/// *Statistics*, holding who wrote the memory and the counts (remembered on the old `cicada.usageMode` key, DR-39).
+/// STATE 0 — the root: the field, the explore run (when one exists), the sources as a grid of their apps (ROR-7), then
+/// one quiet disclosure, *Statistics*, holding who wrote the memory and the counts (the old `cicada.usageMode` key, DR-39).
 struct SourcesOverviewColumn: View {
     let rows: [SourceOverview]
     /// G217 — the one catalogue the root draws.
@@ -106,6 +106,10 @@ struct SourcesOverviewColumn: View {
     let hasLoaded: Bool
     let onOpen: (SourcesSelection) -> Void
     var onSelectEntity: ((String) -> Void)?
+    /// ROR-7 — the field's words and the keys' cursor, the page's own so they outlive an opened source.
+    var search: Binding<SourceGridSearch> = .constant(SourceGridSearch())
+    /// ⏎ in the field: opens with no animation (DR-60); the pointer's `onOpen` keeps its drawer curve.
+    var onOpenByKey: (SourcesSelection) -> Void = { _ in }
 
     @Environment(UsageViewModel.self) private var usageVM
     @Environment(ExploreCache.self) private var exploreCache
@@ -113,26 +117,59 @@ struct SourcesOverviewColumn: View {
     @Environment(IntakeRouter.self) private var intake
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
-                // G166 exploring — the run's one line of progress, Stop and Copy for an agent, while a run exists.
-                if exploreCache.showsCard { ExploreRunCard().frame(maxWidth: textCap, alignment: .leading) }
-                if !hasLoaded {
-                    skeleton
-                } else {
-                    // G217 — every way in, on or off, so the page is never empty (a dropped export lands on the window's
-                    // own intake, and on Files and links). Looks pass 2 (2026-10-23): the rows run the page's width, as
-                    // Inbox's and Clusters' do, so each status word trails on the eyebrow's trailing edge instead of
-                    // floating mid-row at the text cap (DR-36: a list may run wider; its text stays capped).
-                    SourceCatalogList(rows: catalog, style: .wide, open: onOpen)
+        VStack(alignment: .leading, spacing: 0) {
+            // DR-46's in-page find, drawn at rest because search is how this page is used (owner, ROR-7); ⌘F focuses it.
+            CicadaSearchField(text: textBinding, prompt: Copy.Catalog.searchPrompt, onSubmit: openHighlighted,
+                              onMove: move)
+                .frame(maxWidth: CicadaTheme.scaled(SourceGrid.searchMaxWidth))
+                .padding(.horizontal, CicadaTheme.spacingGutter)
+                .padding(.top, CicadaTheme.spacingXS)
+                .padding(.bottom, CicadaTheme.spacingMD)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
+                        // G166 exploring — the run's one line of progress, Stop and Copy for an agent, while a run exists.
+                        if exploreCache.showsCard { ExploreRunCard().frame(maxWidth: textCap, alignment: .leading) }
+                        if !hasLoaded {
+                            skeleton
+                        } else {
+                            // G217 — every way in, on or off, so the page is never empty (a dropped export lands on the
+                            // window's own intake, and on Files and links).
+                            SourceGridView(rows: catalog, search: search.wrappedValue, open: onOpen,
+                                           importFiles: { intake.present(from: .emptyState(.sources)) })
+                        }
+                        if !searching { statistics.frame(maxWidth: textCap, alignment: .leading) }
+                    }
+                    .padding(.horizontal, CicadaTheme.spacingGutter)
+                    .padding(.top, CicadaTheme.spacingXS)
+                    .padding(.bottom, CicadaTheme.scaled(72))
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                statistics.frame(maxWidth: textCap, alignment: .leading)
+                .onChange(of: search.wrappedValue.cursor) { _, cursor in
+                    guard let cursor else { return }
+                    Instant.run { proxy.scrollTo(SourcesSelection.entry(cursor)) }
+                }
             }
-            .padding(.horizontal, CicadaTheme.spacingGutter)
-            .padding(.top, CicadaTheme.spacingSM)
-            .padding(.bottom, CicadaTheme.scaled(72))
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private var searching: Bool { SourceGrid.isSearching(search.wrappedValue.text) }
+
+    /// New words start again from the best result.
+    private var textBinding: Binding<String> {
+        Binding(get: { search.wrappedValue.text }, set: { search.wrappedValue = SourceGridSearch(text: $0) })
+    }
+
+    private var found: [SourceCatalogRow] { SourceGrid.results(catalog, query: search.wrappedValue.text) }
+
+    private func move(_ delta: Int) {
+        guard searching else { return }
+        search.wrappedValue.cursor = SourceGrid.moved(delta, in: found, cursor: search.wrappedValue.cursor)
+    }
+
+    private func openHighlighted() {
+        guard searching, let id = SourceGrid.highlighted(found, cursor: search.wrappedValue.cursor) else { return }
+        onOpenByKey(.entry(id))
     }
 
     private var textCap: CGFloat { CicadaTheme.scaled(ColumnLayout.textMaxWidth) }
@@ -141,13 +178,15 @@ struct SourcesOverviewColumn: View {
         SourceLiveness.of(row: row, channel: nil, watch: row.channelId.flatMap { watcher.state(for: $0) })
     }
 
-    /// Placeholder rows at the real height, no motion — a page that knows its shape draws it (never blank).
+    /// Placeholder tiles at the real size, no motion — a page that knows its shape draws it (never blank).
     private var skeleton: some View {
-        VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
-            ForEach(0..<4, id: \.self) { _ in
-                CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(SourceGrid.tileMinWidth)),
+                                     spacing: CicadaTheme.spacingSM)],
+                  spacing: CicadaTheme.spacingSM) {
+            ForEach(0..<8, id: \.self) { _ in
+                CicadaTheme.shape(CicadaTheme.cornerRadius)
                     .fill(CicadaTheme.bgSelected)
-                    .frame(height: CicadaTheme.scaled(RowMetrics.twoLine))
+                    .frame(height: CicadaTheme.scaled(RowMetrics.sourceTile))
             }
         }
         .accessibilityElement(children: .ignore)

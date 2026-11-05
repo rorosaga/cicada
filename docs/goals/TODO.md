@@ -12,6 +12,12 @@
 
 ## Current state and evidence
 
+- **2026-11-05 — the Sources root is a grid of apps (ROR-7, G217, G161; branch `ror7-sources-grid`).** Needs you, Connected,
+  Suggested, then categories by what a source is; a search with no network and no model; one click opens the standard
+  source page. A company is a search word, never a group (the reasoning is on G217). The Connected section is exactly what
+  the eyebrow counts, so the row #619 left reading Connected for a borrowed reader keeps its dot in its own category.
+  No new route: everything is derived from what the page already held.
+
 - **2026-11-05 — integration-test defects (ROR-41; branch `ror41-integration-defects`, PR #619).** The embedding children are
   all capped (ONNX text child 677 % to 344 % CPU, synthetic bank); Apple Books' refusal names its fix; a gated feed's
   line names the switch that turns it on; a reader counts once in the Sources eyebrow; `install_app.sh` signals by path;

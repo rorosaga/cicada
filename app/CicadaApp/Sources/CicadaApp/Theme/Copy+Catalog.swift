@@ -3,11 +3,19 @@ import Foundation
 /// G217 (ruling 36 D6) — the Sources catalogue's words. Few on purpose: a row is a mark, a name and one status word.
 extension Copy {
     enum Catalog {
-        static let accounts = "Accounts and browser"
-        static let thisMac = "This Mac"
-        static let exports = "Exports"
-        static let feeds = "Feeds"
+        /// ROR-7 — the grid's sections: what waits on the person, what is connected, what they could add.
+        static let needsYou = "Needs you"
+        static let suggested = "Suggested"
+        static let messaging = "Messaging"
+        static let calendarsAndContacts = "Calendars and contacts"
+        static let browsers = "Browsers"
+        static let social = "Social"
+        static let videoAndMusic = "Video and music"
+        static let notesAndWork = "Notes and work"
+        static let filesAndActivity = "Files and activity"
         static let conversations = "Agents' conversations"
+        static let searchPrompt = "Search sources"
+        static func noMatch(_ words: String) -> String { "No source called \u{201C}\(words.prefix(40))\u{201D}" }
 
         static let connected = "Connected"
         static let needsSignIn = "Needs sign-in"
@@ -16,6 +24,9 @@ extension Copy {
         static let waitingForAgent = "On · waits for your agent"
         static let waitingForAgentHelp = "Your own agent reads this in your signed-in browser. Connect one on the "
             + "Agents page; until then nothing is read."
+        /// A tile's short form of `waitingForAgent`: its section already says it is waiting.
+        static let waitsForAgent = "Waits for your agent"
+        static let needsAccess = "Needs access"
         static let justNow = "just now"
 
         static let connect = "Connect"

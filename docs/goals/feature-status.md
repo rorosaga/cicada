@@ -9,6 +9,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
+| [G217](memory-evolution.md#g217) | Sources as a grid of apps (ROR-7, G161): Needs you, Connected, Suggested, then categories by what a source is; a search with no network and no model that finds a company's apps one by one; one click opens the standard source page | building | | 2026-11-05 |
 | [G237](memory-evolution.md#g237) | Sleep on a Claude key through the official SDK (ruling 63): same prompts and seam as the plan, cached at the system prompt, the key's own model list with tiers and retired ids moved forward in words, prices with their basis, a 429 a pause, a run stops at the person's spending limit (ROR-102, suggested $5 a run, in the engine menu; about one read past it plus filing, runs only); a harness compares both paths. Stand-ins and the plan leg only: no real key call yet | PR #614 | 2026-11-04 |
 | [G235](memory-evolution.md#g235) | What may be sensitive (owner 2026-11-04, ruling 60): found with no model, the confident held back from the engine, one review, Remove | PR #611 | [#611](https://github.com/rorosaga/cicada/pull/611) | 2026-11-04 |
 | [G236](memory-evolution.md#g236) | The lean pass (ruling 62): a save with no reason is indexed with no engine, found by recall, Ask and the hook, read once when the person talks about it; one already read keeps what it made; a batch also stops at 60,000 bytes; one line on Sources and Sleep. 25 bookmarks 57 calls to 0 | PR #615 | #615 | 2026-11-04 |
