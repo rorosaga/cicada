@@ -15,10 +15,13 @@ writer (:func:`apply_pending`) that turns those episodes into pages and claims, 
 **The page** is a ``media`` page with ``media.kind: book`` (the closed set has no ``book`` type and needs none: a book
 is a work someone made and the person consumes, the paper's shape, G133) and a ``book:`` block. It is the work, not
 the copy: a paperback's ISBN, the ebook's and an Apple Books asset all land on one page, matched only by an identifier
-— any ISBN, an Open Library work id, a source's own id (:func:`identity_keys`). **Title and author never join two
-pages** (review of #600, B1): "Dune" and "Dune: House Atreides", two volumes of a series, two books by authors who
-share a surname are different works, and a copy with no shared identifier is kept on its own page, never merged on a
-guess. Every ISBN (13 and, for 978, 10 digits) is an alias, so a note that names the number links to the page.
+— any ISBN, an Open Library work id, a source's own id (:func:`identity_keys`). **Title and author join two pages only
+when both are exactly the same and only one page holds them** (owner 2026-11-05, amends review of #600, B1: an Apple Books
+entry has no ISBN, so a scan of the same book would mint a second page). "Same" is the words with case, accents and
+punctuation set aside (:func:`norm_words`), the author names as a set — never a prefix, never a likeness: "Dune" and
+"Dune: House Atreides", two volumes of a series, two books whose authors share a surname stay different works. Anything
+less sure — a title two pages hold, an author one record lacks or only partly shares — never joins: the record gets its own
+page and one "same book?" question for each candidate (:meth:`BookIndex.find_words`, ``role_people.ask_same``). Every ISBN (13 and, for 978, 10 digits) is an alias, so a note that names the number links to the page.
 
 **Statuses** — ``reading``, ``finished``, ``want`` (want to read), ``not_started`` (in Apple Books' library, never
 opened; owner 2026-11-04):
@@ -54,6 +57,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -96,6 +100,10 @@ _RANK = {NOT_STARTED: 0, WANT: 0, READING: 1, FINISHED: 2}
 UNDO_REASON = "The person said this status is not right."
 #: The most book episodes one apply reads; the rest wait for the next (an import of thousands is many applies).
 MAX_APPLY = 3000
+#: The most "same book?" questions one new page asks (a title more pages than this hold is a pile for the person's own look).
+MAX_SAME_ASKED = 3
+#: What each door is called on a book's page when it has more than one way in (``current_status``'s ``ways``).
+DOOR_WORDS = {APPLE_ORIGIN: "Apple Books", GOODREADS_ORIGIN: "Goodreads", SCAN_ORIGIN: "Scanned"}
 
 _ISBN_STRIP = re.compile(r"[\s\-‐-―=\"']")
 
@@ -173,6 +181,8 @@ class BookFacts:
     apple_id: str | None = None
     goodreads_id: str | None = None
     title_from: str = "placeholder"
+    #: The door that brought this record (``DOORS``): kept on the page as where the book came in from.
+    door: str | None = None
 
 
 def identity_keys(facts: BookFacts) -> list[str]:
@@ -187,6 +197,37 @@ def identity_keys(facts: BookFacts) -> list[str]:
     if facts.goodreads_id:
         keys.append(f"goodreads:{facts.goodreads_id}")
     return keys
+
+
+_NOT_WORD = re.compile(r"[^0-9a-z]+")
+_AUTHOR_SPLIT = re.compile(r"\s*(?:&|;|\band\b)\s*")
+_ISBN_LIKE = re.compile(r"[0-9Xx]{10}|[0-9]{13}")
+
+
+def norm_words(text) -> str:
+    """``text`` with case, accents and punctuation set aside and spaces collapsed: what "exactly the same" means for a
+    title or a name. Nothing is dropped or reordered (no article, no subtitle, no series note)."""
+    plain = unicodedata.normalize("NFKD", str(text or "")).casefold().replace("&", " and ")
+    plain = "".join(ch for ch in plain if not unicodedata.combining(ch))
+    return _NOT_WORD.sub(" ", plain).strip()
+
+
+def title_forms(title, subtitle=None, spellings=()) -> frozenset[str]:
+    """The ways one work's title reads: the title, the title with its subtitle after it ("Title: A Novel", Apple Books'
+    spelling of Open Library's title + subtitle) and a source's own spellings."""
+    forms = {norm_words(title)}
+    if title and subtitle:
+        forms.add(norm_words(f"{title} {subtitle}"))
+    forms.update(norm_words(x) for x in spellings or ())
+    return frozenset(f for f in forms if f)
+
+
+def author_set(authors) -> frozenset[str]:
+    """A book's authors as a set of normalised names; "A & B" and "A and B" are two."""
+    names = set()
+    for a in authors or []:
+        names.update(norm_words(part) for part in _AUTHOR_SPLIT.split(str(a or "")))
+    return frozenset(n for n in names if n)
 
 
 def is_book(fm: dict) -> bool:
@@ -215,20 +256,60 @@ class BookIndex:
     def __init__(self, memory_path: Path):
         self.by_key: dict[str, str] = {}
         self.ids: set[str] = set()
+        #: A title as it reads → the book pages that carry it; a page → its author set. Exact words only.
+        self.by_title: dict[str, set[str]] = {}
+        self.authors: dict[str, frozenset[str]] = {}
+        #: A page → what its whole title reads as, a bare title not among them when it has a subtitle ("Harbour" is not
+        #: "Harbour: Book Two"), and whether it has one.
+        self.whole: dict[str, frozenset[str]] = {}
+        self.subtitled: dict[str, bool] = {}
+        #: A page :func:`ensure_page` just made → the pages it might be the same book as (never joined; asked).
+        self.unsure: dict[str, list[str]] = {}
         for f in bank_index.files(memory_path, "entities"):
             fm = f.frontmatter or {}
             stem = Path(f.path).stem
             self.ids.add(stem)
             if is_book(fm) and str(fm.get("status") or "active") != "dropped":
-                self.add(stem, _page_keys(fm))
+                self.add(stem, _page_keys(fm), fm)
 
-    def add(self, entity_id: str, keys) -> None:
+    def add(self, entity_id: str, keys, fm: dict | None = None) -> None:
         for key in keys:
             self.by_key.setdefault(key, entity_id)
         self.ids.add(entity_id)
+        if fm is not None:
+            book = fm.get("book") if isinstance(fm.get("book"), dict) else {}
+            spellings = [fm.get("name"), *[a for a in fm.get("aliases") or [] if not _ISBN_LIKE.fullmatch(str(a))]]
+            title, subtitle = book.get("title") or fm.get("name"), book.get("subtitle")
+            for form in title_forms(title, subtitle, spellings):
+                self.by_title.setdefault(form, set()).add(entity_id)
+            bare = norm_words(title)
+            self.subtitled[entity_id] = bool(subtitle)
+            self.whole[entity_id] = frozenset(
+                form for form in title_forms(title, subtitle, spellings) if not subtitle or form != bare)
+            self.authors[entity_id] = author_set(book.get("authors"))
 
     def find(self, facts: BookFacts) -> str | None:
         return next((self.by_key[k] for k in identity_keys(facts) if k in self.by_key), None)
+
+    def find_words(self, facts: BookFacts) -> tuple[str | None, list[str]]:
+        """``(page, [])`` when exactly one page carries this record's title and has exactly its authors; ``(None,
+        candidates)`` when the words alone cannot say — a title two pages hold with the same authors, or one page's title
+        with an author a side lacks or only partly shares (the caller asks, never joins); ``(None, [])`` otherwise,
+        including the same title by different authors, which is two books."""
+        if facts.title_from == "placeholder" or not facts.title:
+            return None, []
+        mine = author_set(facts.authors)
+        same = sorted({p for f in title_forms(facts.title, facts.subtitle) for p in self.by_title.get(f, ())})
+        # A join needs the whole title on both sides. Two subtitles that differ are two books (a series' volumes); a
+        # bare title against a subtitled one may or may not be, so it asks.
+        whole = norm_words(f"{facts.title} {facts.subtitle}" if facts.subtitle else facts.title)
+        exact = [p for p in same if mine and self.authors.get(p) == mine and whole in self.whole.get(p, ())]
+        if len(exact) == 1:
+            return exact[0], []
+        if exact:
+            return None, exact
+        return None, [p for p in same if not (facts.subtitle and self.subtitled.get(p))
+                      and (not mine or not self.authors.get(p) or mine & self.authors[p])]
 
 
 def _new_id(index: BookIndex, facts: BookFacts) -> str:
@@ -302,6 +383,9 @@ def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_i
     applied to, followed when no book holds its identities. A page that is no book holds what the record says and is
     never turned into one."""
     entity_id = index.find(facts) or _applied_page(memory_path, was)
+    unsure: list[str] = []
+    if not entity_id:
+        entity_id, unsure = index.find_words(facts)
     path = Path(memory_path) / "entities" / f"{entity_id}.md" if entity_id else None
     if path is not None and path.exists():
         parsed = markdown_parser.parse(path)
@@ -315,6 +399,8 @@ def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_i
             book["apple_books"] = _merge_list(book.get("apple_books"), [facts.apple_id])
         if facts.goodreads_id:
             book["goodreads"] = _merge_list(book.get("goodreads"), [facts.goodreads_id])
+        if facts.door:
+            book["doors"] = _merge_list(book.get("doors"), [facts.door])
         upgrade = book.get("title_from") == "placeholder" and facts.title_from != "placeholder"
         for key in ("work_id", "subtitle", "published", "pages", "cover_id", "local_cover"):
             if getattr(facts, key) and (upgrade or not book.get(key)):
@@ -339,7 +425,7 @@ def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_i
         if repr(sorted(fm.items(), key=lambda kv: kv[0])) == before:
             return entity_id, False, False
         markdown_parser.write(path, fm, parsed.body)
-        index.add(entity_id, _page_keys(fm))
+        index.add(entity_id, _page_keys(fm), fm)
         return entity_id, False, True
     entity_id = _new_id(index, facts)
     name = display_title(facts)
@@ -348,7 +434,8 @@ def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_i
             "published": facts.published, "pages": facts.pages, "cover_id": facts.cover_id,
             **({"local_cover": facts.local_cover} if facts.local_cover else {}),
             "apple_books": [facts.apple_id] if facts.apple_id else [],
-            "goodreads": [facts.goodreads_id] if facts.goodreads_id else [], "title_from": facts.title_from}
+            "goodreads": [facts.goodreads_id] if facts.goodreads_id else [], "title_from": facts.title_from,
+            **({"doors": [facts.door]} if facts.door else {})}
     url = media_url(book)
     fm = {
         "name": name, "type": "media", "status": "active", "confidence": 0.8,
@@ -367,7 +454,9 @@ def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_i
     path.parent.mkdir(parents=True, exist_ok=True)
     by = f" by {', '.join(facts.authors[:3])}" if facts.authors else ""
     markdown_parser.write(path, fm, f"## Summary\n{name}{by} — a book.")
-    index.add(entity_id, _page_keys(fm))
+    index.add(entity_id, _page_keys(fm), fm)
+    if unsure:
+        index.unsure[entity_id] = unsure
     return entity_id, True, True
 
 
@@ -578,7 +667,38 @@ def current_status(memory_path: Path, entity_id: str) -> dict | None:
     record = bank_index.file(Path(memory_path), "episodes", f"{episode}.md") if episode else None
     origin = str((record.frontmatter or {}).get("origin") or "") if record is not None else ""
     return {"status": current.object, "day": current.valid_from, "claimId": current.id, "episode": episode,
-            "fromChat": bool(episode) and origin not in DOORS}
+            "fromChat": bool(episode) and origin not in DOORS, "ways": ways_in(entry.frontmatter or {})}
+
+
+def ways_in(fm: dict) -> list[str]:
+    """Where a book came in from, in the person's words, in a fixed order — read from the page (``book.doors``; a page
+    made before that field is known by its Apple Books and Goodreads ids)."""
+    book = fm.get("book") if isinstance(fm.get("book"), dict) else {}
+    doors = set(book.get("doors") or [])
+    if book.get("apple_books"):
+        doors.add(APPLE_ORIGIN)
+    if book.get("goodreads"):
+        doors.add(GOODREADS_ORIGIN)
+    return [DOOR_WORDS[d] for d in (APPLE_ORIGIN, GOODREADS_ORIGIN, SCAN_ORIGIN) if d in doors]
+
+
+def scan_result(memory_path: Path, episode_id: str) -> dict | None:
+    """What became of a scan, for the Add that made it: ``{state: waiting}`` until the number resolves, then ``{state:
+    added, entityId, name, existing}`` — ``existing`` when the page was there before this scan (a copy from another door
+    or another edition). None for an id that is no scan."""
+    from api.services import page_redirects
+
+    entry = bank_index.file(Path(memory_path), "episodes", f"{episode_id}.md")
+    fm = (entry.frontmatter or {}) if entry is not None else {}
+    if str(fm.get("origin") or "") != SCAN_ORIGIN:
+        return None
+    page = _applied_page(Path(memory_path), fm.get("book_entity_id"))
+    if not page or fm.get(APPLIED_KEY) != fm.get("content_hash"):
+        return {"state": "waiting"}
+    page = page_redirects.resolve(Path(memory_path), page) or page
+    page_fm = (bank_index.file(Path(memory_path), "entities", f"{page}.md").frontmatter or {})
+    first = (page_fm.get("source_episodes") or [None])[0]
+    return {"state": "added", "entityId": page, "name": str(page_fm.get("name") or page), "existing": first != episode_id}
 
 
 def set_rating(memory_path: Path, entity_id: str, *, rating: int, day: str, episode_id: str, quote: str,
@@ -807,11 +927,11 @@ def _facts_from_episode(fm: dict) -> BookFacts | None:
         if hit is None:
             return None
         if not hit.get("found"):
-            return BookFacts(isbns=isbns, title_from="placeholder")
+            return BookFacts(isbns=isbns, title_from="placeholder", door=origin)
         return BookFacts(title=hit.get("title"), subtitle=hit.get("subtitle"), authors=list(hit.get("authors") or []),
                          isbns=_merge_list(isbns, [i for i in (isbn13(x) for x in hit.get("isbns") or []) if i]),
                          work_id=hit.get("work_id"), published=hit.get("published"), pages=hit.get("pages"),
-                         cover_id=hit.get("cover_id"), title_from=str(hit.get("source") or "lookup"))
+                         cover_id=hit.get("cover_id"), title_from=str(hit.get("source") or "lookup"), door=origin)
     title = str(rec.get("title") or "").strip()
     if not title and not isbns:
         return None
@@ -819,7 +939,27 @@ def _facts_from_episode(fm: dict) -> BookFacts | None:
                      isbns=isbns, published=rec.get("published"), pages=rec.get("pages"),
                      apple_id=rec.get("asset_id") if origin == APPLE_ORIGIN else None,
                      goodreads_id=rec.get("goodreads_id") if origin == GOODREADS_ORIGIN else None,
-                     title_from=origin if title else "placeholder")
+                     title_from=origin if title else "placeholder", door=origin)
+
+
+def _ask_same_book(memory_path: Path, entity_id: str, others: list[str]) -> list[str]:
+    """The words of a new page's record fit these pages but not surely: one "same book?" question each, answered by
+    folding one into the other — never a join without the person's answer. Never stops an apply."""
+    from api.services import role_people
+
+    paths: list[str] = []
+    for other in others[:MAX_SAME_ASKED]:
+        try:
+            item = role_people.ask_same(memory_path, entity_id, other, "Two records of your books share a title.",
+                                        classification=KIND)
+        except Exception as exc:  # noqa: BLE001
+            from api.services import tool_contract
+
+            logger.warning(f"book question not asked: {tool_contract.where(exc)}")
+            continue
+        if item:
+            paths.append(item)
+    return paths
 
 
 def _apply_marks(memory_path: Path, entity_id: str, episode_id: str, ep_path: Path, digest: str, *, observer: str,
@@ -870,6 +1010,7 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
                 out["pages_created"] += int(created)
                 if changed:
                     paths.append(f"entities/{entity_id}.md")
+                paths += _ask_same_book(memory_path, entity_id, index.unsure.pop(entity_id, []))
                 # A scan of a book the person did nothing with yet is a save (quiet, ruling 30); Apple Books and
                 # Goodreads records are saves by their origin, stamped too so every reader agrees.
                 save = fm.get("origin") != SCAN_ORIGIN or status not in ACTED

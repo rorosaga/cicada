@@ -423,7 +423,7 @@ struct SourceCatalogDetail: View {
         case AppleBooksReader.channel: AppleBooksSlot(slot: .connect, channel: mine.first)
         case VoiceMemosReader.channel: VoiceMemosSlot(slot: .connect)
         case "goodreads": GoodreadsSlot()
-        case "book-scan": SourceConnectLine(text: Copy.bookScansLine)
+        case "book-scan": BookAddSlot()
         case MessagesWatcher.channel: ChatPickerSlot(slot: .connect, kind: .messages)
         case WhatsAppWatcher.channel: ChatPickerSlot(slot: .connect, kind: .whatsApp)
         case TelegramChats.channel: TelegramSlot(slot: .connect)

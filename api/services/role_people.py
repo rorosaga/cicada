@@ -621,7 +621,8 @@ def _page_name(memory_path: Path, page_id: str) -> str:
         return page_id
 
 
-def ask_same(memory_path: Path, page_id: str, other_id: str, context: str) -> str | None:
+def ask_same(memory_path: Path, page_id: str, other_id: str, context: str, *,
+             classification: str = "person") -> str | None:
     """One "Is <A> the same as <B>?" question between two pages that both exist, answered by folding one page into the
     other (``fold_page``) — never a merge without the person's answer. ``None`` when the pair is already asked, or the
     person said they are different (``ClarificationManager.create``)."""
@@ -630,7 +631,7 @@ def ask_same(memory_path: Path, page_id: str, other_id: str, context: str) -> st
     name, other_name = _page_name(memory_path, page_id), _page_name(memory_path, other_id)
     item = ClarificationManager(Path(memory_path)).create(
         entity_name=name, source_episode="", uncertainty_type=f"Possible duplicate of {other_name}",
-        suggested_classification="person", suggested_confidence=0.6, source_context=context)
+        suggested_classification=classification, suggested_confidence=0.6, source_context=context)
     if not item:
         return None
     # The subject and the candidate by id (a name may not round-trip to its id), and the person is told the subject

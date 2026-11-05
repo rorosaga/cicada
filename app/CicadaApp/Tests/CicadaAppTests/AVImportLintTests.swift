@@ -26,6 +26,9 @@ final class AVImportLintTests: XCTestCase {
         // Chat images (2026-11-04): a chat video's or voice message's length for its tile, `asset.load(.duration)`
         // only — never playback (a click opens Quick Look, not a player).
         "Services/Chats/ChatMediaDuration.swift",
+        // ROR-116: the one place the app opens a camera — a book's barcode on the person's click, frames read in
+        // memory and dropped.
+        "Services/Books/BookBarcodeCamera.swift",
     ]
 
     private static let needles = ["import AVKit", "import AVFoundation"]
