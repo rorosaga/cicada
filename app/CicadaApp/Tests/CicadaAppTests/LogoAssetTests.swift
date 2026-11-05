@@ -25,7 +25,7 @@ final class LogoAssetTests: XCTestCase {
     /// G217 (2026-10-22): the set replaced those favicon rasters with vendor marks at 256 px. What stays under the
     /// floor is two PNG sources the vendor serves no larger (shipped as served — upscaling is fake resolution).
     static let legacy128: Set<String> = []
-    static let servedSmall: [String: Int] = ["instinct": 64, "warp": 196]
+    static let servedSmall: [String: Int] = ["instinct": 64, "warp": 196, "vivaldi": 192, "dia": 180]
 
     /// Marks that are a single flat colour and therefore invisible in one of
     /// the two themes without a sibling (R4). `codex` and `x` are the two
@@ -71,7 +71,7 @@ final class LogoAssetTests: XCTestCase {
     /// their curvature.
     static let opaquePlate: Set<String> = [
         "amp", "grok", "hermes", "instinct", "notion", "opencode", "openrouter", "tailscale", "warp",
-        "wispr", "x", "readwise", "devin", "devin-dark",
+        "wispr", "x", "readwise", "devin", "devin-dark", "goodreads",
     ]
 
     func testEveryMarkIsSquareBigEnoughAndKeepsItsCornersTransparent() throws {

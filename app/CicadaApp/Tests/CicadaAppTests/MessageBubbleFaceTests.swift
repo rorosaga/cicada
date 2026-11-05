@@ -28,23 +28,21 @@ final class MessageBubbleFaceTests: XCTestCase {
         XCTAssertEqual(MessageBubbles.faceUnits(20), 17)
     }
 
-    /// The monogram reads as a picture, never as an info glyph (owner, 2026-10-16): a disc filled with the person's hue
-    /// over the ground (no ring around one letter), the letter in the primary text colour, and the outermost ring the
-    /// ground's own colour so the bubbles stay cut apart.
-    func testTheMonogramIsAFilledDiscInLightAndDark() throws {
+    /// The one picture for anyone with none (owner 2026-11-05): a plain disc, no ring, no hue, the letters in the secondary
+    /// ink, and the outermost ring the ground's own colour so the bubbles stay cut apart.
+    func testTheMonogramIsAPlainDiscInLightAndDark() throws {
         for mode in [AppColorScheme.light, .dark] {
             for size: CGFloat in [20, 18] {
                 CicadaTheme.mode = mode
                 let bitmap = try render(MessageBubbleFace(name: "Bob Example", photo: nil, size: size), mode: mode)
                 let hue = rgb(CicadaTheme.entityColor(for: .person))
                 let ground = rgb(CicadaTheme.bgBase)
-                let text = rgb(CicadaTheme.textPrimary)
+                let text = rgb(CicadaTheme.textSecondary)
                 let label = "\(mode == .dark ? "dark" : "light") \(Int(size)) pt"
                 let side = size * Self.scale
                 let centre = side / 2
 
-                // The face's edge is one fill all the way round — the hue over the ground, strictly between the two in
-                // every channel (whatever space the renderer blends in): no hue ring, no bare ground.
+                // The face's edge is one fill all the way round: the disc's own colour, no ring of anything else.
                 let faceRadius = MessageBubbles.faceUnits(size) / 2 * Self.scale
                 let edge = stride(from: 0.0, to: 360.0, by: 10.0).map { degrees -> (Double, Double, Double) in
                     let r = faceRadius - 0.75 * Self.scale
@@ -52,10 +50,8 @@ final class MessageBubbleFaceTests: XCTestCase {
                     return pixel(bitmap, x: centre + r * cos(a), y: centre + r * sin(a))
                 }
                 let fill = edge[0]
-                func between(_ v: Double, _ a: Double, _ b: Double) -> Bool { v > min(a, b) + 0.02 && v < max(a, b) - 0.02 }
-                XCTAssertTrue(between(fill.0, hue.0, ground.0) && between(fill.1, hue.1, ground.1)
-                              && between(fill.2, hue.2, ground.2), "\(label): the fill is the hue over the ground")
-                XCTAssertEqual(edge.filter { close($0, fill, tolerance: 0.02) }.count, 36, "\(label): filled to its edge")
+                XCTAssertEqual(edge.filter { close($0, fill, tolerance: 0.02) }.count, 36, "\(label): one fill to its edge")
+                XCTAssertFalse(close(fill, hue, tolerance: 0.2), "\(label): no hue in the disc")
 
                 // The ground ring outside it.
                 let groundHits = stride(from: 0.0, to: 360.0, by: 30.0).filter { degrees in

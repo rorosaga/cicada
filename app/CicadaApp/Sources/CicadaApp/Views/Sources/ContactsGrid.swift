@@ -2,8 +2,8 @@ import SwiftUI
 
 /// G154 (owner 2026-11-04: "only 6 contacts synced") — every card on this Mac as a grid of faces, read from the backend's
 /// book (`contacts_book`) into `ChannelItemsCache`. Nearly every card has no photo, so the grid is drawn to look right
-/// as monograms: the people in memory come first and wear their page's picture (`EntityPicture`, its hue ring when it has
-/// none) and open that page; a card with no page is a quiet neutral disc that is not a control, with no hover and no press.
+/// as monograms: the people in memory come first and wear their page's picture (`EntityPicture`) and open that page; a card
+/// with no page looks the same and is not a control: no hover, no press. Order, the count and the hover tell them apart.
 struct ContactsGrid: View {
     @Environment(ChannelItemsCache.self) private var cache: ChannelItemsCache?
     @Environment(AppRouter.self) private var router: AppRouter?
@@ -110,7 +110,7 @@ private struct ContactCellLayout<Face: View>: View {
     }
 }
 
-/// A card with a page: the page's picture and its hue, hover a fill (DR-48), a click opens the page.
+/// A card with a page: the page's picture, hover a fill (DR-48), a click opens the page.
 struct ContactPageCell: View {
     let card: ContactsBookCard
     let page: String
@@ -166,13 +166,8 @@ struct ContactCardCell: View {
                     .aspectRatio(contentMode: .fill)
                     .frame(width: side, height: side)
             } else {
-                Circle().fill(CicadaTheme.bgFocus)
-                let type = EntityPictureLayout.initialsType(units: ContactsGridMetrics.face, compact: false)
-                Text(LogoImage.monogram(for: card.name))
-                    .font(CicadaTheme.font(size: type.size, weight: type.weight))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
+                EntityPictureFallback(type: .person, name: card.name, units: ContactsGridMetrics.face,
+                                      frame: CGSize(width: side, height: side))
             }
         }
         .frame(width: side, height: side)

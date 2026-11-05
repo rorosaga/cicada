@@ -4,8 +4,8 @@ import UniformTypeIdentifiers
 
 /// C11 (G146; F-11, F-12) — the one entity avatar. It draws what the picture precedence answered
 /// (`Store.picture(for:held:)`: a write in flight, else the graph node's, else the page the surface holds) at 20–88 pt,
-/// and D's fallback when there is none — never a solid hue fill (R-08's must-fix, plan R-PE14): a person is initials in
-/// a 1.5 pt hue ring; every other type draws **nothing** (owner 2026-10-28, DESIGN_RULES §9: no generic type glyph or
+/// and D's fallback when there is none: a person is grey initials on a plain disc (`EntityPictureFallback`, owner
+/// 2026-11-05); every other type draws **nothing** (owner 2026-10-28, DESIGN_RULES §9: no generic type glyph or
 /// made-up monogram stands in for a picture) — an empty slot of the same size, so a row's text keeps its leading edge,
 /// or no slot at all where `collapsesWhenEmpty` (a lone picture beside a title). A non-person page shows initials only
 /// when the person chose "Use initials instead". A logo stands bare (DR-52); a photo, a Contacts picture and a
@@ -219,21 +219,21 @@ enum EntityPictureLayout {
     /// 2026-10-16) — a stacked bubble below 24 units, where 0.36 set a 7 pt hairline nobody read as a picture, takes
     /// half its height, semibold. Every other small picture sits beside its own name in a row and keeps the proportion.
     static let smallInitialsBelow: CGFloat = 24
-    /// A stacked bubble's monogram disc: the person's hue at this opacity over the ground (2026-10-16).
-    static let bubbleFill: Double = 0.35
     static func initialsType(units: CGFloat, compact: Bool = false) -> (size: CGFloat, weight: Font.Weight) {
         compact && units < smallInitialsBelow ? (units * 0.5, .semibold) : (units * 0.36, .medium)
     }
 
-    /// A logo stands bare (DR-52); every other picture and a chosen monogram carry the resting ring; a person's
-    /// fallback wears its own hue ring instead, and an empty slot draws no ring at all.
+    /// A logo stands bare (DR-52); every other picture carries the resting ring. With no picture nothing does: initials
+    /// are a plain disc (owner 2026-11-05) and an empty slot is empty.
     static func ringed(_ source: PictureSource?, hasImage: Bool, type: EntityType) -> Bool {
-        hasImage ? source != .logo : (type != .person && source == .initials)
+        hasImage && source != .logo
     }
 }
 
-/// R-PE14 — D's fallback: the hue once, as a ring or a chosen monogram, never as a fill (DR-8); nothing for a page that
-/// is not a person (owner 2026-10-28).
+/// One picture for anyone with no photo (owner 2026-11-05, ROR-107: "the more minimal design you have there in contacts
+/// ... no border and the letters are like grey"): initials in the secondary ink on a plain disc, no ring, no hue. A
+/// chosen monogram on a page that is not a person is the same, in its own shape. Nothing for a page that is not a person
+/// (owner 2026-10-28). Every surface draws this; a stacked bubble only sets its letters larger.
 struct EntityPictureFallback: View {
     let type: EntityType
     let name: String
@@ -244,41 +244,23 @@ struct EntityPictureFallback: View {
     var compactInitials = false
 
     var body: some View {
-        let hue = CicadaTheme.entityColor(for: type)
-        let initials = EntityPictureLayout.initialsType(units: units, compact: compactInitials)
         switch EntityPictureLayout.fallback(type, name: name, chosenInitials: chosenInitials) {
-        case .initials(let text) where compactInitials:
-            // A stacked bubble (owner, 2026-10-16): a disc filled with the hue over the ground and the letter in the
-            // primary text colour. A ring around one hue letter at bubble size read as an info glyph ("ⓘ").
-            Text(text)
-                .font(CicadaTheme.font(size: initials.size, weight: initials.weight))
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .frame(width: frame.width, height: frame.height)
-                .background(Circle().fill(hue.opacity(EntityPictureLayout.bubbleFill)))
-                .background(Circle().fill(CicadaTheme.bgBase))
-        case .initials(let text):
-            Text(text)
-                .font(CicadaTheme.font(size: initials.size, weight: initials.weight))
-                .foregroundStyle(hue)
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .frame(width: frame.width, height: frame.height)
-                .background(Circle().fill(CicadaTheme.bgFocus))
-                .overlay(Circle().strokeBorder(hue, lineWidth: CicadaTheme.scaled(1.5)))
-        case .monogram(let text):
-            Text(text)
-                .font(CicadaTheme.font(size: initials.size, weight: initials.weight))
-                .foregroundStyle(hue)
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .frame(width: frame.width, height: frame.height)
-                .background(CicadaTheme.bgOption)
+        case .initials(let text): letters(text).background(Circle().fill(CicadaTheme.bgFocus))
+        case .monogram(let text): letters(text).background(CicadaTheme.bgFocus)
         case .none:
             Color.clear
                 .frame(width: frame.width, height: frame.height)
                 .accessibilityHidden(true)
         }
+    }
+
+    private func letters(_ text: String) -> some View {
+        let type = EntityPictureLayout.initialsType(units: units, compact: compactInitials)
+        return Text(text)
+            .font(CicadaTheme.font(size: type.size, weight: type.weight))
+            .foregroundStyle(CicadaTheme.textSecondary)
+            .minimumScaleFactor(0.6)
+            .lineLimit(1)
+            .frame(width: frame.width, height: frame.height)
     }
 }

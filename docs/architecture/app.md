@@ -1052,8 +1052,7 @@ bank and draws them at the chat's page everywhere — the `messages` picture run
 sharing is posted as none, and a key store that could not be read posts nothing, so a revoked permission never removes
 a page's picture; unticking forgets it on both sides) → the page's own `messages` rung (the server's copy of the same
 photo, before this session looked it up) → a monogram (`MessageBubbleFace`: the face
-inset 1.5 pt inside a disc of the ground's colour; the monogram is a disc filled with the person's hue at 35 % over the
-ground with the letter in `textPrimary` — a hue ring round one letter read as "ⓘ" — and below 24 units its letters are
+inset 1.5 pt inside a disc of the ground's colour; the monogram is the one plain disc (`EntityPictureFallback`, owner 2026-11-05) and below 24 units its letters are
 half its height, semibold; the bubbles only; never a shadow). Hovering a bubble names it ("Instinct · 34 messages
 waiting to be read"); the Messages row's tooltip and VoiceOver label carry every waiting chat's line. `MessageBubbles.model` is pure and tested. Not a Store domain: `GET /sources/messages/waiting` is fetched
 in memory whenever the status's unprocessed count moves. **Who is who in the Reader:** `EpisodeText.correspondent`
@@ -1742,7 +1741,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   under each, read from `GET /sources/contacts-local/book` (`capture-and-sleep.md`) into `ChannelItemsCache`: not a
   Store domain, no ETag, in memory, read when the page opens and when the channels move. Nearly every card has no photo,
   so the page is drawn as monograms. A card with a page comes first and is a control (`ContactPageCell`: `EntityPicture`
-  by the one picture precedence, its hue ring when there is no picture; hover a fill, a click opens the page). A card
+  by the one picture precedence, the same plain initials as a card with none; hover a fill, a click opens the page). A card
   with none is not (`ContactCardCell`: its thumbnail through `SourcePictureStore`, else a neutral disc in secondary ink;
   no hover, no press, no click target, static text to VoiceOver). A nameless card reads *No name*, never its
   organisation. One line beside the search: *376 contacts · 6 in memory*. `ContactsGridPhase` decides what is drawn: an
@@ -3169,7 +3168,10 @@ mark (`hermes`, the only one) is never recut — every surface that draws one cl
 curvature instead, and `LogoAssetTests` names any opaque plate so another cannot arrive unnoticed.
 **Claude Code is the Claude mark plus an app-drawn `>_` badge** (R-AG8, `BrandMark`, composed in
 `LogoImage`: `claude-code` → `claude.png` + badge, `claude-desktop` → the plain `claude.png`); callers
-keep passing the logical name, and no mark file is edited. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
+keep passing the logical name, and no mark file is edited. **ROR-107 (2026-11-05):** Substack, Goodreads, Vivaldi and Dia
+gained their marks; Comet's vendor serves nothing above 32 px, so it stays on the globe unless it is installed. A tile with no brand
+wears one outline glyph that says what it holds: Chat exports `square.and.arrow.up`, Files and links `doc.on.doc` (its own key,
+`SourceCatalog.filesOrigin`, for the picture only), Book scans `barcode.viewfinder`, Activity `clock.arrow.circlepath`. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
 transform is an exact luminance inversion of a *monochrome* mark into its `-dark` sibling, which
 `LogoImage` picks under a dark theme. Drawn brand glyphs are gone and do not come back.
 

@@ -83,6 +83,8 @@ struct SourceCatalogRow: Identifiable, Equatable {
 enum SourceCatalog {
     /// The chat-exports tile takes every assistant's export, so it wears no one company's mark (provider-neutral copy).
     static let chatExportsOrigin = "chat-exports"
+    /// The Files and links tile's mark key (ROR-107): a key for its picture only, never an episode's origin.
+    static let filesOrigin = "files-and-links"
     static let folderPrefix = "folder:"
     static let browserPrefix = "browser:"
     /// `LocalSourceWatcher.wisprChannel` (main-actor isolated there).
@@ -169,7 +171,7 @@ enum SourceCatalog {
         SourceCatalogEntry(id: "book-scan", group: .reading, category: .reading, title: Copy.bookScansTitle,
                            origin: "book-scan", channels: ["book-scan"]),
         SourceCatalogEntry(id: "files", group: .exports, category: .files, title: Copy.Catalog.filesAndLinks,
-                           origin: "bookmark", channels: ["files"], tile: .bookmarksFile, verb: .importFile),
+                           origin: filesOrigin, channels: ["files"], tile: .bookmarksFile, verb: .importFile),
         // G219 slice 1: a Notion export (Markdown & CSV) through the one intake; ruling 47 tier 2: or live, through the
         // person's own connection (`notion-api`), on the same row.
         SourceCatalogEntry(id: "notion", group: .exports, category: .notes, title: "Notion", origin: "notion-export",

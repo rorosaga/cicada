@@ -146,6 +146,19 @@
       "umbrella": "Devin"
     },
     {
+      "file": "dia.png",
+      "id": "dia",
+      "licence": "Vendor’s own published asset; no licence beyond nominative use",
+      "origin": "set",
+      "restrictions": "Trademark of The Browser Company; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/dia.png",
+      "sha256": "e617cc692ed0a4c33cad9cf244f4d0121494ca0455224b2b35108deeffb30389",
+      "sourceTier": "official site",
+      "sourceUrl": "https://www.diabrowser.com/apple-touch-icon.png",
+      "svgSha256": "e617cc692ed0a4c33cad9cf244f4d0121494ca0455224b2b35108deeffb30389",
+      "umbrella": "Dia"
+    },
+    {
       "file": "firefox.png",
       "id": "firefox",
       "licence": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
@@ -223,6 +236,19 @@
       "sourceUrl": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/gmail.svg",
       "svgSha256": "6e0a1db3ce3893a809c3293bf0780902cad270ed443bb118cfcbc40647e272ab",
       "umbrella": "Gmail"
+    },
+    {
+      "file": "goodreads.png",
+      "id": "goodreads",
+      "licence": "Vendor’s own published asset; no licence beyond nominative use",
+      "origin": "set",
+      "restrictions": "Trademark of Goodreads LLC; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/goodreads.png",
+      "sha256": "ec2330701fbc3455995728b580db65b0eb44504abb8aa4e9630399389ecd0ad5",
+      "sourceTier": "official site",
+      "sourceUrl": "https://www.goodreads.com/apple-touch-icon.png",
+      "svgSha256": "bd3695420d6ac4d6743fc3c950531a9897abed7bfa87a2973bcff695b62f6a67",
+      "umbrella": "Goodreads"
     },
     {
       "file": "google-calendar.png",
@@ -535,6 +561,19 @@
       "umbrella": "Spotify"
     },
     {
+      "file": "substack.png",
+      "id": "substack",
+      "licence": "CC0 for the vector as published by simple-icons; the mark stays its owner's, nominative use only",
+      "origin": "set",
+      "restrictions": "Trademark of Substack Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/substack.svg",
+      "sha256": "df75367cde43b0e80e3a92c97781d179507748be4318609ff0529e78a9500719",
+      "sourceTier": "simple-icons",
+      "sourceUrl": "https://cdn.jsdelivr.net/npm/simple-icons@16.35.0/icons/substack.svg",
+      "svgSha256": "fc2f838936f6518f287b169e4641366e3aaf5f5638ada7af9cbd2961001d9958",
+      "umbrella": "Substack"
+    },
+    {
       "file": "t3.png",
       "id": "t3",
       "licence": "MIT (T3 Tools Inc., the repository's LICENSE at the pinned commit); the mark stays its owner's trademark",
@@ -598,6 +637,19 @@
       "sourceUrl": "https://unpkg.com/@lobehub/icons-static-svg@1.97.0/icons/together-color.svg",
       "svgSha256": "27ccaf118a431c386b88418a34a4346afd9638dde10e3f2295db2eec1fa5898a",
       "umbrella": "Together AI"
+    },
+    {
+      "file": "vivaldi.png",
+      "id": "vivaldi",
+      "licence": "Vendor’s own published asset; no licence beyond nominative use",
+      "origin": "set",
+      "restrictions": "Trademark of Vivaldi Technologies; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/vivaldi.png",
+      "sha256": "3dd5292801e7d67d2f69beb268e88cadb8985db8aa02f163d443508930098a22",
+      "sourceTier": "official site",
+      "sourceUrl": "https://vivaldi.com/wp-content/uploads/cropped-favicon-192x192.png",
+      "svgSha256": "3dd5292801e7d67d2f69beb268e88cadb8985db8aa02f163d443508930098a22",
+      "umbrella": "Vivaldi"
     },
     {
       "file": "warp.png",
