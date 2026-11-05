@@ -38,7 +38,7 @@ from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, episode_time
 from api.services import book_marks, entity_relations, episode_actor, page_blocks
-from api.services import history_index, saved_lookup, search_service
+from api.services import history_index, media_pages, saved_lookup, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import (bank_index, entity_bands, link_views, markdown_parser, page_lock, same_name, search_index,
                           write_admission)
@@ -2919,6 +2919,9 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             watched = _watch_history_line(memory_path, fm, cid)
             if watched:
                 text = text.rstrip("\n") + "\n\n" + watched + "\n"
+            heard = None if ctx.is_remote and not ctx.raw_excerpts else media_pages.transcript_line(memory_path, cid)
+            if heard:      # ROR-117: how much transcript a recording's page has — never a word of it
+                text = text.rstrip("\n") + "\n\n" + heard + "\n"
             why = None if fm.get("owner") is True else _relevance_line(memory_path, cid)
             if why:
                 text = text.rstrip("\n") + "\n\n" + why + "\n"

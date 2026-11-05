@@ -10,7 +10,8 @@ the file's path or its bytes, never downloads anything, and never derives a stre
 **Where it lives — outside every bank** (``$CICADA_HOME/files/<bank>/<file-id>/``): ``meta.json`` (the file's name,
 kind, size, length, its sha256, when it was added), ``transcript.json`` (the scrubbed words, each segment with its
 start and end in seconds) and ``frames/<ms>.jpg`` with ``frames.json``. Like site captures' full images it is never in
-git and never exported with the bank. Deleting a file's folder removes it from search at the next refresh.
+git and never exported with the bank. Deleting a file's folder removes it from search at the next refresh. ``meta.json`` also remembers the file's
+page in the bank (``page``, ``media_pages``), which holds everything but the words.
 
 **What the words are — attribution.** A transcript is **the recording's words**, not the person's own: whoever
 spoke in a podcast, a meeting or a voice memo is unknown to Cicada. So the words never become an episode, never count
@@ -198,6 +199,8 @@ def record_media(memory_path, *, name: str, kind: str, sha256: str | None = None
         "words_by": "the recording",   # attribution: never the person's own words
         "transcribed_by": " ".join(str(transcribed_by or "").split())[:MAX_MODEL] or None,
     }
+    if (old or {}).get("page") and not (old or {}).get("deleted_at"):
+        meta["page"] = old["page"]       # the file's page (``media_pages``): the same file keeps it
     if source:
         # A tombstoned item that comes back is a fresh one (``deleted_at`` is not carried over).
         meta.update({"sha256": sha or None, "source": source, "source_key": source_key, "recorded_at": when})
@@ -221,6 +224,9 @@ def retire_source(memory_path, source: str, present: set[str]) -> int:
             continue
         if meta.get("source_key") in present:
             continue
+        from api.services import media_pages
+
+        media_pages.queue_retirement(memory_path, [folder.name])      # its page goes with it (the next sync)
         for name in ("transcript.json", "frames.json"):
             (folder / name).unlink(missing_ok=True)
         shutil.rmtree(folder / "frames", ignore_errors=True)
@@ -305,12 +311,31 @@ def frame_file(memory_path, file_id: str, ms: int) -> Path | None:
     return path if path.is_file() else None
 
 
-def delete(memory_path, file_id: str) -> bool:
+def delete(memory_path, file_id: str, *, by: str = "cicada") -> bool:
+    """Remove a file's words and frames now. Its page is queued for retirement first (``media_pages``; ``by`` is who
+    asked, for the commit's author) and goes at the next sync."""
     folder = _folder(memory_path, file_id)
     if folder is None or not folder.is_dir():
         return False
+    from api.services import media_pages
+
+    media_pages.queue_retirement(memory_path, [file_id], by=by)
     shutil.rmtree(folder)
     return True
+
+
+def transcript(memory_path, file_id: str) -> dict | None:
+    """A file's words as stored (scrubbed, each with its start and end), for the page that draws them at view time.
+    ``None`` for a file that is gone. Never indexed as page text and never in a bank."""
+    folder = _folder(memory_path, file_id)
+    meta = _json(folder / "meta.json") if folder is not None else None
+    if not isinstance(meta, dict) or meta.get("deleted_at"):
+        return None
+    rows = _json(folder / "transcript.json")
+    segments = [{"start": r["start"], "end": r["end"], "text": r["text"]} for r in rows or []
+                if isinstance(r, dict) and isinstance(r.get("text"), str)]
+    return {"segments": segments, "transcribedBy": meta.get("transcribed_by"), "language": meta.get("language"),
+            "durationS": meta.get("duration_s"), "wordsBy": meta.get("words_by") or "the recording"}
 
 
 # --------------------------------------------------------------------------- into the meaning index

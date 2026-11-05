@@ -2041,6 +2041,12 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
                 image_index.start_refresh(memory_path, delay_s=image_index.SETTLE_S)
             except Exception as e:  # noqa: BLE001 — never a reason for a run to fail
                 logger.debug(f"picture refresh skipped: {type(e).__name__}")
+            try:
+                from api.services import media_pages
+
+                media_pages.start_sync(memory_path, delay_s=media_pages.SETTLE_S)   # pages that waited for this run
+            except Exception as e:  # noqa: BLE001 — never a reason for a run to fail
+                logger.debug(f"media pages skipped: {type(e).__name__}")
 
 
 def _reset_batch_counters() -> None:

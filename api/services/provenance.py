@@ -67,6 +67,7 @@ from api.services import (
     git_service,
     inbox_context,
     markdown_parser,
+    media_pages,
     section_provenance,
     source_dates,
     source_spans,
@@ -524,6 +525,12 @@ def entity_provenance(
                     sorted((models.get(author) or Counter()).items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1] or ""))],
         ))
     contributors.sort(key=lambda c: (-(c.claims + c.commits), c.author))
+    # ROR-117 (owner 2026-11-05): the model that made a recording's words is named on the page of that recording — from
+    # the page's own record (`media.transcribed_by`), the words themselves staying outside the bank. Said only when a
+    # transcript and a name exist; the same face a model gets everywhere else.
+    if (by := media_pages.transcriber(fm)) and media_pages.is_file_page(fm) and all(c.author != by for c in contributors):
+        kind, provider = git_service.author_identity(by)
+        contributors.append(ProvenanceContributor(author=by, kind=kind, provider=provider, role="transcribed"))
 
     cited: dict[str, set[str]] = {}
     spans_by_episode: dict[str, list[tuple[Claim, Evidence]]] = {}
