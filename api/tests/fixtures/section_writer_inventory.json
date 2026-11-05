@@ -1653,6 +1653,12 @@
       "disposition": "preserve_frontmatter_guarded"
     },
     {
+      "function": "_enrich_from_lookups",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
       "function": "_stamp_local_covers",
       "method": "write",
       "frontmatter": "{**parsed.frontmatter, 'book': {**book, 'local_cover': sha}}",

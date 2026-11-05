@@ -95,7 +95,9 @@ def test_an_apple_books_entry_with_no_isbn_and_a_scan_of_the_same_work_are_one_p
     assert not quiet_pages.page_is_quiet(memory, eid)
     assert books.ways_in(page.frontmatter) == ["Apple Books", "Scanned"]
     got = c.get(f"/sources/books/scans/{episode}").json()
-    assert got == {"state": "added", "entityId": eid, "name": "Harbour of Small Lights", "existing": True}
+    assert {k: v for k, v in got.items() if k != "cover"} == {
+        "state": "added", "entityId": eid, "name": "Harbour of Small Lights", "existing": True,
+        "authors": ["Wren Example"]}
     assert c.get(f"/entities/{eid}/book-status").json()["ways"] == ["Apple Books", "Scanned"]
     assert not _questions(memory)
 
