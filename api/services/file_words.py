@@ -65,6 +65,10 @@ def reset(memory_path=None) -> None:
             _CHECKED.pop(str(Path(memory_path)), None)
 
 
+#: How long a search's own level check waits on the index file (a rebuild, a long write) before serving what is there.
+SEARCH_BUSY_MS = 50
+
+
 def _connect(memory_path: Path) -> sqlite3.Connection | None:
     """A write-capable connection to the bank's existing ``search_index.db``; ``None`` when there is none (this never
     creates the file: ``search_index`` builds it, and the first search after that builds this table from the store)."""
@@ -181,7 +185,8 @@ def ensure(memory_path, *, force: bool = False) -> bool:
     """Bring the table level with the store: new or changed files indexed, removed ones dropped. At most one diff
     every ``CHECK_TTL_S`` unless ``force``. More than ``INLINE_FILES`` out of step (a first build, a layout change)
     is done by a background thread while the search serves what is there; ``force`` always does it inline. True when
-    the table exists. Never raises."""
+    the table exists. Never raises. A search never waits here: with a writer or a build holding the lock, or the
+    index busy past a moment, it serves what is there and the next search looks again."""
     from api.services import media_files
 
     memory_path = Path(memory_path)
@@ -190,12 +195,16 @@ def ensure(memory_path, *, force: bool = False) -> bool:
     if not force and now - _CHECKED.get(key, float("-inf")) < CHECK_TTL_S:
         return True
     try:
-        with _LOCK:
+        if not _LOCK.acquire(blocking=force):
+            return True
+        try:
             disk = media_files.store_stamps(memory_path)
             conn = _connect(memory_path)
             if conn is None:
                 return False
             try:
+                if not force:
+                    conn.execute(f"PRAGMA busy_timeout={SEARCH_BUSY_MS}")
                 if not disk and not _has_state(conn):
                     _CHECKED[key] = time.monotonic()
                     return False   # no added file and no table: a bank without recordings never gets one
@@ -219,6 +228,8 @@ def ensure(memory_path, *, force: bool = False) -> bool:
                 conn.close()
             _CHECKED[key] = time.monotonic()
             return True
+        finally:
+            _LOCK.release()
     except Exception as exc:  # noqa: BLE001
         logger.debug(f"file_words: index not level ({type(exc).__name__})")
         return False

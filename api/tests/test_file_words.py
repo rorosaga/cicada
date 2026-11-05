@@ -388,3 +388,29 @@ def test_a_number_or_a_code_inside_a_question_is_a_rare_word_too(bank):
     add(bank, segments=talk(*[filler(i) for i in range(8)], "The invoice number is 48213907 and the model is ZX-4471."))
     for q in ("what was the invoice number 48213907 about", "which model is ZX-4471"):
         assert [r["metadata"]["start"] for r in media_files.find(bank, q, semantic=False)] == [80.0], q
+
+
+def test_a_search_never_waits_behind_a_writer_or_a_build(tmp_path, monkeypatch):
+    """The palette calls this on every keystroke. A long build holds the lock for its whole run."""
+    import threading
+    import time as _time
+
+    held, release = threading.Event(), threading.Event()
+
+    def writer():
+        with file_words._LOCK:
+            held.set()
+            release.wait(10)
+
+    thread = threading.Thread(target=writer, daemon=True)
+    thread.start()
+    assert held.wait(5)
+    try:
+        file_words._CHECKED.pop(str(tmp_path), None)
+        started = _time.monotonic()
+        assert file_words.ensure(tmp_path) is True
+        file_words.search(tmp_path, "kettle")
+        assert _time.monotonic() - started < 0.5
+    finally:
+        release.set()
+        thread.join(5)
