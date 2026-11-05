@@ -211,6 +211,7 @@
   request Reddit API access (Responsible Builder Policy), register an *installed app* with redirect
   `http://127.0.0.1:8000/sources/connectors/reddit/callback`, put its id in `reddit.CLIENT_ID` (`network.md`,
   "Registering Cicada's Reddit app"). **Pick up:** the app side on #593's `SourceConnectArea` (follow-up PR).
+- **2026-11-05 — WhatsApp's picker: Archived group and pictures (ROR-110, G179; branch `ror110-whatsapp-picker`).** Owner asked for both directly; before a tick a picture and the flag stay in the app's memory, never posted or on disk (`capture-and-sleep.md`). Synthetic store only. **Still open:** a counts-only shape check of the real store, since why the owner saw no pictures is not yet measured (`@lid` sessions remain the likely gap).
 - **2026-11-04 — chat images and Telegram faces (G179; branch `feat/chat-panel-images`).** Owner: "I don't see images appearing when I open the chat inside the app" and "I don't know why the profile pictures don't appear in the chats" (Telegram). Attachments of WhatsApp, Messages and Telegram chats now show as the files in the chat
   panel and the Reader, resolved by the app at view time for ticked chats only (Telegram's through the backend's
   own connection), thumbnails outside every bank, gone on untick; nothing new is stored in the bank, so chats

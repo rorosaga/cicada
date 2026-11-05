@@ -52,6 +52,16 @@ final class SyntheticWhatsAppStore {
 
     var lastRow: Int64 { sqlite3_last_insert_rowid(db) }
 
+    /// WhatsApp's `ContactsV2.sqlite` beside the store: `schema`, then each row as (`ZWHATSAPPID`, `ZLID`).
+    func addressBook(_ rows: [(String, String)] = [],
+                     schema: String = "CREATE TABLE ZWAADDRESSBOOKCONTACT (Z_PK INTEGER PRIMARY KEY, ZWHATSAPPID VARCHAR, ZLID VARCHAR);") {
+        var book: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(dir.appendingPathComponent("ContactsV2.sqlite").path, &book), SQLITE_OK)
+        defer { sqlite3_close(book) }
+        let inserts = rows.map { "INSERT INTO ZWAADDRESSBOOKCONTACT (ZWHATSAPPID, ZLID) VALUES ('\($0.0)', '\($0.1)');" }
+        XCTAssertEqual(sqlite3_exec(book, schema + inserts.joined(), nil, nil, nil), SQLITE_OK)
+    }
+
     @discardableResult
     func session(_ jid: String, name: String, last: Double = 0) -> Int64 {
         exec("INSERT INTO ZWACHATSESSION (ZCONTACTJID, ZPARTNERNAME, ZLASTMESSAGEDATE) VALUES (?, ?, ?)", [jid, name, last])

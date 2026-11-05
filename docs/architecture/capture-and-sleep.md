@@ -803,7 +803,21 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   end in "…", a title or file name past 400 is clipped, a `ZMETADATA` blob past 16 KB is dropped (that row loses its
   reply link). The picker draws each chat's picture from `ZWAPROFILEPICTUREITEM` (a file inside the container only,
   ≤ 128 px, in memory) and a ticked one-to-one chat's is posted to the chat-photo store (`messages_photos`, now every
-  chat source's). The Sources list serves one row per chat for WhatsApp and Telegram too (`channel_items`). Measured on fixtures (2026-10-28): file change → posted,
+  chat source's). **Before a tick (owner 2026-11-05, ROR-110):** the owner asked for an unticked chat's picture and
+  archived state in the picker, so the app reads them on this Mac at view time and holds them in memory only — never
+  posted, and no picture is written to disk; WhatsApp's picture file is read once into memory, not held open. To read
+  them the app does write one thing: a transient copy of the database in a private scratch folder, deleted when the
+  read ends, the way the list has always worked. The list's only other
+  reads are chat-list fields (`ZARCHIVED`, where the copy has it, places a row in an Archived group below the rest,
+  tickable like any other), plus the one date the list already read for its order (`MAX(ZMESSAGEDATE)`, 2026-11-03: a
+  date per chat, never a message's words). A picture is the file `ZWAPROFILEPICTUREITEM` names for the chat's own `ZJID` or its `.thumb`/`.jpg`
+  sibling, read once per list load, and never a guess from a file's name (2026-11-05: `<creator>-<time>` can be a legacy
+  group's, so a person's chat could wear a group's face). Measured on the owner's store, counts only: 509 of the 510 files
+  in `Media/Profile` are named by a row, and the name matching found nothing rows do not. The person's own chat wears
+  `Media/Profile/Photo.jpg`; a phone chat with no row of its own, the row of its `@lid` id, read once per list load from
+  a transient copy of `ContactsV2.sqlite`'s `ZWAADDRESSBOOKCONTACT` (`ZWHATSAPPID`, `ZLID` only; missing means no
+  bridge, a number holding two ids bridges neither); none
+  draws `EntityPictureFallback`. A failed read keeps its "needs access" state, and no new permission is asked. The Sources list serves one row per chat for WhatsApp and Telegram too (`channel_items`). Measured on fixtures (2026-10-28): file change → posted,
   the app's read of a 20,000-row store plus the post, p95 9 ms over 20 (`WhatsAppReaderTests`); the backend's stage
   into a chat of 40 sittings, p95 11 ms over 30 (`test_chat_live`) — the 3 s debounce dominates.
   **What "up to date" means (2026-11-03, live).** The owner asked whether WhatsApp was still syncing: its row said

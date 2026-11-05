@@ -149,8 +149,16 @@ enum MessagesSharedPhotos {
 
     /// The image made at most `maxPixels` on its longer side, as PNG; nil for anything that is not an image.
     static func downsized(_ file: URL) -> Data? {
-        guard let source = CGImageSourceCreateWithURL(file as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
-              CGImageSourceGetCount(source) > 0,
+        CGImageSourceCreateWithURL(file as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary).flatMap(downsized)
+    }
+
+    /// The same from bytes already in memory (the source file is not held open while the image decodes).
+    static func downsized(_ bytes: Data) -> Data? {
+        CGImageSourceCreateWithData(bytes as CFData, [kCGImageSourceShouldCache: false] as CFDictionary).flatMap(downsized)
+    }
+
+    private static func downsized(_ source: CGImageSource) -> Data? {
+        guard CGImageSourceGetCount(source) > 0,
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
                   kCGImageSourceCreateThumbnailWithTransform: true,
