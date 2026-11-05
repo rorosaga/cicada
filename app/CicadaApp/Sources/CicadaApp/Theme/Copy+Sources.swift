@@ -174,6 +174,15 @@ extension Copy {
         "\(UsageFormat.count(shown, locale: locale)) of \(UsageFormat.count(total, locale: locale)) "
             + (total == 1 ? noun.one : noun.many)
     }
+    /// G161 (ROR-111) — the control that opens an item where it lives. Each names the person's own source.
+    enum Place {
+        static let inNotes = "Open in Notes"
+        static let inBrowser = "Open in browser"
+        static let notFound = "Couldn't find where this lives."
+        static let noteGone = "This note is no longer in Notes."
+        static let noteFailed = "Couldn't open this note in Notes."
+    }
+
     static func capturedOpenHelp(_ kind: ChannelItem.Kind) -> String {
         switch kind {
         case .episode: "Open in the Reader"

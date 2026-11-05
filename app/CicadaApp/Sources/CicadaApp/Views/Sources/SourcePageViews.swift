@@ -170,10 +170,10 @@ struct SourceItemsSection: View {
             SourceGroupRow(item: item, today: today, dayTitle: true) { onDrill(.day(item)) }
         } else if saved {
             SavedItemRow(item: item, today: today, route: CapturedItemRoute.of(item, interactive: true), open: go,
-                         leftLine: CapturedItems.leftLine(item, channel: channel))
+                         leftLine: CapturedItems.leftLine(item, channel: channel), placeChannel: channel)
         } else {
             CapturedItemRow(item: item, today: today, route: CapturedItemRoute.of(item, interactive: true), open: go,
-                            leftLine: CapturedItems.leftLine(item, channel: channel))
+                            leftLine: CapturedItems.leftLine(item, channel: channel), placeChannel: channel)
         }
     }
 

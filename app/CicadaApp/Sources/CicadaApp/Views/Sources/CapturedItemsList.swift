@@ -94,7 +94,8 @@ struct CapturedItemsList: View {
                     ForEach(list.items, id: \.self) { item in
                         SavedItemRow(item: item, today: today,
                                      route: CapturedItemRoute.of(item, interactive: interactive), open: go,
-                                     leftLine: CapturedItems.leftLine(item, channel: channel))
+                                     leftLine: CapturedItems.leftLine(item, channel: channel),
+                                            placeChannel: interactive ? channel : nil)
                     }
                 }
                 if list.hasMore { showMore(list, loading: cache.isLoadingMore(channel), cache: cache) }
@@ -111,7 +112,8 @@ struct CapturedItemsList: View {
                         } else {
                             CapturedItemRow(item: item, today: today,
                                             route: CapturedItemRoute.of(item, interactive: interactive), open: go,
-                                            leftLine: CapturedItems.leftLine(item, channel: channel))
+                                            leftLine: CapturedItems.leftLine(item, channel: channel),
+                                            placeChannel: interactive ? channel : nil)
                         }
                     }
                 }
@@ -180,11 +182,22 @@ struct CapturedItemRow: View {
     let open: (CapturedItemRoute) -> Void
     /// G191 v4 — the bookmark left its browser: the row is dimmed and says so (help and spoken).
     var leftLine: String? = nil
+    /// G161 (ROR-111) — the channel to ask for this item's place; nil draws no control (a preview).
+    var placeChannel: String? = nil
 
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        row.modifier(ItemPlaceControl(kind: shownPlace, title: item.title) {
+            try await APIClient.shared.fetchItemPlace(channel: placeChannel ?? "", item: item.id)
+        })
+    }
+
+    private var shownPlace: ItemPlaceKind? { placeChannel == nil ? nil : item.placeKind }
+
+    @ViewBuilder
+    private var row: some View {
         let age = CapturedItems.age(item, today: today)
         if let route {
             Button { open(route) } label: { label(age) }
@@ -228,6 +241,7 @@ struct CapturedItemRow: View {
             }
         }
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+        .padding(.trailing, ItemPlaceControl.reserve(shownPlace))
         .padding(.horizontal, CicadaTheme.scaled(10))
         .rowHoverFill(hovering: hovering && route != nil)
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
@@ -246,11 +260,22 @@ struct SavedItemRow: View {
     let route: CapturedItemRoute?
     let open: (CapturedItemRoute) -> Void
     var leftLine: String? = nil
+    /// G161 (ROR-111) — the channel to ask for this item's place; nil draws no control (a preview).
+    var placeChannel: String? = nil
 
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        row.modifier(ItemPlaceControl(kind: shownPlace, title: item.title) {
+            try await APIClient.shared.fetchItemPlace(channel: placeChannel ?? "", item: item.id)
+        })
+    }
+
+    private var shownPlace: ItemPlaceKind? { placeChannel == nil ? nil : item.placeKind }
+
+    @ViewBuilder
+    private var row: some View {
         let day = SavedItemText.day(item, today: today)
         let spoken = Copy.savedRowLabel(item.title, day: day?.help, why: SavedItemText.whySpoken(item),
                                         host: item.host, left: leftLine)
@@ -324,6 +349,7 @@ struct SavedItemRow: View {
         }
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine),
                maxHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
+        .padding(.trailing, ItemPlaceControl.reserve(shownPlace))
         .padding(.horizontal, CicadaTheme.scaled(10))
         .rowHoverFill(hovering: hovering && route != nil)
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
