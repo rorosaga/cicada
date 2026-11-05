@@ -93,20 +93,19 @@ final class HomeQuestionsTests: XCTestCase {
     func testAReadingBecomesAResolutionOnlyWhenItFitsTheQuestion() throws {
         let q = try item("q1")
         typealias R = CatchupTurnReply.Reading
-        XCTAssertEqual(CatchupAnswers.resolution(q, R(optionKey: "a", answer: nil, quote: "still", confirm: false)),
+        XCTAssertEqual(CatchupAnswers.resolution(q, R(optionKey: "a", answer: nil, quote: "still")),
                        QuestionResolution(action: "resolve", optionKey: "a", quote: "still"),
                        "a reading carries the person's located words as its evidence")
-        XCTAssertEqual(CatchupAnswers.resolution(q, R(optionKey: "a", answer: nil, quote: "still", confirm: false),
+        XCTAssertEqual(CatchupAnswers.resolution(q, R(optionKey: "a", answer: nil, quote: "still"),
                                                  sessionId: "catchup-s1")?.sessionId, "catchup-s1")
-        XCTAssertNil(CatchupAnswers.resolution(q, R(optionKey: "zz", answer: nil, quote: "x", confirm: false)))
-        XCTAssertEqual(CatchupAnswers.resolution(q, R(optionKey: nil, answer: "Org Delta", quote: "Org Delta",
-                                                      confirm: false)),
+        XCTAssertNil(CatchupAnswers.resolution(q, R(optionKey: "zz", answer: nil, quote: "x")))
+        XCTAssertEqual(CatchupAnswers.resolution(q, R(optionKey: nil, answer: "Org Delta", quote: "Org Delta")),
                        QuestionResolution(action: "resolve", answer: "Org Delta", optionKey: "neither",
                                           quote: "Org Delta"))
         let pair = try item("m", kind: "merge_suggestion", options: "[]", extra: #","mergeTargetHint":"beta""#)
-        XCTAssertEqual(CatchupAnswers.resolution(pair, R(optionKey: "same", answer: nil, quote: "yes", confirm: true))?.action,
+        XCTAssertEqual(CatchupAnswers.resolution(pair, R(optionKey: "same", answer: nil, quote: "yes"))?.action,
                        "merge")
-        XCTAssertNil(CatchupAnswers.resolution(pair, R(optionKey: "a", answer: nil, quote: "yes", confirm: true)))
+        XCTAssertNil(CatchupAnswers.resolution(pair, R(optionKey: "a", answer: nil, quote: "yes")))
     }
 
     // MARK: The chat
@@ -185,60 +184,72 @@ final class HomeQuestionsTests: XCTestCase {
         XCTAssertEqual(s.currentId, "q1", "a follow-up stays on the question")
         XCTAssertTrue(fake.held.isEmpty)
         XCTAssertEqual(fake.turns.first?.2, ["q2", "q3"], "the reply may move to an upcoming question")
-        // Their words seem to answer it: Cicada proposes, and nothing is applied until they tap Yes.
-        fake.replies = [CatchupTurnReply(reply: "Sounds like it's still going — shall I note that?",
-                                         reading: .init(optionKey: "a", answer: nil, quote: "still", confirm: true),
-                                         move: "next", nextId: "q3")]
+        // Their words answer it: applied at once, said in one line with Undo, no Yes to tap, on to the next.
+        fake.replies = [CatchupTurnReply(reply: nil,
+                                         readings: [.init(optionKey: "a", answer: nil, quote: "still")], move: "next")]
         s.draft = "still there"
         await s.send()
-        XCTAssertTrue(fake.held.isEmpty, "a typed answer alone never resolves anything")
-        XCTAssertEqual(s.currentId, "q1", "the talk waits on the proposal")
-        XCTAssertEqual(s.confirmation?.label, "Note it as “Org Gamma”?")
-        s.confirm()
         XCTAssertEqual(fake.held.map(\.0), ["q1"])
         XCTAssertEqual(fake.held.first?.1.quote, "still", "applied with their located words")
-        XCTAssertEqual(s.currentId, "q2")
+        XCTAssertNil(s.confirmation, "owner 2026-11-05: no Yes button")
+        XCTAssertEqual(s.currentId, "q2", "the tap row for that question is gone: the talk moved on")
+        XCTAssertTrue(s.lines.contains { if case .noted("Noted: Org Gamma", "q1") = $0.kind { true } else { false } })
     }
 
-    /// The coordinator's ruling on #509 — a reading from typed words is never applied on its own; *Not quite* lets
-    /// them say it again, and their typed words stay in the record as theirs.
-    func testATypedAnswerAloneNeverResolvesAnythingAndNotQuiteKeepsTheQuestion() async throws {
+    /// The misread #509 was about: a mixed sentence read as an answer applies under Undo, and Undo takes it back whole,
+    /// from the next question, with the words they typed still theirs in the record.
+    func testAMisreadIsOneUndoAwayEvenAfterMovingOn() async throws {
         let fake = Fake([try item("q1"), try item("q2", page: "beta")])
         let s = session(fake)
         s.start()
-        fake.replies = [CatchupTurnReply(reply: "Shall I note that it's done?",
-                                         reading: .init(optionKey: "a", answer: nil, quote: "paused", confirm: true),
-                                         move: "next"),
-                        CatchupTurnReply(reply: "Want me to ask another day?", move: "later")]
+        fake.replies = [CatchupTurnReply(reply: nil, readings: [.init(optionKey: "a", answer: nil, quote: "paused")],
+                                         move: "next")]
         s.draft = "we got the camera working but the arm is paused"
         await s.send()
-        XCTAssertTrue(fake.held.isEmpty)
-        s.notQuite()
-        XCTAssertNil(s.confirmation)
-        XCTAssertEqual(s.currentId, "q1")
-        s.draft = "maybe later"
-        await s.send()
-        XCTAssertTrue(fake.held.isEmpty, "even 'another day' waits for their tap")
-        XCTAssertEqual(s.confirmation?.resolution.action, "defer")
+        XCTAssertEqual(s.currentId, "q2", "moved on")
+        XCTAssertEqual(s.undoableId, "q1", "the Undo survives moving to the next question")
+        s.undo("q1")
+        XCTAssertEqual(s.currentId, "q1", "the question is asked again")
+        XCTAssertFalse(s.lines.contains { if case .noted = $0.kind { true } else { false } }, "the receipt is gone")
         await s.settled()
         let mine = (fake.records.last ?? []).compactMap { $0.wire }.filter { $0.who == "you" }.map(\.text)
-        XCTAssertEqual(mine, ["we got the camera working but the arm is paused", "maybe later"])
+        XCTAssertEqual(mine, ["we got the camera working but the arm is paused"], "their words stay theirs")
     }
 
-    func testWhoSomeoneIsIsNeverAppliedFromAReadingOnlyConfirmedByATap() async throws {
+    func testUnclearWordsApplyNothingAndTheReplySaysWhatIsUnclear() async throws {
+        let fake = Fake([try item("q1"), try item("q2", page: "beta")])
+        let s = session(fake)
+        s.start()
+        fake.replies = [CatchupTurnReply(reply: "Which part is paused?", move: "stay")]
+        s.draft = "kind of both"
+        await s.send()
+        XCTAssertTrue(fake.held.isEmpty)
+        XCTAssertEqual(s.currentId, "q1")
+        XCTAssertFalse(s.chips.isEmpty, "still open: the taps stay")
+    }
+
+    func testAnotherDayAppliesAtOnceToo() async throws {
+        let fake = Fake([try item("q1"), try item("q2", page: "beta")])
+        let s = session(fake)
+        s.start()
+        fake.replies = [CatchupTurnReply(reply: nil, move: "later")]
+        s.draft = "maybe later"
+        await s.send()
+        XCTAssertEqual(fake.held.first?.1.action, "defer")
+        XCTAssertEqual(s.currentId, "q2")
+    }
+
+    func testWhoSomeoneIsAppliesFromTheirOwnWordsUnderUndo() async throws {
         let fake = Fake([try item("m", kind: "merge_suggestion", options: "[]", extra: #","mergeTargetHint":"beta""#)])
         let s = session(fake)
         s.start()
-        fake.replies = [CatchupTurnReply(reply: "So they're one person?",
-                                         reading: .init(optionKey: "same", answer: nil, quote: "same", confirm: true),
+        fake.replies = [CatchupTurnReply(reply: nil, readings: [.init(optionKey: "same", answer: nil, quote: "same")],
                                          move: "next")]
         s.draft = "yes, same person"
         await s.send()
-        XCTAssertTrue(fake.held.isEmpty, "ruling 41: a reading never joins anyone")
-        XCTAssertEqual(s.confirmation?.label, Copy.Catchup.proposeSame)
-        XCTAssertNotNil(s.confirmation)
-        s.confirm()
         XCTAssertEqual(fake.held.first?.1.action, "merge")
+        XCTAssertEqual(fake.held.first?.1.quote, "same")
+        XCTAssertEqual(s.undoableId, "m")
     }
 
     func testWithNoEngineItSaysSoAndTakesTapsAndTheirWordsAsAFreeAnswer() async throws {

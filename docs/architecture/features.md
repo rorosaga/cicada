@@ -208,12 +208,15 @@ its answer keys, what Cicada has on the page (`catchup_chat.context_lines`: its 
 conversations, a few current beliefs), the upcoming questions it may move to, and the chat so far; it answers
 `{reply, reading, move, nextId}`. The turn **writes nothing**: a `reading` is kept only when its `quote` is found in
 what the person typed (`evidence.locate` — exact, whitespace, case; never fuzzy) and a free `answer` too, its key is
-one of the question's, and a free answer only on a question that takes words. **Every reading is a proposal**
-(`confirm: true` always; the coordinator's ruling on #509, after a live turn read "the camera works but the arm is
-paused" as *Done*): the app shows it for one tap ("Note it as “Paused”? Yes / Not quite") and only *Yes* applies it,
-through `POST /inbox/{id}/resolve` with the person's located `quote`, `relayedBy: cicada-catchup` and the chat's
-session — never a typed answer on its own; a move to *later* is proposed the same way. The prompt asks the model to
-propose, never to say it noted anything. `POST /inbox/catchup/record` `{sessionId, turns}` keeps the chat as ONE episode per
+one of the question's, and a free answer only on a question that takes words. **A clear reading applies at once** (owner
+2026-11-05, replacing a coordinator's call on #509): the turn returns `readings`, every part the message settled, one per
+question (the one asked, a chain's pair, an upcoming question), and the app applies them through `POST
+/inbox/{id}/resolve` with each part's located `quote`, `relayedBy: cicada-catchup` and the chat's session, held together
+under one Undo; a move to *later* is applied the same way. The model judges clarity in context (a hedge about their own
+life is their answer) and says what is unclear in the reply instead of a reading. A question given two different
+answers holds neither. "A is C" over a chain with no such pair (a `join`) is carried by a pair the same message parted
+whose subject is A, a merge of A into C (`mergeTarget`); no such pair and it comes back in `unjoined`, closes nothing,
+and the app says so. `POST /inbox/catchup/record` `{sessionId, turns}` keeps the chat as ONE episode per
 session (`episode_staging`, `source_id: catchup:<session>`, `source: companion_app`, `origin: catchup`; the person's
 turns as `user`, Cicada's as `assistant`; re-posted in place and re-queued), so Sleep reads a follow-up answered in
 passing like any conversation (ruling 29 part 1 may settle a question from their located words); never into a demo

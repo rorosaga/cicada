@@ -597,12 +597,15 @@ options, *Yes, the same* / *No, different* for a pair, Keep / Archive for a lega
 (Undo asks the question again, and removes the tap and its receipt). A tap is drawn on the person's side but is never
 their words: it stays out of the record and the model's history (only typed words are `user:`, review B1 of #509). **Their own words** go to `POST /inbox/catchup/turn` (`features.md`): one turn on the
 person's chosen engine that answers like a person — a follow-up, the question in other words, or a move to a related
-upcoming question (asked in the reply's words, never repeated from the template). **A reading from their words is
-never applied on its own** (agent proposes, user disposes — the coordinator's ruling on #509): it shows as a proposal
-under the reply, "Note it as “Paused”?" with *Yes* / *Not quite* (`CatchupSession.Confirmation`); *Yes* applies it
-through the same hold, carrying the person's located words as the resolve's `quote` (`relayedBy: cicada-catchup`, the
-chat's session — kept by the backend as the answer's relay evidence); *Not quite* applies nothing and leaves the
-question for them to say again; "another day" is proposed the same way. Their typed words stay in the record as theirs
+upcoming question (asked in the reply's words, never repeated from the template). **What their words clearly settled
+applies at once** (owner 2026-11-05: "if the agent is going to ask for confirmation on everything eventhough i just told him
+then thats bad user experience"): one line, "✓ Noted: A is B, C isn't B · Undo", no *Yes*, then the talk moves on and that
+question's tap row with it (`CatchupSession.take`). One message may settle several questions: every part goes in one hold
+(`InboxViewModel.answerAll`, `ResolveGrace.also`, partings before joins, each with its located `quote`), under one Undo that
+survives moving to the next question for its window; as with a tap, the next answer ends that window by sending. A chain with
+a pair left open stays on it, with that pair's taps. What stayed unclear is the reply, in plain words, and the question stays
+open; two names joined with no question to carry them get one aside line. *Yes* / *Not quite* remain only for raw words no model
+read (no engine, no usable reply). Their typed words stay in the record as theirs
 either way. With no engine the chat says "I can only take taps right now — <why>" and offers their words
 as a free answer for one tap where the question takes words. After each thing the person says the chat is posted to
 `POST /inbox/catchup/record` (one episode per session; posts never overlap). **The worm is Cicada's face**

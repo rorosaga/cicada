@@ -756,7 +756,9 @@
   Home's sub-view, its kind groups never folded. Each page has its questions strip ("1 of N"). *Catch me up* is a chat
   with the worm's head as Cicada's face: taps are the inbox's held answers; the person's own words go to `POST
   /inbox/catchup/turn` (one turn on their chosen engine, Ask's resolution; a reading only when found in their words, and
-  then only proposed — applied on the person's *Yes*) and the chat is kept as one episode per session (`POST /inbox/catchup/record`). The
+  then only proposed — applied on the person's *Yes*; **owner 2026-11-05 overrides: "if the agent is going to ask for
+  confirmation on everything eventhough i just told him then thats bad user experience" — a clear reading applies at once
+  under Undo, every part of one message, the tap row gone**) and the chat is kept as one episode per session (`POST /inbox/catchup/record`). The
   harness door's catch-up carries the same page context and asks for a conversation (skill, prompt). Speed and what is
   next for `load_inbox` in the PR body.
 
