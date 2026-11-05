@@ -290,3 +290,76 @@ def test_a_demo_bank_refuses_added_files(client, bank, monkeypatch):
     monkeypatch.setattr(demo_guard, "is_demo", lambda p: True)
     body = {"name": "a.m4a", "kind": "audio", "sha256": SHA, "segments": []}
     assert client.post("/files/media", json=body).status_code == 409
+
+
+# --------------------------------------------------------------------------- Voice Memos (G43)
+
+MEMO = {"key": "AAAA1111-2222-3333-4444-555566667777", "name": "Memo one", "kind": "audio",
+        "recorded_at": "2026-03-04T10:15:00+01:00", "source": "voice_memos"}
+
+
+def _memo(bank, sha="cd" * 32, segs=None, **kw):
+    args = {"name": MEMO["name"], "kind": "audio", "sha256": sha, "source": "voice_memos",
+            "source_key": MEMO["key"], "recorded_at": MEMO["recorded_at"], "duration_s": 40,
+            "transcribed_by": "On-device speech", "segments": segs if segs is not None else _segments("garden", each=3)}
+    return media_files.record_media(bank, **{**args, **kw})
+
+
+def test_a_voice_memo_is_one_item_by_its_id_dated_by_its_own_date_and_names_who_transcribed(bank):
+    out = _memo(bank)
+    assert out["action"] == "added" and out["id"] == media_files.source_file_id("voice_memos", MEMO["key"])
+    assert out["id"] == "395175071cd9864f", "the app computes the same id (VoiceMemosReaderTests)"
+    meta = media_files.get(bank, out["id"])
+    assert meta["recorded_at"] == "2026-03-04T09:15:00+00:00", "its own date, aware UTC"
+    assert meta["words_by"] == "the recording" and meta["transcribed_by"] == "On-device speech"
+    assert meta["added_at"] != meta["recorded_at"], "when it was added is not when it was said"
+    assert media_files.staged(bank)[0][2]["recorded_at"] == meta["recorded_at"]
+
+
+def test_the_same_recording_is_unchanged_an_edit_restages_the_same_item_and_a_deletion_is_tombstoned(bank):
+    first = _memo(bank)
+    assert _memo(bank)["action"] == "unchanged"
+    edited = _memo(bank, sha="ef" * 32, segs=_segments("guitar", each=2))
+    assert edited == {"action": "updated", "id": first["id"]}
+    assert len(media_files.list_files(bank)) == 1 and media_files.get(bank, first["id"])["segments"] == 2
+    assert media_files.retire_source(bank, "voice_memos", {"other"}) == 1
+    folder = media_files.root(bank) / first["id"]
+    assert (folder / "meta.json").is_file() and not (folder / "transcript.json").exists(), "tombstoned, never unlinked"
+    assert media_files.list_files(bank) == [] and media_files.staged(bank) == []
+    assert media_files.retire_source(bank, "voice_memos", set()) == 0, "retired once"
+    back = _memo(bank, sha="12" * 32)
+    assert back["action"] == "added" and "deleted_at" not in media_files.get(bank, first["id"])
+
+
+def test_what_the_store_still_lists_is_never_retired(bank):
+    out = _memo(bank)
+    assert media_files.retire_source(bank, "voice_memos", {MEMO["key"]}) == 0
+    assert media_files.get(bank, out["id"])["segments"] == 3
+    assert media_files.retire_source(bank, "files", set()) == 0, "only a store this keeps"
+
+
+@pytest.mark.parametrize("bad", [
+    {"source": "elsewhere"}, {"source_key": "../x"}, {"source_key": ""}, {"kind": "video"},
+    {"recorded_at": "yesterday"}, {"sha256": "nope"},
+])
+def test_a_voice_memo_out_of_shape_is_refused_and_nothing_is_written(bank, bad):
+    with pytest.raises(media_files.FileRefused):
+        _memo(bank, **bad)
+    assert media_files.list_files(bank) == []
+
+
+def test_the_voice_memo_route_adds_updates_retires_and_a_demo_bank_refuses(client, bank, monkeypatch):
+    from api.services import demo_guard
+
+    memo = {"key": MEMO["key"], "name": "Memo one", "recordedAt": MEMO["recorded_at"], "sha256": "cd" * 32,
+            "durationS": 30, "transcribedBy": "On-device speech",
+            "segments": [{"start": 0, "end": 4, "text": "Hello from the garden."}]}
+    r = client.post("/files/voice-memos", json={"memos": [memo], "present": [MEMO["key"]]})
+    assert r.status_code == 200 and r.json() == {"added": 1, "updated": 0, "unchanged": 0, "retired": 0}
+    assert client.post("/files/voice-memos", json={"memos": [memo]}).json()["unchanged"] == 1
+    assert client.post("/files/voice-memos", json={"memos": [], "present": []}).json()["retired"] == 1
+    assert client.get("/files").json()["files"] == []
+    assert client.post("/files/voice-memos", json={"memos": [{**memo, "recordedAt": "soon"}]}).status_code == 422
+    assert all(kw.get("delay_s") for kw in client.started)
+    monkeypatch.setattr(demo_guard, "is_demo", lambda p: True)
+    assert client.post("/files/voice-memos", json={"memos": [memo]}).status_code == 409

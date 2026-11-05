@@ -1962,6 +1962,13 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   pages* above); Google calendars still come in through macOS's Internet Accounts. A Google calendar's
   secret iCal address through Calendar feeds is not offered: a feed subscription is stored in the bank's
   `calendars.yaml`, and that address is a credential.
+- **Voice Memos (G43, 2026-11-05; DR-5, DR-38, DR-52, DR-59).** A *Voice & meetings* tile on This Mac
+  (`VoiceMemosSlot`, `VoiceMemosReader.shared` in the environment, `Views/Sources/VoiceMemosSlot.swift`): *Connect Voice
+  Memos* is the one primary, its words on hover; on, the area's one line is the count (and "N without words"), the footer holds
+  Refresh and Disconnect. A refusal by macOS shows *Needs access* on the grid and the Full Disk Access button. The mark is
+  Apple's, drawn from `com.apple.VoiceMemos` (`OriginIconography.appBundleId`; `SourceMarkCoverageTests` passes it by the
+  `com.apple.` rule). Reads and rails: `storage.md`, "Voice Memos". A palette hit opens the recording in its default app
+  (`MediaFilePlaces`), no seek.
 - **Reading: Apple Books and Goodreads (G39, G233; 2026-11-04).** A Sources group of its own, *Reading*, between
   Meeting recorders and Exports (`SourceCatalogGroup.reading`; the backend's `reading` kind sits before `import`).
   Both are standard source pages (`Views/Sources/BooksSlots.swift`, in `SourceCatalogDetail`'s connect and footer

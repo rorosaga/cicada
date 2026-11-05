@@ -32,6 +32,8 @@ enum BrowserFile: CaseIterable {
     /// G39 (ROR-41): Apple Books' sandbox — its stores are listed and copied, never opened in place (`AppleBooksStore`),
     /// after the person turned it on.
     case appleBooksLibrary
+    /// G43: Voice Memos' recordings folder and its `CloudRecordings.db` — copied, never opened in place.
+    case voiceMemosStore
 
     /// Round 4 (C9): a browser's bookmarks file by its `BrowserInventory` id.
     static func bookmarks(forBrowser id: String) -> BrowserFile? {
@@ -86,6 +88,8 @@ enum BrowserFile: CaseIterable {
             return [WhatsAppReader.standardStore]
         case .appleBooksLibrary:
             return [AppleBooksPaths.documents()]
+        case .voiceMemosStore:
+            return [VoiceMemosPaths.recordings()]
         }
     }
 
@@ -104,6 +108,7 @@ enum BrowserFile: CaseIterable {
         case .chromeHistory: "Chrome's history"
         case .whatsAppStore: "WhatsApp"
         case .appleBooksLibrary: "Apple Books"
+        case .voiceMemosStore: "Voice Memos"
         }
     }
 
@@ -184,6 +189,8 @@ enum BrowserFileError: Error, Equatable, LocalizedError {
                 return "WhatsApp for Mac isn't installed, or hasn't kept any chats on this Mac yet."
             case .appleBooksLibrary:
                 return Copy.appleBooksMissing
+            case .voiceMemosStore:
+                return Copy.voiceMemosMissing
             }
         }
     }

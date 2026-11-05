@@ -14,6 +14,15 @@
 
 ## Current state and evidence
 
+- **2026-11-05 — multimodality scorecard and Voice Memos as a source (G43, G195; branch `multimodal-g43`).** Owner: rate every
+  kind to a 10; later: play and show everything in the app, each item an entity with a markdown body (summary, why it matters,
+  the transcription, the transcribing model as contributor). [`multimodal-scorecard.md`](multimodal-scorecard.md) scores YouTube,
+  screen recording, video file, image, audio file and Voice Memos on what exists (today the added-file kinds open in the default
+  app, have no page and no lexical leg). Built: Voice Memos through the `media_files` store (`storage.md`). **Pick up here:**
+  run the Swift filter below; open the tile once against a scratch `HOME` holding a synthetic store; check the real
+  `CloudRecordings.db` columns by hand (never in development). **Owner decisions, undecided:** may Sleep read memos and as
+  whose words; a page per added file (rulings 56, 62 and the files-outside-the-bank rail); naming the transcriber as a
+  contributor (copy rail). YouTube extraction stays out (G162).
 - **2026-11-05 — no source asks for a secret (ROR-113, G219, G232; branch `notion-oauth-no-token-forms`).** The owner: "Any one that you ask for a token fucking find a way to sync it properly, either direct integration, syncing some other type of way, or browser as last resort." Notion signs in through its hosted MCP (OAuth + PKCE, read-only tool allow-list) with a Connect button; the Reddit, X and Pinterest forms, GitHub's token field and the Telegram bot tile (unless a bot is already set up) are gone from every app surface; a connector already connected keeps its row and Disconnect; a Swift lint fails on a secret field in a source surface. Notion's page says in one line that the sign-in acts as the person. Binding until the owner rules otherwise.
 - **2026-11-05 — agents can look into what Sleep has not read (ROR-29, G207; branch `ror29-ask-unread`).** Ask reads an
   unread conversation or note whole when short, else by its matching passages, in one 4,000-character budget per question,

@@ -274,6 +274,9 @@ struct MediaFilePlaces {
 @MainActor
 final class MediaFileIndexer {
     static let shared = MediaFileIndexer()
+    /// Who made the words (the contributor a page will show): the Mac's own recogniser. It exposes no version of its
+    /// model, so the name is the system's, not a model id.
+    nonisolated static let transcriberName = "Apple on-device speech"
 
     private let api: any MediaFilesAPI
     private let speech: any SpeechAuthorizing
@@ -338,6 +341,7 @@ final class MediaFileIndexer {
         var body: [String: Any] = [
             "name": url.lastPathComponent, "kind": kind.rawValue, "sha256": sha, "size": size,
             "language": locale.identifier(.bcp47),
+            "transcribedBy": segments.isEmpty ? "" : Self.transcriberName,
             "segments": segments.map { ["start": $0.start, "end": $0.end, "text": $0.text] },
         ]
         if let d = sampled.length ?? segments.last?.end { body["durationS"] = d }
