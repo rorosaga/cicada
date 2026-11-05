@@ -1663,6 +1663,22 @@ verified by `scripts/verify-skills.sh`, whose `--print-urls` is pinned offline) 
 with a `terms` line; `macos-harness` states plainly that it can control the whole Mac. Choosing one is Settings, How your
 agent reads (`agent_methods`), not an install.
 
+**The RSS page lists its feeds (ROR-108, owner 2026-11-05; `Views/Sources/FeedChannels.swift`, DESIGN_RULES §9
+2026-11-05).** The content slot is every feed followed, one row each by name, the row's right edge how many items it
+brought in, *Nothing yet*, or the last check's failure in a few words (*Last check failed: too many requests*); the
+address and the check's day ride `.help`. A feed with items opens in place (`InPlaceDisclosureRow`) to them, newest
+first, a page at a time; one with none has nothing to open. *Other* holds what no followed feed accounts for (a pasted
+feed, one since unfollowed), drawn only when it holds something. The page's search reads across the feeds, as a flat
+list. **Backend:** no new route. `GET /sources/channels/rss/collections` answers one unnamed account holding the feeds
+(`id`, `name`, `count`, `latest`, `url`, `polled`, `problem`) and `/items?collection=<feed id>` pages one; both ETagged,
+not a Store domain, kept by `ChannelItemsCache`. **How an item knows its feed:** a poll stamps `feed` (the feed URL's
+hash) on the `url_index` row of every item the feed lists, a held item included, the first feed keeping one two feeds
+carry; with no stamp yet (an item from before this), the one followed feed on its host, else *Other*. **How a poll
+records its result:** `feeds.yaml`'s `last_problem`, a code (`feed_registry.POLL_PROBLEMS`), never a fetch error's text;
+a good poll clears it, and a body that is no feed counts as `not_a_feed` though the poll's own answer stays `ok`. Reading
+any of this fetches nothing; the feed gate and the polling schedule are unchanged. No item row names a picture from the
+web.
+
 **The standard source page (owner 2026-11-04; `Views/Sources/SourcePageLayout.swift`, `Copy.SourceLayout`;
 DESIGN_RULES §9 2026-11-04).** Owner: *"we should standardize the layout for all the sources pages"*, *"so much text"*.
 Every source's detail column is one `SourcePageLayout(title:origin:status:statusHelp:backLabel:onShowList:onClose:

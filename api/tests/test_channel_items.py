@@ -6,6 +6,7 @@ Every test builds a synthetic bank under tmp_path; nothing real is read.
 from __future__ import annotations
 
 import json
+import os
 import socket
 
 import pytest
@@ -619,3 +620,27 @@ def test_no_feeds_and_nothing_in_answers_no_accounts(tmp_path):
     bank = tmp_path / "bank"
     (bank / "entities").mkdir(parents=True)
     assert channel_items.collections(bank, "rss") == {"channel": "rss", "accounts": []}
+
+
+def test_the_feed_tree_route_revalidates_and_a_poll_result_moves_its_etag(feed_bank, monkeypatch):
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(feed_bank))
+    monkeypatch.setenv("CICADA_HOME", str(feed_bank.parent / "home"))
+    config.get_settings.cache_clear()
+    client = TestClient(main.app)
+    try:
+        first = client.get("/sources/channels/rss/collections")
+        assert first.status_code == 200
+        assert len(first.json()["accounts"][0]["collections"]) == 7
+        tag = first.headers["etag"]
+        assert client.get("/sources/channels/rss/collections", headers={"If-None-Match": tag}).status_code == 304
+
+        feeds = yaml.safe_load((feed_bank / "feeds.yaml").read_text())
+        feeds["feeds"][0]["last_problem"] = "gone"
+        (feed_bank / "feeds.yaml").write_text(yaml.dump(feeds))
+        os.utime(feed_bank / "feeds.yaml", (2_000_000_000, 2_000_000_000))
+        moved = client.get("/sources/channels/rss/collections", headers={"If-None-Match": tag})
+        assert moved.status_code == 200
+        names = {c["name"]: c.get("problem") for c in moved.json()["accounts"][0]["collections"]}
+        assert names["Alpha Weekly"] == "Last check failed: not found"
+    finally:
+        config.get_settings.cache_clear()
