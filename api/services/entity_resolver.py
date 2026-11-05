@@ -3624,6 +3624,93 @@ def _with_said_together(candidate: dict, new_entity: dict, settings: Settings) -
                                  f"B's conversations name both: {said}\n"}
 
 
+async def _judge_candidates(
+    new_entity: dict,
+    candidates: list[dict],
+    cache: dict[tuple[str, str], str],
+    settings: Settings,
+    *,
+    gate: asyncio.Semaphore | None = None,
+    stop: Callable[[], bool] | None = None,
+    connections: str = "",
+) -> list[tuple[dict, str]]:
+    """Judge ``candidates`` in order, up to ``JUDGE_BATCH`` of them a call, stopping after the first call (or cached
+    decision) that says ``same``.
+
+    Returns ``(candidate, decision)`` per candidate judged, in order — always a prefix of ``candidates``, which may
+    run past the first ``same`` within its call (`_pick_match` takes the first). ``gate`` bounds the calls in flight
+    across every name ``resolve`` is judging; ``stop`` is polled before each call so a cancel or a plan limit starts
+    nothing new. A candidate an alias brought is judged with the alias note, the page's context first
+    (``_alias_page_context``) and the name's ``connections`` in the batch. A call over one candidate is the one-pair
+    judge (`_llm_judge_same_entity`), over several `_llm_judge_batch`."""
+    new_name = new_entity.get("name") or ""
+    new_name_lower = new_name.lower()
+    new_type = (new_entity.get("type") or "concept").lower()
+    # What the extraction said about the name: Stage 1 fills `summary`; `description` is a legacy field it almost
+    # never fills (1 of 79 entities on the synthetic night, 2026-10-20), so the judge used to read "(empty)" for B.
+    new_description = _effective_summary(new_entity)
+    judged: list[tuple[dict, str]] = []
+    index = 0
+    while index < len(candidates):
+        cached = cache.get((new_name_lower, candidates[index]["id"]))
+        if cached is not None:
+            judged.append((candidates[index], cached))
+            index += 1
+            if cached == "same":
+                break
+            continue
+        chunk: list[dict] = []
+        while (index + len(chunk) < len(candidates) and len(chunk) < JUDGE_BATCH
+               and (new_name_lower, candidates[index + len(chunk)]["id"]) not in cache):
+            chunk.append(candidates[index + len(chunk)])
+        if stop is not None and stop():
+            break
+
+        async def ask(chunk=chunk) -> list[str]:
+            chunk = [_with_said_together(c, new_entity, settings) for c in chunk]
+            if len(chunk) == 1:
+                candidate = chunk[0]
+                kwargs = dict(
+                    new_name=new_name,
+                    new_type=new_type,
+                    new_description=new_description,
+                    existing_name=_candidate_display_name(candidate),
+                    existing_type=_judge_type(candidate, new_type),
+                    existing_body=_candidate_description(candidate),
+                    settings=settings,
+                )
+                if candidate.get("alias"):
+                    kwargs.update(existing_body=_alias_context(candidate), recorded_alias=True,
+                                  new_connections=connections)
+                    if candidate.get("note"):
+                        kwargs.update(note=candidate["note"])
+                elif candidate.get("note"):
+                    kwargs.update(note=candidate["note"])
+                return [await _llm_judge_same_entity(**kwargs)]
+            entries = [{"name": _candidate_display_name(c), "type": _judge_type(c, new_type),
+                        "alias": bool(c.get("alias")), **({"note": c["note"]} if c.get("note") else {}),
+                        "body": _alias_context(c) if c.get("alias") else _candidate_description(c)}
+                       for c in chunk]
+            return await _llm_judge_batch(
+                new_name, new_type, new_description, entries, settings,
+                new_connections=connections if any(c.get("alias") for c in chunk) else "")
+
+        if gate is None:
+            decisions = await ask()
+        else:
+            async with gate:
+                if stop is not None and stop():  # stopped while waiting for a slot
+                    break
+                decisions = await ask()
+        for candidate, decision in zip(chunk, decisions):
+            cache[(new_name_lower, candidate["id"])] = decision
+            judged.append((candidate, decision))
+        index += len(chunk)
+        if "same" in decisions:
+            break
+    return judged
+
+
 def _pick_match(new_name: str, judged: list[tuple[dict, str]]) -> dict | None:
     """The first ``same`` in judging order, else the first ``unsure``, else ``None``."""
     unsure_candidate: dict | None = None

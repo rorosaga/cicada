@@ -191,10 +191,11 @@ the context of the conversation, says where THEY stand with it now:
 ASK PERSON (optional, per entity) — a question goes to the person's inbox and costs their attention, so it has to earn
 it. Set ask_person only when both of these hold, and write the stake itself in one short clause, in plain words ("the
 lease depends on him"), never that you do not know who this is:
-- Only they can answer: the conversation does not say who or what this is to them or where it stands, and no public source could.
+- Only they can answer: the conversation leaves open who or what this is to them, who holds it or where it stands, and no
+  public source could.
 - Something real rests on it: money, a deadline, a decision or a commitment in this conversation turns on this name, or
-  it is a thing still in motion that will matter later, such as an ongoing project, so memory would act differently
-  knowing the answer.
+  it is a thing still in motion that will matter later, such as an ongoing project whose owner or status is left unclear,
+  so memory would act differently knowing the answer.
 Omit it otherwise, which is nearly always. What the conversation itself explains needs no question, nor does a thing anyone
 could look up. A name in a to-do, a remark or a list with nothing depending on it ("call <name>", "<name> said no") has no stake memory
 could act on, however little is said about them: the person knows who they meant. A name you do not ask about is not lost: it waits with what
