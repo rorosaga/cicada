@@ -12,7 +12,7 @@
 
 ## Current state and evidence
 
-- **2026-11-05 — open a source's item where it lives (ROR-111, G161; branch `ror-111-open-in-place`).** One control on the
+- **2026-11-05 — open a source's item where it lives (ROR-111, G161; PR #630, branch `ror-111-open-in-place`).** One control on the
   item row: Notes by its own id, GitHub, saved links, feed items, saved videos. A list says only the kind; the place is
   read on the click. Not yet seen in the real app: the first press against a real note is the person's. Which sources
   have it and why the others do not is on G161.
