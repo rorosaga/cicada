@@ -563,6 +563,20 @@ def test_one_already_asked_is_retired_by_sleep_undoably_and_never_just_deleted(b
     assert (bank / "inbox" / "inbox-901.md").exists()
 
 
+def test_one_on_a_project_they_started_then_removed_is_retired_in_words_true_of_that_too(bank):
+    from api.services import inbox_tend, project_ownership
+
+    _project(bank, "orchard-e-project")
+    _pending_followup(bank, "orchard-e-project", _thread(bank, "orchard-e-project", 40))
+    project_ownership.dismiss(bank, "orchard-e-project")
+    bank_index.invalidate()
+    _commit_all(bank)
+    decision, _ = _settle(bank, "inbox-901")
+    assert (decision.rule, decision.request) == ("not_started", None)
+    assert "never" not in decision.answer and "never" not in inbox_tend.RULES["not_started"]
+    assert "not one of your projects" in decision.answer and "not one of your projects" in inbox_tend.RULES["not_started"]
+
+
 def test_sleeps_own_tending_pass_retires_it_and_leaves_one_on_a_started_project(bank):
     """Through `tend`, the door Sleep calls once per drain, not the rule on its own."""
     from api.services import inbox_tend

@@ -1918,6 +1918,10 @@ short wikilinked body, ≤ 6 KB, zero LLM, deterministic. Written only by
 stored as `inputs_version`; unchanged inputs mean no write. **Never `git_head`** — its own
 `State snapshot` commit would self-invalidate.
 
+Starting, accepting or removing a project in the app, or linking a repository, refreshes it right after the route's own
+commit (`refresh_held`, ruling 56), so the next agent's primer has it; a trusted agent's `cicada_create_project` runs in
+the MCP process, which never writes the projection (R4), and shows from the next refresh.
+
 Every regeneration that touches disk goes through `state_dictionary.refresh_and_commit`, which
 commits `_state.md` ALONE (`commit_paths`, never `git add -A`) as `State snapshot <date>` /
 `Cicada-Author: cicada`. **The read path commits too, on purpose:** a projection left dirty "for

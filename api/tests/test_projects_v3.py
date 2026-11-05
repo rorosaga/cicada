@@ -233,8 +233,10 @@ def test_new_project_attaches_pages_of_every_kind_in_one_person_commit(client, b
                                        "pages": ["delta-tool", "talk-video", "alpha-repo", "Carol Example"]})
     assert r.status_code == 200, r.text
     eid = r.json()["id"]
-    assert int(_git(bank, "rev-list", "--count", "HEAD")) == int(before) + 1      # one commit for all of it
-    message = _git(bank, "log", "-1", "--format=%B")
+    # One commit for all of it, then the primer's own, alone.
+    assert int(_git(bank, "rev-list", "--count", "HEAD")) == int(before) + 2
+    assert _git(bank, "show", "--name-only", "--format=", "HEAD").split() == ["_state.md"]
+    message = _git(bank, "log", "-1", "--skip=1", "--format=%B")
     assert "Cicada-Author: user" in message and "trigger: user/companion_app" in message
     assert f"entities/{eid}.md: created" in message and "entities/alpha-repo.md: updated" in message
     fm = _fm(bank, eid)

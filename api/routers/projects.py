@@ -40,7 +40,7 @@ from api.models.schemas import (ConversationTie, HappeningCreate, InfluenceCreat
                                 PageTie, ProjectOwnershipResponse, ProjectPatch, ProjectsResponse, ProjectTimeline,
                                 ProjectWriteResponse, ThreadSettle, WithdrawRequest)
 from api.services import (bank_index, episode_scrub, sync_ticker, git_service, handshake, markdown_parser, owner_identity,
-                          progress, project_timeline, search_index, sync_service, telemetry,
+                          progress, project_timeline, search_index, state_dictionary, sync_service, telemetry,
                           turn_authorship, when, write_admission)
 from api.services.claim_reconciler import is_human
 from api.services.claims import HAPPENED, MILESTONE, Claim, MalformedClaimsBlockError, is_event, parse_claims
@@ -493,6 +493,7 @@ async def create_project(body: ProjectCreate, settings: Settings = Depends(get_s
         # One commit, the person's: the new page created, each repository page's back-link updated (G230).
         await _commit_as(mp, f"Project {'created' if created else 'started'} {eid}", paths,
                          verbs={p: "created" for p in created})
+    await state_dictionary.refresh_held(mp, settings)   # the next agent's primer has it now, not after the next Sleep
     return ProjectOwnershipResponse(id=eid, action="created" if created else "started", mine=True)
 
 
@@ -514,6 +515,8 @@ async def accept_project(project_id: str, body: Optional[ProjectAccept] = None,
             raise _refuse(exc)
         if paths:
             await _commit_as(mp, f"Project accepted {stem}", paths)
+    if paths:
+        await state_dictionary.refresh_held(mp, settings)
     return ProjectOwnershipResponse(id=stem, action="accepted" if paths else "unchanged", mine=True)
 
 
@@ -534,6 +537,8 @@ async def dismiss_project(project_id: str, settings: Settings = Depends(get_sett
         if paths:
             await _commit_as(mp, f"Project dismissed {stem}", paths)
         kind = (markdown_parser.parse(Path(mp) / "entities" / f"{stem}.md", ledger=False).frontmatter or {}).get("type")
+    if paths:
+        await state_dictionary.refresh_held(mp, settings)
     return ProjectOwnershipResponse(id=stem, action="dismissed" if paths else "unchanged", mine=False,
                                     retyped=kind != "project")
 

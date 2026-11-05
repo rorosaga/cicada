@@ -930,6 +930,22 @@ async def refresh_and_commit(
     return result
 
 
+async def refresh_held(memory_path: Path, settings=None, **refresh_kw) -> dict | None:
+    """``refresh_and_commit`` for a route already inside its admitted transaction, after its own commit: ``_state.md``
+    commits alone, and it is skipped — ``None`` — while Sleep holds the pages. Best-effort: a failure logs and returns
+    ``None``, never failing the write that came before it. For a write an arriving agent must see at once (ruling 56:
+    starting or removing a project moves it in the primer)."""
+    from api.services import write_admission
+
+    try:
+        if write_admission.holding():
+            return None
+        return await refresh_and_commit(memory_path, settings, **refresh_kw)
+    except Exception as exc:  # noqa: BLE001 — the projection never fails the person's write
+        logger.info(f"state refresh skipped: {type(exc).__name__}")
+        return None
+
+
 async def refresh_admitted(memory_path: Path, settings=None, **refresh_kw) -> dict | None:
     """``refresh_and_commit`` for a writer OUTSIDE Sleep, after its own transaction: one admitted transaction
     (G183), skipped — ``None`` — while Sleep holds the pages, since the run's tail refreshes it and a write here could

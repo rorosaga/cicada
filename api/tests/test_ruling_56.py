@@ -143,7 +143,7 @@ def test_new_project_adopts_an_existing_project_page_and_mints_nothing(client, b
     assert fm["source_episodes"] == ["ep_2026-09-01_001"] and fm["aliases"] == ["An Old Name"]
     parsed = markdown_parser.parse(bank / "entities" / "omega-project.md")
     assert "History the person would hate to lose." in parsed.body
-    log = _git(bank, "log", "-1", "--format=%B")
+    log = _git(bank, "log", "-1", "--format=%B", "--", "entities/omega-project.md")   # `_state.md` follows on its own
     assert "Project started omega-project" in log and "Cicada-Author: user" in log
     assert "entities/omega-project.md: updated" in log                            # never reported as created
     assert len(_git(bank, "log", "--format=%h", "--", "entities/omega-project.md").split()) == 2   # history intact
@@ -627,3 +627,68 @@ def test_a_proposal_page_edit_validates_its_flag():
     assert request.start_project is True and page_edits.parse_request(start_project=True).to_dict() == {
         "start_project": True}
     assert page_edits.parse_request(name="x", start_project="yes").start_project is False
+
+
+# --- the next agent's primer, at once ---------------------------------------------------------------------------
+
+
+def _primer(bank):
+    """What an arriving agent reads: the file as the routes left it, never refreshed here."""
+    bank_index.invalidate()
+    return handshake.build(state_dictionary.read_state(bank), variant="claude-code", bank="memory", tz="UTC")
+
+
+def _in_current(text, stem):
+    if "- Current projects:" not in text or f"`{stem}`" not in text:
+        return False
+    recent = text.find("- Recent project pages")
+    return text.index("- Current projects:") < text.index(f"`{stem}`") < (recent if recent >= 0 else len(text))
+
+
+def _primed(bank, stem, **fm):
+    _claimed_page(bank, stem, confidence=0.9, last_referenced="2026-09-20", **fm)
+    state_dictionary.refresh(bank, None, force=True)
+    _commit_all(bank)
+
+
+def test_starting_a_project_reaches_the_next_primer_and_removing_it_leaves(client, bank):
+    _primed(bank, "omega-project")
+    assert not _in_current(_primer(bank), "omega-project") and "`omega-project`" in _primer(bank)
+
+    assert client.post("/projects", json={"name": "omega-project"}).status_code == 200
+    assert _in_current(_primer(bank), "omega-project")
+    # `_state.md` commits alone, as `cicada`, after the person's own commit.
+    assert _git(bank, "show", "--name-only", "--format=", "HEAD").split() == ["_state.md"]
+    assert "Cicada-Author: cicada" in _git(bank, "log", "-1", "--format=%B")
+    assert "Project started omega-project" in _git(bank, "log", "-1", "--skip=1", "--format=%B")
+    assert "_state.md" not in _git(bank, "show", "--name-only", "--format=", "HEAD~1").split()
+
+    assert client.post("/projects/omega-project/dismiss").status_code == 200
+    assert "`omega-project`" not in _primer(bank)
+    assert _git(bank, "show", "--name-only", "--format=", "HEAD").split() == ["_state.md"]
+
+    assert client.post("/projects/omega-project/accept").status_code == 200
+    assert _in_current(_primer(bank), "omega-project")
+
+
+def test_a_revived_archived_page_reaches_the_next_primer(client, bank):
+    _primed(bank, "omega-project", status="archived")
+    assert "`omega-project`" not in _primer(bank)
+    assert client.post("/projects", json={"name": "omega-project"}).status_code == 200
+    assert _in_current(_primer(bank), "omega-project")
+
+
+@pytest.mark.parametrize("act", ["start", "accept", "dismiss"])
+def test_a_refresh_that_fails_never_fails_the_route(client, bank, monkeypatch, act):
+    _claimed_page(bank, "omega-project", **({"mine": MINE} if act == "dismiss" else {}))
+
+    def broken(*_a, **_k):
+        raise RuntimeError("the projection broke")
+
+    monkeypatch.setattr(state_dictionary, "refresh", broken)
+    r = client.post("/projects", json={"name": "omega-project"}) if act == "start" \
+        else client.post(f"/projects/omega-project/{act}")
+    assert r.status_code == 200
+    assert ("not_mine" in _fm(bank, "omega-project")) == (act == "dismiss")
+    assert ("mine" in _fm(bank, "omega-project")) == (act != "dismiss")
+    assert "omega-project" in _git(bank, "log", "-1", "--format=%s")      # the person's commit stands, nothing after

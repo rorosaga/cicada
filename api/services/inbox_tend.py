@@ -31,7 +31,8 @@ words are already the question's cause or one option's evidence).
 * ``conflict`` / ``clarification`` about Cicada's OWN runtime settings, on its own page — which engine Sleep runs read
   with, whether scheduled runs use the plan, the schedule's time (``web_settle.own_settings``; owner 2026-10-19) — retired as ``own_settings`` (no claim touched): the system
   knows them and Settings shows them, so they are never asked;
-* ``followup`` — one on a page the person never started (ruling 56, ``not_started``): retired with nothing written;
+* ``followup`` — one on a page not in the person's list, never started or taken out (ruling 56, ``not_started``):
+  retired with nothing written;
 * everything else — a clarification, a follow-up on a project they started, a proposed edit — stays for the person (move
   1 aside).
 
@@ -115,7 +116,7 @@ RULES: dict[str, str] = {
     "named_account": "You gave this link for them in your own words",
     "owner_unsaid": "Nothing you said names you that: it is not a question about you",
     "no_pair_evidence": "No conversation names the two together",
-    "not_started": "You never started this project",
+    "not_started": "It is not one of your projects",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
 RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
@@ -617,7 +618,7 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
         from api.services import followups
 
         if not followups.on_started_project(memory_path, fm):
-            return Decision(item_id, kind, "not_started", None, answer="Not asked: you never started this project",
+            return Decision(item_id, kind, "not_started", None, answer="Not asked: it is not one of your projects",
                             guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
         return None, "needs_person"
     if kind == "merge_suggestion":

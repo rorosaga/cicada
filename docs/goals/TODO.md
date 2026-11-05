@@ -3235,7 +3235,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     stay. `GET /projects` sends only listed rows and an always empty `suggested` / `dismissed`, kept one release for a
     client built against g141-7..9 (remove after 0.9). A ChatGPT grouping with no page is no longer offered; its id stays
     on the episodes, so a later door can use it. **Follow-ups (owner, 2026-11-04: "Yeah only projects I started."):** one
-    is raised only on a project the person started. One already pending on a page they never started is retired on
+    is raised only on a project the person started. One already pending on a page not in their list (never started, or started and removed) is retired on
     Sleep's next tending pass (`not_started`, nothing written, listed under "Settled by Sleep", undoable, and once undone
     never retired again), never just deleted, and holds no slot of the three. **Imported Claude projects (owner, 2026-11-04:
     "Yes imported Claude projects are mine."):** they stay listed; that settles the addendum's open question to ruling 45,
@@ -3244,6 +3244,9 @@ A whole row moves to DONE only after its remaining implementation and required a
     what the person started, then "Recent project pages, not started as projects" up to the same 7 rows. Matching the
     list literally would have told every agent on this bank nothing on arrival; calling those pages the person's would
     be untrue. The `projects` hub stays a map of the page type for the same reason.
+    A start, accept or removal in the app, or a repository link, refreshes `_state.md` right after its own commit, so the
+    next session has it; a trusted agent's `cicada_create_project` runs in the MCP process, which never writes the
+    projection (R4), and shows from the next refresh.
     **Links, automatic or proposed:**
     | Link | By, on what | Which | Why |
     |---|---|---|---|

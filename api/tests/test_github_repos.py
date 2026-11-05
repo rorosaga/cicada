@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from api.services import bank_index, history_index, markdown_parser, sleep_cycle, source_refresh, sync_state
-from api.services import github_repos, project_ownership
+from api.services import github_repos, handshake, project_ownership, state_dictionary
 from api.services.connections import secrets
 from api.services.connectors import ADAPTERS, github, github_auth, tier2
 
@@ -576,7 +576,8 @@ def test_the_persons_link_starts_a_page_they_never_started_and_revives_it(api, b
     assert fm["mine"]["by"] == "user" and fm["status"] == "active" and fm["confidence"] > 0.15
     assert [r["how"] for r in fm["repositories"]] == [github_repos.HOW_USER]
     # One commit, the start and the link together: nothing is left behind in the tree.
-    assert "entities/alpha-project.md" in _git(bank, "show", "--name-only", "--format=", "HEAD")
+    assert _git(bank, "show", "--name-only", "--format=", "HEAD").split() == ["_state.md"]   # the primer, on its own
+    assert "entities/alpha-project.md" in _git(bank, "show", "--name-only", "--format=", "HEAD~1")
     assert "alpha-project.md" not in _git(bank, "status", "--porcelain")
 
     # Taking the repository off again is no start and no removal from the list.
@@ -1091,3 +1092,31 @@ def test_the_first_sync_runs_once_in_the_background_and_says_so(bank, monkeypatc
     asyncio.run(scenario())
     assert runs == [(bank, True)]                                   # the person's act: never gated
 
+
+def test_a_project_started_from_a_repository_reaches_the_next_primer(api, bank, monkeypatch):
+    """Ruling 56: both doors of this route refresh the note in their own commit, and a failure there fails neither."""
+    monkeypatch.setattr(handshake, "local_timezone", lambda: "UTC")
+
+    def primer():
+        bank_index.invalidate()
+        return handshake.build(state_dictionary.read_state(bank), variant="claude-code", bank="memory", tz="UTC")
+
+    _project(bank, "never-started")
+    _synced(api)
+    assert api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project",
+                                                           "project": "never-started"}).status_code == 200
+    text = primer()
+    assert text.index("- Current projects:") < text.index("`never-started`")
+    assert "_state.md" in subprocess.run(["git", "show", "--name-only", "--format=", "HEAD"], cwd=bank,
+                                         capture_output=True, text=True, check=True).stdout.split()
+
+    made = api.post("/sources/github/repos/project", json={"fullName": "bob-example/side-notes"})
+    assert made.status_code == 200 and f"`{made.json()['project']}`" in primer()
+
+    def broken(*_a, **_k):
+        raise RuntimeError("the projection broke")
+
+    monkeypatch.setattr(state_dictionary, "refresh", broken)
+    gone = api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project",
+                                                           "project": "never-started", "remove": True})
+    assert gone.status_code == 200

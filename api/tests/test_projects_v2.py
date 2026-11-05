@@ -87,7 +87,7 @@ def test_the_list_is_the_persons_and_a_new_project_joins_it(client):
     assert row["mine"] and row["mineVia"] == "app" and row["description"] == "A strip-built canoe."
     assert row["oneLiner"] == "A strip-built canoe."
     assert ids <= {x["id"] for x in after["projects"]}          # nothing left the list
-    log = _git(bank, "log", "-1", "--format=%B")
+    log = _git(bank, "log", "-1", "--format=%B", "--", f"entities/{eid}.md")   # the primer's own commit follows it
     assert "Cicada-Author: user" in log and f"entities/{eid}.md: created" in log
 
 
