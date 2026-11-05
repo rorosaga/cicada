@@ -382,3 +382,9 @@ def test_a_small_library_finds_the_exact_word_a_meaning_search_would_not(bank):
     assert media_files.search_text(bank, "who is mailing the paperwork", embed_fn=text_embed) == [], \
         "no meaning index built and a lone passage never clears the floor"
     assert [r["at"] for r in media_files.find(bank, "Quillfeather", embed_fn=text_embed)] == [10.0]
+
+
+def test_a_number_or_a_code_inside_a_question_is_a_rare_word_too(bank):
+    add(bank, segments=talk(*[filler(i) for i in range(8)], "The invoice number is 48213907 and the model is ZX-4471."))
+    for q in ("what was the invoice number 48213907 about", "which model is ZX-4471"):
+        assert [r["metadata"]["start"] for r in media_files.find(bank, q, semantic=False)] == [80.0], q

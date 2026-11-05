@@ -80,7 +80,7 @@ def make_recordings(bank: Path, passages: int, rng: random.Random, words_said: i
             w = distinctive(rng, len(said) % 3)
             segs[rng.randrange(len(segs))]["text"] += f" I spoke with {w} about it."
             said.append(w)
-        sha = f"{i:064x}"
+        sha = f"{i:08x}".ljust(64, "0")
         media_files.record_media(bank, name=f"recording {i}", kind="audio", sha256=sha, segments=segs)
         i += 1
         n = file_words.count(bank)
@@ -170,7 +170,7 @@ def recall(a) -> dict:
             w = distinctive(rng, len(said) % 3)
             segs[rng.randrange(len(segs))]["text"] += f" Then {w} came up."
             said.append(w)
-        media_files.record_media(bank, name=f"recording {r}", kind="audio", sha256=f"{r:064x}", segments=segs)
+        media_files.record_media(bank, name=f"recording {r}", kind="audio", sha256=f"{r:08x}".ljust(64, "0"), segments=segs)
     t0 = time.monotonic()
     media_files.refresh_text(bank, embed_fn=embed)
     out = {"recordings": a.recordings, "passages": file_words.count(bank), "words_said_once": len(said),
@@ -195,6 +195,32 @@ def recall(a) -> dict:
             row[leg] = {"top1": sum(1 for r in ranks if r == 1), "top3": sum(1 for r in ranks if r and r <= 3),
                         "top8": sum(1 for r in ranks if r), "of": len(said)}
         out[shape] = row
+    out["small library"] = small(embed)
+    return out
+
+
+def small(embed) -> dict:
+    """One recording of two passages (a small library): the paraphrase, the verbatim sentence and the exact word,
+    asked by meaning only, by words only and fused."""
+    from api.services import media_files
+
+    bank = Path(isolate.SCRATCH) / "bank_small"
+    (bank / "entities").mkdir(parents=True, exist_ok=True)
+    from api.services import search_index
+
+    search_index.ensure_fresh(bank, wait=True)
+    first = "The quarterly figures looked fine, and the team agreed to keep the same spending plan for the next month. " * 12
+    second = "Tomorrow Quillfeather will send the signed contract to the office, and the paperwork should arrive by Friday. " * 12
+    media_files.record_media(bank, name="call", kind="audio", sha256="5" * 64, segments=[
+        {"start": 0.0, "end": 60.0, "text": first}, {"start": 60.0, "end": 120.0, "text": second}])
+    media_files.refresh_text(bank, embed_fn=embed)
+    asks = {"a paraphrase": "who is mailing the documents", "the verbatim sentence": second[:104],
+            "the exact word": "Quillfeather"}
+    out = {"passages": len(media_files.staged(bank))}
+    for name, q in asks.items():
+        out[name] = {"meaning": len(media_files.search_text(bank, q, embed_fn=embed)),
+                     "words": len(media_files.find(bank, q, semantic=False)),
+                     "fused": len(media_files.find(bank, q, embed_fn=embed))}
     return out
 
 

@@ -337,7 +337,11 @@ def search(memory_path, query: str, *, limit: int = 8, plain_words: bool = False
     cols = "body, fid, s, e, src, marks, name, kind"
     limit = max(1, int(limit))
     try:
-        sql = f"SELECT {cols} FROM {TABLE} WHERE {TABLE} MATCH ? ORDER BY bm25({TABLE}) LIMIT ?"
+        # A two-letter prefix matches thousands of passages and ranking them costs most of the query (the same
+        # finding as ``search_index.Reader.ranked(recent_first=...)``): the newest-written come first, unranked.
+        short = min(len(t) for t in tokens) < 3
+        order = "rowid DESC" if short else f"bm25({TABLE})"
+        sql = f"SELECT {cols} FROM {TABLE} WHERE {TABLE} MATCH ? ORDER BY {order} LIMIT ?"
         rows = [_row(r) for r in conn.execute(sql, (_expression(tokens, " "), limit))]
         if rows or not plain_words:
             return rows
@@ -345,8 +349,8 @@ def search(memory_path, query: str, *, limit: int = 8, plain_words: bool = False
         cap = max(RARE_MIN_PASSAGES, total // RARE_SHARE)
         rare = []
         for tok in tokens:
-            if not text_fold.subject_terms(tok):
-                continue   # a function word carries no subject
+            if not (text_fold.subject_terms(tok) or any(c.isdigit() for c in tok)):
+                continue   # a function word carries no subject; a number or a code does
             held = conn.execute(f"SELECT count(*) FROM {TABLE} WHERE {TABLE} MATCH ?",
                                 (_expression([tok], " "),)).fetchone()[0]
             if 0 < held <= cap:
