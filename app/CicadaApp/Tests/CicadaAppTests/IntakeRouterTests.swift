@@ -506,39 +506,6 @@ final class IntakeRouterTests: XCTestCase {
         try await eventually("done") { self.isDone(router) }
     }
 
-    /// G197 layer c, review of #592 (blocker 3): an export found in Downloads never toasts a busy router (the
-    /// watcher retries every look) and never takes the panel from a preview the person has open.
-    func testAnArrivalWaitsSilentlyForABusyRouterAndNeverReplacesAnOpenPreview() async throws {
-        let store = Store(cache: SnapshotCache(root: dir.appendingPathComponent("cache")), api: FakeSyncAPI())
-        let api = FakeIntakeAPI()
-        api.sniffs["c.json"] = chat("claude")
-        api.sniffs["data.zip"] = chat("claude")
-        api.imports["c.json"] = IntakeImportResponse(job: IntakeJobRef(id: "j", total: 1))
-        api.jobPolls = [IntakeJobStatus(id: "j", total: 1, staged: 1, created: 1, done: true)]
-        let gate = AsyncStream<Void>.makeStream()
-        let router = IntakeRouter(api: api, sleep: { _ in for await _ in gate.stream { break } },
-                                  home: dir.appendingPathComponent("home"), env: [:])
-        router.attach(store: store)
-        let arrival = try file("data.zip")
-        router.accept(urls: [try file("c.json")], from: .windowDrop)
-        try await eventually("preview") { self.isPreview(router) }
-        XCTAssertEqual(router.offerArrival(arrival, vendor: .claude), .wait, "the person's open preview is theirs")
-        XCTAssertEqual(api.sniffed, ["c.json"], "nothing about the arrival was read")
-        router.confirm(createBank: { _ in nil })
-        try await eventually("importing") { if case .importing = router.phase { true } else { false } }
-        for _ in 0..<3 { XCTAssertEqual(router.offerArrival(arrival, vendor: .claude), .wait) }
-        XCTAssertNil(store.toast, "a retry every look must not toast every look")
-        // The path the pickup took before the review: the drop's door toasts a busy router, every retry.
-        XCTAssertEqual(router.accept(urls: [arrival], from: .reminder(.claude)), .busy)
-        XCTAssertEqual(store.toast, Copy.intakeBusy)
-        store.toast = nil
-        gate.continuation.yield()
-        try await eventually("done") { self.isDone(router) }
-        XCTAssertEqual(router.offerArrival(arrival, vendor: .claude), .opened, "a done card is not in the way")
-        try await eventually("arrival preview") { self.isPreview(router) }
-        XCTAssertEqual(api.sniffed.last, "data.zip")
-    }
-
     func testTheWelcomePathRefusesTheSameRoots() async throws {
         let api = FakeIntakeAPI()
         let router = IntakeRouter(api: api, home: dir.appendingPathComponent("home"), env: [:])

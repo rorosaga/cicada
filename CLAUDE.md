@@ -55,7 +55,7 @@ turns it into a stream an agent can inhabit.** Four correspondences, each a desi
 1. **Streams, not sessions.** A conversation is a snippet; a life is a stream. Awake capture is the
    stream's intake, Sleep is what makes it more than a transcript pile, and decay is the stream's
    own clock — silence is data. Anything that fragments the stream (a resumed conversation
-   consolidated twice, G104; capture that depends on a model choosing to call a tool, G105) is a
+   consolidated twice, G104; capture that depends on a model choosing to call a tool where a hook could do it, G105) is a
    defect against this, not a nicety.
 2. **Observations *and* actions.** Every capture channel is an observation. Every agent write with
    provenance — a claim, a `Cicada-Author:` trailer, an inbox resolution — is an action on the
@@ -185,7 +185,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   where it gives what the harness cannot (history, metadata, reliability) — the person connects each one (off by default,
   said in words, one-click revoke), read-only, the normal capture path, no private name sent. 47a: Telegram (`network.md`);
   ruling 49: never from the Mac's own store, connected by a QR the phone scans.
-- **Capture never depends on a model calling a tool (G105).** Claude Code and Codex sessions are captured by the
+- **Capture never depends on a model calling a tool where a hook exists (G105; ruling 57 for the apps with none).** Claude Code and Codex sessions are captured by the
   harness's own Stop hook; the backend reads a transcript only when it resolves under the harness root as
   `<session_id>.jsonl` within the size cap. Only the person's turns and the agent's final reply are kept, plus each agent
   turn's model and effort. After scrubbing, the first person message keeps up to 16k characters; later person turns
@@ -197,9 +197,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   around one marker line (G110 gate B2; its G104 costs in `capture-and-sleep.md`). Recall is the same move (G149): the
   SessionStart/UserPromptSubmit hooks inject Cicada's note; a note the harness records as a separate non-person record
   is never captured, and one that arrives inside the person's own text is kept, counted and disclosed (G110 gate C).
-  **Apps with no hook** (claude.ai, ChatGPT, their phone apps) relay each turn through the remote connector's
-  `cicada_capture_turns` (ruling 32): one episode per conversation, stored as relayed (`evidence_kind: assistant`),
-  never the person's own words until that app's export upgrades it in place (`capture-and-sleep.md`).
+  **Apps with no hook** relay each turn through `cicada_capture_turns`, by default (rulings 32, 57): claude.ai, ChatGPT
+  and their phone apps on the remote connector, the Claude desktop app on its local connection — offered by exact client
+  name to no session a harness named, so a hook-captured harness never is. One episode per conversation, stored as
+  relayed (`evidence_kind: assistant`), never the person's own words until that app's export upgrades it in place
+  (`capture-and-sleep.md`). **Exports are one-time (ruling 58):** a new memory's start or an import from an AI provider;
+  nothing reminds a person to repeat one or watches for one. Turns after an import stay in that episode, each marked as relayed.
 - **Transcripts under `~/.claude/` are never read anywhere else** — the MCP seam and resume only `isfile()` them.
   A client of a server elsewhere reads its session there with Cicada's own extractor and posts the capped turns (ruling 28).
   **Agent memory notes (ruling 43):** Claude Code's `projects/*/memory/*.md` are read by its own hook, never the backend

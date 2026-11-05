@@ -514,59 +514,13 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**The awaited export, picked up from Downloads, and a weekly nudge (G197 layer c, 2026-11-04).** claude.ai, the Claude
-desktop app's chats and ChatGPT keep their history on the vendor's servers and run no hook, so the person's own export
-is the one way in that needs no model's cooperation (G105; `capture-and-sleep.md`, "Hookless chat apps"). Two steps
-make it a habit rather than a seed, with no new setting.
-
-**(1) The pickup** (`Support/ExportArrivals.swift`). `ExportArrivalWatcher` keeps one FSEvents watch on the top of
-`~/Downloads`. It is open only while a wait the person opened **in this run** of the app (*Remind me* or the weekly
-nudge's tap; `ExportWaitStore.armedVendors` / `armedUntil`) is unexpired in the open memory. A wait left by an earlier
-launch therefore never lists Downloads, or raises macOS's Files and Folders prompt, at launch. The watch closes:
-
-- when the last wait clears;
-- at its 14-day expiry, by its own timer, with no folder event needed;
-- at any look that finds nothing awaited, before anything is read;
-- on a memory switch (`sync`).
-
-A look that awaited across a close never reopens it (an epoch guard). The watcher lists names, sizes and dates only.
-The baseline is taken when the watch opens, so an export already there is never offered. A new `.zip` that keeps its
-size for one 1.5 s look (`ArrivalTracker`) has its **central directory** read (`ZipMembers`: member names only, never
-a member's bytes, zip64 included, ≤ 32 MB of directory). Every bound in `ZipMembers` is checked by subtraction, so a
-crafted offset near `UInt64.max` answers nil rather than trapping. `ExportArrivals.vendor(members:)` names the vendor
-by the files each export carries:
-
-- Claude: `conversations.json` + `users.json`;
-- ChatGPT: `conversations.json` + `user.json`, `chat.html` or `message_feedback.json`;
-- Takeout's Gemini Apps activity;
-- both account files at once is nobody's.
-
-Only a vendor being waited on is offered, through `IntakeRouter.offerArrival`. That is the drop's door
-(`accept(urls:from: .reminder(vendor))`, so the preview, *Into* and Import are the drop's own, and the sniff clears
-the wait) with two differences, because nobody dropped it:
-
-- it is silent while the router is busy: no "finish the import" toast;
-- it never takes the panel from a sniff, preview or import the person has open.
-
-Either way it answers `.wait`, and the file is offered again at the next look. Every other file is offered once.
-When Cicada is not in front, one notification says the export arrived. It is posted only after it `.opened` (never
-after a refusal), only when notifications were already allowed, and its tap brings the window. If macOS refuses
-Downloads, one line says so ("Cicada can't see Downloads, so drop the export on Cicada when it comes."), nothing is
-read, and the drop and picker work as before.
-
-**(2) Every week** is the last item of every *Remind me* menu (`WeeklyReminderItems`, the same three hosts). It is
-saved only when notifications are allowed, because a weekly reminder that cannot fire is not on. A refusal saves
-nothing and says so in one line ("A weekly reminder needs Cicada's notifications, which are off."), never the
-one-off delays' "waits here". On a grant it records an `ExportHabit` (defaults `cicada.exportHabits`, per bank ×
-vendor, the weekday it was turned on, at 9:00) and one repeating local notification ("Time for a fresh Claude
-export."). At launch, the saved habits are scheduled again (`refreshWeekly`). If notifications are no longer allowed,
-they are dropped instead, and launch never asks for the permission. The nudge carries its memory: tapping it opens
-that vendor's export page in the person's own browser (Cicada clicks nothing there) and opens a wait in the memory it
-was set in (*Tomorrow at 9:00*), which arms the pickup. Once on, the same menu reads *Stop the weekly reminder*.
-
-Taps carry a kind (`ReminderTapKind`: `due` · `weekly` · `arrived`); a reminder from before this change carries none
-and is `due`. Because staging is idempotent per conversation, a weekly full export re-imports only what is new or
-grew, and a relayed conversation is upgraded in place (ruling 32).
+**An export is one-time (ruling 58, owner 2026-11-04).** It starts a new memory or brings in what an AI provider holds; a
+drop or the file panel is the door, and *Remind me* is the one-off for an export that comes by email. Nothing nudges a
+person to ask for another or looks in Downloads for one. #592 did both for a day and never reached a release; a build
+that had them left `cicada.exportHabits` in defaults and a repeating local notification, which `ExportWaitStore` removes
+once at launch (`removeRetiredNudges`, identifiers `cicada.exportWeekly.*` and `cicada.exportArrived.*`), leaving every
+one-off wait and everything imported alone. An old notification's tap opens the intake idle, as a due reminder's does. A
+Files and Folders grant macOS recorded stays listed in System Settings; the app no longer uses it.
 
 **Recordings and videos (meaning index 2, 2026-10-28).** **File → Add Recording or Video…** (2026-10-29) is the
 keyboard and VoiceOver twin: the intake's own open panel (`IntakePicker.chooseMedia`, audio and video types, no folders)
@@ -3505,7 +3459,8 @@ other party's left in a `chatBubbleOtherFill` bubble with the resting ring (owne
 bubble hugs its words and leaves 48 pt on its far side; a long message's pieces read as one bubble, its ring drawn open
 where they meet) — the side read from each turn's written marker, not its role, because a relayed
 conversation (ruling 32) forces every role to `assistant`: `/episodes/{id}/text` carries `relay: {app, label}` until an
-export upgrades the episode, and then the person's side reads "Relayed by ChatGPT" (never "You") and the capture line
+export upgrades the episode, and then the person's side reads "Relayed by ChatGPT" (never "You"; so does each later turn of a chat
+that went on after its import, by its own `relayed [ChatGPT]` marker, ruling 58) and the capture line
 says the words came through the app's model; a run (one side and speaker, turns under 15 minutes apart) shows the face — the
 Messages chat's own picture by `MessageBubbles.face`, the chat parsed from the sitting's `imessage:<chat>:…` source id
 (`ReaderChat.messagesChat`), a monogram for a meeting speaker — or the agent's mark, the name only when it differs from

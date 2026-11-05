@@ -680,6 +680,7 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_save_url": (ADMITTED, "save_url"),                  # backend up: POST /sources/save admits itself
     "cicada_resolve_inbox": (ADMITTED, None),                   # posts to /inbox/{id}/resolve, which admits
     "cicada_save_episode": (CAPTURE, None),
+    "cicada_capture_turns": (CAPTURE, None),                    # ruling 57: the hook's writer, no commit, no Sleep gate
     "cicada_mark_processed": (CAPTURE, None),                   # an episode's cursor, revision-checked (A01)
     "cicada_video_claim": (OUTSIDE, None),
     # G166 exploring: the claim and the start touch only the queue file outside the bank; the record writes the

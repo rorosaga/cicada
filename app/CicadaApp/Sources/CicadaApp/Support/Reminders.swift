@@ -7,34 +7,10 @@ import UserNotifications
 @MainActor
 protocol ReminderScheduling {
     func requestPermission() async -> Bool
-    /// Whether notifications are allowed now, never asking.
-    func isAuthorized() async -> Bool
     func schedule(_ wait: ExportWait) async
     func cancel(_ wait: ExportWait)
-    /// G197 layer c — the weekly nudge to ask for a fresh export, repeating until stopped.
-    func scheduleWeekly(_ habit: ExportHabit) async
-    func cancelWeekly(_ habit: ExportHabit)
-    /// The awaited export landed in Downloads and its preview is open — said only while Cicada is not in front.
-    func announceArrival(_ vendor: ChatVendor) async
-}
-
-/// What a tapped Cicada notification about an export asks for.
-enum ReminderTapKind: String {
-    /// The export should be in the person's email (R-IB22): open the intake idle.
-    case due
-    /// Time to ask for a fresh one (G197 layer c): open the export page and a wait.
-    case weekly
-    /// It arrived and the preview is open: bring the window forward.
-    case arrived
-}
-
-struct ReminderTap: Equatable {
-    let vendor: ChatVendor
-    let kind: ReminderTapKind
-    /// The memory a weekly nudge was set in; `nil` for the others (and a nudge from before it was carried).
-    var bank: String? = nil
-
-    func bank(fallback: String) -> String { bank.flatMap { $0.isEmpty ? nil : $0 } ?? fallback }
+    /// Ruling 58 — a weekly export nudge a build from before it left with macOS, which would otherwise keep firing.
+    func removeRetiredNudges()
 }
 
 /// `UNUserNotificationCenter.current()` raises in a process with no app bundle
@@ -51,8 +27,6 @@ enum ReminderAvailability {
 /// One-shot local notifications; nothing fetched, nothing sent (design §5.5).
 struct LiveReminderScheduler: ReminderScheduling {
     nonisolated static let userInfoVendor = "vendor"
-    nonisolated static let userInfoKind = "kind"
-    nonisolated static let userInfoBank = "bank"
 
     /// Stateless, so constructible anywhere — `ExportWaitStore`'s default
     /// argument is evaluated outside the main actor.
@@ -61,11 +35,6 @@ struct LiveReminderScheduler: ReminderScheduling {
     func requestPermission() async -> Bool {
         guard ReminderAvailability.current else { return false }
         return (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false
-    }
-
-    func isAuthorized() async -> Bool {
-        guard ReminderAvailability.current else { return false }
-        return await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .authorized
     }
 
     func schedule(_ wait: ExportWait) async {
@@ -85,48 +54,33 @@ struct LiveReminderScheduler: ReminderScheduling {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [Self.identifier(wait)])
     }
 
-    func scheduleWeekly(_ habit: ExportHabit) async {
+    func removeRetiredNudges() {
         guard ReminderAvailability.current else { return }
-        let content = UNMutableNotificationContent()
-        content.title = Copy.reminderWeeklyTitle(ExportWaits.vendorTitle(habit.vendor))
-        content.body = Copy.reminderWeeklyBody
-        content.userInfo = [Self.userInfoVendor: habit.vendor, Self.userInfoKind: ReminderTapKind.weekly.rawValue,
-                            Self.userInfoBank: habit.bank]
-        let request = UNNotificationRequest(identifier: Self.identifier(habit), content: content,
-                                            trigger: UNCalendarNotificationTrigger(dateMatching: habit.dateComponents,
-                                                                                   repeats: true))
-        try? await UNUserNotificationCenter.current().add(request)
-    }
-
-    func cancelWeekly(_ habit: ExportHabit) {
-        guard ReminderAvailability.current else { return }
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [Self.identifier(habit)])
-    }
-
-    func announceArrival(_ vendor: ChatVendor) async {
-        guard await isAuthorized() else { return }
-        let content = UNMutableNotificationContent()
-        content.title = Copy.reminderArrivedTitle(vendor.title)
-        content.body = Copy.reminderArrivedBody
-        content.userInfo = [Self.userInfoVendor: vendor.rawValue, Self.userInfoKind: ReminderTapKind.arrived.rawValue]
-        let request = UNNotificationRequest(identifier: "cicada.exportArrived.\(vendor.rawValue)", content: content,
-                                            trigger: nil)
-        try? await UNUserNotificationCenter.current().add(request)
+        Task { @MainActor in
+            let center = UNUserNotificationCenter.current()
+            let pending = await center.pendingNotificationRequests().map(\.identifier)
+            center.removePendingNotificationRequests(withIdentifiers: pending.filter(Self.isRetired))
+            let delivered = await center.deliveredNotifications().map(\.request.identifier)
+            center.removeDeliveredNotifications(withIdentifiers: delivered.filter(Self.isRetired))
+        }
     }
 
     static func identifier(_ wait: ExportWait) -> String { "cicada.exportWait.\(wait.id)" }
-    static func identifier(_ habit: ExportHabit) -> String { "cicada.exportWeekly.\(habit.id)" }
+    /// The identifiers the retired nudge and arrival notice were posted under; a wait's own never matches.
+    nonisolated static func isRetired(_ identifier: String) -> Bool {
+        identifier.hasPrefix("cicada.exportWeekly.") || identifier.hasPrefix("cicada.exportArrived.")
+    }
 }
 
 /// A tapped reminder, held until the router attaches (the `DockOpenQueue` shape).
 @MainActor
 final class ReminderTapQueue {
-    private var pending: [ReminderTap] = []
-    private var handler: ((ReminderTap) -> Void)?
+    private var pending: [ChatVendor] = []
+    private var handler: ((ChatVendor) -> Void)?
 
-    func receive(_ tap: ReminderTap) { if let handler { handler(tap) } else { pending.append(tap) } }
+    func receive(_ vendor: ChatVendor) { if let handler { handler(vendor) } else { pending.append(vendor) } }
 
-    func attach(_ handler: @escaping (ReminderTap) -> Void) {
+    func attach(_ handler: @escaping (ChatVendor) -> Void) {
         self.handler = handler
         let queued = pending
         pending = []

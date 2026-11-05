@@ -372,8 +372,8 @@ stay off both. 27 operations. **Stable, frozen as #424 shipped them:** `recall`,
 `cli_map`'s `api_op` column spells the seven that are not their CLI command). **Added, each its `cli_map` command
 spelled with underscores (`Row.operation`):** `hub`, `perspective`, `source_list`, `source_add`, `source_change`,
 `progress_add`, `backlog_list`, `backlog_add`, `backlog_note`, `inbox_record_check`, `video_queue`, `video_claim`,
-`video_record`, `read_queue`, `read_record`, and `capture_turns` (remote-only, so named in
-`agent_api.REMOTE_ONLY_OPS`: a relayed turn is stored `evidence_kind: assistant` with `relay.connector`, never the
+`video_record`, `read_queue`, `read_record`, and `capture_turns` (`capture-turns` in `cli_map`, MCP only: a relayed turn
+is stored `evidence_kind: assistant` with `relay.connector`, never the
 person's own words). **One episode per conversation (ruling 32, G104):** `capture_turns` alone keeps the
 `conversation` argument on `/v1`. `"conversation": "new"` starts one — Cicada mints the handle (`mint_handle`) and
 answers it as `data.conversation` — and every later turn passes that handle back; a handle another token got (or any

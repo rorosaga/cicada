@@ -285,7 +285,7 @@ def reapply_conversation(conv, fm: dict) -> None:
         turn.text = _out(turn.text, kinds, echoes, prefix=f"{turn.role}: ", **ctx)
 
 
-_OFFSET_KEYS = frozenset({"offset", "reply_to"})
+_OFFSET_KEYS = frozenset({"offset", "reply_to", "tail_at"})     # `tail_at`: ruling 58, where a chat's later turns start
 
 
 def _shift_offsets(value, shift):
@@ -349,6 +349,8 @@ def _take_out(fm: dict, body: str, hits: list[Hit], kinds, *, at: str, pending: 
     out = {k: (v if k == KEY else _strip_fm_strings(_shift_offsets(v, shift), marks, key=k)) for k, v in fm.items()}
     out[episode_staging.REVISED_KEY] = episode_staging.revision_record(fm, at=at)
     out["content_hash"] = episode_staging.content_hash(new_body)
+    if episode_staging.has_relayed_tail(out):       # ruling 58: the same export, taken out the same way, stays a skip
+        out["relay"] = {**out["relay"], "imported_hash": episode_staging.content_hash(new_body[:out["relay"]["tail_at"] - 1])}
     out["processed"] = False
     out.pop("processed_by", None)
     record = dict(_record(fm))

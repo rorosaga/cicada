@@ -337,7 +337,7 @@ def test_new_operations_take_the_cli_command_spelled_with_underscores():
     rows = cli_map.by_tool()
     new = {op: tool for op, tool in agent_api.OPS.items() if op not in SHIPPED}
     for op, tool in new.items():
-        expected = agent_api.REMOTE_ONLY_OPS.get(tool) or "_".join(rows[tool].command).replace("-", "_")
+        expected = "_".join(rows[tool].command).replace("-", "_")
         assert op == expected, (op, tool)
         assert rows.get(tool) is None or rows[tool].api_op is None, "only a frozen name overrides the command"
     # Every override in the table is one of the eleven, and spells exactly its shipped name.

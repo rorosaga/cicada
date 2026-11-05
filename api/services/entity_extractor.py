@@ -533,6 +533,15 @@ def meeting_note(episode: dict) -> str | None:
             "words. What someone says about the person is that speaker's statement, not something the person said.]\n\n")
 
 
+def relayed_note(episode: dict) -> str | None:
+    """Ruling 58: the note for a chat that went on after its import. ``None`` for every other episode."""
+    relay = episode.get("relay") if isinstance(episode.get("relay"), dict) else {}
+    if not isinstance(relay.get("tail_at"), int):
+        return None
+    return ('[Source: lines starting "relayed [" are what the person said later in this chat, as the app\'s model relayed '
+            'it: the model\'s account, which may paraphrase, never the person\'s own words.]\n\n')
+
+
 def project_note(episode: dict) -> str | None:
     """Ruling 45 addendum: the provider's own project grouping (a ChatGPT ``g-p-`` id) or the relaying app's word on the
     project, told to the model as context — the conversation sits in a project the person made there. Never a claim by
@@ -982,6 +991,8 @@ async def extract(
         source_note = (correspondent_note(episode.get("correspondent")) or agent_session_note(episode)
                        or agent_save_note(episode) or meeting_note(episode))
         # Ruling 45 addendum: the provider's project grouping, or the relaying app's word on it, as context.
+        if (went_on := relayed_note(episode)) is not None:
+            source_note = (source_note or "") + went_on
         if (in_project := project_note(episode)) is not None:
             source_note = (source_note or "") + in_project
         # G179 groups: who each member is, before every chunk; a claim resting on one member's lines is theirs.

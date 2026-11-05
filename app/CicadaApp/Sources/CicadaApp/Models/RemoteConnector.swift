@@ -218,7 +218,7 @@ enum RemoteScope: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .search: "Find things in your memory."
         case .read: "Open full pages and Cicada's questions."
-        case .record: "Save notes, links and facts, marked as from this app."
+        case .record: "Keep this app's chats, and save notes, links and facts, marked as from this app."
         case .sources: "Read what you said, word for word."
         case .answer: "Record your answers to Cicada's questions as yours."
         case .ask: "Let Cicada write answers for it. Uses your plan."

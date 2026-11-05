@@ -12,6 +12,14 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — waiting on Reddit, not the owner.** Reddit API access was requested 2026-11-04. When Reddit approves,
+  register the installed app per `network.md` ("Registering Cicada's Reddit app") and set `reddit.CLIENT_ID`.
+- **2026-11-04 — hookless apps relay as they talk; exports are one-time (rulings 57, 58, below; G105, G197; branch
+  `ruling-57-58-relay-and-one-time-exports`, PR #604).** The Claude desktop app's local connection is offered and asked for
+  `cicada_capture_turns` by exact client name; a hook-captured harness never is, whatever it calls itself. #592's weekly
+  nudge and Downloads pickup are gone; it never reached a release. claude.ai on web and phone and ChatGPT reach the
+  relay only through a public address: ruling 59's one click, whose first real run is the owner's. A chat that goes on after its import keeps its later turns, marked as relayed, in the same episode
+  (ruling 58, amended the same day).
 - **2026-11-04 — Sleep on a Claude key through the official SDK (G237, ruling 63; branch `g237-claude-key-parity`).** Owner:
   "having cicada work the same or as good as through Claude code is crucial and priority." The audit found a Claude key
   could not have run Sleep through LiteLLM at all. `anthropic_engine` serves it now, with `direct_engines` as the seam the
@@ -154,8 +162,9 @@
   the tick's own request, never again — now on every start and sign-in. **Owner's check:** open the own WhatsApp
   chat on the Sources page; on Telegram, restart the backend once so the photos are asked.
 - **2026-11-04 — New project is a page; an empty Projects list says nothing (G222; branch `feat/projects-new-page`).** Owner: "remove the text that appears when no projects" and "more like claude desktop app, and not two input text lines". New project opens as the detail column: the name as the H1, a large editor for the person's own paragraphs (kept as written, ≤ 4,000 characters, the page's lead; Sleep never writes it), and a picker over every page in memory by kind with each page's picture or its source's mark. Create is one `POST /projects` with `pages` (checked first, one person commit; a repository joins `repositories:` under ruling 53); `POST /projects/{id}/pages` routes a repository the same way, and the day the person started a project counts as activity, so a new one sits in Current. Verified on a scratch app (light and dark). **For the owner:** the live install suggests 750 projects; by construction that is every project page with no `mine` mark (the ~700 pre-D4 pages, `whyKind: none`) plus fallback concepts and repository births — whether legacy `none` pages are suggested at all is a ruling-45 call (G222's row).
-- **2026-11-04 — Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
-  `claude-desktop-capture`).** Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."
+- **2026-11-04 — SUPERSEDED by rulings 57 and 58 the same day: what follows was built in #592 and removed, its DECIDE
+  list answered.** Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
+  `claude-desktop-capture`). Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."
   Diagnosis, from the live install's numbers: one relayed episode ever, and every Claude chat in the bank from one
   October export. The remote connector was off, so claude.ai had no way in. The desktop app's only Cicada server is
   stdio, which never serves `cicada_capture_turns`, and its primer asks for no relay. Of the four ways in
@@ -3327,6 +3336,32 @@ A whole row moves to DONE only after its remaining implementation and required a
     **Finding a source:** the model may propose a link literally in a conversation it names, on a page of the question;
     it lands as a proposal in the one grouped review (ruling 36 D5), never opened, trusted or re-checked until taken. Never
     guessed from a name; `sources_removed` holds. A sweep writes no proposals; Sleep does.
+57. **Capture for apps without hooks defaults to the tool their model calls as they talk (owner, 2026-11-04; amends ruling 32
+    and G105 for those apps only; G197).** `cicada_capture_turns` on the Claude desktop app's local connection and on the
+    remote connector, and the primer asks for it. Hook capture is exactly as it was for Claude Code, Codex, Cursor, Gemini
+    CLI and the rest. **The evidence that made it worth a model's cooperation:** #592's diagnosis of the owner's bank, one
+    relayed episode ever and every Claude chat from one export; the desktop app keeps no history on disk for a claude.ai
+    account, and reading claude.ai through a browser is what its terms bar. **What it binds:** a client is told apart by one
+    predicate (`relay_capture.local_relay_allowed`): the exact self-reported name, no session a harness named, not
+    `CICADA_CAPTURE=off`; anything else is not offered and not asked, so a hook-captured turn is never captured twice (Claude Code
+    calling itself `claude-ai` is refused by the session id it injects). Stored as relayed, never the person's own words;
+    one episode per conversation by a handle the tool mints where the call arrives; an app's two connections keep one copy.
+    **Disclosed trade-off (2026-11-04):** a person's message repeated exactly, as the first message of a new chat on the app's
+    other connection, within 10 minutes of saying it there, is read as the same conversation, and the new chat is not kept.
+    The person is told in
+    words: the tool's description, the app's own first-use ask, one line when it connects, one sentence in the conversation.
+    No new setting. **Disclosed limit:** a harness with a hook that calls itself `claude-ai` and injects no session would keep
+    a second, relayed copy. **Revisit** if a client is seen doing that, or if the desktop app gains a hook or a readable store.
+58. **Exports are one-time (owner, 2026-11-04, verbatim: "never really agreed with the path of the weekly exports; exports
+    should only exist for starting a brand new memory bank or importing data from AI providers like OpenAI and Anthropic.").**
+    #592's weekly nudge and Downloads pickup are removed; a one-time import, its upgrade in place and the one-off *Remind
+    me* stay (that reminder predates #592 and exists because an export comes by email hours later). **Amended (owner,
+    2026-11-04: "Yes I like that alternative you mention for exported chats that continue. That makes sense."):** a chat that
+    goes on after its import keeps its later turns in the same episode, marked as relayed, with the imported part still the
+    person's own words; a relay into an upgraded conversation no longer writes nothing (ruling 32's sentence). One conversation for every
+    count (G104), each part its own provenance by a `relayed [<app>]:` marker the one marker grammar reads as the model's, the
+    imported part's offsets untouched, Sleep reading only what grew, another import upgrading the turns it holds without a
+    duplicate (`capture-and-sleep.md`, "A chat that goes on after its import"). **Revisit** only if the owner asks for a repeating import.
 59. **One click may open the connector's own port to the internet (owner, 2026-11-04: "YES to one-click Tailscale Funnel
     for the claude.ai and phone connector"; G135, G132's D6′; amends G132 (c), the headless rail's "never `funnel`" and the
     2026-10-29 one-click rail; branch `feat/g135-funnel-one-click`).** Why: claude.ai and the phone apps relay through the

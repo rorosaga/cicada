@@ -188,6 +188,31 @@ TOOLS = [
         },
     },
     {
+        # Ruling 57: in this table for its schema, offered only to what `relay_capture.local_relay_allowed` names — never
+        # to a harness whose hook already captures it (`tools_for_client`, and `call_tool` refuses the rest).
+        "name": "cicada_capture_turns",
+        "description": "Keep this chat in the person's Cicada memory as it happens: this app has no hook that could. "
+                       "Call it on EVERY turn, before you answer: `message` is the person's message exactly as they "
+                       "wrote it (never a summary), `previous_reply` your own previous reply exactly as you gave it "
+                       "(omit it on the first turn), `conversation` \"new\" on this chat's first call and the handle "
+                       "the reply gave on every later one. Re-sending a turn changes nothing. Cicada stores this as "
+                       "relayed by this app, not as the person's own words.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "The person's message this turn, word for word."},
+                "previous_reply": {"type": "string",
+                                   "description": "Your previous reply, word for word. Omit on the first turn."},
+                "conversation": {"type": "string",
+                                 "description": "\"new\" on this chat's first call, then the handle the reply gave."},
+                "project": {"type": "string", "maxLength": 120,
+                            "description": "Optional: the name of the project this chat is in, only when you know it "
+                                           "from your own context (the app's project); never a guess."},
+            },
+            "required": ["message", "conversation"],
+        },
+    },
+    {
         "name": "cicada_save_episode",
         "description": "Save a conversation snippet as an episode for Cicada's memory. The episode will be processed during the next Sleep cycle to extract entities and relationships. Use this when the conversation contains important information worth remembering.",
         "inputSchema": {
@@ -1298,6 +1323,21 @@ def in_engine_spawn() -> bool:
     return os.environ.get("CICADA_ENGINE_SPAWN", "").strip() == "1"
 
 
+def _relay_offered() -> bool:
+    """Ruling 57: this client is an app with no hook, so it is offered and asked for `cicada_capture_turns`. Read at
+    every use from what `initialize` captured: before `initialize` nothing names the client, so nothing is offered."""
+    from api.services import relay_capture
+
+    return not in_engine_spawn() and relay_capture.local_relay_allowed(CLIENT_INFO.get("name"), SESSION.harness)
+
+
+def tools_for_client() -> list[dict]:
+    """What `tools/list` answers: nothing under a Cicada engine spawn, the relay only to an app with no hook."""
+    if in_engine_spawn():
+        return []
+    return TOOLS if _relay_offered() else [t for t in TOOLS if t["name"] != "cicada_capture_turns"]
+
+
 def initialize_result(params: dict) -> dict:
     """The MCP `initialize` result — G48's inbound capture plus G75's outbound primer.
 
@@ -1379,9 +1419,10 @@ def _handshake_text(*, delivery: str) -> str:
             server = tool_client.host_of(runtime_layout.api_base())
         except ValueError:
             server = None       # an unusable address: the call below says so in words
-        return str(_remote_call("cicada_handshake", {}, {"delivery": delivery, "server": server}).get("text") or "")
+        return str(_remote_call("cicada_handshake", {}, {"delivery": delivery, "server": server,
+                                                         "relay": _relay_offered()}).get("text") or "")
     memory_path = get_memory_path()
-    text, meta = handshake.load_or_build(memory_path, CLIENT_INFO.get("name"))
+    text, meta = handshake.load_or_build(memory_path, CLIENT_INFO.get("name"), relay=_relay_offered())
     handshake.record(delivery, meta, bank=memory_path.name, harness=SESSION.harness,
                      client_name=CLIENT_INFO.get("name") or None)
     return text
@@ -1435,7 +1476,7 @@ def main():
                 respond(req_id, {})
 
         elif method == "tools/list":
-            respond(req_id, {"tools": [] if in_engine_spawn() else TOOLS})
+            respond(req_id, {"tools": tools_for_client()})
 
         elif method == "prompts/list":
             respond(req_id, {"prompts": [] if in_engine_spawn() else PROMPTS})
@@ -1511,7 +1552,7 @@ def call_tool(name: str, arguments) -> dict:
     from_body = False
     _stamp_seen()
     _stamp_seen(via="call")
-    if name not in _SCHEMAS:
+    if name not in _SCHEMAS or (name == "cicada_capture_turns" and not _relay_offered()):
         reply = mcp_tools.Reply(f"Error: Unknown tool: {name[:80]}", code="invalid_arguments")
         checked = tool_contract.Checked()
     else:
@@ -1616,7 +1657,7 @@ def _remote_call(name: str, arguments: dict, options: dict | None = None, *, loc
     return answer
 
 
-def _client_tool(name: str, arguments: dict, *, local: bool = False) -> str:
+def _client_tool(name: str, arguments: dict, *, local: bool = False, options: dict | None = None) -> str:
     """G181 phase 2: this machine is a client — the bank is on the server, so the call is run there. Files the agent
     named are read here first; the repo context's git probe stays here. ``local`` (G132 phase 1 B, a replica): the
     call goes to this computer's own backend, which sends it on to the home through its outbox."""
@@ -1627,7 +1668,8 @@ def _client_tool(name: str, arguments: dict, *, local: bool = False) -> str:
     args = tool_client.inline_files(name, arguments)
     if isinstance(args, str):
         return args
-    options = {"cwd": SESSION.project_dir or os.getcwd()} if name == "cicada_continue" else None
+    if name == "cicada_continue":
+        options = {"cwd": SESSION.project_dir or os.getcwd()}
     answer = _remote_call(name, args, options, local=local)
     data = answer.get("data") if isinstance(answer.get("data"), dict) else None
     text = str(answer.get("text") or "")
@@ -1639,7 +1681,40 @@ def _client_tool(name: str, arguments: dict, *, local: bool = False) -> str:
     return mcp_tools.Reply(text, code=answer.get("code"), data=data, segments=segments)
 
 
+def _relay_turn(arguments: dict) -> str:
+    """Ruling 57: a relayed turn is capture, the hook's writer, so it takes no commit, no Sleep gate and no git snapshot
+    of its own. Its handle is minted here, where the call arrives, so a call queued for a home that is away has one and
+    a chat stays one episode. The backend that holds the bank writes it (this computer's, so its index worker follows;
+    on a replica its outbox; on a client machine the server's). A home with its backend down writes the file here, and
+    Sleep's own sync covers it: a re-sent turn changes nothing, so a request answered late is safe to write again."""
+    from datetime import datetime
+
+    from api.services import home_move, relay_capture, tool_client
+
+    handle, started = relay_capture.begin(arguments.get("conversation"))
+    if handle is None:
+        return relay_capture.bad_handle()
+    client = runtime_layout.is_client()
+    # Rulings 34, 39: it was said now, whenever it lands, on this machine's day.
+    said = datetime.now().astimezone()
+    options = {"said_at": said.isoformat(), "utc_offset_minutes": int(said.utcoffset().total_seconds() // 60)}
+    try:
+        reply = _client_tool("cicada_capture_turns", {**arguments, "conversation": handle}, local=not client,
+                             options=options)
+    except tool_client.ToolClientError as exc:
+        if client or runtime_layout.is_replica():      # never a local copy; the words stay the app's to send again
+            reply = mcp_tools.Reply(f"Error: {exc}", code="error")
+        elif home_move.writes_closed():
+            reply = mcp_tools.Reply(home_move.closed_text(), code="refused")
+        else:
+            reply = relay_capture.capture_local(_ctx(), arguments.get("message"), arguments.get("previous_reply"), handle,
+                                                arguments.get("project"), queue_index=False, **options)
+    return relay_capture.with_handle(reply, handle) if started else reply
+
+
 def handle_tool(name: str, arguments: dict) -> str:
+    if name == "cicada_capture_turns":
+        return _relay_turn(arguments)
     if runtime_layout.is_client():
         # G181 phase 2: a server elsewhere holds the bank; nothing below may touch a local one.
         return _client_tool(name, arguments)

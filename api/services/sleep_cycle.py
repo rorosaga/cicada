@@ -3823,6 +3823,9 @@ def _get_unprocessed_episodes(
             # reads the two stored values; nothing opens the path).
             "project_dir": fm.get("project_dir") if isinstance(fm.get("project_dir"), str) else None,
             "workspace_identity": fm.get("workspace_identity") if isinstance(fm.get("workspace_identity"), dict) else None,
+            # Ruling 58: Stage 1 is told what a `relayed [...]:` line means, and what project the app said (`relayed_note`,
+            # `project_note`); both read this record.
+            **({"relay": fm["relay"]} if isinstance(fm.get("relay"), dict) else {}),
             # G235: who read what, and what the person removed (kinds and engines, never a word).
             **({sensitive_flags.KEY: fm[sensitive_flags.KEY]} if isinstance(fm.get(sensitive_flags.KEY), dict) else {}),
             # G95/G104: the stager's edit-in-place record — which body was last consolidated (`episode_revision`).

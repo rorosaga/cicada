@@ -439,6 +439,18 @@
       "disposition": "uninstrumented_guarded"
     },
     {
+      "function": "append_relayed",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "merge_relayed_tail",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
       "function": "_refresh",
       "method": "write",
       "frontmatter": "fm",

@@ -1246,8 +1246,8 @@ fixtures, not yet run against the installed app.
 | Cursor | `beforeSubmitPrompt`, `afterAgentResponse` in `~/.cursor/hooks.json` | `prompt`; `text` (final reply); `conversation_id`, `generation_id`, `model`; `transcript_path` nullable, format undocumented | Every local chat, per turn (`turn_capture`); unverified |
 | Gemini CLI | `AfterAgent` in `~/.gemini/settings.json` | `prompt`, `prompt_response`, `stop_hook_active`, `session_id`; `transcript_path` format undocumented | Every session, per exchange (`turn_capture`); unverified |
 | T3 Code (G228) | none of its own: the harness it drives fires Cicada's hooks (Claude Code through the Agent SDK with the person's user settings; Codex's `app-server` with `~/.codex/hooks.json` in its "existing login" setup; Cursor's SDK with user settings) | the driving harness's payload; the host is read by the hook from its own launch chain (exec paths only) | Every thread, as its harness's one episode labelled `host: t3code` (below); Claude Code verified only as far as T3 Code's recorded SDK fixtures (SessionStart hooks fire), the rest unverified |
-| Claude app (desktop) | none; MCP only (its local `cicada` server is stdio, which never serves `cicada_capture_turns`) | — | Its chats are claude.ai's: the export, picked up from Downloads while awaited and nudged weekly (G197 layer c, below); a turn relayed only when claude.ai's remote connector is added |
-| Claude on the web and phone, ChatGPT, Grok | none; remote connector (G135) | — | Every turn its model relays through `cicada_capture_turns` (ruling 32, below), stored as relayed; the export (layer c) upgrades it |
+| Claude app (desktop) | none; MCP only | — | Every turn its model relays through `cicada_capture_turns` on its local connection (ruling 57, below), stored as relayed; an export upgrades it |
+| Claude on the web and phone, ChatGPT, Grok | none; remote connector (G135) | — | Every turn its model relays through `cicada_capture_turns` (ruling 32, below), stored as relayed; an export upgrades it |
 | Windsurf (Cascade) | `pre_user_prompt`, `post_cascade_response` in `~/.codeium/windsurf/hooks.json` | `user_prompt`; `response`; `trajectory_id`, `execution_id` | Not yet: the same shape as Cursor, so it is a registry and an adapter on `/capture/turn` (G197) |
 | GitHub Copilot CLI | `userPromptSubmitted`, `agentStop` in `~/.copilot/hooks/` | `prompt`; the reply only inside `transcriptPath`, format undocumented | Not yet: the reply needs a transcript reader (G197) |
 | OpenCode | JS/TS plugins only (`~/.config/opencode/plugins/`) | events (`message.updated`, `session.idle`) with undocumented payloads | Not yet: needs a plugin, not a command hook (G197) |
@@ -1301,8 +1301,7 @@ asks the app's model to call `cicada_capture_turns(message, previous_reply, conv
 answers: the person's message word for word and its own previous reply word for word. The body
 (`api/services/relay_capture.py`) is the per-turn writer below (`turn_capture.capture_turns(relay=…)`): the same
 cleaning, scrub and caps, one episode per conversation keyed by the handle the handshake minted (a call without one
-falls into the connector's day bucket), a re-sent turn `unchanged`. It is `record` scope, remote only
-(`catalog.REMOTE_ONLY`), and behaves like a hook rather than a remote write: no commit of its own and no Sleep gate
+falls into the connector's day bucket), a re-sent turn `unchanged`. It is `record` scope, and behaves like a hook rather than a remote write: no commit of its own and no Sleep gate
 (an episode written while Sleep runs is read by the next one), the demo guard and the remote write lock still apply.
 **Relayed, not heard** (the coordinator's conservative default until the owner rules otherwise): the episode carries
 `relay: {app, connector, channel: remote, first}` and `evidence_kind: assistant`, so its words are stored, searchable
@@ -1313,40 +1312,77 @@ person message, cleaned the same way, matches exactly one not-yet-upgraded relay
 (`relay.first`, `turn_capture.relay_match_key`: letters and digits, case-folded, the first 400, at least 24) rewrites
 that episode in place — same file and id, re-queued, `evidence_kind` and `hook_turns` dropped, `relay.upgraded_at` and
 `upgraded_by` stamped — instead of adding a second copy. Two candidates, a short first message, another app or a date
-too far apart upgrade nothing (a second episode, as before). A later relay into an upgraded conversation is answered
-"already in Cicada from the export" and writes nothing; the next export brings its later turns.
+too far apart upgrade nothing (a second episode, as before). A later relay into an upgraded conversation stays in that
+one episode, marked as relayed (ruling 58, below).
 
-**Hookless chat apps: what reads without a model (G197 layer c, measured 2026-11-04).** The owner: "I don't see
-conversations I have on Claude chats or claude.ai being captured." The diagnosis: the owner's bank held only one
-relayed episode ever, and every Claude chat in it came from a single October export. The remote connector was off
-(`/remote/status`: not enabled, no listener, no funnel), so claude.ai on the web and phone had no way in. The desktop
-app's only Cicada server is the local stdio one, and stdio never serves `cicada_capture_turns`
-(`catalog.REMOTE_ONLY`). Its primer (`handshake._PRELUDE["desktop"]`) asks for no relay, so a desktop chat reached
-memory only when the model chose `cicada_save_episode`, which G105 rules out as a capture path. The four ways in,
-weighed against the rails:
+**The Claude desktop app, on its local connection (ruling 57, owner 2026-11-04; amends ruling 32 and G105 for hookless apps
+only).** The app has no hook and keeps no chat history on disk for a claude.ai account (measured by counts on 2026-11-04,
+never content: no cached `chat_conversations` response among 64,273 HTTP cache entries; a 536 KB key-value store of drafts;
+Cowork's settings), so its stdio server now does what the remote connector does.
 
-- **(a) The desktop app's local store — no.** For a claude.ai account the app is a web wrapper with no
-  conversation history on disk. Measured by counts, never content: no cached `chat_conversations` API response among
-  its 64,273 HTTP cache entries; `IndexedDB/https_claude.ai_0` is a 536 KB key-value store holding about two dozen
-  message-shaped fragments in an undocumented serialization (drafts and recent state, not a history);
-  `local-agent-mode-sessions/` holds Cowork's settings and plugins, no transcripts. Anthropic's own docs place Chat
-  history in `local-agent-mode-sessions/` only for the third-party-inference build ("Claude Desktop on 3P keeps
-  conversations … on the device"), so this is a reader worth writing only for a person on that build, and it would be
-  the app's read (the `~/Library` rail).
-- **(b) The person's signed-in browser, read by their agent — not without the owner, and recommended no.** Anthropic's
-  Consumer Terms §3 bar access to the Services "through automated or non-human means, whether through a bot, script, or
-  otherwise" except by API key or where explicitly permitted. An agent paging through claude.ai's conversation list is
-  that, so the ToS rail ("an unofficial client that breaks a service's terms … never is") stops it, unlike the G166
-  reads of sites the person allowed.
-- **(c) The official export — built.** It works on every plan (Settings → Privacy → Export data, on the web or the
-  desktop app, never the phone apps), comes by email, and its link expires in 24 hours. It has no schedule and no API.
-  The app now picks the zip up from Downloads while the person waits for it, and nudges weekly (`app.md`, "The awaited
-  export, picked up from Downloads"). Staging is per conversation and idempotent, so each export brings only what is
-  new or grew and upgrades relayed episodes in place.
-- **(d) The remote connector plus relay — unchanged, never the only path.** It is real time, but it depends on the
-  app's model calling the tool (ruling 32's disclosed exception), and the person needs a public address: one click
-  since ruling 59 (`network.md`). A connector added on claude.ai also appears in
-  the desktop and phone apps, so this one path covers all three.
+- **Telling a client apart** (`relay_capture.local_relay_allowed`, one predicate behind `tools/list`, `tools/call`, the
+  primer and the tool door). `initialize`'s `clientInfo` gives a self-reported `name` and `version`, nothing else. The tool
+  is offered only when the name is exactly the desktop app's (`claude-ai`, `claude-desktop`, `handshake.CLIENT_VARIANTS`),
+  no session is named (`SESSION.harness` is G48's `unknown`; no `CLAUDE_CODE_SESSION_ID`, `CICADA_SESSION_ID` or
+  `CICADA_SESSION_HARNESS`) and `CICADA_CAPTURE` is not `off`. Before `initialize`, or for an unknown or unnamed client, it
+  is not offered: such a client hears the same "Unknown tool" it always did and writes nothing. Claude Code calling itself
+  `claude-ai` still carries the session id it injects, so it is refused; a client that lies the other way is simply not
+  relayed. What cannot be told apart: a harness with a hook that both names itself `claude-ai` and injects no session
+  would write a second, relayed episode, which still never counts as the person's own words.
+- **One episode per conversation.** One stdio process serves all the app's chats, so a chat's handle comes from the tool:
+  `conversation` is required, `"new"` on the first call, whose reply gives `lc_<day>_<hex>`, passed on every later turn (a
+  chat outlives the process). The stdio process mints it where the call arrives (`relay_capture.begin`), before the call
+  goes anywhere, so a queued call has one and a late answer written again is the same conversation. The home stays the
+  writer. Any other string is refused, nothing written; there is no day bucket here.
+- **Stored as relayed.** `harness: claude-desktop`, `evidence_kind: assistant`, `relay: {app: claude, channel: local, first}`
+  (plus `device` from a client machine); never the person's own words; the same writer, scrub, caps and demo refusal as the
+  remote relay. `app: claude` is why a claude.ai export upgrades it in place.
+- **Both doors in one app.** A connector added on claude.ai also shows in the desktop app beside the local connection, and
+  both ask. A conversation's first call on a door writes nothing and is told to stop (`elsewhere`,
+  `turn_capture._kept_elsewhere`, under the episode lock) when one of the other door's person turns, written within 10
+  minutes of when this turn was said, is this message whole, by the episode's own offsets: a reply offering a prompt to paste, or a turn quoting it
+  inside a longer one, is another conversation. A message under the match key's 24 characters cannot be matched, so it may
+  be kept twice, and a model that calls the second door first on a later turn starts a partial copy there. **Disclosed
+  trade-off:** a person's message repeated exactly, as the first message of a new chat on the app's other connection, within
+  10 minutes of saying it there, is read as the same conversation, and the new chat is not kept. Nothing tells them apart
+  without a second tool call on every turn. A malformed episode among those scanned says nothing and never stops a turn.
+- **Where it runs.** The backend that holds the bank, through `/tools/call`. On the home: this computer's, so its index
+  worker follows; with that backend down the stdio process writes the file, queues no index job, and Sleep's own sync
+  covers it. On a replica: its outbox, which answers "Queued for the home" with the handle, and with its own backend down the turn is
+  refused, never written into the copy. On a client machine: the server's, refused when it cannot be reached. Every call
+  carries when it was said and this machine's offset (rulings 34, 39), so a chat that waited days lands with its own day in
+  its id and `timestamp`, and `received_at` the landing.
+- **What the person sees, and the switches.** The tool's description says what it does in the app's own tool list, and the
+  app asks before a tool's first use unless they allowed it always. The first reply of each conversation asks the model to
+  say so once, in a few words; connecting the app says it in one line (`agent_wiring`); the remote connector's Record scope
+  says it too. **No new setting.** To turn it off: in the app, set that tool to never run; or disconnect the app in
+  Settings → Agents; or `CICADA_CAPTURE=off` in the server's `env`, the switch every hook answers to, which also drops the
+  primer's line. On the remote connector: untick Record or revoke it. `capture_assistant_replies` still keeps the replies out.
+- **Why not the browser.** Anthropic's Consumer Terms §3 bar access "through automated or non-human means" except by API
+  key or where explicitly permitted, so an agent paging claude.ai's list is what the ToS rail stops, unlike G166's reads.
+
+**Reaching claude.ai on the web and phone** needs a public address for the remote connector: one click since ruling 59
+(`network.md`). A connector added on claude.ai also appears in the desktop and phone apps. The local connection covers the
+desktop app alone; the relay there needs no address.
+
+**Exports are one-time (ruling 58, owner 2026-11-04).** A new memory's start, or what an AI provider holds; `app.md`, "An
+export is one-time". The official export (web or desktop, never the phone apps) comes by email with a link that expires in 24
+hours and has no schedule or API; its staging is per conversation and idempotent, and upgrades a relayed episode in place.
+
+**A chat that goes on after its import (ruling 58, owner 2026-11-04).** The later turns stay in the same episode: one
+conversation for every count, found by the same `lc_`/`rc_` handle. `episode_staging.append_relayed` adds them after the imported
+part, whose offsets never move (`relay.tail_at` is where they start, `relay.imported_hash` what the export wrote). The imported
+part stays `user:`/`assistant:`, the person's own; each later person turn is `relayed [Claude]: …`, which `evidence._marker` reads as
+`assistant`, the model's words, so a span, a promotion exchange and the Reader each resolve to the right kind with no episode-wide
+`evidence_kind`, which could not say both. Any line of a relayed turn that would open a turn is quoted (`> user: …`), so a model's
+words can never read as the person's own. Stamped in `turns`; a revision of itself (`revised`), so Sleep reads only what grew;
+Stage 1 is told what the marker means (`relayed_note`). A re-send is `unchanged`: a reply the episode holds, and a message that is
+its last person turn with no new reply, even one the export brought. Over the session cap on what grew, a turn is refused in words.
+**Another import** compares with `imported_hash`, so the same export is a skip. A newer one replaces the imported part (an edit in
+place, `merge_relayed_tail`): the later turns it holds are the person's own now and go, matched in order; the rest stay after it.
+The person sees each later turn in the Reader as "Relayed by Claude", never "You". **Ruling 60 on a relayed chat:** a person's
+turn, relayed before or after the import, is read as theirs when looking for a password, so it stays out of an engine's read and can
+be removed, though its provenance stays the model's. A Remove moves `tail_at`, and text taken out stays out of a re-sent turn.
 
 **Per-turn capture (`api/services/turn_capture.py`, `POST /capture/turn`).** The hook posts `{harness, session_id,
 messages: [{speaker, text}], turn_id?, retry?, model?, cwd?, hook_event, utc_offset_minutes?}` — one turn (Cursor) or one exchange (Gemini
