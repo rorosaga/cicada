@@ -27,7 +27,7 @@ TZ = "UTC"
 # simply not patched.
 _STEPS = {"events": "_write_scenario_events", "person": "_write_scenario_person",
           "followups": "_write_scenario_followups", "backlog": "_write_scenario_backlog",
-          "showcase": "_write_showcase"}
+          "showcase": "_write_showcase", "source_kinds": "_write_source_kinds"}
 
 
 def d(offset: int) -> str:
@@ -41,7 +41,8 @@ def build(tmp_path: Path, *, index: bool = True, events: bool = True, person: bo
     `populate`'s own default, the real day."""
     bank = tmp_path / "demo"
     bank_registry.scaffold_bank(bank)
-    wanted = {"events": events, "person": person, "followups": followups, "backlog": backlog, "showcase": showcase}
+    wanted = {"events": events, "person": person, "followups": followups, "backlog": backlog, "showcase": showcase,
+              "source_kinds": False}
     with ExitStack() as stack:
         for flag, name in _STEPS.items():
             if not wanted[flag] and hasattr(demo_bank, name):

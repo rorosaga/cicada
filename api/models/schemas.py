@@ -719,6 +719,8 @@ class PageCitationRef(CamelModel):
     last: Optional[str] = None
     episode_id: Optional[str] = None
     conversation_id: Optional[str] = None
+    #: ROR-16: what the source is (`source_spans.kind_of`), so a citation says what it opens.
+    source_kind: str = "conversation"
 
 
 class PageCitationBelief(CamelModel):
@@ -1367,6 +1369,7 @@ class EpisodeSpan(CamelModel):
     turn_count: Optional[int] = None
     turn_ts: Optional[str] = None
     turn_speaker: Optional[str] = None
+    held: bool = False   # ROR-16 (G235): the words are held back; `text`, `before` and `after` are empty
 
 
 class EpisodeTurn(CamelModel):
@@ -1444,6 +1447,49 @@ class EpisodeUnsent(CamelModel):
     ts: Optional[str] = None
 
 
+class SpanAt(CamelModel):
+    """Where in a source (ROR-16). ``type: text``: code points into ``/episodes/{id}/text``'s ``text``. A later medium is a
+    new ``type`` (a recording's time range, a PDF's page) with its own fields; a client that does not know a type draws no
+    highlight and still opens the source."""
+
+    type: str = "text"
+    start: int
+    end: int
+
+
+class SourceSpan(CamelModel):
+    """The one shape of "this part of this source" (ROR-16, ``source_spans``). ``status`` is ``current`` | ``grown`` |
+    ``derived`` (each with ``at``) or ``stale`` | ``held`` | ``unlocated`` (never with ``at``: the citation opens the
+    source and draws nothing). ``kind`` is the evidence kind. ``current`` is the claim's: whether it is still believed."""
+
+    source: str
+    status: str = "current"
+    kind: str = "user"
+    hash: str = ""
+    at: Optional[SpanAt] = None
+    claim_id: Optional[str] = None
+    current: bool = True
+
+
+class SourceSpanGroup(CamelModel):
+    """One page's spans into one source."""
+
+    page: str
+    name: str = ""
+    type: str = ""
+    spans: list[SourceSpan] = []
+
+
+class SourceSpans(CamelModel):
+    """``GET /episodes/{id}/spans``: every span pointing into this source, grouped by page (ROR-16)."""
+
+    source: str
+    source_kind: str = "conversation"
+    hash: str = ""
+    length: int = 0
+    groups: list[SourceSpanGroup] = []
+
+
 class EpisodeFocus(CamelModel):
     """The span the Reader lands on (G118 slice 2). Asserted
     (``?start&end&hash``): ``kind`` is the speaker at ``start`` and
@@ -1458,6 +1504,8 @@ class EpisodeFocus(CamelModel):
     derived: bool = False
     stale: bool = False
     grown: bool = False
+    #: ROR-16: the one shape. An asked span the source cannot show (stale, held, a gap line) has no ``at``.
+    span: Optional[SourceSpan] = None
 
 
 class EpisodeAgent(CamelModel):
@@ -1503,6 +1551,7 @@ class EpisodeText(CamelModel):
 
     episode: str
     kind: str = "episode"
+    source_kind: str = "conversation"   # ROR-16: conversation | note | meeting | book | save | page | web | video | item
     text: str = ""
     length: int = 0
     hash: str = ""
@@ -1564,6 +1613,8 @@ class ProvenanceSpan(CamelModel):
     stale: bool = False
     grown: bool = False
     derived: bool = False
+    #: ROR-16 (G235): the words are held back; no offsets and no excerpt travel.
+    held: bool = False
 
 
 class PageCitationDetail(PageCitationRef):
@@ -1836,6 +1887,7 @@ class EpisodeCitation(CamelModel):
     event_day: Optional[str] = None
     # G162: on a `media` row only — how faithful the video's words are.
     fidelity: Optional[str] = None
+    span: Optional[SourceSpan] = None   # ROR-16: the one shape; `start`/`end` above stay for an older client
 
 
 class EpisodeCitationEntity(CamelModel):

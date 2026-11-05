@@ -127,7 +127,9 @@ def test_an_asserted_focus_reports_its_kind_and_freshness(memory):
     with TestClient(main.app) as client:
         ok = client.get(URL, params={"start": s, "end": e, "hash": evidence.body_hash(HOOK)}).json()["focus"]
         stale = client.get(URL, params={"start": s, "end": e, "hash": "deadbeefcafe"}).json()["focus"]
+    span = ok.pop("span")
     assert ok == {"start": s, "end": e, "kind": "assistant", "derived": False, "stale": False, "grown": False}
+    assert span["status"] == "current" and span["at"] == {"type": "text", "start": s, "end": e}  # ROR-16: the one shape
     assert stale["stale"] is True and stale["start"] is None and stale["end"] is None  # R-PB2
 
 

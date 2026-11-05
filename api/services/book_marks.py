@@ -252,8 +252,13 @@ def block(claims) -> dict | None:
             items[-1]["note"] = words_of(c)
             continue
         passage = c.predicate == HIGHLIGHTED
+        # Where the passage stands in the record (ROR-16): stored coordinates, judged by the Reader's own read when the
+        # person opens it. A card reads no episode to draw its marks.
+        at = next((e for e in c.evidence if e.is_span()), None)
         items.append({"claimId": c.id, "day": str(c.valid_from or "")[:10], "text": words_of(c) if passage else None,
-                      "note": None if passage else words_of(c)})
+                      "note": None if passage else words_of(c),
+                      "evidence": {"episode": at.episode, "start": at.start, "end": at.end, "hash": at.hash,
+                                   "kind": at.kind} if at is not None else None})
     return {"items": items[:MAX_SHOWN], "total": len(items)}
 
 
