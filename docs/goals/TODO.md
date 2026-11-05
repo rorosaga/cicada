@@ -20,7 +20,7 @@
   kind to a 10; later: play and show everything in the app, each item an entity with a markdown body (summary, why it matters,
   the transcription, the transcribing model as contributor). [`multimodal-scorecard.md`](multimodal-scorecard.md) scores YouTube,
   screen recording, video file, image, audio file and Voice Memos on what exists (today the added-file kinds open in the default
-  app, have no page and no lexical leg). Built: Voice Memos through the `media_files` store (`storage.md`). **Pick up here:**
+  app, have no page and no lexical leg). Built: Voice Memos through the `media_files` store (`storage.md`); ROR-117 feature 1, play and see it in the app (`MediaSheet`: a hit plays at its second, a photo is an added-file kind with a viewer, File → Added Files…; `app.md`). Run `--filter MediaViewerTests` too. **Pick up here:**
   run the Swift filter below; open the tile once against a scratch `HOME` holding a synthetic store; check the real
   `CloudRecordings.db` columns by hand (never in development). **Owner decisions, undecided:** may Sleep read memos and as
   whose words; a page per added file (rulings 56, 62 and the files-outside-the-bank rail); naming the transcriber as a
