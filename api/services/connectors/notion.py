@@ -44,7 +44,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from api.services import episode_ids, episode_staging, notion_export
-from api.services.connectors import base, tier2
+from api.services.connectors import base, notion_mcp, tier2
 
 CHANNEL_ID = "notion-api"
 LABEL = "Notion"
@@ -56,17 +56,20 @@ SOURCE_PREFIX = notion_export.SOURCE_PREFIX
 SCRUB_WRITER = notion_export.SCRUB_WRITER
 TOKEN_ENV = "CICADA_NOTION_TOKEN"
 FIELDS: tuple[dict, ...] = ({"name": TOKEN_ENV, "label": "Notion internal connection token", "secret": True},)
-SECRET_NAMES: tuple[str, ...] = (TOKEN_ENV,)
+#: The sign-in's names too (`notion_mcp`): Disconnect forgets all of them.
+SECRET_NAMES: tuple[str, ...] = notion_mcp.SECRET_NAMES
 API_BASE = "https://api.notion.com/v1/"
+#: A signed-in connection reads through Notion's hosted MCP server (`notion_mcp`); a token pasted before that keeps
+#: reading through the REST API above until it is disconnected.
+ALSO_ALLOWED = (notion_mcp.ORIGIN + "/",)
 NOTION_VERSION = "2026-03-11"
-TOKEN_HELP = "notion.so/profile/integrations"
+TOKEN_HELP = None   # no app surface asks for a token any more (owner 2026-11-05)
 #: One short line (owner 2026-11-03); the panel adds where the token comes from while it is not connected.
-READS = "Read-only: only the pages you share with it (Add connections on a page)."
+READS = "Read-only: the pages you can open in Notion."
 #: A walk through everything shared that found nothing: a first connection reads 0 pages until one is shared with it.
 NOTHING_SHARED_WORDS = ("Nothing is shared with the connection yet. In Notion, open a page's ••• menu, choose "
                         "Connections and add it; that page and the pages under it come in at the next sync.")
-REFUSED_WORDS = ("Notion refused the token. Check the connection in Notion's developer portal (it may have been "
-                 "deleted or lost access), then paste its token again in Settings → Sources → Notion.")
+REFUSED_WORDS = "Notion signed Cicada out. Connect Notion again in Sources → Notion."
 PERSONAL_TOKEN_WORDS = ("That token acts as you, with every page you can open. Cicada reads only what you choose to "
                         "share: create an internal connection with Read content only, share pages with it, and paste "
                         "its token instead. Nothing was saved.")
@@ -87,7 +90,18 @@ def _self():
     return sys.modules[__name__]
 
 
+app_available = notion_mcp.app_available
+authorize_url = notion_mcp.authorize_url
+exchange_code = notion_mcp.exchange_code
+how = notion_mcp.how
+needs_reconnect = notion_mcp.needs_reconnect
+revoke = notion_mcp.revoke
+prepare = notion_mcp.prepare
+
+
 def auth_headers(token: str) -> dict:
+    if notion_mcp.is_app_token():
+        return {"Authorization": f"Bearer {token}", "Accept": "application/json, text/event-stream"}
     return {"Authorization": f"Bearer {token}", "Notion-Version": NOTION_VERSION, "Accept": "application/json"}
 
 
@@ -240,6 +254,12 @@ def owner_of(me: dict) -> str | None:
 
 
 async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.Batch:
+    if notion_mcp.is_app_token():
+        return await notion_mcp.fetch(client, cursor, memory_path)
+    return await _fetch_rest(client, cursor, memory_path)
+
+
+async def _fetch_rest(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.Batch:
     db_titles: dict = dict(cursor.get("databases") or {})
     high_water = cursor.get("high_water")
     walk = cursor.get("walk")

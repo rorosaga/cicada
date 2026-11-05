@@ -275,7 +275,7 @@ def test_notion_pages_become_episodes_keyed_by_page_id(bank):
 
 def test_a_first_notion_sync_that_finds_nothing_shared_says_how_to_share_a_page(bank):
     """Review of #587: a first connection reads 0 pages until one is shared with it — said in words, never silence."""
-    assert "Add connections" in notion.READS
+    assert "Connections" in notion.NOTHING_SHARED_WORDS      # a token pasted before the sign-in existed
     _connect(notion)
     result = asyncio.run(notion.sync(bank, http_fn=FakeServer(_notion_routes(search=NO["trash"]))))
     assert result["status"] == "ok" and result["new"] == 0, result
