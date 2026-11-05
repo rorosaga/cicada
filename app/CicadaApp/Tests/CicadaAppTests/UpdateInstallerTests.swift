@@ -353,7 +353,8 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertTrue(script.contains("statusurl='http://127.0.0.1:8000/sleep/status'"))
         XCTAssertTrue(script.contains("tokenfile='/Users/x/.cicada/api_token'"))
         XCTAssertTrue(script.contains(#"printf 'header = "Authorization: Bearer %s"\n' "$(/bin/cat "$tokenfile")" | /usr/bin/curl -fsS --noproxy '*' --max-time 10 -K - "$statusurl""#))
-        XCTAssertTrue(script.contains("7|28|52|56) return 1 ;;"), "no answer at all: no cycle is running there")
+        XCTAssertTrue(script.contains("7) return 1 ;;"), "nothing listening: no cycle is running there")
+        XCTAssertFalse(script.contains("7|28|52|56)"), "a timeout or a dropped answer is busy, never idle")
         XCTAssertTrue(script.contains(#"*'"writing":true'*|*'"status":"running"'*|*'"inboxTidy":true'*) return 0 ;;"#))
         XCTAssertTrue(script.contains("deferred='/Users/x/.cicada/update-deferred.json'"))
     }
@@ -491,7 +492,7 @@ final class UpdateInstallerTests: XCTestCase {
         var size = socklen_t(MemoryLayout<sockaddr_in>.size)
         let ok = withUnsafeMutablePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(fd, $0, size) == 0 && listen(fd, 4) == 0 && getsockname(fd, $0, &size) == 0
+                Darwin.bind(fd, $0, size) == 0 && listen(fd, 4) == 0 && getsockname(fd, $0, &size) == 0
             }
         }
         XCTAssertTrue(ok)
