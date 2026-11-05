@@ -567,8 +567,8 @@ _SAID_RE = re.compile(rf"(?i)(?<!\w)(?:{_OWNED}|{_PHONE_TERM}|(?:{_NUMBER_WORD})
 #: (a) in anyone else's: the phone word must be somebody's.
 _OWNED_RE = re.compile(rf"(?i)(?<!\w){_OWNED}{_LINK}(?P<num>{_DIGITS})")
 _CHANGE_VERB = r"(?:chang\w+|updat\w+|switch\w+|replac\w+|cambi\w+|actualiz\w+|mudou|ge[aä]ndert)"
-#: (c) "changed her number to N", "su número cambió a N", "updated her phone from N to M".
-_CHANGE_RE = re.compile(rf"(?i)(?<!\w)(?:{_CHANGE_VERB}\s+(?:de\s+)?(?:{_OWNED}|{_PHONE_TERM})"
+#: (c) "changed her number to N", "changed Ana Diaz's number to N", "su número cambió a N", "updated her phone from N to M".
+_CHANGE_RE = re.compile(rf"(?i)(?<!\w)(?:{_CHANGE_VERB}\s+(?:[^\W\d_]+\s+){{0,2}}(?:{_OWNED}|{_PHONE_TERM})"
                         rf"|(?:{_OWNED}|{_PHONE_TERM})\s+(?:has\s+|just\s+)?{_CHANGE_VERB})"
                         rf"\s*(?:to|a|por|from|de|desde|von|:|=|,\s*(?:it['’]?s|now|ahora))?\s*(?P<num>{_DIGITS})")
 _CHANGE_NEXT_RE = re.compile(rf"(?i)\s*(?:to|a|por|→|->)\s*(?P<num>{_DIGITS})")

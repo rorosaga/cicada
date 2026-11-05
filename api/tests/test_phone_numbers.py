@@ -148,6 +148,7 @@ def test_a_written_form_with_a_plus_replaces_one_without(home):
     "add Ana 06 12 34 56 78",
     # (c) a change said with a phone word.
     "changed her number to 2025550143", "su número cambió a 2025550143", "updated Ana's phone to 2025550143",
+    "changed Ana Diaz's number to 2025550143", "cambió de teléfono a 2025550143",
 ])
 def test_these_are_numbers(home, line):
     out, n = phone_numbers.tokenise(line, "b")
@@ -179,6 +180,7 @@ def test_these_are_numbers(home, line):
     "vendí mi celular por 1500000", "el celular es de 1500000", "un celular a 1500000", "the phone at 1500000",
     "it's number 1500000", "that's number 1500000", "He's number 1500000", "Today's number is 1500000",
     "this year's number is 1500000", "the number 1500000", "Order's number is 123456789",
+    "changed the folio number to 202555015", "updated the order number to 202555015", "changed her order number to 202555015",
 ])
 def test_these_are_not(home, line):
     assert phone_numbers.tokenise(line, "b") == (line, 0)
@@ -1914,6 +1916,18 @@ def test_round_5_a_persons_line_still_files_a_models_digit_value(memory):
     relationships, values = [], [{"entity": "Ana Diaz", "attribute": "phone number", "value": "2025550999"}]
     kept = phone_numbers.take([], relationships, values, content, "ep_2026-08-20_001", bank=memory)
     assert kept == 1 and phone_numbers.known_id(memory, "2025550999") == values[0][phone_numbers.ITEM_KEY]
+
+
+def test_a_bare_line_stays_in_clear_and_only_a_models_reading_files_it(memory):
+    """The line is not rewritten, so no wrong match can cost words. If the model reading it calls it a phone, the claim is the
+    token, never digits in git; the conversation keeps what it says."""
+    content = "user: Ana 2025550999\nassistant: noted"
+    assert phone_numbers.tokenise("Ana 2025550999", memory) == ("Ana 2025550999", 0)
+    relationships, values = [], [{"entity": "Ana Diaz", "attribute": "phone number", "value": "2025550999"}]
+    assert phone_numbers.take([], relationships, values, content, "ep_2026-08-20_001", bank=memory) == 1
+    assert phone_numbers.has_token(values[0]["value"])
+    empty_rel, empty_val = [], []
+    assert phone_numbers.take([], empty_rel, empty_val, content, "ep_2026-08-20_001", bank=memory) == 0 and not empty_val
 
 
 def test_round_5_two_long_numbers_with_only_a_space_stay_and_a_short_pair_is_one_token(memory):
