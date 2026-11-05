@@ -2542,7 +2542,8 @@ async def _drain(
 
     try:
         now_waiting = await asyncio.to_thread(sleep_progress.unprocessed_ids, memory_path)
-        ds.arrived_since = len({i for i, _ in now_waiting.items()} - set(ids) - set(sleep_parked.ids(memory_path)))
+        parked_end = await asyncio.to_thread(sleep_parked.ids, memory_path)
+        ds.arrived_since = len({i for i, _ in now_waiting.items()} - set(ids) - set(parked_end))
     except Exception:  # a count for the sentence, never worth failing a run
         ds.arrived_since = None
     await asyncio.to_thread(_sample_owner, ds, memory_path)
