@@ -77,6 +77,7 @@ def extraction_schema(*, strict: bool) -> dict:
         "decay_class": decay,
         "website": website,
         "application": application,
+        "ask_person": website,   # optional text, nullable when strict
     }, ["name", "type"], strict=strict)
     relationship = _object(
         {"source": text, "target": text, "label": text, "evidence_quote": quote},

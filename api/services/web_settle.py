@@ -531,6 +531,8 @@ def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts, *,
         return "repo", "repo_state"
     if own_settings(fm):
         return None, "own_settings"   # the system answers it (Settings), never a search, never the person
+    if fm.get("why_asked"):
+        return None, "person_context"   # Stage 1 read it as the person's alone to answer (G239): nothing public to find
     stype = _subject_type(fm, page)
     if stype == "person" or str(fm.get("uncertainty_type") or "").lower().startswith("unknown relationship"):
         return None, "person"

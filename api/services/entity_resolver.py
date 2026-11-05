@@ -20,7 +20,6 @@ from api.services import (agent_engine, alias_policy, application_page, authorsh
                           project_birth, promotion, quiet_pages, role_people, section_provenance, text_fold,
                           wrong_aliases)
 from api.services.clarification_manager import (
-    CONFIDENCE_THRESHOLD,
     ClarificationManager,
 )
 from api.services.id_utils import sanitize_id
@@ -395,6 +394,10 @@ async def resolve(
         reverse=True,
     )
 
+    for name_lower, entity in best_by_name.items():
+        if len(episode_mentions.get(name_lower, ())) > 1:
+            entity[BATCH_EPISODES] = sorted(episode_mentions[name_lower])   # the judge reads them (`_with_said_together`)
+
     # What a name an alias brings to its page was connected to in this batch:
     # the judge's context for "same thing, or another thing with the same letters?".
     batch_aliases = {person_leads.handle_key(a) for e in all_entities for a in e.get("aliases") or [] if str(a).strip()}
@@ -404,31 +407,37 @@ async def resolve(
         if person_leads.handle_key(name_lower) in aliases or person_leads.handle_key(name_lower) in batch_aliases
     }
 
+    def ask(name: str, entity: dict, siblings: list[dict]) -> None:
+        """"Who or what is <name>?" (the page's own name when it has one, one open question a name), only when Stage 1 said only the person can answer and something rests on it
+        (`ask_person`, G239). A low confidence alone asks nothing: it is certainty about a name's attributes, and a name
+        below the bar already waits in the index with what was said about it. A placeholder person is asked for a name
+        once it has a page (`role_people`), never this, whose answer would become the page's prose, not its name."""
+        asker = next((e for e in (entity, *siblings) if str(e.get("ask_person") or "").strip()), None)
+        if asker is None or entity.get(role_people.UNNAMED_KEY):
+            return
+        pending_actions.append((
+            clarifier.create,
+            (),
+            {
+                "entity_name": name,
+                "source_episode": asker.get("source_episode", ""),
+                "uncertainty_type": _infer_uncertainty_type(asker),
+                "suggested_classification": f"{asker.get('type', 'concept')} — {_effective_summary(asker)[:120]}",
+                "suggested_confidence": float(asker.get("confidence", 0.3) or 0.3),
+                "source_context": _effective_summary(asker),
+                "source_episode_timestamp": asker.get("source_episode_timestamp"),
+                "why_asked": str(asker["ask_person"]).strip(),
+            },
+        ))
+
     def hold(name: str, entity: dict, siblings: list[dict], ambiguous_match: bool) -> None:
-        """A name below the bar: asked about when its confidence is low, and parked as one pending line."""
+        """A name below the bar: parked as one pending line, and asked about only on the model's word (:func:`ask`)."""
         held_names.add(name.strip().lower())
         confidence = float(entity.get("confidence", 0.3) or 0.3)
         if (entity.get("type") or "").lower() == "person" and not ambiguous_match:
             held_people.append((entity, siblings))
-        # A placeholder person is asked for a name once it has a page (`role_people`), never "Who or
-        # what is Partner?" — whose answer would become the page's prose, not its name.
-        if confidence < CONFIDENCE_THRESHOLD and not ambiguous_match and not entity.get(role_people.UNNAMED_KEY):
-            pending_actions.append((
-                clarifier.create,
-                (),
-                {
-                    "entity_name": name,
-                    "source_episode": entity.get("source_episode", ""),
-                    "uncertainty_type": _infer_uncertainty_type(entity),
-                    "suggested_classification": (
-                        f"{entity.get('type', 'concept')} — "
-                        f"{_effective_summary(entity)[:120]}"
-                    ),
-                    "suggested_confidence": confidence,
-                    "source_context": _effective_summary(entity),
-                    "source_episode_timestamp": entity.get("source_episode_timestamp"),
-                },
-            ))
+        if not ambiguous_match:
+            ask(name, entity, siblings)
 
         if indexer is not None:
             # One pending line per name: what every mention said rides on it
@@ -577,6 +586,8 @@ async def resolve(
                         )
                     else:
                         _merge_into_create(resolved_creates[candidate["id"]], incoming)
+                if candidate["id"] != owner_id:
+                    ask(_candidate_display_name(candidate), entity, siblings)   # a stake on a page already there (G239)
                 change = (resolved_updates if candidate["source"] == "existing" else resolved_creates)[candidate["id"]]
                 if _is_fallback(candidate):
                     _settle_fallback(change, project_birth.birth_of(entity, siblings))
@@ -635,7 +646,8 @@ async def resolve(
                                                        key=person_leads.handle_key(name))}
                     ambiguous_match = True
             if ambiguous_match and _unaskable_pair(settings.memory_path, name, entity, match["candidate"], owner_id,
-                                                   two_places=bool(match.get("heard_in"))):
+                                                   two_places=bool(match.get("heard_in")),
+                                                   judged=match.get("lead") is None):
                 # Owner 2026-11-04 (`pair_evidence`): a question that may not be asked — the owner's page with no words
                 # of theirs naming themselves so, or two people no conversation names together — holds nothing back:
                 # the name goes on by the usual rule.
@@ -662,12 +674,17 @@ async def resolve(
             # Ruling 42: one conversation is enough for a specific event, program or application the person (or an
             # agent, for them) acted on — measured on the conversation at Stage 1 (`application_page`).
             applied = application_page.birth_of(entity, siblings)
+            # A skill says how the person works, which one conversation cannot show: the bar Stage 4's skills meet
+            # (owner 2026-10-09, `skill_hold`) holds for a skill Stage 1 names too, so its one-conversation rungs do not
+            # apply and it waits in the index (G239). A note's lines are all the person's own, so before this a phrase
+            # typed `skill` got a page from one note the moment it was linked to any page.
+            one_conversation_rungs = _written_type(entity, siblings) != "skill" and (
+                linked_to_existing or any(promotion.substantive(e) for e in (entity, *siblings)))
             should_promote = (
                 # Ruling 43: counted by conversation — an agent's memory note is its session's, never one of its own.
                 len(promotion.conversation_keys(heard_now | heard_before, getattr(settings, "memory_path", None)))
                 >= settings.sleep_promotion_threshold
-                or linked_to_existing
-                or any(promotion.substantive(e) for e in (entity, *siblings))
+                or one_conversation_rungs
                 or applied is not None
             )
             card = None if ambiguous_match else _card_for(entity, siblings, waiting_cards, person_keys, episode_kind,
@@ -772,6 +789,7 @@ async def resolve(
                     (),
                     {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
                 ))
+                ask(name, entity, siblings)   # after that: a new page the model says only the person can explain (G239)
                 if pending_entry is not None:
                     # The line leaves the store only once Stage 5 has written the page that now carries
                     # what it held (`sleep_cycle`): a cancel before that keeps it, and the next run
@@ -2702,10 +2720,11 @@ def _batch_connections(
 
 
 def _unaskable_pair(memory_path, name: str, entity: dict, candidate: dict, owner_id: str | None, *,
-                    two_places: bool = False) -> str | None:
+                    two_places: bool = False, judged: bool = False) -> str | None:
     """Why "is this mention that person?" may not be asked (owner 2026-11-04, `pair_evidence`), or ``None``: the
     owner's page with no words of the person's naming themselves by this name, or two people that no conversation
-    names together. Only a person pair; engine-free."""
+    names together, or (``judged``, the judge's UNSURE rather than a lead) two whose names share nothing and that no
+    line names together. Only a person pair; engine-free."""
     if memory_path is None or not candidate or not candidate.get("id"):
         return None
     if not (_is_person(entity) or _candidate_type(candidate) == "person"):
@@ -2714,7 +2733,8 @@ def _unaskable_pair(memory_path, name: str, entity: dict, candidate: dict, owner
         Path(memory_path), a_id=sanitize_id(name), a_name=name, b_id=str(candidate["id"]),
         b_name=_candidate_display_name(candidate), person=True,
         source_episode=str(entity.get("source_episode") or ""), owner=owner_id or "", fresh=False,
-        two_places=two_places)
+        two_places=two_places,
+        judged=judged and not (candidate.get("alias") or candidate.get("shared_alias") or candidate.get("close")))
     return None if verdict.ask else verdict.reason
 
 
@@ -3074,7 +3094,7 @@ def _lead_note(new_name: str, candidate: dict) -> str:
     parts = []
     if candidate.get("together"):
         parts.append(f'B and "{candidate["together"]}" were named together in one conversation, and its extraction '
-                     "tied them by an alias.")
+                     "tied them by an alias. Two people named together are usually two people.")
     if candidate.get("shared_name"):
         parts.append(f'Several people in this memory are called "{candidate["shared_name"]}" (a name or a nickname '
                      "they share), so the name alone does not tell which one B is.")
@@ -3087,7 +3107,7 @@ def _lead_note(new_name: str, candidate: dict) -> str:
         return ""
     return ("Note: " + " ".join(parts) + " That is a lead, not proof: nicknames and similar names are shared by "
             "different people and things. Say SAME only when B's description fits A's; say DIFFERENT when they point "
-            "at something else; say UNSURE when there is too little to tell.\n")
+            "at something else, or when nothing but the name ties them.\n")
 
 
 def _with_lead(candidate: dict, new_entity: dict, lead: dict) -> dict:
@@ -3112,6 +3132,12 @@ def _never_cleared(judged: list[tuple[dict, str]]) -> list[tuple[dict, str]]:
 _DISAMBIG_SYSTEM = ("You judge whether entries in one person's knowledge graph name the same real-world thing, from "
                     "the entries you are given, and answer in JSON.")
 
+#: What an UNSURE costs (G239): it puts a question in front of the person, so little to go on is no reason to ask.
+_UNSURE_GUIDELINE = ("- UNSURE puts a question in front of the person. Say it only when something on the record gives a "
+                     "reason to think A and B are one thing under two names, and the descriptions are too weak to merge "
+                     "safely. Names that merely look alike, or little to go on, are no such reason: say DIFFERENT. They "
+                     "stay two entries, nothing is lost, and a later conversation can still join them.\n")
+
 _DISAMBIG_PROMPT = ("""You are deciding whether two entity entries from a personal knowledge graph refer to the same real-world thing.
 
 Both entries have overlapping names (for example a bare first name and that same first name with a surname) but the existing one was built from different conversations, so you need to look at the descriptions and decide whether merging them would be correct.
@@ -3134,8 +3160,7 @@ Guidelines:
 - Say RELATED when they are two different things and one stands to the other in one of these ways, and name it as "relation" (B is the new entry, A the existing one):
 """ + entity_relations.PROMPT_LINES + """- A part is never the same as its whole, a product never the same as its maker, an alternative never the same as the original, one version never the same as the line it belongs to: those are RELATED, never SAME and never UNSURE. Two people are never RELATED: say DIFFERENT or UNSURE.
 - Say DIFFERENT when the descriptions place the entities in clearly different contexts (different roles, different companies, different cities) or when one description is empty and the names don't obviously line up.
-- Say UNSURE only when A and B could really be one thing under two names but the descriptions are too weak to merge safely. If you are hesitating between SAME and DIFFERENT, return UNSURE.
-- If the type fields disagree (e.g. person vs project), they are not the same.
+""" + _UNSURE_GUIDELINE + """- If the type fields disagree (e.g. person vs project), they are not the same.
 
 Respond with JSON only ("relation" only with "related"):
 {{"decision": "same" | "different" | "unsure" | "related", "relation": "part_of" | "has_part" | "made_by" | "makes" | "alternative_to" | "version_of" | "has_version", "reason": "one short sentence"}}
@@ -3159,8 +3184,8 @@ Entity A's page already lists "{new_name}" among the other names it goes by (its
 # when they share no word, and is told that this is no lead either way.
 _UNSHARED_NOTE = ("Note: these names share no word. That is no lead either way: a person often names one endeavour "
                   "differently in different conversations (the whole, a part of it, a stage of it). Say SAME only "
-                  "when both descriptions clearly point at the same endeavour; say DIFFERENT when they describe two; "
-                  "say UNSURE when there is too little to tell.\n")
+                  "when both descriptions clearly point at the same endeavour; say DIFFERENT when they describe two "
+                  "or when there is too little to tell.\n")
 
 
 async def _llm_judge_same_entity(
@@ -3268,8 +3293,7 @@ Guidelines:
 - Say RELATED when they are two different things and one stands to the other in one of these ways, and name it as "relation" (B is the new entry, A the existing one):
 """ + entity_relations.PROMPT_LINES + """- A part is never the same as its whole, a product never the same as its maker, an alternative never the same as the original, one version never the same as the line it belongs to: those are RELATED, never SAME and never UNSURE. Two people are never RELATED: say DIFFERENT or UNSURE.
 - Say DIFFERENT when the descriptions place the entities in clearly different contexts (different roles, different companies, different cities) or when one description is empty and the names don't obviously line up.
-- Say UNSURE only when A and B could really be one thing under two names but the descriptions are too weak to merge safely. If you are hesitating between SAME and DIFFERENT, return UNSURE.
-- If the type fields disagree (e.g. person vs project), they are not the same.
+""" + _UNSURE_GUIDELINE + """- If the type fields disagree (e.g. person vs project), they are not the same.
 
 Respond with JSON only, one decision for every existing entry, in the order given ("relation" only with "related"; the new entry is B, each existing entry is A):
 {{"decisions": [{{"entry": 1, "decision": "same" | "different" | "unsure" | "related", "relation": "part_of" | "has_part" | "made_by" | "makes" | "alternative_to" | "version_of" | "has_version", "reason": "one short sentence"}}]}}
@@ -3558,6 +3582,48 @@ def _created_llm_candidates(new_entity: dict, created_by_id: dict[str, dict],
     return candidates + shared + token_sharing
 
 
+#: How much of the conversations the judge reads about a pair (G239).
+MAX_TOGETHER_CONVERSATIONS = 6
+MAX_TOGETHER_LINES = 2
+MAX_TOGETHER_CHARS = 300
+#: The conversations of this batch that named a mention, when several did (a mention keeps only its best one's id).
+BATCH_EPISODES = "_batch_episodes"
+
+
+#: Two people whose names share nothing (owner 2026-11-05): being named together says they are two.
+_UNTIED_PEOPLE_NOTE = ("Note: these two names share no word and no close spelling, and neither goes by the other. Naming "
+                       "two people in one conversation is evidence they are two. Say UNSURE only when what the "
+                       "conversation says suggests one person under two names; otherwise say DIFFERENT.\n")
+
+
+def _with_said_together(candidate: dict, new_entity: dict, settings: Settings) -> dict:
+    """``candidate`` with what B's own conversations say where they name both sides, for the judge (G239): "Lina has the
+    keys, not Lena" tells two people apart and "might be the same guy" tells a reason to ask, and neither reaches a
+    description. Whole lines, never a guess at what they mean; nothing when no line names both."""
+    episodes = new_entity.get(BATCH_EPISODES) or [new_entity.get("source_episode")]
+    memory_path = getattr(settings, "memory_path", None)
+    mention = pair_evidence.side_names(None, "", str(new_entity.get("name") or ""))
+    other = pair_evidence.side_names(Path(memory_path) if memory_path and candidate.get("source") == "existing" else None,
+                                     str(candidate.get("id") or ""), _candidate_display_name(candidate))
+    if memory_path is None or not mention or not other:
+        return candidate
+    lines: list[str] = []
+    for episode in episodes[:MAX_TOGETHER_CONVERSATIONS]:
+        try:
+            text = pair_evidence._text(Path(memory_path), str(episode or ""))
+        except Exception:  # noqa: BLE001 — the judge reads less, never fails on it
+            continue
+        lines += [line[:MAX_TOGETHER_CHARS] for line in pair_evidence.lines_naming_both(text, mention, other)]
+    if not lines:
+        return candidate
+    aliases = [str(a) for a in new_entity.get("aliases") or []]
+    untied = _candidate_type(candidate) == "person" and not pair_evidence.names_tied(
+        [*mention, *(n for a in aliases for n in pair_evidence.side_names(None, "", a))], other)
+    said = "; ".join(f'"{line}"' for line in lines[:MAX_TOGETHER_LINES])
+    return {**candidate, "note": f"{candidate.get('note') or ''}{_UNTIED_PEOPLE_NOTE if untied else ''}"
+                                 f"B's conversations name both: {said}\n"}
+
+
 async def _judge_candidates(
     new_entity: dict,
     candidates: list[dict],
@@ -3601,6 +3667,7 @@ async def _judge_candidates(
             break
 
         async def ask(chunk=chunk) -> list[str]:
+            chunk = [_with_said_together(c, new_entity, settings) for c in chunk]
             if len(chunk) == 1:
                 candidate = chunk[0]
                 kwargs = dict(

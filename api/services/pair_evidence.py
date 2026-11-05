@@ -17,6 +17,9 @@ measure of the pair. Three rules follow, one module, engine-free, read by every 
   ``source_episode``, so the card's excerpt is about the pair. For two people, no such conversation means no question:
   the mention goes on by the usual rule. A question the record itself raises with no conversation (two pages holding
   the same one-at-a-time relation, ``role_people``) carries its reason in words and is exempt.
+* **Naming two people together is evidence they are two** (owner 2026-11-05; :func:`names_tied`): the judge's UNSURE on
+  two whose names share nothing raises a question only when a line of the conversation names both, for the judge to
+  read as suggesting one person (it is told so, ``_UNTIED_PEOPLE_NOTE``). A lead with its own reason is not this rule.
 * **"Cicada's guess" is a guess about the pair** (:func:`guess`): never above :data:`MAX_GUESS` — a question exists
   because Cicada cannot tell, and at ruling 29's act threshold (``inbox_tend.JUDGE_THRESHOLD``, 0.9) Sleep would act on
   its own — and never above :data:`UNPAIRED_GUESS` when no conversation names both.
@@ -101,6 +104,19 @@ def names_in(names: list[str], text: str | None) -> bool:
         return False
     hay = f" {spelling(text)} "
     return any(f" {n} " in hay for n in names if n)
+
+
+def lines_naming_both(text: str | None, a_names: list[str], b_names: list[str]) -> list[str]:
+    """The lines of ``text`` naming a spelling of each side, whitespace collapsed."""
+    return [" ".join(line.split()) for line in (text or "").splitlines()
+            if names_in(a_names, line) and names_in(b_names, line)]
+
+
+def names_tied(a_names: list[str], b_names: list[str]) -> bool:
+    """Do the two sides' spellings (folded, aliases included) tie them: one spelling, a shared word, a close spelling?"""
+    from api.services.entity_resolver import _share_content_token, close_spelling
+
+    return any(a == b or _share_content_token(a, b) or close_spelling(a, b) for a in a_names for b in b_names)
 
 
 def _text(memory_path: Path, episode_id: str) -> str:
@@ -292,7 +308,7 @@ def guess(base: float | None, paired: bool) -> float:
 
 @dataclass(frozen=True)
 class Verdict:
-    """``ask`` — may the question be raised; ``reason`` — an enum when not (``owner_unsaid``, ``no_pair_evidence``);
+    """``ask`` — may the question be raised; ``reason`` — an enum when not (``owner_unsaid``, ``no_pair_evidence``, ``names_unrelated``);
     ``episode`` — the conversation naming both, when one does; ``guess`` — Cicada's guess for the card."""
     ask: bool
     reason: str = ""
@@ -312,7 +328,7 @@ def _is_person_page(memory_path: Path | None, entity_id: str) -> bool:
 
 def judge(memory_path: Path | None, *, a_id: str, a_name: str, b_id: str, b_name: str = "", person: bool,
           source_episode: str = "", base: float | None = None, owner: str | None = None,
-          fresh: bool = True, two_places: bool = False) -> Verdict:
+          fresh: bool = True, two_places: bool = False, judged: bool = False) -> Verdict:
     """Whether "Is A the same as B?" may be asked, on what conversation, with what guess. ``person``: the question is
     about people (either side a person page, or the mention classified as one). ``source_episode`` empty: the record
     raised it with no conversation (``role_people``'s one-at-a-time relation) — exempt from the evidence rule, never
@@ -320,7 +336,8 @@ def judge(memory_path: Path | None, *, a_id: str, a_name: str, b_id: str, b_name
     for a build — the conversations that matter most (the question's own, the pages' own) are read directly.
     ``two_places``: a first name heard in one place against a full name heard in another (owner 2026-10-28, one person
     across sources) — its evidence is the two conversations, each naming its own side, said in the question's words
-    (``heard_in``); exempt from the one-conversation rule, never from the owner rule."""
+    (``heard_in``); exempt from the one-conversation rule, never from the owner rule. ``judged``: the judge's UNSURE, no
+    lead of its own — two whose names share nothing need a line naming both (:func:`names_tied`)."""
     if memory_path is not None and not fresh:
         from api.services import search_index
 
@@ -344,4 +361,7 @@ def judge(memory_path: Path | None, *, a_id: str, a_name: str, b_id: str, b_name
     episode = pair_episode(memory_path, a_names, b_names, first=source_episode, also=also, fresh=fresh)
     if person and episode is None and str(source_episode or "").strip() and not two_places:
         return Verdict(False, "no_pair_evidence")
+    if (judged and person and episode is not None and not two_places and not names_tied(a_names, b_names)
+            and not lines_naming_both(_text(Path(memory_path), episode), a_names, b_names)):
+        return Verdict(False, "names_unrelated")
     return Verdict(True, "", episode, guess(base, episode is not None or not str(source_episode or "").strip()))
