@@ -394,6 +394,10 @@ async def resolve(
         reverse=True,
     )
 
+    for name_lower, entity in best_by_name.items():
+        if len(episode_mentions.get(name_lower, ())) > 1:
+            entity[HEARD_IN] = sorted(episode_mentions[name_lower])   # what the judge reads (`_with_said_together`)
+
     # What a name an alias brings to its page was connected to in this batch:
     # the judge's context for "same thing, or another thing with the same letters?".
     batch_aliases = {person_leads.handle_key(a) for e in all_entities for a in e.get("aliases") or [] if str(a).strip()}
@@ -3573,34 +3577,37 @@ def _created_llm_candidates(new_entity: dict, created_by_id: dict[str, dict],
     return candidates + shared + token_sharing
 
 
-#: How much of a conversation the judge reads about a pair (G239).
+#: How much of the conversations the judge reads about a pair (G239).
+MAX_TOGETHER_CONVERSATIONS = 6
 MAX_TOGETHER_LINES = 2
 MAX_TOGETHER_CHARS = 300
+#: The conversations of this batch that named a mention, when several did (a mention keeps only its best one's id).
+HEARD_IN = "_heard_in"
 
 
 def _with_said_together(candidate: dict, new_entity: dict, settings: Settings) -> dict:
-    """``candidate`` with what B's own conversation says where it names both sides, for the judge (G239): "Lina has the
+    """``candidate`` with what B's own conversations say where they name both sides, for the judge (G239): "Lina has the
     keys, not Lena" tells two people apart and "might be the same guy" tells a reason to ask, and neither reaches a
     description. Whole lines, never a guess at what they mean; nothing when no line names both."""
-    episode = str(new_entity.get("source_episode") or "")
+    episodes = new_entity.get(HEARD_IN) or [new_entity.get("source_episode")]
     memory_path = getattr(settings, "memory_path", None)
-    if not episode or memory_path is None:
-        return candidate
-    try:
-        text = pair_evidence._text(Path(memory_path), episode)
-    except Exception:  # noqa: BLE001 — the judge reads less, never fails on it
-        return candidate
     mention = pair_evidence.side_names(None, "", str(new_entity.get("name") or ""))
-    other = pair_evidence.side_names(Path(memory_path) if candidate.get("source") == "existing" else None,
+    other = pair_evidence.side_names(Path(memory_path) if memory_path and candidate.get("source") == "existing" else None,
                                      str(candidate.get("id") or ""), _candidate_display_name(candidate))
-    if not mention or not other:
+    if memory_path is None or not mention or not other:
         return candidate
-    lines = [" ".join(line.split())[:MAX_TOGETHER_CHARS] for line in text.splitlines()
-             if pair_evidence.names_in(mention, line) and pair_evidence.names_in(other, line)][:MAX_TOGETHER_LINES]
+    lines: list[str] = []
+    for episode in episodes[:MAX_TOGETHER_CONVERSATIONS]:
+        try:
+            text = pair_evidence._text(Path(memory_path), str(episode or ""))
+        except Exception:  # noqa: BLE001 — the judge reads less, never fails on it
+            continue
+        lines += [" ".join(line.split())[:MAX_TOGETHER_CHARS] for line in text.splitlines()
+                  if pair_evidence.names_in(mention, line) and pair_evidence.names_in(other, line)]
     if not lines:
         return candidate
-    said = "; ".join(f'"{line}"' for line in lines)
-    return {**candidate, "note": f"{candidate.get('note') or ''}B's conversation names both: {said}\n"}
+    said = "; ".join(f'"{line}"' for line in lines[:MAX_TOGETHER_LINES])
+    return {**candidate, "note": f"{candidate.get('note') or ''}B's conversations name both: {said}\n"}
 
 
 async def _judge_candidates(

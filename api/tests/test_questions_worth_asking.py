@@ -142,9 +142,18 @@ def test_the_judge_reads_the_lines_that_name_both(tmp_path):
     _episode(memory, "ep_2026-01-01_001", "Groceries\nAna has the spare keys, not Anna.\nCall the plumber")
     candidate = {"source": "existing", "id": "anna", "data": _page("anna", "Anna", "person")}
     out = entity_resolver._with_said_together(candidate, _name("Ana"), _settings(memory))
-    assert 'names both: "Ana has the spare keys, not Anna."' in out["note"]
+    assert 'name both: "Ana has the spare keys, not Anna."' in out["note"]
     assert "plumber" not in out["note"], "only the lines naming both"
     assert "note" not in candidate, "the candidate itself is left as it was"
+
+
+def test_the_judge_reads_every_conversation_of_the_batch_that_named_the_mention(tmp_path):
+    memory = _bank(tmp_path)
+    _episode(memory, "ep_2026-01-01_001", "Ana has the spare keys.")
+    _episode(memory, "ep_2026-01-02_001", "Ana might be Anna, I can't tell.")
+    candidate = {"source": "existing", "id": "anna", "data": _page("anna", "Anna", "person")}
+    mention = _name("Ana", **{entity_resolver.HEARD_IN: ["ep_2026-01-01_001", "ep_2026-01-02_001"]})
+    assert "Ana might be Anna" in entity_resolver._with_said_together(candidate, mention, _settings(memory))["note"]
 
 
 def test_no_line_naming_both_leaves_the_judge_as_it_was(tmp_path):
