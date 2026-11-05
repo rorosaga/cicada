@@ -554,6 +554,19 @@ def meeting_note(episode: dict) -> str | None:
             "words. What someone says about the person is that speaker's statement, not something the person said.]\n\n")
 
 
+#: ROR-15 (owner 2026-11-05: a pinned note "normally has a reason and can have some influence for consolidation"): one
+#: line, told as a fact about the note. The model judges what it means; there is no score and no rule, and a pin alone
+#: makes no page and no claim.
+PINNED_NOTE = "[Source: the person pinned this note in their Notes app.]\n\n"
+
+
+def pinned_note(episode: dict) -> str | None:
+    """``PINNED_NOTE`` for an Apple Note the person pinned (`notes_sync`), else ``None``."""
+    if episode.get("origin") == "apple-notes" and episode.get("pinned") is True:
+        return PINNED_NOTE
+    return None
+
+
 def relayed_note(episode: dict) -> str | None:
     """Ruling 58: the note for a chat that went on after its import. ``None`` for every other episode."""
     relay = episode.get("relay") if isinstance(episode.get("relay"), dict) else {}
@@ -1049,6 +1062,8 @@ async def extract(
                        or book_marks.note(episode, themes=book_themes() if book else (),
                                           shown=(book_plan[1], book_plan[2]) if book_plan else None))
         # Ruling 45 addendum: the provider's project grouping, or the relaying app's word on it, as context.
+        if (pinned := pinned_note(episode)) is not None:
+            source_note = (source_note or "") + pinned
         if (went_on := relayed_note(episode)) is not None:
             source_note = (source_note or "") + went_on
         if (in_project := project_note(episode)) is not None:

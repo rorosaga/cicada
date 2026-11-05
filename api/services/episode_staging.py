@@ -862,6 +862,28 @@ def _restamp(path: Path, draft: EpisodeDraft) -> None:
     markdown_parser.write(path, fm, parsed.body)
 
 
+#: ROR-15 (owner 2026-11-05): an Apple Note the person pinned in Notes. Sleep's Stage 1 says so in the note's source
+#: note and the model judges what it means; it is no signal of its own and no part of the note's words.
+PINNED_KEY = "pinned"
+
+
+@_under_episode_lock
+def set_pinned(path: Path, pinned: bool) -> bool:
+    """A pin changed in Notes: the one frontmatter key (`PINNED_KEY`), set or removed. The body, ``content_hash``,
+    ``processed``, ``revised`` and every span are untouched, because the words did not move — so a pin never re-queues
+    a note Sleep read, and a note Sleep has not read yet is read the same as before. Returns whether the file changed."""
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    if bool(fm.get(PINNED_KEY)) == pinned:
+        return False
+    if pinned:
+        fm[PINNED_KEY] = True
+    else:
+        fm.pop(PINNED_KEY, None)
+    markdown_parser.write(path, fm, parsed.body)
+    return True
+
+
 @_under_episode_lock
 def _set_extras(path: Path, extras: dict) -> None:
     """Same words, new extras (a reaction, an unsend, a reply's target): frontmatter only — the body, its hash, every

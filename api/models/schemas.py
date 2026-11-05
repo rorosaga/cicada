@@ -5169,6 +5169,9 @@ class NotesSyncRequest(CamelModel):
     # G234: locking gives a note a new id, so what was kept under its old id is found by these: hashes of each locked
     # note's name (`notes_sync.locked_key`), made in the app. Compared, never stored.
     locked_note_keys: Optional[list[str]] = Field(default=None, max_length=100_000)
+    # ROR-15: the ids (among those in the dump) of the notes the person pinned in Notes, read by the app from Notes' own
+    # store only when it already holds Full Disk Access. None = the app could not tell: every pin stays as it was.
+    pinned_note_ids: Optional[list[str]] = Field(default=None, max_length=100_000)
 
 
 class NotesSyncResponse(CamelModel):
