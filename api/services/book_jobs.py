@@ -37,6 +37,10 @@ async def apply_admitted(memory_path: Path, *, author: str, trigger: str) -> dic
         if out["paths"]:
             await folder_source.commit_paths_for(memory_path, out["paths"], subject="Books", trigger=trigger,
                                                  author=author, channel=CHANNEL)
+        if out["cicada_paths"]:
+            # Cicada's own rewrites (placeholders, lookups, cover stamps) are never the person's scan or sync.
+            await folder_source.commit_paths_for(memory_path, out["cicada_paths"], subject="Books", trigger="books/enrich",
+                                                 author="cicada", channel=CHANNEL)
         return out
 
     try:

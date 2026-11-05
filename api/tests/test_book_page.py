@@ -203,3 +203,41 @@ def test_a_scan_is_no_item_of_its_own_in_the_list(client):
     _run(memory)
     [row] = c.get("/sources/channels/book-scan/items").json()["items"]
     assert row["kind"] == "page" and row["book"] is True and row["title"] == "The Lantern Orchard"
+
+
+def test_machine_tags_are_not_subjects_and_a_few_remain():
+    tags = ["nyt:fiction=2020", "series_lamps", "Orchards", "Lamps", "Night", "Boats", "Hours", "Late"]
+    assert book_lookup.readable_subjects(tags) == ["Orchards", "Lamps", "Night", "Boats"]
+    hit = _look(_fetch([], work={"subjects": tags}))
+    assert hit["subjects"] == ["Orchards", "Lamps", "Night", "Boats"]
+
+
+def _git(memory, *args):
+    import subprocess
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@e", *args], cwd=memory, check=True,
+                          capture_output=True, text=True).stdout
+
+
+def test_a_scan_with_enrichment_pending_commits_twice_the_scan_alone_as_the_person(client, monkeypatch):
+    from test_books import OTHER, _fake_fetch
+    from api.services import bank_index
+    c, memory, eid, page = _scan_with(client, BARE, {}, None, monkeypatch)
+    path = memory / "entities" / f"{eid}.md"
+    markdown_parser.write(path, page.frontmatter, "## Summary\nThe Lantern Orchard by Ada Example — a book.")
+    bank_index.invalidate(memory)
+    _git(memory, "init", "-q")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-q", "-m", "base")
+    monkeypatch.setattr(book_lookup, "default_fetch", _fake_fetch([]))
+    assert c.post("/capture/isbn", json={"isbn": OTHER, "status": "want"}).status_code == 200
+    _git(memory, "add", "-A")                       # the staged scan episode is not this job's to commit
+    _git(memory, "commit", "-q", "-m", "episode")
+    out = _run(memory)
+    log = _git(memory, "log", "-3", "--format=%H%x1f%B%x1e").split("\x1e")
+    commits = [e.strip().split("\x1f") for e in log if e.strip()]
+    changed = [set(_git(memory, "show", "--name-only", "--format=", sha).split()) for sha, _ in commits[:2]]
+    apply = out["apply"]
+    assert apply["cicada_paths"] == [f"entities/{eid}.md"] and apply["paths"]
+    assert changed[0] == {f"entities/{eid}.md"}                              # Cicada's rewrite, alone
+    assert f"entities/{eid}.md" not in changed[1] and changed[1]            # the scan's own pages
+    assert "Cicada-Author: cicada" in commits[0][1] and "Cicada-Author: user" in commits[1][1]

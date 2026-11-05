@@ -372,11 +372,13 @@ _PLACEHOLDER_BODY = re.compile(r"##\s+Summary\s*\n[^\n]* \u2014 a book\.")
 
 def facts_from_hit(hit: dict, isbns, *, door: str | None = None) -> BookFacts:
     """A cached lookup answer as facts (every field it carries, none invented)."""
+    from api.services import book_lookup
+
     return BookFacts(title=hit.get("title"), subtitle=hit.get("subtitle"), authors=list(hit.get("authors") or []),
                      isbns=_merge_list(list(isbns or []), [i for i in (isbn13(x) for x in hit.get("isbns") or []) if i]),
                      work_id=hit.get("work_id"), published=hit.get("published"), pages=hit.get("pages"),
                      cover_id=hit.get("cover_id"), publisher=hit.get("publisher"),
-                     subjects=list(hit.get("subjects") or []), description=hit.get("description"),
+                     subjects=book_lookup.readable_subjects(hit.get("subjects")), description=hit.get("description"),
                      description_source=hit.get("description_source"), description_url=hit.get("description_url"),
                      title_from=str(hit.get("source") or "lookup"), door=door)
 
@@ -759,6 +761,8 @@ def book_card(memory_path: Path, entity_id: str) -> dict | None:
     """What the book's page leads with (the app draws the cover from the page's own picture): subtitle, authors, one line
     of year, pages and publisher, a few subjects, where the description came from and when it was saved, and the ways
     the book came in — each a label, a scan with the day the person scanned it. None for a page that is no book."""
+    from api.services import book_lookup
+
     entry = bank_index.file(Path(memory_path), "entities", f"{entity_id}.md")
     fm = (entry.frontmatter or {}) if entry is not None else {}
     if not is_book(fm) or not isinstance(fm.get("book"), dict):
@@ -778,7 +782,7 @@ def book_card(memory_path: Path, entity_id: str) -> dict | None:
     source = str(book.get("description_source") or "")
     return {"subtitle": book.get("subtitle") or None, "authors": [str(a) for a in book.get("authors") or []][:3],
             "published": str(book.get("published") or "") or None, "pages": book.get("pages") or None,
-            "publisher": book.get("publisher") or None, "subjects": [str(x) for x in book.get("subjects") or []][:5],
+            "publisher": book.get("publisher") or None, "subjects": book_lookup.readable_subjects(book.get("subjects")),
             "descriptionSource": SOURCE_NAMES.get(source) if book.get("description_at") else None,
             "descriptionAt": book.get("description_at") or None, "descriptionUrl": book.get("description_url") or None,
             "ways": ways}
@@ -1067,12 +1071,14 @@ def _apply_marks(memory_path: Path, entity_id: str, episode_id: str, ep_path: Pa
 
 def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = MAX_APPLY) -> dict:
     """Make every pending book episode's page, status, rating and marks (``book_marks``), with no model and no network.
-    Returns ``{applied, waiting, pages_created, paths}`` (memory-relative, for the caller's own commit). The caller holds
+    Returns ``{applied, waiting, pages_created, paths, cicada_paths}`` (memory-relative): ``paths`` for the caller's own
+    commit, ``cicada_paths`` (enrichment from cached lookups, cover stamps) for a commit of their own under ``cicada``. The caller holds
     the bank's write admission (a route) or Sleep's window (the tail); this holds the page lock."""
     memory_path = Path(memory_path)
     today_s = (today or date.today()).isoformat()
-    out = {"applied": 0, "waiting": 0, "pages_created": 0, "paths": []}
+    out = {"applied": 0, "waiting": 0, "pages_created": 0, "paths": [], "cicada_paths": []}
     todo = pending(memory_path, limit=limit)
+    own: list[str] = []  # Cicada's own rewrites (enrichment, cover stamps): never the person's act, committed apart
     paths: list[str] = []
     with page_lock.page_lock(memory_path):
         index = BookIndex(memory_path)
@@ -1137,14 +1143,14 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
 
                 logger.warning(f"book episode not applied: {tool_contract.where(exc)}")
         try:
-            paths += _enrich_from_lookups(memory_path, index, today_s)
+            own += _enrich_from_lookups(memory_path, index, today_s)
         except Exception as exc:  # noqa: BLE001
             from api.services import tool_contract
 
             logger.warning(f"book placeholders not upgraded: {tool_contract.where(exc)}")
         try:
             bank_index.invalidate(memory_path)
-            paths += _stamp_local_covers(memory_path)
+            own += _stamp_local_covers(memory_path)
         except Exception as exc:  # noqa: BLE001
             from api.services import tool_contract
 
@@ -1160,6 +1166,8 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
 
         logger.warning(f"book statuses said in a conversation not applied: {tool_contract.where(exc)}")
     out["paths"] = list(dict.fromkeys(paths))
+    # A page the person's own record also touched in this run rides that commit; the rest is Cicada's alone.
+    out["cicada_paths"] = [p for p in dict.fromkeys(own) if p not in out["paths"]]
     return out
 
 

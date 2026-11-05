@@ -54,7 +54,7 @@ TIMEOUT_S = 4.0
 MAX_BYTES = 512_000
 SPACING_S = 1.0
 MAX_AUTHORS = 3
-MAX_SUBJECTS = 5
+MAX_SUBJECTS = 4
 #: A blurb, not the publisher's page: about a short paragraph, so the page's first screen stays the cover and the facts.
 DESCRIPTION_CAP = 700
 #: The cache entry's shape version. An entry made before this one (no description, publisher or subjects) is asked
@@ -289,14 +289,19 @@ def description_text(value) -> str:
 
 
 def _subjects(values) -> list[str]:
+    """A few readable subjects; a machine tag (``nyt:fiction=2020``, ``series_x``, anything with an underscore, colon or
+    equals sign) is dropped, here, so it is never cached nor stored."""
     out: list[str] = []
     for v in values or []:
         name = _clean(v.get("name") if isinstance(v, dict) else v)
-        if name and 1 < len(name) <= 60 and name.casefold() not in {o.casefold() for o in out}:
+        if name and 1 < len(name) <= 60 and not any(c in name for c in "_:=") and name.casefold() not in {o.casefold() for o in out}:
             out.append(name)
         if len(out) >= MAX_SUBJECTS:
             break
     return out
+
+
+readable_subjects = _subjects   # for a cached answer or a page that predates the filter
 
 
 def _author_keys(refs) -> list[str]:
