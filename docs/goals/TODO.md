@@ -12,7 +12,7 @@
 
 ## Current state and evidence
 
-- **2026-11-05 — Sleep asks only what the person alone can answer (G239; PR #NOISYPR, branch `noisy-questions`).** A run read 53
+- **2026-11-05 — Sleep asks only what the person alone can answer (G239; PR #623, branch `noisy-questions`).** A run read 53
   conversations and raised 25 questions; the causes were proxies standing in for the model's judgement. Stage 1 now says what
   rests on a question, the judge is told what UNSURE costs and reads the lines naming both, Stage 4 asks for how the person
   works. Two real Sleeps a side on invented notes: questions 7, 6 to 4, 3, noise 5, 4 to 1, 1, phrase `skill` pages 3, 2 to 0, 0,
