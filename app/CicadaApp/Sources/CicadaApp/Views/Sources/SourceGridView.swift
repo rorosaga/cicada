@@ -27,7 +27,7 @@ struct SourceAppTile: View {
                 SourceLogoTile(origin: row.entry.origin)
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     Text(row.entry.title)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
                     if let line = SourceGrid.line(row, now: now) {

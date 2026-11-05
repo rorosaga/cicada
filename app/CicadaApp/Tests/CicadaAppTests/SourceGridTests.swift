@@ -76,7 +76,7 @@ final class SourceGridTests: XCTestCase {
 
     func testAReaderThatCannotReadWaitsOnThePersonAndTheTileAndThePageAgree() {
         let blocked = SourceCatalog.browserPrefix + "chrome"
-        let bookmarks = chrome.bookmarksChannel
+        let bookmarks = chrome.bookmarksChannel!
         let all = rows(channels: [channel(bookmarks)], localReaders: [bookmarks: true],
                        watch: { $0 == bookmarks ? .blocked : nil })
         let row = all.first { $0.id == blocked }!
@@ -225,7 +225,7 @@ final class SourceGridTests: XCTestCase {
         // `gridSearch` reaches the grid and is reset on a hand-off; it never filters `catalog`, which the detail column,
         // the side list and every hand-off (`openPendingSource`, `openPendingEntry`, `consumeAddSource`) resolve in.
         XCTAssertFalse(page.contains("SourceGrid.results"), "only the grid filters")
-        XCTAssertEqual(page.components(separatedBy: "gridSearch = SourceGridSearch()").count - 1, 4,
+        XCTAssertEqual(page.components(separatedBy: " gridSearch = SourceGridSearch()").count - 2, 4,
                        "the sidebar's re-click and the three hand-offs each clear the words")
     }
 
@@ -255,10 +255,12 @@ final class SourceGridTests: XCTestCase {
     @MainActor func testTheGridDrawsInBothLooksAtEveryWidth() throws {
         let held = CicadaTheme.mode
         defer { CicadaTheme.mode = held }
+        let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
         let now = Date()
         let all = rows(channels: [channel("reddit"), channel("github", error: "401 token expired")],
                        savedLists: ["x"], suggested: [WhatsAppWatcher.channel])
-        for mode in [CicadaTheme.Mode.light, .dark] {
+        for mode in [AppColorScheme.light, .dark] {
             CicadaTheme.mode = mode
             for width in [320.0, 700.0, 1200.0] {
                 let view = VStack(alignment: .leading, spacing: 0) {
@@ -267,6 +269,7 @@ final class SourceGridTests: XCTestCase {
                 }
                 .frame(width: width)
                 .background(CicadaTheme.bgBase)
+                .environment(store)
                 let renderer = ImageRenderer(content: view)
                 XCTAssertNotNil(renderer.nsImage, "\(mode) at \(width)")
             }
