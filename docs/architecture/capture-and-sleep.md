@@ -1599,10 +1599,10 @@ its `content_hash`, so the queue is derived from the bank — a move or a restor
   episode (`origin: book-scan`, `processed_by: parser`, nothing in it for a model) holds `**Status:** <words>` and
   `**ISBN:**` lines: the person's act, so its spans are `user`. The lookup and the page follow in the background at the
   home (`book_jobs.schedule`). The scan's episode is committed with its page, like a note's is not.
-  **What a scan became** (ROR-115): `GET /sources/books/scans/{episodeId}` answers `{state: waiting}` until the number
+  **What a scan became** (ROR-116): `GET /sources/books/scans/{episodeId}` answers `{state: waiting}` until the number
   resolves, then `{state: added, entityId, name, existing}` — `existing` when the page was there before this scan
   (`books.scan_result`; the Mac's Add reads it a few times, the phone ignores it).
-- **One page per work, whichever door** (ROR-115, owner 2026-11-05: "it has to have some overlap with potential books from
+- **One page per work, whichever door** (ROR-116, owner 2026-11-05: "it has to have some overlap with potential books from
   ibooks"; amends review of #600 B1). An identifier first (`BookIndex.find`: any ISBN, the work id, the source's own id).
   Only when none matches, **exactly the same words** (`BookIndex.find_words`): the title (or title + subtitle, or a
   source's own spelling kept as an alias) and the author names as a set, each with case, accents and punctuation set

@@ -1,4 +1,4 @@
-"""ROR-115, G233: one book is one page whichever door it came in by — Apple Books (no ISBN), a scan, Goodreads, either order.
+"""ROR-116, G233: one book is one page whichever door it came in by — Apple Books (no ISBN), a scan, Goodreads, either order.
 
 Synthetic placeholders only: invented ISBNs with valid check digits, titles and authors that are no real book's."""
 from __future__ import annotations

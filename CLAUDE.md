@@ -177,7 +177,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   page or they give a reason, never for a retrieval hit; one already read keeps what it made (`capture-and-sleep.md`).
 - **Books (G39, G233):** a scanned ISBN (`/capture/isbn`, the phone's contract) resolves at the home behind the connector
   gate, cached outside every bank; Apple Books is read by the app after the person turns it on; Goodreads only by its
-  export; one `media` page per work across doors (identical title and authors join, a doubt asks; ruling 66), status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
+  export; one `media` page per work across doors (identical title and authors join, a doubt asks; ruling 67), status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
   **Ruling 64:** each highlight and note is a claim word for word with no model (`book_marks`, gated like the person's own
   words); Sleep reads a marked book in one bounded chunk for what its marks share; an unmarked entry is never read.
   **Ruling 61:** the person's own located words in a conversation change a status too, judged by Stage 1 in context, never

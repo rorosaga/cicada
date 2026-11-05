@@ -3577,7 +3577,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     while waiting costs a late update. The record is the drain's own progress; CPU was rejected because a drain waiting
     on a model looks idle. The person's click may go past Sleep on one line naming the cost; an automatic install never
     does. **Revisit** if a batch is measured past two hours, or a hung backend is seen holding an update.
-66. **One book is one page whichever door it came in by; the Mac adds books by number or camera (owner, 2026-11-05; G233, ROR-115).**
+67. **One book is one page whichever door it came in by; the Mac adds books by number or camera (owner, 2026-11-05; G233, ROR-116).**
    The owner: "yes ofc i want books on the mac and it has to have some overlap with potential books from ibooks." (a) Amends
    review-of-#600 B1: after an identifier (ISBN, work id, a source's id) fails, **exactly the same** title (or title +
    subtitle, or a source's own spelling) and author set, with case, accents and punctuation set aside, joins a record to the
