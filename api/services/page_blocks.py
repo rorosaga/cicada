@@ -31,7 +31,7 @@ from pathlib import Path
 from api.services import bank_index, book_marks, design_refs, page_citations
 
 #: The wire's version; it rides the card's ETag, so a new shape revalidates every held card.
-SHAPE = "blocks-4"
+SHAPE = "blocks-5"
 #: Every block, in the order a page reads them — the redesign proposal's page order (2026-10-28 §0/§1): why it matters,
 #: In short (part B, 2026-10-29: Sleep's summary of a long, busy page, ``in_short``), where to check, the type block
 #: (a map from stored coordinates, a look), what is ongoing, what the person marked in a book (ruling 64,

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -22,9 +23,6 @@ struct ReaderTarget: Hashable, Identifiable {
         /// Let the server find the entity's name (`?focus=`): the legacy-claim
         /// path, always derived (R-PB9).
         case mention(entityId: String)
-        /// A `reasoning` entry: the contributor inferred it here, and no
-        /// sentence says so. Opens at the top under that banner.
-        case inferred
         /// A best quote whose conversation changed since (R-PB2: a stale span
         /// travels without offsets). Opens at the top under the stale banner.
         case stale
@@ -55,19 +53,20 @@ struct ReaderTarget: Hashable, Identifiable {
 
     var id: String { "\(episode)|\(focus)|\(subjectId ?? "")" }
 
-    /// What `/episodes/{id}/text` is asked for. `.inferred`/`.stale` ask for
+    /// What `/episodes/{id}/text` is asked for. `.stale` asks for
     /// nothing: there is no offset to judge.
     var query: ReaderFocusQuery {
         switch focus {
         case let .span(start, end, hash, _): .span(start: start, end: end, hash: hash)
         case let .mention(entityId): .mention(entityId: entityId)
-        case .none, .inferred, .stale: .none
+        case .none, .stale: .none
         }
     }
 
     /// One stored evidence entry → where to open. A span lands on its words;
-    /// a `reasoning` entry that still names its document opens that document
-    /// under the "inferred" banner; anything else has nowhere to go.
+    /// a `reasoning` entry that still names its document opens that document,
+    /// with nothing to highlight and nothing said about it (ROR-16); only an
+    /// entry naming no document has nowhere to go.
     static func evidence(_ ev: Evidence, subjectId: String?, knownTitle: String? = nil,
                          knownHarness: String? = nil) -> ReaderTarget? {
         guard !ev.episode.isEmpty else { return nil }
@@ -76,7 +75,7 @@ struct ReaderTarget: Hashable, Identifiable {
                                 focus: .span(start: ev.start, end: ev.end, hash: ev.hash, derived: false),
                                 subjectId: subjectId, knownTitle: knownTitle, knownHarness: knownHarness)
         }
-        return ReaderTarget(episode: ev.episode, focus: .inferred, subjectId: subjectId,
+        return ReaderTarget(episode: ev.episode, focus: .none, subjectId: subjectId,
                             knownTitle: knownTitle, knownHarness: knownHarness)
     }
 
@@ -86,7 +85,9 @@ struct ReaderTarget: Hashable, Identifiable {
     static func best(_ best: ProvenanceSpan, subjectId: String?, knownTitle: String? = nil,
                      knownHarness: String? = nil) -> ReaderTarget {
         let focus: Focus
-        if best.stale {
+        if best.held {
+            focus = .none   // G235: no offsets travelled, and nothing is said about why.
+        } else if best.stale {
             focus = .stale
         } else if let start = best.start, let end = best.end, end > start {
             focus = .span(start: start, end: end, hash: best.derived ? nil : best.hash, derived: best.derived)
@@ -123,7 +124,17 @@ final class ProvenanceRouter {
     var current: ReaderTarget? { stack.last }
     var canGoBack: Bool { stack.count > 1 }
 
+    /// Every citation opens here, so here is where a key opens it in one frame (⏎ on a chip or a popover's link, DR-60);
+    /// a pointer's open plays the drawer (DR-61).
     func open(_ target: ReaderTarget) {
+        if LooksZoom.trigger(for: NSApplication.shared.currentEvent?.type) == .keyboard {
+            Instant.run { present(target) }
+        } else {
+            present(target)
+        }
+    }
+
+    private func present(_ target: ReaderTarget) {
         if !isPresented { stack = [] }
         if stack.last != target { stack.append(target) }
         if stack.count > Self.maxDepth { stack.removeFirst(stack.count - Self.maxDepth) }

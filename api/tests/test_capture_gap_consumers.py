@@ -71,9 +71,10 @@ def test_a_span_on_the_marker_is_never_a_speaker_and_never_highlights(ep):
     assert evidence.speaker_kind(ep.body, start, gaps=ep.gaps) == "gap"
     assert evidence.verify(None, ep.id, ep.marker[1:30], text=ep.body, gaps=ep.gaps).kind == "reasoning"
     assert evidence.verify(ep.memory, ep.id, ep.marker[1:30]).kind == "reasoning"       # read from disk: its own fm
-    focus = provenance._asserted_focus(ep.id, ep.body, start, end, evidence.body_hash(ep.body), is_episode=True,
-                                       gaps=ep.gaps)
+    source = provenance.source_spans.Source.open(ep.memory, ep.id)
+    focus = provenance._asserted_focus(source, start, end, evidence.body_hash(ep.body))
     assert focus.start is None and focus.end is None and focus.kind == "gap"
+    assert focus.span.at is None, "ROR-16: the app draws what it was told, and it was told nothing"
 
 
 def test_search_neither_indexes_the_marker_nor_returns_it_as_a_span(ep):

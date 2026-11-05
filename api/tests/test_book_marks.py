@@ -793,3 +793,15 @@ def test_a_self_reference_is_left_for_the_resolver_and_a_bank_with_no_owner_page
             {"source": "the user", "target": "Baking", "label": "b", "evidence": passage}]
     kept = book_marks.of_a_read([], rels, [], episode, owner_fm=None)[1]
     assert [(r["source"], r["label"]) for r in kept] == [("the user", "a")]
+
+
+def test_a_mark_keeps_its_place_on_the_wire():
+    """ROR-16: the app draws a mark's link from `evidence`; the response model dropped it, so no mark ever showed one."""
+    from api.models.schemas import PageBlockMarks
+
+    span = {"episode": "ep_2026-11-02_001", "start": 3, "end": 9, "hash": "abc", "kind": "user"}
+    wire = PageBlockMarks(items=[{"claimId": "clm_a", "day": "2026-11-02", "text": "A passage", "evidence": span}],
+                          total=1).model_dump(by_alias=True)
+    assert wire["items"][0]["evidence"]["episode"] == "ep_2026-11-02_001"
+    assert wire["items"][0]["evidence"]["start"] == 3
+

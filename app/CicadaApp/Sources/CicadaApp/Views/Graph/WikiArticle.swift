@@ -509,21 +509,25 @@ final class WikiArticleCache {
 enum LineProvenance {
     static func target(for row: WikiRow, body: String, provenance: EntityProvenance?, subjectId: String) -> ReaderTarget? {
         guard let provenance, !provenance.sections.isEmpty, provenance.pageBodyHash == bodyHash(body) else { return nil }
+        var unlocated: ReaderTarget?
         for section in provenance.sections {
             for item in section.items where item.bodyRanges.contains(where: { overlaps($0, row.source) }) {
                 for evidence in item.evidence {
                     let title = evidence.sourceTitle.isEmpty ? nil : evidence.sourceTitle
-                    if let span = evidence.span {
+                    // ROR-16 — a place to highlight outranks a source with none, whichever was cited first.
+                    if let span = evidence.span, !span.stale, !span.held, span.start != nil {
                         return ReaderTarget.best(span, subjectId: subjectId, knownTitle: title)
                     }
-                    if let ev = evidence.evidence,
-                       let target = ReaderTarget.evidence(ev, subjectId: subjectId, knownTitle: title) {
-                        return target
+                    if unlocated == nil {
+                        unlocated = evidence.span.map { ReaderTarget.best($0, subjectId: subjectId, knownTitle: title) }
+                            ?? evidence.evidence.flatMap {
+                                ReaderTarget.evidence($0, subjectId: subjectId, knownTitle: title)
+                            }
                     }
                 }
             }
         }
-        return nil
+        return unlocated
     }
 
     /// `evidence.body_hash`: the first 12 hex digits of the text's SHA-256.

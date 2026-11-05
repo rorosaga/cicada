@@ -21,17 +21,31 @@ extension Copy {
         static let captureHonesty = "Your words and each final reply. Tool calls and code aren't kept."
         static func importedFrom(_ vendor: String) -> String { "Imported from a \(vendor) export" }
 
-        static let stale = "This conversation changed after this was noted. The words may have moved."
-        static let grown = "The conversation continued after this was noted."
+        static let stale = "This changed after it was noted. The words may have moved."
+        static let grown = "This continued after it was noted."
+        /// The chip's hover says it; opening the source says nothing (ROR-16).
         static let inferred = "Cicada inferred this. No sentence says it in so many words."
         /// The owner's wording (2026-09-23 brief): a derived match is labelled
         /// for what it is — found by searching, not quoted by a contributor.
-        static let derived = "Found by searching the conversation. This was noted before Cicada kept exact quotes."
-        static let notFound = "Cicada couldn't find the name in this conversation, so it opens at the top."
-        static let truncated = "This conversation is very long, so only the first part is shown."
-        static let gone = "This conversation isn't in this bank any more."
-        static let failed = "Couldn't open this conversation."
-        static let empty = "Nothing was captured in this conversation."
+        static let derived = "Found by searching for the name. This was noted before Cicada kept exact quotes."
+        static let truncated = "This is very long, so only the first part is shown."
+        static let gone = "This isn't in this bank any more."
+        static let failed = "Couldn't open this."
+        static let empty = "Nothing was captured here."
+        /// What a citation says it opens (ROR-16): the source's own word, never "conversation" for a note.
+        static func showIn(_ kind: String?) -> String {
+            switch kind {
+            case "conversation": "Show in conversation"
+            case "note": "Show in note"
+            case "meeting": "Show in meeting"
+            case "book": "Show in record"
+            case "save": "Show what was saved"
+            case "page": "Show on page"
+            case "web": "Show what was looked up"
+            case "video": "Show in watch record"
+            default: "Show source"
+            }
+        }
         static let retry = "Try again"
 
         static let theAgent = "The agent"
@@ -73,10 +87,18 @@ extension Copy {
         static let closeHelp = "Close (Esc)"
         static func resumeHelp(_ agent: String?) -> String { "Resume this conversation in \(agent ?? "its app")" }
         /// "Noted from this conversation (3)" — the count through `UsageFormat` (R-DI23).
-        static func noted(count: Int, isPage: Bool) -> String {
-            "\(isPage ? notedFromThisPage : notedFromThisConversation) (\(UsageFormat.count(count)))"
+        static func noted(count: Int, kind: String?) -> String {
+            let title = switch kind {
+            case "page": notedFromThisPage
+            case nil, "conversation": notedFromThisConversation
+            case "note": "Noted from this note"
+            case "meeting": "Noted from this meeting"
+            default: "Noted from this"
+            }
+            return "\(title) (\(UsageFormat.count(count)))"
         }
         /// A rotor entry's words, composed here so no `Text(` line interpolates a count (R-DI23).
+        static func rotorPassage(_ n: Int) -> String { "Passage \(n)" }
         static func rotorLabel(speaker: String, turn n: Int) -> String { "\(speaker), \(turn(n))" }
         /// A turn's accessibility label: who spoke, which turn, the words.
         static func turnLabel(speaker: String, turn n: Int, text: String) -> String {

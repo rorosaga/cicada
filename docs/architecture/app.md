@@ -3512,6 +3512,22 @@ disclosure or Reader UI. In 1b, the graph-node stub has no `pageBodyHash`: it mu
 no section controls until a full entity response supplies a matching non-nil token;
 nil tokens must never match. Server identity/ranges must not be recreated in Swift.
 
+**One drawing of a source (ROR-16, DR-18, DR-31, DR-60).** `SourceSpansView` takes a document (`EpisodeText`), what to wash
+in it (`ReaderPresentation`, plus `others`), and two slots: `pinned` over the scroll, `below` in it. It chooses the chat or
+the document rows, scrolls to the words, reveals the wash and owns the rotors. `SourceSpansState` is held by its host,
+because keys arrive at the host's focus (`state.key`, one frame, DR-60). The Reader hosts it; every citation opens through
+`ProvenanceRouter`, so every citation is drawn by it. **The server judges, the app draws what it was told:** an asked span
+the answer gives no place for is never drawn from the target's own offsets (a held span, Cicada's gap line). **Nothing to
+locate opens the source and says nothing:** the "inferred" and "name not found" banners are gone; "changed since" (stale),
+"continued" (grown), "found by name" (derived) and "only the first part" (truncated) stay, because each is true of the
+words on screen. Words follow the source (`sourceKind`, `Copy.Provenance.showIn`): "Show in note", never "conversation";
+a note, a book's record or a saved page has no "You · turn 1" and no turn count. A book's mark links to its words in the
+record (`PageMarks`). A line's own link prefers a place to highlight over an earlier source with none, and a project's
+milestone with no span still opens its source. **ROR-15 is a thin use:** `cache.sourceSpans(source:)` for the groups,
+`ReaderPresentation.spans()`, `others: spans.ranges`, a `.note` row layout added beside chat and document, and the group
+names as its margin labels. It draws no picture (`testTheComponentNeverAnimatesAKeyAndLoadsNoPicture`).
+
+
 **Provenance viewer (G118 slice 2).** Every claim carries evidence chips (`Views/Provenance/`): the
 label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
 for a legacy claim's name match found at read; a feed item or a calendar entry is "From the feed" / "On your calendar"

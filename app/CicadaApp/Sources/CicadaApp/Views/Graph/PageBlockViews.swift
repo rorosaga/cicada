@@ -245,6 +245,8 @@ struct WhereToCheckBox: View {
 /// under it as their own (DR-3, DR-78).
 struct PageMarks: View {
     let marks: PageBlocks.Marks
+    var entityId: String? = nil
+    @Environment(ProvenanceRouter.self) private var router: ProvenanceRouter?
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -266,8 +268,15 @@ struct PageMarks: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                     }
-                    if let day = item.day, !day.isEmpty {
-                        Text(day).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        if let day = item.day, !day.isEmpty {
+                            Text(day).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                        }
+                        // ROR-16 (DR-31): a mark points at its own words in the record, as any citation does.
+                        if let router, let target = item.evidence.flatMap({ ReaderTarget.evidence($0, subjectId: entityId) }) {
+                            TextButton(title: Copy.Provenance.showIn(SpanSourceKind.book) + " ›") { router.open(target) }
+                                .fixedSize()
+                        }
                     }
                 }
             }

@@ -155,6 +155,7 @@ struct CitationPopover: View {
     let entityId: String
     let key: CiteKey
     @Environment(ProvenanceRouter.self) private var router: ProvenanceRouter?
+    @Environment(\.dismiss) private var dismiss
     @State private var phase: Phase = .loading
 
     enum Phase: Equatable {
@@ -216,7 +217,7 @@ struct CitationPopover: View {
             }
             Spacer(minLength: 0)
             if router != nil, target(d) != nil {
-                TextButton(title: Copy.Pages.showInConversation + " ›") { open(d) }
+                TextButton(title: Copy.Provenance.showIn(d.sourceKind ?? d.kind) + " ›") { open(d) }
                     .fixedSize()
             }
         }
@@ -226,14 +227,16 @@ struct CitationPopover: View {
         if let span = d.span {
             return ReaderTarget.best(span, subjectId: entityId, knownTitle: d.title, knownHarness: d.harness)
         }
-        guard let episode = d.episodeId, d.kind != "page" else { return nil }
-        return ReaderTarget(episode: episode, focus: .inferred, subjectId: entityId, knownTitle: d.title,
+        // ROR-16 — nothing located still opens the source; no quote, no apology.
+        guard let episode = d.episodeId else { return nil }
+        return ReaderTarget(episode: episode, focus: .none, subjectId: entityId, knownTitle: d.title,
                             knownHarness: d.harness)
     }
 
     private func open(_ d: PageCitationDetail) {
         guard let router, let target = target(d) else { return }
         router.open(target)
+        dismiss()   // The source opens beside the article; the popover would stay over whatever moved under it.
     }
 
     private func load() async {

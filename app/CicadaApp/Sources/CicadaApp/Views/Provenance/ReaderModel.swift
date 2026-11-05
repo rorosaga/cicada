@@ -255,6 +255,8 @@ struct ReaderBlock: Hashable, Identifiable {
     /// Absolute offset of `text`'s first scalar in the document.
     let contentStart: Int
     let washes: [ReaderWash]
+    /// A conversation says "turn 3"; a note, a book's record or a saved page is one document (ROR-16).
+    var showsTurnNumber = true
 
     var id: Key { Key(turn: index, chunk: chunk) }
     /// Only a turn's first chunk draws the speaker line and joins the Turns
@@ -288,8 +290,10 @@ enum ReaderLayout {
         doc.turns.flatMap { turn -> [ReaderBlock] in
             let content = scalars.clamped(turn.contentStart, turn.end)
             guard content.upperBound > content.lowerBound || turn.role == "page" else { return [] }
-            let speaker = EvidenceSpeaker.turnSpeaker(turn, harness: doc.harness, origin: doc.origin, source: doc.source,
-                                                      correspondent: doc.correspondent)
+            // ROR-16 — a note or a book's record is the person's own document, not "You · turn 1".
+            let spoken = EvidenceSpeaker.turnSpeaker(turn, harness: doc.harness, origin: doc.origin, source: doc.source,
+                                                     correspondent: doc.correspondent)
+            let speaker = SpanSourceKind.isOwnDocument(doc.sourceKind) && spoken == Copy.you ? "" : spoken
             // A feed's or a calendar's turn wears its source's mark beside "From the feed" (DR-52, DR-57).
             let mark = turn.role == "assistant"
                 ? EvidenceSpeaker.agentOrigin(harness: doc.harness, origin: doc.origin)
@@ -309,7 +313,8 @@ enum ReaderLayout {
                 return ReaderBlock(
                     index: turn.index, chunk: n, role: turn.role, speaker: speaker, mark: mark, time: time,
                     text: scalars.slice(piece.lowerBound, piece.upperBound),
-                    contentStart: piece.lowerBound, washes: washes)
+                    contentStart: piece.lowerBound, washes: washes,
+                    showsTurnNumber: !doc.isPage && SpanSourceKind.hasTurns(doc.sourceKind))
             }
         }
     }
@@ -356,8 +361,10 @@ enum ReaderLayout {
 
 // MARK: - What to say about it, and where to land
 
+/// What is said over a source: only what is true of the words on screen. A citation with nothing to locate (an inference,
+/// a name not found, a span held back) opens the source and says nothing (ROR-16).
 enum ReaderBanner: Hashable {
-    case stale, grown, inferred, derived, notFound, truncated
+    case stale, grown, derived, truncated
 }
 
 struct ReaderPresentation: Hashable {
@@ -369,9 +376,11 @@ struct ReaderPresentation: Hashable {
 
     /// The honesty rules of §4.9 in one function: stale never washes (and is
     /// said out loud), grown washes and says so, derived bolds and says so,
-    /// inferred shows no quote. The target's own `derived` flag wins over the
-    /// server's asserted focus — an inbox cause found by name is still found
-    /// by name when the Reader re-asks by offsets (R-PB16).
+    /// nothing to locate shows no quote and no apology. The server judged the
+    /// span (`source_spans`): an asked span it sent no place for is not drawn.
+    /// The target's own `derived` flag wins over the server's asserted focus —
+    /// an inbox cause found by name is still found by name when the Reader
+    /// re-asks by offsets (R-PB16).
     static func resolve(target: ReaderTarget, doc: EpisodeText, textCount: Int) -> ReaderPresentation {
         var banners: [ReaderBanner] = []
         var focus: Range<Int>?
@@ -383,9 +392,9 @@ struct ReaderPresentation: Hashable {
                 banners.append(.stale)
                 landing = start
             } else {
-                focus = doc.focus?.range ?? (end > start ? start..<end : nil)
+                focus = doc.focus == nil ? (end > start ? start..<end : nil) : doc.focus?.range
                 style = derived || doc.focus?.derived == true ? .mention : .focus
-                if style == .mention { banners.append(.derived) }
+                if style == .mention, focus != nil { banners.append(.derived) }
                 if doc.focus?.grown == true { banners.append(.grown) }
             }
         case .mention:
@@ -393,11 +402,7 @@ struct ReaderPresentation: Hashable {
                 focus = range
                 style = .mention
                 banners.append(.derived)
-            } else {
-                banners.append(.notFound)
             }
-        case .inferred:
-            banners.append(.inferred)
         case .stale:
             banners.append(.stale)
         case .none:
@@ -463,7 +468,9 @@ enum ReaderHeader {
                 parts.append(Copy.Provenance.added(received))
             }
         }
-        if !doc.isPage, !doc.turns.isEmpty { parts.append(Copy.Provenance.turnCount(doc.turns.count)) }
+        if !doc.isPage, SpanSourceKind.hasTurns(doc.sourceKind), !doc.turns.isEmpty {
+            parts.append(Copy.Provenance.turnCount(doc.turns.count))
+        }
         if !doc.isPage, let device { parts.append(Copy.Devices.from(device)) }
         return parts.joined(separator: " · ")
     }

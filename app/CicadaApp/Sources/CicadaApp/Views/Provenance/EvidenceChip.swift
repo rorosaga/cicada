@@ -235,6 +235,9 @@ struct EvidencePreview: View {
             }
             guard let cache else { return }
             switch await cache.span(ev) {
+            case let .loaded(span) where span.held:
+                // G235 — no words to preview, and nothing said about why; the click still opens the source.
+                phase = .note(Copy.Provenance.showIn(nil))
             case let .loaded(span) where span.stale && span.text.isEmpty:
                 // R-PU25 — the document no longer reaches this span: no words
                 // to quote, and "couldn't open" would be untrue.

@@ -136,7 +136,8 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     _write_scenario_events(bank_dir, today, scenario)
     _write_scenario_person(bank_dir, today)
     _write_scenario_followups(bank_dir, today)
-    _write_showcase(bank_dir, today)   # round 4 T-Demo — last, so no id or byte the scenario tests pin moves
+    _write_showcase(bank_dir, today)   # round 4 T-Demo — so no id or byte the scenario tests pin moves
+    _write_source_kinds(bank_dir, today)   # ROR-16 — last, for the same reason
 
 
 def _write_scenario_ownership(bank_dir: Path, today: date) -> None:
@@ -166,6 +167,14 @@ def _write_scenario_ownership(bank_dir: Path, today: date) -> None:
     _run_commit(bank_dir, git_service.build_commit_message(
         "Project update", [f"{p}: updated (source: n/a, trigger: user/companion_app)" for p in paths],
         authors=["user"]), paths)
+
+
+def _write_source_kinds(bank_dir: Path, today: date) -> None:
+    """ROR-16 (G118): a note, a meeting and a book cited to their words (`demo_sources`). A step of its own, turned off
+    by name as the showcase is."""
+    from api.services import demo_sources
+
+    demo_sources.write(bank_dir, today, commit=_run_commit)
 
 
 def _write_showcase(bank_dir: Path, today: date) -> None:

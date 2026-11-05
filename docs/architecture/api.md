@@ -91,7 +91,13 @@ import's episodes together, numbered in reading order), the counts behind Refere
 (`claimId`, `text`, `refs`, `until`, `inferred`, `verbatim`; `beliefsTotal` null when part of them is in the claims
 ledger, which the card never reads). Nothing is matched by similarity: which line a source backs was decided when the
 page was written; the numbering is derived on read and cached per page by its file, ledger and `episodes` stamps (cold
-p50 0.21 ms / p95 1.4 ms, held 0.03 ms on an owner-scale copy). **`GET /entities/{id}/citations/{n}?at=|claim=`** is
+p50 0.21 ms / p95 1.4 ms, held 0.03 ms on an owner-scale copy). **`GET /episodes/{id}/spans`** (ROR-16, `source_spans.for_source`, `storage.md`): every span pointing into one source,
+grouped by page, each page's spans in document order and the pages by where they first point. Offsets and ids, no words
+(the words are `/text`'s); what cannot be drawn stays in its group with no `at`. 404 for an unknown, non-bare or locked
+document. ETag over `episodes`+`entities` with `spans|<id>|source_spans.SHAPE|<today>` in `extra`. **Client mapping: not a
+Store domain**, `ProvenanceCache.sourceSpans` holds it in memory and revalidates on every ask, as `/citations` is. Not on
+the G135 listener or `/v1`, so the `sources` scope has nothing new to gate. A book mark on the card carries its stored
+coordinates (`evidence`, `blocks-5`), judged by `/text` when opened; `book_marks.for_caller` drops them. **`GET /entities/{id}/citations/{n}?at=|claim=`** is
 a marker's popover, read when it opens: the reference plus the best evidence row's `evidenceKind`, its located words
 (`span`, a `ProvenanceSpan`) and `status`, and `lines` (how many lines cite it); 404 for a number the page does not
 have. The wire is pinned on both sides

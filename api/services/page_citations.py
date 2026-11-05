@@ -29,7 +29,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from api.services import bank_index, claims_ledger, episode_ids, evidence, section_provenance
+from api.services import bank_index, claims_ledger, episode_ids, evidence, section_provenance, source_spans
 
 #: The References shown under the article (DR-80: at most six lines, then a line pointing to History).
 MAX_SHOWN_REFS = 6
@@ -58,6 +58,7 @@ class _Ref:
     origin: str | None = None
     harness: str | None = None
     correspondent: str | None = None
+    source_kind: str = "conversation"
     conversation_id: str | None = None
     first: str | None = None
     last: str | None = None
@@ -126,7 +127,7 @@ class _Sources:
             if key not in self._by_key:
                 doc = evidence.source_document(self._memory_path, doc_id)
                 title = str((doc[0] if doc else {}).get("name") or doc_id)
-                self._add(_Ref(n=0, key=key, kind="page", episodes=[doc_id], title=title))
+                self._add(_Ref(n=0, key=key, kind="page", episodes=[doc_id], title=title, source_kind="page"))
             return self._by_key[key]
         fm = self._meta(doc_id)
         conversation = _opt(fm.get("session_id")) or _opt(fm.get("source_id"))
@@ -140,7 +141,7 @@ class _Sources:
                 n=0, key=key, kind=kind, title=str(fm.get("title") or ""),
                 origin=_opt(fm.get("origin")) or _opt(fm.get("source")), harness=_opt(fm.get("harness")),
                 correspondent=_opt(correspondent.get("name")) if isinstance(correspondent, dict) else None,
-                conversation_id=conversation))
+                conversation_id=conversation, source_kind=source_spans.kind_of(doc_id, fm)))
         if doc_id not in ref.episodes:
             ref.episodes.append(doc_id)
             if said:
@@ -259,7 +260,8 @@ def table(memory_path: Path, entity_id: str, *, fm: dict, body: str, claims) -> 
 def _ref_dict(ref: _Ref) -> dict:
     return {"n": ref.n, "kind": ref.kind, "title": ref.title, "origin": ref.origin, "harness": ref.harness,
             "correspondent": ref.correspondent, "first": ref.first, "last": ref.last,
-            "episodeId": ref.episodes[-1] if ref.episodes else None, "conversationId": ref.conversation_id}
+            "episodeId": ref.episodes[-1] if ref.episodes else None, "conversationId": ref.conversation_id,
+            "sourceKind": ref.source_kind}
 
 
 def block(memory_path: Path, entity_id: str, *, fm: dict, body: str, claims) -> dict | None:

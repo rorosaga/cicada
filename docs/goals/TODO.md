@@ -14,6 +14,12 @@
 
 ## Current state and evidence
 
+- **2026-11-05 — a citation opens its source on its words, one standard (ROR-16, G118; branch `ror16-evidence-spans`).** One
+  judge and wire shape (`source_spans`), one drawing (`SourceSpansView`), `GET /episodes/{id}/spans` by page; the demo gains
+  a note, a meeting and a book, plus one stale and one held. **Pick up here:** the click proof in the scratch app and
+  `swift test` were refused by guards in the worker's shell (`HOME=`, sourcing `harness.sh`, overlays over the window), so
+  they wait for the coordinator; then ROR-15 as the thin use `app.md` describes.
+
 - **2026-11-05 — open a source's item where it lives (ROR-111, G161; PR #630, branch `ror-111-open-in-place`).** One control on the
   item row: Notes by its own id, GitHub, saved links, feed items, saved videos. A list says only the kind; the place is
   read on the click. Not yet seen in the real app: the first press against a real note is the person's. Which sources

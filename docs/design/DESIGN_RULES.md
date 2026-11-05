@@ -368,7 +368,7 @@ It never animates (DR-60). `[test]`
   - Back (⌥⌘[), shown when the stack is deeper than one.
 - **The capture line.**
 - **The navigator:** "↑ 1 of 2 cited here ↓" (⌥↑ / ⌥↓).
-- **The speaker blocks.** Each is headed like "You · turn 1", with a time only when one is stored. The current span is shown in `wash` with its underline; the other spans are in `washSoft`, the same tint without the underline, and VoiceOver says "Cited here" / "Also cited here" before a block that holds one. **A conversation reads as a chat instead** (§9, 2026-10-19): the person on the right in a bubble, the other party on the left in a bubble of their own (2026-10-20), a "Cited" marker beside a message that holds a cited span, day separators, a face or mark and a time once per run, no "turn N".
+- **The speaker blocks.** Each is headed like "You · turn 1", with a time only when one is stored (2026-11-05, ROR-16: a note, a book's record or a saved page is one document, with no such heading). The current span is shown in `wash` with its underline; the other spans are in `washSoft`, the same tint without the underline, and VoiceOver says "Cited here" / "Also cited here" before a block that holds one. **A conversation reads as a chat instead** (§9, 2026-10-19): the person on the right in a bubble, the other party on the left in a bubble of their own (2026-10-20), a "Cited" marker beside a message that holds a cited span, day separators, a face or mark and a time once per run, no "turn N".
 - **"Noted from this conversation (n)" rows.** Each row jumps to its span and has a trailing "Show on graph". A row whose claim is no longer current says so.
 
 **DR-32. Every Reader state is said in words, never shown as a blank.** `[test]`

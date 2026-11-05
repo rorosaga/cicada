@@ -24,6 +24,8 @@ struct ProvenanceSpan: Codable, Hashable {
     let stale: Bool
     let grown: Bool
     let derived: Bool
+    /// ROR-16 (G235) — the words are held back: no offsets and no excerpt travelled.
+    var held = false
 
     init(episode: String, start: Int?, end: Int?, hash: String = "", kind: EvidenceKind,
          excerpt: String, excerptStart: Int = 0, mentionOffsets: [[Int]] = [],
@@ -42,7 +44,7 @@ struct ProvenanceSpan: Codable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case episode, start, end, hash, kind, excerpt, excerptStart, mentionOffsets, stale, grown, derived
+        case episode, start, end, hash, kind, excerpt, excerptStart, mentionOffsets, stale, grown, derived, held
     }
 
     init(from decoder: Decoder) throws {
@@ -58,6 +60,7 @@ struct ProvenanceSpan: Codable, Hashable {
         stale = try c.decodeIfPresent(Bool.self, forKey: .stale) ?? false
         grown = try c.decodeIfPresent(Bool.self, forKey: .grown) ?? false
         derived = try c.decodeIfPresent(Bool.self, forKey: .derived) ?? false
+        held = try c.decodeIfPresent(Bool.self, forKey: .held) ?? false
     }
 
     /// A derived match is never "You said" (§4.9): the kind the chip renders

@@ -69,6 +69,7 @@ from api.services import (
     markdown_parser,
     section_provenance,
     source_dates,
+    source_spans,
     turn_authorship,
     turn_extras,
     video_state,
@@ -94,20 +95,20 @@ def _opt(value) -> str | None:
     return text or None
 
 
-def _asserted_focus(doc_id: str, text: str, start: int, end: int, hash: str | None, *,  # noqa: A002
-                    is_episode: bool, override: str | None = None, gaps: tuple = ()) -> EpisodeFocus:
-    status = evidence.span_status(text, end=end, hash=hash, appendable=is_episode)
+def _asserted_focus(source: source_spans.Source, start: int, end: int, hash: str | None) -> EpisodeFocus:  # noqa: A002
     # R-LS7: the one kind decision — a folder file's declared authorship wins
     # over markers, exactly as the stored span's kind was minted.
-    kind = evidence.kind_for(doc_id, text, start, override, gaps)
-    if kind == evidence.GAP_KIND or evidence.touches_gap(start, end, gaps):
-        return EpisodeFocus(kind=kind)  # gate B2: Cicada's gap line is nobody's words — never highlighted
-    if status == evidence.SPAN_STALE:
-        return EpisodeFocus(kind=kind, stale=True)  # R-PB2: no offsets to wash
-    return EpisodeFocus(start=start, end=end, kind=kind, grown=status == evidence.SPAN_GROWN)
+    kind = evidence.kind_for(source.id, source.text, start, source.override, source.gaps)
+    span = source.span(start, end, hash, kind)
+    if kind == evidence.GAP_KIND:
+        span = source.nothing(kind)   # gate B2: Cicada's gap line is nobody's words — never highlighted
+    if span.at is None:
+        # R-PB2: no offsets to wash; ROR-16: a held span has none either, and no word says why.
+        return EpisodeFocus(kind=kind, stale=span.status == source_spans.STALE, span=span)
+    return EpisodeFocus(start=start, end=end, kind=kind, grown=span.status == source_spans.GROWN, span=span)
 
 
-def _derived_focus(memory_path: Path, text: str, entity_ref: str) -> EpisodeFocus | None:
+def _derived_focus(memory_path: Path, source: source_spans.Source, entity_ref: str) -> EpisodeFocus | None:
     page = resolve_entity_file(memory_path, entity_ref)
     # `focus` is a free query string and `resolve_entity_file` joins it onto
     # `entities/` as given, so `../<name>` would reach a file the bank never
@@ -119,10 +120,13 @@ def _derived_focus(memory_path: Path, text: str, entity_ref: str) -> EpisodeFocu
         name = str(markdown_parser.parse(page).frontmatter.get("name") or page.stem)
     except Exception:
         name = page.stem
-    hit = inbox_context.locate_mention(text, name, page.stem)
+    hit = inbox_context.locate_mention(source.text, name, page.stem)
     if hit is None:
         return None
-    return EpisodeFocus(start=hit[0], end=hit[1], kind="derived", derived=True)
+    span = source.derived(hit[0], hit[1])
+    if span.at is None:
+        return EpisodeFocus(kind="derived", span=span)
+    return EpisodeFocus(start=hit[0], end=hit[1], kind="derived", derived=True, span=span)
 
 
 def episode_document(
@@ -181,11 +185,10 @@ def episode_document(
         ]
 
     focus_model: EpisodeFocus | None = None
-    if start is not None:
-        focus_model = _asserted_focus(doc_id, text, start, end, hash, is_episode=is_episode,
-                                      override=override, gaps=gaps)
-    elif focus:
-        focus_model = _derived_focus(memory_path, text, focus)
+    if start is not None or focus:
+        source = source_spans.Source.of(doc_id, fm, text)
+        focus_model = (_asserted_focus(source, start, end, hash) if start is not None
+                       else _derived_focus(memory_path, source, focus))
 
     watch = _watch(memory_path, doc_id, fm) if is_episode else None
     index_at = {t.start: t.index for t in spans}
@@ -200,6 +203,7 @@ def episode_document(
     return EpisodeText(
         episode=doc_id,
         kind="episode" if is_episode else "page",
+        source_kind=source_spans.kind_of(doc_id, fm),
         text=text[:MAX_TEXT_CHARS],
         length=length,
         hash=evidence.body_hash(text),
@@ -335,6 +339,7 @@ class _Episodes:
         self._memory_path = memory_path
         self._index: dict[str, bank_index.IndexedFile] | None = None
         self._bodies: dict[str, str | None] = {}
+        self._held: dict[str, tuple] = {}
 
     def meta(self, ep_id: str) -> bank_index.IndexedFile | None:
         if self._index is None:
@@ -349,6 +354,16 @@ class _Episodes:
             except Exception:
                 self._bodies[ep_id] = None
         return self._bodies[ep_id]
+
+    def held(self, ep_id: str) -> tuple:
+        """Where this document holds what may not be drawn (G235, ROR-16); `source_spans` keeps it per body."""
+        if ep_id not in self._held:
+            indexed = self.meta(ep_id)
+            text = self._bodies.get(ep_id)
+            if indexed is None or text is None:
+                return ()
+            self._held[ep_id] = source_spans.Source.of(ep_id, indexed.frontmatter or {}, text).held
+        return self._held[ep_id]
 
 
 def _said(timestamp: str, ep_id: str) -> str | None:
@@ -368,19 +383,31 @@ def _recency(claim: Claim) -> str:
     return str(claim.recorded_at or claim.valid_from or "")
 
 
+def _held_excerpt(excerpt: str, at: int, held: tuple) -> bool:
+    """A secret in the excerpt's neighbourhood holds the whole excerpt (G235, ROR-16): the words around a value are no
+    place to show it."""
+    return bool(excerpt) and source_spans.overlaps_held(at, at + len(excerpt), held)
+
+
 def _span_model(text: str, episode: str, start: int, end: int, *, hash: str, kind: str,  # noqa: A002
-                grown: bool = False, derived: bool = False) -> ProvenanceSpan:
+                grown: bool = False, derived: bool = False, held: tuple = ()) -> ProvenanceSpan:
+    if source_spans.overlaps_held(start, end, held):
+        return ProvenanceSpan(episode=episode, hash=hash, kind=kind, held=True)
     ex = inbox_context.excerpt_around(text, (start, end))
+    if _held_excerpt(ex.excerpt, ex.start or 0, held):
+        return ProvenanceSpan(episode=episode, start=start, end=end, hash=hash, kind=kind, grown=grown, derived=derived)
     return ProvenanceSpan(episode=episode, start=start, end=end, hash=hash, kind=kind,
                           excerpt=ex.excerpt, excerpt_start=ex.start or 0,
                           mention_offsets=ex.mention_offsets, grown=grown, derived=derived)
 
 
-def _stale_model(text: str, ev: Evidence) -> ProvenanceSpan:
+def _stale_model(text: str, ev: Evidence, held: tuple = ()) -> ProvenanceSpan:
     """A stale span still shows its neighbourhood — "the words may have
     moved" (§4.2) — but carries no offsets to wash (R-PB2)."""
     anchor = (ev.start, min(ev.end, len(text))) if 0 <= ev.start < len(text) else None
     ex = inbox_context.excerpt_around(text, anchor)
+    if _held_excerpt(ex.excerpt, ex.start or 0, held):
+        return ProvenanceSpan(episode=ev.episode, hash=ev.hash, kind=ev.kind, stale=True)
     return ProvenanceSpan(episode=ev.episode, hash=ev.hash, kind=ev.kind, excerpt=ex.excerpt,
                           excerpt_start=ex.start or 0, stale=True)
 
@@ -402,7 +429,7 @@ def _best_span(docs: _Episodes, episode_ids: list[str],
             stale = stale or (text, ev)
             continue
         return _span_model(text, ev.episode, ev.start, ev.end, hash=ev.hash, kind=ev.kind,
-                           grown=status == evidence.SPAN_GROWN)
+                           grown=status == evidence.SPAN_GROWN, held=docs.held(ev.episode))
     for ep in reversed(episode_ids):
         text = docs.body(ep)
         if not text:
@@ -410,9 +437,9 @@ def _best_span(docs: _Episodes, episode_ids: list[str],
         hit = inbox_context.locate_mention(text, name, entity_id)
         if hit is not None:
             return _span_model(text, ep, hit[0], hit[1], hash=evidence.body_hash(text),
-                               kind="derived", derived=True)
+                               kind="derived", derived=True, held=docs.held(ep))
     if stale is not None:
-        return _stale_model(*stale)
+        return _stale_model(*stale, held=docs.held(stale[1].episode))
     return None
 
 
@@ -628,10 +655,10 @@ def _section_evidence(ev: Evidence, docs: _Episodes, allowed: set[str]) -> Secti
         row.status = 'gap'
     elif row.status == evidence.SPAN_STALE or ev.end > len(text):
         row.status = evidence.SPAN_STALE
-        row.span = _stale_model(text, ev)
+        row.span = _stale_model(text, ev, held=docs.held(ev.episode))
     else:
         row.span = _span_model(text, ev.episode, ev.start, ev.end, hash=ev.hash, kind=ev.kind,
-                               grown=row.status == evidence.SPAN_GROWN)
+                               grown=row.status == evidence.SPAN_GROWN, held=docs.held(ev.episode))
     return row
 
 
@@ -697,34 +724,11 @@ MAX_CITATION_PAGES = 200
 
 
 def _candidate_pages(memory_path: Path, doc_id: str) -> tuple[list[Path], bool]:
-    """Entity pages whose raw text contains ``doc_id``, in filename order,
-    capped. A substring test before any YAML parse: a page can only cite a
-    document whose id is written in it (a claim's ``evidence`` or
-    ``source_episodes``, or the frontmatter's), and an ``ep_YYYY-MM-DD_nnn``
-    id is distinctive, so a false positive costs one parse and a miss is
-    impossible. This is the "cold" path the design names (§4.8.3): the pages'
-    own claims blocks — not the vector claims index, whose metadata carries no
-    evidence (``vector_index.index_claims``), and not Track S's FTS table,
-    which this track does not depend on."""
+    """Entity pages that name ``doc_id``, in filename order, capped: ``source_spans``' index, which sees a page's ledger
+    too (a page past 64k characters keeps its claims there, so scanning the page's own text missed them, ROR-16)."""
     entities_dir = Path(memory_path) / "entities"
-    try:
-        with os.scandir(entities_dir) as it:
-            names = sorted(e.name for e in it if e.is_file() and e.name.endswith(".md"))
-    except FileNotFoundError:
-        return [], False
-    out: list[Path] = []
-    for fname in names:
-        path = entities_dir / fname
-        try:
-            raw = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        if doc_id not in raw:
-            continue
-        if len(out) >= MAX_CITATION_PAGES:
-            return out, True
-        out.append(path)
-    return out, False
+    names = source_spans.pages_citing(memory_path, doc_id)
+    return [entities_dir / n for n in names[:MAX_CITATION_PAGES]], len(names) > MAX_CITATION_PAGES
 
 
 def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None:
@@ -742,7 +746,7 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
     if doc is None:
         return None
     fm, text = doc
-    is_episode = evidence.is_episode_id(doc_id)
+    source = source_spans.Source.of(doc_id, fm, text)
     pages, partial = _candidate_pages(memory_path, doc_id)
     # Round 4 C3 (R4B-7): every span on this route points into `doc_id`, whose
     # frontmatter and text are already read above — the join reuses both, never
@@ -785,21 +789,23 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
             mine = [ev for ev in claim.evidence if ev.episode == doc_id]
             spans = [ev for ev in mine if ev.is_span()]
             for ev in spans:
-                status = evidence.span_status(text, end=ev.end, hash=ev.hash, appendable=is_episode)
-                stale = status == evidence.SPAN_STALE or ev.end > len(text)
+                span = source.span(ev.start, ev.end, ev.hash, ev.kind, claim_id=claim.id, current=base["current"])
                 rows.append(EpisodeCitation(
                     **base, evidence=turn_authorship.evidence_model(ev, turns), kind=ev.kind,
-                    start=None if stale else ev.start, end=None if stale else ev.end,
-                    stale=stale, grown=not stale and status == evidence.SPAN_GROWN,
-                    fidelity=media_fidelity if ev.kind == "media" else None,
+                    start=span.at.start if span.at else None, end=span.at.end if span.at else None,
+                    stale=span.status == source_spans.STALE, grown=span.status == source_spans.GROWN,
+                    fidelity=media_fidelity if ev.kind == "media" else None, span=span,
                 ))
             if spans:
                 continue
             if mine:
-                rows.append(EpisodeCitation(**base, evidence=EvidenceModel(**mine[0].to_dict()), kind="reasoning"))
+                rows.append(EpisodeCitation(**base, evidence=EvidenceModel(**mine[0].to_dict()), kind="reasoning",
+                                            span=source.nothing(claim_id=claim.id, current=base["current"])))
             elif doc_id in claim.source_episodes:
                 hit = inbox_context.locate_mention(text, subject_name, subject_id)
+                span = source.derived(hit[0], hit[1]) if hit else source.nothing("derived")
                 rows.append(EpisodeCitation(**base, kind="derived", derived=True,
-                                            start=hit[0] if hit else None, end=hit[1] if hit else None))
+                                            start=span.at.start if span.at else None,
+                                            end=span.at.end if span.at else None, span=span))
     rows.sort(key=lambda r: (r.start is None, r.start if r.start is not None else 0, r.subject_name, r.claim_id))
     return EpisodeCitations(episode=doc_id, citations=rows, entities=entities, partial=partial)
