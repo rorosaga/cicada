@@ -62,7 +62,7 @@ final class SourceMarkCoverageTests: XCTestCase {
     }
 
     func testTheBrandsThatDrewATrayNowHaveTheirMarks() {
-        for (origin, file) in [("codex", "t3"), ("grok", "grok"), ("perplexity", "perplexity"), ("comet-bookmark", "comet")] {
+        for (origin, file) in [("t3code", "t3"), ("grok", "grok"), ("perplexity", "perplexity"), ("comet-bookmark", "comet")] {
             let name = OriginIconography.logoName(for: origin)
             XCTAssertEqual(name.map { BrandMark.composition(for: $0).file }, file, origin)
         }
