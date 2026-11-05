@@ -1551,7 +1551,7 @@ page; an Apple Books or Goodreads record is `page`, and a want-to-read or not-st
 what has no such record) — so an imported library and a shelf stay quiet (`quiet_pages`) until the person
 writes or talks about the book (a note, a review, a chat).
 
-### Phone numbers (G81, PROPOSED ruling 55, off until the owner rules)
+### Phone numbers (G81, ruling 55, owner 2026-11-05; behind its switch)
 
 `$CICADA_HOME/numbers_switch.json` is the one switch every process reads (`phone_numbers.enabled`; `cicada numbers switch`,
 `PUT /people/numbers/switch`), never an environment variable. Off, every path is byte for byte what it was. `phone_numbers`
@@ -1590,7 +1590,39 @@ when the bank is restored by hand (`_restore_parked`: stamped for exactly this n
 **Contacts.** `GET /people/numbers/match-key` gives the app the key; the app posts each card's hashes (`phone_keys`,
 `PhoneNumberKeys.swift`), kept in `contact_numbers.json` beside the vault, rewritten whole by a sync that holds any, wiped
 when Contacts stops. No digit crosses the wire (R-SR8 holds); a value not shaped like a hash is refused; nothing is kept
-while off. Used to settle a name or flag another card, never for a claim.
+while off. No claim's value comes from a card, and no digit does.
+
+**A number on a Contacts card (ruling 55, owner 2026-11-05).** Only a line the person typed in a ticked chat (`tokenise`), while on:
+
+- **By value** (`_card_runs`): a digit run standing alone is hashed with the vault's key and looked up in `contact_numbers.json`,
+  national against international, since both sides hash the last nine digits. A miss leaves digits as they are and a wrong match
+  rewrites someone's words for good, so all of a run must be card numbers (it may hold two with only a space between them), each its whole
+  shape (`_whole_number`, which the vault's own match uses too): only `+`, `00` and a country code, a trunk zero, `1` and ten digits, or a
+  bare ten may differ from the nine, never an id or a date's longer tail, nor the end of a grouped card number. `_plausible`, the
+  `_NOT_A_PHONE` word before it and a unit after it all veto. Under nine digits it needs `+` or a line of its own. The cost is what a
+  last-nine hash can't see: a ten-digit run with a stray first digit, or another country's number, reads as the card's. A card named by a
+  relation ("Mom") never makes a page (`_number_card`); the number stays a token.
+- **A `+` number with no card** (`episode_scrub.plus_numbers`, exactly what the scrub would blank) is kept as a token. Other speakers'
+  lines and a bracketed shape are the scrub's as before; a bare run no card holds stays in clear. Neither widens page prose
+  (`own=True` only from `tokenise`).
+- **Who it is** (`card_links`, from the hashes, the waiting cards and the pages' own `addressbook://` sources, never `contacts_book`): one
+  card with a page, or whose whole name is one page's name or alias, is `page`; one card waiting is `card`. The model is told the
+  card's whole name in a note on that conversation (`card_note`, prompt only). Any word of it may be a nickname, a trade or where they know the person: the model judges, no rule reads a bracket or takes a last word for a surname, and no word becomes a fact or a title beyond what the model reasons. `take`
+  files the number by that name with no model entry needed, and over a model's reading ("my brothers") unless the
+  person's line spells another name beside it ("Bob's number is N" stays Bob's, and `annotate` asks if a page says otherwise; one shared surname is not the card's person).
+- **Born from it:** `take` marks the mention (`number_card`) and `entity_resolver._number_card` finds that one waiting card by id, so its page
+  is born by the Contacts rail. A sync keeps a one-part card waiting only while on and only if it holds a number; it is never matched by
+  name, so a later sync drops the sources seeded on its page and the page is then found by its name.
+- **Two cards on one number** (`tie`): never a guess. The number goes on the page of one of them, closed, with the existing "Is this
+  number X's?" question, once; with neither page yet it is held on a card's name, births nothing, and asks when that page exists. If the
+  other card's page is the one born, nothing asks: the cost of having no page to ask on.
+- **Off, a forget, a stored line:** off reads none of this and a one-part card does not wait. A forget wipes the hashes, so no link
+  remains and the tokens stay. A line stored before (blanked, or digits in clear) never moves, and a re-post of a line holding two tokens
+  in a run is read back by value (`_retoken_any`).
+
+**Recorded, not built (owner 2026-11-05):** a local-only tool for an agent to ask for a number on the person's ask; numbers typed to
+Claude Code or in a note also becoming codes, "as long as it doesn't hurt the UX or the performance"; the file travelling sealed when a
+person's own home moves, documented, "not to work on yet".
 
 **The doors**, each with its proof:
 
@@ -1611,7 +1643,7 @@ while off. Used to settle a name or flag another card, never for a claim.
 | The trash | the vault waits beside the trashed bank, `.trash/<bank>-<stamp>.numbers.json` | gone when the trash is emptied, back if the bank is restored by hand | `test_item_8_the_trash…` |
 | The app | digits on the person's page, in the Reader and in a quote, from memory, never stored; a token it can't answer reads "a number". The page's row is drawn, and `/claims` fetched, only when `rawMarkdown` holds `[number:` | Ask's answer and search snippets still show the token. **A page whose raw is omitted (`raw_omitted`: past 256 KB, a ledger, or a fence past 16k characters, like the owner's) shows no row, on or off; the claim is kept** | `NumberTokensTests`, scratch app, both states screenshotted 2026-11-05 |
 | A harness session's or a note's body | **digits, exactly as today** | not closed, not widened; its claim holds the token | sub-question (c) |
-| A bare number in a chat with none of the rule's signals: "Ana N", a pronoun, a line that is only digits, 7 or 8 digits after an add, two numbers with only a space between them, somebody else's line with no owned phone word and no run of 9+ the vault holds | **digits, exactly as today**, in the body and the prompt | not closed: a miss over a rewritten line; a model's `phone` value for it still becomes a token | `test_these_are_not`, `test_no_line_changes_in_anyones_words`, `test_a_bare_line_stays_in_clear…`; on the last scratch Sleep those lines were the only digit runs left in a body |
+| A bare number in a chat with none of the rule's signals and on no Contacts card: "Ana N", a pronoun, a line that is only digits, 7 or 8 digits after an add, two numbers with only a space between them, somebody else's line with no owned phone word and no run of 9+ the vault holds | **digits, exactly as today**, in the body and the prompt | not closed: a miss over a rewritten line; a model's `phone` value for it still becomes a token | `test_these_are_not`, `test_no_line_changes_in_anyones_words`, `test_a_bare_line_stays_in_clear…`; on the last scratch Sleep those lines were the only digit runs left in a body |
 | A body stored before the switch | **digits, exactly as today** | never moved: a stored line is not re-read, on, off, or with the vault lost | `test_round_3_old_bare_lines…` |
 | The 5 `phone` claims already in clear | **digits, in git for good** | not touched; a page's clear value becomes the token when the person restates it | `same_number` |
 

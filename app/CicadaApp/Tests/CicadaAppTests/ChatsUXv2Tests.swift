@@ -194,6 +194,196 @@ final class ChatsUXv2Tests: XCTestCase {
         XCTAssertLessThan(with, 1000)
     }
 
+    // MARK: ROR-110 — the picker's Archived group and pictures
+
+    func testArchivedChatsSitBelowTheRestAndCanStillBeTicked() async throws {
+        store.exec("ALTER TABLE ZWACHATSESSION ADD COLUMN ZARCHIVED INTEGER")
+        let old = store.session(friendJid, name: "Bob Example", last: 30)
+        store.session(groupJid, name: "Weekend crew", last: 10)
+        store.exec("UPDATE ZWACHATSESSION SET ZARCHIVED = 1 WHERE Z_PK = ?", [old])
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        let sections = WhatsAppWatcher.sections(w.chats)
+        XCTAssertEqual(sections.chats.map(\.jid), [groupJid], "newer activity never lifts an archived chat")
+        XCTAssertEqual(sections.archived.map(\.jid), [friendJid])
+        let archived = try XCTUnwrap(sections.archived.first)
+        try await w.setTicked(archived, true)
+        XCTAssertTrue(w.tickedIds.contains(archived.id))
+    }
+
+    func testAStoreWithNoArchivedColumnListsEveryChatAsUnarchived() async throws {
+        store.session(friendJid, name: "Bob Example", last: 30)
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        XCTAssertEqual(WhatsAppWatcher.sections(w.chats).chats.count, 1)
+        XCTAssertTrue(WhatsAppWatcher.sections(w.chats).archived.isEmpty)
+    }
+
+    private func row(_ jid: String, _ path: String) {
+        store.exec("INSERT INTO ZWAPROFILEPICTUREITEM (ZJID, ZPATH) VALUES (?, ?)", [jid, path])
+    }
+
+    func testAPictureIsTheOneItsOwnRowNamesForEveryKindOfChat() async throws {
+        let linked = "200000000000002@lid"
+        let stale = "15550000003@s.whatsapp.net"
+        store.session(friendJid, name: "Bob Example", last: 40)
+        store.session(groupJid, name: "Weekend crew", last: 30)
+        store.session(linked, name: "Dan Example", last: 20)
+        store.session(stale, name: "Carol Example", last: 10)
+        for (jid, name) in [(friendJid, "a"), (groupJid, "b"), (linked, "c")] {
+            row(jid, "Media/Profile/\(name)-1700000000.thumb")
+            try writePicture("Media/Profile/\(name)-1700000000.thumb", side: 96)
+        }
+        row(stale, "Media/Profile/gone.jpg")
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        for chat in w.chats where chat.jid != stale { XCTAssertNotNil(w.thumbnail(of: chat), chat.partnerName) }
+        XCTAssertNil(w.thumbnail(of: try XCTUnwrap(w.chats.first { $0.jid == stale })), "a row with no file draws none")
+    }
+
+    func testAFileNoRowNamesIsNobodysPicture() async throws {
+        store.session(friendJid, name: "Bob Example", last: 30)
+        store.session(groupJid, name: "Weekend crew", last: 20)
+        try writePicture("Media/Profile/15550000002.jpg", side: 96)
+        try writePicture("Media/Profile/15550000002-1700000000.thumb", side: 96)
+        try writePicture("Media/Profile/120363000000000000-1700000000.jpg", side: 96)
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        for chat in w.chats { XCTAssertNil(w.thumbnail(of: chat), chat.partnerName) }
+    }
+
+    func testARowNamingOneExtensionFindsItsSiblingFile() async throws {
+        store.session(friendJid, name: "Bob Example", last: 30)
+        store.exec("INSERT INTO ZWAPROFILEPICTUREITEM (ZJID, ZPATH) VALUES (?, ?)", [friendJid, "Media/Profile/x-1.jpg"])
+        try writePicture("Media/Profile/x-1.thumb", side: 96)
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        XCTAssertNotNil(w.thumbnail(of: try XCTUnwrap(w.chats.first)))
+    }
+
+    func testAGroupsFileIsNeverItsCreatorsPicture() async throws {
+        let legacyGroup = "15550000002-1600000000@g.us"
+        store.session(friendJid, name: "Bob Example", last: 30)
+        row(legacyGroup, "Media/Profile/15550000002-1600000000.thumb")
+        try writePicture("Media/Profile/15550000002-1600000000.thumb", side: 96)
+        let unlisted = try watcher(FakeChatSourcesAPI())
+        await unlisted.loadList()
+        XCTAssertEqual(unlisted.chats.map(\.jid), [friendJid], "the group is not among the listed chats")
+        XCTAssertNil(unlisted.thumbnail(of: try XCTUnwrap(unlisted.chats.first)), "the creator's chat never wears it")
+        store.session(legacyGroup, name: "Weekend crew", last: 20)
+        let listed = try watcher(FakeChatSourcesAPI())
+        await listed.loadList()
+        XCTAssertNil(listed.thumbnail(of: try XCTUnwrap(listed.chats.first { $0.jid == friendJid })))
+        XCTAssertNotNil(listed.thumbnail(of: try XCTUnwrap(listed.chats.first { $0.jid == legacyGroup })))
+    }
+
+    func testTheChatWithYourselfWearsYourOwnPhoto() async throws {
+        try writeOwnAccount(ownJid)
+        store.session(ownJid, name: "You", last: 30)
+        try writePicture("Media/Profile/Photo.jpg", side: 96)
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        XCTAssertNotNil(w.thumbnail(of: try XCTUnwrap(w.chats.first)))
+    }
+
+    /// The rail: before a tick the picture and the flag stay in this app's memory, and neither needs a message row.
+    func testAnUntickedChatsPictureNeverLeavesTheAppOrReachesADisk() async throws {
+        store.exec("ALTER TABLE ZWACHATSESSION ADD COLUMN ZARCHIVED INTEGER")
+        store.session(friendJid, name: "Bob Example", last: 30)
+        store.exec("UPDATE ZWACHATSESSION SET ZARCHIVED = 1")
+        store.exec("DROP TABLE ZWAMESSAGE")
+        row(friendJid, "Media/Profile/15550000002-1700000000.thumb")
+        try writePicture("Media/Profile/15550000002-1700000000.thumb", side: 96)
+        let scratch = store.dir.appendingPathComponent("reader-scratch", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let before = try XCTUnwrap(FileManager.default.subpathsOfDirectory(atPath: store.dir.path).sorted() as [String]?)
+        let api = FakeChatSourcesAPI()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "chats-ux-v2-\(UUID().uuidString)"))
+        let w = WhatsAppWatcher(api: api, reader: WhatsAppReader(store: store.url, scratchRoot: scratch),
+                                defaults: defaults, folder: store.dir, makeWatch: { _, _ in nil },
+                                lookUpCards: { _ in [:] })
+        await w.loadList()
+        let chat = try XCTUnwrap(w.chats.first)
+        XCTAssertTrue(chat.archived)
+        XCTAssertNotNil(w.thumbnail(of: chat))
+        XCTAssertTrue(api.photoPosts.isEmpty, "nothing posted before a tick")
+        XCTAssertEqual(try FileManager.default.subpathsOfDirectory(atPath: store.dir.path).sorted(), before,
+                       "no file written, the reader's own scratch included")
+    }
+
+    func testAPhoneChatWithNoPictureOfItsOwnWearsItsLids() async throws {
+        let bare = "15550000003@s.whatsapp.net", owned = "15550000004@s.whatsapp.net"
+        let unbridged = "15550000005@s.whatsapp.net", torn = "15550000006@s.whatsapp.net"
+        for (i, jid) in [friendJid, bare, owned, unbridged, torn, groupJid].enumerated() {
+            store.session(jid, name: "Chat \(i)", last: Double(100 - i))
+        }
+        store.addressBook([(friendJid, "200000000000002@lid"), ("15550000003", "200000000000003@lid"),
+                           (owned, "200000000000004@lid"), (groupJid, "200000000000007@lid"),
+                           (unbridged, "200000000000005"),
+                           (torn, "200000000000008@lid"), (torn, "200000000000009@lid")])
+        for lid in ["2", "3", "4", "5", "7", "8", "9"] {
+            row("20000000000000\(lid)@lid", "Media/Profile/20000000000000\(lid)-1700000000.thumb")
+            try writePicture("Media/Profile/20000000000000\(lid)-1700000000.thumb", side: 64)
+        }
+        row(owned, "Media/Profile/15550000004-1700000000.thumb")
+        try writePicture("Media/Profile/15550000004-1700000000.thumb", side: 96)
+        let scratch = store.dir.appendingPathComponent("reader-scratch", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let api = FakeChatSourcesAPI()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "chats-ux-v2-\(UUID().uuidString)"))
+        let w = WhatsAppWatcher(api: api, reader: WhatsAppReader(store: store.url, scratchRoot: scratch),
+                                defaults: defaults, folder: store.dir, makeWatch: { _, _ in nil },
+                                lookUpCards: { _ in [:] })
+        await w.loadList()
+        func chat(_ jid: String) throws -> WhatsAppChat { try XCTUnwrap(w.chats.first { $0.jid == jid }) }
+        XCTAssertNotNil(w.thumbnail(of: try chat(friendJid)), "ZWHATSAPPID with its suffix")
+        XCTAssertNotNil(w.thumbnail(of: try chat(bare)), "ZWHATSAPPID without its suffix")
+        let own = try XCTUnwrap(w.thumbnail(of: try chat(owned)))
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(own as CFData, nil))
+        let props = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
+        XCTAssertEqual(props[kCGImagePropertyPixelWidth] as? Int, 96, "its own picture comes first")
+        XCTAssertNil(w.thumbnail(of: try chat(unbridged)), "a ZLID that is no @lid id bridges nothing")
+        XCTAssertNil(w.thumbnail(of: try chat(torn)), "a number with two ids wears neither")
+        XCTAssertNil(w.thumbnail(of: try chat(groupJid)), "a group never bridges")
+        XCTAssertTrue(api.photoPosts.isEmpty, "nothing posted before a tick")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: scratch.path), [], "the copy is gone")
+        // Read once per list load: a tick's post finds it with the file gone.
+        try FileManager.default.removeItem(at: store.dir.appendingPathComponent("ContactsV2.sqlite"))
+        try await w.setTicked(try chat(friendJid), true)
+        XCTAssertNotNil(try XCTUnwrap(api.photoPosts.last?.first).photoB64)
+    }
+
+    func testNoAddressBookTableOrColumnMeansNoBridgeAndNoError() async throws {
+        store.session(friendJid, name: "Bob Example", last: 30)
+        row("200000000000002@lid", "Media/Profile/200000000000002-1700000000.thumb")
+        try writePicture("Media/Profile/200000000000002-1700000000.thumb", side: 64)
+        let file = store.dir.appendingPathComponent("ContactsV2.sqlite")
+        func check(_ note: String) async throws {
+            let w = try watcher(FakeChatSourcesAPI())
+            await w.loadList()
+            XCTAssertNil(w.thumbnail(of: try XCTUnwrap(w.chats.first)), note)
+            if case .failed = w.status { XCTFail(note) }
+            if case .needsAccess = w.status { XCTFail(note) }
+        }
+        try await check("no file")
+        store.addressBook(schema: "CREATE TABLE OTHER (ZWHATSAPPID VARCHAR, ZLID VARCHAR);")
+        try await check("no table")
+        try FileManager.default.removeItem(at: file)
+        store.addressBook(schema: "CREATE TABLE ZWAADDRESSBOOKCONTACT (Z_PK INTEGER PRIMARY KEY, ZWHATSAPPID VARCHAR);")
+        try await check("no column")
+        try Data("not a database".utf8).write(to: file)
+        try await check("unreadable")
+    }
+
+    func testAMissingPermissionReadsAsNeedsAccessNotAnEmptyPicker() async throws {
+        store.session(friendJid, name: "Bob Example", last: 30)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: store.url.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: store.url.path) }
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        guard case .needsAccess = w.status else { return XCTFail("\(w.status)") }
+    }
+
     func testTheQRStepWaitsOnTheStatusVersionInsteadOfPolling() async throws {
         let api = FakeChatSourcesAPI()
         api.qrVersion = "aaaaaaaaaaaa"

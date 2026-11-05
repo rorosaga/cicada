@@ -18,7 +18,7 @@ extension Copy {
         static func downloadHelp(_ version: String) -> String { "Download version \(version) and get it ready to install" }
         static let restart = "Restart to update"
         static func restartHelp(_ version: String) -> String { "Quit Cicada, install version \(version) and open it again" }
-        static let waitForSleep = "Wait for Sleep to finish — updating restarts Cicada."
+        static let restartAnyway = "Restart Anyway"
         static let whatsNew = "What's new"
         static let whatsNewHelp = "Open the release notes in your browser"
 
@@ -36,7 +36,7 @@ extension Copy {
         }
         /// "Restart to update" asked the backend and Sleep had started meanwhile.
         static func readyButSleeping(_ version: String) -> String {
-            "Version \(version) is ready. Sleep is writing, so restart once it finishes."
+            "Version \(version) is ready. Sleep may be reading: restarting now loses at most the batch in progress, which is read again."
         }
         static func installing(_ version: String) -> String {
             "Installing version \(version)… Cicada opens again in a moment."

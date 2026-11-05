@@ -6,12 +6,15 @@ Every test builds a synthetic bank under tmp_path; nothing real is read.
 from __future__ import annotations
 
 import json
+import os
+import socket
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from api import config, main
-from api.services import bank_index, channel_items
+from api.services import bank_index, channel_items, feed_registry, media_ingestor
 
 
 def _write(path, fm: dict, body: str = "") -> None:
@@ -529,3 +532,213 @@ def test_a_list_reads_only_its_own_sources_episodes(bank, monkeypatch):
     assert built == ["ep_2026-09-14_001"]   # the one new episode; the unchanged ones are kept rows
     built.clear()
     assert channel_items.items(bank, "chat-export:gemini")["total"] == 0 and built == []
+
+
+# --- ROR-108: the feeds of the RSS page, each with what it brought in ----------
+
+
+@pytest.fixture
+def feed_bank(tmp_path):
+    bank = tmp_path / "bank"
+    (bank / "entities").mkdir(parents=True)
+    (bank / "episodes").mkdir()
+    (bank / "sources").mkdir()
+    a, b = feed_registry.feed_id("https://a.example.com/rss"), feed_registry.feed_id("https://b.example.com/rss")
+    (bank / "feeds.yaml").write_text(yaml.dump({"feeds": [
+        {"url": "https://a.example.com/rss", "tags": [], "added": "2026-11-01", "last_polled": "2026-11-05",
+         "title": "Alpha Weekly"},
+        {"url": "https://b.example.com/rss", "tags": [], "added": "2026-11-01", "last_polled": "2026-11-05",
+         "last_problem": "rate_limited"},
+        {"url": "https://www.unstamped.example.com/feed", "tags": [], "added": "2026-11-01", "last_polled": None},
+        {"url": "https://empty.example.com/rss", "tags": [], "added": "2026-11-01", "last_polled": "2026-11-05"},
+        {"url": "https://shared.example.com/one.xml", "tags": [], "added": "2026-11-01", "last_polled": None},
+        {"url": "https://shared.example.com/two.xml", "tags": [], "added": "2026-11-01", "last_polled": None},
+    ]}))
+    index = {}
+
+    def item(eid, url, day, feed=None, channel=None):
+        _page(bank, eid, type="media", name=eid, origin="rss", url=url, created=day, channel=channel)
+        row = {"media_entity_id": eid, "url": url, "title": eid, "saved_at": day}
+        if feed:
+            row["feed"] = feed
+        index[media_ingestor.url_hash(url)] = row
+
+    for i in range(1, 8):
+        item(f"a-{i}", f"https://cdn.example.net/a{i}", f"2026-10-0{i}", feed=a)
+    item("b-1", "https://b.example.com/one", "2026-10-09", feed=b, channel="Beta Notes")
+    item("stray-host", "https://unstamped.example.com/p/x", "2026-10-10", channel="Named By Item")
+    item("shared-host", "https://shared.example.com/p/y", "2026-10-11")
+    item("gone-feed", "https://elsewhere.example.org/z", "2026-10-12", feed="000000000000")
+    _json(bank, "sources/url_index.json", index)
+    return bank
+
+
+def _tree(bank):
+    return channel_items.collections(bank, "rss")["accounts"][0]["collections"]
+
+
+def test_every_followed_feed_is_listed_with_its_count_and_last_poll(feed_bank):
+    rows = {c["name"]: c for c in _tree(feed_bank)}
+    assert rows["Alpha Weekly"]["count"] == 7 and rows["Alpha Weekly"]["problem"] is None
+    assert rows["Alpha Weekly"]["polled"] == "2026-11-05"
+    # The record has no title yet: the publication its newest item names, else the host.
+    assert rows["Beta Notes"]["problem"] == "Last check failed: too many requests"
+    assert rows["Named By Item"]["count"] == 1 and rows["Named By Item"]["polled"] is None
+    assert rows["empty.example.com"]["count"] == 0 and rows["empty.example.com"]["latest"] is None
+    assert rows["shared.example.com"]["count"] == 0, "a host two feeds share names neither"
+    assert rows["Other"]["count"] == 2 and "problem" not in rows["Other"]
+    assert [c["name"] for c in _tree(feed_bank)][-1] == "Other"
+    assert channel_items.collections(feed_bank, "rss")["accounts"][0]["count"] == 11
+
+
+def test_a_feeds_items_page_newest_first_and_add_up_to_the_channel(feed_bank):
+    a = feed_registry.feed_id("https://a.example.com/rss")
+    first = channel_items.items(feed_bank, "rss", collection=a, limit=3)
+    second = channel_items.items(feed_bank, "rss", collection=a, offset=3, limit=3)
+    assert first["total"] == 7 and first["all"] == 7
+    assert _ids(first) == ["a-7", "a-6", "a-5"]
+    assert _ids(second) == ["a-4", "a-3", "a-2"]
+    assert not any(k.startswith("_") for row in first["items"] for k in row)
+    other = channel_items.items(feed_bank, "rss", collection="other")
+    assert set(_ids(other)) == {"shared-host", "gone-feed"}
+    assert channel_items.items(feed_bank, "rss")["total"] == 11
+
+
+def test_reading_the_feeds_fetches_nothing_and_writes_nothing(feed_bank, monkeypatch):
+    def refuse(*_a, **_k):
+        raise AssertionError("a read never reaches the network")
+
+    monkeypatch.setattr(socket, "create_connection", refuse)
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    before = {p: p.stat().st_mtime_ns for p in feed_bank.rglob("*") if p.is_file()}
+    channel_items.collections(feed_bank, "rss")
+    channel_items.items(feed_bank, "rss", collection="other")
+    assert before == {p: p.stat().st_mtime_ns for p in feed_bank.rglob("*") if p.is_file()}
+
+
+def test_no_feeds_and_nothing_in_answers_no_accounts(tmp_path):
+    bank = tmp_path / "bank"
+    (bank / "entities").mkdir(parents=True)
+    assert channel_items.collections(bank, "rss") == {"channel": "rss", "accounts": []}
+
+
+def test_the_feed_tree_route_revalidates_and_a_poll_result_moves_its_etag(feed_bank, monkeypatch):
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(feed_bank))
+    monkeypatch.setenv("CICADA_HOME", str(feed_bank.parent / "home"))
+    config.get_settings.cache_clear()
+    client = TestClient(main.app)
+    try:
+        first = client.get("/sources/channels/rss/collections")
+        assert first.status_code == 200
+        assert len(first.json()["accounts"][0]["collections"]) == 7
+        tag = first.headers["etag"]
+        assert client.get("/sources/channels/rss/collections", headers={"If-None-Match": tag}).status_code == 304
+
+        feeds = yaml.safe_load((feed_bank / "feeds.yaml").read_text())
+        feeds["feeds"][0]["last_problem"] = "gone"
+        (feed_bank / "feeds.yaml").write_text(yaml.dump(feeds))
+        os.utime(feed_bank / "feeds.yaml", (2_000_000_000, 2_000_000_000))
+        moved = client.get("/sources/channels/rss/collections", headers={"If-None-Match": tag})
+        assert moved.status_code == 200
+        names = {c["name"]: c.get("problem") for c in moved.json()["accounts"][0]["collections"]}
+        assert names["Alpha Weekly"] == "Last check failed: not found"
+    finally:
+        config.get_settings.cache_clear()
+
+
+# --- where an item lives (G161, ROR-111) ------------------------------------------------------------------------------
+
+_NOTE = "x-coredata://0000AAAA-1111-2222-3333-444455556666/ICNote/p7"
+
+
+def _note_with_id(b):
+    _episode(b, "ep_2026-09-06_001", title="Placed", origin="apple-notes", timestamp="2026-09-06T08:00:00+00:00",
+             note_id=_NOTE)
+    _json(b, "sources/notes_index.json", {_NOTE: {"episode_id": "ep_2026-09-06_001", "modified": "a"}})
+    bank_index.invalidate()
+
+
+def test_a_note_says_it_has_a_place_and_only_the_click_gets_its_id(bank):
+    _note_with_id(bank)
+    page = channel_items.items(bank, "notes")
+    row = next(r for r in page["items"] if r["id"] == "ep_2026-09-06_001")
+    assert row["place"] == "notes"
+    assert "x-coredata" not in json.dumps(page), "a list never carries a note's id"
+    assert channel_items.place(bank, "notes", "ep_2026-09-06_001") == {"kind": "notes", "note_id": _NOTE}
+
+
+def test_a_note_with_no_real_id_has_no_place(bank):
+    rows = channel_items.items(bank, "notes")["items"]
+    assert rows and all("place" not in r for r in rows), "the fixture's ids are not Notes' own"
+    assert channel_items.place(bank, "notes", rows[0]["id"]) is None
+
+
+def test_a_locked_note_has_no_row_and_no_place(bank):
+    from api.services import evidence
+
+    _episode(bank, "ep_2026-09-06_001", title="Locked note", origin="apple-notes",
+             timestamp="2026-09-06T08:00:00+00:00", source_deleted_at="2026-09-05T00:00:00+00:00",
+             **{evidence.LOCKED_NOTE_KEY: True})
+    _json(bank, "sources/notes_index.json", {_NOTE: {"episode_id": "ep_2026-09-06_001", "note_id": _NOTE}})
+    bank_index.invalidate()
+    assert channel_items.items(bank, "notes")["items"] == []
+    assert channel_items.place(bank, "notes", "ep_2026-09-06_001") is None
+
+
+def test_a_saved_link_says_its_kind_and_the_list_never_its_url(bank):
+    page = channel_items.items(bank, "chrome-bookmarks")
+    assert page["items"] and all(r["place"] == "web" for r in page["items"])
+    assert "https" not in json.dumps(page)
+    assert channel_items.place(bank, "chrome-bookmarks", "media-one") == {"kind": "web",
+                                                                         "url": "https://example.com/1"}
+
+
+@pytest.mark.parametrize("url,kind", [
+    ("https://github.com/owner/repo", "github"),
+    ("HTTPS://GitHub.com/owner/repo", "github"),
+    ("https://www.github.com/owner/repo", "github"),
+    ("https://github.com.example.net/owner/repo", "web"),
+    ("http://example.com/a?b=c#d", "web"),
+])
+def test_only_a_plain_web_link_is_a_place_and_the_host_says_github(url, kind):
+    assert channel_items._web_place(url) == {"kind": kind, "url": url}
+
+
+@pytest.mark.parametrize("url", [
+    "file:///etc/hosts", "cicada://open", "x-apple.systempreferences:foo", "javascript:alert(1)", "ftp://example.com/a",
+    "mailto:someone@example.com", "https:no-host", "https://", "//example.com/a", "example.com/a", "",
+    None, "https://user:pw@example.com/", "https://github.com@example.com/", "https://example.com\\@github.com/",
+    " https://example.com/", "https://exa mple.com/", "https://example.com/\n", "https://example.com:port/",
+])
+def test_anything_else_stored_is_no_place(url):
+    assert channel_items._web_place(url) is None
+
+
+def test_a_stored_file_link_shows_no_control(bank):
+    entries = json.loads((bank / "sources" / "url_index.json").read_text())
+    entries["h1"]["url"] = "file:///etc/hosts"
+    _json(bank, "sources/url_index.json", entries)
+    bank_index.invalidate()
+    rows = {r["id"]: r for r in channel_items.items(bank, "chrome-bookmarks")["items"]}
+    assert "place" not in rows["media-one"]
+    assert channel_items.place(bank, "chrome-bookmarks", "media-one") is None
+
+
+def test_an_item_of_another_channel_or_an_unknown_channel_gets_nothing(bank):
+    assert channel_items.place(bank, "notes", "media-one") is None
+    assert channel_items.place(bank, "no-such-channel", "media-one") is None
+
+
+def test_the_route_answers_a_place_and_404s_the_rest(bank, client):
+    _note_with_id(bank)
+    ok = client.get("/sources/channels/notes/items/ep_2026-09-06_001/place")
+    assert ok.status_code == 200 and ok.json() == {"kind": "notes", "note_id": _NOTE}
+    assert client.get("/sources/channels/notes/items/nope/place").status_code == 404
+    assert client.get("/sources/channels/no-such/items/ep_2026-09-06_001/place").status_code == 404
+
+
+def test_a_demo_bank_lists_and_answers_like_any_other(bank):
+    (bank / "_bank.yaml").write_text("demo: true\n", encoding="utf-8")
+    _note_with_id(bank)
+    assert channel_items.items(bank, "notes")["total"] >= 1
+    assert channel_items.place(bank, "notes", "ep_2026-09-06_001")["kind"] == "notes"

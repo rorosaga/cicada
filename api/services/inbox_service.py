@@ -1102,7 +1102,7 @@ def recommended_key(kind: str, fm: dict, options: list[dict]) -> str | None:
         # G141 PJ-6: a follow-up proposes nothing — it asks how it went. G198: Cicada proposed no edit; an agent did.
         return None
     if fm.get("trigger") == "sleep/phone_number":
-        return None    # proposed ruling 55: it asks because the person's line did not say; Sleep has no proposal
+        return None    # ruling 55: it asks because the person's line did not say; Sleep has no proposal
     if kind == "decay" and not options:
         options = inbox_questions.normalize_options(
             inbox_questions.decay_question("", None, str(date.today()))["options"]
@@ -2459,7 +2459,7 @@ async def _resolve_divergence(path, parsed, request, settings, item_id: str) -> 
     existing = by_id.get(_opt_str(fm.get("existing_claim_id")) or "")
     today = str(date.today())
     if new is not None and new.context == phone_numbers.ASKED:
-        # Proposed ruling 55: the number waited closed on the page; the answer opens it or leaves it closed, in the
+        # Ruling 55: the number waited closed on the page; the answer opens it or leaves it closed, in the
         # person's own hand. "1" also ends the one it was asked against; "2" keeps both.
         if key == "0":
             new.context = phone_numbers.REFUSED

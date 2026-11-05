@@ -203,7 +203,7 @@ private struct FaceView: View {
 }
 
 /// A Messages chat's face: the photo the chat shares (Cicada's own copy, `GET /sources/messages/chats/{id}/photo`),
-/// else a ring with the first letter of who it is with — never a solid fill. 2026-11-03: the page the chat stands for
+/// else the one plain picture for anyone with none (`EntityPictureFallback`, owner 2026-11-05). 2026-11-03: the page the chat stands for
 /// draws first (`picture` — the person's own chat is the owner's page), the chat's photo after it.
 struct ChatFace: View {
     let id: String
@@ -230,12 +230,8 @@ struct ChatFace: View {
                     .frame(width: side, height: side)
                     .clipShape(Circle())
             } else {
-                Circle().strokeBorder(CicadaTheme.border, lineWidth: 1)
-                Text(SiteMonogram.letter(label))
-                    .font(CicadaTheme.font(size: side * 0.5, weight: .medium))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
+                EntityPictureFallback(type: .person, name: label, units: side, frame: CGSize(width: side, height: side),
+                                      compactInitials: true)
             }
         }
         .frame(width: side, height: side)

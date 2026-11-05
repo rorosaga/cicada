@@ -8,6 +8,8 @@
 
 **Pick up here (2026-10-22, redesign):** read ruling 36 (the owner's answers D1–D6 to the redesign proposal), then [`feature-status.md`](feature-status.md) for what is building. Branches in flight: `feat/awake-read` (G207), `fix/people-dedup` (G209), `feat/update-sources` (G61); queued: connection model and providers (G217, G50), agent API (G213), app (G217's pages, needs a Mac). **Decided after review (2026-10-22, in ruling 36):** a new install's Auto uses a signed-in plan, a key offered as an equal option; ruling 4c stays and the quick read follows it; G213's API rides the G135 listener; "Where to check" as one grouped inbox review; `rich` + `questionary` approved. Nothing waits on the owner from this ruling. **Ruling 38 (2026-10-23)** decides the follow-ups: `/v1` from the tool table (G213), a capture-only phone (G91), one-way syncs (G219), traces with screenshots (G218).
 
+**RSS by feed (2026-11-05, ROR-108, G89):** the RSS page lists its feeds, each opening in place; polls stamp an item's feed and keep a failed result as a code. Live items gain their stamp on the next poll; until then they file by host or under *Other*.
+
 **Chats (2026-10-28, G179):** WhatsApp live chats in their PR (`feat/chats-live-whatsapp-telegram`; the source-agnostic `chat_live` engine). Telegram under ruling 47a is its own PR (`feat/telegram-live`), one-to-one chats only with the person's per-chat confirmation of the other side's consent (the owner, 2026-10-28, after Telegram's AI terms). 2026-10-29: the connect sheets go one step at a time with a country picker (`feat/connect-sheets-modern`, DESIGN_RULES §9 2026-10-29).
 
 ## Current state and evidence
@@ -18,6 +20,18 @@
   `swift test` were refused by guards in the worker's shell (`HOME=`, sourcing `harness.sh`, overlays over the window), so
   they wait for the coordinator; then ROR-15 as the thin use `app.md` describes.
 
+- **2026-11-05 — open a source's item where it lives (ROR-111, G161; PR #630, branch `ror-111-open-in-place`).** One control on the
+  item row: Notes by its own id, GitHub, saved links, feed items, saved videos. A list says only the kind; the place is
+  read on the click. Not yet seen in the real app: the first press against a real note is the person's. Which sources
+  have it and why the others do not is on G161.
+- **2026-11-05 — A chat over Messages reads as a chat (ROR-109, G179; PR #628).** The Other agents list filtered on an empty `harness` field while its card counted by `source_key`; both now read `source_overview.row_key`. Reproduced on synthetic data. **Pick up here:** on the live install, `GET /conversations/recent?harness=unknown&limit=200` should return exactly the card's one conversation.
+- **2026-11-05 — Sleep asks only what the person alone can answer (G239; PR #623, branch `noisy-questions`).** A run read 53
+  conversations and raised 25 questions; the causes were proxies standing in for the model's judgement. Stage 1 now says what
+  rests on a question, the judge is told what UNSURE costs and reads the lines naming both, Stage 4 asks for how the person
+  works. Two real Sleeps a side on invented notes: questions 7, 6 to 4, 3, noise 5, 4 to 1, 1, phrase `skill` pages 3, 2 to 0, 0,
+  the question that matters 0 of 2 to 2 of 2. Nothing has run on the real bank. **Decided (ruling 65, owner 2026-11-05):** questions on the model's stake, a thing in motion counting; any skill on 2+ conversations.
+  **Within it, for him to rule on:** a public thing that gets `ask_person` stays with the person and is never looked up (`web_settle.py`, `person_context`), a narrow exception to ruling 27. A question asked on purpose is closed only by the person's answer or their own located words (ruling 29), never by a later confident mention.
+  Two notes ground a skill; no new tidy rule for existing person questions (`passing_rule`, `_merge_rule` keep them; a new bank is planned).
 - **2026-11-05 — the Stage 2 stall (G238, PR #620).** A scheduled Sleep held the event loop about 7 minutes at 8,500
   pages: a parse of the whole pending store per project page per project name with no page. Fixed and moved off the
   loop. **For the owner:** the auto-updater reads a timed-out `/sleep/status` as nothing running, so a stall past 2 s lets
@@ -28,11 +42,11 @@
   the eyebrow counts, so the row #619 left reading Connected for a borrowed reader keeps its dot in its own category.
   No new route: everything is derived from what the page already held.
 
-- **2026-11-04 — phone numbers on the right page, proposed ruling 55 (G81; PR #603, branch `g81-phone-numbers`).** Owner: he texted
+- **2026-11-04 — phone numbers on the right page, ruling 55, decided 2026-11-05 (G81; PR #603, branch `g81-phone-numbers`).** Owner: he texted
   an agent two people's numbers and expected memory to map and follow them. Built OFF (the switch file `numbers_switch.json`), never
   run on real data: a token in the bank, the digits in a vault on this Mac, shown on the person's page and in the Reader.
   Proved through real Sleeps at haiku on scratch state, with a restatement, a change, a held name and a question.
-  2026-11-05: cut down to what is explicit after four review rounds: a phone word, an add/save with a capital at 9+, a change with a phone word, or 9+ the vault holds; "Ana N" stays in clear (ruling 55). **Needs the owner:** the question at ruling 55. **Pick up after a yes:** the sub-answers.
+  2026-11-05: cut down to what is explicit after four review rounds: a phone word, an add/save with a capital at 9+, a change with a phone word, or 9+ the vault holds; "Ana N" stays in clear (ruling 55). **Owner 2026-11-05: yes**, amended: a number on a Contacts card is that card's by value, and a `+` number is kept (branch `g81-contacts`). **Pick up:** the sub-answers; whether a one-time recovery of blanked numbers is wanted.
 - **2026-11-05 — integration-test defects (ROR-41; branch `ror41-integration-defects`, PR #619).** The embedding children are
   all capped (ONNX text child 677 % to 344 % CPU, synthetic bank); Apple Books' refusal names its fix; a gated feed's
   line names the switch that turns it on; a reader counts once in the Sources eyebrow; `install_app.sh` signals by path;
@@ -205,6 +219,7 @@
   request Reddit API access (Responsible Builder Policy), register an *installed app* with redirect
   `http://127.0.0.1:8000/sources/connectors/reddit/callback`, put its id in `reddit.CLIENT_ID` (`network.md`,
   "Registering Cicada's Reddit app"). **Pick up:** the app side on #593's `SourceConnectArea` (follow-up PR).
+- **2026-11-05 — WhatsApp's picker: Archived group and pictures (ROR-110, G179; branch `ror110-whatsapp-picker`).** Owner asked for both directly; before a tick a picture and the flag stay in the app's memory, never posted or on disk (`capture-and-sleep.md`). Synthetic store only. **Still open:** a counts-only shape check of the real store, since why the owner saw no pictures is not yet measured (`@lid` sessions remain the likely gap).
 - **2026-11-04 — chat images and Telegram faces (G179; branch `feat/chat-panel-images`).** Owner: "I don't see images appearing when I open the chat inside the app" and "I don't know why the profile pictures don't appear in the chats" (Telegram). Attachments of WhatsApp, Messages and Telegram chats now show as the files in the chat
   panel and the Reader, resolved by the app at view time for ticked chats only (Telegram's through the backend's
   own connection), thumbnails outside every bank, gone on untick; nothing new is stored in the bank, so chats
@@ -3219,7 +3234,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     needing an installation for the account's own repositories (the install step goes), or if the person unlinks most
     of what the origin rule links.
 
-55. **PROPOSED, off until the owner rules (coordinator, from the owner's message of 2026-11-04; G81, G154, G179): a
+55. **DECIDED, owner 2026-11-05 (coordinator's proposal from the owner's message of 2026-11-04; G81, G154, G179): a
     number the person gives for someone consolidates onto that person's page as a token; the digits stay in a vault on
     this Mac, outside every bank.** The owner texted an agent the numbers of two people and expected memory to map each
     to the right page and follow a change. Today it cannot be relied on: the chat scrub destroys a `+` number before
@@ -3441,7 +3456,27 @@ A whole row moves to DONE only after its remaining implementation and required a
     > (c) **Should numbers you type to Claude Code or a note become codes too?** Recommended: yes, as a follow-up.
     > (d) **If you hand this memory to someone or move it to another computer, the private file stays behind**, so the page says "a number" and a number said again reads as a new one. Is that right? Recommended: yes for a hand-over; carry it sealed when your own home moves, as a follow-up.
 
-    **Revisit** on a yes (each sub-answer is its own follow-up), or on a measured case of a number on the wrong page, of a
+    **Decided, owner 2026-11-05: yes.** The feature still runs only with its switch on. **Amendment, same day (the owner's
+    real message, invented here as `+1 202-555-0143`, `+1 202-555-0177`, then a line about an invite: no phone word, no name).**
+    The owner: "From having contacts synced you can see who I'm referring to. Even if saved under a nickname. Names sometimes
+    have hints as to where u know the person from example: Ricky (ie). That would be my friend I know from uni for example."
+    With the switch on, in the person's own line of a ticked chat: (1) a number whose keyed hash a Contacts card holds is that
+    card's number, whatever the line says, by value, however it is written (last nine digits; a digit run reads as a number only
+    when it IS a contact's). It becomes a token. (2) A `+` number with no card is kept as a token where the scrub used to blank it
+    with no copy; other speakers' lines are as they were. (3) A token that matched one card is linked to it: Sleep files the
+    number on that card's page, and the person giving the number counts as naming that one waiting card, so its page is born by
+    the Contacts promotion rail, a one-part nickname's too. The card's whole name reaches the model as a hint it judges. The owner's
+    correction, same day: 'The "(ie)" might not be ie btw, can be something like Johnny Cerrajero.' So any word of the name may say
+    where they know the person, a trade given as a surname included: no rule reads a suffix or takes a last word for a surname, and no
+    word of it becomes a stated fact or a title beyond what the model reasons. An unmatched token stays a token and Stage 1 decides. Two cards on one number:
+    never a guess, one question in the existing form, on a page; with no page yet it is held on a name and asks when that page
+    exists. (4) The faces store is not read: the hashes and the waiting cards only. Off stays a true no-op, a stored line never
+    moves, and numbers already blanked in old chats stay blanked (`storage.md`, "A number on a Contacts card").
+    **Recorded, not built (owner 2026-11-05):** a local-only tool for an agent to ask for a number on the person's ask; numbers
+    typed to Claude Code or in a note also becoming codes, "as long as it doesn't hurt the UX or the performance"; the file
+    travelling sealed when a person's own home moves, documented, "not to work on yet".
+
+    **Revisit** on each sub-answer (its own follow-up), or on a measured case of a number on the wrong page, of a
     wrong close, or of questions asked where the line plainly said (the word lists are `read_line`'s).
 56. **A project starts only from the person or an agent on their ask; things link to the projects that exist by context
     (owner, 2026-11-04; G141, G222; amends ruling 36 D4 and ruling 45; branch `ruling-56-projects-by-ask`).** The owner's
@@ -3518,6 +3553,28 @@ A whole row moves to DONE only after its remaining implementation and required a
     **Revisit** when the person has listed 3 or more projects (measure the `named` rows they untie, and whether the guard
     misses what they re-tie); if they turn down most of a harness's links (the trust list is wrong for links); or if they
     ask to mark pages in bulk, which needs per-item answers first.
+66. **A slow answer is busy; a hung backend still updates (owner, 2026-11-05; G182).** The owner's words: yes, a slow
+    answer is busy, and "the problem you describe... should be taken into account and resolved". The updater read a
+    `/sleep/status` timeout as nothing running, so a slow answer during Sleep let an update stop the backend mid-batch (a
+    review measured 2.22 s against a 2 s limit, after the stall fix). A test deliberately kept a hung backend updatable,
+    since an update may be its fix, and both must hold. **Decision:** only nothing listening is idle. Hung
+    (`BackendSilence`) takes three looks at least ten minutes apart with no real answer, two hours from the first to now,
+    and no drain's `running` record touched in those two hours; the looks are on disk, so they outlast a quit. **Why these:**
+    two hours is about seven of the longest batch measured (about 17 minutes), and being wrong costs at most that batch,
+    while waiting costs a late update. The record is the drain's own progress; CPU was rejected because a drain waiting
+    on a model looks idle. The person's click may go past Sleep on one line naming the cost; an automatic install never
+    does. **Revisit** if a batch is measured past two hours, or a hung backend is seen holding an update.
+65. **A question rests on the model's stated stake; any skill takes 2+ conversations (owner, 2026-11-05; G239, PR #623).**
+   The owner: "I don't think that with stuff like this there is any benefit of answering when nothing really depends on it.
+   Tho there are some questions like an ongoing project that may not be relevant right now, but will be in the future, maybe
+   these are important to resolve." (a) Stage 1 says what rests on a question (`ask_person`); a low confidence asks nothing;
+   a thing still in motion that will matter later is a stake, a list of names with nothing depending on them is not. A stake
+   on an existing page raises its question there, one open per name. (b) Any skill needs 2+ conversations, and two notes count
+   as two. (c) Naming two people together is evidence they are two: the judge's UNSURE on names sharing nothing asks only on
+   a line naming both that the judge reads as one person (`pair_evidence.names_tied`). A one-way alias with no such line asks
+   nothing and goes on by the usual rule. (d) No new tidy rule for older person questions: the owner plans a new consolidation
+   bank. Trigger to revisit: a real run where a stake that mattered went unasked, measured.
+
 64. **What the person marked in a book is their own record: kept word for word, read for what it shares, and it lights the
     page (owner, 2026-11-04; G39, G233, ROR-95; amends the quiet rule of 2026-10-20).** The owner tested Apple Books on their
     real library and said yes to three changes. **(a) Word for word, no model.** Each highlight and note is a claim on the

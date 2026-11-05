@@ -488,3 +488,12 @@ def test_a_sync_from_a_connection_the_person_ended_is_dropped_whole(client):
                                                          "connection": fresh})
     assert again.status_code == 200 and _waiting_file(memory).exists(), "a new Connect syncs as ever"
     assert _post(c, [_card("C1", "Hal", "Sample")])["waiting"] == 1, "an older app (no connection id) as before"
+
+
+def test_a_number_on_a_waiting_card_names_it_a_one_part_nickname_too(stage2):
+    """Ruling 55, 2026-11-05: the person giving a waiting card's number names that card, so its page is born by this rail."""
+    contacts_local.save_waiting(stage2.name, [{"id": "C9", "given_name": "Ricky (ie)", "has_phone": True},
+                                              *contacts_local.load_waiting(stage2.name)])
+    (change,) = _resolve(stage2, _mention("Ricky (ie)", number_card="C9", named=False))["changes"]
+    assert (change["action"], change["entity"]["name"], change["contacts_card"]["id"]) == ("create", "Ricky (ie)", "C9")
+    assert _resolve(stage2, _mention("Nobody Else", number_card="C-gone", named=False))["changes"] == []

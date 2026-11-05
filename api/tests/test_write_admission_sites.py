@@ -495,7 +495,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # the app sends it once and a 409 would keep a disconnected address book's cards. It stamps a forget marker that
     # every Sleep read of the waiting set honours (Stage 2's index, Stage 5's seed, the rematch and its save back).
     "DELETE /sources/contacts-local/waiting": (MARKED, None),
-    "POST /people/numbers/reveal": (NONE, None),   # proposed ruling 55: reads the vault, a POST so a token stays out of a URL
+    "POST /people/numbers/reveal": (NONE, None),   # ruling 55: reads the vault, a POST so a token stays out of a URL
     "PUT /people/numbers/switch": (OUTSIDE, None),
     "POST /people/numbers/new-vault": (OUTSIDE, None),
     # G154: the Contacts page's faces, outside every bank and read by no match; its forget is the same forget.

@@ -1635,6 +1635,34 @@ async def ingest_feed(
     return await ingest_batch(items, memory_path, from_bookmark_file=False, commit=commit)
 
 
+def stamp_feed(memory_path: Path, items: list[RawItem], feed_id: str) -> bool:
+    """Record on each item's ``url_index`` row which followed feed brought it in (ROR-108), for an item already held
+    too: a poll lists what a feed carries, so items saved before the stamp existed gain it on their next poll. The
+    first feed keeps an item a second feed also carries, so one item lists once. Returns whether the index changed."""
+    idx = load_url_index(memory_path)
+    changed = False
+    for item in items:
+        entry = idx.get(_primary(idx, url_hash(item.url)))
+        if isinstance(entry, dict) and not entry.get("feed"):
+            entry["feed"] = feed_id
+            changed = True
+    if changed:
+        save_url_index(memory_path, idx)
+    return changed
+
+
+def is_feed_document(xml: str) -> bool:
+    """Whether a fetched body is an RSS, RDF or Atom document at all (a consent page answering 200 is not); a feed with
+    no entries yet is one."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.fromstring((xml or "").strip())
+    except ET.ParseError:
+        return False
+    return root.tag.rsplit("}", 1)[-1].casefold() in ("rss", "rdf", "feed")
+
+
 #: Export files that hold other people, never saves — refused by name even when
 #: dropped alone, where the generic URL-list parser would otherwise read them.
 _NOT_SAVES = {

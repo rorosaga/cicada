@@ -551,6 +551,15 @@ the node's `contentHash` only when true, so a lit node's hash is unchanged; `GET
 `saved-why-2`, G191 v3: items gained `savedWhyHistory`, `lastSavedAt` and `captureThumb`). Neither moved a component,
 so `VersionVector` was unchanged by those — but G191 v3 also folds the `captures` component into `/sources`' ETag (a
 new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps `captures` → `.sources`.
+**Where an item lives (G161, ROR-111, shape `g161-17`).** A row on `GET /sources/channels/{id}/items` whose item records
+a place carries `place`: its kind alone (`notes`, `github`, `web`), never the URL or a note's id, so a list stays titles
+only. `GET /sources/channels/{id}/items/{item}/place` answers one listed item on the person's click:
+`{kind: "notes", note_id}` or `{kind: "github"|"web", url}`; 404 when the channel does not list it or no place is known. No
+ETag, not a Store domain, never cached, nothing fetched. Only an http(s) link with a host and no credentials is a place
+(`channel_items._web_place`): `file:`, a custom scheme, a backslash or a space is none. GitHub is said by the exact host.
+A note's place is Notes' own `x-coredata://` id from the notes index or the episode's header, never a body. A locked note
+is never listed, so it never answers, and the route is not on the remote connector.
+
 **Where a source's items live (2026-11-04, shape `g161-16`).** `GET /sources/channels/{id}/collections` answers `{channel,
 accounts: [{name, provider, count, collections: [{id, name, count, latest}]}]}` for `notes`, `calendar-local` and
 `reminders-local`, and no accounts for any other channel the bank knows; an unknown channel is a 404. `notes` adds
@@ -905,7 +914,8 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   returns nothing. `truncated` is the UNION of three caps; `linesTruncated` specifically means "the
   ordered list was cut" and is what a client renders its banner on.
 - `GET /conversations/recent` is **CAPPED** (limit ≤ 200) and is never a membership test; filters
-  (`harness`, `origin`, and `q`, a title filter) apply BEFORE the cap. Use `GET /conversations/{id}` to
+  (`harness`, `origin`, and `q`, a title filter) apply BEFORE the cap; `harness` names an overview row, the partition
+  its count uses, never the episode's field (ROR-109). Use `GET /conversations/{id}` to
   resolve one id against the whole bank.
 - `GET /search` runs in the threadpool. `mode=prefix` (the per-keystroke pass) is FTS only and never
   loads the embedding model; `mode=hybrid` (the default) fuses FTS with the stored vectors and reports

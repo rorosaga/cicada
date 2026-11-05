@@ -264,8 +264,9 @@ def test_a_one_way_alias_is_dropped_but_the_pair_still_meets_the_judge(bank, mon
     result = _resolve(bank, monkeypatch, [], extracted, judge)
     assert [(c["new_name"], c["existing_name"]) for c in judge.calls] == [("Ellie", "Elspeth Moorcroft")]
     assert "named together in one conversation" in judge.calls[0]["note"]
-    assert _creates(result) == ["elspeth-moorcroft"]          # "Ellie" held and asked, never an unjudged page
-    assert ("merge_suggestion", "ellie", "elspeth-moorcroft") in _questions(bank)
+    # Owner 2026-11-05: names sharing nothing and no line naming both: the judge's UNSURE asks nothing, "Ellie" goes on
+    # by the usual rule (`pair_evidence.names_tied`); a line naming both is asked (test_pair_evidence).
+    assert ("merge_suggestion", "ellie", "elspeth-moorcroft") not in _questions(bank)
     page = next(c for c in result["changes"] if c["id"] == "elspeth-moorcroft")
     assert "Ellie" not in (page["entity"].get("aliases") or [])
 

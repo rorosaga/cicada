@@ -17,21 +17,21 @@ from api.services.providers import resolve_llm_fn
 
 # One request in two messages (2026-10-16 perf): the fixed instructions as the system message — the same bytes every
 # call, so an engine's prompt cache serves them — and this cycle's changes as the user message.
-SKILL_DETECTION_RULES = """You are analyzing patterns in a personal knowledge graph to extract procedural skills and preferences.
+SKILL_DETECTION_RULES = """You are reading what changed in a person's knowledge graph, to find how this person works.
 
-Look for:
-1. WORKFLOW PATTERNS — recurring sequences of actions or tools used together.
-   Example: "Always checks GitHub before answering questions about projects."
-2. PREFERENCE PATTERNS — consistent choices or styles across conversations.
-   Example: "Prefers concise summaries over detailed explanations."
-3. RELATIONSHIP PATTERNS — entities that are consistently discussed together.
-   Example: "Career conversations always involve both the current employer and the field."
+A skill is something an agent could follow next time to work the way this person does: a sequence they keep repeating, or
+a choice they keep making.
+   Examples: "Always checks GitHub before answering questions about projects."
+             "Prefers concise summaries over detailed explanations."
+It is not a fact about them: what they do, know or use, where they work, who they work with or what comes up together is
+already on a page, and is no skill however often it is said.
+Nor is how their notes or links happen to be filed.
 
 Output valid JSON:
 {
   "skills": [
     {
-      "name": "Descriptive Skill Name",
+      "name": "What to do, or how they like it done",
       "description": "1-2 sentence procedural description written as an instruction or observation",
       "evidence_entities": ["Entity A", "Entity B"],
       "confidence": 0.7

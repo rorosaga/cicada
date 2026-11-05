@@ -911,9 +911,9 @@ off by default; `cicada.saveWhy.enabled`, per Mac like the watch's consent flags
 on also turns on the bookmark watch of every installed browser Cicada can sync (`SaveWhySetup`), named under the switch
 before the flip — see *Ask why* below.
 **Calendars, contacts & feeds** offers Calendar on this Mac and
-Contacts (G154), both app-owned rows. (Proposed ruling 55, off: the sync hashes a card's numbers with `PhoneNumberKeys`,
+Contacts (G154), both app-owned rows. (Ruling 55, behind its switch: the sync hashes a card's numbers with `PhoneNumberKeys`,
 under a key `GET /people/numbers/match-key` gives only while the feature is on; `storage.md`, "Phone numbers".)
-**A person's numbers (proposed ruling 55, off; DR-78, DR-81):** `PersonNumbersRow` draws a person's current numbers on their
+**A person's numbers (ruling 55, behind its switch; DR-78, DR-81):** `PersonNumbersRow` draws a person's current numbers on their
 page, nothing when there are none; the Reader and `QuoteBlock` show a token's digits, asked of `POST /people/numbers/reveal`
 for what is on screen and held in memory by the view (`NumberTokens`). A token it can't answer reads "a number". A row
 rather than a block of `GET /entities/{id}`, because blocks reach other clients and must never carry a digit. Number claims
@@ -1052,8 +1052,7 @@ bank and draws them at the chat's page everywhere — the `messages` picture run
 sharing is posted as none, and a key store that could not be read posts nothing, so a revoked permission never removes
 a page's picture; unticking forgets it on both sides) → the page's own `messages` rung (the server's copy of the same
 photo, before this session looked it up) → a monogram (`MessageBubbleFace`: the face
-inset 1.5 pt inside a disc of the ground's colour; the monogram is a disc filled with the person's hue at 35 % over the
-ground with the letter in `textPrimary` — a hue ring round one letter read as "ⓘ" — and below 24 units its letters are
+inset 1.5 pt inside a disc of the ground's colour; the monogram is the one plain disc (`EntityPictureFallback`, owner 2026-11-05) and below 24 units its letters are
 half its height, semibold; the bubbles only; never a shadow). Hovering a bubble names it ("Instinct · 34 messages
 waiting to be read"); the Messages row's tooltip and VoiceOver label carry every waiting chat's line. `MessageBubbles.model` is pure and tested. Not a Store domain: `GET /sources/messages/waiting` is fetched
 in memory whenever the status's unprocessed count moves. **Who is who in the Reader:** `EpisodeText.correspondent`
@@ -1664,6 +1663,22 @@ verified by `scripts/verify-skills.sh`, whose `--print-urls` is pinned offline) 
 with a `terms` line; `macos-harness` states plainly that it can control the whole Mac. Choosing one is Settings, How your
 agent reads (`agent_methods`), not an install.
 
+**The RSS page lists its feeds (ROR-108, owner 2026-11-05; `Views/Sources/FeedChannels.swift`, DESIGN_RULES §9
+2026-11-05).** The content slot is every feed followed, one row each by name, the row's right edge how many items it
+brought in, *Nothing yet*, or the last check's failure in a few words (*Last check failed: too many requests*); the
+address and the check's day ride `.help`. A feed with items opens in place (`InPlaceDisclosureRow`) to them, newest
+first, a page at a time; one with none has nothing to open. *Other* holds what no followed feed accounts for (a pasted
+feed, one since unfollowed), drawn only when it holds something. The page's search reads across the feeds, as a flat
+list. **Backend:** no new route. `GET /sources/channels/rss/collections` answers one unnamed account holding the feeds
+(`id`, `name`, `count`, `latest`, `url`, `polled`, `problem`) and `/items?collection=<feed id>` pages one; both ETagged,
+not a Store domain, kept by `ChannelItemsCache`. **How an item knows its feed:** a poll stamps `feed` (the feed URL's
+hash) on the `url_index` row of every item the feed lists, a held item included, the first feed keeping one two feeds
+carry; with no stamp yet (an item from before this), the one followed feed on its host, else *Other*. **How a poll
+records its result:** `feeds.yaml`'s `last_problem`, a code (`feed_registry.POLL_PROBLEMS`), never a fetch error's text;
+a good poll clears it, and a body that is no feed counts as `not_a_feed` though the poll's own answer stays `ok`. Reading
+any of this fetches nothing; the feed gate and the polling schedule are unchanged. No item row names a picture from the
+web.
+
 **The standard source page (owner 2026-11-04; `Views/Sources/SourcePageLayout.swift`, `Copy.SourceLayout`;
 DESIGN_RULES §9 2026-11-04).** Owner: *"we should standardize the layout for all the sources pages"*, *"so much text"*.
 Every source's detail column is one `SourcePageLayout(title:origin:status:statusHelp:backLabel:onShowList:onClose:
@@ -1742,7 +1757,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   under each, read from `GET /sources/contacts-local/book` (`capture-and-sleep.md`) into `ChannelItemsCache`: not a
   Store domain, no ETag, in memory, read when the page opens and when the channels move. Nearly every card has no photo,
   so the page is drawn as monograms. A card with a page comes first and is a control (`ContactPageCell`: `EntityPicture`
-  by the one picture precedence, its hue ring when there is no picture; hover a fill, a click opens the page). A card
+  by the one picture precedence, the same plain initials as a card with none; hover a fill, a click opens the page). A card
   with none is not (`ContactCardCell`: its thumbnail through `SourcePictureStore`, else a neutral disc in secondary ink;
   no hover, no press, no click target, static text to VoiceOver). A nameless card reads *No name*, never its
   organisation. One line beside the search: *376 contacts · 6 in memory*. `ContactsGridPhase` decides what is drawn: an
@@ -2281,7 +2296,12 @@ pending from that category, as a small notification."*
   Check records (`web-check`, `source-check`) are left out of every row (`source_overview.CHECK_RECORD_SOURCES`), so
   an agent's check no longer makes an "Other agents" conversation either. **"Other agents"** (`harness:unknown`) stays
   for real conversations an agent saved without naming its app, with its own sentence, never folded into an app it may
-  not be. Tests: `SourcesV4Tests`; screenshots render offscreen in `SourcesV4RenderTests` (skipped without
+  not be. **A card and the list under it are one partition (ROR-109, 2026-11-05):** `/conversations/recent?harness=`
+  names an overview row (`source_overview.row_key`), not the episode's `harness` field. Before, `unknown` meant "the
+  field is empty", true of every source-keyed record, so a chat over Messages, a note and a feed item all listed under
+  "Other agents" while its card counted one. A texted agent's chat lists under Messages like any other chat; its turns
+  stay `assistant:` and its claims `external:<name>` (G179). A host's sessions list under the host that counts them
+  (G228). Tests: `SourcesV4Tests`; screenshots render offscreen in `SourcesV4RenderTests` (skipped without
   `SOURCES_V4_RENDER_DIR`).
 
 **Explore saved sites (G166 slice 1, owner 2026-10-14).** A neutral **Explore saved sites** button (on a browser's
@@ -2327,6 +2347,17 @@ shows the held list at once; a search settles 180 ms before it asks (`SourceSear
 later (a feed's back catalogue, an old bookmark) its help and spoken label add "· added <day>"
 (`CapturedItems.withReceived`), and the Reader's meta line reads "May 1, 2023 · added Oct 24, 2026"
 (`EpisodeText.receivedAt`, `Copy.Provenance.added`).
+
+**Open where it lives (G161, ROR-111; DR-40, DR-53, DR-69).** `ItemPlaceControl` is the one control: an `IconButton`
+over the trailing edge of `CapturedItemRow`, `SavedItemRow` and `GitHubRepoRow`, beside the row's own button rather than
+inside it, with help text *Open in Notes*, *Open on GitHub* or *Open in browser*. It draws only when the row says a kind
+it knows and the list is not a preview (onboarding). On the click it asks the backend for the place, checks it again
+(`ItemPlaceOpen`: http(s) with a host and no credentials, GitHub's exact host, Notes' own id form), then opens the browser
+or runs `AppleNotesReader.runShow`: `show note id` with the id as an `osascript` argument, reading no property. Nothing
+runs on hover or on load. A failure is one line under the row until the next press; a missing Automation grant says the
+same words as a Notes read, and a note since deleted or locked (a lock changes its id) says it is no longer in Notes.
+A watched day's videos already open in the browser on their own row, so they carry no second control.
+
 `GET /sources/channels/{id}/items?offset&limit` (≤ 200; `api/services/channel_items.py`)
 derives it at read from the same set the row's count means — the notes index, the calendar and tab-group episodes (never
 a tombstoned one), the bookmark seen-set joined to the url index, a channel's media pages, a folder's files — engine-free
@@ -3169,7 +3200,10 @@ mark (`hermes`, the only one) is never recut — every surface that draws one cl
 curvature instead, and `LogoAssetTests` names any opaque plate so another cannot arrive unnoticed.
 **Claude Code is the Claude mark plus an app-drawn `>_` badge** (R-AG8, `BrandMark`, composed in
 `LogoImage`: `claude-code` → `claude.png` + badge, `claude-desktop` → the plain `claude.png`); callers
-keep passing the logical name, and no mark file is edited. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
+keep passing the logical name, and no mark file is edited. **ROR-107 (2026-11-05):** Substack, Goodreads, Vivaldi and Dia
+gained their marks; Comet's vendor serves nothing above 32 px, so it stays on the globe unless it is installed. A tile with no brand
+wears one outline glyph that says what it holds: Chat exports `square.and.arrow.up`, Files and links `doc.on.doc` (its own key,
+`SourceCatalog.filesOrigin`, for the picture only), Book scans `barcode.viewfinder`, Activity `clock.arrow.circlepath`. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
 transform is an exact luminance inversion of a *monochrome* mark into its `-dark` sibling, which
 `LogoImage` picks under a dark theme. Drawn brand glyphs are gone and do not come back.
 
@@ -3646,7 +3680,14 @@ from Cicada → Check for Updates…, it reads GitHub's latest release and its `
 semver, refusing a release that needs a newer macOS), downloads the zip, and `UpdateInstaller.stage` verifies size,
 sha256 and the Ed25519 signature against `CicadaUpdatePublicKey` (`UpdateVerifier`, CryptoKit) before unzipping,
 checks the bundle id, distribution and version and `codesign --verify`, and copies it beside the installed app. It
-installs when the person quits — or at once with *Restart to update* — never while Sleep is writing: a detached
+installs when the person quits — or at once with *Restart to update* — never while Sleep is writing. **A slow answer
+is busy (owner 2026-11-05, ruling 66):** only nothing listening counts as idle; a timeout, a dropped or unreadable
+answer defers. `BackendSilence` is what keeps a hung backend updatable: three looks ten minutes apart with no real
+answer, two hours from the first to now, and no drain's `running` record (`$CICADA_HOME/sleep/<bank>/run.json`, rewritten
+at every batch commit) touched in those two hours. The looks are kept in `~/.cicada/update-backend-silent.json`, so they
+outlast a quit, and a real answer ends them; the helper is told `hung`, logs it, and still defers on a clear "running". A
+quit never goes past Sleep. The person's click may: one line names the cost and the button becomes *Restart Anyway*
+(DR-41 keeps its pressed states; a disabled button could not be insisted through). A detached
 helper (`posix_spawn` in its own session) waits for the app to exit, boots out `com.cicada.backend` if its plist
 exists, swaps the two copies by rename in the same folder, moves the old one to the Trash, bootstraps the service
 again (three tries) and relaunches. The backend is asked fresh whether Sleep is writing — by the app at hand-off and by

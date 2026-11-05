@@ -364,7 +364,7 @@ def write_claim(
     predicate_raw = (predicate or "").strip()
     object_raw = (object or "").strip()
     observer = (observer or "agent").strip() or "agent"
-    # Proposed ruling 55: an agent's write on a person's page holds no digits either, whatever door it came through. Only a
+    # Ruling 55: an agent's write on a person's page holds no digits either, whatever door it came through. Only a
     # claim naming a phone there adds to the vault; its sentence never does, and any other page's digits are not this rule's.
     person_page = phone_numbers.enabled() and _person_subject(Path(memory_path), subject_raw)
     try:
@@ -537,7 +537,7 @@ def write_claim(
         if phone_numbers.is_number_claim(new_claim) and any(
                 c.predicate == phone_numbers.PREDICATE and c.valid_to is None
                 and not phone_numbers.same_number(c.object, new_claim.object, settings) for c in existing_claims):
-            # Proposed ruling 55: asked here it would wait with no question (this door raises none), and an agent's word
+            # Ruling 55: asked here it would wait with no question (this door raises none), and an agent's word
             # closes no number. Said to the person, their own words change it through Sleep.
             phone_numbers.discard_unused(memory_path, phone_numbers.token_ids(new_claim.object)[0])
             return {"subject": subject_raw, "entity_id": entity_id, "claim_id": None, "action": "error",

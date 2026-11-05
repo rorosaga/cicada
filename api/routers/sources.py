@@ -1385,6 +1385,17 @@ async def list_channel_items(
     return page
 
 
+@router.get("/sources/channels/{channel_id}/items/{item_id}/place")
+async def channel_item_place(channel_id: str, item_id: str, settings: Settings = Depends(get_settings)):
+    """Where one listed item lives (G161, ROR-111): `{kind: "notes", note_id}` or `{kind: "github"|"web", url}`, an
+    http(s) link only. Read on the person's click and never cached; nothing is fetched. 404 when the channel does not
+    list the item or no place is known."""
+    found = await run_in_threadpool(channel_items.place, settings.memory_path, channel_id, item_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="No known place")
+    return found
+
+
 @router.get("/sources/channels/{channel_id}/collections")
 async def list_channel_collections(
     channel_id: str,
@@ -1395,15 +1406,18 @@ async def list_channel_collections(
     """Where a channel's items live, as their own app files them (2026-11-04): accounts (iCloud, On My Mac, a Google
     or Exchange account), each with its collections (a calendar, a Reminders list, a Notes folder), how many items each
     holds and the day the newest came in (`channel_items.collections`). A channel that files nothing this way answers
-    no accounts. Read-only, engine-free, never a Store domain; ETagged like the items, plus what the channel's last
-    sync named (kept beside it in `sync_state.json`)."""
+    no accounts. RSS (ROR-108) answers one unnamed account holding every followed feed, each with its last poll's
+    `polled` and `problem`; it fetches nothing. Read-only, engine-free, never a Store domain; ETagged like the items,
+    plus what the channel's last sync named (kept beside it in `sync_state.json`)."""
     memory_path = settings.memory_path
     if not channel_items.known(memory_path, channel_id):
         raise HTTPException(status_code=404, detail="Unknown channel")
     named = source_collections.known(memory_path, channel_id)
     digest = hashlib.sha256(json.dumps(named, sort_keys=True).encode()).hexdigest()[:16]
     with sync_ticker.request_scans(memory_path):
-        etag = sync_service.etag_for(memory_path, "sources", "episodes",
+        # RSS counts media pages; `sources` holds `feeds.yaml` (the polls' results) and the url index (the stamps).
+        pages = ("entities",) if channel_id == channel_items.FEED_CHANNEL else ()
+        etag = sync_service.etag_for(memory_path, "sources", "episodes", *pages,
                                      extra=f"{channel_items.SHAPE}|collections|{channel_id}|{digest}")
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early

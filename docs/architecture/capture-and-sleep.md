@@ -777,7 +777,7 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   chat writer's words (`episode_scrub.PHONE_WRITERS`: Messages, WhatsApp, Telegram) pass a phone rule — `+`-prefixed,
   `@`-mention, `tel:`/`wa.me/`, a bracketed area code and the North American dotted form. **False negatives over lost
   words** (#502 re-check): the scrub runs before storage, so an unbracketed grouped number ("555 010 1234") and a bare
-  digit run are left alone — the same shapes are timestamps, year lists, ranges, prices, SKUs, room lists and ids (proposed ruling 55, off: the person's own number kept as a token, `storage.md`). FSEvents on the container, 3 s debounce,
+  digit run are left alone — the same shapes are timestamps, year lists, ranges, prices, SKUs, room lists and ids (ruling 55, behind its switch: the person's own number kept as a token, `storage.md`). FSEvents on the container, 3 s debounce,
   15 s floor; every read is `Task.detached`. The backend (`whatsapp_source` → `chat_live`): type 6 is a group
   event (skipped), 14 a delete for everyone (its place kept in `unsent_turns`, its words never), 4 and 5 a contact card
   and a location (named only), a media row an attachment named and described; a quoted reply is `ZMETADATA`'s
@@ -803,7 +803,21 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   end in "…", a title or file name past 400 is clipped, a `ZMETADATA` blob past 16 KB is dropped (that row loses its
   reply link). The picker draws each chat's picture from `ZWAPROFILEPICTUREITEM` (a file inside the container only,
   ≤ 128 px, in memory) and a ticked one-to-one chat's is posted to the chat-photo store (`messages_photos`, now every
-  chat source's). The Sources list serves one row per chat for WhatsApp and Telegram too (`channel_items`). Measured on fixtures (2026-10-28): file change → posted,
+  chat source's). **Before a tick (owner 2026-11-05, ROR-110):** the owner asked for an unticked chat's picture and
+  archived state in the picker, so the app reads them on this Mac at view time and holds them in memory only — never
+  posted, and no picture is written to disk; WhatsApp's picture file is read once into memory, not held open. To read
+  them the app does write one thing: a transient copy of the database in a private scratch folder, deleted when the
+  read ends, the way the list has always worked. The list's only other
+  reads are chat-list fields (`ZARCHIVED`, where the copy has it, places a row in an Archived group below the rest,
+  tickable like any other), plus the one date the list already read for its order (`MAX(ZMESSAGEDATE)`, 2026-11-03: a
+  date per chat, never a message's words). A picture is the file `ZWAPROFILEPICTUREITEM` names for the chat's own `ZJID` or its `.thumb`/`.jpg`
+  sibling, read once per list load, and never a guess from a file's name (2026-11-05: `<creator>-<time>` can be a legacy
+  group's, so a person's chat could wear a group's face). Measured on the owner's store, counts only: 509 of the 510 files
+  in `Media/Profile` are named by a row, and the name matching found nothing rows do not. The person's own chat wears
+  `Media/Profile/Photo.jpg`; a phone chat with no row of its own, the row of its `@lid` id, read once per list load from
+  a transient copy of `ContactsV2.sqlite`'s `ZWAADDRESSBOOKCONTACT` (`ZWHATSAPPID`, `ZLID` only; missing means no
+  bridge, a number holding two ids bridges neither); none
+  draws `EntityPictureFallback`. A failed read keeps its "needs access" state, and no new permission is asked. The Sources list serves one row per chat for WhatsApp and Telegram too (`channel_items`). Measured on fixtures (2026-10-28): file change → posted,
   the app's read of a 20,000-row store plus the post, p95 9 ms over 20 (`WhatsAppReaderTests`); the backend's stage
   into a chat of 40 sittings, p95 11 ms over 30 (`test_chat_live`) — the 3 s debounce dominates.
   **What "up to date" means (2026-11-03, live).** The owner asked whether WhatsApp was still syncing: its row said
@@ -2647,10 +2661,48 @@ hash of them. Pure and engine-free. Kinds, the reading per speaker, and the meas
   lists what Remove would touch per row (other conversations, files, tokens that stay) and its plan stamp, and `--apply --plan <stamp>` removes exactly that through
   `POST /sensitive/remove`. Neither prints a value, a title or a path.
 
+### What Sleep asks (G239)
+A question is worth the person's attention only when they alone can answer it and the answer changes something. Everything
+else stays a mention in the index (`pending_store`), never lost, and comes back if it is named again.
+
+- **"Who or what is <name>?" is the model's call (`ask_person`).** Stage 1 reads the whole conversation and says, in one
+  clause, what rests on the answer: the entity's optional `ask_person`, kept as the item's `why_asked` and shown as the
+  card's reason. `entity_resolver`'s `ask` raises the question on that alone, for a name held below the bar or a new page.
+  It used to be raised on a low extraction confidence (below 0.5, 0.3 when absent), which measures certainty about a name's
+  attributes and only ever fired for a first mention: a name with a lease resting on it reads confidently and was never
+  asked, and a stray first name read as unsure and always was.
+- **A question asked on purpose stays with the person:** `why_asked` keeps it out of `in_passing` (`passing_rule`), out of
+  a web lookup (`web_settle.classify`, `person_context`), since the model read it as nothing public could answer, and out of
+  the organic close (`check_organic_resolution`), since a confident later mention says nothing about the stake. The person's
+  answer closes it, or their own located words (`inbox_tend`, ruling 29). A stake said on a question already open is added to
+  that card (`ClarificationManager.create`).
+- **Ruling 65 (owner 2026-11-05):** a question rests on the model's stake, and a thing still in motion that will matter later is one (an ongoing project whose owner or status is left unclear); a list of names with nothing depending on them is not. A stake on an existing page raises its question under the page's name, never on the owner's page; `ClarificationManager.create` keeps one open per name. An answered question leaves no record, so a later stake on that page can ask again. A public thing with `ask_person` is never looked up, a narrow exception to ruling 27.
+- **Two people with nothing tying their names (ruling 65 c):** being named together is evidence they are two. The judge's UNSURE (no lead of its own) on names sharing no spelling, word or close spelling, on no alias, asks only on a line naming both, and the judge is told to say UNSURE only when what is said suggests one person (`pair_evidence.names_tied`, `lines_naming_both`, reason `names_unrelated`). Older questions are not retired by this.
+- **"Is A the same as B?" takes a reason on the record.** The judge's UNSURE (`_UNSURE_GUIDELINE`, both prompts) is told it
+  puts a question in front of the person, and that names which look alike or little to go on are DIFFERENT: two entries,
+  nothing lost, a later conversation can join them. It used to be told "if you are hesitating, return UNSURE", on leads that
+  need only a shared word or one edit of spelling. `pair_evidence`'s "a conversation naming both" then passed on a note
+  listing two people, which is evidence they are two. So the judge now reads those lines too
+  (`_with_said_together`: B's conversations of this batch, the lines naming both, at most two): "A has the keys, not B"
+  separates them, and "might be the same" gives the reason.
+- **What a Sleep on a key does with a public thing.** A key on a model with a price row runs the ordinary public-thing
+  lookup (`web_lookup.engine_for`, `metered`): at most 8 questions a run, about 1¢ a search plus its tokens, against the
+  person's limit (ruling 63 (i)). The settling step and a tracked source's read stay plan-only (`_plan_only`, `metered_only`):
+  those questions wait, are looked at again each run, and never settle on a key. A key with no price row or another
+  provider answers `no_search_tool` or `search_unreported`, so every public question waits. Not raising a question that
+  needs none is what stops both piles; rulings 27, 44 and 54 are unchanged.
+
 ### Entity promotion
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the
 vector index only; promotion needs **2+ separate conversations**, OR substantive discussion (>3
 exchanges) in one, OR an explicit link to an existing high-confidence entity.
+
+**A skill takes two conversations by either door (G239, ruling 65).** A note's lines are all the person's own, so a
+phrase Stage 1 typed `skill` and linked to any page got one from a single note. A Stage-1 skill now waits in the index until
+a second conversation names it; the one-conversation rungs do not apply to it. Stage 4 keeps `skill_hold`, and its prompt
+now asks for what an agent could follow to work the way this person does: "relationship patterns" (what comes up together)
+wrote "<x> as the hub for <y>" pages, grounded on any two notes naming one of their pages. Stage 1 is told a name is a name,
+and that what someone does, said as a phrase, is a fact on whoever does it.
 
 **Sleep never makes a project (ruling 56, 2026-11-04, amends ruling 36 D4; `api/services/project_birth.py`).** A project
 starts only from the person or an agent on their ask (`project_ownership`). A `project` mention with no page takes the
@@ -3081,7 +3133,7 @@ listed as an alias. Four gaps caused it, each closed:
   `merge_rejections`, never a merge; the card says the conversation named the full name and the page carries only
   the given name.
 
-- **A number in a chat (PROPOSED ruling 55, off; `storage.md`, "Phone numbers").** With its switch on, the person's own new
+- **A number in a chat (ruling 55, behind its switch; `storage.md`, "Phone numbers").** With its switch on, the person's own new
   lines hold a token instead of a redaction (`phone_numbers.tokenise_batch`, before the stager, in both chat ingests),
   for a phone word tied to the digits, an "add" or "save" with a capitalised name at 9+ digits, a change said with a phone word, or a run of 9+ the vault
   already holds; an agent's reply, another speaker's line and a forwarded message are redacted only for a phone word somebody owns or a run of 9+ the

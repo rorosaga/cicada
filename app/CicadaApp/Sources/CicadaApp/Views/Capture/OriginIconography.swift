@@ -63,6 +63,8 @@ enum OriginIconography {
         "spotify-saved", "spotify-history",
         // G89 (2026-11-04): the person's Substack, read by their own agent — Saved posts and reading days.
         "substack-saved", "substack-history",
+        // G39, G233: books (ROR-107 gave Goodreads its mark, so the sweep must see it).
+        "apple-books", "goodreads", "book-scan",
         // G135 R-R26: a remote connector's app, as its episodes stamp it
         "claude-web", "chatgpt", "perplexity", "claude-code-remote",
         "codex-remote", "vscode", "remote-app",
@@ -138,6 +140,7 @@ enum OriginIconography {
         // stamp. It had no case at all, so it read as "Saved-link" — a
         // `.capitalized` id, visibly not a product name.
         case "saved-link": "Saved link"
+        case SourceCatalog.filesOrigin: Copy.Catalog.filesAndLinks
         // A page saved before origins were stamped, or from an uploaded link list (`source: url`, no origin):
         // its own word, never `"url".capitalized` ("Url", owner 2026-10-05).
         case "url": "Link"
@@ -181,8 +184,12 @@ enum OriginIconography {
 
     static func symbol(for origin: String) -> String {
         switch origin {
-        case "mcp", "claude-code", "cursor", "codex", "claude-desktop", SourceCatalog.chatExportsOrigin:
+        case "mcp", "claude-code", "cursor", "codex", "claude-desktop":
             "bubble.left.and.bubble.right"
+        // ROR-107 (owner 2026-11-05: "chat exports should be actually like a export icon"): any vendor's export lands here.
+        case SourceCatalog.chatExportsOrigin: "square.and.arrow.up"
+        // ROR-107: a file or a list of links, not a bookmark ("bookmark" stays one saved thing's mark).
+        case SourceCatalog.filesOrigin: "doc.on.doc"
         case "chrome-bookmark", "brave-bookmark", "vivaldi-bookmark", "comet-bookmark", "dia-bookmark": "globe"
         case "chrome-tab-group": "square.stack"
         case "safari-bookmark", "safari-tab": "safari"
@@ -193,7 +200,9 @@ enum OriginIconography {
         case "calendar", "calendar-local": "calendar"
         case "contacts-local": "person.crop.circle"
         case "reminders-local": "checklist"
-        case "apple-books", "goodreads", "book-scan", "book": "book.closed"
+        case "apple-books", "goodreads", "book": "book.closed"
+        // ROR-107: what the phone's camera read off a book's barcode; two tiles never wore one book (Goodreads has its mark).
+        case "book-scan": "barcode.viewfinder"
         case "notion-export", "notion-api": "doc.text"
         case "readwise": "highlighter"
         case "github", "github-starred", "github-added", "github-owned": "chevron.left.forwardslash.chevron.right"
@@ -226,7 +235,7 @@ enum OriginIconography {
         // G95 — a folder of meeting transcripts (any recorder's).
         case "meeting-folders": "person.2.wave.2"
         // G218 — activity traces (no episode carries it; its Sources row does).
-        case "traces": "timeline.selection"
+        case "traces": "clock.arrow.circlepath"
         case "obsidian": "doc.text"
         case "unknown": "questionmark.circle"
         case "phone": "iphone"
@@ -320,6 +329,13 @@ enum OriginIconography {
         // mark was bundled (LOGOS.md `wispr`) but no origin claimed it, so the row fell to the installed app's icon and,
         // with the app removed, to a waveform glyph.
         case "wispr-flow": "wispr"
+        // ROR-107 (owner 2026-11-05: "the Substack one is not there"): the marks these sources were missing.
+        case "substack-saved", "substack-history": "substack"
+        case "goodreads": "goodreads"
+        // Below an installed copy's own icon, so a browser that is not on this Mac is not one more globe. Comet stays on
+        // the globe: its vendor serves nothing above 32 px.
+        case "vivaldi-bookmark": "vivaldi"
+        case "dia-bookmark": "dia"
         case "pinterest": "pinterest"
         case "reddit-saved", "reddit": "reddit"
         case "x-bookmarks", "x-likes", "x": "x"
