@@ -23,11 +23,13 @@ nothing is minted and every path is byte for byte what it was. A bank that alrea
 that it is a phone: a phone word right before it ("phone:", "su celular es"), a number word somebody owns ("her number is",
 not "my order number is"), a call to reach them ("call Ana at"), a pronoun ("she's on"), or a person's name right beside
 it with the run ending the clause ("Ana 2025550143", "add Ana, 2025550143", "Bob Example 2025550177"): how a number is
-really typed to a texted agent. A capitalised word is a name only at nine digits or more, or when it names a person
-already in this memory, or follows "add" or "save"; a word that says the digits are something else ("Order", "Invoice",
-"Monday") is never one. A run the vault already holds counts wherever it stands (:func:`_known_runs`). Absence of a
-negative is not a signal. A bare run with none of these stays in the words, exactly
-as today: false negatives over lost words (#502).
+really typed to a texted agent. Beside a word, nine digits or more need a capital or an "add"/"save" in front; seven or
+eight need a capital and either that verb or the distinctive first name or surname of a person in this memory
+(:func:`_person_words`). A function word ("de", "la", "the") or a word that says the digits are something else ("Order",
+"Invoice", "Monday") never vouches. A run of nine digits or more the vault already holds counts when it stands alone
+(:func:`_known_runs`). Absence of a negative is not a signal. A bare run with none of these stays in the words, exactly
+as today: false negatives over lost words (#502). A stored line never moves back, so a wrong rewrite is data loss, and
+a digit left in clear is what today does.
 
 **Why old chats are not re-read.** A stored sitting is rebuilt from its own body, so a stored line never passes through
 here; and a line a reader posts again keeps its stored words when they are what the old scrub or this one makes of it
@@ -68,7 +70,7 @@ from typing import Iterable
 
 from loguru import logger
 
-from api.services import episode_scrub, people_directory
+from api.services import episode_scrub, people_directory, text_fold
 
 #: The claim predicate a number lands under: the one `contacts_local.FACT_PREDICATES` already names for a card's fact.
 PREDICATE = "phone"
@@ -506,13 +508,16 @@ def discard_unused(bank, tid: str) -> None:
 
 
 def known_id(bank, raw: str | None) -> str | None:
-    """The token id ``raw`` would get, minting nothing: for comparing digits with what is stored."""
+    """The token id of a number the vault holds, minting nothing; ``None`` for one it does not hold."""
     digits = _digits(raw)
     if not match_digits(digits):
         return None
     with _vault_lock(bank):
         data = _read(_name(bank))
-    return _token_for(data, digits) if data else None
+    if not data:
+        return None
+    tid = _token_for(data, digits)
+    return tid if tid in data["numbers"] else None
 
 
 def claim_value(bank, label: str | None, stated: str | None) -> str | None:
@@ -592,9 +597,18 @@ _NOT_A_PHONE = frozenset(
     "cuenta factura reserva habitación precio pagado pasaporte commande vol facture bestellung konto rechnung "
     "isbn iban vin nit rfc dni ssn pin otp tax lot batch receipt chapter gate bus train route product policy claim user client "
     "sold bought raised earned spent worth grew lost gained made owes owed "
+    "loan debt fee fine presupuesto préstamo prestamo deuda renta alquiler sueldo salario monto cantidad saldo multa pago "
+    "password passcode contraseña clave "
     "monday tuesday wednesday thursday friday saturday sunday january february march april may june july august september "
     "october november december lunes martes miércoles jueves viernes sábado domingo enero febrero marzo abril mayo "
     "junio julio agosto septiembre octubre noviembre diciembre".split())
+#: Never a name beside a number: "de 1500000", "la 1234567", "hit the 1500000". A word in both a function list and common
+#: use as a first name stays a name.
+_FUNCTION_WORDS = (text_fold.SUBJECT_STOPWORDS | text_fold.SPANISH_STOPWORDS) - {"will", "ella", "han"}
+#: First names that are everyday words, capitalised at the head of a line: "Bill 1500000", "Luz 1500000" (the power bill).
+_ORDINARY_NAMES = frozenset("bill mark rose rosa grace hope art luz mar sol paz".split())
+#: A word on more person pages than this names nobody in particular (`entity_resolver.MAX_NAME_HOLDERS`'s bound).
+_MAX_NAME_HOLDERS = 5
 #: A date, alone or with a time after it, only when it holds a real year: "12 03 2026 14 30" is a date, and "06 12 34 56 78"
 #: and "0612 34 56 78" are a number's usual spellings. A two-digit year counts only when it ends the run.
 _DATEISH = re.compile(r"^(?:(?:19|20)\d{2}[-/. ]\d{1,2}[-/. ]\d{1,2}(?:\D|$)"
@@ -630,30 +644,57 @@ def _before(text: str, at: int) -> set[str]:
     return {w.lower() for w in re.findall(r"[^\W\d_]+", text[:at])[-3:]}
 
 
+def _person_words(name: str) -> set[str]:
+    """What of a page's name or alias can vouch: its first and last word, capitalised there as a name is, three letters or
+    more. Never a word in the middle ("de", "la" in "Maria de la Cruz"), and nothing of a name that opens with a function
+    word: "The Boss" and "La Jefa" describe someone. An ordinary word is what the person meant by it far more often than
+    the page, and leaving digits in clear costs what today costs."""
+    words = name.split()
+    if not words or text_fold.fold(words[0]) in _FUNCTION_WORDS:
+        return set()
+    out = set()
+    for word in {words[0], words[-1]}:
+        folded = text_fold.fold(word)
+        if word[0].isupper() and len(folded) >= 3 and not ({folded, word.casefold()} & (_FUNCTION_WORDS | _NOT_A_PHONE | _ORDINARY_NAMES)):
+            out.add(folded)
+    return out
+
+
 def _known_person(bank, word: str) -> bool:
-    """Whether ``word`` is a word of a person page's name or alias in this memory. Reads the cached index, only for a run
-    of 7 or 8 digits that nothing else vouches for."""
+    """Whether ``word`` is a distinctive first name or surname of a person page here (:func:`_person_words`). Also not a
+    word of any other kind of page's name ("Cruz" with a page "Cruz Roja"), nor one more than :data:`_MAX_NAME_HOLDERS`
+    people share: common in this bank, so it says nothing. Reads the cached index, only for a capitalised word beside a run
+    of 7 or 8 digits with no "add" or "save"."""
     if not isinstance(bank, Path):
         return False
+    fold = text_fold.fold(word)
+    holders = 0
     try:
         from api.services import bank_index
 
-        fold = word.casefold()
         for f in bank_index.files(bank, "entities"):
             fm = f.frontmatter or {}
-            if fm.get("type") == "person":
-                names = [str(fm.get("name") or "")] + [str(a) for a in fm.get("aliases") or []]
-                if any(fold in n.casefold().split() for n in names):
-                    return True
+            names = [str(fm.get("name") or "")]
+            if fm.get("type") != "person":
+                if fold in text_fold.fold(names[0]).split():
+                    return False
+                continue
+            # A page titled by a relation ("Her Sister") has no name of its own yet.
+            names = [] if fm.get("unnamed") else names
+            names += [str(a) for a in fm.get("aliases") or []]
+            holders += any(fold in _person_words(n) for n in names)
     except Exception:  # noqa: BLE001 - an unreadable index vouches for nothing; the digits stay in the words
         return False
-    return False
+    return 0 < holders <= _MAX_NAME_HOLDERS
 
 
 def _named(text: str, m: re.Match[str], bank) -> bool:
-    """Whether the word before a bare run is a person's name, and the run a phone."""
+    """Whether the word before a bare run is a person's name, and the run a phone. A lowercase word vouches only after
+    "add" or "save" and at nine digits or more; prefer digits in clear to a rewritten line."""
     word, raw = m.group("name"), m.group("num")
     if word.casefold().rstrip("'’s") in _NOT_A_PHONE or word.casefold() in _NOT_A_PHONE:
+        return False
+    if text_fold.fold(word) in _FUNCTION_WORDS:
         return False
     if _before(text, m.start("num")) & _NOT_A_PHONE:
         return False
@@ -663,19 +704,25 @@ def _named(text: str, m: re.Match[str], bank) -> bool:
     # "add my sister Ana": the verb may stand a word or two back.
     asked = bool(set(w.casefold() for w in words_before[-3:]) & _ADD_VERBS)
     capital = word[0].isupper()
-    digits = len(_digits(raw))
-    if digits >= MATCH_DIGITS and (capital or asked):
-        return True
-    return asked and capital or _known_person(bank, word)
+    if len(_digits(raw)) >= MATCH_DIGITS:
+        return capital or asked
+    return capital and (asked or _known_person(bank, word))
 
 
 def _known_runs(text: str, bank) -> list[tuple[int, int, str]]:
-    """Every digit run the vault already holds, whatever words stand around it: the person gave it as a number, so an
-    agent's "Updated Ana to 2025550144." is that number with no signal needed. Nine digits matched by chance is no risk
-    to the words; a vault that can't be read adds nothing here (:func:`tokenise` then redacts what the rule found)."""
+    """Every run of nine digits or more the vault holds, standing alone: an agent's "Updated Ana to 2025550144." is that
+    number with no signal needed. Shorter runs never match by value, because a vault entry of 1500000 would otherwise blank
+    "mi renta es 1500000" in anyone's line for good; the cost is that an agent's echo of a 7- or 8-digit number stays in
+    clear. Never a piece of a link, a date, a price shape, after a word that says it is something else, or before a unit.
+    A vault that can't be read adds nothing here (:func:`tokenise` then redacts what the rule found)."""
     if not bank:
         return []
-    runs = [m for m in re.finditer(rf"(?<![\w.]){_DIGITS}(?!\w)", text) if match_digits(m.group(0))]
+
+    def stands(m: re.Match[str]) -> bool:
+        return (len(_digits(m.group(0))) >= MATCH_DIGITS and _plausible(m.group(0)) and _stands_alone(text, m.start(), m.end())
+                and not _before(text, m.start()) & _NOT_A_PHONE and not _UNIT_AFTER.match(text, m.end()))
+
+    runs = [m for m in re.finditer(rf"(?<![\w.]){_DIGITS}(?!\w)", text) if stands(m)]
     if not runs:
         return []
     try:
@@ -803,14 +850,20 @@ def _is_stored_line(posted: str, stored: str, writer: str, bank) -> bool:
     return episode_scrub.REDACTED in stored and _shape(cleaned) == _shape(stored)
 
 
+def _ever_switched() -> bool:
+    """Whether the switch was ever written. Off writes the file too, so "off after on" is this and "never on" is not."""
+    return _switch_path().exists()
+
+
 def tokenise_batch(messages: list, stored: dict, *, writer: str, bank) -> int:
     """Incoming chat messages, before the stager (`messages_source.ingest`, `chat_live.ingest`). The person's own new or
     edited words are tokenised; anyone else's are redacted by the same rule. A message posted again keeps its stored words
     (:func:`_is_stored_line`), so an old sitting's body, its hash and the Sleep queue do not move: an edit in place reads
     as a revision, and a re-read of old chats would cost a model call each. ``stored``: ``{message key: stored message}``.
-    Returns how many were tokenised."""
+    Returns how many were tokenised. A never-on install is a true no-op; after on, off still keeps a stored line, a
+    redacted one included, since nothing but this rule put that redaction there and a stored line never moves back."""
     on = enabled()
-    if not on and not any(has_token(getattr(m, "text", "")) for m in stored.values()):
+    if not on and not _ever_switched() and not any(has_token(getattr(m, "text", "")) for m in stored.values()):
         return 0
     count = 0
     fresh = []
@@ -905,9 +958,11 @@ def _raw_person_span(content: str, raw: str, episode_id: str, *, override, gaps)
 _LINK_TARGET = re.compile(r"\]\([^)\n]*\)|<[a-z]+:[^>\n]*>|\b(?:https?://|www\.)\S+", re.IGNORECASE)
 
 
-def clean_prose(text: str, bank) -> str:
+def clean_prose(text: str, bank, *, keep: bool = True) -> str:
     """Prose with no number, while the feature is on: each kept in the vault, so nothing is lost, and said as "a number".
-    A link's target is never touched. With the vault unavailable the words stay: a damaged file never costs a page words."""
+    A link's target is never touched. With the vault unavailable the words stay: a damaged file never costs a page words.
+    ``keep=False`` is Stage 1's prose: a model's words, resting on a conversation that still holds what it holds, so
+    nothing in them enters the vault."""
     text = text or ""
     if not enabled():
         return text
@@ -915,11 +970,12 @@ def clean_prose(text: str, bank) -> str:
     spans = [s for s in _spans(text, bank) if not any(a <= s[0] < b for a, b in links)]
     if not spans:
         return text
-    try:
-        mint_many(bank, [raw for _s, _e, raw in spans])
-    except VaultUnavailable:
-        logger.warning("A number stayed in a page's text: the private number file can't be used")
-        return text
+    if keep:
+        try:
+            mint_many(bank, [raw for _s, _e, raw in spans])
+        except VaultUnavailable:
+            logger.warning("A number stayed in a page's text: the private number file can't be used")
+            return text
     out, last = [], 0
     for start, end, _raw in spans:
         out += [text[last:start], "a number"]
@@ -961,7 +1017,7 @@ def _clean_strings(value, loose: re.Pattern[str] | None, bank, on: bool, person:
     if isinstance(value, str):
         text = TOKEN_RE.sub("a number", value)
         text = loose.sub("a number", text) if loose else text
-        return clean_prose(text, bank) if on and person else text
+        return clean_prose(text, bank, keep=False) if on and person else text
     if isinstance(value, list):
         return [_clean_strings(v, loose, bank, on, person) for v in value if not (isinstance(v, str) and holds(v))]
     if isinstance(value, dict):
@@ -974,9 +1030,10 @@ def take(entities: list, relationships: list, values: list, content: str, episod
     """What Stage 1 made of the numbers in this conversation, in place, before anything downstream reads it.
 
     Each is one value entry (:data:`ITEM_KEY`), resting on the person's own located line or dropped: a number only an
-    agent or another speaker gave never lands, whatever the model wrote. On a writer that keeps digits in its body, a
-    model's phone-labelled relationship or value is minted here when the feature is on, so no claim stores digits. Every
-    token and, while on, every number leaves the prose. Returns how many entries were kept."""
+    agent or another speaker gave never lands, whatever the model wrote, and never enters the vault. On a writer that
+    keeps digits in its body, a model's phone-labelled relationship or value resting on the person's line is minted here
+    when the feature is on, so no claim stores digits. Every token and, while on, every number leaves the prose. Returns
+    how many entries were kept."""
     mine = has_token(content)
     on = enabled()
     if not mine and not on:
@@ -1011,6 +1068,8 @@ def take(entities: list, relationships: list, values: list, content: str, episod
             return True
         stated = (stated or "").strip()
         if on and is_phone_label(label) and _ONLY_DIGITS.match(stated):
+            if match_digits(stated) and _raw_person_span(content, stated, episode_id, override=override, gaps=gaps) is None:
+                return True      # not the person's word: dropped, and the vault never holds it
             try:
                 minted = mint_many(bank, [stated])
             except VaultUnavailable:

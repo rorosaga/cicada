@@ -1784,3 +1784,152 @@ def test_round_4_the_dry_run_creates_nothing_outside_the_bank(bank, home):
 
     assert numbers_rule_dry_run.run(bank)["chat_episodes"] == 0
     assert not (home / "people").exists()
+
+
+# ---- the fourth review: an ordinary word never vouches, a value never matches a stranger, off never gives digits back ----
+
+def _maria(memory):
+    page(memory, "maria-cruz", "Maria de la Cruz", aliases=["the boss"])
+    page(memory, "ana-diaz", "Ana Diaz")
+    bank_index.invalidate()
+
+
+@pytest.mark.parametrize("line", [
+    "un préstamo de 1500000", "el presupuesto es de 8000000", "se fue la 1234567", "hit the 1500000", "fue al banco de 12345678",
+    "De 1500000", "La 1234567", "The 1500000", "the boss 1500000", "boss 1500000", "maria 5550143", "cruz 5550143",
+    "keep the 123456789", "remember de 123456789", "ana 2025550143", "add ana 5550144",
+])
+def test_round_5_an_ordinary_word_of_a_persons_name_or_alias_does_not_vouch(memory, line):
+    _maria(memory)
+    assert phone_numbers.tokenise(line, memory) == (line, 0)
+
+
+@pytest.mark.parametrize("line", ["Maria 5550143", "Cruz 5550143", "add Ana, 5550143", "add ana 2025550143", "Ana Diaz 2025550143"])
+def test_round_5_a_distinctive_name_still_does(memory, line):
+    _maria(memory)
+    assert phone_numbers.tokenise(line, memory)[1] == 1
+
+
+@pytest.mark.parametrize("name,word", [
+    ("The Boss", "Boss"), ("La Jefa", "Jefa"), ("Luz Marin", "Luz"), ("Bill Example", "Bill"), ("Maria De La Cruz", "La"),
+    ("Jo Example", "Jo"),
+])
+def test_round_5_what_a_page_name_cannot_vouch_for(memory, name, word):
+    page(memory, "someone", name)
+    bank_index.invalidate()
+    assert phone_numbers.tokenise(f"{word} 5550143", memory)[1] == 0
+
+
+def test_round_5_a_word_common_in_this_bank_says_nothing(memory):
+    page(memory, "cruz-roja", "Cruz Roja", type_="organization")
+    page(memory, "maria-cruz", "Maria Cruz")
+    for i in range(6):
+        page(memory, f"sol-{i}", f"Nadia Example{i}")
+    bank_index.invalidate()
+    assert phone_numbers.tokenise("Cruz 5550143", memory)[1] == 0     # another kind of page's word too
+    assert phone_numbers.tokenise("Maria 5550143", memory)[1] == 1
+    assert phone_numbers.tokenise("Nadia 5550143", memory)[1] == 0    # six people share it
+
+
+def test_round_5_a_relations_title_does_not_vouch(memory):
+    page(memory, "her-sister", "Sister Example", unnamed=True)
+    bank_index.invalidate()
+    assert phone_numbers.tokenise("Sister 5550143", memory)[1] == 0
+
+
+def test_round_5_a_false_positive_on_a_known_name_is_pinned(memory):
+    """The owner's question names this: a sum beside a known name reads as that person's number."""
+    _maria(memory)
+    assert phone_numbers.tokenise("Le debo a Ana 1500000", memory)[1] == 1
+
+
+@pytest.mark.parametrize("line", [
+    "mi renta es 1500000", "order 1500000", "Invoice 1500000", "1.500.000 pesos", "1 500 000 people", "$1500000",
+    "https://x.example/item/1500000", "room 15000 and 1500000 people",
+])
+def test_round_5_a_wrong_seven_digit_entry_changes_no_other_line(memory, line):
+    assert phone_numbers.mint_many(memory, ["1500000"])
+    assert phone_numbers.redact(line, memory) == line
+    assert phone_numbers.tokenise(line, memory) == (line, 0)
+
+
+def test_round_5_an_eight_digit_entry_leaves_a_date_alone(memory):
+    assert phone_numbers.mint_many(memory, ["20261105"])
+    assert phone_numbers.redact("see you on 2026-11-05", memory) == "see you on 2026-11-05"
+
+
+@pytest.mark.parametrize("line", [
+    "Order 123456789", "order 123456789", "Invoice 123456789", "mi renta es 123456789", "$123456789", "123456789 pesos",
+    "https://x.example/item/123456789", "see example.com/product-123456789", "12 345 678 900 pesos",
+])
+def test_round_5_a_nine_digit_entry_keeps_every_check(memory, line):
+    assert phone_numbers.mint_many(memory, ["123456789", "12345678900"])
+    assert phone_numbers.redact(line, memory) == line
+
+
+def test_round_5_a_correspondents_rent_is_never_blanked_after_a_wrong_entry(bank, on):
+    page(bank, "ana-diaz", "Ana Diaz")
+    bank_index.invalidate()
+    ingest(bank, [row("AAA1", T0, "Ana 1500000", me=True), row("AAA2", T0 + 5, "mi renta es 1500000")])
+    assert "mi renta es 1500000" in joined(bank)
+
+
+def test_round_5_an_agents_echo_of_a_short_number_stays_in_clear_as_the_question_says(bank, on):
+    page(bank, "ana-diaz", "Ana Diaz")
+    bank_index.invalidate()
+    ingest(bank, [row("AAA1", T0, "Ana 5550143", me=True), row("AAA2", T0 + 5, "Updated Ana to 5550143.")])
+    assert "Updated Ana to 5550143." in joined(bank)
+
+
+def test_round_5_off_after_on_keeps_a_redacted_line(bank, on):
+    rows = [row("AAA1", T0, "my new number is 2025550166")]
+    ingest(bank, rows)
+    before = stored(bank)
+    (body, _fm), = before.values()
+    assert "2025550166" not in body and "[redacted]" in body
+    phone_numbers.set_enabled(False)
+    assert ingest(bank, rows)["updated"] == 0
+    assert stored(bank) == before
+
+
+def test_round_5_never_on_stays_a_true_no_op(bank, home):
+    assert not (home / phone_numbers.SWITCH_FILE).exists()
+    stored_line = SimpleNamespace(text="my new number is [redacted]")
+    posted = SimpleNamespace(key="k", text="my new number is 2025550166", unsent=False, from_me=False)
+    assert phone_numbers.tokenise_batch([posted], {"k": stored_line}, writer="whatsapp", bank=bank) == 0
+    assert posted.text == "my new number is 2025550166"
+
+
+def test_round_5_known_id_answers_only_for_what_the_vault_holds(memory):
+    phone_numbers.mint_many(memory, [A])
+    assert phone_numbers.known_id(memory, A_DIGITS)
+    assert phone_numbers.known_id(memory, "2025559999") is None
+
+
+def test_round_5_a_stored_line_with_digits_beside_a_token_is_not_rewritten_on_a_repost(memory):
+    tid = phone_numbers.mint_many(memory, [A_DIGITS])[A_DIGITS]
+    stored_line = SimpleNamespace(text=f"her number is {phone_numbers.token(tid)} and Bob 2025559999")
+    posted = SimpleNamespace(key="k", text=f"her number is {A_DIGITS} and Bob 2025559999", unsent=False, from_me=True)
+    assert phone_numbers.tokenise_batch([posted], {"k": stored_line}, writer="whatsapp", bank=memory) == 0
+    assert posted.text == stored_line.text
+    assert phone_numbers.known_id(memory, "2025559999") is None
+
+
+def test_round_5_an_agents_number_never_enters_the_vault_through_stage_1(memory):
+    content = "user: what is her phone?\nassistant: Ana's phone is 2025550999"
+    entities = [{"name": "Ana Diaz", "type": "person", "summary": "Ana's phone is 2025550999.", "key_facts": []}]
+    relationships = [{"source": "Ana Diaz", "label": "phone", "target": "2025550999"}]
+    values = [{"entity": "Ana Diaz", "attribute": "phone number", "value": "2025550999"}]
+    kept = phone_numbers.take(entities, relationships, values, content, "ep_2026-08-20_001", bank=memory)
+    assert kept == 0 and not relationships and not values
+    assert "2025550999" not in entities[0]["summary"]
+    assert phone_numbers.known_id(memory, "2025550999") is None
+    vault = people_directory.path(memory.name, phone_numbers.VAULT_FILE)
+    assert not vault.exists() or "2025550999" not in vault.read_text()
+
+
+def test_round_5_a_persons_line_still_files_a_models_digit_value(memory):
+    content = "user: Ana's phone is 2025550999\nassistant: noted"
+    relationships, values = [], [{"entity": "Ana Diaz", "attribute": "phone number", "value": "2025550999"}]
+    kept = phone_numbers.take([], relationships, values, content, "ep_2026-08-20_001", bank=memory)
+    assert kept == 1 and phone_numbers.known_id(memory, "2025550999") == values[0][phone_numbers.ITEM_KEY]

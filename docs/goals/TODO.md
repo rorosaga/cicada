@@ -16,8 +16,8 @@
   an agent two people's numbers and expected memory to map and follow them. Built OFF (the switch file `numbers_switch.json`), never
   run on real data: a token in the bank, the digits in a vault on this Mac, shown on the person's page and in the Reader.
   Proved through real Sleeps at haiku on scratch state, with a restatement, a change, a held name and a question.
-  2026-11-05: third review round closed; a bare number beside a name and a run the vault holds count (what stays in clear is
-  listed at the ruling). **Needs the owner:** the question at ruling 55. **Pick up after a yes:** the sub-answers.
+  2026-11-05: fourth review round closed; a number beside a name needs a capital, a distinctive known name at 7 or 8 digits, and only 9+ digits
+  match by value (what stays in clear is listed at the ruling). **Needs the owner:** the question at ruling 55. **Pick up after a yes:** the sub-answers.
 - **2026-11-05 — the Inbox's rebuild back under budget; five test-health fixes (G209; branch `devhealth-flakes`).** The
   bench failure written off as a flake was real: since 6a410524 (G209, a same-person question rests on a conversation
   naming both) each person question with no pairing conversation on hand ran four searches on every rebuild of the list.
@@ -3233,18 +3233,31 @@ A whole row moves to DONE only after its remaining implementation and required a
     positive signal, never the mere absence of a negative one (`_spans`, `_named`, `_plausible`). It counts after a
     phone word ("phone:", "su celular es"), a number word somebody owns ("her number is", "Ana's new number is"), a
     call to reach them ("call Ana at"), a pronoun ("she's on N"), the next in a list that began with one, or "the
-    old one was N" on a line that already holds a number or a number word. **Beside a name (2026-11-05, owner's
-    typed form):** 7 to 15 digits standing alone that end the clause, right after a word: at 9 or more digits a
-    capitalised word or an add/save verb within three words; at 7 or 8 an add/save verb plus a capital, or a word of
-    a person page's name or alias. Never after a word that says the digits are something else (`_NOT_A_PHONE`:
-    order, invoice, a weekday, three words back), and never a date with a real year, an IP address, a year list, a
-    time range or a price shape. **A run the vault already holds is that number wherever it stands**
-    (`_known_runs`): the person gave it as a number, so an agent's "Updated Ana to N." needs no signal (found by a
-    real Sleep; a person's own line gets the same token, anyone else's a redaction, and the person's lines of a post
-    are read first). A pinned false positive: "Tesla 2025550143" tokenises; the vault keeps it and the model sees
-    the token. **Stays in clear, on purpose, as today:** a line that is only digits; a lowercase unknown name with
-    no verb; anyone's line with no signal holding a run the vault does not hold; a body stored before the switch; a
-    harness session's or a note's body.
+    old one was N" on a line that already holds a number or a number word. **Beside a name (2026-11-05, owner's typed form; narrowed the same day):** 7 to 15 digits standing alone that end the
+    clause, right after a word. At 9 or more digits: a capitalised word or an add/save verb within three words. At 7
+    or 8: a capitalised word with an add/save verb, or the distinctive first name or surname of a person page.
+    Distinctive (`_person_words`, `_known_person`): the first or last word of a page's name or alias, capitalised
+    there, three letters or more; never a middle word ("de", "la"), nothing of a name that opens with a function word
+    ("The Boss", "La Jefa"), not a relation's title (`unnamed`), not an everyday word ("Luz", "Bill"), not a word of
+    another kind of page's name, not a word more than five people share. A lowercase word never vouches without the
+    verb, and a function word never (`text_fold`'s English and Spanish lists): a wrong rewrite is data loss because a
+    stored line never moves back, and digits in clear cost what today costs. Never after a word that says the digits
+    are something else (`_NOT_A_PHONE`: order, invoice, renta, presupuesto, a weekday, three words back), and never a
+    date with a real year, an IP address, a year list, a time range or a price shape. **A run of 9 digits or more the
+    vault holds counts by value** (`_known_runs`): standing alone, outside a link, passing `_NOT_A_PHONE`,
+    `_plausible` and the unit check. An agent's "Updated Ana to N." needs no signal (found by a real Sleep; a person's
+    own line gets the same token, anyone else's a redaction, and the person's lines of a post are read first). Shorter
+    runs never match by value: a wrong 1500000 in the vault blanked another speaker's "mi renta es 1500000" for good,
+    and a real 8-digit number blanked a date. The cost: an agent's echo of a 7- or 8-digit number stays in clear. The
+    vault holds what the person gave, what an agent saved through a claim (`claim_value`), and what `clean_page` found
+    in a person page's text; never a number Stage 1 read only in an agent's or another speaker's line (`take`, whose
+    prose cleaning keeps nothing). Pinned false positives: "Tesla 2025550143" and, with a page for Ana, "Le debo a Ana
+    1500000" tokenise. The vault keeps the digits with no way to remove one entry from a healthy vault, and Stage 1 is
+    told a token is a phone number, so the second could land as Ana's phone. On anyone else's line a wrong match is a
+    redaction with no copy. **Stays in clear, on purpose, as today:** a line that is only digits; a lowercase name
+    with no verb, even one with a page; 7 or 8 digits beside any other word; two numbers with only a space between
+    them; anyone's line with no signal and no run of 9+ the vault holds; a body stored before the switch; a harness
+    session's or a note's body.
 
     **One number, one fact, no loss.** The token is an HMAC of the last nine digits under the vault's key, so a number
     written two ways is one token. Two numbers sharing their last nine digits (two country codes) get two tokens, keyed on
@@ -3312,7 +3325,7 @@ A whole row moves to DONE only after its remaining implementation and required a
 
     **No mass re-read, off after on, and what is already gone.** A stored sitting is rebuilt from its own body, so a stored
     line never passes through the tokeniser; a line posted again keeps its stored words when they are what the old scrub or
-    this rule makes of it, with the switch on, off, or the vault lost. Proved through both real ingests (WhatsApp's and
+    this rule makes of it, with the switch on, off after on (the switch file exists, `_ever_switched`), or the vault lost. Proved through both real ingests (WhatsApp's and
     Messages' real reader): switching on and re-posting every message updates 0 episodes, no byte moves, nothing is
     re-queued; a new message on an old sitting tokens only itself; a real edit is a revision. **The 13 `[redacted]` stay
     gone**: the app could re-post them, but this code deliberately keeps the stored line, so that takes a person-started
@@ -3337,7 +3350,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     | The trash | the vault waits beside the trashed bank, `.trash/<bank>-<stamp>.numbers.json` | gone when the trash is emptied, back if the bank is restored by hand | `test_item_8_the_trash…` |
     | The app | digits on the person's page, in the Reader and in a quote, from memory, never stored; a token it can't answer reads "a number". The page's row is drawn, and `/claims` fetched, only when `rawMarkdown` holds `[number:` | Ask's answer and search snippets still show the token. **A page whose raw is omitted (`raw_omitted`: past 256 KB, a ledger, or a fence past 16k characters, like the owner's) shows no row, on or off; the claim is kept** | `NumberTokensTests`, scratch app, both states screenshotted 2026-11-05 |
     | A harness session's or a note's body | **digits, exactly as today** | not closed, not widened; its claim holds the token | sub-question (c) |
-    | A bare number in a chat with no positive signal: a line that is only digits, a lowercase unknown name with no verb, somebody else's line the vault's numbers don't match | **digits, exactly as today**, in the body and the prompt | not closed: false negatives over lost words (#502); a model's `phone` value for it still becomes a token | `test_these_are_not`, `test_round_4_a_run_the_vault_does_not_hold…`; on the last scratch Sleep the digit-only line was the only digit run left |
+    | A bare number in a chat with no positive signal: a line that is only digits, a lowercase name with no verb, 7 or 8 digits beside any other word, two numbers with only a space between them, somebody else's line with no run of 9+ the vault holds | **digits, exactly as today**, in the body and the prompt | not closed: false negatives over lost words (#502); a model's `phone` value for it still becomes a token | `test_these_are_not`, `test_round_4_a_run_the_vault_does_not_hold…`; on the last scratch Sleep the digit-only line was the only digit run left |
     | A body stored before the switch | **digits, exactly as today** | never moved: a stored line is not re-read, on, off, or with the vault lost | `test_round_3_old_bare_lines…` |
     | The 5 `phone` claims already in clear | **digits, in git for good** | not touched; a page's clear value becomes the token when the person restates it | `same_number` |
 
@@ -3351,13 +3364,25 @@ A whole row moves to DONE only after its remaining implementation and required a
     >
     > **What it does.** When you give a number in a chat you ticked, the digits go in a private file on this Mac and your memory holds a stand-in code. Your memory's git history, other devices, a memory you hand over, the models that read your memory, and agents reading it through its tools get the code. In the app you see the digits on that person's page, in the conversation, and in a question about the number. A new number on a clear line ("her new number is …") replaces the old one; an unclear one asks you first. A number in somebody else's line or an agent's reply is blanked and never filed.
     >
-    > **What counts as a number.** Digits count when a word says they are a phone ("her number is"), when they come right after a capitalised name and end the clause ("add Ana, 2025550143", "Bob Example 2025550177"), or when you already gave that number. So "Tesla 2025550143" becomes a code even if it is not a phone: the digits stay in the private file, and models only see the code. "Order 123456789" and a date stay as they are.
+    > **What counts as a number.**
+    > - A word says it is a phone ("her number is").
+    > - 9 digits or more that end the clause, right after any capitalised word ("add Ana, 2025550143", "Bob Example 2025550177", also "Tesla 2025550143"), or after a name with "add" or "save" before it ("add bob 2025550143").
+    > - 7 or 8 digits that end the clause, right after a capitalised word that has "add" or "save" before it, or that is the first name or surname of a person in your memory ("Ana 5550143"). Never "de", "la", an everyday word like "Luz", a word another kind of page uses, or a name more than five people share.
+    > - 9 digits or more, standing alone, that the private file already holds. The file holds what you gave, what an agent saved as a person's phone, and numbers found in a person page's text.
+    >
+    > "Order 123456789", "$123456789", a link and a date stay as they are.
+    >
+    > **A wrong match costs more than hidden digits.** Sums and ids can still match: "Tesla 2025550143", "Le debo a Ana 1500000". In your own line the digits move to the file for good. Models are told a code is a phone number, so the second could land on Ana's page as her phone. In someone else's line a wrong match is blanked for good, with no copy kept. You can't delete one wrong entry from a working file.
+    >
+    > **Counted on your memory, changing nothing:** this rule would have turned <would_token> digit runs in your own chat lines into codes and left <digit_runs_left> as they are, and blanked <other_lines_would_redact> lines from other people or agents.
     >
     > **Where digits stay as they are today, in git and read by models:**
-    > - a chat line that is only digits, or a lowercase name with no "add" or "save" ("bob 2025550143");
-    > - someone else's line or an agent's reply with nothing marking the digits as a phone, unless you already gave that number;
+    > - a chat line that is only digits, or a lowercase name with no "add" or "save" ("bob 2025550143"), even if that person is in your memory;
+    > - 7 or 8 digits beside any other word;
+    > - two numbers with only a space between them;
+    > - someone else's line or an agent's reply with nothing marking the digits as a phone, unless the file holds that number at 9 digits or more. So an agent repeating a 7 or 8 digit number you gave stays in digits;
     > - anything you type to Claude Code or put in a note (the fact on the page holds the code, the conversation keeps the digits);
-    > - every chat already stored before you turn this on. Nothing old is read again;
+    > - every chat already stored before you turn this on. Nothing old is read again, and turning this off puts nothing back;
     > - the 5 person pages that already hold a number in clear (counted on your memory on 2026-11-04). They stay in git for good. A page's current value becomes the code when you say that number again.
     >
     > The 13 numbers already blanked in your Messages stay blanked. You would have to say them again.
