@@ -377,15 +377,15 @@ enum SourceCatalog {
             let borrowed = entry.channels.filter { readerHome[$0].map { $0 != entry.id } ?? false }
             let own: SourceCatalogStatus? = borrowed.isEmpty ? nil
                 : read(localReaders.merging(borrowed.map { ($0, false) }) { _, off in off })
-            let status = read(localReaders)
+            let current = read(localReaders)
             // ROR-7 — a connected reader that cannot read waits on the person: the same channel, the same words, as the
             // *Needs you* its own page says (`SourcePageStatus`), so the tile and the page never disagree.
             var problem: String?
-            if status == .connected, let channel = channelsOf(entry, in: channels).first,
+            if current == .connected, let channel = channelsOf(entry, in: channels).first,
                case .problem(let why) = SourceRowText.status(channel: channel, watch: watch(channel.id), run: nil) {
                 problem = why
             }
-            return SourceCatalogRow(entry: entry, status: status,
+            return SourceCatalogRow(entry: entry, status: current,
                                     lastSync: [synced, checked[entry.id]].compactMap { $0 }.max(),
                                     notInstalled: gone, countsAsConnected: own.map { $0 == .connected } ?? true,
                                     waitingOn: gone ? nil : (waitingOn[entry.id] ?? problem),
