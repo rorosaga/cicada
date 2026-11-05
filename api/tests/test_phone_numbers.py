@@ -1777,3 +1777,10 @@ def test_round_4_an_echo_posted_again_with_the_vault_gone_stays_redacted(bank, o
     people_directory.path(bank.name, phone_numbers.VAULT_FILE).unlink()
     assert ingest(bank, rows)["updated"] == 0
     assert stored(bank) == before
+
+
+def test_round_4_the_dry_run_creates_nothing_outside_the_bank(bank, home):
+    from api.scripts import numbers_rule_dry_run
+
+    assert numbers_rule_dry_run.run(bank)["chat_episodes"] == 0
+    assert not (home / "people").exists()

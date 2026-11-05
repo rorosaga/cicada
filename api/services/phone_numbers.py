@@ -678,8 +678,7 @@ def _known_runs(text: str, bank) -> list[tuple[int, int, str]]:
     if not runs:
         return []
     try:
-        with _vault_lock(bank):
-            data = _read(_name(bank))
+        data = _read(_name(bank))   # no lock: a read creates nothing (the dry run promises that) and writes are atomic
     except VaultUnavailable:
         return []
     if not data:
