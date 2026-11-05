@@ -517,7 +517,7 @@ Y = "[number:yyyyyyyyyy]"
 @pytest.mark.parametrize(("line", "kind"), [
     (f"Ana's new number is {X}", phone_numbers.CHANGED), (f"she changed her number to {X}", phone_numbers.CHANGED),
     (f"her number is now {X}", phone_numbers.CHANGED), (f"el nuevo número de Ana es {X}", phone_numbers.CHANGED),
-    (f"Ana changed her number, it's {X} now", phone_numbers.CHANGED), (f"{X} is her new number", phone_numbers.CHANGED),
+    (f"Ana changed her number, it's {X} now", phone_numbers.CHANGED), (f"changed Ana Diaz's number to {X}", phone_numbers.CHANGED), (f"changed Ana's number to {X}", phone_numbers.CHANGED), (f"{X} is her new number", phone_numbers.CHANGED),
     (f"Ana's work number is {X}", phone_numbers.ADDITIONAL), (f"she also has {X}", phone_numbers.ADDITIONAL),
     (f"su otro móvil es {X}", phone_numbers.ADDITIONAL), (f"her old number was {X}", phone_numbers.PAST),
     (f"Ana is {X}", phone_numbers.UNKNOWN), (f"Ana's number is {X}", phone_numbers.UNKNOWN),

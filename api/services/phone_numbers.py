@@ -1022,7 +1022,7 @@ _IS = r"(?:is|es|est|ist|era|:|=|-)"
 #: say nothing about X, so they ask. A device word counts only when it is what is being given ("her new mobile is X").
 _CHANGED_BEFORE = re.compile(
     rf"(?i)\b{_NEW}\s+(?:{_DEVICE}\s+)?{_NUM}(?:\s+de\s+[^\W\d_]+)?\s*(?:{_IS}|now|ahora)?\s*(?:now\s*|ahora\s*)?$"
-    rf"|\b{_CHANGE_VERB}\s+(?:[^\W\d_]+\s+){{0,2}}{_NUM}\s*(?:to|a|por|,\s*it['’]?s|,\s*now|:|=)?\s*$"
+    rf"|\b{_CHANGE_VERB}\s+(?:[\w'’]+\s+){{0,2}}{_NUM}\s*(?:to|a|por|,\s*it['’]?s|,\s*now|:|=)?\s*$"
     rf"|\b{_NUM}\s+(?:has\s+|just\s+)?{_CHANGE_VERB}\s*(?:to|a|por|:|=)?\s*$"
     rf"|\b{_NUM}\s+(?:is|es|est)\s+(?:now|ahora|maintenant)\s*$"
     rf"|\b(?:now|ahora)\s+(?:[^\W\d_]+\s+){{0,2}}{_NUM}\s+(?:is|es)\s*$")
@@ -1032,7 +1032,7 @@ _PAST_BEFORE = re.compile(
     r"|\bused to be\s*$")
 _PAST_AFTER = re.compile(rf"(?i)^\W*(?:was|is|era|es)\s+(?:[^\W\d_]+\s+)?{_OLD}\s+{_NUM}\b")
 #: "changed from <old> to <new>": the token right after one of these, on a line a change word opens.
-_CHANGE_FROM = re.compile(rf"(?i)\b{_CHANGE_VERB}\s+(?:[^\W\d_]+\s+){{0,2}}{_NUM}\s+(?:from|de|desde|von)\s+$")
+_CHANGE_FROM = re.compile(rf"(?i)\b{_CHANGE_VERB}\s+(?:[\w'’]+\s+){{0,2}}{_NUM}\s+(?:from|de|desde|von)\s+$")
 _TO_BEFORE = re.compile(r"(?i)^\W*(?:to|a|por|→|->|zu|in)\W*$")
 _ADDITIONAL_BEFORE = re.compile(
     rf"(?i)\b(?:work|office|home|second|other|another|personal|business|landline|trabajo|oficina|casa|fij[oa]|otr[oa]|"
