@@ -5,10 +5,13 @@ enum FindServerRows {
     /// R-SU14 — Pass A's and Pass B's kinds; `inbox` is the local tier's already; `backlog` (G150) has no local
     /// tier — it is not a Store domain — so the server is its only tier.
     static let kinds = ["entity", "claim", "episode", "media", "backlog"]
-    /// Meaning index 2 — the Files group's kinds, asked by the hybrid pass only (the server serves them by meaning,
-    /// never by prefix): a recording's or video's words (`file`) and a video's kept frames (`image`, frames only).
+    /// Meaning index 2 — the Files group's kinds, asked by the hybrid pass: a recording's or video's words, and the
+    /// text read from its pictures (`file`), and a video's kept frames (`image`, by meaning only).
     static let fileKinds = ["file", "image"]
     static var hybridKinds: [String] { kinds + fileKinds }
+    /// ROR-117 — the prefix pass (as you type) also asks for `file`: the server finds a word said in a recording by
+    /// the word itself, with no embedding call. Frames are pictures, found by meaning, so `image` waits for hybrid.
+    static var prefixKinds: [String] { kinds + ["file"] }
 
     static func group(forKind kind: String) -> FindGroupID? {
         switch kind {

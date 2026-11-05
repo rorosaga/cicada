@@ -16,6 +16,8 @@ import UniformTypeIdentifiers
 /// * for a video, samples a frame every `MediaFrames.every` seconds (at most `MediaFrames.maxSamples`) and keeps one
 ///   per shot — an 8 × 8 average hash that moved more than `MediaFrames.minBits` bits from the last kept frame — each
 ///   a ≤ 640 × 400 JPEG with its time;
+/// * reads the text visible in each kept frame on this Mac (`PictureText`, Apple's on-device recogniser, ROR-117) and
+///   posts it beside the frame, so a screen recording with no speech is found by what it shows;
 /// * posts only those derivatives (`POST /files/media`, `POST /files/<id>/frames`): never the path, never the bytes.
 ///
 /// **Speech permission (checked with fixtures only, never raised on a developer's Mac).** `SFSpeechRecognizer`'s
@@ -167,6 +169,15 @@ enum MediaFrames {
         return (0..<n).map { Double($0) * every }
     }
 
+    /// One call's frames as the backend takes them: the time, the JPEG and — when the Mac read some — its text.
+    static func body(_ frames: ArraySlice<KeptFrame>) -> [[String: Any]] {
+        frames.map { frame in
+            var row: [String: Any] = ["t": frame.t, "jpeg": frame.jpeg.base64EncodedString()]
+            if let text = frame.text { row["text"] = text }
+            return row
+        }
+    }
+
     /// A ≤ 640 × 400 JPEG of `image` (aspect kept), ≤ 200 KB: lower quality until it fits.
     static func jpeg(_ image: CGImage) -> Data? {
         let scale = min(1, Double(maxWidth) / Double(image.width), Double(maxHeight) / Double(image.height))
@@ -192,6 +203,8 @@ enum MediaFrames {
 struct KeptFrame: Equatable {
     var t: Double
     var jpeg: Data
+    /// ROR-117 — the words the Mac's own recogniser read in this frame (nil: not read; empty: nothing to read).
+    var text: String? = nil
 }
 
 protocol FrameSampling: Sendable {
@@ -199,6 +212,8 @@ protocol FrameSampling: Sendable {
 }
 
 struct SystemFrameSampler: FrameSampling {
+    var reader: any PictureTextReading = SystemPictureTextReader()
+
     func frames(_ url: URL) async -> (length: Double?, frames: [KeptFrame]) {
         let asset = AVURLAsset(url: url)
         let duration = (try? await asset.load(.duration)).map { CMTimeGetSeconds($0) }
@@ -215,8 +230,11 @@ struct SystemFrameSampler: FrameSampling {
             sampled.append((t, image))
         }
         let kept = MediaFrames.keep(sampled.map { MediaFrames.averageHash($0.1) })
-        let frames = kept.compactMap { i -> KeptFrame? in
-            MediaFrames.jpeg(sampled[i].1).map { KeptFrame(t: sampled[i].0, jpeg: $0) }
+        // The text is read from the sampled image (up to twice the posted size), not from the small JPEG.
+        let frames = kept.enumerated().compactMap { n, i -> KeptFrame? in
+            MediaFrames.jpeg(sampled[i].1).map {
+                KeptFrame(t: sampled[i].0, jpeg: $0, text: n < PictureText.maxPerFile ? reader.read(sampled[i].1) : nil)
+            }
         }
         return (duration, frames)
     }
@@ -237,9 +255,7 @@ extension APIClient: MediaFilesAPI {
 
     func postMediaFrames(fileId: String, frames: [KeptFrame]) async throws {
         for start in stride(from: 0, to: frames.count, by: 64) {
-            let batch = frames[start..<min(frames.count, start + 64)].map {
-                ["t": $0.t, "jpeg": $0.jpeg.base64EncodedString()] as [String: Any]
-            }
+            let batch = MediaFrames.body(frames[start..<min(frames.count, start + 64)])
             let _: [String: Int] = try await postVideo("/files/\(fileId)/frames", body: ["frames": batch])
         }
     }
