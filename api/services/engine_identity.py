@@ -200,6 +200,9 @@ def scrub_extraction(entities: list, relationships: list, values: list, source_t
         if carries(entity.get("website"), bad):
             entity["website"] = None
             dropped += 1
+        if carries(entity.get("ask_person"), bad):
+            entity["ask_person"] = ""   # the question is still not asked on the plan account's word
+            dropped += 1
         kept_entities.append(entity)
     entities[:] = kept_entities
     for items in (relationships, values):

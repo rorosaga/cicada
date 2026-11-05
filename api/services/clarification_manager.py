@@ -1,8 +1,9 @@
 """Clarification queue — holds entities Cicada couldn't confidently extract.
 
-A clarification is created when an entity is extracted with low confidence and
-no existing match. The user (or a later, higher-confidence extraction) resolves
-it. Three resolution paths exist:
+A clarification is created when Stage 1 says only the person can tell who or what
+a name is and something rests on it (``ask_person``, G239); a low confidence alone
+asks nothing, the name waits in the index. The user (or a later, higher-confidence
+extraction) resolves it. Three resolution paths exist:
 
 1. **Organic** — a later sleep cycle extracts the same entity with confidence
    >= 0.6 and the pending clarification is auto-resolved.
@@ -27,7 +28,6 @@ from thefuzz import fuzz
 from api.services import markdown_parser
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
-CONFIDENCE_THRESHOLD = 0.5
 ORGANIC_RESOLUTION_THRESHOLD = 0.6
 
 _CLARIFICATION_KINDS = ("clarification", "merge_suggestion")
@@ -54,8 +54,12 @@ class ClarificationManager:
         heard_in: dict | None = None,
         same_title: list[str] | None = None,
         target_id: str | None = None,
+        why_asked: str | None = None,
     ) -> str | None:
         """Create a clarification file. Returns its id, or None if duplicate.
+
+        ``why_asked`` (G239): the model's clause on why only the person can answer this, said on the card. Its presence
+        also marks a question asked on purpose, which no lookup answers and no "said in passing" rule closes.
 
         ``same_title`` / ``target_id`` (G227): a mention titled exactly as one or more pages — the candidate's own id
         is the merge target (a name two pages share never resolves to one), and every page sharing the title is kept
@@ -190,6 +194,8 @@ class ClarificationManager:
                     frontmatter["title"] = f"Is this {same_name.label(self.memory_path, target_id, entity_name)}?"
         if source_episode_timestamp:
             frontmatter["source_episode_timestamp"] = str(source_episode_timestamp)
+        if why_asked and not is_duplicate:
+            frontmatter["why_asked"] = str(why_asked)
         if is_duplicate and isinstance(heard_in, dict) and heard_in.get("mention") and heard_in.get("page"):
             # Where each side was heard (`entity_resolver._held_alias_questions`): words for the question, never ids.
             frontmatter["heard_in"] = {"mention": str(heard_in["mention"])[:40], "page": str(heard_in["page"])[:40]}

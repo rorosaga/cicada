@@ -843,9 +843,9 @@ def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | 
     A code identifier (``<field_id>``) is assumed however many conversations name it: who or what it is is the code."""
     from api.services import evidence, inbox_ask_gate, promotion, role_people
 
-    if (str(fm.get("asks") or "") or fm.get("owner_role")
+    if (str(fm.get("asks") or "") or fm.get("owner_role") or fm.get("why_asked")
             or str(fm.get("uncertainty_type") or "") == role_people.UNCERTAINTY):
-        return None, "needs_person"   # a relation's name: only the person knows it
+        return None, "needs_person"   # a relation's name, or a question asked on purpose (G239): only the person knows it
     name = str(fm.get("entity_name") or fm.get("entity_mention") or "").strip()
     if not name:
         return None, "needs_person"

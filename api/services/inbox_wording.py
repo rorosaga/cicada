@@ -431,10 +431,11 @@ def _clarification(fm: dict, today: str, name: str, page_type: str) -> Spoken:
                       "You've mentioned them, but never by name.")
     uncertainty = str(fm.get("uncertainty_type") or "").lower()
     guess = str(fm.get("suggested_classification") or page_type or "").lower()
+    why_asked = str(fm.get("why_asked") or "").strip()   # the model's own reason for asking (G239)
     if "relationship" in uncertainty or guess == "person":
         return Spoken(_ask(f"Who is {name} to you"),
-                      f"You mentioned {name} {when}, but not how you know them." if when
-                      else f"You mentioned {name}, but not how you know them.")
+                      why_asked or (f"You mentioned {name} {when}, but not how you know them." if when
+                                    else f"You mentioned {name}, but not how you know them."))
     return Spoken(_ask(str(fm.get("question") or f"Who or what is {name}")),
-                  f"You mentioned {name} {when}, and I couldn't tell who or what it is." if when
-                  else f"You mentioned {name}, and I couldn't tell who or what it is.")
+                  why_asked or (f"You mentioned {name} {when}, and I couldn't tell who or what it is." if when
+                                else f"You mentioned {name}, and I couldn't tell who or what it is."))
