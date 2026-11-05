@@ -57,7 +57,7 @@ claims_ledger: {claims: 5835, hash: 1a2b3c4d5e6f}  # only on a page whose older 
 `company`, `concept`, `tool`, `deadline`, `skill` (procedural memory / preferences), `location`,
 `media` (ingested item with an agent-generated summary), `directory` (a filesystem path, split out
 from `location` in G18). Stage 1's model picks the word; a name's shape never decides it (`@acme_labs` can be a company). One prompt line
-says a handle is a person unless the conversation says otherwise, and a language's built-in is no entity (ROR-41).
+says a language's built-in is no entity (ROR-41).
 
 **The set is held where a type comes from a model (2026-10-17).** A plain-JSON engine is held only by the
 extraction prompt's list, and a model's `organization`, `product` or `program` once reached a page unchanged.

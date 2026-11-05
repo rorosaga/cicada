@@ -1991,8 +1991,8 @@ item the model listed AND that shares two words, beyond the thing's own name, wi
 Summary or one Key Fact while adding no number, tense or status word or negation that item lacks
 (`entity_orientation._confirmed`, `fact_policy.compatible`); nothing already on the page is ever removed this way. This is the one
 place a restatement in other words is folded, at no extra call. Facts-only updates need one merge call; Summary/description
-updates also run the existing contradiction check. A recorded number that moves (a count, a grade, a metric) is an
-update to it, never a contradiction, whatever the dates (ROR-41, G98). `entity_orientation` passes dated inputs and
+updates also run the existing contradiction check. A measured quantity that naturally changes over time (a metric, a count, a score, a
+balance) is an update, never a contradiction, even on the same date; a value that should hold still, such as an agreed price two people dispute, can still ask (ROR-41, G98). `entity_orientation` passes dated inputs and
 only structurally current claims (`claims.is_current`, excluding withdrawal records). Prose is
 labeled unverified background; old statements and intentions must name their own date, never a
 page-wide last-reference date. Input over 24,000 characters and invalid output take the deterministic
