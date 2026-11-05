@@ -110,7 +110,7 @@ def test_a_full_bank_primer_with_item_9_stays_inside_the_budget(tmp_path, varian
 
 def test_an_empty_state_primer_is_far_inside_the_budget_with_item_9():
     for variant in handshake.VARIANTS:
-        assert len(handshake.build(None, variant=variant, bank="memory", reading=True)) // 4 < 1430  # ~1,425 with item 4's split / merge / undo line (G227 follow-up, 2026-10-29); ~1,381 with lean reads (2026-10-27: ask first for a factual question, cicada_sources for an ep_ id); ~1,368 with "Where to check" (ruling 36 D5, 2026-10-22); ~1,361 before, with G198's edit line and ruling 34's lease_token; MAX_TOKENS (1,800) is the hard budget
+        assert len(handshake.build(None, variant=variant, bank="memory", reading=True)) // 4 < 1460  # ~1,456 with the G207 unread line (2026-11-05); ~1,425 with item 4's split / merge / undo line (G227 follow-up, 2026-10-29); ~1,381 with lean reads (2026-10-27: ask first for a factual question, cicada_sources for an ep_ id); ~1,368 with "Where to check" (ruling 36 D5, 2026-10-22); ~1,361 before, with G198's edit line and ruling 34's lease_token; MAX_TOKENS (1,800) is the hard budget
 
 
 @pytest.mark.parametrize("scopes", SUBSETS, ids=lambda s: "+".join(sorted(s)))

@@ -1054,13 +1054,17 @@ TOOLS = [
     },
     {
         "name": "cicada_pending",
-        "description": "List Cicada episodes not yet consolidated into the knowledge graph (processed: false), each with its rev (the version of its text). Use this to see what raw conversation material is waiting, then use cicada_write_claim to consolidate atomic facts out of it yourself, and cicada_mark_processed once you're done with an episode — this lets an agent do its own lightweight consolidation between Sleep cycles.",
+        "description": "List Cicada episodes not yet consolidated into the knowledge graph (processed: false), newest first, each with its rev (the version of its text). Pass query to list only the waiting ones about a topic, best match first. Use this to see what raw conversation material is waiting, then use cicada_write_claim to consolidate atomic facts out of it yourself, and cicada_mark_processed once you're done with an episode — this lets an agent do its own lightweight consolidation between Sleep cycles.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "limit": {
                     "type": "integer",
                     "description": "Max number of unprocessed episodes to return (default 50).",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Optional: a topic in plain words; lists only the waiting episodes about it, best match first (the words and meaning recall searches conversations by).",
                 },
             },
         },
@@ -1951,7 +1955,7 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
         return mcp_tools.add_influence(_ctx(), arguments.get("project", ""), arguments.get("what"),
                                        arguments.get("url"), arguments.get("how"), arguments.get("evidence"))
     elif name == "cicada_pending":
-        return handle_pending(arguments.get("limit"))
+        return handle_pending(arguments.get("limit"), arguments.get("query"))
     elif name == "cicada_mark_processed":
         return handle_mark_processed(arguments.get("episode_ids"), arguments.get("revisions"))
     elif name == "cicada_continue":
@@ -2169,11 +2173,12 @@ def handle_continue(session=None, before=None) -> str:
                                      identity=(SESSION.harness, SESSION.session_id))
 
 
-def handle_pending(limit) -> str:
-    """List unprocessed episodes for the agent's own consolidation loop, each with the rev its mark must match."""
+def handle_pending(limit, query=None) -> str:
+    """List unprocessed episodes for the agent's own consolidation loop, each with the rev its mark must match;
+    ``query`` lists the ones about a topic (G207)."""
     from api.services import agentic_write
 
-    return agentic_write.pending_text(get_memory_path(), limit, _LISTED_REVISIONS)
+    return agentic_write.pending_text(get_memory_path(), limit, _LISTED_REVISIONS, query)
 
 
 def handle_mark_processed(episode_ids, revisions=None) -> str:

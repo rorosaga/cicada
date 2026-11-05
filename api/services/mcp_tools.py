@@ -5021,6 +5021,21 @@ def _fuse_episode_hits(vector: list[dict], words: list[dict], top_k: int) -> lis
     return [first[r["id"]] for r in order if r.get("id") in first][:top_k]
 
 
+def unread_matches(memory_path: Path, query: str, limit: int) -> list[str]:
+    """Episode ids matching ``query``, best first, by recall's two conversation legs (the vector leg and the word
+    leg, rank-fused: ``cicada_pending(query=…)``, G207). A pool four times ``limit`` is read — most of what the legs
+    find is already read by Sleep — and the caller keeps the ones still unprocessed. Never raises; not logged."""
+    pool = max(40, 4 * max(1, int(limit)))
+    hits = _fuse_episode_hits(_leann_search_episodes(memory_path, query, top_k=pool),
+                              _lexical_search_episodes(memory_path, query, top_k=pool), top_k=pool)
+    ids: list[str] = []
+    for row in hits:
+        ep = str((row.get("metadata") or {}).get("episode_id") or "")
+        if ep and ep not in ids:
+            ids.append(ep)
+    return ids
+
+
 def _unread_label(memory_path: Path, episode_id: str) -> str:
     """`` (<day>, not yet read by Sleep)`` for a conversation still ``processed: false``, else ``""``. Ruling 39: the
     day Cicada received it joins as ``added <day>`` when it is days after the item's own date (an old article from a

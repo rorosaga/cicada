@@ -121,6 +121,33 @@ with the query. Then one line names up to 5 held names that match a query word. 
 is unread, it is an ordinary block under `_fit_recall`'s budget, and it is Cicada's reading, not the person's
 verbatim words, so it follows the claim leg's scope.
 
+**Looking into what Sleep has not read (ROR-29, G207, 2026-11-05; owner: "being able for agents to look into stuff that
+hasn't been consolidated is a big priority", about 198 waiting).** Retrieval, not belief: nothing below writes a page,
+a claim or a question. (1) *Ask reads enough.* The search leg's OTHER CONVERSATIONS used to clip every turn to 600
+characters, so a note's list was cut mid-way and the model called it truncated. A turn of a conversation still
+`processed: false` is now read past that (`ask_sources._read_more`): whole when it is at most 2,400 characters, else up
+to 3 non-overlapping 500-character windows around the question's words (`…` where text was left out), drawing on one
+budget of **4,000 characters (about 1,000 tokens) per question**, on top of the leg's 3,000; the line is labelled "not yet
+read by Sleep" and Ask's rule 12 says a read-whole line is whole and that an answer resting on one is unconfirmed by
+Sleep. A turn of a conversation Sleep has read is clipped as before. An index-only record (a save with no reason, a
+feed item, a watched day, a list save), and a retired locked note, are skipped by `_scored_turns` before any text
+is taken (ruling 62, G234; tests `test_ask_unread`), so nothing new reaches a model for them; the leg runs only with
+`source_words`, so a connector without `sources` gets nothing new. Ask's engine, `resolve_llm_fn` and G235's hold are
+unchanged. (2) *Citations are what the answer rests on.* The model's `used_entities` is used as given, **an empty list
+included** (before, empty fell back to every retrieved page: an answer from an unread conversation listed 14 unrelated
+pages); with no list returned, the pages whose title or alias the answer itself says (`_named_in`), else none. The
+degraded replies ("could not synthesize", no engine) still name the retrieved pages as "Relevant pages", which is what
+they are. (3) *`cicada_pending(query)`.* An optional topic: the same two legs recall's conversation excerpts use
+(`mcp_tools.unread_matches`: the vector leg and the word leg, rank-fused), a pool of four times `limit` (at least 40),
+kept to the ones still `processed: false` and not a bare save, best match first; with no query the list now leads with
+the **newest**. Still stdio and the tool door only; the query is never logged. (4) *The primer* says in item 1 that
+unread material is searched too and marked, that `cicada_pending(query)` lists what waits on a topic, and that an answer
+resting on it is unconfirmed by Sleep (+~31 proxy tokens: 1,456 empty-state, 1,704 with every bridge and method line,
+inside 1,800); item 5's "personal facts are authoritative" is untouched. Measured on a synthetic bank of 1,500
+conversations (188 unread; the word leg only, no search model on the scratch machine): `unread_matches` p50 5 ms / p95
+16 ms, the whole `cicada_pending(query)` p50 4.7 / p95 23 ms, the no-query newest-first list of 50 p50 28 / p95 31 ms; Ask's
+search leg with the deeper read p50 3.4 / p95 4.8 ms.
+
 **Merge, split, undo — in the conversation (G227 follow-up; owner 2026-10-29: "the separation of entities should mainly
 happen by talking to an agent"; `page_join`, `storage.md`).** The agent is the primary door. When the person says "that's
 two different things": `cicada_split_page(page, preview=true)` lists the page's numbered sentences and beliefs; the agent

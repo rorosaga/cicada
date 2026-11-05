@@ -339,7 +339,8 @@ def _run(tool, args, *, ctx, state, surface, options, root, memory_path, bank_na
     if tool == "cicada_pending":
         from api.services import agentic_write
 
-        return agentic_write.pending_text(memory_path, args.get("limit"), state.listed_revisions)
+        return agentic_write.pending_text(memory_path, args.get("limit"), state.listed_revisions,
+                                          args.get("query"))
     if tool == "cicada_mark_processed":
         from api.services import agentic_write
 
