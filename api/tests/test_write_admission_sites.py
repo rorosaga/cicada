@@ -554,6 +554,9 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /files/voice-memos": (OUTSIDE, None),       # G43: the same store, keyed by the recording's own id
     "POST /files/{file_id}/frames": (OUTSIDE, None),
     "DELETE /files/{file_id}": (OUTSIDE, None),
+    # ROR-117 / ruling 68: `Read it now` writes one page's two sections; refused before any engine call while Sleep holds
+    # the pages, and the write itself inside run_admitted (the model call outside it).
+    "POST /files/{file_id}/read": (ADMITTED, "api.services.media_read.read_now"),
     # 2026-10-28 "Remove from memory": closes the claims whose only evidence is a traces-day digest (and Undo reopens
     # them) — entity pages, so the bank's admission through the one commit, 409 while Sleep holds the pages.
     "POST /sources/traces/remove-from-memory": (ADMITTED, "api.services.trace_memory.remove"),
@@ -724,6 +727,8 @@ HOLDING_SITES = {
     "api/services/state_dictionary.py": "refresh_admitted(): the `_state.md` refresh after the undo routes, the inbox "
                                         "tidy and the web sweep — inside its own run_admitted() transaction, skipped "
                                         "while Sleep holds the pages (GET /state's pattern)",
+    "api/services/media_read.py": "read_now(): the person's click is refused before any engine call while Sleep holds "
+                                  "the pages; the write itself is inside run_admitted()",
     "api/routers/maintenance.py": "the sweep's may_write: asked inside each merge's own hold (and, stale, before a "
                                   "judge call, where nothing is written)",
     "api/routers/local_sources.py": "folder update/sync and Wispr Flow: inside their route()'s hold",

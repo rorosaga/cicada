@@ -89,6 +89,7 @@ struct ProvenanceContributor: Codable, Hashable, Identifiable {
     var id: String { author }
 
     var transcribedTheWords: Bool { role == "transcribed" }
+    var summarizedTheWords: Bool { role == "summarized" }
 
     init(author: String, kind: String, provider: String? = nil, claims: Int = 0, commits: Int = 0,
          models: [ContributorModel] = [], role: String? = nil) {

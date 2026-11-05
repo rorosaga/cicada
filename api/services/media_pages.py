@@ -91,6 +91,15 @@ def transcriber(fm: dict | None) -> str | None:
     return " ".join(name.split()) if isinstance(name, str) and name.strip() else None
 
 
+def reader(fm: dict | None) -> str | None:
+    """The model that wrote this page's Summary from the recording's words (``media.read.by``, ``media_read``), when the
+    page says so."""
+    media = (fm or {}).get("media")
+    record = media.get("read") if isinstance(media, dict) else None
+    name = record.get("by") if isinstance(record, dict) else None
+    return " ".join(name.split()) if isinstance(name, str) and name.strip() else None
+
+
 def transcript_line(memory_path: Path, entity_id: str) -> str | None:
     """How much transcript exists for a file page — a count and a length, never a word of it. ``None`` for any other
     page, a file with no words, or one the store no longer holds."""

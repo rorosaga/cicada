@@ -531,6 +531,16 @@ def entity_provenance(
     if (by := media_pages.transcriber(fm)) and media_pages.is_file_page(fm) and all(c.author != by for c in contributors):
         kind, provider = git_service.author_identity(by)
         contributors.append(ProvenanceContributor(author=by, kind=kind, provider=provider, role="transcribed"))
+    # ROR-117 / ruling 68: and the model that read those words for the page's Summary, beside the transcriber. It
+    # committed that note, so it is usually listed already; the role says what for.
+    if (read_by := media_pages.reader(fm)) and media_pages.is_file_page(fm):
+        read_by = git_service.canonical_author(read_by)
+        match = next((c for c in contributors if c.author == read_by), None)
+        if match is None:
+            kind, provider = git_service.author_identity(read_by)
+            contributors.append(ProvenanceContributor(author=read_by, kind=kind, provider=provider, role="summarized"))
+        elif match.role is None:
+            match.role = "summarized"
 
     cited: dict[str, set[str]] = {}
     spans_by_episode: dict[str, list[tuple[Claim, Evidence]]] = {}
