@@ -1041,7 +1041,8 @@ async def extract(
         if revision is not None:
             source_note = (source_note or "") + episode_revision.REVISION_NOTE
         if phone_numbers.has_token(episode.get("content")):
-            source_note = (source_note or "") + phone_numbers.NOTE   # proposed ruling 55: only with a token to explain
+            source_note = (source_note or "") + phone_numbers.NOTE   # ruling 55: only with a token to explain
+            source_note += phone_numbers.card_note(episode.get("content"), getattr(settings, "memory_path", None) or "")
         their_observer = assistant_observer(episode)
         session_id = str(episode.get("session_id") or "").strip() or None
         # The owner, 2026-10-28: replies, reactions, forwards and unsends, told to each chunk they fall in.

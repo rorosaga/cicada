@@ -84,6 +84,8 @@ _LOCK = threading.RLock()
 
 #: A value item's key on an extraction (`take`): the token this entry files (`entity_extractor._value_claim`).
 ITEM_KEY = "number_token"
+#: On a Stage 1 person mention: the waiting card whose number the person gave (`entity_resolver`, ruling 55, 2026-11-05).
+CARD_KEY = "number_card"
 #: A claim's ``context`` while it waits on the person: closed, so no reader takes it for current, and kept on the page,
 #: so the answer has something to reopen and a restatement finds it instead of asking again.
 ASKED = "number_asked"
@@ -663,14 +665,60 @@ def _known_runs(text: str, bank) -> list[tuple[int, int, str]]:
     return [(m.start(), m.end(), m.group(0)) for m in runs if _token_for(data, _digits(m.group(0))) in data["numbers"]]
 
 
-def _spans(text: str, bank="", *, person: bool = True) -> list[tuple[int, int, str]]:
+#: Any stretch of digits and separators, longer than one number can be: a card's number is looked for inside it.
+_RUN = re.compile(r"(?<![\w.+])\+?\(?\d[\d .\-()]{5,60}\d(?!\w)")
+
+
+def _windows(m: re.Match[str]) -> Iterable[tuple[int, int]]:
+    """The space-separated stretches of a run, earliest then longest: "+1 202 555 0143 202 555 0177" holds two numbers;
+    a dash never splits one, so a piece of "202-555-0143-77" is no number."""
+    pieces = [(p.start() + m.start(), p.end() + m.start()) for p in re.finditer(r"\S+", m.group(0))]
+    for i, (start, _end) in enumerate(pieces):
+        for j in range(len(pieces) - 1, i - 1, -1):
+            yield start, pieces[j][1]
+
+
+def _card_runs(text: str, bank) -> list[tuple[int, int, str]]:
+    """Every number in the person's own line a Contacts card holds, by value: the keyed hash the app posted, against the
+    same hash of these digits. No word around it counts, so a digit run reads as a number only when it IS a contact's."""
+    if not bank:
+        return []
+    cards = cards_of(bank)
+    if not cards:
+        return []
+    try:
+        data = _read(_name(bank))
+    except VaultUnavailable:
+        return []
+    if not data:
+        return []
+    found: list[tuple[int, int, str]] = []
+    for m in _RUN.finditer(text):
+        at = m.start()
+        for start, end in _windows(m):
+            if start < at:
+                continue
+            digits = match_digits(text[start:end])
+            if (digits and _token_id(data["key"], digits) in cards and _stands_alone(text, start, end)
+                    and not _UNIT_AFTER.match(text, end)):
+                found.append((start, end, text[start:end]))
+                at = end
+    return found
+
+
+def _spans(text: str, bank="", *, person: bool = True, own: bool = False) -> list[tuple[int, int, str]]:
     """Every number in a line, ``(start, end, raw)``, earliest first, none overlapping. ``person=False`` is anyone else's
-    line: only a phone word somebody owns, and a number the vault holds."""
+    line: only a phone word somebody owns, and a number the vault holds. ``own``: a line the person typed in a ticked chat,
+    so a number on one of their Contacts cards and a "+" number count too (ruling 55, 2026-11-05)."""
     found: list[tuple[int, int, str]] = []
 
     def add(start: int, end: int, raw: str) -> None:
         if not any(start < e and s < end for s, e, _ in found):
             found.append((start, end, raw))
+
+    if own:
+        for start, end, raw in _card_runs(text, bank):
+            add(start, end, raw)
 
     def good(m: re.Match[str]) -> bool:
         return _plausible(m.group("num")) and _stands_alone(text, m.start("num"), m.end("num"))
@@ -694,13 +742,16 @@ def _spans(text: str, bank="", *, person: bool = True) -> list[tuple[int, int, s
                 add(m.start("num"), m.end("num"), m.group("num"))
     for start, end, raw in _known_runs(text, bank):
         add(start, end, raw)
+    if own:
+        for start, end in episode_scrub.plus_numbers(text):
+            add(start, end, text[start:end])
     return sorted(found)
 
 
 def tokenise(text: str, bank) -> tuple[str, int]:
     """The person's own line with each number replaced by its token; ``(text, how many)``. With a vault that can't be
     used, the numbers are redacted, as the scrub does today, and it says so: no digit reaches the bank by a failure."""
-    spans = _spans(text or "", bank)
+    spans = _spans(text or "", bank, own=True)
     if not spans:
         return text, 0
     try:
@@ -807,7 +858,7 @@ NOTE = (
     "digits are kept out of this text on purpose. When the user's own line says whose number it is, add one entry to "
     'values: entity = that person\'s name as the user gave it ("the user" for their own number), attribute = "phone '
     'number", value = the whole token, brackets included, exactly as written, evidence_quote = the user\'s words. One '
-    "entry per person and number. Never guess whose it is: with no name in the user's words, leave it out. Never put the "
+    "entry per person and number. Never guess whose it is: with no name in the user's words or a note below, leave it out. Never put the "
     "token in a summary, a key fact, a history entry, a link or an open question: a page's prose does not carry it.]\n\n")
 
 
@@ -938,6 +989,19 @@ def _clean_strings(value, loose: re.Pattern[str] | None, bank, on: bool, person:
     return value
 
 
+def _named_apart(content: str, tid: str, said: str, card_name: str) -> bool:
+    """Whether the person's words name someone else beside this number: "Bob's number is N", with N on Ana's card, stays
+    Bob's, and `annotate` asks when a page says otherwise. A name sharing a word with the card's is the card's person, and
+    a model's reading the person's line doesn't spell as a name ("my brothers": a chat message is stored as one line, so
+    that line may well hold the word) is outranked by the card."""
+    words = set(re.findall(r"[^\W\d_]{2,}", said))
+    if {w.casefold() for w in words} & {w.casefold() for w in re.findall(r"[^\W\d_]{2,}", card_name)}:
+        return False
+    names = {w for w in words if w[0].isupper()}
+    needle = token(tid)
+    return any(needle in line and names & set(re.findall(r"[^\W\d_]{2,}", line)) for line in content.splitlines())
+
+
 def take(entities: list, relationships: list, values: list, content: str, episode_id: str, *, bank,
          override: str | None = None, gaps=()) -> int:
     """What Stage 1 made of the numbers in this conversation, in place, before anything downstream reads it.
@@ -957,9 +1021,13 @@ def take(entities: list, relationships: list, values: list, content: str, episod
     loose = re.compile(r"(?<![a-z])(" + "|".join(sorted(here)) + r")(?![a-z])") if here else None
     entries: list[dict] = []
     seen: set[tuple[str, str]] = set()
+    links = card_links(bank, here) if on else {}
 
     def file(name: str, tid: str | None, raw: str | None) -> None:
         name = (name or "").strip()
+        link = links.get(tid) or {}
+        if name and link.get("kind") in ("page", "card") and not _named_apart(content, tid, name, link["name"]):
+            name = link["name"]     # the card says who, whatever the model called them
         if not name or not tid:
             return
         key = (name.casefold(), tid)
@@ -996,17 +1064,26 @@ def take(entities: list, relationships: list, values: list, content: str, episod
                         if not read(str(r.get("source") or ""), str(r.get("label") or ""), str(r.get("target") or ""))]
     values[:] = [v for v in values
                  if not read(str(v.get("entity") or ""), str(v.get("attribute") or ""), str(v.get("value") or ""))
-                 ] + entries
+                 ]
+    # A number on a card needs no name in the words. Only the person's own line can file it, as for any other (`file`).
+    for tid, link in links.items():
+        if link["kind"] != "me" and not any(t == tid for _n, t in seen):
+            file(link["name"], tid, None)
+    values += entries
     for i, entity in enumerate(entities):
         if isinstance(entity, dict):
             entities[i] = _clean_strings(entity, loose, bank, on, str(entity.get("type") or "person") == "person")
     named = {str(e.get("name") or "").casefold() for e in entities if isinstance(e, dict)}
+    birth = {link["name"].casefold(): link["card"] for link in links.values() if link["kind"] == "card"}
     for entry in entries:
         # What is held for a name waits on its pending line, so the name must be one Stage 2 parks.
         if entry["entity"].casefold() not in named:
             named.add(entry["entity"].casefold())
             entities.append({"name": entry["entity"], "type": "person", "confidence": 0.6, "key_facts": [],
                              "summary": ""})
+    for entity in entities:     # the person gave this one waiting card's number: that names it (Stage 2's Contacts rail)
+        if isinstance(entity, dict) and (card := birth.get(str(entity.get("name") or "").casefold())):
+            entity[CARD_KEY] = card
     return len(entries)
 
 
@@ -1144,6 +1221,77 @@ def forget_cards(root: Path) -> int:
     return gone
 
 
+def card_links(bank, tids: Iterable[str]) -> dict[str, dict]:
+    """Who the cards holding these tokens are, while on: ``{token id: {kind, name, ...}}``. ``page``: one card, its page.
+    ``card``: one card still waiting, with its id. ``me``: the person's own. ``tie``: two cards hold it, so nobody is
+    guessed; ``name`` is where the one question goes. The hashes and the waiting cards only, never the faces store
+    (`contacts_book`). A card known to neither (its name shared by two pages) links to nothing."""
+    if not bank or not enabled():
+        return {}
+    holders = cards_of(bank)
+    wanted = {t: sorted(set(holders[t])) for t in tids if holders.get(t)}
+    if not wanted:
+        return {}
+    from api.services import bank_index, contact_identity, contacts_local
+
+    waiting = {str(c.get("id")): c for c in contacts_local.load_waiting(_name(bank)) if contacts_local.card_live(c)}
+    pages: dict[str, str] = {}
+    labels: dict[str, set[str]] = {}
+    if Path(str(bank)).is_absolute():
+        bank = Path(str(bank))
+        rows = [{"id": f.stem, "frontmatter": f.frontmatter or {}} for f in bank_index.files(bank, "entities")]
+        names = {r["id"]: str(r["frontmatter"].get("name") or r["id"]) for r in rows}
+        pages = {cid: names[stem] for cid, stem in contact_identity.card_pages(rows).items()}
+        for row in rows:
+            fm = row["frontmatter"]
+            if str(fm.get("type") or "") == "person" and fm.get("status") != "dropped" and fm.get("owner") is not True:
+                for label in people_directory.labels(fm, row["id"]):
+                    labels.setdefault(people_directory.fold(label), set()).add(names[row["id"]])
+
+    def one(card_id: str) -> dict | None:
+        if card_id in pages:
+            return {"kind": "page", "name": pages[card_id]}
+        card = waiting.get(card_id)
+        if card is None:
+            return None
+        name = contacts_local.card_name(card)
+        said = labels.get(people_directory.fold(name)) or set()
+        if len(said) == 1:      # the card's whole name is a page's name or alias: that page, never a second one
+            return {"kind": "page", "name": next(iter(said))}
+        return {"kind": "card", "name": name, "card": card_id} if name and not said else None
+
+    out: dict[str, dict] = {}
+    for tid, ids in wanted.items():
+        if len(ids) > 1:
+            found = sorted((f for f in (one(i) for i in ids if i != "me") if f),
+                           key=lambda f: (f["kind"] != "page", f["name"].casefold()))
+            if found:
+                out[tid] = {"kind": "tie", "name": found[0]["name"]}
+        elif ids[0] == "me":
+            out[tid] = {"kind": "me"}
+        elif found_one := one(ids[0]):
+            out[tid] = found_one
+    return out
+
+
+def card_note(content: str | None, bank) -> str:
+    """What the model is told about the tokens a card holds: the card's whole name as the person saved it, for the model to
+    judge. No rule here reads what a nickname or its bracket means. Empty with nothing to say; goes to the model only."""
+    lines = []
+    for tid, link in card_links(bank, set(token_ids(content))).items():
+        if link["kind"] == "me":
+            lines.append(f"{token(tid)} is on the user's own Contacts card: it is their own number.")
+        elif link["kind"] == "tie":
+            lines.append(f"{token(tid)} is on more than one Contacts card, so whose it is stays open: leave it out unless "
+                         "the user's words name the person.")
+        else:
+            lines.append(f"{token(tid)} is on the user's Contacts card \"{link['name']}\", so it is that person's number even "
+                         "when no line names them: use that name as the entity. It is the name the user saved them "
+                         "under, and what it adds (a nickname, a word in brackets) may hint at where they know this "
+                         "person: judge that yourself, and put it in the summary only when it is clear.")
+    return f"[Cicada's note, not part of the conversation: {' '.join(lines)}]\n\n" if lines else ""
+
+
 def _carried_cards(fm: dict) -> set[str]:
     from api.services.contact_identity import REF_SCHEME
 
@@ -1197,9 +1345,13 @@ def annotate(incoming: list, memory_path: Path, owner_id: str | None) -> tuple[l
         held_by = set(cards.get(tid) or [])
         carried = _carried_cards(fm)
         name = str(fm.get("name") or "").strip()
-        if held_by and carried and not held_by & carried:
+        link = card_links(memory_path, [tid]).get(tid) if held_by else None
+        if link and link["kind"] == "tie" and not held_by <= carried:
+            claim.number_ask = ASK_CARD     # two cards hold it: never a guess, whichever page it was filed on
+        elif held_by and carried and not held_by & carried:
             claim.number_ask = ASK_CARD
-        elif len(name.split()) < 2 and not fm.get("unnamed") and not (held_by & carried):
+        elif (len(name.split()) < 2 and not fm.get("unnamed") and not (held_by & carried)
+              and not (link and link["kind"] == "page" and link["name"] == name)):
             claim.number_ask = ASK_NAME
         kept.append(claim)
     return kept, audit
@@ -1209,11 +1361,17 @@ def _retoken_any(line: str, bank, *, only: set[str] | None = None) -> str:
     """A line from a writer that kept its digits, with each digit run as its token if the vault knows it: so a claim
     resting on it is read clause by clause like any other. ``only``: just these tokens, so a run the vault learned after
     the line was stored stays as digits."""
-    def one(m: re.Match[str]) -> str:
-        tid = known_id(bank, m.group(0))
-        return token(tid) if tid and (only is None or tid in only) else m.group(0)
-
-    return re.sub(_DIGITS, one, line)
+    out, last = [], 0
+    for m in _RUN.finditer(line):
+        at = m.start()
+        for start, end in _windows(m):      # a run can hold two numbers, each stored as its own token
+            if start < at:
+                continue
+            tid = known_id(bank, line[start:end])
+            if tid and (only is None or tid in only):
+                out += [line[last:start], token(tid)]
+                last = at = end
+    return "".join(out) + line[last:]
 
 
 def shared_pairs(reconciled: dict[str, list], touched: Iterable[str], *, owner_id: str | None) -> list[tuple[str, str]]:

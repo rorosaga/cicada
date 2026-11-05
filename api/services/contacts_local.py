@@ -339,7 +339,9 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
             ambiguous += 1
         else:
             unmatched += 1
-            if card_keys:   # a one-part name can never be matched to anybody: nothing of it is kept
+            # A one-part name can never be matched to anybody by name, so nothing of it is kept, unless the number
+            # switch is on and it holds a number: the person's giving that number names it (ruling 55, 2026-11-05).
+            if card_keys or (contact.get("phone_keys") and phone_numbers.enabled()):
                 waiting.append(contact)
     matched = {eid: found[0] for eid, found in claims.items() if len(found) == 1}
     ambiguous += sum(len(found) for found in claims.values() if len(found) > 1)

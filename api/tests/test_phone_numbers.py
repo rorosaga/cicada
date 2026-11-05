@@ -186,11 +186,11 @@ def test_these_are_not(home, line):
     assert phone_numbers.tokenise(line, "b") == (line, 0)
 
 
-def test_a_plus_or_bracketed_shape_alone_is_the_scrubs_as_it_always_was(bank, on):
+def test_a_bracketed_shape_alone_is_the_scrubs_and_a_plus_is_a_token_kept(bank, on):
     ingest(bank, [row("AAA1", T0, f"call him on {A}", me=True), row("AAA2", T0 + 5, "or (202) 555-0177", me=True)])
     body = joined(bank)
-    assert body.count("[redacted]") == 2 and not phone_numbers.has_token(body)
-    assert not people_directory.path(bank.name, phone_numbers.VAULT_FILE).exists()
+    assert body.count("[redacted]") == 1 and len(phone_numbers.token_ids(body)) == 1 and A_DIGITS not in body
+    assert phone_numbers.reveal(bank.name, phone_numbers.token_ids(body))
 
 
 def test_a_token_survives_the_chat_scrub_unchanged(home):
@@ -2070,3 +2070,201 @@ def test_an_agents_phone_claim_on_a_person_page_is_held_and_on_any_other_is_not(
     for digits in ("2025550188", "2025550198", "2025550199"):
         assert phone_numbers.known_id(memory, digits) is None
     assert "2025550188" in (memory / "entities" / "tesla.md").read_text()
+
+
+# ---- ruling 55, 2026-11-05: a number on a Contacts card, whatever the line around it says --------------------------
+
+C1 = "11111111-1111-1111-1111-111111111111:ABPerson"
+C2 = "22222222-2222-2222-2222-222222222222:ABPerson"
+OWNER_SHAPE = ("+1 202-555-0143\n\n+1 202-555-0177\n\n"
+               "Also send invites to my brothers for their instincts. Just to have them")
+
+
+def card_key(bank, raw):
+    return phone_numbers._token_id(phone_numbers.match_key(bank), phone_numbers.match_digits(raw))
+
+
+def sync_cards(memory, *cards):
+    """``(id, given, family, numbers)``: what the app posts, its hashes made here as `PhoneNumberKeys` makes them."""
+    contacts_local.sync(memory, {"contacts": [
+        {"id": cid, "given_name": given, "family_name": family, "has_phone": True,
+         "phone_keys": [card_key(memory.name, n) for n in numbers]} for cid, given, family, numbers in cards]})
+
+
+def told(memory, rows):
+    chat_live.update_settings(memory, SPEC, {"id": CHAT, "name": "Bob Example", "group": False, "ticked": True},
+                              now="2026-08-28T00:00:00+00:00")
+    return ingest(memory, rows)
+
+
+def took(memory, content, ep="ep_2026-08-20_001", values=()):
+    entities, relationships, kept = [], [], list(values)
+    phone_numbers.take(entities, relationships, kept, content, ep, bank=memory)
+    return entities, kept
+
+
+def test_ruling_55_the_owners_message_line_by_line(memory):
+    sync_cards(memory, (C1, "Ricky (ie)", "", ["+12025550143"]), (C2, "Bea", "Example", ["2025550177"]))
+    told(memory, [row("AAA1", T0, OWNER_SHAPE, me=True)])
+    body = joined(memory)
+    first, second = phone_numbers.token_ids(body)
+    assert first != second
+    # A chat message is stored as one line.
+    assert body.endswith(f"user: {phone_numbers.token(first)} {phone_numbers.token(second)} "
+                         "Also send invites to my brothers for their instincts. Just to have them")
+    assert "202" not in body and "[redacted]" not in body
+    assert phone_numbers.reveal(memory.name, [first])[first] == "+1 202-555-0143"
+    note = phone_numbers.card_note(body, memory)
+    assert '"Ricky (ie)"' in note and '"Bea Example"' in note and "202" not in note
+
+    entities, values = took(memory, body, ep=next(iter(stored(memory))))
+    assert {v["entity"]: v["value"] for v in values} == {"Ricky (ie)": phone_numbers.token(first),
+                                                         "Bea Example": phone_numbers.token(second)}
+    assert all(v["evidence"][0]["kind"] == "user" for v in values)
+    assert {e["name"]: e[phone_numbers.CARD_KEY] for e in entities} == {"Ricky (ie)": C1, "Bea Example": C2}
+    assert phone_numbers.bank_token_ids(memory) == {first, second}
+    raw = every_byte(memory)
+    assert b"2025550143" not in raw and b"555-0143" not in raw and b"555-0177" not in raw
+
+
+@pytest.mark.parametrize("written", ["+1 202 555 0143", "+1 (202) 555-0143", "(202) 555-0143", "202-555-0143", "2025550143",
+                                     "1-202-555-0143", "202.555.0143", "12025550143"])
+@pytest.mark.parametrize("card", ["+1 202-555-0143", "202 555 0143"])
+def test_ruling_55_national_against_international_is_one_card(memory, written, card):
+    sync_cards(memory, (C1, "Ana", "Diaz", [card]))
+    line, count = phone_numbers.tokenise(written, memory)
+    assert count == 1 and phone_numbers.token_ids(line) == [card_key(memory.name, card)] and not re.search(r"\d", line)
+
+
+def test_ruling_55_a_trunk_zero_and_a_country_code_are_one_card(memory):
+    sync_cards(memory, (C1, "Ana", "Diaz", ["+33 6 12 34 56 78"]))
+    assert phone_numbers.tokenise("06 12 34 56 78", memory)[1] == 1
+
+
+def test_ruling_55_two_numbers_with_only_a_space_between(memory):
+    sync_cards(memory, (C1, "Ana", "Diaz", [A]), (C2, "Bea", "Example", [B]))
+    line, count = phone_numbers.tokenise("202 555 0143 202 555 0177", memory)
+    assert count == 2 and not re.search(r"\d", line) and len(phone_numbers.token_ids(line)) == 2
+
+
+@pytest.mark.parametrize("line", ["order 2025550199", "202-555-0199", "2025550143000000000", "https://example.com/2025550143",
+                                  "id-2025550143", "2025550143 pesos"])
+def test_ruling_55_what_no_card_holds_or_is_no_number_stays_as_it_is(memory, line):
+    sync_cards(memory, (C1, "Ana", "Diaz", [A]))
+    assert phone_numbers.tokenise(line, memory) == (line, 0)
+
+
+def test_ruling_55_a_plus_number_with_no_card_is_kept_never_blanked_and_only_the_persons(memory):
+    told(memory, [row("AAA1", T0, "+44 20 7946 0958", me=True), row("AAA2", T0 + 5, "+44 20 7946 0999"),
+                    row("AAA3", T0 + 9, "2079460000", me=True)])
+    body = joined(memory)
+    (tid,) = phone_numbers.token_ids(body)
+    assert phone_numbers.reveal(memory.name, [tid])[tid] == "+44 20 7946 0958"
+    assert body.count("[redacted]") == 1 and "2079460000" in body and "7946 0999" not in body
+    entities, values = took(memory, body, ep=next(iter(stored(memory))))
+    assert not values and not entities, "an unmatched token stays a token, and Stage 1 decides"
+
+
+def test_ruling_55_a_page_carrying_the_card_takes_the_number_with_no_name_said(memory):
+    sync_cards(memory, (C1, "Ana", "Diaz", [A]))
+    t = phone_numbers.token(card_key(memory.name, A))
+    page(memory, "ana-diaz", "Ana Diaz", sources=[{"ref": f"addressbook://{C1}", "kind": "app", "predicate": "phone"}])
+    ep = episode(memory, "2026-08-20", t)
+    entities, values = took(memory, f"user: {t}", ep=ep)
+    assert [v["entity"] for v in values] == ["Ana Diaz"] and not any(phone_numbers.CARD_KEY in e for e in entities)
+    pipeline(memory, extraction(memory, ep, "Ana Diaz", t), name_to_id={"ana diaz": "ana-diaz"})
+    (got,) = [c for c in claims_on(memory, "ana-diaz") if c.predicate == "phone"]
+    assert got.valid_to is None and got.object == t
+
+
+def test_ruling_55_a_nickname_card_settles_a_one_word_page_of_that_name(memory):
+    sync_cards(memory, (C1, "Ricky", "", [A]))
+    t = phone_numbers.token(card_key(memory.name, A))
+    page(memory, "ricky", "Ricky")
+    ep = episode(memory, "2026-08-20", t)
+    assert [v["entity"] for v in took(memory, f"user: {t}", ep=ep)[1]] == ["Ricky"]
+    out = pipeline(memory, extraction(memory, ep, "Ricky", t), name_to_id={"ricky": "ricky"})
+    (got,) = [c for c in claims_on(memory, "ricky") if c.predicate == "phone"]
+    assert got.valid_to is None and not [n for n in out["nudges"] if n["action"] == "divergence_nudge"]
+
+
+def test_ruling_55_the_model_calling_it_the_brothers_never_moves_it_off_the_card(memory):
+    sync_cards(memory, (C1, "Ricky (ie)", "", [A]))
+    t = phone_numbers.token(card_key(memory.name, A))
+    content = f"user: {t} send invites to my brothers"
+    _e, values = took(memory, content, values=[{"entity": "my brothers", "attribute": "phone number", "value": t}])
+    assert [v["entity"] for v in values] == ["Ricky (ie)"]
+
+
+def test_ruling_55_a_name_on_the_numbers_own_line_stays_and_the_card_never_overrules_it(memory):
+    sync_cards(memory, (C1, "Ana", "Diaz", [A]))
+    t = phone_numbers.token(card_key(memory.name, A))
+    _e, values = took(memory, f"user: Bob's number is {t}", values=[{"entity": "Bob", "attribute": "phone number", "value": t}])
+    assert [v["entity"] for v in values] == ["Bob"]
+    _e, values = took(memory, f"user: Ana's number is {t}", values=[{"entity": "Ana", "attribute": "phone number", "value": t}])
+    assert [v["entity"] for v in values] == ["Ana Diaz"]
+
+
+def test_ruling_55_two_cards_on_one_number_ask_once_and_birth_nothing(memory):
+    sync_cards(memory, (C1, "Ana", "Diaz", [A]), (C2, "Bea", "Diaz", [A]))
+    t = phone_numbers.token(card_key(memory.name, A))
+    entities, values = took(memory, f"user: {t}")
+    assert "more than one" in phone_numbers.card_note(t, memory) and "Ana" not in phone_numbers.card_note(t, memory)
+    assert not any(phone_numbers.CARD_KEY in e for e in entities), "no page is born for a guess"
+    assert [v["entity"] for v in values] == ["Ana Diaz"], "held on a name until a page can carry the question"
+
+    page(memory, "bea-diaz", "Bea Diaz")
+    ep = episode(memory, "2026-08-20", t)
+    assert [v["entity"] for v in took(memory, f"user: {t}", ep=ep)[1]] == ["Bea Diaz"], "the page that can be asked on"
+    out = pipeline(memory, extraction(memory, ep, "Bea Diaz", t), name_to_id={"bea diaz": "bea-diaz"})
+    (got,) = [c for c in claims_on(memory, "bea-diaz") if c.predicate == "phone"]
+    assert got.valid_to is not None and got.context == phone_numbers.ASKED
+    (asked,) = [n for n in out["nudges"] if n["action"] == "divergence_nudge"]
+    assert "another card" in asked["conflict_context"] and t not in str(asked)
+    again = pipeline(memory, extraction(memory, episode(memory, "2026-08-21", t), "Bea Diaz", t), name_to_id={"bea diaz": "bea-diaz"})
+    assert not [n for n in again["nudges"] if n["action"] == "divergence_nudge"], "once"
+
+
+def test_ruling_55_a_stored_line_never_moves_when_a_card_arrives_or_goes(memory):
+    told(memory, [row("AAA1", T0, "2025550143", me=True), row("AAA2", T0 + 5, "202 555 0177 2025550143", me=True)])
+    before = joined(memory)
+    assert "2025550143" in before and not phone_numbers.has_token(before)
+    sync_cards(memory, (C1, "Ana", "Diaz", [A]), (C2, "Bea", "Example", [B]))
+    told(memory, [row("AAA1", T0, "2025550143", me=True), row("AAA2", T0 + 5, "202 555 0177 2025550143", me=True)])
+    assert joined(memory) == before
+    told(memory, [row("AAA3", T0 + 9, "202 555 0177 2025550143", me=True)])
+    now = joined(memory)
+    assert len(set(phone_numbers.token_ids(now))) == 2
+    contacts_local.forget_waiting()
+    assert phone_numbers.cards_of(memory.name) == {}
+    told(memory, [row("AAA3", T0 + 9, "202 555 0177 2025550143", me=True)])
+    assert joined(memory) == now, "a line stored with two tokens is read back by value, and the cards are gone"
+
+
+def test_ruling_55_a_forget_ends_every_link(memory):
+    sync_cards(memory, (C1, "Ricky (ie)", "", [A]))
+    t = phone_numbers.token(card_key(memory.name, A))
+    assert phone_numbers.card_note(t, memory)
+    contacts_local.forget_waiting()
+    assert phone_numbers.card_note(t, memory) == "" and phone_numbers.card_links(memory, phone_numbers.token_ids(t)) == {}
+
+
+def test_ruling_55_off_is_a_true_no_op(tmp_path, home):
+    memory = tmp_path / "bank-off"
+    for sub in ("episodes", "entities", "sources", "inbox"):
+        (memory / sub).mkdir(parents=True)
+    assert not phone_numbers.enabled()
+    contacts_local.sync(memory, {"contacts": [{"id": C1, "given_name": "Ricky (ie)", "family_name": "", "phone_keys": ["abcdefghij"]}]})
+    assert contacts_local.load_waiting(memory.name) == [], "a one-part card waits only while on"
+    assert not people_directory.path(memory.name, phone_numbers.CARDS_FILE).exists()
+    told(memory, [row("AAA1", T0, OWNER_SHAPE, me=True)])
+    body = joined(memory)
+    assert body.count("[redacted]") == 2 and not phone_numbers.has_token(body)
+    assert not people_directory.path(memory.name, phone_numbers.VAULT_FILE).exists()
+    assert phone_numbers.card_note("[number:abcdefghij]", memory) == ""
+    assert phone_numbers.card_links(memory, ["abcdefghij"]) == {}
+
+
+def test_ruling_55_a_page_s_prose_is_not_widened(memory):
+    sync_cards(memory, (C1, "Ana", "Diaz", [A]))
+    assert phone_numbers._spans("+44 20 7946 0958 and 202 555 0143", memory) == []

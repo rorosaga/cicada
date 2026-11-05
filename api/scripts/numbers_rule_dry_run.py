@@ -36,7 +36,7 @@ def run(bank: Path) -> dict[str, int]:
             if marker != "user":
                 counts["other_lines_would_redact"] += 1 if phone_numbers._spans(words, bank, person=False) else 0
                 continue
-            spans = phone_numbers._spans(words, bank)
+            spans = phone_numbers._spans(words, bank, own=True)
             counts["person_lines"] += 1
             counts["would_token"] += len(spans)
             taken = [(a, b) for a, b, _raw in spans]

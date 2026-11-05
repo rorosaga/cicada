@@ -228,6 +228,12 @@ _PHONE_RES: tuple[re.Pattern[str], ...] = (
 )
 
 
+def plus_numbers(text: str) -> list[tuple[int, int]]:
+    """Where a "+" number stands, exactly what :func:`scrub_phones` would blank by that rule: a person's own line keeps it
+    as a token instead (`phone_numbers`, ruling 55, 2026-11-05)."""
+    return [m.span() for m in _PHONE_RES[0].finditer(text or "") if 7 <= sum(c.isdigit() for c in m.group(0)) <= 15]
+
+
 def _phone(m: re.Match[str]) -> str:
     digits = sum(c.isdigit() for c in m.group(0))
     keep_at = m.group(0).startswith("@")
