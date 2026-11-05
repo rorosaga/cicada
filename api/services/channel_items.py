@@ -1229,7 +1229,9 @@ def _latest(rows: list[dict]) -> str | None:
     still ahead (a calendar's coming event) is not an item that came in: it is never the answer. Days here are UTC
     days, so west of UTC in the evening this can be the person's tomorrow; the app clamps it to its local today
     (`SourcePageStatus.cameIn`, #561 review) — the body stays one answer for every viewer, so the ETag needs no clock."""
-    today = datetime.now(timezone.utc).date().isoformat()
+    # An item's day may be local: east of UTC just after midnight it is already ahead of the UTC day, and it came in today.
+    now = datetime.now(timezone.utc)
+    today = max(now.date(), now.astimezone().date()).isoformat()
     days = [d for r in rows for d in (r.get("received"), r.get("day")) if d and d <= today]
     return max(days) if days else None
 

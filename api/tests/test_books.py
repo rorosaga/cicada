@@ -614,3 +614,22 @@ def test_the_lookup_paces_the_redirect_hop_and_shares_its_pacer_across_runs(monk
     assert [u.rsplit("/", 1)[-1] for u in calls] == [f"{PAPERBACK}.json", "OL1M.json", "OL1A.json", "OL7W.json",
                                                       f"volumes?q=isbn:{PAPERBACK}"]
     assert len(waits) == len(calls)                                    # every request, the redirect hop included
+
+
+def test_an_item_from_today_counts_east_of_utc_just_after_midnight(monkeypatch):
+    """A day on a row can be the person's local day, which east of UTC runs ahead of the UTC day for hours."""
+    import time
+    from datetime import datetime
+
+    from api.services import channel_items
+
+    monkeypatch.setenv("TZ", "Pacific/Kiritimati")  # UTC+14: its local day is ahead of UTC for most of the day
+    time.tzset()
+    try:
+        today = datetime.now().astimezone().date().isoformat()
+        assert channel_items._latest([{"day": today}]) == today
+        assert channel_items._latest([{"day": "2999-01-01"}]) is None, "a day still ahead is not an item that came in"
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
