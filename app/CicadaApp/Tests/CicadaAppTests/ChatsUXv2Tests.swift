@@ -286,6 +286,67 @@ final class ChatsUXv2Tests: XCTestCase {
                        "no file written, the reader's own scratch included")
     }
 
+    func testAPhoneChatWithNoPictureOfItsOwnWearsItsLids() async throws {
+        let bare = "15550000003@s.whatsapp.net", owned = "15550000004@s.whatsapp.net"
+        let unbridged = "15550000005@s.whatsapp.net", torn = "15550000006@s.whatsapp.net"
+        for (i, jid) in [friendJid, bare, owned, unbridged, torn, groupJid].enumerated() {
+            store.session(jid, name: "Chat \(i)", last: Double(100 - i))
+        }
+        store.addressBook([(friendJid, "200000000000002@lid"), ("15550000003", "200000000000003@lid"),
+                           (owned, "200000000000004@lid"), (groupJid, "200000000000007@lid"),
+                           (unbridged, "200000000000005"),
+                           (torn, "200000000000008@lid"), (torn, "200000000000009@lid")])
+        for lid in ["2", "3", "4", "5", "7", "8", "9"] {
+            try writePicture("Media/Profile/20000000000000\(lid)-1700000000.thumb", side: 64)
+        }
+        try writePicture("Media/Profile/15550000004-1700000000.thumb", side: 96)
+        let scratch = store.dir.appendingPathComponent("reader-scratch", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let api = FakeChatSourcesAPI()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "chats-ux-v2-\(UUID().uuidString)"))
+        let w = WhatsAppWatcher(api: api, reader: WhatsAppReader(store: store.url, scratchRoot: scratch),
+                                defaults: defaults, folder: store.dir, makeWatch: { _, _ in nil },
+                                lookUpCards: { _ in [:] })
+        await w.loadList()
+        func chat(_ jid: String) throws -> WhatsAppChat { try XCTUnwrap(w.chats.first { $0.jid == jid }) }
+        XCTAssertNotNil(w.thumbnail(of: try chat(friendJid)), "ZWHATSAPPID with its suffix")
+        XCTAssertNotNil(w.thumbnail(of: try chat(bare)), "ZWHATSAPPID without its suffix")
+        let own = try XCTUnwrap(w.thumbnail(of: try chat(owned)))
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(own as CFData, nil))
+        let props = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
+        XCTAssertEqual(props[kCGImagePropertyPixelWidth] as? Int, 96, "its own picture comes first")
+        XCTAssertNil(w.thumbnail(of: try chat(unbridged)), "a ZLID that is no @lid id bridges nothing")
+        XCTAssertNil(w.thumbnail(of: try chat(torn)), "a number with two ids wears neither")
+        XCTAssertNil(w.thumbnail(of: try chat(groupJid)), "a group never bridges")
+        XCTAssertTrue(api.photoPosts.isEmpty, "nothing posted before a tick")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: scratch.path), [], "the copy is gone")
+        // Read once per list load: a tick's post finds it with the file gone.
+        try FileManager.default.removeItem(at: store.dir.appendingPathComponent("ContactsV2.sqlite"))
+        try await w.setTicked(try chat(friendJid), true)
+        XCTAssertNotNil(try XCTUnwrap(api.photoPosts.last?.first).photoB64)
+    }
+
+    func testNoAddressBookTableOrColumnMeansNoBridgeAndNoError() async throws {
+        store.session(friendJid, name: "Bob Example", last: 30)
+        try writePicture("Media/Profile/200000000000002-1700000000.thumb", side: 64)
+        let file = store.dir.appendingPathComponent("ContactsV2.sqlite")
+        func check(_ note: String) async throws {
+            let w = try watcher(FakeChatSourcesAPI())
+            await w.loadList()
+            XCTAssertNil(w.thumbnail(of: try XCTUnwrap(w.chats.first)), note)
+            if case .failed = w.status { XCTFail(note) }
+            if case .needsAccess = w.status { XCTFail(note) }
+        }
+        try await check("no file")
+        store.addressBook(schema: "CREATE TABLE OTHER (ZWHATSAPPID VARCHAR, ZLID VARCHAR);")
+        try await check("no table")
+        try FileManager.default.removeItem(at: file)
+        store.addressBook(schema: "CREATE TABLE ZWAADDRESSBOOKCONTACT (Z_PK INTEGER PRIMARY KEY, ZWHATSAPPID VARCHAR);")
+        try await check("no column")
+        try Data("not a database".utf8).write(to: file)
+        try await check("unreadable")
+    }
+
     func testAMissingPermissionReadsAsNeedsAccessNotAnEmptyPicker() async throws {
         store.session(friendJid, name: "Bob Example", last: 30)
         try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: store.url.path)

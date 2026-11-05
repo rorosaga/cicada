@@ -810,7 +810,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   tickable like any other), plus the one date the list already read for its order (`MAX(ZMESSAGEDATE)`, 2026-11-03: a
   date per chat, never a message's words). A picture is the path the store names or its `.thumb`/`.jpg` sibling, else
   the file in `Media/Profile` named `<account>[-<digits>]` (the layout open-source exporters read; a name that is
-  another listed chat's account is that chat's alone), and the person's own chat wears `Media/Profile/Photo.jpg`; none
+  another listed chat's account is that chat's alone), and the person's own chat wears `Media/Profile/Photo.jpg`; a
+  phone chat with none of its own, the file named for its `@lid` account, read once per list load from a copy of
+  `ContactsV2.sqlite`'s `ZWAADDRESSBOOKCONTACT` (`ZWHATSAPPID`, `ZLID` only; missing means no bridge, in memory only); none
   draws `EntityPictureFallback`. A failed read keeps its "needs access" state, and no new permission is asked. The Sources list serves one row per chat for WhatsApp and Telegram too (`channel_items`). Measured on fixtures (2026-10-28): file change → posted,
   the app's read of a 20,000-row store plus the post, p95 9 ms over 20 (`WhatsAppReaderTests`); the backend's stage
   into a chat of 40 sittings, p95 11 ms over 30 (`test_chat_live`) — the 3 s debounce dominates.

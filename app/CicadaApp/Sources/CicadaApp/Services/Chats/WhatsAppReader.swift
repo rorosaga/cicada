@@ -268,11 +268,51 @@ struct WhatsAppReader: Sendable {
         }
     }
 
+    /// A phone number's `@lid` account, by the number's account (ROR-110): WhatsApp files profile pictures under the
+    /// linked id, and `ContactsV2.sqlite` is what ties the two. Only `ZWHATSAPPID` and `ZLID` are read, from a copy, for
+    /// this app's memory alone. A number holding two different ids is left out, so a chat never wears a wrong face.
+    /// Anything missing or unreadable is no bridge: never an error, never a prompt.
+    func lidAccounts() -> [String: String] {
+        let fm = FileManager.default
+        let contacts = containerFolder.appendingPathComponent("ContactsV2.sqlite")
+        guard fm.fileExists(atPath: contacts.path) else { return [:] }
+        let folder = scratchRoot.appendingPathComponent("cicada-whatsapp-\(UUID().uuidString)", isDirectory: true)
+        guard (try? fm.createDirectory(at: folder, withIntermediateDirectories: true,
+                                       attributes: [.posixPermissions: 0o700])) != nil else { return [:] }
+        defer { try? fm.removeItem(at: folder) }
+        let copy = folder.appendingPathComponent("ContactsV2.sqlite")
+        guard (try? fm.copyItem(at: contacts, to: copy)) != nil else { return [:] }
+        let wal = URL(fileURLWithPath: contacts.path + "-wal")
+        if fm.fileExists(atPath: wal.path) {
+            guard (try? fm.copyItem(at: wal, to: URL(fileURLWithPath: copy.path + "-wal"))) != nil else { return [:] }
+        }
+        guard let db = try? SQLiteReadOnly(url: copy) else { return [:] }
+        defer { db.close() }
+        let table = "ZWAADDRESSBOOKCONTACT"
+        guard let have = try? Self.columns(table, db), have.isSuperset(of: ["ZWHATSAPPID", "ZLID"]),
+              let rows = try? db.query("SELECT ZWHATSAPPID AS phone, ZLID AS lid FROM \(table) "
+                                       + "WHERE ZWHATSAPPID IS NOT NULL AND ZLID IS NOT NULL", binds: [])
+        else { return [:] }
+        var out: [String: String] = [:]
+        var torn: Set<String> = []
+        for row in rows {
+            guard let phone = row["phone"] as? String, let lid = row["lid"] as? String, lid.hasSuffix("@lid") else { continue }
+            let number = phone.hasSuffix("@s.whatsapp.net") ? Self.account(jid: phone) : phone
+            let account = Self.account(jid: lid)
+            guard !number.isEmpty, number.allSatisfy(\.isNumber), !account.isEmpty else { continue }
+            if let seen = out[number], seen != account { torn.insert(number) }
+            out[number] = account
+        }
+        for number in torn { out[number] = nil }
+        return out
+    }
+
     /// A chat's profile picture as WhatsApp keeps it on this Mac, made at most 128 px (PNG) — only a regular file inside
     /// the container, under 8 MB; nil otherwise. The path the store names and its sibling files first, then the file
-    /// named for the chat's account (`profileFiles`); the person's own chat wears their own photo. ROR-110: the bytes are
+    /// named for the chat's account (`profileFiles`); the person's own chat wears their own photo; last, a phone chat
+    /// the file named for its `@lid` account (`lidAccounts`). ROR-110: the bytes are
     /// read once into memory and nothing is written, so WhatsApp's file is never held open and no picture reaches a disk.
-    func picture(_ chat: WhatsAppChat, profile: [String: [String]]? = nil) -> Data? {
+    func picture(_ chat: WhatsAppChat, profile: [String: [String]]? = nil, lids: [String: String] = [:]) -> Data? {
         let root = containerFolder.resolvingSymlinksInPath().standardizedFileURL
         var candidates: [URL] = []
         if let path = chat.picturePath, !path.contains("..") {
@@ -285,6 +325,9 @@ struct WhatsAppReader: Sendable {
         let files = profile ?? profileFiles(listed: [chat])
         candidates += (files[Self.account(jid: chat.jid)] ?? []).map { folder.appendingPathComponent($0) }
         if chat.isSelf { candidates.append(folder.appendingPathComponent("Photo.jpg")) }
+        if chat.phoneHandle != nil, let lid = lids[Self.account(jid: chat.jid)] {
+            candidates += (files[lid] ?? []).map { folder.appendingPathComponent($0) }
+        }
         for candidate in candidates {
             let file = candidate.resolvingSymlinksInPath().standardizedFileURL
             guard file.path.hasPrefix(root.path + "/"),

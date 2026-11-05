@@ -45,6 +45,8 @@ final class WhatsAppWatcher {
     private(set) var cards: [String: MessagesContactCard] = [:]
     /// chats-ux-v2 — the profile picture WhatsApp keeps for each listed chat, ≤ 128 px, in memory only.
     private(set) var pictures: [String: Data] = [:]
+    /// ROR-110 — `WhatsAppReader.lidAccounts`, read once per list load (a pass before the first load reads it once).
+    private var lidAccounts: [String: String]?
     /// The photo last posted per ticked chat (its bytes' hash), so an unchanged one is never posted again.
     @ObservationIgnored private var postedPhotos: [String: Int] = [:]
     private(set) var listing = false
@@ -198,11 +200,14 @@ final class WhatsAppWatcher {
         }
         // chats-ux-v2 — pictures last: the rows and their ticks never wait on them (≈80 ms for 300, measured).
         let listed = chats
-        pictures = await Task.detached(priority: .userInitiated) {
+        let (lids, drawn) = await Task.detached(priority: .userInitiated) {
             let profile = reader.profileFiles(listed: listed)
-            return Dictionary(uniqueKeysWithValues: listed.compactMap { chat in
-                reader.picture(chat, profile: profile).map { (chat.id, $0) } })
+            let lids = reader.lidAccounts()
+            return (lids, Dictionary(uniqueKeysWithValues: listed.compactMap { chat in
+                reader.picture(chat, profile: profile, lids: lids).map { (chat.id, $0) } }))
         }.value
+        lidAccounts = lids
+        pictures = drawn
     }
 
     private var isNeedsAccess: Bool { if case .needsAccess = status { true } else { false } }
@@ -348,10 +353,13 @@ final class WhatsAppWatcher {
     private func postPhotos(_ ticked: [WhatsAppChat]) async {
         let reader = self.reader
         let listed = chats + ticked
-        let pairs = await Task.detached(priority: .utility) {
+        let known = lidAccounts
+        let (lids, pairs) = await Task.detached(priority: .utility) {
             let profile = reader.profileFiles(listed: listed)
-            return ticked.map { chat in (chat.id, reader.picture(chat, profile: profile)) }
+            let lids = known ?? reader.lidAccounts()
+            return (lids, ticked.map { chat in (chat.id, reader.picture(chat, profile: profile, lids: lids)) })
         }.value
+        lidAccounts = lids
         let changed = pairs.filter { id, data in postedPhotos[id] != data?.hashValue ?? 0 }
         guard !changed.isEmpty else { return }
         if (try? await api.putChatPhotos(changed.map { MessagesPhotoPayload(conversation: $0.0, photo: $0.1) })) != nil {
