@@ -3228,11 +3228,11 @@ async def _run_stages(
     # below — on the loop each step froze every request (`GET /sleep/status` measured at seconds
     # per batch on a 3,600-page bank) for as long as it ran.
     existing = await asyncio.to_thread(_load_existing_entities, memory_path)
-    from api.services.entity_resolver import resolve
+    from api.services.entity_resolver import resolve, resolve_off_loop
     if decay_only:
         resolved_result = {"changes": [], "relationships": [], "episode_cooccurrences": {}, "name_to_id": {}}
     else:
-        resolved_result = await resolve(
+        resolved_result = await resolve_off_loop(
             extracted, existing, settings, cancel_check=_cancel_requested,
             **(_accepting(resolve, progress_callback=_sort_progress(live)) if live is not None else {}))
     resolved_changes = resolved_result["changes"]

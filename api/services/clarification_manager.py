@@ -97,9 +97,7 @@ class ClarificationManager:
                 return None
             from api.services import pending_store
 
-            key = (entity_name or "").strip().lower()
-            if any(line.name.lower() == key and second in line.apart_pages()
-                   for line in pending_store.load(self.memory_path)):
+            if second in pending_store.apart_of(self.memory_path, entity_name):
                 # G227: the person already said the mention held under this name is another one — never asked again.
                 return None
             # 2026-10-29: the record already says the two are two things (a part and its whole, a product and its

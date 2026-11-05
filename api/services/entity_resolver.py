@@ -1,8 +1,10 @@
 """Stage 2: Entity Resolution & Deduplication."""
 
 import asyncio
+import contextvars
 import functools
 import re
+import threading
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +25,53 @@ from api.services.clarification_manager import (
 )
 from api.services.id_utils import sanitize_id
 from api.services.vector_index import PendingEntity, SqliteVecIndexer
+
+#: The loop a judge call belongs on when Stage 2 runs on its worker thread (`resolve_off_loop`): the engine's clients,
+#: its subprocesses and its plan-limit state all live on the backend's loop. ``None`` outside that thread.
+_ENGINE_LOOP: contextvars.ContextVar[asyncio.AbstractEventLoop | None] = contextvars.ContextVar(
+    "entity_resolver_engine_loop", default=None)
+
+
+async def _on_engine_loop(call):
+    """Await a judge call where the engine lives: on the backend's loop from Stage 2's worker thread (the context
+    travels with it, `call_soon_threadsafe` copies it), right here otherwise."""
+    loop = _ENGINE_LOOP.get()
+    if loop is None or loop is asyncio.get_running_loop():
+        return await call
+
+    async def there():
+        return await call
+
+    return await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(there(), loop))
+
+
+async def resolve_off_loop(extracted: list[dict], existing: list[dict], settings: Settings, *,
+                           cancel_check: Callable[[], bool] | None = None, **kw) -> dict:
+    """`resolve`, with its work on a worker thread and only the judge calls on the backend's loop.
+
+    The stall of 2026-11-05: `resolve` is a coroutine that reads the whole bank between its awaits, so a batch's lookups
+    and deferred writes ran on the loop and every request waited (`/healthz` past 30 s on a bank of 8,500 pages). The
+    work is too interleaved with the judge calls to hand over piece by piece, so the whole coroutine runs on its own
+    loop in a thread, and the piece that must stay on the backend's loop is sent back to it (`_on_engine_loop`).
+
+    Inside Sleep's write window, as `resolve` always was: the batch waits for this, so the order of Stage 2 and Stage 3
+    and the clean-tree slot do not change. If the batch is cancelled while this runs, the thread's `cancel_check` says
+    stop, and `resolve` then writes nothing, as for any cancel."""
+    engine_loop = asyncio.get_running_loop()
+    abandoned = threading.Event()
+
+    def stop() -> bool:
+        return abandoned.is_set() or (cancel_check is not None and cancel_check())
+
+    def work() -> dict:
+        _ENGINE_LOOP.set(engine_loop)   # `to_thread` runs this in its own copy of the context
+        return asyncio.run(resolve(extracted, existing, settings, cancel_check=stop, **kw))
+
+    try:
+        return await asyncio.to_thread(work)
+    except asyncio.CancelledError:
+        abandoned.set()
+        raise
 
 
 #: ``name_to_id``'s value for a name Stage 2 HELD although an existing page bears it (2026-10-27): no endpoint — its
@@ -1564,9 +1613,7 @@ def _said_different(memory_path, name: str, page_id: str) -> bool:
         # G227 (#546 review): the person's answer about the mention held under this name, kept on its own line.
         from api.services import pending_store
 
-        key = (name or "").strip().lower()
-        return any(line.name.lower() == key and str(page_id) in line.apart_pages()
-                   for line in pending_store.load(Path(memory_path)))
+        return str(page_id) in pending_store.apart_of(Path(memory_path), name)
     except Exception:
         return False
 
@@ -3167,7 +3214,7 @@ async def _llm_judge_same_entity(
         llm_fn = resolve_llm_fn(
             settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation"
         )
-        response = await llm_fn(
+        response = await _on_engine_loop(llm_fn(
             messages=[{"role": "system", "content": _DISAMBIG_SYSTEM}, {"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             # Disable provider-side reasoning + cap the call: a same/different
@@ -3176,7 +3223,7 @@ async def _llm_judge_same_entity(
             # the entity_extractor hardening. No-op for non-reasoning models.
             extra_body={"reasoning": {"enabled": False}},
             timeout=120,
-        )
+        ))
         raw = response.choices[0].message.content or "{}"
         parsed = json_parse.parse_json_object(raw)
         decision = str(parsed.get("decision", "")).strip().lower()
@@ -3312,12 +3359,12 @@ async def _llm_judge_batch(
         llm_fn = resolve_llm_fn(
             settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation"
         )
-        response = await llm_fn(
+        response = await _on_engine_loop(llm_fn(
             messages=[{"role": "system", "content": _DISAMBIG_SYSTEM}, {"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             extra_body={"reasoning": {"enabled": False}},  # as the one-pair call: a judgment, no chain of thought
             timeout=120,
-        )
+        ))
         answered = _batch_decisions(json_parse.parse_json_object(response.choices[0].message.content or "{}"),
                                     len(asked), new_type)
     except engine_errors.EngineError:
