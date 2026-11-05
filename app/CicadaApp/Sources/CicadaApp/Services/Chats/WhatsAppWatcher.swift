@@ -45,6 +45,8 @@ final class WhatsAppWatcher {
     private(set) var cards: [String: MessagesContactCard] = [:]
     /// chats-ux-v2 — the profile picture WhatsApp keeps for each listed chat, ≤ 128 px, in memory only.
     private(set) var pictures: [String: Data] = [:]
+    /// ROR-110 — `WhatsAppReader.lidAccounts`, read once per list load (a pass before the first load reads it once).
+    private var lidAccounts: [String: String]?
     /// The photo last posted per ticked chat (its bytes' hash), so an unchanged one is never posted again.
     @ObservationIgnored private var postedPhotos: [String: Int] = [:]
     private(set) var listing = false
@@ -165,6 +167,11 @@ final class WhatsAppWatcher {
         ChatSearch.filter(chats, query: query, name: { self.name(of: $0) }, digits: \.searchDigits)
     }
 
+    /// ROR-110 (owner 2026-11-05) — the picker's two groups, as WhatsApp keeps them: the chats, then the archived ones.
+    static func sections(_ chats: [WhatsAppChat]) -> (chats: [WhatsAppChat], archived: [WhatsAppChat]) {
+        (chats.filter { !$0.archived }, chats.filter(\.archived))
+    }
+
     // MARK: The list
 
     func loadList() async {
@@ -172,7 +179,13 @@ final class WhatsAppWatcher {
         defer { listing = false }
         let reader = self.reader
         do {
-            chats = try await Task.detached(priority: .userInitiated) { try reader.chats() }.value
+            let (lids, listed) = try await Task.detached(priority: .userInitiated) {
+                try reader.checkAccess()   // the store first: no read of the bridge without access
+                let lids = reader.lidAccounts()
+                return (lids, try reader.chats(lids: lids))
+            }.value
+            lidAccounts = lids
+            chats = listed
             if status == .missing || isNeedsAccess { status = tickedIds.isEmpty ? .idle : .watching }
         } catch let error as BrowserFileError {
             status = Self.status(for: error)
@@ -284,7 +297,13 @@ final class WhatsAppWatcher {
         let reader = self.reader
         readSignature = reader.signature()   // before the clone: a write after this moment still runs the next pass
         let ticked = tickedIds
-        let found = try await Task.detached(priority: .utility) { try reader.chats(ids: ticked) }.value
+        let known = lidAccounts
+        let (lids, found) = try await Task.detached(priority: .utility) {
+            try reader.checkAccess()
+            let lids = known ?? reader.lidAccounts()
+            return (lids, try reader.chats(ids: ticked, lids: lids))
+        }.value
+        lidAccounts = lids
         passNewest = found.compactMap(\.lastActivity).max()
         var posted = 0
         for chat in found {

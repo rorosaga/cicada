@@ -96,22 +96,14 @@ struct WhatsAppPanel: View {
                     ChatSearchField(prompt: Copy.Chats.searchPromptNumber, query: $query)
                     let shown = watcher.filtered(query)
                     if shown.isEmpty { ChatNoMatches(query: query) }
+                    let sections = WhatsAppWatcher.sections(shown)
                     ScrollView {
-                        LazyVStack(spacing: 2) {
-                            ForEach(shown) { chat in
-                                ChatTickRow(name: watcher.name(of: chat), group: chat.group,
-                                            last: MessagesRowText.lastActivity(chat.lastActivity),
-                                            thumbnail: watcher.thumbnail(of: chat),
-                                            ticked: watcher.tickedIds.contains(chat.id),
-                                            historyRead: watcher.historyIds.contains(chat.id),
-                                            onTick: { on in
-                                                do { try await watcher.setTicked(chat, on) }
-                                                catch { self.error = WhatsAppWatcher.failureMessage(error) }
-                                            },
-                                            onHistory: {
-                                                do { try await watcher.readHistory(chat) }
-                                                catch { self.error = WhatsAppWatcher.failureMessage(error) }
-                                            })
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            ForEach(sections.chats) { row($0) }
+                            if !sections.archived.isEmpty {
+                                // DR-47: WhatsApp's own Archived group, below the rest and as tickable.
+                                SectionLabel(Copy.Chats.archived).padding(.top, CicadaTheme.spacingSM)
+                                ForEach(sections.archived) { row($0) }
                             }
                         }
                     }
@@ -121,6 +113,22 @@ struct WhatsAppPanel: View {
             ChatSheetFooter(error: error, onDone: onDone)
         }
         .task { await watcher.loadList() }
+    }
+
+    private func row(_ chat: WhatsAppChat) -> some View {
+        ChatTickRow(name: watcher.name(of: chat), group: chat.group,
+                    last: MessagesRowText.lastActivity(chat.lastActivity),
+                    thumbnail: watcher.thumbnail(of: chat),
+                    ticked: watcher.tickedIds.contains(chat.id),
+                    historyRead: watcher.historyIds.contains(chat.id),
+                    onTick: { on in
+                        do { try await watcher.setTicked(chat, on) }
+                        catch { self.error = WhatsAppWatcher.failureMessage(error) }
+                    },
+                    onHistory: {
+                        do { try await watcher.readHistory(chat) }
+                        catch { self.error = WhatsAppWatcher.failureMessage(error) }
+                    })
     }
 }
 
