@@ -254,6 +254,14 @@ def test_a_mark_is_never_a_belief_sentence_on_the_page(bank):
     assert PASSAGE_A not in str(block.get("beliefs"))
 
 
+def test_the_beliefs_list_leaves_marks_to_the_pages_own_block(bank):
+    from api.routers import claims as claims_route
+
+    _sync(bank, _book([_note(PASSAGE_A, uuid="1", note=NOTE_A)], finished=True))
+    listed = claims_route._load_subject_claims(bank, "the-lantern-orchard")
+    assert listed and not any(is_mark(c) for c in listed), "the status stays a belief; the marks do not"
+
+
 def test_a_flagged_value_is_never_repeated_on_the_page_and_the_body_keeps_it(bank):
     card = "4539 1488 0343 6467"
     assert sensitive_text.find(f"my card is {card}"), "the fixture is one the detector flags"
