@@ -2224,8 +2224,8 @@ actor APIClient {
     ///
     /// G124 R5: the filters are applied by the backend BEFORE its 200-row cap,
     /// so a harness's page never loses an older conversation to the cap.
-    /// `harness: "unknown"` travels literally — the backend matches it to an
-    /// empty harness. Values are percent-encoded the way
+    /// `harness: "unknown"` travels literally — the backend matches it to the
+    /// overview's own row. Values are percent-encoded the way
     /// `fetchContributorCommits` encodes `author`.
     ///
     /// G136 R-SU22: `query` becomes `q=`, a title filter the backend also

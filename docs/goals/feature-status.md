@@ -9,6 +9,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
+| [G179](memory-evolution.md#g179) | A texted agent's chat is a chat (ROR-109): the Other agents page listed every source-keyed record with an empty `harness` field while its card counted one; a source's list and its number now read one partition (`source_overview.row_key`), so a chat over Messages lists under Messages, and a host's sessions under the host. Display only; provenance untouched. | PR #PRNUM | #PRNUM | 2026-11-05 |
 | [G239](memory-evolution.md#g239) | Sleep asks only what the person alone can answer: the model says what rests on a question, the judge reads the lines naming both, two names sharing nothing need a line suggesting one person, a skill takes two conversations | PR #623 | [#623](https://github.com/rorosaga/cicada/pull/623) | 2026-11-05 |
 | [G217](memory-evolution.md#g217) | Sources as a grid of apps (ROR-7, G161): Needs you, Connected, Suggested, then categories by what a source is; a search with no network and no model that finds a company's apps one by one; one click opens the standard source page | PR #621 | | 2026-11-05 |
 | [G217](memory-evolution.md#g217) | Sources' icons reviewed and one plain picture for anyone with no photo (ROR-107, owner 2026-11-05): Substack, Goodreads, Vivaldi and Dia marks; export, files, barcode and history glyphs; grey initials on a plain disc everywhere, Contacts' "in memory" told by order, count and hover. | Built | PR #627 | 2026-11-05 |
