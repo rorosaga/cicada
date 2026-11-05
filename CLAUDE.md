@@ -180,6 +180,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   export; one `media` page per work, status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
   **Ruling 64:** each highlight and note is a claim word for word with no model (`book_marks`, gated like the person's own
   words); Sleep reads a marked book in one bounded chunk for what its marks share; an unmarked entry is never read.
+  **Ruling 66 (owner 2026-11-05, amends review of #600):** one page per work across doors — after an identifier, exactly the same title and authors held by one page join it, a doubt asks "same book?"; the Mac adds a book by number or camera (click only, frames never kept; `capture-and-sleep.md`, "Books").
   **Ruling 61:** the person's own located words in a conversation change a status too, judged by Stage 1 in context, never
   by keywords: one clear title or held on the episode, dated as said, undoable, through the same writers (`book_said`).
 - **Two ways in for what the person consumes (ruling 47, owner 2026-10-28):** by default their own browser and Mac,

@@ -1599,6 +1599,24 @@ its `content_hash`, so the queue is derived from the bank — a move or a restor
   episode (`origin: book-scan`, `processed_by: parser`, nothing in it for a model) holds `**Status:** <words>` and
   `**ISBN:**` lines: the person's act, so its spans are `user`. The lookup and the page follow in the background at the
   home (`book_jobs.schedule`). The scan's episode is committed with its page, like a note's is not.
+  **What a scan became** (ROR-115): `GET /sources/books/scans/{episodeId}` answers `{state: waiting}` until the number
+  resolves, then `{state: added, entityId, name, existing}` — `existing` when the page was there before this scan
+  (`books.scan_result`; the Mac's Add reads it a few times, the phone ignores it).
+- **One page per work, whichever door** (ROR-115, owner 2026-11-05: "it has to have some overlap with potential books from
+  ibooks"; amends review of #600 B1). An identifier first (`BookIndex.find`: any ISBN, the work id, the source's own id).
+  Only when none matches, **exactly the same words** (`BookIndex.find_words`): the title (or title + subtitle, or a
+  source's own spelling kept as an alias) and the author names as a set, each with case, accents and punctuation set
+  aside (`norm_words`) — nothing else: no prefix ("Dune" is not "Dune: House Atreides"), no article, no series note, no
+  likeness. **Exactly one** page holding both joins it; an Apple Books entry (one in 284 carries an ISBN) and a scan of
+  the same work are one page in either order, and so are two editions with no shared identifier. Anything less sure —
+  two pages holding the title and authors, or one page's title with an author a side lacks or only partly shares — never
+  joins: the record keeps its own page and `books._ask_same_book` files one "Is A the same as B?" per candidate (≤ 3,
+  `role_people.ask_same`, answered by folding one page into the other, `merge_rejections` respected). The same title by
+  other authors is a different book and asks nothing. A page keeps its marks, status records and history through a join
+  (a join only adds identifiers, aliases and the source's id). Pages made before this are not swept: two that already exist
+  stay two. A page records its doors (`book.doors`: `apple-books`, `goodreads`, `book-scan`) and `GET
+  /entities/{id}/book-status` answers `ways` (`books.ways_in`: "Apple Books", "Goodreads", "Scanned"; an older page is
+  known by its Apple Books and Goodreads ids), which the page's status line shows when there is more than one.
 - **The lookup** (`book_lookup`, home only): Open Library's `/isbn/<isbn>.json` then `/authors/<id>.json` (≤ 3), else
   Google Books `volumes?q=isbn:`; one request a second, a redirect hop paced like any request, the pacer shared
   across runs (Open Library's unidentified rate, read 2026-11-04), the ToS

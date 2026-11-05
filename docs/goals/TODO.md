@@ -3577,6 +3577,21 @@ A whole row moves to DONE only after its remaining implementation and required a
     while waiting costs a late update. The record is the drain's own progress; CPU was rejected because a drain waiting
     on a model looks idle. The person's click may go past Sleep on one line naming the cost; an automatic install never
     does. **Revisit** if a batch is measured past two hours, or a hung backend is seen holding an update.
+66. **One book is one page whichever door it came in by; the Mac adds books by number or camera (owner, 2026-11-05; G233, ROR-115).**
+   The owner: "yes ofc i want books on the mac and it has to have some overlap with potential books from ibooks." (a) Amends
+   review-of-#600 B1: after an identifier (ISBN, work id, a source's id) fails, **exactly the same** title (or title +
+   subtitle, or a source's own spelling) and author set, with case, accents and punctuation set aside, joins a record to the
+   one page that holds both — never a prefix, an article, a series note or a likeness, so "Dune" and "Dune: House Atreides"
+   stay two. More than one page, or an author a side lacks or only partly shares, never joins: the record keeps its page and
+   the inbox asks "same book?" per candidate (≤ 3, answered by folding, never silent). The same title by other authors asks
+   nothing. A join only adds identifiers, aliases and the source's id: marks, status records and history stay. Both orders
+   and editions are one page. *Why:* an Apple Books entry rarely has an ISBN (1 of 284 on the owner's Mac), so identifiers
+   alone made a second page for the one book held in both. (b) The Mac adds a book through the phone's own
+   `POST /capture/isbn`; the camera opens only on the click, shows its feed, takes the first valid book barcode with no
+   shutter and stops; frames are never stored or sent. (c) A book's page names its doors only when it has more than one.
+   (d) A Books tab on Clusters is not done: tabs are keyed by entity type (a closed set of 10) across the grid, rows and
+   menu. **Trigger to revisit (a):** a real wrong join measured, or the same-book question asked often enough to be noise.
+
 65. **A question rests on the model's stated stake; any skill takes 2+ conversations (owner, 2026-11-05; G239, PR #623).**
    The owner: "I don't think that with stuff like this there is any benefit of answering when nothing really depends on it.
    Tho there are some questions like an ongoing project that may not be relevant right now, but will be in the future, maybe
