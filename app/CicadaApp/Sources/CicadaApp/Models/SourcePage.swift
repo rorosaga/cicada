@@ -52,10 +52,13 @@ enum SourcePageStatus: Equatable {
     /// 2026-11-04 (owner: "I deleted Whisperflow today, and the app should have detected that and say that it
     /// disconnected or that's off") — the app the source reads is no longer on this Mac: Off, and why, in words.
     case notInstalled
+    /// ROR-114 — read through the person's own browser: it has its own colour and words (Through your browser / Not read
+    /// yet / Signed out / Couldn't read), and the last read in place of the last item.
+    case browser(BrowserRead)
 
     static func of(row: SourceCatalogStatus, run: SourceRowStatus, latest: String?,
                    check: ChatCheck? = nil, notInstalled: Bool = false,
-                   waitingOn: String? = nil) -> SourcePageStatus {
+                   waitingOn: String? = nil, browser: BrowserRead? = nil) -> SourcePageStatus {
         if notInstalled { return .notInstalled }
         if case .syncing(let detail, _, _) = run { return .syncing(detail: detail) }
         // ROR-7 — a read waiting on the person reads the same on the tile and on the page it opens, whether its reader
@@ -71,6 +74,7 @@ enum SourcePageStatus: Equatable {
             if case .problem(let why) = run {
                 return .needsYou(why == Copy.sourceNeedsAccess ? Copy.SourcePage.allowAccess : why)
             }
+            if let browser { return .browser(browser) }
             return check.map(SourcePageStatus.checked) ?? .connected(lastItem: latest)
         }
     }
@@ -78,6 +82,7 @@ enum SourcePageStatus: Equatable {
     var tone: StatusWord.Tone {
         switch self {
         case .connected, .syncing, .checked: .on
+        case .browser(let read): read.state.tone
         case .needsYou: .attention
         case .off, .notInstalled: .off
         }
@@ -86,6 +91,7 @@ enum SourcePageStatus: Equatable {
     var word: String {
         switch self {
         case .connected, .checked: Copy.SourcePage.connected
+        case .browser(let read): read.state.word
         case .syncing: Copy.SourcePage.syncing
         case .needsYou: Copy.SourcePage.needsYou
         case .off, .notInstalled: Copy.SourcePage.off
@@ -107,6 +113,14 @@ enum SourcePageStatus: Equatable {
         case .syncing(let detail): return detail
         case .needsYou(let action): return action
         case .notInstalled: return Copy.SourcePage.notInstalled
+        case .browser(let read):
+            switch read.state {
+            case .read:
+                return read.lastRead.map { Copy.Browser.lastRead(SourceCatalog.ago($0, now: now, locale: locale)) }
+            case .notReadYet: return nil
+            case .signedOut: return Copy.Browser.signedOutDetail
+            case .couldntRead: return Copy.Browser.couldntReadDetail
+            }
         case .off(let latest):
             return ISODay(latest).map {
                 Copy.SourcePage.lastItem(Self.dayWord(Self.cameIn($0, today: today), today: today, locale: locale))

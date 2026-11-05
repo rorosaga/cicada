@@ -251,7 +251,8 @@ ROWS: tuple[Row, ...] = (
         (_p("list"), _p("outcome"), _f("videos", "json"), _f("via")), mutates=True),
     # G206 (2026-10-22): a proposed spelling, not exposed — the agent reads the lists in the person's browser.
     Row(("read", "saved"), "cicada_record_saved_list", "Record what the person's saved list on a site showed.",
-        (_p("platform"), _p("outcome"), _f("items", "json"), _f("via")), mutates=True),
+        (_p("platform"), _p("outcome"), _f("items", "json"), _f("via"), _f("handle"), _f("profile_url")),
+        mutates=True),
     # G89 (2026-11-04): a proposed spelling, not exposed — the agent reads the lists in the person's browser.
     Row(("read", "substack"), "cicada_record_substack_list", "Record what the person's Substack list showed.",
         (_p("list"), _p("outcome"), _f("items", "json"), _f("via")), mutates=True),

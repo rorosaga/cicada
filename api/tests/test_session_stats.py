@@ -542,7 +542,7 @@ def test_other_agents_never_lists_a_conversation_that_has_a_source_of_its_own(tm
 
 def test_every_harness_row_lists_exactly_the_conversations_it_counts(tmp_path):
     """The Sources card's number and the list under it are one partition (`source_overview.source_key`), so a host's
-    sessions list under the host that counts them, and an import stamped with a harness under its import."""
+    sessions list under the harness that counts them, and an import stamped with a harness under its import."""
     from api.services import source_overview
     memory = tmp_path / "memory"
     _episode(memory, "ep_1", timestamp="2026-08-01T09:00:00Z", session_id=UUID_A, origin="mcp")
@@ -558,11 +558,11 @@ def test_every_harness_row_lists_exactly_the_conversations_it_counts(tmp_path):
 
     rows = source_overview.build_overview(memory, channels=[])
     harness_rows = [r for r in rows if r["id"].startswith("harness:")]
-    assert {r["id"] for r in harness_rows} == {"harness:unknown", "harness:claude-code", "harness:t3code"}
+    assert {r["id"] for r in harness_rows} == {"harness:unknown", "harness:claude-code"}
     for row in harness_rows:
         assert len(_harness_list(memory, row["harness"])) == row["conversations"], row["id"]
-    assert _harness_list(memory, "t3code") == ["thread-host"]
-    assert _harness_list(memory, "claude-code") == [UUID_B]
+    # ROR-114: a host app is no source; its session lists under the harness that ran it (host stays on the episode).
+    assert sorted(_harness_list(memory, "claude-code")) == sorted([UUID_B, "thread-host"])
 
 
 def test_a_check_record_is_on_no_agents_list_as_it_is_in_no_row(tmp_path):

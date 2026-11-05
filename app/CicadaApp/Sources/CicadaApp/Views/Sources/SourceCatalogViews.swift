@@ -286,7 +286,7 @@ struct SourceCatalogDetail: View {
         let watch = channel.flatMap { watcher.state(for: $0.id) }
         let run = SourceRowText.status(channel: channel, watch: watch, run: channel.flatMap { activity?.run(for: $0.id) })
         return SourcePageStatus.of(row: row.status, run: run, latest: latest, check: chatCheck,
-                                   notInstalled: row.notInstalled, waitingOn: row.waitingOn)
+                                   notInstalled: row.notInstalled, waitingOn: row.waitingOn, browser: row.browser)
     }
 
     private var chatCheck: ChatCheck? {
@@ -359,7 +359,10 @@ struct SourceCatalogDetail: View {
         SourcePageLayout(title: row.entry.title, origin: row.entry.origin, status: pageStatus, statusHelp: statusHelp,
                          backLabel: hiddenListCount.map { Copy.Lists.sourcesBack($0) }, onShowList: onShowList,
                          onClose: onClose) {
-            if drill == nil { connectSlot }
+            if drill == nil {
+                connectSlot
+                browserIdentity
+            }
         } content: {
             if let drill {
                 drilled(drill)
@@ -410,6 +413,17 @@ struct SourceCatalogDetail: View {
     }
 
     // MARK: - The connect area
+
+    /// ROR-114 — whose list a browser-read source is (handle, profile link), and Try again when it met a login wall:
+    /// turning the list on again lifts the backend's pause.
+    @ViewBuilder
+    private var browserIdentity: some View {
+        if let key = row.entry.savedListKey, let browser = row.browser {
+            BrowserIdentityArea(site: row.entry.title, browser: browser) {
+                Task { @MainActor in _ = await reading.setSavedList(key, true) }
+            }
+        }
+    }
 
     /// The connect area, by source: one primary and at most one line for its state, then its ways in.
     @ViewBuilder
@@ -485,7 +499,7 @@ struct SourceCatalogDetail: View {
             } else if let connector = Self.connectorChannel(in: mine) {
                 ConnectorSlot(slot: .connect, channel: connector, title: entry.title, ways: siteWays,
                               vendors: entry.tile?.vendors ?? [], needsSignIn: row.status == .needsSignIn)
-            } else if entry.site != nil || entry.verb == .importFile {
+            } else if entry.site != nil || entry.savedListKey != nil || entry.verb == .importFile {
                 SourceConnectArea(ways: siteWays)
             } else if let feed = mine.first, feed.actions.contains("manage"), let tile = entry.tile {
                 // A feed: the Subscribe field and the list are its flow.
@@ -516,13 +530,16 @@ struct SourceCatalogDetail: View {
     /// current, and the export (the source's own mark on a file, its where-from on hover).
     private var siteWays: [SourceWayIn] {
         var ways: [SourceWayIn] = []
-        if let site = row.entry.site {
+        // ROR-114: a source with a saved list has ONE switch, "Read through your browser" (the list's). The site grant
+        // beside it was refused (422) until Cicada had needed the browser for that site, so it could never be the way
+        // on; it shows only while a grant is held, to take it away.
+        if let site = row.entry.site, row.entry.savedListKey == nil || reading.readableSites.contains(site) {
             ways.append(.browser(on: reading.readableSites.contains(site)) { flip(site, on: $0) })
-            if SourceCatalog.savedListSites.contains(site) {
-                ways.append(SourceWayIn(id: "saved", icon: .symbol("bookmark"), title: Copy.SourceLayout.savedList,
-                                        control: .toggle(reading.savedListsOn.contains(site)) { flipSavedList(site, on: $0) },
-                                        help: Copy.Catalog.readSavedList(site)))
-            }
+        }
+        if let key = row.entry.savedListKey {
+            ways.append(SourceWayIn(id: "saved", icon: .symbol("globe"), title: Copy.SourceLayout.readInBrowser,
+                                    control: .toggle(reading.savedListsOn.contains(key)) { flipSavedList(key, on: $0) },
+                                    help: Copy.Catalog.readSavedList(key)))
         }
         if let tile = row.entry.tile, row.entry.verb == .importFile || row.entry.site != nil {
             ways.append(.importFile(origin: row.entry.origin, help: SourceCatalog.exportHow(row.entry.id)) {

@@ -106,10 +106,13 @@ struct ReadingSettingsResponse: Decodable, Equatable {
     var substackLists: [String: Bool] = [:]
     /// When each Substack list was last read for this memory, and the pause.
     var substack: SubstackListsStatus?
+    /// ROR-114 — per saved list (x, instagram, linkedin, reddit, pinterest, tiktok): where it stands (read, signed out,
+    /// couldn't read, not read yet), the last read, and whose list it is. Absent from an older backend.
+    var saved: SavedListsStatus?
 
     enum CodingKeys: String, CodingKey {
         case agentEnabled, allowedSites, ackedAt, ackCurrent, lastAgentRead, exploreSignedIn, neverExplore
-        case youtubeLists, youtube, savedLists, youtubeListsOff, savedListsOff, substackLists, substack
+        case youtubeLists, youtube, savedLists, youtubeListsOff, savedListsOff, substackLists, substack, saved
     }
 
     init(agentEnabled: Bool = false, allowedSites: [String: String] = [:], ackedAt: String? = nil,
@@ -143,9 +146,46 @@ struct ReadingSettingsResponse: Decodable, Equatable {
         savedListsOff = (try? c.decode([String: Bool].self, forKey: .savedListsOff)) ?? [:]
         substackLists = (try? c.decode([String: Bool].self, forKey: .substackLists)) ?? [:]
         substack = try? c.decodeIfPresent(SubstackListsStatus.self, forKey: .substack)
+        saved = try? c.decodeIfPresent(SavedListsStatus.self, forKey: .saved)
     }
 
     func isOn(_ list: SubstackList) -> Bool { substackLists[list.rawValue] ?? false }
+}
+
+/// ROR-114 — `GET /reading/settings`' `saved` block: per saved list, how it stands and whose it is. `state` is the
+/// backend's own word (`read | signed_out | couldnt_read | not_read`), learned only when an agent tries the page.
+struct SavedListsStatus: Decodable, Equatable {
+    struct List: Decodable, Equatable {
+        var state: String = "not_read"
+        var lastReadAt: String?
+        var handle: String?
+        var profileUrl: String?
+
+        init(state: String = "not_read", lastReadAt: String? = nil, handle: String? = nil, profileUrl: String? = nil) {
+            self.state = state; self.lastReadAt = lastReadAt; self.handle = handle; self.profileUrl = profileUrl
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            state = (try? c.decode(String.self, forKey: .state)) ?? "not_read"
+            lastReadAt = try? c.decodeIfPresent(String.self, forKey: .lastReadAt)
+            handle = try? c.decodeIfPresent(String.self, forKey: .handle)
+            profileUrl = try? c.decodeIfPresent(String.self, forKey: .profileUrl)
+        }
+
+        enum CodingKeys: String, CodingKey { case state, lastReadAt, handle, profileUrl }
+    }
+
+    var lists: [String: List] = [:]
+
+    init(lists: [String: List] = [:]) { self.lists = lists }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lists = (try? c.decode([String: List].self, forKey: .lists)) ?? [:]
+    }
+
+    enum CodingKeys: String, CodingKey { case lists }
 }
 
 /// G89 (2026-11-04) — the Substack lists an agent may keep current, by the backend's own keys.

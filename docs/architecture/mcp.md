@@ -674,6 +674,14 @@ a post an archive, a connector or a pasted link already saved is a duplicate; th
 for. The post's words become the title (≤ 80) and description (≤ 500), scrubbed; they are the post's, never the
 person's (no `note`). Committed alone as the harness with its session trailer. **Not built:** a post unsaved on the site
 stays saved here (the read only adds); the app's switch (spec in `app.md`, "Saved lists in your browser").
+**Who and where it stands (ROR-114, 2026-11-05).** `cicada_record_saved_list` also takes `handle` and `profile_url`
+(CLI `--handle`, `--profile-url`): the person's name on the site and the link to their own profile, kept beside the last
+attempt in this machine's state, never a bank. `saved_lists.clean_handle` keeps one short token; `clean_profile_url`
+keeps an `https` link on that platform's own host with no credentials or port and drops the query and fragment — a bad
+one is said in the reply and not stored, and one not given leaves the last standing. `GET /reading/settings` →
+`saved.lists.<site>` adds `through: "browser"`, `state` (`read | signed_out | couldnt_read | not_read`, from the last
+attempt alone: `read` the only healthy one), `handle` and `profileUrl`. Cicada learns signed-out only when an agent
+tries the page (cadence 20 h, a login wall pauses 7 days); it reads no cookie and runs no browser in the background.
 
 **Reddit, Pinterest and TikTok join (G232, owner 2026-11-04: "offer the website connection through browser harness,
 just like a toggle switch").** Three more `saved_lists.PLATFORMS`, after LinkedIn in the offer's order, on the same

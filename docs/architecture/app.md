@@ -2251,6 +2251,15 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   PUT answers 422 with that sentence otherwise). The accent is not used here beyond the toggle's own tint (DR-5); no
   new mark (the family's bundled mark already heads the column, DR-52). A `needs_login` lands as the G205 agent
   request in the Inbox, not on this row.
+  **Read through your browser (ROR-114, 2026-11-05, DESIGN_RULES §9).** The six lists (x, instagram, linkedin, reddit,
+  pinterest, tiktok: `SourceCatalog.savedListSites`, `SourceCatalogEntry.savedListKey`; Pinterest has no walled site)
+  each have one switch, "Read through your browser"; the site grant beside it shows only while held. A row Connected
+  only through that read (a real connection, an import and a reader on this Mac all outrank it; `SourceCatalog.resolved`)
+  carries a `BrowserRead` built from `GET /reading/settings` `saved` (`ReadingSettingsResponse.browserReads`): "Through
+  your browser" in `StatusWord.Tone.browser` (`CicadaTheme.info`, never the accent), "Not read yet" grey, "Signed out"
+  amber in Needs you (not counted), "Couldn't read" amber under Connected. YouTube's and Substack's lists show the same
+  states from their pauses. The page's connect area (`BrowserIdentityArea`) adds the handle and an *Open profile ›* link
+  (https only, `ItemPlaceOpen.webURL`, on the click) and, signed out, one line with **Try again** (`setSavedList(key, true)`).
 - **Substack (G89, built 2026-11-04).** One Accounts entry, *Substack* (`SourceCatalog.substackId`, origin
   `substack-saved`, the overview's `substack` saves and `substack-history` reading days; no `site`, so no per-site page
   grant is drawn). Its detail holds, only while it is off, one line on why the agent reads it (Substack gives readers no

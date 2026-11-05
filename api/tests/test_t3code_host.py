@@ -373,12 +373,14 @@ def test_the_routes_take_the_field_and_an_unknown_one_is_no_refusal(client, memo
 # --- where it shows -----------------------------------------------------------------------------------------------
 
 
-def test_a_host_session_is_the_hosts_source_row_and_the_rest_keep_theirs():
+def test_a_host_session_is_the_harness_s_source_row_and_the_host_is_no_source():
+    """Owner 2026-11-05 (ROR-114): T3 Code is the app the person typed in, running Claude Code or Codex; its sessions
+    count and list under the harness that ran them (G228 amended). The episode keeps `host` for provenance."""
     assert source_overview.source_key({"session_id": SID, "harness": "claude-code", "host": "t3code"}) == \
-        "harness:t3code"
+        "harness:claude-code"
     assert source_overview.source_key({"session_id": SID, "harness": "claude-code"}) == "harness:claude-code"
     assert source_overview.source_key({"session_id": SID, "harness": "codex", "host": "bogus"}) == "harness:codex"
-    assert source_overview.HARNESS_LABELS["t3code"] == "T3 Code"
+    assert "t3code" not in source_overview.HARNESS_LABELS
 
 
 def test_t3_code_is_one_umbrella_whose_connect_flow_is_the_agents_it_drives():

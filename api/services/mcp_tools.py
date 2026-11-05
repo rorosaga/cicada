@@ -1721,7 +1721,8 @@ def _one_line(value, limit: int) -> str:
 
 
 @_holding_pages
-def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None, via: str | None = None) -> str:
+def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None, via: str | None = None,
+                      handle: str | None = None, profile_url: str | None = None) -> str:
     """``cicada_record_saved_list`` (G206, redesign 2026-10-22): what the person's own agent read on their saved list
     on X (Bookmarks), Instagram (Saved), LinkedIn (Saved posts) or, since G232, Reddit (Saved), Pinterest (Saved Pins)
     or TikTok (Favorites), in their signed-in browser, after the person turned that list on.
@@ -1731,7 +1732,11 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     write) and ask the person to sign in (G205); ``failed`` is noted. A ``read``: each post becomes a save where saved
     links go (``media_ingestor``, one ``url_index`` row per post with its other spellings as aliases — a post saved
     before by an archive, a connector or a link is a duplicate, never a second page), under the list's own origin, so
-    it is indexed and never read by a model (ruling 30). Nothing is fetched. Committed as the harness."""
+    it is indexed and never read by a model (ruling 30). Nothing is fetched. Committed as the harness.
+
+    ROR-114: ``handle`` and ``profile_url`` are the person's own handle and profile link as the signed-in page showed
+    them. A link is kept only if it is ``https`` on that platform's own host; either is kept beside the list's status
+    (machine state, never a bank), and one that does not pass is left out and said so."""
     from api.services import media_ingestor, reading_settings, saved_lists
     from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
 
@@ -1750,15 +1755,19 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     if not saved_lists.allowed(key):
         return Reply(f"Not recorded: the person has not asked their agent to keep their saved {p.name} posts current "
                      "(Sources). Nothing was read into memory.", code="refused")
+    who = {"handle": saved_lists.clean_handle(handle), "profile_url": saved_lists.clean_profile_url(key, profile_url)}
+    unkept = (" The handle was not kept: send it as one word, as the page shows it." if handle and not who["handle"]
+              else "") + (f" The profile link was not kept: it must be an https link on {p.name}'s own site."
+                          if profile_url and not who["profile_url"] else "")
     if outcome in saved_lists.PAUSING:
-        saved_lists.note(memory_path, key, outcome)
+        saved_lists.note(memory_path, key, outcome, **who)
         _ask_sign_in_for_list(ctx, memory_path, p)
         return (f"Recorded: {p.name} needs the person to sign in (or blocked the page). Stop: do not sign in, type "
                 f"credentials or try another route. Their {p.name} list is paused for a week, or until the person "
-                "signs in and says so in Cicada.")
+                "signs in and says so in Cicada." + unkept)
     if outcome == "failed":
-        saved_lists.note(memory_path, key, outcome)
-        return "Recorded: the read failed. Nothing was written; the list is offered again later."
+        saved_lists.note(memory_path, key, outcome, **who)
+        return "Recorded: the read failed. Nothing was written; the list is offered again later." + unkept
     rows = items if isinstance(items, list) else []
     if not rows:
         return Reply("Error: a read needs `items` — the posts the list showed, each {url, author, text}. Record "
@@ -1814,7 +1823,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         index_changed = (index_file.read_bytes() if index_file.is_file() else None) != before_index
     if index_changed:
         paths.append("sources/url_index.json")
-    saved_lists.note(memory_path, key, "read", items=len(seen))
+    saved_lists.note(memory_path, key, "read", items=len(seen), **who)
     if paths:
         lines = ([f"sources/url_index.json: updated (trigger: {ctx.trigger})"] if index_changed else []) + (
             [f"{created} saved {p.name} post(s) (trigger: {ctx.trigger})"] if created else []) + (
@@ -1823,7 +1832,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
                                    author=ctx.author, session=ctx.session_id)
     extra = f" {dropped} row(s) were not {p.name} posts and were left out." if dropped else ""
     return (f"Recorded the person's {p.name} {p.label}. {created} new post(s) saved; {duplicates} already in memory. "
-            f"Saved posts are kept for lookup, not read.{extra}")
+            f"Saved posts are kept for lookup, not read.{extra}{unkept}")
 
 
 #: At most this many rows in one ``cicada_record_substack_list`` call (a few screens of a list, never a whole archive).

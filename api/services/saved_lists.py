@@ -67,28 +67,30 @@ class Platform:
     #: The host an agent request names (G205), and the words it asks with.
     site: str
     reason: str
+    #: The domains the person's own profile link may be on (ROR-114): the platform's own, never another site.
+    profile_hosts: tuple[str, ...] = ()
 
 
 PLATFORMS: dict[str, Platform] = {
     "x": Platform("x", "X", "Bookmarks", "https://x.com/i/bookmarks", "", "x-bookmarks", "Bookmarks",
-                  "x.com", "to read your bookmarks"),
+                  "x.com", "to read your bookmarks", ("x.com", "twitter.com")),
     "instagram": Platform("instagram", "Instagram", "Saved", "https://www.instagram.com/",
                           " — open the person's profile, then Saved, then All posts", "instagram-saved", "Saved",
-                          "instagram.com", "to read your saved posts"),
+                          "instagram.com", "to read your saved posts", ("instagram.com",)),
     "linkedin": Platform("linkedin", "LinkedIn", "Saved posts", "https://www.linkedin.com/my-items/saved-posts/", "",
-                         "linkedin-saved", "Saved Items", "linkedin.com", "to read your saved posts"),
+                         "linkedin-saved", "Saved Items", "linkedin.com", "to read your saved posts", ("linkedin.com",)),
     # G232 (owner 2026-11-04: "offer the website connection through browser harness, just like a toggle switch …
     # Same for TikTok, same for Pinterest, same for Reddit"). Each files under its export's own origin and folder, so
     # a post the export (or Reddit's connector) brought in is the same row, and every one is index-only (ruling 30).
     # Spotify has none: its terms bar automated reading of the service (`ways_in.SPOTIFY_NO_BROWSER`).
     "reddit": Platform("reddit", "Reddit", "Saved", "https://www.reddit.com/user/me/saved/", "", "reddit-saved",
-                       "Saved posts", "reddit.com", "to read your saved posts"),
+                       "Saved posts", "reddit.com", "to read your saved posts", ("reddit.com",)),
     "pinterest": Platform("pinterest", "Pinterest", "Saved Pins", "https://www.pinterest.com/",
                           " — open the person's profile, then Saved, then All Pins", "pinterest-saved", "Saved",
-                          "pinterest.com", "to read your saved Pins"),
+                          "pinterest.com", "to read your saved Pins", ("pinterest.com",)),
     "tiktok": Platform("tiktok", "TikTok", "Favorites", "https://www.tiktok.com/",
                        " — open the person's profile, then the Favorites tab (videos)", "tiktok-saved", "Favorites",
-                       "tiktok.com", "to read your favorite videos"),
+                       "tiktok.com", "to read your favorite videos", ("tiktok.com",)),
 }
 #: A list is offered again this long after its last read (the youtube lists' cadence).
 CADENCE = timedelta(hours=20)
@@ -205,6 +207,14 @@ def due(memory_path: Path, now: datetime | None = None) -> list[str]:
     return []
 
 
+def state_of(outcome) -> str:
+    """Where a list stands, from its last attempt alone: ``read`` is the only healthy one, ``signed_out`` the agent met
+    a login wall, ``couldnt_read`` it was blocked or failed, ``not_read`` no attempt yet. Cicada learns this only when
+    an agent tries the page, and never reads a cookie."""
+    return {"read": "read", "needs_login": "signed_out", "blocked": "couldnt_read",
+            "failed": "couldnt_read"}.get(str(outcome or ""), "not_read")
+
+
 def status(memory_path: Path, now: datetime | None = None) -> dict:
     """The Sources page's view: per site, the last read and its outcome, and its pause, if any."""
     lists = {}
@@ -213,21 +223,61 @@ def status(memory_path: Path, now: datetime | None = None) -> dict:
         until = paused_until(key, now)
         lists[key] = {"lastReadAt": entry.get("read_at"), "lastOutcome": entry.get("outcome"),
                       "lastAt": entry.get("at"), "items": int(entry.get("items") or 0),
-                      "pausedUntil": until.isoformat() if until else None}
+                      "pausedUntil": until.isoformat() if until else None,
+                      # ROR-114: how it is read (the app draws a browser-read source in its own colour), where it
+                      # stands (only a last read that succeeded is healthy), and whose list it is.
+                      "through": "browser",
+                      # A pausing outcome whose pause is lifted (Try again, or the week is up) waits for its next read.
+                      "state": "not_read" if entry.get("outcome") in PAUSING and until is None
+                      else state_of(entry.get("outcome")),
+                      "handle": entry.get("handle") or None, "profileUrl": entry.get("profile_url") or None}
     return {"readsToday": reads_today(memory_path, now), "dailyReads": DAILY_READS, "lists": lists}
 
 
 # --- what the agent reported ------------------------------------------------------------------------
 
 
-def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, now: datetime | None = None) -> None:
+_HANDLE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,38}")
+
+
+def clean_handle(value) -> str | None:
+    """The person's handle on the site as the page shows it, without its leading ``@``: one short token, or ``None``."""
+    word = str(value or "").strip().lstrip("@")
+    return word if _HANDLE.fullmatch(word) else None
+
+
+def clean_profile_url(key: str, value) -> str | None:
+    """The link to the person's own profile: ``https`` only, no credentials or port, on that platform's own host, the
+    query and fragment dropped. ``None`` for anything else (a link is shown and opened on a click, so it is checked)."""
+    try:
+        parsed = urlparse(str(value or "").strip())
+        port = parsed.port
+    except ValueError:
+        return None
+    platform = PLATFORMS.get(key)
+    host = (parsed.hostname or "").lower()
+    if platform is None or parsed.scheme != "https" or parsed.username or parsed.password or port is not None:
+        return None
+    ok = bool(_PIN_HOST.fullmatch(host)) if key == "pinterest" else _host_in(host, platform.profile_hosts)
+    if not ok or len(parsed.path) < 2 or len(parsed.path) > 200 or any(c.isspace() or ord(c) < 32 for c in parsed.path):
+        return None
+    return f"https://{host}{parsed.path}"
+
+
+def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, handle: str | None = None,
+         profile_url: str | None = None, now: datetime | None = None) -> None:
     """Record an outcome. A read counts toward the day and clears that site's pause (the agent was signed in);
-    ``needs_login``/``blocked`` start one."""
+    ``needs_login``/``blocked`` start one. ``handle`` and ``profile_url`` (already cleaned) are kept beside it, in this
+    machine state and never a bank; one not given leaves the last one standing."""
     moment = _now(now)
     with _locked() as data:
         bank = _bank_key(memory_path)
         entry = data.setdefault("banks", {}).setdefault(bank, {}).setdefault(key, {})
         entry.update(at=moment.isoformat(), outcome=outcome)
+        if handle:
+            entry["handle"] = handle
+        if profile_url:
+            entry["profile_url"] = profile_url
         pauses = data.setdefault("paused_until", {})
         if outcome == "read":
             entry.update(read_at=moment.isoformat(), items=int(items))

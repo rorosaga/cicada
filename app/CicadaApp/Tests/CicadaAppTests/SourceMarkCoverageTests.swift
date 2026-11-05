@@ -36,7 +36,7 @@ final class SourceMarkCoverageTests: XCTestCase {
             guard line.drop(while: \.isWhitespace).hasPrefix("\"") else { return nil }
             return line.split(separator: "\"", omittingEmptySubsequences: false).dropFirst().first.map(String.init)
         }
-        XCTAssertTrue(keys.contains("t3code") && keys.contains("claude-code"), "the parse found \(keys)")
+        XCTAssertTrue(keys.contains("codex") && keys.contains("claude-code"), "the parse found \(keys)")
         return keys
     }
 
