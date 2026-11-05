@@ -14,6 +14,7 @@ struct PageAddButton: View {
     var body: some View {
         NeutralButton(title: title, systemImage: "plus", size: .compact, shortcut: shortcut, help: help,
                       action: action)
+            .fixedSize(horizontal: true, vertical: false)   // A narrow window shortens the eyebrow, never this verb.
             .accessibilityLabel(title)
     }
 }

@@ -1783,12 +1783,35 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
 `ThisMacSourcesTests`, `test_source_collections.py`.
 
 **The redesign, Sources · Inbox · entity card · Sleep (G217, G205, G212, G61, G206; ruling 36 D5/D6, 2026-10-22).**
-- **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off, grouped
+- **The Sources root is a grid of apps (ROR-7, G217, G161; owner 2026-11-05; `SourceGrid`, pure; `SourceGridView`;
+  DESIGN_RULES §9 2026-11-05).** Three questions in order: **Needs you** (a lapsed sign-in, a list waiting for an agent, a
+  permission macOS took away — `LocalReaders.waitingOnAccess` — or a connected reader whose own page says *Needs you*:
+  the same channel and words, `SourceCatalog.rows(watch:)`), **Connected** (exactly what the eyebrow counts, so a row
+  that only borrows another's reader, YouTube on Chrome's, keeps its green dot in its own category, #619), **Suggested**
+  (off, and its app is on this Mac: the notch's own bundle list, `ConnectSuggestApps`, without Apple's apps, which every
+  Mac has, and without what the person said No to; one Launch Services pass per appearance, nothing inside an app read),
+  then what could be added by what it is (`SourceCategory`: Messaging · Calendars and contacts · Browsers · Social · Video
+  and music · Reading · Notes and work · Meeting recorders · Files and activity · Agents' conversations). A source sits in one
+  section. `SourceCatalogGroup` (how it comes in) stays the rules' word and is never drawn. A tile is the one `LogoTile`,
+  the name, and one line only when it says something: when it last read, the waiting word, *Not installed*; off says
+  nothing, no dot is the word, and *Connected* is never repeated under its own heading (it returns in search results and on
+  a row that only borrows a reader). The Chat exports tile takes every assistant's export, so it wears a neutral glyph. One click opens the standard source page; the rows beside it use the same sections.
+  **Search** is always drawn (⌘F focuses it): the one ranker (`QuickMatch`) over the name, `SourceGrid.alsoKnownAs` (a
+  company, an old name, what it holds; never drawn) and the section, with no network and no model. ↑/↓ walk the results,
+  ⏎ opens the highlighted one, neither animated (DR-60); nothing found is `EmptyStateView` with the page's own import.
+  The words outlive an opened source and are cleared by a hand-off and the sidebar's re-click. `catalog` is never
+  filtered, so the palette, the notch's Yes and Sleep's *Open in Sources* reach every source whatever was typed.
+  **Companies are not groups (decided, ROR-7):** Google's sources are four kinds of thing (a video site, a browser, a
+  chat export, a calendar feed), each with its own consent and its own page, and a person looks for "my chats"; a
+  company's folder would add a click and split the categories. Typing the company finds each app as itself, wherever it
+  sits. A tile is offered only if it can really connect; nothing is shown as coming soon.
+- **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off (the page's
+  arrangement is the bullet above). By how it comes in:
   *Accounts and browser* (X, YouTube, Instagram, LinkedIn, Reddit, Pinterest, TikTok) · *This Mac* (Calendar, Contacts,
   Messages, each browser on this Mac, Apple Notes, Folders; Wispr Flow once present, while on offer) · *Exports* (Files and links; Chat
   exports, which point at their agent — `AppRouter.routeToAgents`, the Agents page) ·
   *Feeds* (RSS, Calendar feeds, Telegram), then *Agents' conversations* for an overview harness row no entry speaks for.
-  A row is a `LogoTile` (through the `SourceLogoTile` adapter: an origin key or an umbrella logo slug in), the name, the
+  A row beside an open source is a `LogoTile` (through the `SourceLogoTile` adapter: an origin key or an umbrella logo slug in), the name, the
   last sync only while on, and a dot with one word: **Connected · Needs sign-in · Off** (`SourceCatalog.status`: a
   channel whose last failure reads as a lapsed sign-in, else any connected channel, an allowed site for Instagram, a
   harness with conversations). **Its detail is one template for every source (source-page-v3, owner 2026-10-29;
@@ -1818,8 +1841,8 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   **Owner pass, 2026-11-03 (DESIGN_RULES §9 2026-11-03; `ChatSourcePage.swift`, `ChatSourceList.swift`):** *What Cicada
   reads* is gone from every source page — the status line is the status, and a chat reader's "checked" sentence is its
   hover (`SourceStatusLine.help`). The pickers' standing paragraphs (Messages, WhatsApp, Telegram's connected step) are
-  gone too; a failed read still shows `FullDiskAccessHint`. Each catalogue section lists what is set up first, then
-  what is off, each part in the catalogue's order (`SourceCatalog.grouped`; the arrow keys walk `drawnOrder`). **A chat
+  gone too; a failed read still shows `FullDiskAccessHint`. What is set up comes first (since ROR-7 at the top of the
+  page, `SourceGrid.sections`; the arrow keys walk `SourceGrid.drawnOrder`). **A chat
   source's list is its chats** (`ChatSourceRow`, for `imessage`, `whatsapp`, `telegram-chats`): every chat, no *All N*
   cap, pinned first then the newest stored message (the backend's order); the face draws `chat.picture` (the page the
   chat stands for, by the one precedence — the person's own chat is the owner's page) before `chat.photo`, else a

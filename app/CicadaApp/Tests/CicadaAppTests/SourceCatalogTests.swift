@@ -12,9 +12,11 @@ final class SourceCatalogTests: XCTestCase {
 
     private func row(_ id: String, in rows: [SourceCatalogRow]) -> SourceCatalogRow? { rows.first { $0.id == id } }
 
-    func testGroupsComeInTheirFixedOrderAndEveryEntryHasOne() {
-        let groups = SourceCatalog.grouped(rows()).map(\.group)
-        XCTAssertEqual(groups, [.accounts, .thisMac, .meetings, .reading, .exports, .feeds])
+    func testSectionsComeInTheirFixedOrderAndAnEmptyOneIsNotDrawn() {
+        let sections = SourceGrid.sections(rows()).map(\.section)
+        XCTAssertEqual(sections, [.category(.messaging), .category(.calendars), .category(.social), .category(.media),
+                                  .category(.reading), .category(.notes), .category(.meetings), .category(.files),
+                                  .category(.agents)])
     }
 
     /// G95 (2026-11-03) — Meeting recorders: Hex once it is here (or has a folder), Wispr Flow moved in from This Mac, a

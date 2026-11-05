@@ -1,8 +1,9 @@
 import SwiftUI
 
-// G217 (ruling 36 D6) — the Sources page as the one catalogue: rows grouped by way in, each a logo tile, a name and a
-// dot with one word (DR-34 row heights, DR-38 nothing said twice, DR-52 via the one tile adapter, DR-74 the detail's
-// head). The old Integrations page's rows and the "Add a source" grid both land here.
+// G217 (ruling 36 D6) — the Sources page as the one catalogue: `SourceGridView` at the root; beside an open source, rows
+// in the grid's own sections, each a logo tile, a name and a dot with one word (DR-34 row heights, DR-38 nothing said
+// twice, DR-52 via the one tile adapter, DR-74 the detail's head). The old Integrations page's rows and the "Add a
+// source" grid both land here.
 
 /// G217 — the Sources page reads and writes the per-site reading switch through Settings' own model
 /// (`ReadingAgentModel`, in memory, not a Store domain), so the first-use consent is the same: a site turns on in one
@@ -56,6 +57,28 @@ enum LocalReaders {
             }
         }
         return on
+    }
+
+    /// ROR-7 — the readers on this Mac that macOS stopped, by entry id, each with its reason: the page's *Needs you*. A
+    /// reader the person never turned on is not waiting on them, so Contacts, Reminders and Apple Books count only while
+    /// their switch is on; Calendar reaches `.denied` only from a Connect or a switch left on. Messages and WhatsApp
+    /// carry no such switch, and `.needsAccess` does not mean never turned on: it can follow macOS refusing the person's
+    /// own attempt, so it always waits on them.
+    static func waitingOnAccess(calendar: CalendarReader?, contacts: ContactsReader?, reminders: RemindersReader?,
+                                books: AppleBooksReader?, messages: MessagesWatcher?,
+                                whatsApp: WhatsAppWatcher?) -> [String: String] {
+        var out: [String: String] = [:]
+        if calendar?.status == .denied { out[CalendarRow.channelId] = Copy.sourceNeedsAccess }
+        if let contacts, contacts.enabled, contacts.status == .denied {
+            out[ContactsReader.channel] = Copy.sourceNeedsAccess
+        }
+        if let reminders, reminders.isEnabled, reminders.status == .denied {
+            out[RemindersReader.channel] = Copy.sourceNeedsAccess
+        }
+        if let books, books.enabled, books.deniedByMac { out[AppleBooksReader.channel] = Copy.sourceNeedsAccess }
+        if case .needsAccess? = messages?.status { out[MessagesWatcher.channel] = Copy.sourceNeedsAccess }
+        if case .needsAccess? = whatsApp?.status { out[WhatsAppWatcher.channel] = Copy.sourceNeedsAccess }
+        return out
     }
 
     /// Looks pass 2 (2026-10-23) — Calendar's head and its row read one value: the reader's own status, the one the
@@ -120,8 +143,9 @@ struct SourceCatalogRowView: View {
                 }
                 .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)   // DR-36
                 Spacer(minLength: CicadaTheme.spacingSM)
-                if style == .wide || style == .triage {
-                    StatusWord(word: row.status.word, tone: row.status.tone)
+                // Its heading already says Connected; the word only cost the name its room.
+                if style == .wide || (style == .triage && row.section != .connected) {
+                    StatusWord(word: row.word, tone: row.tone)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -130,7 +154,7 @@ struct SourceCatalogRowView: View {
         .buttonStyle(.cicadaPlain)
         .listRowSurface(height: style == .titles || style == .hidden ? RowMetrics.titleOnly : RowMetrics.twoLine,
                         selected: selected)
-        .accessibilityLabel("\(row.entry.title), \(row.status.word)")
+        .accessibilityLabel("\(row.entry.title), \(row.word)")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -143,7 +167,8 @@ struct SourceCatalogRowView: View {
     }
 }
 
-/// The groups as labelled rows (DR-47), one rendering for the root and the list beside an open source.
+/// The grid's sections as labelled rows (DR-47), for the list beside an open source: a tile and its row sit under the
+/// same word, and the arrow keys walk the same order.
 struct SourceCatalogList: View {
     let rows: [SourceCatalogRow]
     let style: ColumnPlan.ListStyle
@@ -153,8 +178,8 @@ struct SourceCatalogList: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
-                ForEach(Array(SourceCatalog.grouped(rows).enumerated()), id: \.element.group) { index, group in
-                    SectionLabel(group.group.title)
+                ForEach(Array(SourceGrid.sections(rows).enumerated()), id: \.element.section) { index, group in
+                    SectionLabel(group.section.title)
                         .padding(.horizontal, CicadaTheme.scaled(10))
                         .padding(.top, index == 0 ? 0 : CicadaTheme.scaled(14))
                         .padding(.bottom, CicadaTheme.scaled(4))
@@ -260,7 +285,7 @@ struct SourceCatalogDetail: View {
         let watch = channel.flatMap { watcher.state(for: $0.id) }
         let run = SourceRowText.status(channel: channel, watch: watch, run: channel.flatMap { activity?.run(for: $0.id) })
         return SourcePageStatus.of(row: row.status, run: run, latest: latest, check: chatCheck,
-                                   notInstalled: row.notInstalled)
+                                   notInstalled: row.notInstalled, waitingOn: row.waitingOn)
     }
 
     private var chatCheck: ChatCheck? {

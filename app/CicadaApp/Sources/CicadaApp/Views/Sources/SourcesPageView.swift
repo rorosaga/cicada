@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// The Sources page (G124) in progressive columns (Direction D, DS-3c; §10). Sources v3 (owner 2026-10-19): with
-/// nothing open it answers "where did my stuff come from" — *Saved by you*, then *Captured for you*, as rows, and one
-/// quiet *Statistics* disclosure (who wrote your memory, the counts); opening a source narrows the page to those rows
-/// and opens its detail column — for a saved source, everything saved from it, newest first, each with the site's mark
-/// and why it was saved; a conversation's Reader is the third column. Clicking Sources in the sidebar again returns
-/// here (`AppRouter.reselect`). No prices, no tokens anywhere (the 2026-09-03 G124 ruling).
+/// The Sources page (G124) in progressive columns (Direction D, DS-3c; §10). ROR-7 (owner 2026-11-05): with nothing
+/// open it is a grid of apps with a search, answering what waits on the person, what is connected and what they could
+/// add (`SourceGridView`), and one quiet *Statistics* disclosure (who wrote your memory, the counts); opening a source
+/// narrows the page to rows in the same sections and opens its standard page; a conversation's Reader is the third
+/// column. Clicking Sources in the sidebar again returns here (`AppRouter.reselect`). No prices, no tokens anywhere
+/// (the 2026-09-03 G124 ruling).
 struct SourcesPageView: View {
     /// Entity chip → the app's existing entity navigation, threaded from `ContentView` like Ask citations.
     var onSelectEntity: ((String) -> Void)?
@@ -31,6 +31,11 @@ struct SourcesPageView: View {
     @State private var showReadingSheet = false
     @Environment(ExploreCache.self) private var exploreCache
     @FocusState private var focus: ListFocus?
+    /// ROR-7 — the grid's search. Only the grid reads it: `catalog` stays whole, so a hand-off (the palette, the notch's
+    /// Yes, Sleep's *Open in Sources*) and the rows beside an open source reach every source, whatever was typed.
+    @State private var gridSearch = SourceGridSearch()
+    /// Off sources whose app is on this Mac (`SourceGrid.suggested`): one Launch Services pass per appearance.
+    @State private var suggested: Set<String> = []
 
     private var rows: [SourceOverview] { SourceOverview.gridOrder(store.sourcesOverview.value ?? []) }
 
@@ -47,7 +52,11 @@ struct SourcesPageView: View {
         return SourceCatalog.rows(entries: entries, channels: channels, overview: overview,
                                   readableSites: reading.readableSites, localReaders: localReaders,
                                   savedListsOn: reading.savedListsOn, localAgent: agents.connectedLocally,
-                                  checked: chatChecks, notInstalled: localSources.missingApps)
+                                  checked: chatChecks, notInstalled: localSources.missingApps,
+                                  waitingOn: LocalReaders.waitingOnAccess(
+                                      calendar: calendarReader, contacts: contactsReader, reminders: remindersReader,
+                                      books: appleBooksReader, messages: messagesWatcher, whatsApp: whatsApp),
+                                  suggested: suggested, watch: { browserWatcher?.state(for: $0) })
     }
 
     /// 2026-11-03 — when each chat reader on this Mac last read its ticked chats (`ChatCheck`).
@@ -86,7 +95,7 @@ struct SourcesPageView: View {
         let rows = self.rows
         let catalog = self.catalog
         let segments = ContributorShare.segments(contributorsVM.contributors)
-        let order = SourceCatalog.drawnOrder(catalog).map { SourcesSelection.entry($0.id) }
+        let order = SourceGrid.drawnOrder(catalog).map { SourcesSelection.entry($0.id) }
         let detailOpen = columns.openId.map {
             SourcesModel.present(rows: rows, contributors: contributorsVM.contributors, catalog: catalog).contains($0)
         } ?? false
@@ -113,7 +122,8 @@ struct SourcesPageView: View {
             if plan.listStyle == .wide {
                 SourcesOverviewColumn(rows: rows, catalog: catalog,
                                       hasLoaded: store.sourcesOverview.value != nil || store.channels.value != nil,
-                                      onOpen: { select($0) }, onSelectEntity: onSelectEntity)
+                                      onOpen: { select($0) }, onSelectEntity: onSelectEntity, search: $gridSearch,
+                                      onOpenByKey: { openByKey($0) })
             } else {
                 SourcesListColumn(catalog: catalog, style: plan.listStyle,
                                   selection: columns.openId, open: { select($0) },
@@ -151,6 +161,13 @@ struct SourcesPageView: View {
         .task { await reading.loadSettings() }
         .task { await agents.run() }
         .task { browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value }
+        .task {
+            let declined = Set(ConnectSuggestStore(defaults: .standard).memory.declined)
+            suggested = await Task.detached(priority: .userInitiated) {
+                SourceGrid.suggested(installed: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil },
+                                     declined: declined)
+            }.value
+        }
         // 2026-11-04 — an app removed since launch (Wispr Flow) reads Off · not installed as soon as the page opens.
         .task { await localSources.refreshInstalledApps() }
         .onAppear { consumeAddSource() }
@@ -227,6 +244,15 @@ struct SourcesPageView: View {
         DispatchQueue.main.async { focus = .list }
     }
 
+    /// ROR-7 — ⏎ in the grid's field: the same open as a tile's click, with no animation (DR-60).
+    private func openByKey(_ selection: SourcesSelection) {
+        Instant.run {
+            columns.open(selection)
+            if provenance.isPresented { provenance.close() }
+        }
+        DispatchQueue.main.async { focus = .list }
+    }
+
     private func move(_ delta: Int, order: [SourcesSelection]) {
         Instant.run {
             guard let next = columns.neighbour(delta, in: order) else { return }
@@ -273,6 +299,8 @@ struct SourcesPageView: View {
     /// Sources v3 — the sidebar's Sources clicked while Sources shows: the Reader and the detail close together. A
     /// pointer click closes on the columns' curve; the ⌘ shortcut never animates (DR-60).
     private func popToRoot() {
+        // The sidebar's re-click clears the words too, even with nothing open: the root at rest, like a tab bar.
+        gridSearch = SourceGridSearch()
         guard SourcesModel.popsToRoot(detailOpen: columns.openId != nil,
                                       readerOpen: provenance.isPresented || chatPanel.isPresented) else { return }
         let change = {
@@ -293,6 +321,7 @@ struct SourcesPageView: View {
     private func openPendingSource() {
         guard let id = router.consumeSourceDetail(), let row = rows.first(where: { $0.id == id }) else { return }
         let entry = catalog.first { SourceCatalog.overviewRow(for: $0.entry, in: [row]) != nil }
+        gridSearch = SourceGridSearch()   // Whoever sent the person here did not ask for the words left in the field.
         Instant.run { columns.open(entry.map { .entry($0.id) } ?? .source(id)) }
     }
 
@@ -301,6 +330,7 @@ struct SourcesPageView: View {
     private func openPendingEntry() {
         guard let id = router.pendingCatalogEntry, catalog.contains(where: { $0.id == id }) else { return }
         router.pendingCatalogEntry = nil
+        gridSearch = SourceGridSearch()
         Instant.run { columns.open(.entry(id)) }
     }
 
@@ -312,6 +342,7 @@ struct SourcesPageView: View {
     private func consumeAddSource() {
         guard let tile = router.consumeAddSource(),
               let entry = SourceCatalog.entry(for: tile, in: catalog.map(\.entry)) else { return }
+        gridSearch = SourceGridSearch()
         Instant.run { columns.open(.entry(entry.id)) }
     }
 }
