@@ -308,6 +308,7 @@ def _memo(bank, sha="cd" * 32, segs=None, **kw):
 def test_a_voice_memo_is_one_item_by_its_id_dated_by_its_own_date_and_names_who_transcribed(bank):
     out = _memo(bank)
     assert out["action"] == "added" and out["id"] == media_files.source_file_id("voice_memos", MEMO["key"])
+    assert out["id"] == "395175071cd9864f", "the app computes the same id (VoiceMemosReaderTests)"
     meta = media_files.get(bank, out["id"])
     assert meta["recorded_at"] == "2026-03-04T09:15:00+00:00", "its own date, aware UTC"
     assert meta["words_by"] == "the recording" and meta["transcribed_by"] == "On-device speech"
