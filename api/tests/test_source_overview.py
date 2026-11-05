@@ -4,24 +4,26 @@ credits and `GET /sources/channels` state. Hermetic: a throwaway bank under
 tmp_path; the real memory/ is never read. No network, no LLM."""
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
 from api import config, main
-from api.services import bank_index, channel_registry, source_overview, sync_state
+from api.services import bank_index, channel_registry, feed_registry, media_ingestor, source_overview, sync_state
 
 UUID_A = "0f8f1c2a-4b5d-4e6f-8a9b-0c1d2e3f4a5b"
 UUID_B = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
 
 
 def _episode(memory, episode_id, *, timestamp, origin=None, session_id=None,
-             source_id=None, harness=None, title="Untitled"):
+             source_id=None, harness=None, title="Untitled", media_entity_id=None):
     d = memory / "episodes"
     d.mkdir(parents=True, exist_ok=True)
     lines = ["---", f"id: {episode_id}", f"timestamp: '{timestamp}'", f"title: {title}",
              "processed: true"]
     for key, value in (("origin", origin), ("session_id", session_id),
-                       ("source_id", source_id), ("harness", harness)):
+                       ("source_id", source_id), ("harness", harness), ("media_entity_id", media_entity_id)):
         if value is not None:
             lines.append(f"{key}: {value}")
     lines += ["---", "", "body"]
@@ -276,6 +278,30 @@ def test_sources_items_carry_origin_and_folder(client, bank):
     items = client.get("/sources").json()["items"]
     row = next(i for i in items if i["mediaEntityId"] == "media-alpha")
     assert row["origin"] == "safari-bookmark" and row["folder"] == "Favorites/Papers"
+
+
+def test_a_publications_episodes_and_count_leave_rss_for_its_own_row(bank):
+    """G89 (owner 2026-11-05): every feed Substack, RSS holds nothing and draws no row; each episode counts once."""
+    url = "https://alpha.substack.com/feed"
+    feed_registry.subscribe_feed(bank, url, [])
+    post = "https://alpha.substack.com/p/one"
+    (bank / "sources").mkdir(exist_ok=True)
+    (bank / "sources" / "url_index.json").write_text(json.dumps({media_ingestor.url_hash(post): {
+        "media_entity_id": "media-post", "url": post, "title": "x", "saved_at": "2026-08-07",
+        "feed": feed_registry.feed_id(url)}}))
+    _episode(bank, "ep_2026-08-07_001", timestamp="2026-08-07T10:00:00+00:00", origin="rss",
+             media_entity_id="media-post")
+    _media_page(bank, "media-post", origin="rss")
+    bank_index.invalidate()
+
+    channels = channel_registry.build_channels(bank, telegram_enabled=False, connectors_connected={},
+                                               feed_fetch_allowed=True)
+    by_id = {c["id"]: c for c in channels}
+    assert by_id["rss"]["count"] == 0 and by_id["rss"]["connected"] is False
+    assert by_id["substack-feeds"]["count"] == 1 and by_id["substack-feeds"]["connected"] is True
+    rows = {r["id"]: r for r in source_overview.build_overview(bank, channels=channels)}
+    assert "rss" not in rows
+    assert rows["substack-feeds"]["episodes"] == 1 and rows["substack-feeds"]["items"] == 1
 
 
 def test_saved_links_and_feeds_now_credit_their_own_rows(bank):

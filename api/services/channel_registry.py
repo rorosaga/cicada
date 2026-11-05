@@ -63,6 +63,7 @@ _NON_CONNECTOR_HEAD = (
     "safari-tabs",
     "notes",
     "rss",
+    "substack-feeds",
     "calendar",
 )
 _NON_CONNECTOR_TAIL = (
@@ -83,7 +84,8 @@ CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
 #: conversation is ticked, Wispr Flow only while it is on, Telegram only once a message has arrived.
 #: "g219" (2026-10-23): the always-listed Apple Reminders row and the Notion export row.
 #: "book-scan" (2026-11-04): the always-listed Book scans row (G233).
-CHANNELS_SHAPE = "book-scan"
+#: "g89-publications" (2026-11-05): the followed Substack publications count on `substack-feeds`, out of `rss`.
+CHANNELS_SHAPE = "g89-publications"
 
 
 # R-S5 — there is deliberately no `_plural` here any more. It baked
@@ -336,6 +338,7 @@ def build_channels(
 
     telegram_count = int((by_origin.get("telegram") or {}).get("episodeCount") or 0)
 
+    feeds = feed_registry.list_feeds(memory_path)
     channels = {
         "chat-export:claude": _origin_channel(
             "chat-export:claude", "Claude chat export", "claude-export", by_origin, "conversation"),
@@ -358,7 +361,15 @@ def build_channels(
         "safari-tabs": _sync_channel("safari-tabs", "Safari iCloud tabs", state, "tab"),
         "notes": _sync_channel("notes", "Apple Notes", state, "note"),
         "rss": _subscription_channel(
-            "rss", "RSS feeds", feed_registry.list_feeds(memory_path), "feed", fetch_allowed=feed_fetch_allowed),
+            "rss", "RSS feeds", [f for f in feeds if not feed_registry.is_substack(f)], "feed",
+            fetch_allowed=feed_fetch_allowed),
+        # G89 (owner 2026-11-05): a followed Substack publication counts on Substack's row; RSS still polls it.
+        "substack-feeds": {
+            **_subscription_channel("substack-feeds", "Publications",
+                                    [f for f in feeds if feed_registry.is_substack(f)], "publication",
+                                    fetch_allowed=feed_fetch_allowed),
+            "actions": [],
+        },
         "calendar": _subscription_channel(
             "calendar", "Calendars", calendar_registry.list_calendars(memory_path), "calendar",
             fetch_allowed=feed_fetch_allowed),

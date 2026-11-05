@@ -31,7 +31,7 @@ from typing import Any, Awaitable, Callable
 import yaml
 from loguru import logger
 
-from api.services import media_ingestor
+from api.services import media_ingestor, reading_hosts
 from api.services.media_ingestor import normalize_url
 
 FEEDS_FILENAME = "feeds.yaml"
@@ -76,6 +76,16 @@ def problem_words(record: dict) -> str | None:
 
 
 # --- Registry file I/O -------------------------------------------------
+
+
+def is_substack(record) -> bool:
+    """A followed feed that is a Substack publication: on ``*.substack.com``, or on its own domain, where the feed
+    list's ``substack`` tag says so. The one rule: its mark, its page and its counts all read this (G89, 2026-11-05)."""
+    if not isinstance(record, dict):
+        return False
+    host = reading_hosts.display_host(reading_hosts.host_of(str(record.get("url") or ""))) or ""
+    tags = {str(t).strip().casefold() for t in (record.get("tags") or [])}
+    return "substack" in tags or host == "substack.com" or host.endswith(".substack.com")
 
 
 def _feeds_path(memory_path: Path) -> Path:

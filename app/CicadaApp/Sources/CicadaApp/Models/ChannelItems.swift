@@ -260,7 +260,7 @@ enum CapturedItems {
         switch channel {
         case "contacts-local": return ("person", "people")
         case "calendar": return ("event", "events")
-        case "rss": return ("item", "items")
+        case "rss", FeedChannelText.substackChannel: return ("item", "items")
         default:
             guard let countNoun, !countNoun.isEmpty else { return ("item", "items") }
             return (countNoun, countNoun + "s")   // every registry noun is regular (`SourceChannel.countNoun`)
