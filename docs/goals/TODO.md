@@ -3299,7 +3299,8 @@ A whole row moves to DONE only after its remaining implementation and required a
     page comes from the existing 2+ rule, two books naming it. The status lines are blanked before it reads (offsets kept);
     a read keeps no entry for the book itself and none for the owner, and what reaches the owner's page is only a link or a
     value located in a `user` span of the person's own note, in code, because haiku ignored the same words in the note. Any
-    name Stage 2 could join to their page counts as the owner, a first name included (owner, 2026-11-05). Books are read one at a time, each told the themes so far: read at
+    name that could be theirs counts as the owner outside a note, a first name included (owner, 2026-11-05); in a note only
+    the full name or an alias lands on their page, a bare first name or surname stays as written, since it may be a friend. Books are read one at a time, each told the themes so far: read at
     once, five themes across three books never met. **(c) Cost.** One Stage 1 call per marked book, one chunk (12,000
     characters of notes first, then passages spread across the book); an unmarked entry costs none. **(d) Quiet.** A record
     holding a highlight or a note counts as a conversation (`quiet_pages.marked_record`), so the book and a theme page drawn

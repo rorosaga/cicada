@@ -153,7 +153,7 @@ def apply(memory_path: Path, entity_id: str, episode_id: str, *, observer: str, 
     """Make the page's marks from this episode match what the episode says. Returns whether the page changed. The caller
     holds the page lock and the bank's write admission (``books.apply_pending``). A failure of the sensitive check raises:
     nothing is written, rather than a value repeated, and the caller's next apply tries again."""
-    from api.services import authorship, sensitive_flags, sensitive_text
+    from api.services import authorship, page_redirects, sensitive_flags, sensitive_text
 
     memory_path = Path(memory_path)
     doc = evidence.source_document(memory_path, episode_id)
@@ -182,10 +182,14 @@ def apply(memory_path: Path, entity_id: str, episode_id: str, *, observer: str, 
     default_day = str((fm.get("book") or {}).get("day") or "")[:10] or today
     changed = False
     here: set[str] = set()
+    # A mark keeps its id through a merge or a rename, and that id was derived from the old page's: the same passage on
+    # this page is any of them, and one the person took back under any of them stays taken back.
+    pages = (entity_id, *page_redirects.former_ids(memory_path, entity_id))
     for mark in marks:
-        cid = _claim_id(entity_id, mark.predicate, mark.text)
-        if cid in gone or cid in here:
+        ids = [_claim_id(eid, mark.predicate, mark.text) for eid in pages]
+        if gone.intersection(ids) or here.intersection(ids):
             continue
+        cid = next((i for i in ids if i in by_id), ids[0])
         here.add(cid)
         span = Evidence(episode=episode_id, start=mark.start, end=mark.end, hash=digest,
                         kind=evidence.kind_for(episode_id, body, mark.start, override, gaps))
@@ -202,6 +206,13 @@ def apply(memory_path: Path, entity_id: str, episode_id: str, *, observer: str, 
             continue
         if is_recovered_history(old):
             continue
+        # Both merged pages held this passage: one mark, resting on what both rest on.
+        twins = [by_id[i] for i in ids if i != cid and i in by_id and not by_id[i].valid_to]
+        for twin in twins:
+            twin.valid_to = today
+            old.evidence = [*old.evidence, *(ev for ev in twin.evidence if ev not in old.evidence)]
+            old.source_episodes = [*old.source_episodes, *(e for e in twin.source_episodes if e not in old.source_episodes)]
+            changed = True
         evidence_now = [*(ev for ev in old.evidence if ev.episode != episode_id), span]
         now = (evidence_now, text, old.source_episodes + ([] if episode_id in old.source_episodes else [episode_id]))
         if (old.evidence, old.text, old.source_episodes) != now or old.valid_to:
@@ -355,10 +366,10 @@ def theme_hints(memory_path: Path) -> list[str]:
 
 
 def owner_test(owner_fm: dict | None, entities=()):
-    """Is a name the owner's, as a read of a book must take it: a self-reference, or what Stage 2 could join to their page,
-    which is any name made only of their page's words (`role_people.owner_names`: the name, its first word, its aliases)
-    or a close spelling of one (`entity_resolver.fuzzy_same`). A name this read itself types as no person keeps its own
-    facts, as in G169: a concept "Hope" on the page of someone called Hope."""
+    """Could a name be the owner's, as a read of a book must take it: a self-reference, a name made only of their page's
+    words (`role_people.owner_names`: the name, its first word, its aliases) or a close spelling of one
+    (`entity_resolver.fuzzy_same`). Only :func:`names_the_owner` is sure; a first name may be a friend's. A name this read
+    itself types as no person keeps its own facts, as in G169: a concept "Hope" on the page of someone called Hope."""
     from api.services import entity_resolver, owner_identity, role_people, text_fold
 
     names = [text_fold.fold(n) for n in role_people.owner_names(owner_fm)]
@@ -374,6 +385,25 @@ def owner_test(owner_fm: dict | None, entities=()):
                 or any(entity_resolver.fuzzy_same(said, n) for n in names))
 
     return is_owner
+
+
+def _page_names(owner_fm: dict | None) -> set[str]:
+    """The owner page's full name and aliases, folded: what names them with no doubt."""
+    from api.services import text_fold
+
+    fm = owner_fm or {}
+    return {text_fold.fold(" ".join(str(n).split())) for n in [fm.get("name"), *(fm.get("aliases") or [])] if n}
+
+
+def names_the_owner(name, owner_fm: dict | None) -> bool:
+    """What Stage 2 joins to the owner's page on its own: a self-reference, the full name, an alias or a close spelling of
+    those (`entity_resolver.endpoint_id`). Never a bare first name or surname: "Ada" in a note may be a friend, and the
+    person's page takes only the person's own words naming themselves so."""
+    from api.services import entity_resolver, owner_identity, text_fold
+
+    said = text_fold.fold(" ".join(str(name or "").split()))
+    return bool(said) and (owner_identity.is_self_reference(said) or said in _page_names(owner_fm)
+                           or any(entity_resolver.fuzzy_same(said, n) for n in _page_names(owner_fm)))
 
 
 def in_a_note(row: dict, content: str) -> bool:
@@ -395,21 +425,18 @@ def of_a_read(entities: list, relationships: list, values: list, episode: dict,
     The book's entry goes: the page exists and every word of that is held verbatim, and its links still land on it by name
     (an entry emptied instead was held as a new name beside its page). The owner's entry goes too, note or no note: a
     summary or a fact on it rests on no span. What reaches their page is a relationship or a value located in a note, and
-    only that, under their page's name so a first name lands there."""
+    only that; a full name or an alias is written as their page's name. A bare first name or surname stays as written
+    with its entry, located in a note: it may be a friend, and Stage 2 holds it or asks."""
+    from api.services import text_fold
     from api.services.owner_identity import is_self_reference
 
     title = " ".join(str((episode.get("book") or {}).get("title") or "").split()).casefold()
     content = str(episode.get("content") or "")
     is_owner = owner_test(owner_fm, entities)
     own_name = str((owner_fm or {}).get("name") or "").strip()
-
-    def restates(entity) -> bool:
-        if not isinstance(entity, dict):
-            return False
-        name = " ".join(str(entity.get("name") or "").split()).casefold()
-        if title and name and (name == title or title.startswith(f"{name}:") or name.startswith(f"{title}:")):
-            return True
-        return is_owner(entity.get("name"))
+    page_names = _page_names(owner_fm)
+    folded = lambda name: text_fold.fold(" ".join(str(name or "").split()))  # noqa: E731
+    noted: set[str] = set()   # the bare names a kept row says in a note: their entries stay beside it
 
     def kept(rows: list, keys: tuple[str, ...]) -> list:
         out = []
@@ -417,11 +444,22 @@ def of_a_read(entities: list, relationships: list, values: list, episode: dict,
             theirs = [k for k in keys if is_owner(row.get(k))]
             if theirs and not in_a_note(row, content):
                 continue
-            out.append({**row, **{k: own_name for k in theirs if own_name and not is_self_reference(str(row.get(k)))}})
+            noted.update(folded(row.get(k)) for k in theirs)
+            out.append({**row, **{k: own_name for k in theirs if own_name and folded(row.get(k)) in page_names
+                                  and not is_self_reference(str(row.get(k)))}})
         return out
 
-    return ([e for e in entities if not restates(e)], kept(relationships, ("source", "target")),
-            kept(values, ("entity",)))
+    def restates(entity) -> bool:
+        if not isinstance(entity, dict):
+            return False
+        name = " ".join(str(entity.get("name") or "").split()).casefold()
+        if title and name and (name == title or title.startswith(f"{name}:") or name.startswith(f"{title}:")):
+            return True
+        return is_owner(entity.get("name")) and (names_the_owner(entity.get("name"), owner_fm)
+                                                 or folded(entity.get("name")) not in noted)
+
+    kept_rels, kept_vals = kept(relationships, ("source", "target")), kept(values, ("entity",))
+    return [e for e in entities if not restates(e)], kept_rels, kept_vals
 
 
 def new_themes(result: dict | None, known: list[str]) -> list[str]:

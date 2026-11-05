@@ -279,16 +279,35 @@ def _merge_list(old, new) -> list:
     return out
 
 
+def _applied_page(memory_path: Path, was) -> str | None:
+    """The page a record was last applied to, or the one it became: a merge carries no book identities, so the index
+    can miss a page that holds this record's marks. A dropped page is no answer, as in :class:`BookIndex`."""
+    from api.services import page_redirects
+
+    was = str(was or "").strip()
+    if not was or "/" in was:
+        return None
+    entity_id = page_redirects.resolve(memory_path, was) or was
+    path = Path(memory_path) / "entities" / f"{entity_id}.md"
+    if not path.is_file() or str(markdown_parser.parse(path).frontmatter.get("status") or "active") == "dropped":
+        return None
+    return entity_id
+
+
 def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_id: str,
-                today: str) -> tuple[str, bool, bool]:
+                today: str, *, was=None) -> tuple[str, bool, bool]:
     """``(entity_id, created, changed)``: the work's page, made or upgraded in place with what ``facts`` adds. A
     placeholder title gives way to a real one; a title from Open Library or a source is never replaced by another
-    source's spelling (the first real title stays, the person may rename it)."""
-    entity_id = index.find(facts)
+    source's spelling (the first real title stays, the person may rename it). ``was``: the page this record was last
+    applied to, followed when no book holds its identities. A page that is no book holds what the record says and is
+    never turned into one."""
+    entity_id = index.find(facts) or _applied_page(memory_path, was)
     path = Path(memory_path) / "entities" / f"{entity_id}.md" if entity_id else None
     if path is not None and path.exists():
         parsed = markdown_parser.parse(path)
         fm = dict(parsed.frontmatter)
+        if not is_book(fm):
+            return entity_id, False, False
         before = repr(sorted(fm.items(), key=lambda kv: kv[0]))
         book = dict(fm.get("book") or {})
         book["isbns"] = _merge_list(book.get("isbns"), facts.isbns)
@@ -361,6 +380,14 @@ def _claim_id(*parts: str) -> str:
     return "clm_book_" + hashlib.sha1("\x00".join(parts).encode()).hexdigest()[:10]
 
 
+def _claim_ids(memory_path: Path, entity_id: str, *parts: str) -> list[str]:
+    """The id a claim gets on this page, then the ids it holds if a page merged or renamed into this one wrote it: an id
+    is derived from the page's, and a claim keeps its id through a merge."""
+    from api.services import page_redirects
+
+    return [_claim_id(eid, *parts) for eid in (entity_id, *page_redirects.former_ids(memory_path, entity_id))]
+
+
 def _span(memory_path: Path, episode_id: str, quote: str):
     """A span over ``quote`` in the episode, its kind the episode's own (``authorship``, through ``evidence.verify``)
     — or ``reasoning``. Never raises (provenance never blocks memory)."""
@@ -428,7 +455,8 @@ def happening_stands(memory_path: Path, entity_id: str, status: str, day: str) -
         return False
     claims = parse_claims(markdown_parser.parse(Path(memory_path) / "entities" / f"{entity_id}.md").body)
     mine = live_status_claims(claims)
-    if _claim_id(entity_id, STATUS_PREDICATE, status, day) in {c.id for c in mine} or not _said_again(mine, status, day):
+    if {c.id for c in mine}.intersection(_claim_ids(memory_path, entity_id, STATUS_PREDICATE, status, day)) \
+            or not _said_again(mine, status, day):
         return False
     from api.services.claims import HAPPENED
 
@@ -455,14 +483,15 @@ def set_status(memory_path: Path, entity_id: str, *, status: str, day: str, epis
     except MalformedClaimsBlockError:
         logger.warning("book page has an unreadable claims block; its status was not written")
         return False
-    cid = _claim_id(entity_id, STATUS_PREDICATE, status, day)
+    ids = _claim_ids(memory_path, entity_id, STATUS_PREDICATE, status, day)
+    cid = ids[0]
     gone = _withdrawn(claims)
-    if cid in gone or (ranked and any(c.id in gone and c.object == status and episode_id in c.source_episodes
+    if gone.intersection(ids) or (ranked and any(c.id in gone and c.object == status and episode_id in c.source_episodes
                                       for c in _status_claims(claims))):
         return False
     mine = {c.id: c for c in live_status_claims(claims)}
     changed = False
-    old = mine.get(cid) or (_said_again(list(mine.values()), status, day) if ranked else None)
+    old = next((mine[i] for i in ids if i in mine), None) or (_said_again(list(mine.values()), status, day) if ranked else None)
     if old is not None:
         if episode_id not in old.source_episodes:
             old.source_episodes.append(episode_id)
@@ -560,8 +589,9 @@ def set_rating(memory_path: Path, entity_id: str, *, rating: int, day: str, epis
         claims = parse_claims(parsed.body, strict=True)
     except MalformedClaimsBlockError:
         return False
-    cid = _claim_id(entity_id, RATING_PREDICATE, str(rating), episode_id)
-    if any(c.id == cid for c in claims):
+    ids = _claim_ids(memory_path, entity_id, RATING_PREDICATE, str(rating), episode_id)
+    cid = ids[0]
+    if any(c.id in ids for c in claims):
         return False
     for c in claims:
         if c.predicate == RATING_PREDICATE and c.origin == PAGE_ORIGIN and not c.valid_to:
@@ -835,7 +865,8 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
                     continue
                 rec = fm.get(EPISODE_KEY) or {}
                 status = rec.get("status") if rec.get("status") in STATUSES else None
-                entity_id, created, changed = ensure_page(memory_path, index, facts, episode_id, today_s)
+                entity_id, created, changed = ensure_page(memory_path, index, facts, episode_id, today_s,
+                                                          was=fm.get("book_entity_id"))
                 out["pages_created"] += int(created)
                 if changed:
                     paths.append(f"entities/{entity_id}.md")

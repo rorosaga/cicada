@@ -468,6 +468,161 @@ def test_a_record_applied_before_marks_follows_its_page_through_a_merge(bank):
     assert not (bank / "entities" / "the-lantern-orchard.md").exists(), "the old page is not brought back"
 
 
+def _merged(bank, *notes, into="the-orchard-book"):
+    """A's page with ``notes``, B's page, A merged into B by the real merge."""
+    from api.services import entity_merge
+
+    _sync(bank, _book(list(notes)), _book([_note(PASSAGE_B, uuid="b1")], asset="ASSET-B", title="The Orchard Book"))
+    entity_merge.merge_entities(bank, "the-lantern-orchard", into)
+    bank_index.invalidate(bank)
+
+
+def _open_marks(bank, entity="the-orchard-book"):
+    return [c for c in _marks(bank, entity) if not c.valid_to]
+
+
+def _no_page_comes_back(bank, entity="the-orchard-book"):
+    assert not (bank / "entities" / "the-lantern-orchard.md").exists()
+    assert [p.stem for p in (bank / "entities").glob("the-*.md")] == [entity]
+
+
+def test_a_new_highlight_on_a_merged_book_lands_on_the_page_it_became_with_no_second_copy(bank):
+    one = _note(PASSAGE_A, uuid="1", note=NOTE_A)
+    _merged(bank, one)
+    before = {c.id for c in _open_marks(bank)}
+    _sync(bank, _book([one, _note("A third passage the person marked.", "2026-05-03", uuid="3")]))
+
+    _no_page_comes_back(bank)
+    live = _open_marks(bank)
+    assert len(live) == 4 and before < {c.id for c in live}, "what the merge carried is what stays open"
+    assert len({c.text for c in live}) == 4
+    page = _page(bank, "the-orchard-book")[0].frontmatter
+    assert "ASSET-A" in page["book"]["apple_books"], "the identity is on the winner now, so the index finds it"
+    assert books.BookIndex(bank).by_key["apple:ASSET-A"] == "the-orchard-book"
+
+
+def test_a_mark_taken_back_before_a_merge_stays_taken_back_after_one(bank):
+    from api.services.claims import RETRACT_PREDICATE, Claim
+
+    one, two = _note(PASSAGE_A, uuid="1"), _note("A second passage the person marked.", "2026-05-02", uuid="2")
+    _sync(bank, _book([one, two]))
+    parsed, claims = _page(bank)
+    victim = next(c for c in claims if is_mark(c) and PASSAGE_A in c.text)
+    claims.append(Claim(id="clm_r", text="Not right.", subject=victim.subject, predicate=RETRACT_PREDICATE,
+                        object=victim.id, object_kind="literal"))
+    markdown_parser.write(bank / "entities" / "the-lantern-orchard.md", parsed.frontmatter,
+                          write_claims(parsed.body, claims))
+    _merged(bank, one, two)
+    _sync(bank, _book([one, two, _note("A third passage the person marked.", "2026-05-03", uuid="3")]))
+
+    drawn = [i["text"] for i in book_marks.block(_page(bank, "the-orchard-book")[1])["items"]]
+    assert PASSAGE_A not in drawn and "A third passage the person marked." in drawn
+    _no_page_comes_back(bank)
+
+
+def test_a_passage_both_merged_pages_held_is_one_open_mark_resting_on_both_records(bank):
+    from api.services import entity_merge
+
+    same = _note(PASSAGE_A, uuid="1")
+    _sync(bank, _book([same]), _book([_note(PASSAGE_A, uuid="b1")], asset="ASSET-B", title="The Orchard Book"))
+    entity_merge.merge_entities(bank, "the-lantern-orchard", "the-orchard-book")
+    bank_index.invalidate(bank)
+    assert len(_open_marks(bank)) == 2, "a merge reconciles nothing"
+
+    _sync(bank, _book([same], finished=True))
+
+    live = _open_marks(bank)
+    assert len(live) == 1 and len(live[0].source_episodes) == 2
+    assert {e.episode for e in live[0].evidence} == set(live[0].source_episodes)
+
+
+def test_a_status_change_after_a_merge_goes_on_the_winner_with_no_repeat_of_what_it_carried(bank):
+    one = _note(PASSAGE_A, uuid="1")
+    _merged(bank, one)
+    claims = _page(bank, "the-orchard-book")[1]
+    held = [c.id for c in books.live_status_claims(claims)]
+    happened = [c.id for c in claims if c.predicate == "happened"]
+
+    _sync(bank, _book([one]))   # nothing new said: nothing written twice, only the record's own apply
+    claims = _page(bank, "the-orchard-book")[1]
+    assert [c.id for c in books.live_status_claims(claims)] == held
+
+    _sync(bank, _book([one], finished=True))
+    _no_page_comes_back(bank)
+    claims = _page(bank, "the-orchard-book")[1]
+    finished = [c for c in books.live_status_claims(claims) if c.object == books.FINISHED]
+    assert len(finished) == 1 and finished[0].subject == "the-orchard-book"
+    assert len([c for c in books.live_status_claims(claims) if not c.valid_to]) == 1, "one record in force"
+    assert len(_open_marks(bank)) == 2
+    new = [c for c in claims if c.predicate == "happened" and c.id not in happened]
+    assert [c.object for c in new] == [books.HAPPENING_TEXT[books.FINISHED].lower()]
+
+
+def test_a_status_taken_back_before_a_merge_stays_taken_back_after_one(bank):
+    one = _note(PASSAGE_A, uuid="1")
+    _sync(bank, _book([one]))
+    taken = next(c for c in books.live_status_claims(_page(bank)[1]) if not c.valid_to)
+    books.undo_status(bank, "the-lantern-orchard", taken.id, today=TODAY.isoformat())
+    bank_index.invalidate(bank)
+    _merged(bank, one)
+
+    _sync(bank, _book([one, _note("A third passage the person marked.", "2026-05-03", uuid="3")]))
+    live = books.live_status_claims(_page(bank, "the-orchard-book")[1])
+    assert not [c for c in live if set(c.source_episodes) & set(taken.source_episodes)]
+
+
+def test_a_rating_after_a_merge_is_said_once(bank):
+    _sync(bank, _book([_note(PASSAGE_A, uuid="1")]), _book(asset="ASSET-B", title="The Orchard Book"))
+    ep = next(p for p in (bank / "episodes").glob("*.md")
+              if markdown_parser.parse(p).frontmatter.get("book_entity_id") == "the-lantern-orchard")
+    assert books.set_rating(bank, "the-lantern-orchard", rating=4, day="2026-05-01", episode_id=ep.stem, quote="4 of 5",
+                            observer="ada-lovelace", today=TODAY.isoformat())
+    from api.services import entity_merge
+
+    entity_merge.merge_entities(bank, "the-lantern-orchard", "the-orchard-book")
+    bank_index.invalidate(bank)
+    again = dict(rating=4, day="2026-05-01", episode_id=ep.stem, quote="4 of 5", observer="ada-lovelace",
+                 today=TODAY.isoformat())
+    assert not books.set_rating(bank, "the-orchard-book", **again), "the winner already holds it, under the old id"
+    assert books.set_rating(bank, "the-orchard-book", **{**again, "rating": 5})
+    live = [c for c in _page(bank, "the-orchard-book")[1] if c.predicate == books.RATING_PREDICATE and not c.valid_to]
+    assert [c.object for c in live] == ["5/5"]
+
+
+def test_a_chain_of_merges_is_followed_to_its_end(bank):
+    from api.services import entity_merge
+
+    one = _note(PASSAGE_A, uuid="1")
+    _merged(bank, one)
+    _sync(bank, _book(asset="ASSET-C", title="The Third Copy"))
+    entity_merge.merge_entities(bank, "the-orchard-book", "the-third-copy")
+    bank_index.invalidate(bank)
+
+    _sync(bank, _book([one, _note("A third passage the person marked.", "2026-05-03", uuid="3")]))
+    _no_page_comes_back(bank, "the-third-copy")
+    live = _open_marks(bank, "the-third-copy")
+    assert len(live) == 3 and len({c.text for c in live}) == 3
+
+
+def test_a_record_merged_into_a_page_that_is_no_book_stays_there_and_never_makes_it_one(bank):
+    from api.services import entity_merge
+
+    one = _note(PASSAGE_A, uuid="1")
+    _sync(bank, _book([one]))
+    (bank / "entities" / "the-orchard-idea.md").write_text(
+        "---\nname: The Orchard Idea\ntype: concept\nsource_episodes: []\n---\n\n## Summary\nAn idea.\n")
+    entity_merge.merge_entities(bank, "the-lantern-orchard", "the-orchard-idea")
+    bank_index.invalidate(bank)
+
+    for _round in range(2):   # the second: the record's stamp now names the page itself, with no redirect to follow
+        _sync(bank, _book([one, _note("A third passage the person marked.", "2026-05-03", uuid="3")], progress=0.6 + _round / 10))
+
+    _no_page_comes_back(bank, "the-orchard-idea")
+    parsed, _claims = _page(bank, "the-orchard-idea")
+    assert not books.is_book(parsed.frontmatter) and parsed.frontmatter["type"] == "concept"
+    assert len(_open_marks(bank, "the-orchard-idea")) == 2
+
+
 def test_a_record_whose_page_is_gone_with_no_redirect_stops_being_tried(bank):
     ep = _applied_before_marks(bank)
     (bank / "entities" / "the-lantern-orchard.md").unlink()
@@ -570,15 +725,45 @@ def test_only_what_is_located_in_a_note_reaches_the_owner():
         {"source": "Ada Lovelace", "target": "Baking", "label": "does", "evidence": []},
         {"source": "Ada Lovelace", "target": "Baking", "label": "someone else", "evidence": note,
          "observer": "external:bob"},
-        {"source": "Ada", "target": "Walking", "label": "cares about", "evidence": note},
+        {"source": "Ada Lovelace", "target": "Walking", "label": "cares about", "evidence": note},
         {"source": "The Lantern Orchard", "target": "Focus", "label": "explores-theme", "evidence": passage},
     ]
     values = [{"entity": "Ada", "attribute": "hobby", "value": "baking", "evidence": passage},
-              {"entity": "Ada", "attribute": "walks", "value": "slowly", "evidence": note}]
+              {"entity": "Countess", "attribute": "walks", "value": "slowly", "evidence": note}]
     _ents, kept_rels, kept_vals = book_marks.of_a_read([], rels, values, episode, owner_fm=OWNER_FM)
     assert [r["label"] for r in kept_rels] == ["cares about", "explores-theme"]
-    assert kept_rels[0]["source"] == "Ada Lovelace", "a first name lands on their page, not beside it"
-    assert [(v["entity"], v["attribute"]) for v in kept_vals] == [("Ada Lovelace", "walks")]
+    assert kept_rels[0]["source"] == "Ada Lovelace"
+    assert [(v["entity"], v["attribute"]) for v in kept_vals] == [("Ada Lovelace", "walks")], "an alias lands on their page"
+
+
+@pytest.mark.parametrize("name", ["Ada", "Lovelace", "ada"])
+def test_a_friend_sharing_the_owners_first_name_or_surname_stays_themselves(name):
+    from api.services import entity_resolver
+
+    episode = _record()
+    note, passage = _span(episode, "the slow walk back", "user"), _span(episode, "lanterns were lit", "page")
+    friend = {"name": name, "type": "person", "summary": "a friend"}
+    rels = [{"source": name, "target": "The Lantern Orchard", "label": "recommended", "evidence": note}]
+    vals = [{"entity": name, "attribute": "changed", "value": "her mind", "evidence": note}]
+    entities, kept_rels, kept_vals = book_marks.of_a_read([friend], rels, vals, episode, owner_fm=OWNER_FM)
+    assert entities == [friend] and kept_rels == rels and kept_vals == vals
+    assert entity_resolver.endpoint_id(name, {"ada lovelace": "ada-lovelace"}) is None, "and Stage 2 would not join it"
+
+    # Outside a note the same name says nothing: a model's reading of a passage.
+    rels = [{"source": name, "target": "Baking", "label": "practices", "evidence": passage}]
+    assert book_marks.of_a_read([friend], rels, [], episode, owner_fm=OWNER_FM)[:2] == ([], [])
+
+
+def test_a_close_spelling_stays_as_written_for_stage_two_to_join_and_gets_no_entry_of_its_own():
+    from api.services import entity_resolver
+
+    episode = _record()
+    note = _span(episode, "the slow walk back", "user")
+    close = "Ada Lovelase"
+    rels = [{"source": close, "target": "Walking", "label": "cares about", "evidence": note}]
+    entities, kept_rels, _ = book_marks.of_a_read([{"name": close, "type": "person"}], rels, [], episode, owner_fm=OWNER_FM)
+    assert entities == [] and kept_rels == rels
+    assert entity_resolver.endpoint_id(close, {"ada lovelace": "ada-lovelace"}) == "ada-lovelace"
 
 
 def test_a_self_reference_is_left_for_the_resolver_and_a_bank_with_no_owner_page_still_holds_the_line():

@@ -1616,7 +1616,11 @@ section moves it, a passage gone from the record closes (`valid_to`, unless anot
 open if marked again, and one the person took back (`retracts`) is never rewritten. `episode_revision` never closes one.
 Its stamp is `book_marks:` beside `book_applied`, so a record applied before this gets its marks with no second status; a
 page merged away since sends them to the page it became (`page_redirects`), and a record with no page left is stamped, not
-retried. A big book spills into its ledger. What the detector flags is written as `[held back: <kind>]`, the record untouched; a
+retried. A changed record follows the page it was last applied to the same way when no book holds its identities
+(`books.ensure_page`, `was`), copying them onto a winner that is a book; any other page holds what the record says and is
+never turned into one. A claim keeps its id through a merge and the id came from the old page's, so mark, status and rating
+writers also look under the ids that became this page (`page_redirects.former_ids`): nothing is said twice, what was taken
+back stays taken back, and a passage both pages held becomes one open mark on the next apply of either record. A big book spills into its ledger. What the detector flags is written as `[held back: <kind>]`, the record untouched; a
 saved record's own sections (`evidence.PERSON_SECTIONS`) are now read by `sensitive_text.find`, a passage still not.
 - **Drawn from the claims, derived on read:** the `marks` block of `page_blocks` (`blocks-4`), each note under its passage,
   at most 500 with the total, the card's `PageMarks`, an agent's `include=["marks"]`. Search and recall reach them through
@@ -1641,9 +1645,11 @@ book with a passage as evidence. In code, because haiku ignored the same words: 
 blanked with offsets kept (`mask_status`); the book's own entity is dropped and its links land on the page by name; and the
 owner's entity is dropped too, note or no note, since a summary or key fact on it rests on no span (`of_a_read`). What
 reaches the owner's page from a book's read is a relationship or a value, on either end, located in a `user` span inside a
-`## User note` section, and nothing else. "The owner" is any name Stage 2 could join to their page: a self-reference, a name
+`## User note` section, and nothing else. "The owner" is any name that could be theirs: a self-reference, a name
 made only of their page's words (`role_people.owner_names`), a close spelling (`fuzzy_same`), unless this read types it as
-no person; a first name is rewritten to the page's name so it lands there. **One call a book:** past 12,000 characters (`plan_read`) the chunk is the header, every note, then
+no person. Only the full name or an alias is rewritten to the page's name; a bare first name or surname in a note stays as
+written, its entry with it, since it may be a friend (rail: never the owner's page without their own words naming themselves
+so), and Stage 2 holds it or asks. Outside a note such a row is dropped. **One call a book:** past 12,000 characters (`plan_read`) the chunk is the header, every note, then
 passages spread evenly and cut at 700, located over the whole body; a revision reads its window, or a spread of it past
 that. **Themes meet because books are read one at a time** (`process_one`), each told the names on record (concept pages book
 pages link to, names held from a book's record, at most 60, `theme_hints`) and the names of this fan-out so far, so the 2+
