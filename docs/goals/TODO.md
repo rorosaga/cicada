@@ -20,7 +20,7 @@
   `swift test` were refused by guards in the worker's shell (`HOME=`, sourcing `harness.sh`, overlays over the window), so
   they wait for the coordinator; then ROR-15 as the thin use `app.md` describes.
 
-- **2026-11-05 — an Apple Note reads as the note (ROR-15 part 1, G161; branch `ror15-notes-formatted-view`).** The Reader shows
+- **2026-11-05 — an Apple Note reads as the note (ROR-15 part 1, G161; PR #638, branch `ror15-notes-formatted-view`).** The Reader shows
   the stored text, then the note's `body` from Notes (one note, on view, locked filter inside Notes, memory only, never posted)
   as native blocks tied to the stored offsets; any mismatch or failure stays plain with nothing said; Notes closed stays plain
   (never launched). Not yet seen on a real note: the HTML shapes come from Notes' dictionary and knowledge, not from reading
