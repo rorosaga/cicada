@@ -179,6 +179,15 @@ def test_a_book_whose_only_highlight_was_removed_goes_quiet_again(bank):
     assert quiet_pages.page_is_quiet(bank, "the-lantern-orchard") is True
 
 
+def test_a_theme_page_drawn_from_marked_books_is_not_quiet(bank):
+    _sync(bank, _book([_note(PASSAGE_A, uuid="1")]))
+    episode = next((bank / "episodes").glob("*.md")).stem
+    markdown_parser.write(bank / "entities" / "focus.md", {"name": "Focus", "type": "concept",
+                                                           "source_episodes": [episode]}, "## Summary\nFocus.")
+    bank_index.invalidate(bank)
+    assert quiet_pages.page_is_quiet(bank, "focus") is False
+
+
 def test_a_model_writing_the_same_predicate_is_no_mark():
     claim = SimpleNamespace(predicate=HIGHLIGHTED, origin="claude-code")
     assert is_mark(claim) is False and is_persons_words(claim) is False
@@ -348,13 +357,18 @@ def test_books_are_read_one_at_a_time_and_each_hears_the_themes_of_the_last(monk
 
 def test_a_read_of_a_record_never_writes_about_the_marks_on_the_books_own_page():
     episode = _episode("x", book={"title": "The Lantern Orchard: A Novel"})
-    book = {"name": "The Lantern Orchard", "type": "media", "summary": "s", "key_facts": ["k"], "history_entries": [{"a": 1}],
-            "item_inputs": [{"field": "summary"}], "tags": ["kept"]}
+    book = {"name": "The Lantern Orchard", "type": "media", "summary": "s", "key_facts": ["k"]}
     theme = {"name": "Focus", "type": "concept", "summary": "kept", "key_facts": ["kept"]}
-    book_marks.trim_book_entry([book, theme], episode)
-    assert book == {"name": "The Lantern Orchard", "type": "media", "summary": "", "key_facts": [], "history_entries": [],
-                    "tags": ["kept"]}
-    assert theme["summary"] == "kept" and theme["key_facts"] == ["kept"]
+    assert book_marks.without_the_book([book, theme], episode) == [theme]
+    assert book_marks.without_the_book([theme], _episode("x", book={})) == [theme]
+
+
+def test_the_page_says_why_it_matters_in_a_count_and_never_in_the_words(bank):
+    from api.services import page_relevance
+
+    _sync(bank, _book([_note(PASSAGE_A, uuid="1", note=NOTE_A), _note(PASSAGE_B, "2026-05-02", uuid="2")]))
+    line = page_relevance.for_page(bank, "the-lantern-orchard").to_dict()["line"]
+    assert "you marked 3 passages in it" in line and "lanterns" not in line and "slow walk" not in line
 
 
 def test_theme_hints_name_pages_books_link_to_and_names_held_from_a_book(bank):

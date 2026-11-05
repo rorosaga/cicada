@@ -315,24 +315,18 @@ def theme_hints(memory_path: Path) -> list[str]:
     return list(dict.fromkeys(names))[:MAX_THEMES]
 
 
-#: What a read of a book's record may not add to the book's own page: every word of it is already held, verbatim.
-_RESTATED = {"summary": "", "description": "", "key_facts": [], "history_entries": [], "open_questions": []}
-
-
-def trim_book_entry(entities: list, episode: dict) -> None:
-    """Told not to, a small model still wrote "highlighted a passage saying …" onto the book's page three times over
-    (haiku, 2026-11-05). So the book's own entry keeps its name and links and nothing it wrote about the marks, whatever
-    the model does. The other pages it names are left alone: a note's decision belongs on the person's."""
+def without_the_book(entities: list, episode: dict) -> list:
+    """The read's entities minus the book's own. Told not to, a small model still wrote "highlighted a passage saying …"
+    onto the book's page three times over (haiku, 2026-11-05), and every word of that is already held verbatim; the page
+    exists, so its links still land on it by name. An entry emptied instead was held as a new name beside its own page.
+    Other pages are left alone: a note's decision belongs on the person's."""
     title = " ".join(str((episode.get("book") or {}).get("title") or "").split()).casefold()
-    if not title:
-        return
-    for entity in entities:
+
+    def is_book(entity) -> bool:
         name = " ".join(str(entity.get("name") or "").split()).casefold() if isinstance(entity, dict) else ""
-        if name and (name == title or title.startswith(f"{name}:") or name.startswith(f"{title}:")):
-            for key, empty in _RESTATED.items():
-                if key in entity:
-                    entity[key] = empty if isinstance(empty, str) else list(empty)
-            entity.pop("item_inputs", None)
+        return bool(name) and (name == title or title.startswith(f"{name}:") or name.startswith(f"{title}:"))
+
+    return [e for e in entities if not is_book(e)] if title else entities
 
 
 def new_themes(result: dict | None, known: list[str]) -> list[str]:

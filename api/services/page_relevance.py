@@ -213,11 +213,17 @@ def relations(memory_path: Path, entity_id: str, page_claims: list, *, today: da
             pool.append(c)
         elif _cites_person(c):
             pool.append(c)
-    from api.services.claims import is_event, is_record
+    from api.services.claims import is_event, is_mark, is_record
 
+    # Ruling 64: what they marked in a book says why it matters, in a count: the words are the page's `marks` block's,
+    # gated like the person's own, and this line reaches every caller.
+    marks = sorted(_day(c.valid_from) for c in page_claims if is_mark(c) and not c.valid_to)
+    if marks:
+        out.append(Relation(tense="is", text=f"you marked {len(marks)} passage{'' if len(marks) == 1 else 's'} in it",
+                            claim_id="", since=marks[0]))
     for c in pool:
         if c.id in seen or str(c.predicate or "").lower() in SINK_PREDICATES or getattr(c, "recovered_by", None) \
-                or is_record(c):
+                or is_record(c) or is_mark(c):
             continue
         seen.add(c.id)
         if is_event(c):
