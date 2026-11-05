@@ -59,6 +59,9 @@ TRIGGER_KEPT = "inbox/sensitive/kept"
 TRIGGER_OLDER = "inbox/sensitive/older-version"
 #: Bump when the detector changes what it finds, so the already-read conversations are looked through once more.
 DETECTOR_VERSION = 1
+#: On a retired locked note's empty record: its row was waiting when the words moved out, so the review and Remove still
+#: read them there (`_as_stored`). Nothing else does, and a note emptied with no row waiting never gets one.
+ROW_KEPT = "row_kept"
 #: Who read it, in the person's terms. A name only ever says the person's own current or past choice.
 _LOCAL_ENGINE = "ollama"
 
@@ -81,6 +84,36 @@ def _keep_turns_last(fm: dict) -> None:
     from api.services import episode_staging
 
     episode_staging.keep_turns_last(fm)
+
+
+def record_for_stub(fm: dict, body: str) -> dict:
+    """This key's record for a conversation about to be emptied (`notes_sync`): engine names, kinds and counts, no word.
+    Never raises, since retiring a note must not wait on this; an unreadable answer keeps the row, which `_row` re-checks."""
+    record = dict(_record(fm))
+    try:
+        waiting = bool(not_left(fm, hits_of(fm, body)))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"sensitive stub check: {type(exc).__name__}")
+        waiting = True
+    return {**record, ROW_KEPT: True} if waiting else record
+
+
+def _kept_copy(memory_path: Path, fm: dict, stem: str) -> Path | None:
+    if not _record(fm).get(ROW_KEPT):
+        return None
+    from api.services import notes_sync
+
+    return notes_sync.kept_copy(memory_path, stem)
+
+
+def _as_stored(memory_path: Path, fm: dict, body: str, stem: str) -> tuple[dict, str]:
+    """The record and words a row is read from. A retired note whose row was waiting reads from its kept file, under the
+    empty record's title and this key: the person's own review and Remove, with no model. Its row goes when the value does."""
+    kept = _kept_copy(memory_path, fm, stem)
+    if kept is None:
+        return fm, body
+    parsed = markdown_parser.parse(kept)
+    return {**parsed.frontmatter, "title": fm.get("title"), KEY: _record(fm)}, parsed.body
 
 
 # ---- before the engine reads ----------------------------------------------------------------------------------------
@@ -643,7 +676,7 @@ def sync_review(memory_path: Path, skip=frozenset(), *, today: str | None = None
         if not (_record(fm).get("read") or stem_id in earlier):
             continue
         try:
-            row = _row(fm, f.body() or "", f.stem)
+            row = _row(*_as_stored(memory_path, fm, f.body() or "", f.stem), f.stem)
         except Exception as exc:  # noqa: BLE001 - one unreadable conversation is no row
             logger.debug(f"sensitive row skipped: {type(exc).__name__}")
             continue
@@ -728,12 +761,15 @@ def _conversations_holding(memory_path: Path, values, skip: Path) -> dict[str, l
     return out
 
 
-def _files_holding(memory_path: Path, values) -> Counter:
-    """Each value -> how many files other than conversations hold it as an exact token."""
+def _files_holding(memory_path: Path, values, skip: Path) -> Counter:
+    """Each value -> how many files other than conversations, and the conversation's own kept file, hold it as an exact
+    token."""
     found: Counter = Counter()
     if not values:
         return found
     for path in sensitive_purge.bank_files(memory_path):
+        if path == skip:
+            continue
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -745,7 +781,8 @@ def _files_holding(memory_path: Path, values) -> Counter:
 @dataclass
 class Reach:
     """Where Remove takes one conversation's values, decided once before anything is written. ``kinds``: value -> its kind,
-    a value that stays near home :class:`~sensitive_text.Guarded`. ``echoes``: the other conversations a value leaves."""
+    a value that stays near home :class:`~sensitive_text.Guarded`. ``echoes``: the other conversations a value leaves.
+    ``path``: the file holding the row's words, a retired note's kept file included."""
     path: Path
     kinds: dict[str, str]
     echoes: list[Path]
@@ -768,17 +805,19 @@ def _reach(memory_path: Path, episode_id: str) -> Reach | None:
     if path is None:
         return None
     parsed = markdown_parser.parse(path)
-    hits = hits_of(dict(parsed.frontmatter), parsed.body)
-    kinds_of = _ids_to_kinds(parsed.body, hits)
-    confident = {parsed.body[h.start:h.end] for h in hits if h.sure}
+    fm, body = _as_stored(memory_path, dict(parsed.frontmatter), parsed.body, path.stem)
+    hits = hits_of(fm, body)
+    kinds_of = _ids_to_kinds(body, hits)
+    confident = {body[h.start:h.end] for h in hits if h.sure}
     candidates = [v for v in kinds_of if v in confident and sensitive_text.distinctive(v)]
     holding = _conversations_holding(memory_path, candidates, path)
-    pages = _files_holding(memory_path, candidates)
+    own = _kept_copy(memory_path, parsed.frontmatter, path.stem) or path
+    pages = _files_holding(memory_path, candidates, own)
     free = {v for v, paths in holding.items()
             if len(paths) <= sensitive_text.RARE_CONVERSATIONS and pages[v] <= _RARE_FILES}
     kinds = {(v if v in free or not sensitive_text.distinctive(v) else sensitive_text.Guarded(v)): k
              for v, k in kinds_of.items()}
-    return Reach(path, kinds, list(dict.fromkeys(p for v in free for p in holding[v])))
+    return Reach(own, kinds, list(dict.fromkeys(p for v in free for p in holding[v])))
 
 
 def _take_out_echoes(path: Path, kinds_of: dict[str, str], at: str) -> bool:
@@ -815,13 +854,13 @@ def remove_episode(memory_path: Path, episode_id: str, touched: list[str] | None
     at = episode_ids.utc_now_iso()
     tied = (episode_id,)
     for target in sensitive_purge.bank_files(memory_path):
-        if sensitive_purge.clean_file(target, marks, tied_ids=tied):
+        if target != path and sensitive_purge.clean_file(target, marks, tied_ids=tied):
             written.append(target.relative_to(memory_path).as_posix())
     travelling = {v: k for v, k in reach.kinds.items() if sensitive_text.distinctive(v)}
     for echo in reach.echoes:
         if _take_out_echoes(echo, travelling, at):
             written.append(echo.relative_to(memory_path).as_posix())
-    with episode_ids.episode_lock(path.parent):
+    with episode_ids.episode_lock(memory_path / "episodes"):
         parsed = markdown_parser.parse(path)
         fm = dict(parsed.frontmatter)
         hits = hits_of(fm, parsed.body)
@@ -901,7 +940,7 @@ def keep_episode(memory_path: Path, episode_id: str) -> list[str]:
     with episode_ids.episode_lock(path.parent):
         parsed = markdown_parser.parse(path)
         fm = dict(parsed.frontmatter)
-        counts = Counter(h.kind for h in hits_of(fm, parsed.body))
+        counts = Counter(h.kind for h in hits_of(*_as_stored(memory_path, fm, parsed.body, path.stem)))
         if not counts:
             return []
         record = dict(_record(fm))
@@ -973,7 +1012,7 @@ def plan(memory_path: Path) -> list[dict]:
     for f in bank_index.files(Path(memory_path), "episodes"):
         fm = f.frontmatter or {}
         try:
-            body = f.body() or ""
+            fm, body = _as_stored(Path(memory_path), fm, f.body() or "", f.stem)
             hits = hits_of(fm, body)
         except Exception as exc:  # noqa: BLE001 - one unreadable conversation is no row
             logger.debug(f"sensitive plan skipped one: {type(exc).__name__}")
@@ -1012,7 +1051,8 @@ def plan_reach(memory_path: Path, rows: list[dict]) -> dict[str, dict]:
         marks = reach.marks if reach is not None else {}
         out[row["row"]] = {
             "conversations": len(reach.echoes) if reach is not None else 0,
-            "files": sum(sensitive_purge.would_change(p, t, marks, tied_ids=(row["episode"],)) for p, t in files) if marks else 0,
+            "files": sum(sensitive_purge.would_change(p, t, marks, tied_ids=(row["episode"],)) for p, t in files
+                         if p != reach.path) if marks else 0,
             "stays": sum(isinstance(v, sensitive_text.Guarded) for v in marks)}
     return out
 

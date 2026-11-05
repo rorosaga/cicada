@@ -50,17 +50,18 @@ final class AppleNotesReaderTests: XCTestCase {
 
     /// The owner's "never requested": no event may name a note's `plaintext` (or anything else about it) except through
     /// the filter Notes evaluates itself. Filtering a bulk read afterwards would already have asked for the body.
-    func testTheScriptNeverRequestsAnythingButAnIdOfALockedNote() {
+    func testTheScriptNeverRequestsAnythingButAnIdAndANameOfALockedNote() {
         let script = AppleNotesReader.script
         XCTAssertFalse(script.contains("of every note of fld"), "an unfiltered bulk read asks for locked notes too")
         for property in ["id", "name", "plaintext", "creation date", "modification date"] {
             XCTAssertTrue(script.contains("set \(property == "id" ? "noteIds" : variable(property)) to \(property) of "
                                               + "(every note of fld whose password protected is false)"), property)
         }
-        // A locked note yields its id and nothing else.
-        let locked = script.components(separatedBy: "whose password protected is true")
-        XCTAssertEqual(locked.count, 2)
-        XCTAssertTrue(locked[0].hasSuffix("set lockedIds to id of (every note of fld "))
+        // A locked note yields its id and its name, and nothing else.
+        let locked = script.components(separatedBy: .newlines).filter { $0.contains("whose password protected is true") }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        XCTAssertEqual(locked, ["set lockedIds to id of (every note of fld whose password protected is true)",
+                                "set lockedNames to name of (every note of fld whose password protected is true)"])
         XCTAssertFalse(script.contains(" body of "), "the HTML body is never asked for")
     }
 
@@ -83,17 +84,40 @@ final class AppleNotesReaderTests: XCTestCase {
         let fs = AppleNotesReader.fieldSeparator, rs = AppleNotesReader.recordSeparator
         let note = ["id-1", "alpha-project", "body", "c", "m", "Notes", "2026-11-01T10:00:00", "0", "iCloud"]
             .joined(separator: fs)
-        let raw = [AppleNotesReader.lockedMark + fs + "id-locked", note, AppleNotesReader.lockedMark + fs + "id-locked",
-                   AppleNotesReader.statsMark + fs + "3" + fs + "1"].joined(separator: rs)
+        let lockedId = AppleNotesReader.lockedMark + fs + "id-locked"
+        let lockedName = AppleNotesReader.lockedNameMark + fs + "canary-title"
+        let raw = [lockedId, lockedName, note, lockedId, lockedName, AppleNotesReader.lockedNameMark + fs + " ",
+                   AppleNotesReader.statsMark + fs + "3" + fs + "0" + fs + "0"].joined(separator: rs)
         let parts = AppleNotesReader.split(raw)
         XCTAssertEqual(parts.locked, ["id-locked"])
         XCTAssertEqual(parts.foldersRead, 3)
-        XCTAssertEqual(parts.foldersFailed, 1)
+        XCTAssertEqual(parts.foldersFailed, 0)
         XCTAssertEqual(parts.accounts, ["id-1": "iCloud"])
+        XCTAssertEqual(parts.lockedKeys, [AppleNotesReader.lockedKey(name: "canary-title")])
+        XCTAssertFalse(parts.lockedKeys.joined().contains("canary-title"))
+        XCTAssertFalse(parts.dump.contains("canary-title"))
         XCTAssertFalse(parts.dump.contains("id-locked"))
         XCTAssertFalse(parts.dump.contains(AppleNotesReader.statsMark))
         XCTAssertEqual(parts.dump.components(separatedBy: rs).count, 1)
         XCTAssertEqual(parts.dump.components(separatedBy: fs).count, 8)
+    }
+
+    /// "The same read saw it" protects a note only when the read saw every note, so a partial one sends no name keys.
+    /// The ids still go: a note's own id is no guess.
+    func testNameKeysGoOnlyWithACompleteRead() {
+        let fs = AppleNotesReader.fieldSeparator, rs = AppleNotesReader.recordSeparator
+        func parts(failed: String, waited: String) -> (keys: [String], locked: [String]) {
+            let got = AppleNotesReader.split([AppleNotesReader.lockedMark + fs + "id-locked",
+                                              AppleNotesReader.lockedNameMark + fs + "canary-title",
+                                              AppleNotesReader.statsMark + fs + "3" + fs + failed + fs + waited]
+                .joined(separator: rs))
+            return (got.lockedKeys, got.locked)
+        }
+        XCTAssertEqual(parts(failed: "0", waited: "0").keys.count, 1)
+        XCTAssertEqual(parts(failed: "1", waited: "0").keys, [])
+        XCTAssertEqual(parts(failed: "0", waited: "1").keys, [])
+        XCTAssertEqual(parts(failed: "1", waited: "1").locked, ["id-locked"])
+        XCTAssertTrue(AppleNotesReader.script.contains("set waitedFolders to waitedFolders + 1"))
     }
 
     /// A Notes without the filter refuses every folder: that is a failed read, never "no notes".
@@ -101,12 +125,18 @@ final class AppleNotesReaderTests: XCTestCase {
         let fs = AppleNotesReader.fieldSeparator
         do {
             _ = try await AppleNotesReader.syncNow { _, _ in
-                AppleNotesReaderTests().output(stdout: AppleNotesReader.statsMark + fs + "0" + fs + "4\n")
+                AppleNotesReaderTests().output(stdout: AppleNotesReader.statsMark + fs + "0" + fs + "4" + fs + "0\n")
             }
             XCTFail("expected a failure")
         } catch {
             XCTAssertEqual(error as? AppleNotesReader.ReadError, .failed)
         }
+    }
+
+    /// The same bytes as `notes_sync.locked_key` (`test_locked_notes.py` pins this digest).
+    func testALockedKeyMatchesTheBackendsHash() {
+        XCTAssertEqual(AppleNotesReader.lockedKey(name: " Caf\u{0065}\u{0301} note\n"),
+                       "1fc84b3abc2277e7d078a0b58f2dbf8e84f5d5d91e30059993db72f3e0999314")
     }
 
     func testThePageLineSaysTheCountAndIsAbsentAtZero() {
