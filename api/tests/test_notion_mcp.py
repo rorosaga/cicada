@@ -167,6 +167,7 @@ def test_a_lapsing_token_is_renewed_and_a_refused_refresh_marks_the_sign_in_laps
     with pytest.raises(tier2.Refused):
         asyncio.run(notion.prepare())
     assert notion.needs_reconnect()
+    assert not notion.is_connected(), "the page offers Sign in again, and nothing syncs on the old token"
 
 
 def test_disconnect_revokes_then_forgets_everything(bank, monkeypatch):

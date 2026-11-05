@@ -107,7 +107,9 @@ def auth_headers(token: str) -> dict:
 
 
 def is_connected() -> bool:
-    return tier2.is_connected(_self())
+    # A lapsed sign-in is not connected, as Reddit's isn't: the page offers "Sign in again", and no sync sends the old
+    # token anywhere (review of #641).
+    return tier2.is_connected(_self()) and not notion_mcp.needs_reconnect()
 
 
 def credential_fields() -> list[dict]:
