@@ -45,7 +45,7 @@ enum AppleNotesReader {
     /// A locked note gives only its id and name (`lockedMark`, `lockedNameMark`), which is what lets the backend retire
     /// what it already kept. The bulk lists are separate events, so the ids are read again last: if a note was locked, unlocked, added
     /// or removed in between, the lists no longer line up and the folder waits for the next read rather than risk one
-    /// note's text under another's id. A folder that cannot be read at all is counted (`statsMark`).
+    /// note's text under another's id. A folder that cannot be read at all, or that waits, is counted (`statsMark`).
     ///
     /// Measured 2026-11-04 on a throwaway note: **locking gives a note a new id**, while its name survives. So what
     /// Cicada kept under the old id is found by the name: read here, hashed in `split` (`lockedKey`), and only the hash
@@ -59,6 +59,7 @@ enum AppleNotesReader {
     set outList to {}
     set readFolders to 0
     set failedFolders to 0
+    set waitedFolders to 0
     tell application "Notes"
         repeat with acc in accounts
             set accName to ""
@@ -90,8 +91,12 @@ enum AppleNotesReader {
                         repeat with i from 1 to count of noteIds
                             try
                                 set end of outList to (item i of noteIds as string) & FS & (item i of noteNames as string) & FS & (item i of noteBodies as string) & FS & (item i of cDates as string) & FS & (item i of mDates as string) & FS & folderName & FS & ((item i of mDates) as «class isot» as string) & FS & utcOffset & FS & accName
+                            on error
+                                set waitedFolders to waitedFolders + 1
                             end try
                         end repeat
+                    else
+                        set waitedFolders to waitedFolders + 1
                     end if
                     set readFolders to readFolders + 1
                 on error
@@ -100,7 +105,7 @@ enum AppleNotesReader {
             end repeat
         end repeat
     end tell
-    set end of outList to "\(statsMark)" & FS & (readFolders as string) & FS & (failedFolders as string)
+    set end of outList to "\(statsMark)" & FS & (readFolders as string) & FS & (failedFolders as string) & FS & (waitedFolders as string)
     set AppleScript's text item delimiters to RS
     set out to outList as string
     set AppleScript's text item delimiters to ""
@@ -153,13 +158,15 @@ enum AppleNotesReader {
     /// 2026-11-04 — the script ends each record with the note's account; it travels BESIDE the dump (`noteAccounts`,
     /// by note id), never in it: a backend that predates it checks a record's field count and would skip every 9-field
     /// record, while it ignores an unknown key. Pure; tested. A record without the field passes through unchanged.
-    /// G234: locked ids travel beside it the same way (`lockedNoteIds`), and the read's tally stops here.
+    /// G234: locked ids travel beside it the same way (`lockedNoteIds`), and the read's tally stops here. Name keys go
+    /// only with a complete read: "the same read saw it" protects a note only if the read saw every note, so with a folder
+    /// failed or waiting a locked note retires on the next complete read.
     static func split(_ raw: String) -> (dump: String, accounts: [String: String], locked: [String], lockedKeys: [String],
                                          foldersRead: Int, foldersFailed: Int) {
         var accounts: [String: String] = [:]
         var locked: [String] = []
         var lockedKeys: [String] = []
-        var foldersRead = 0, foldersFailed = 0
+        var foldersRead = 0, foldersFailed = 0, foldersWaited = 0
         let records = raw.components(separatedBy: recordSeparator).compactMap { record -> String? in
             var fields = record.components(separatedBy: fieldSeparator)
             if fields.count == 2, fields[0] == lockedMark {
@@ -174,9 +181,10 @@ enum AppleNotesReader {
                 }
                 return nil
             }
-            if fields.count == 3, fields[0] == statsMark {
+            if fields.count == 4, fields[0] == statsMark {
                 foldersRead = Int(fields[1]) ?? 0
                 foldersFailed = Int(fields[2]) ?? 0
+                foldersWaited = Int(fields[3]) ?? 0
                 return nil
             }
             guard fields.count == 9 else { return record }
@@ -185,7 +193,8 @@ enum AppleNotesReader {
             if !id.isEmpty, !account.isEmpty { accounts[id] = account }
             return fields.joined(separator: fieldSeparator)
         }
-        return (records.joined(separator: recordSeparator), accounts, locked, lockedKeys, foldersRead, foldersFailed)
+        let complete = foldersFailed == 0 && foldersWaited == 0
+        return (records.joined(separator: recordSeparator), accounts, locked, complete ? lockedKeys : [], foldersRead, foldersFailed)
     }
 
     /// `notes_sync.locked_key`: a locked note's name, hashed, so the name never leaves the app.

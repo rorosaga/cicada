@@ -26,7 +26,10 @@ from api.services import claims, episode_scrub, markdown_parser, sensitive_text
 _SKIP_DIRS = frozenset({"episodes", "assets", "frames", "pictures", "shots", "leann"})
 #: `_state.md` is a cursor that commits alone: rebuilt after a removal, never here. The others are Cicada's own records.
 _SKIP_FILES = frozenset({"_state.md", "_home.json", "_bank.yaml", "banks.yaml"})
-_SUFFIXES = (".md", ".jsonl", ".yaml", ".yml", ".json")
+#: `.locked`: a retired locked note's words kept apart (`notes_sync`), markdown by what they are. Named here by suffix alone:
+#: Remove keeps its promise there too, and nothing else that walks a bank goes through here for reading.
+_MARKDOWN = (".md", ".locked")
+_SUFFIXES = (*_MARKDOWN, ".jsonl", ".yaml", ".yml", ".json")
 _WIKILINK_RE = re.compile(r"\[\[([^\[\]\n]*)\]\]")
 
 
@@ -182,7 +185,7 @@ def _structured(path: Path, text: str, marks: dict[str, str], tied: tuple[str, .
 
 def cleaned(path: Path, text: str, marks: dict[str, str], tied: tuple[str, ...] = ()) -> str:
     """``text``, what ``path`` holds, without the values, by what the file is. Writes nothing."""
-    if path.suffix == ".md":
+    if path.suffix in _MARKDOWN:
         return _markdown(text, marks, tied)
     if path.suffix == ".jsonl":
         return _jsonl(text, marks, tied)

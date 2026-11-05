@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from api.services import (
+    bank_index,
     channel_items,
     claims,
     evidence,
@@ -25,6 +26,9 @@ from api.services import (
     provenance,
     search_index,
     search_service,
+    sensitive_flags,
+    sensitive_hold,
+    sensitive_purge,
     sleep_cycle,
     sync_state,
 )
@@ -466,3 +470,175 @@ def test_mcp_sources_says_locked(read_then_locked):
     _clean(str(mcp_tools.sources(ctx, ep)))
     _clean(str(mcp_tools.recall_detail(ctx, "alpha-project")))
     assert "No entities found" in str(mcp_tools.recall(ctx, SECRET))   # the reply repeats only the query
+
+
+# --- Remove keeps its promise over what a retirement kept (the person's own act, no model) ------------------------
+
+
+VALUE = "Zebra7-lantern"
+SAID = f"my password is {VALUE}"
+
+
+def _git(bank, *args):
+    return subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", *args], cwd=bank, check=True,
+                          capture_output=True, text=True).stdout
+
+
+@pytest.fixture
+def bank(memory):
+    _git(memory, "init", "-q")
+    (memory / ".gitkeep").write_text("")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "start")
+    bank_index.invalidate()
+    sensitive_hold.forget()
+    yield memory
+    bank_index.invalidate()
+
+
+def _read_by_sleep(bank, *records):
+    run(notes_sync.sync_notes(bank, dump=RECORD_SEP.join(records), locked_ids=[]))
+    paths = _episodes(bank)
+    for path in paths:
+        parsed = markdown_parser.parse(path)
+        markdown_parser.write(path, {**parsed.frontmatter, "processed": True, "processed_by": "sleep"}, parsed.body)
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-qm", "read")
+    bank_index.invalidate()
+    return paths
+
+
+def _lock(bank, name, *still_there):
+    result = run(notes_sync.sync_notes(bank, dump=RECORD_SEP.join(still_there), locked_ids=["id-after"],
+                                       locked_keys=[notes_sync.locked_key(name)]))
+    assert result["retired"] == 1
+    bank_index.invalidate()
+
+
+def _holders(bank):
+    return sorted(p.relative_to(bank).as_posix() for p in bank.rglob("*")
+                  if p.is_file() and ".git" not in p.parts and VALUE in p.read_text(errors="replace"))
+
+
+def _remove(bank, rows):
+    return sensitive_flags.remove_planned(bank, [r["row"] for r in rows], stamp=sensitive_flags.plan_stamp(rows))
+
+
+def test_remove_on_the_other_row_reaches_what_a_retired_note_kept(bank):
+    """Two notes hold one value and one is locked. Remove on the other row answered clean with the value still kept."""
+    a, b = _read_by_sleep(bank, _record("n1", SAID, name="Vault"), _record("n2", SAID, name="Other"))
+    other = _record("n2", SAID, name="Other")
+    _lock(bank, "Vault", other)
+    kept = notes_sync.kept_path(bank, a.stem)
+    assert {f"episodes/{b.name}", kept.relative_to(bank).as_posix()} <= set(_holders(bank))
+    assert sensitive_purge.residue(bank, [VALUE]) == 2   # the stub's row and the other's, not a false nought
+
+    rows = sensitive_flags.plan(bank)
+    assert sorted(r["episode"] for r in rows) == sorted([a.stem, b.stem])
+    result = _remove(bank, [r for r in rows if r["episode"] == b.stem])
+    bank_index.invalidate()
+
+    assert _holders(bank) == []
+    assert result["removed"] == 1 and result["committed"] is True
+    assert result["still_found"] == 0 and sensitive_purge.residue(bank, [VALUE]) == 0
+    assert result["left"] == 0 and sensitive_flags.plan(bank) == []   # the retired note's row went with its value
+    assert VALUE not in _git(bank, "show", f"HEAD:{kept.relative_to(bank).as_posix()}")
+    assert "[removed: password]" in kept.read_text(encoding="utf-8")
+    assert markdown_parser.parse(a).body.strip() == ""
+
+
+def test_remove_on_the_retired_row_reaches_a_value_only_that_note_held(bank):
+    """Locking must not cost the person the only control over what the note held."""
+    path, = _read_by_sleep(bank, _record("n1", SAID, name="Vault"))
+    _lock(bank, "Vault", _record("n9", "ordinary words", name="Plain"))
+    stub_before = path.read_text(encoding="utf-8")
+    rows = sensitive_flags.plan(bank)
+    assert [r["episode"] for r in rows] == [path.stem] and rows[0]["read"] is True
+    assert sensitive_flags.plan_reach(bank, rows)[rows[0]["row"]]["files"] == 0   # its own words are not "beyond itself"
+
+    result = _remove(bank, rows)
+    bank_index.invalidate()
+
+    assert (result["removed"], result["still_found"], result["left"]) == (1, 0, 0)
+    assert _holders(bank) == []
+    assert path.read_text(encoding="utf-8") == stub_before
+    assert VALUE in _git(bank, "log", "-p", "--", "episodes")   # git history stays, as the G235 copy says
+
+
+def test_a_row_waiting_before_retirement_survives_it_with_no_name(bank):
+    path, = _read_by_sleep(bank, _record("n1", SAID, name="Vault-title", folder=FOLDER))
+    fm = markdown_parser.parse(path).frontmatter
+    markdown_parser.write(path, {**fm, sensitive_flags.KEY: {"read": [{"engine": "test-engine", "at": "t", "kinds": {"password": 1}}]}},
+                          markdown_parser.parse(path).body)
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-qm", "read again")
+    bank_index.invalidate()
+    _lock(bank, "Vault-title", _record("n9", "ordinary words", name="Plain"))
+
+    stub = markdown_parser.parse(path)
+    assert stub.body.strip() == "" and stub.frontmatter[sensitive_flags.KEY]["read"][0]["engine"] == "test-engine"
+    report = sensitive_flags.sync_review(bank)
+    assert report.rows == 1
+    bank_index.invalidate()
+    item = markdown_parser.parse(bank / report.paths[0])
+    assert item.frontmatter["rows"][0]["title"] == notes_sync.LOCKED_TITLE
+    assert item.frontmatter["rows"][0]["kinds"] == ["password"]
+    written = (bank / report.paths[0]).read_text(encoding="utf-8")
+    assert "Vault-title" not in written and FOLDER not in written and VALUE not in written
+
+    assert sensitive_flags.keep_episode(bank, path.stem) == [f"episodes/{path.name}"]   # Leave it, on the empty record
+    bank_index.invalidate()
+    assert sensitive_flags.plan(bank) == []
+    assert markdown_parser.parse(path).body.strip() == ""
+    assert VALUE in notes_sync.kept_path(bank, path.stem).read_text(encoding="utf-8")
+
+
+def test_the_inbox_answer_removes_through_the_kept_file_too(bank):
+    """The person's real door: the review item's Remove, not the dry run's."""
+    path, = _read_by_sleep(bank, _record("n1", SAID, name="Vault"))
+    fm = markdown_parser.parse(path).frontmatter
+    markdown_parser.write(path, {**fm, sensitive_flags.KEY: {"read": [{"engine": "test-engine", "at": "t", "kinds": {"password": 1}}]}},
+                          markdown_parser.parse(path).body)
+    _lock(bank, "Vault", _record("n9", "ordinary words", name="Plain"))
+    report = sensitive_flags.sync_review(bank)
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-qm", "review")
+    item = bank / report.paths[0]
+    parsed = markdown_parser.parse(item)
+    done = sensitive_flags.answer(bank, item, dict(parsed.frontmatter), parsed.frontmatter["rows"], sensitive_flags.REMOVE, None)
+    sensitive_flags._cleanup.join(timeout=30)
+    bank_index.invalidate()
+    assert done == {"failed": 0} and not item.exists()
+    assert _holders(bank) == [] and sensitive_flags.plan(bank) == []
+
+
+def test_a_kept_file_never_starts_a_row_of_its_own(bank):
+    """No fresh flags from what was kept: only a row already waiting when the note was emptied is read there."""
+    path, = _read_by_sleep(bank, _record("n1", "ordinary words", name="Vault"))
+    _lock(bank, "Vault", _record("n9", "more ordinary words", name="Plain"))
+    kept = notes_sync.kept_path(bank, path.stem)
+    kept.write_text(kept.read_text(encoding="utf-8") + f"\n{SAID}\n", encoding="utf-8")
+    bank_index.invalidate()
+    assert sensitive_flags.ROW_KEPT not in (markdown_parser.parse(path).frontmatter.get(sensitive_flags.KEY) or {})
+    assert sensitive_flags.plan(bank) == []
+    assert sensitive_flags.sync_review(bank).rows == 0
+
+
+def test_a_value_left_before_the_lock_starts_no_row_and_is_still_found_by_value(bank):
+    a, b = _read_by_sleep(bank, _record("n1", SAID, name="Vault"), _record("n2", SAID, name="Other"))
+    sensitive_flags.keep_episode(bank, a.stem)
+    bank_index.invalidate()
+    _lock(bank, "Vault", _record("n2", SAID, name="Other"))
+    rows = sensitive_flags.plan(bank)
+    assert [r["episode"] for r in rows] == [b.stem]
+    assert _remove(bank, rows)["still_found"] == 0
+    assert _holders(bank) == []
+
+
+def test_the_kept_file_has_one_asker_and_remove_finds_it_by_suffix_alone():
+    services = Path(__file__).resolve().parents[1]
+    asking = sorted(p.name for folder in ("services", "routers") for p in (services / folder).rglob("*.py")
+                    if "kept_copy" in p.read_text(encoding="utf-8"))
+    assert asking == ["notes_sync.py", "sensitive_flags.py"]
+    assert notes_sync.KEPT_SUFFIX in sensitive_purge._SUFFIXES
+    assert notes_sync.KEPT_DIRNAME not in (services / "services" / "sensitive_purge.py").read_text(encoding="utf-8")

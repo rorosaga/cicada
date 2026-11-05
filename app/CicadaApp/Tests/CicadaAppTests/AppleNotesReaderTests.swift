@@ -87,11 +87,11 @@ final class AppleNotesReaderTests: XCTestCase {
         let lockedId = AppleNotesReader.lockedMark + fs + "id-locked"
         let lockedName = AppleNotesReader.lockedNameMark + fs + "canary-title"
         let raw = [lockedId, lockedName, note, lockedId, lockedName, AppleNotesReader.lockedNameMark + fs + " ",
-                   AppleNotesReader.statsMark + fs + "3" + fs + "1"].joined(separator: rs)
+                   AppleNotesReader.statsMark + fs + "3" + fs + "0" + fs + "0"].joined(separator: rs)
         let parts = AppleNotesReader.split(raw)
         XCTAssertEqual(parts.locked, ["id-locked"])
         XCTAssertEqual(parts.foldersRead, 3)
-        XCTAssertEqual(parts.foldersFailed, 1)
+        XCTAssertEqual(parts.foldersFailed, 0)
         XCTAssertEqual(parts.accounts, ["id-1": "iCloud"])
         XCTAssertEqual(parts.lockedKeys, [AppleNotesReader.lockedKey(name: "canary-title")])
         XCTAssertFalse(parts.lockedKeys.joined().contains("canary-title"))
@@ -102,12 +102,30 @@ final class AppleNotesReaderTests: XCTestCase {
         XCTAssertEqual(parts.dump.components(separatedBy: fs).count, 8)
     }
 
+    /// "The same read saw it" protects a note only when the read saw every note, so a partial one sends no name keys.
+    /// The ids still go: a note's own id is no guess.
+    func testNameKeysGoOnlyWithACompleteRead() {
+        let fs = AppleNotesReader.fieldSeparator, rs = AppleNotesReader.recordSeparator
+        func parts(failed: String, waited: String) -> (keys: [String], locked: [String]) {
+            let got = AppleNotesReader.split([AppleNotesReader.lockedMark + fs + "id-locked",
+                                              AppleNotesReader.lockedNameMark + fs + "canary-title",
+                                              AppleNotesReader.statsMark + fs + "3" + fs + failed + fs + waited]
+                .joined(separator: rs))
+            return (got.lockedKeys, got.locked)
+        }
+        XCTAssertEqual(parts(failed: "0", waited: "0").keys.count, 1)
+        XCTAssertEqual(parts(failed: "1", waited: "0").keys, [])
+        XCTAssertEqual(parts(failed: "0", waited: "1").keys, [])
+        XCTAssertEqual(parts(failed: "1", waited: "1").locked, ["id-locked"])
+        XCTAssertTrue(AppleNotesReader.script.contains("set waitedFolders to waitedFolders + 1"))
+    }
+
     /// A Notes without the filter refuses every folder: that is a failed read, never "no notes".
     func testEveryFolderRefusedThrowsInsteadOfPostingNothing() async {
         let fs = AppleNotesReader.fieldSeparator
         do {
             _ = try await AppleNotesReader.syncNow { _, _ in
-                AppleNotesReaderTests().output(stdout: AppleNotesReader.statsMark + fs + "0" + fs + "4\n")
+                AppleNotesReaderTests().output(stdout: AppleNotesReader.statsMark + fs + "0" + fs + "4" + fs + "0\n")
             }
             XCTFail("expected a failure")
         } catch {

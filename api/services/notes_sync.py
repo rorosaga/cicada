@@ -36,7 +36,8 @@ from typing import Any
 
 from loguru import logger
 
-from api.services import bank_index, episode_ids, episode_scrub, evidence, history_index, markdown_parser, sync_state
+from api.services import (bank_index, episode_ids, episode_scrub, evidence, history_index, markdown_parser, sensitive_flags,
+                          sync_state)
 
 NOTES_INDEX_FILENAME = "notes_index.json"
 
@@ -284,6 +285,13 @@ def kept_path(memory_path: Path, stem: str) -> Path:
     return Path(memory_path) / "sources" / KEPT_DIRNAME / f"{stem}{KEPT_SUFFIX}"
 
 
+def kept_copy(memory_path: Path, stem: str) -> Path | None:
+    """An episode's kept file, if it has one. `sensitive_flags` alone asks, for the person's own review and Remove, which
+    find a value in it with no model; no engine or agent door reads it. The test beside `kept_path` holds that."""
+    path = kept_path(memory_path, stem)
+    return path if path.is_file() else None
+
+
 def _retire_file(memory_path: Path, path: Path, at: str, out: Retired) -> bool:
     """Retire one episode, under the episode lock: the file stays, as an empty record with no title, folder or note id,
     so its id is never reused and whatever cites it finds nothing. Text from before the lock moves whole to
@@ -304,6 +312,9 @@ def _retire_file(memory_path: Path, path: Path, at: str, out: Retired) -> bool:
         retired_at = fm.get("source_deleted_at") if fm.get(evidence.LOCKED_NOTE_KEY) else None
         record = {key: fm[key] for key in _STUB_KEEPS if key in fm}
         record["title"] = LOCKED_TITLE
+        sensitive = sensitive_flags.record_for_stub(fm, parsed.body)
+        if sensitive:
+            record[sensitive_flags.KEY] = sensitive
         if not record.get("processed"):
             record["processed"] = True
             record["processed_by"] = history_index.INDEXED_BY
