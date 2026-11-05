@@ -484,16 +484,24 @@ def test_volumes_and_subtitles_of_one_series_are_their_own_pages_without_an_isbn
     assert len(_books(memory)) == 4
 
 
-def test_a_same_titled_copy_with_no_shared_identifier_is_kept_apart_never_merged(client):
-    """Title and author alone never join two pages (B1): only an ISBN, a work id or the source's own id does."""
+def test_a_same_titled_copy_by_the_same_author_with_no_shared_identifier_is_one_page_when_only_one_holds_it(client):
+    """Owner 2026-11-05 (amends B1): exactly the same title and authors, held by one page, are one work."""
     c, memory, _ = client
     c.post("/sources/goodreads/import", files={"file": ("x.csv", (HEAD + _row(
         301, "The Lantern Orchard", "Ada Example", PAPERBACK, "read", read="2026/02/03")).encode())})
     c.put("/sources/apple-books/settings", json={"enabled": True})
     c.post("/sources/apple-books/sync", json={"books": [_ab_book("A7", "The Lantern Orchard", "Ada Example")]})
-    pages = _books(memory)
-    assert len(pages) == 2
-    assert all(len(p.frontmatter["book"]["isbns"]) <= 1 for p in pages.values())
+    [(_, page)] = _books(memory).items()
+    assert page.frontmatter["book"]["apple_books"] == ["A7"] and page.frontmatter["book"]["goodreads"] == ["301"]
+
+
+def test_a_same_titled_copy_by_another_author_is_kept_apart(client):
+    c, memory, _ = client
+    c.post("/sources/goodreads/import", files={"file": ("x.csv", (HEAD + _row(
+        301, "The Lantern Orchard", "Ada Example", PAPERBACK, "read", read="2026/02/03")).encode())})
+    c.put("/sources/apple-books/settings", json={"enabled": True})
+    c.post("/sources/apple-books/sync", json={"books": [_ab_book("A7", "The Lantern Orchard", "Bea Sample")]})
+    assert len(_books(memory)) == 2
 
 
 # --- Review of #600: B2, a finish is dated only by a day the source gave --------------------------------------------
