@@ -100,6 +100,7 @@ a choice they keep making.
              "Prefers concise summaries over detailed explanations."
 It is not a fact about them: what they do, know or use, where they work, who they work with or what comes up together is
 already on a page, and is no skill however often it is said.
+Nor is how their notes or links happen to be filed.
 
 Output valid JSON:
 {{
