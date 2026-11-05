@@ -668,6 +668,25 @@ def _named(text: str, m: re.Match[str], bank) -> bool:
     return asked and capital or _known_person(bank, word)
 
 
+def _known_runs(text: str, bank) -> list[tuple[int, int, str]]:
+    """Every digit run the vault already holds, whatever words stand around it: the person gave it as a number, so an
+    agent's "Updated Ana to 2025550144." is that number with no signal needed. Nine digits matched by chance is no risk
+    to the words; a vault that can't be read adds nothing here (:func:`tokenise` then redacts what the rule found)."""
+    if not bank:
+        return []
+    runs = [m for m in re.finditer(rf"(?<![\w.]){_DIGITS}(?!\w)", text) if match_digits(m.group(0))]
+    if not runs:
+        return []
+    try:
+        with _vault_lock(bank):
+            data = _read(_name(bank))
+    except VaultUnavailable:
+        return []
+    if not data:
+        return []
+    return [(m.start(), m.end(), m.group(0)) for m in runs if _token_for(data, _digits(m.group(0))) in data["numbers"]]
+
+
 def _spans(text: str, bank="") -> list[tuple[int, int, str]]:
     """Every number in the person's line: ``(start, end, raw)``, earliest first, none overlapping."""
     found: list[tuple[int, int, str]] = []
@@ -703,6 +722,8 @@ def _spans(text: str, bank="") -> list[tuple[int, int, str]]:
         for m in _ONE_RE.finditer(text):
             if bare(m) and _CLAUSE_ENDS.match(text, m.end("num")):
                 add(m.start("num"), m.end("num"), m.group("num"))
+    for start, end, raw in _known_runs(text, bank):
+        add(start, end, raw)
     return sorted(found)
 
 
@@ -777,9 +798,9 @@ def _is_stored_line(posted: str, stored: str, writer: str, bank) -> bool:
         if _vault_knows(tokens, bank):
             return episode_scrub.scrub_for(_retoken(posted, bank), writer)[0] == stored
         return _shape(cleaned) == _shape(stored)
-    if episode_scrub.REDACTED in stored:   # a number once redacted by this rule: a lost vault, or somebody else's line
-        return episode_scrub.scrub_for(redact(posted, bank), writer)[0] == stored
-    return False
+    # A number once redacted: somebody else's line, or a lost vault. What it redacted may rest on a vault that is gone
+    # now, so the words decide here too; the line was, and stays, redacted.
+    return episode_scrub.REDACTED in stored and _shape(cleaned) == _shape(stored)
 
 
 def tokenise_batch(messages: list, stored: dict, *, writer: str, bank) -> int:
@@ -792,20 +813,24 @@ def tokenise_batch(messages: list, stored: dict, *, writer: str, bank) -> int:
     if not on and not any(has_token(getattr(m, "text", "")) for m in stored.values()):
         return 0
     count = 0
+    fresh = []
     for m in messages:
         if m.unsent or not m.text:
             continue
         old = stored.get(m.key)
         if old is not None and _is_stored_line(m.text, old.text, writer, bank):
             m.text = old.text
-            continue
-        if not on:
-            continue
+        elif on:
+            fresh.append(m)
+    others = []
+    for m in fresh:   # the person's first: an echo in this same post is then a number the vault holds
         if m.from_me and not getattr(m, "forwarded_from", None):
             m.text, n = tokenise(m.text, bank)
             count += n
         else:
-            m.text = redact(m.text, bank)
+            others.append(m)
+    for m in others:
+        m.text = redact(m.text, bank)
     return count
 
 
@@ -1024,9 +1049,10 @@ _CHANGE_VERB = r"(?:chang\w+|updat\w+|switch\w+|replac\w+|cambi\w+|actualiz\w+|m
 _IS = r"(?:is|es|est|ist|era|:|=|-)"
 #: Each must lead straight to the number: "new job", "got a new phone, her number is X" and "her new number, I only have X"
 #: say nothing about X, so they ask. A device word counts only when it is what is being given ("her new mobile is X").
+_ON_NOW = r"(?:she|he|they|ella|[eé]l)(?:['’]s|['’]re|\s+is|\s+are|\s+est[aá])?\s+(?:now\s+)?(?:on|at|en)"
 _CHANGED_BEFORE = re.compile(
     rf"(?i)\b{_NEW}\s+(?:{_DEVICE}\s+)?{_NUM}(?:\s+de\s+[^\W\d_]+)?\s*(?:{_IS}|now|ahora)?\s*(?:now\s*|ahora\s*)?$"
-    rf"|\b{_CHANGE_VERB}\s+(?:[^\W\d_]+\s+){{0,2}}{_NUM}\s*(?:to|a|por|,\s*it['’]?s|,\s*now|:|=)?\s*$"
+    rf"|\b{_CHANGE_VERB}\s+(?:[^\W\d_]+\s+){{0,2}}{_NUM}\s*(?:to|a|por|,\s*it['’]?s|,\s*now|:|=|,\s*{_ON_NOW})?\s*$"
     rf"|\b{_NUM}\s+(?:has\s+|just\s+)?{_CHANGE_VERB}\s*(?:to|a|por|:|=)?\s*$"
     rf"|\b{_NUM}\s+(?:is|es|est)\s+(?:now|ahora|maintenant)\s*$"
     rf"|\b(?:now|ahora)\s+(?:[^\W\d_]+\s+){{0,2}}{_NUM}\s+(?:is|es)\s*$")

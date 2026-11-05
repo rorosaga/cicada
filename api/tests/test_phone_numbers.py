@@ -6,6 +6,7 @@ the change table, what asks, the answer, held names, the duplicate-people signal
 from __future__ import annotations
 
 import json
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -494,7 +495,7 @@ Y = "[number:yyyyyyyyyy]"
 @pytest.mark.parametrize(("line", "kind"), [
     (f"Ana's new number is {X}", phone_numbers.CHANGED), (f"she changed her number to {X}", phone_numbers.CHANGED),
     (f"her number is now {X}", phone_numbers.CHANGED), (f"el nuevo número de Ana es {X}", phone_numbers.CHANGED),
-    (f"Ana changed her number, it's {X} now", phone_numbers.CHANGED), (f"{X} is her new number", phone_numbers.CHANGED),
+    (f"Ana changed her number, it's {X} now", phone_numbers.CHANGED), (f"Ana changed her number, she's on {X}", phone_numbers.CHANGED), (f"{X} is her new number", phone_numbers.CHANGED),
     (f"Ana's work number is {X}", phone_numbers.ADDITIONAL), (f"she also has {X}", phone_numbers.ADDITIONAL),
     (f"su otro móvil es {X}", phone_numbers.ADDITIONAL), (f"her old number was {X}", phone_numbers.PAST),
     (f"Ana is {X}", phone_numbers.UNKNOWN), (f"Ana's number is {X}", phone_numbers.UNKNOWN),
@@ -1525,7 +1526,7 @@ def test_round_3_seven_digits_beside_a_person_this_memory_knows(memory):
     bank_index.invalidate()
     assert phone_numbers.tokenise("Ana 5550143", memory)[1] == 1
     assert phone_numbers.tokenise("Anita 5550143", memory)[1] == 1
-    assert phone_numbers.tokenise("Tesla 5550143", memory)[1] == 0
+    assert phone_numbers.tokenise("Tesla 5550144", memory)[1] == 0
 
 
 def test_round_3_a_known_false_positive_is_pinned_and_the_digits_are_kept(memory):
@@ -1704,7 +1705,7 @@ def test_round_3_item_8_a_claims_sentence_holds_no_number(memory):
 def test_round_3_item_8_the_old_one_was_when_a_number_is_on_the_line(home):
     out, n = phone_numbers.tokenise("her new number is 2025550143, the old one was 2025550177", "b")
     assert n == 2 and not any(c.isdigit() for c in out)
-    assert phone_numbers.tokenise("the old one was 2025550177", "b")[1] == 0
+    assert phone_numbers.tokenise("the old one was 2025550178", "b")[1] == 0
 
 
 def test_round_3_item_8_a_budget_after_a_number_stays_in_the_words(home):
@@ -1734,3 +1735,45 @@ def test_round_3_the_count_only_script_prints_counts_only(memory):
     assert all(isinstance(v, int) for v in counts.values())
     assert not people_directory.path(memory.name, phone_numbers.VAULT_FILE).exists()
 
+
+
+# ---- a run the vault holds, whatever stands around it (real Sleep on scratch, 2026-11-05: an echo's "to N" had no signal) ----
+
+def joined(bank) -> str:
+    return "\n".join(body for body, _fm in stored(bank).values())
+
+
+def test_round_4_an_echo_of_a_number_the_vault_holds_is_redacted_with_no_signal(bank, on):
+    ingest(bank, [row("AAA1", T0, "Carla Example 2025550144", me=True),
+                  row("AAA2", T0 + 5, "Updated Carla Example to 202 555 0144.")])
+    body = joined(bank)
+    assert "2025550144" not in re.sub(r"[ .-]", "", body) and "[redacted]" in body and phone_numbers.has_token(body)
+
+
+def test_round_4_an_echo_before_the_persons_line_in_one_post_is_redacted_too(bank, on):
+    ingest(bank, [row("AAA1", T0, "is it 2025550144 now?"), row("AAA2", T0 + 5, "Carla Example 2025550144", me=True)])
+    assert "2025550144" not in joined(bank)
+
+
+def test_round_4_the_person_repeating_a_held_number_gets_its_one_token(bank, on):
+    ingest(bank, [row("AAA1", T0, "Carla Example 2025550144", me=True),
+                  row("AAA2", T0 + 5, "ring back 202 555 0144 later", me=True)])
+    body = joined(bank)
+    tokens = phone_numbers.token_ids(body)
+    assert len(tokens) == 2 and len(set(tokens)) == 1 and "ring back" in body
+
+
+def test_round_4_a_run_the_vault_does_not_hold_stays_in_the_words(bank, on):
+    ingest(bank, [row("AAA1", T0, "Carla Example 2025550144", me=True),
+                  row("AAA2", T0 + 5, "ticket closed under 2025559999 today")])
+    assert "2025559999" in joined(bank)
+
+
+def test_round_4_an_echo_posted_again_with_the_vault_gone_stays_redacted(bank, on, home):
+    rows = [row("AAA1", T0, "Carla Example 2025550144", me=True),
+            row("AAA2", T0 + 5, "Updated Carla Example to 2025550144.")]
+    ingest(bank, rows)
+    before = stored(bank)
+    people_directory.path(bank.name, phone_numbers.VAULT_FILE).unlink()
+    assert ingest(bank, rows)["updated"] == 0
+    assert stored(bank) == before
