@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -99,9 +100,11 @@ def _embedding_model(memory_path: Path, settings: Settings) -> str | None:
 
 
 def _count_md(directory: Path) -> int:
-    if not directory.exists():
+    """One listing, not a walk in Python: at 9,500 files a walk took most of a second while Sleep's thread held the GIL."""
+    try:
+        return sum(name.endswith(".md") for name in os.listdir(directory))
+    except OSError:
         return 0
-    return sum(1 for _ in directory.glob("*.md"))
 
 
 def _leann_present(memory_path: Path) -> bool:
