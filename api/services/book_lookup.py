@@ -8,8 +8,13 @@ when it reaches the home). This module asks, in order:
    developer page (read 2026-11-04) asks for "1 request per second" from a client that does not identify itself with a
    contact (3 with one), a ``User-Agent`` naming the application, caching, and no bulk downloads. Cicada names the
    software, never the person (no email is ever sent), so it keeps to one request a second and caches every answer.
-2. **Google Books** — ``GET https://www.googleapis.com/books/v1/volumes?q=isbn:<isbn13>`` when Open Library has no
-   edition or does not answer. Keyless.
+2. ``GET /works/<OL…W>.json`` (the work: the authors an edition lacks, a description, subjects), one request.
+3. **Google Books** — ``GET https://www.googleapis.com/books/v1/volumes?q=isbn:<isbn13>`` when Open Library has no
+   edition, or has one that lacks an author, a description, a publisher, a page count or a year: the two sources are
+   **merged**, Open Library's value kept and Google Books filling what is missing. Keyless.
+
+The description is the source's own words, cut to :data:`DESCRIPTION_CAP` characters (a blurb to read at a glance on the
+head of a page that is an article; the full text is one click away at the source's link) and never written by a model.
 
 Each request takes the ToS rail's numbers (4 s, ≤ 512 KB read, no cookies, ≤ 3 redirects) and goes through
 ``net_guard`` on every hop; a redirect is followed here, one paced request at a time, and the pacer is shared across
@@ -27,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import html
 import json
 import os
 import re
@@ -48,6 +54,12 @@ TIMEOUT_S = 4.0
 MAX_BYTES = 512_000
 SPACING_S = 1.0
 MAX_AUTHORS = 3
+MAX_SUBJECTS = 5
+#: A blurb, not the publisher's page: about a short paragraph, so the page's first screen stays the cover and the facts.
+DESCRIPTION_CAP = 700
+#: The cache entry's shape version. An entry made before this one (no description, publisher or subjects) is asked
+#: again once, through the same pacing; the answer carries this number and is never asked again.
+VERSION = 2
 #: ISBNs one run asks about (each is 1–5 requests at one a second).
 RUN_MAX = 30
 MISS_RETRY_DAYS = 30
@@ -136,7 +148,15 @@ def due(isbn: str, *, now: datetime | None = None) -> bool:
     entry = data["books"].get(isbn)
     if isinstance(entry, dict):
         if entry.get("found"):
-            return False
+            if int(entry.get("v") or 1) >= VERSION:
+                return False
+            fail = data["failures"].get(isbn)   # a stale hit is asked again once; a failed try backs off like any
+            if isinstance(fail, dict):
+                try:
+                    return now >= datetime.fromisoformat(str(fail.get("next_at")))
+                except ValueError:
+                    return True
+            return True
         try:
             return now - datetime.fromisoformat(str(entry.get("at"))) > timedelta(days=MISS_RETRY_DAYS)
         except ValueError:
@@ -247,6 +267,49 @@ async def _get(fetch: FetchFn, pacer: "_Pacer", url: str) -> Response:
     return Response(0)
 
 
+def description_text(value) -> str:
+    """A source's description as one capped paragraph: Open Library's is a string or ``{value}`` and may trail a rule and
+    a list of editions or links, Google Books' may carry markup. Cut at a sentence end inside the cap, else at a word."""
+    if isinstance(value, dict):
+        value = value.get("value")
+    text = str(value or "")
+    text = re.split(r"\r?\n\s*(?:-{3,}|\*{3,}|_{3,})", text)[0]
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text)
+    text = re.sub(r"\(\[source\]\[\d+\]\)|\[\d+\]:\s*\S+", " ", text)
+    text = re.sub(r"[*_`#]{1,3}", "", text)
+    text = _clean(text)
+    if len(text) <= DESCRIPTION_CAP:
+        return text
+    cut = text[:DESCRIPTION_CAP]
+    end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+    if end >= DESCRIPTION_CAP // 2:
+        return cut[:end + 1]
+    return cut.rsplit(" ", 1)[0].rstrip(",;:- ") + "…"
+
+
+def _subjects(values) -> list[str]:
+    out: list[str] = []
+    for v in values or []:
+        name = _clean(v.get("name") if isinstance(v, dict) else v)
+        if name and 1 < len(name) <= 60 and name.casefold() not in {o.casefold() for o in out}:
+            out.append(name)
+        if len(out) >= MAX_SUBJECTS:
+            break
+    return out
+
+
+def _author_keys(refs) -> list[str]:
+    keys: list[str] = []
+    for ref in refs or []:
+        if isinstance(ref, dict) and isinstance(ref.get("author"), dict):
+            ref = ref["author"]
+        m = _OL_KEY.match(str((ref or {}).get("key") or "")) if isinstance(ref, dict) else None
+        if m and m.group(1) not in keys:
+            keys.append(m.group(1))
+    return keys[:MAX_AUTHORS]
+
+
 def parse_open_library(edition: dict, authors: list[str]) -> dict | None:
     title = _clean(edition.get("title"))
     if not title:
@@ -255,9 +318,13 @@ def parse_open_library(edition: dict, authors: list[str]) -> dict | None:
     work = next((m.group(1) for m in (_OL_KEY.match(str(k or "")) for k in works) if m), None)
     covers = [c for c in edition.get("covers") or [] if isinstance(c, int) and c > 0]
     pages = edition.get("number_of_pages")
-    return {"found": True, "source": "openlibrary", "title": title, "subtitle": _clean(edition.get("subtitle")) or None,
+    publishers = [_clean(p) for p in edition.get("publishers") or [] if _clean(p)]
+    return {"found": True, "v": VERSION, "source": "openlibrary", "title": title,
+            "subtitle": _clean(edition.get("subtitle")) or None,
             "authors": authors, "work_id": work, "published": _year(edition.get("publish_date")),
             "pages": pages if isinstance(pages, int) and pages > 0 else None, "cover_id": covers[0] if covers else None,
+            "publisher": publishers[0][:120] if publishers else None, "subjects": [],
+            "description": None, "description_source": None, "description_url": None,
             "isbns": [str(i) for i in (edition.get("isbn_13") or []) + (edition.get("isbn_10") or [])][:8]}
 
 
@@ -265,18 +332,54 @@ def parse_google(data: dict) -> dict | None:
     items = data.get("items") if isinstance(data, dict) else None
     if not items:
         return None
-    info = (items[0] or {}).get("volumeInfo") or {}
+    item = items[0] or {}
+    info = item.get("volumeInfo") or {}
     title = _clean(info.get("title"))
     if not title:
         return None
     ids = [str(i.get("identifier")) for i in info.get("industryIdentifiers") or []
            if isinstance(i, dict) and str(i.get("type") or "").startswith("ISBN")]
     pages = info.get("pageCount")
-    return {"found": True, "source": "googlebooks", "title": title, "subtitle": _clean(info.get("subtitle")) or None,
+    vid = str(item.get("id") or "")
+    desc = description_text(info.get("description"))
+    link = f"https://books.google.com/books?id={vid}" if desc and re.fullmatch(r"[\w-]{4,24}", vid) else None
+    return {"found": True, "v": VERSION, "source": "googlebooks", "title": title,
+            "subtitle": _clean(info.get("subtitle")) or None,
             "authors": [_clean(a) for a in info.get("authors") or [] if _clean(a)][:MAX_AUTHORS], "work_id": None,
             "published": _year(info.get("publishedDate")),
             "pages": pages if isinstance(pages, int) and pages > 0 else None,
-            "cover_id": None, "isbns": ids[:8]}
+            "cover_id": None, "publisher": _clean(info.get("publisher"))[:120] or None,
+            "subjects": _subjects(info.get("categories")),
+            "description": desc or None, "description_source": "googlebooks" if desc else None,
+            "description_url": link, "isbns": ids[:8]}
+
+
+def _lacks(hit: dict) -> bool:
+    return not (hit.get("authors") and hit.get("description") and hit.get("publisher") and hit.get("pages")
+                and hit.get("published"))
+
+
+def _merge(hit: dict, other: dict | None) -> dict:
+    """``hit`` with what it lacks taken from ``other`` (Open Library's value always kept)."""
+    if not other:
+        return hit
+    for key in ("subtitle", "authors", "published", "pages", "publisher", "subjects", "isbns"):
+        if not hit.get(key) and other.get(key):
+            hit[key] = other[key]
+    if not hit.get("description") and other.get("description"):
+        for key in ("description", "description_source", "description_url"):
+            hit[key] = other.get(key)
+    return hit
+
+
+async def _names(fetch: FetchFn, pacer: "_Pacer", keys: list[str]) -> list[str]:
+    names: list[str] = []
+    for key in keys:
+        got = await _get(fetch, pacer, f"{OPEN_LIBRARY}/authors/{key}.json")
+        name = _clean((_json(got.body) or {}).get("name")) if got.status == 200 else ""
+        if name:
+            names.append(name)
+    return names
 
 
 async def lookup(isbn: str, *, fetch: FetchFn | None = None, pacer: _Pacer | None = None) -> dict | None:
@@ -288,24 +391,22 @@ async def lookup(isbn: str, *, fetch: FetchFn | None = None, pacer: _Pacer | Non
     if ol.status == 200:
         edition = _json(ol.body)
         if isinstance(edition, dict):
-            names: list[str] = []
-            for ref in (edition.get("authors") or [])[:MAX_AUTHORS]:
-                m = _OL_KEY.match(str((ref or {}).get("key") or "")) if isinstance(ref, dict) else None
-                if not m:
-                    continue
-                got = await _get(fetch, pacer, f"{OPEN_LIBRARY}/authors/{m.group(1)}.json")
-                name = _clean((_json(got.body) or {}).get("name")) if got.status == 200 else ""
-                if name:
-                    names.append(name)
-            hit = parse_open_library(edition, names)
-            if hit is not None and names:
-                return hit
+            hit = parse_open_library(edition, await _names(fetch, pacer, _author_keys(edition.get("authors"))))
             if hit is not None:
-                # An edition with no author we could read: Google Books may name one; keep Open Library's work.
-                gb = await _get(fetch, pacer, f"{GOOGLE_BOOKS}?q=isbn:{isbn}")
-                other = parse_google(_json(gb.body) or {}) if gb.status == 200 else None
-                if other and other.get("authors"):
-                    hit["authors"] = other["authors"]
+                if hit.get("work_id"):
+                    work = await _get(fetch, pacer, f"{OPEN_LIBRARY}/works/{hit['work_id']}.json")
+                    data = _json(work.body) if work.status == 200 else None
+                    if isinstance(data, dict):
+                        if not hit["authors"]:
+                            hit["authors"] = await _names(fetch, pacer, _author_keys(data.get("authors")))
+                        desc = description_text(data.get("description"))
+                        if desc:
+                            hit.update(description=desc, description_source="openlibrary",
+                                       description_url=f"{OPEN_LIBRARY}/works/{hit['work_id']}")
+                        hit["subjects"] = _subjects(data.get("subjects"))
+                if _lacks(hit):
+                    gb = await _get(fetch, pacer, f"{GOOGLE_BOOKS}?q=isbn:{isbn}")
+                    _merge(hit, parse_google(_json(gb.body) or {}) if gb.status == 200 else None)
                 return hit
         ol_missing = True   # a 200 that is not an edition
     gb = await _get(fetch, pacer, f"{GOOGLE_BOOKS}?q=isbn:{isbn}")
@@ -317,6 +418,17 @@ async def lookup(isbn: str, *, fetch: FetchFn | None = None, pacer: _Pacer | Non
         if ol_missing and isinstance(data, dict):
             return {"found": False}
     return None
+
+
+def stale(isbns) -> list[str]:
+    """The numbers whose cached hit predates :data:`VERSION` and that may be asked now: refreshed once each."""
+    try:
+        books = _read(_cache_path())["books"]
+    except Exception:  # noqa: BLE001
+        return []
+    return [i for i in dict.fromkeys(str(x) for x in isbns or [])
+            if isinstance(books.get(i), dict) and books[i].get("found") and int(books[i].get("v") or 1) < VERSION
+            and due(i)]
 
 
 async def resolve(isbns: list[str], *, fetch: FetchFn | None = None, max_isbns: int = RUN_MAX,
@@ -331,7 +443,14 @@ async def resolve(isbns: list[str], *, fetch: FetchFn | None = None, max_isbns: 
         if not due(isbn, now=now):
             continue
         report["asked"] += 1
+        old = cached(isbn)
         answer = await lookup(isbn, fetch=fetch, pacer=pacer)
+        if old and old.get("found"):
+            # Asked again for the fields it lacked: what it already holds is kept; a miss never erases it.
+            if answer and answer.get("found"):
+                answer = {**old, **{k: v for k, v in answer.items() if v not in (None, [], "")}, "v": VERSION}
+            elif answer is not None:
+                answer = {**old, "v": VERSION}
         _remember(isbn, answer, now=now or _now())
         if answer is None:
             report["failed"] += 1

@@ -66,7 +66,7 @@ from loguru import logger
 
 from api.services import bank_index, decay_policy, episode_ids, evidence, markdown_parser, page_lock
 from api.services.claims import (RETRACT_PREDICATE, Claim, MalformedClaimsBlockError, is_recovered_history,
-                                 parse_claims, write_claims)
+                                 parse_claims, preserve_claims_blocks, strip_claims_block, write_claims)
 from api.services.id_utils import sanitize_id
 
 KIND = "book"
@@ -178,6 +178,12 @@ class BookFacts:
     pages: int | None = None
     cover_id: int | None = None
     local_cover: str | None = None
+    #: What a lookup read (``book_lookup``): never the person's words. The description is the source's own, capped.
+    publisher: str | None = None
+    subjects: list[str] = field(default_factory=list)
+    description: str | None = None
+    description_source: str | None = None
+    description_url: str | None = None
     apple_id: str | None = None
     goodreads_id: str | None = None
     title_from: str = "placeholder"
@@ -360,6 +366,46 @@ def _merge_list(old, new) -> list:
     return out
 
 
+SOURCE_NAMES = {"openlibrary": "Open Library", "googlebooks": "Google Books"}
+_PLACEHOLDER_BODY = re.compile(r"##\s+Summary\s*\n[^\n]* \u2014 a book\.")
+
+
+def facts_from_hit(hit: dict, isbns, *, door: str | None = None) -> BookFacts:
+    """A cached lookup answer as facts (every field it carries, none invented)."""
+    return BookFacts(title=hit.get("title"), subtitle=hit.get("subtitle"), authors=list(hit.get("authors") or []),
+                     isbns=_merge_list(list(isbns or []), [i for i in (isbn13(x) for x in hit.get("isbns") or []) if i]),
+                     work_id=hit.get("work_id"), published=hit.get("published"), pages=hit.get("pages"),
+                     cover_id=hit.get("cover_id"), publisher=hit.get("publisher"),
+                     subjects=list(hit.get("subjects") or []), description=hit.get("description"),
+                     description_source=hit.get("description_source"), description_url=hit.get("description_url"),
+                     title_from=str(hit.get("source") or "lookup"), door=door)
+
+
+def _description_body(book: dict, text: str) -> str:
+    """The article's one paragraph under its source's name and the day it was saved (ruling 44's shape): a world fact
+    kept as the source's words, with its link."""
+    name = SOURCE_NAMES.get(str(book.get("description_source") or ""), "")
+    url = str(book.get("description_url") or "")
+    who = f"[{name}]({url})" if name and url else name
+    tail = f"\n\nFrom {who}, saved {book['description_at']}" if who else ""
+    return f"## Summary\n{text}{tail}"
+
+
+def _book_prose(body: str, book: dict, facts: BookFacts, today: str) -> tuple[str, bool]:
+    """``(body, changed)``: the placeholder line every book page once carried is gone (a page with no description draws
+    nothing there), and a page whose article is empty takes the source's description once. A page an agent or the person
+    wrote words on is never touched, and a description the person cleared is not written back."""
+    prose = strip_claims_block(body or "")
+    changed = False
+    if _PLACEHOLDER_BODY.fullmatch(prose.strip()):
+        prose, changed = "", True
+    if not prose and facts.description and not book.get("description_at"):
+        book["description_at"] = today
+        book["description_source"], book["description_url"] = facts.description_source, facts.description_url
+        prose, changed = _description_body(book, facts.description), True   # the words live in the article, once
+    return (preserve_claims_blocks(body, prose) if changed else body), changed
+
+
 def _applied_page(memory_path: Path, was) -> str | None:
     """The page a record was last applied to, or the one it became: a merge carries no book identities, so the index
     can miss a page that holds this record's marks. A dropped page is no answer, as in :class:`BookIndex`."""
@@ -402,7 +448,7 @@ def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_i
         if facts.door:
             book["doors"] = _merge_list(book.get("doors"), [facts.door])
         upgrade = book.get("title_from") == "placeholder" and facts.title_from != "placeholder"
-        for key in ("work_id", "subtitle", "published", "pages", "cover_id", "local_cover"):
+        for key in ("work_id", "subtitle", "published", "pages", "cover_id", "local_cover", "publisher", "subjects"):
             if getattr(facts, key) and (upgrade or not book.get(key)):
                 book[key] = getattr(facts, key)
         if facts.authors and (upgrade or not book.get("authors")):
@@ -422,9 +468,10 @@ def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_i
         if episode_id not in episodes:
             episodes.append(episode_id)
         fm["source_episodes"] = episodes
-        if repr(sorted(fm.items(), key=lambda kv: kv[0])) == before:
+        body, body_changed = _book_prose(parsed.body, book, facts, today)
+        if repr(sorted(fm.items(), key=lambda kv: kv[0])) == before and not body_changed:
             return entity_id, False, False
-        markdown_parser.write(path, fm, parsed.body)
+        markdown_parser.write(path, fm, body)
         index.add(entity_id, _page_keys(fm), fm)
         return entity_id, False, True
     entity_id = _new_id(index, facts)
@@ -433,6 +480,8 @@ def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_i
             "authors": list(facts.authors), "isbns": list(facts.isbns), "work_id": facts.work_id,
             "published": facts.published, "pages": facts.pages, "cover_id": facts.cover_id,
             **({"local_cover": facts.local_cover} if facts.local_cover else {}),
+            **({"publisher": facts.publisher} if facts.publisher else {}),
+            **({"subjects": list(facts.subjects)} if facts.subjects else {}),
             "apple_books": [facts.apple_id] if facts.apple_id else [],
             "goodreads": [facts.goodreads_id] if facts.goodreads_id else [], "title_from": facts.title_from,
             **({"doors": [facts.door]} if facts.door else {})}
@@ -452,8 +501,8 @@ def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_i
     }
     path = Path(memory_path) / "entities" / f"{entity_id}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    by = f" by {', '.join(facts.authors[:3])}" if facts.authors else ""
-    markdown_parser.write(path, fm, f"## Summary\n{name}{by} — a book.")
+    body, _ = _book_prose("", book, facts, today)
+    markdown_parser.write(path, fm, body)
     index.add(entity_id, _page_keys(fm), fm)
     if unsure:
         index.unsure[entity_id] = unsure
@@ -814,6 +863,7 @@ def waiting_isbns(memory_path: Path) -> list[str]:
     from api.services import book_lookup
 
     out: list[str] = []
+    held: list[str] = []
     for f in pending(memory_path):
         fm = f.frontmatter or {}
         isbn = (fm.get(EPISODE_KEY) or {}).get("isbn")
@@ -824,6 +874,10 @@ def waiting_isbns(memory_path: Path) -> list[str]:
         book = fm.get("book") if is_book(fm) and isinstance(fm.get("book"), dict) else None
         if book and book.get("title_from") == "placeholder":
             out += [i for i in book.get("isbns") or [] if i not in out]
+        elif book:
+            held += [str(i) for i in book.get("isbns") or []]
+    # A hit cached before the lookup read descriptions and publishers is asked again once (``book_lookup.VERSION``).
+    out += [i for i in book_lookup.stale(held) if i not in out]
     return out
 
 
@@ -841,30 +895,32 @@ def scan_draft(isbn: str, status: str | None, *, who: str, ident: str, now: date
         writer=SCAN_ORIGIN)
 
 
-def _upgrade_placeholders(memory_path: Path, index: BookIndex, today: str) -> list[str]:
-    """A placeholder page (its number was a definite miss) whose number has an answer now takes the real title."""
+def _enrich_from_lookups(memory_path: Path, index: BookIndex, today: str) -> list[str]:
+    """Each book page takes what a cached lookup of its numbers holds and it lacks: a placeholder (its number was a definite
+    miss) the real title, any page its authors, description, publisher and subjects. A title the person or a source gave is
+    never replaced. A page with no answer still loses the old placeholder line. Nothing is asked here: the cache is read."""
     from api.services import book_lookup
 
     paths: list[str] = []
     for f in bank_index.files(Path(memory_path), "entities"):
         fm = f.frontmatter or {}
         book = fm.get("book") if is_book(fm) and isinstance(fm.get("book"), dict) else None
-        if not book or book.get("title_from") != "placeholder":
+        if not book:
             continue
-        for isbn in book.get("isbns") or []:
-            hit = book_lookup.cached(isbn)
-            if not (hit and hit.get("found")):
-                continue
-            facts = BookFacts(title=hit.get("title"), subtitle=hit.get("subtitle"),
-                              authors=list(hit.get("authors") or []),
-                              isbns=list(book.get("isbns") or []), work_id=hit.get("work_id"),
-                              published=hit.get("published"), pages=hit.get("pages"), cover_id=hit.get("cover_id"),
-                              title_from=str(hit.get("source") or "lookup"))
-            episode = (fm.get("source_episodes") or [""])[0]
-            entity_id, _, changed = ensure_page(memory_path, index, facts, episode, today)
+        hit = next((h for h in (book_lookup.cached(i) for i in book.get("isbns") or []) if h and h.get("found")), None)
+        if hit is None:
+            path = Path(f.path)
+            parsed = markdown_parser.parse(path)
+            body, changed = _book_prose(parsed.body, dict(book), BookFacts(), today)
             if changed:
-                paths.append(f"entities/{entity_id}.md")
-            break
+                markdown_parser.write(path, parsed.frontmatter, body)
+                paths.append(f"entities/{path.name}")
+            continue
+        facts = facts_from_hit(hit, book.get("isbns"))
+        episode = (fm.get("source_episodes") or [""])[0]
+        entity_id, _, changed = ensure_page(memory_path, index, facts, episode, today)
+        if changed:
+            paths.append(f"entities/{entity_id}.md")
     return paths
 
 
@@ -928,10 +984,7 @@ def _facts_from_episode(fm: dict) -> BookFacts | None:
             return None
         if not hit.get("found"):
             return BookFacts(isbns=isbns, title_from="placeholder", door=origin)
-        return BookFacts(title=hit.get("title"), subtitle=hit.get("subtitle"), authors=list(hit.get("authors") or []),
-                         isbns=_merge_list(isbns, [i for i in (isbn13(x) for x in hit.get("isbns") or []) if i]),
-                         work_id=hit.get("work_id"), published=hit.get("published"), pages=hit.get("pages"),
-                         cover_id=hit.get("cover_id"), title_from=str(hit.get("source") or "lookup"), door=origin)
+        return facts_from_hit(hit, isbns, door=origin)
     title = str(rec.get("title") or "").strip()
     if not title and not isbns:
         return None
@@ -1050,7 +1103,7 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
 
                 logger.warning(f"book episode not applied: {tool_contract.where(exc)}")
         try:
-            paths += _upgrade_placeholders(memory_path, index, today_s)
+            paths += _enrich_from_lookups(memory_path, index, today_s)
         except Exception as exc:  # noqa: BLE001
             from api.services import tool_contract
 
