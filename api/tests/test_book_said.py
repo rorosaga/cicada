@@ -22,9 +22,9 @@ def _episode(bank: Path, ep_id: str, body: str, **fm) -> str:
 
 
 def _book(bank: Path, title: str, *, isbn: str = "9780306406157", apple: str | None = None, ep: str = "ep_door",
-          today: str = "2026-10-01") -> str:
+          today: str = "2026-10-01", author: str = "An Author") -> str:
     index = books.BookIndex(bank)
-    facts = books.BookFacts(title=title, authors=["An Author"], isbns=[isbn] if isbn else [], apple_id=apple,
+    facts = books.BookFacts(title=title, authors=[author], isbns=[isbn] if isbn else [], apple_id=apple,
                             title_from="apple-books" if apple else "openlibrary")
     entity_id, _, _ = books.ensure_page(bank, index, facts, ep, today)
     from api.services import bank_index
@@ -166,7 +166,9 @@ def test_stage_twos_join_counts_only_for_a_book_page(bank):
 
 
 def test_two_copies_of_one_title_stay_a_mention_held_on_the_episode(bank):
-    first, second = _book(bank, "Example Title", isbn="", apple="asset-a"), _book(bank, "Example Title", isbn="9780131103627")
+    # Two works that share a title (another author each): the words alone join neither (ROR-116).
+    first = _book(bank, "Example Title", isbn="", apple="asset-a")
+    second = _book(bank, "Example Title", isbn="9780131103627", author="Another Author")
     assert first != second
     _episode(bank, "ep_chat", CHAT)
     book_said.settle(bank, [{"episode_id": "ep_chat", book_said.KEY: [_mark(_said())]}])

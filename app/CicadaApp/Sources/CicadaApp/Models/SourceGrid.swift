@@ -191,6 +191,7 @@ enum SourceGrid {
         "folders": ["Obsidian", "vault", "Markdown", "Finder"],
         AppleBooksReader.channel: ["Apple", "iBooks", "highlights"],
         "goodreads": ["Amazon", "books"],
+        VoiceMemosReader.channel: ["Apple", "audio", "recordings", "dictation"],
         "book-scan": ["ISBN", "phone", "books"],
         "files": ["bookmarks", "HTML", "zip", "import", "export"],
         "notion": ["pages", "databases"],

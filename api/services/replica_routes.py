@@ -168,6 +168,7 @@ ROUTES: dict[str, str] = {
     "POST /sources/watch-history/sync": CAPTURE,
     "POST /sources/whatsapp/sync": CAPTURE,
     "POST /files/media": CAPTURE,
+    "POST /files/voice-memos": CAPTURE,
     "POST /files/{file_id}/frames": CAPTURE,
     # --- everything else changes the memory or a store the home keeps: forwarded ----------------------------------------
     "DELETE /design/{ref_id}": FORWARD,

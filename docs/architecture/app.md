@@ -1962,6 +1962,13 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   pages* above); Google calendars still come in through macOS's Internet Accounts. A Google calendar's
   secret iCal address through Calendar feeds is not offered: a feed subscription is stored in the bank's
   `calendars.yaml`, and that address is a credential.
+- **Voice Memos (G43, 2026-11-05; DR-5, DR-38, DR-52, DR-59).** A *Voice & meetings* tile on This Mac
+  (`VoiceMemosSlot`, `VoiceMemosReader.shared` in the environment, `Views/Sources/VoiceMemosSlot.swift`): *Connect Voice
+  Memos* is the one primary, its words on hover; on, the area's one line is the count (and "N without words"), the footer holds
+  Refresh and Disconnect. A refusal by macOS shows *Needs access* on the grid and the Full Disk Access button. The mark is
+  Apple's, drawn from `com.apple.VoiceMemos` (`OriginIconography.appBundleId`; `SourceMarkCoverageTests` passes it by the
+  `com.apple.` rule). Reads and rails: `storage.md`, "Voice Memos". A palette hit opens the recording in its default app
+  (`MediaFilePlaces`), no seek.
 - **Reading: Apple Books and Goodreads (G39, G233; 2026-11-04).** A Sources group of its own, *Reading*, between
   Meeting recorders and Exports (`SourceCatalogGroup.reading`; the backend's `reading` kind sits before `import`).
   Both are standard source pages (`Views/Sources/BooksSlots.swift`, in `SourceCatalogDetail`'s connect and footer
@@ -1976,10 +1983,19 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   and what a book's cap left out, or the failure. The footer's Disconnect (asked first) stops it and deletes nothing.
   *Goodreads* (`GoodreadsSlot`): one *Import a file* way, the source's mark on a file, where the export comes from on
   its hover (a file importer); then the preview's counts as the line beside *Import*. No footer: nothing to refresh or
-  disconnect. *Book scans* (catalogue entry, 2026-11-04) has no control on the Mac: one line says the phone scans, and its
-  list is what the phone brought in.
-  A book page shows no link preview (`MediaBlock.isBook`, the paper rule). The Mac camera scanner was made optional by the owner
-  (2026-11-04) and is not built; the phone app scans (`cicada-app`, "Scan a book").
+  disconnect. *Book scans* (ROR-116, `BookAddSlot`): add a book on the Mac. A field for an ISBN (typed or pasted; the Add enables
+  on a valid number, `BookISBN.parse`, the backend's check), the phone's three statuses as chips (Reading · Finished · Want
+  to read; none chosen says nothing about reading), **Add** (DR-5's one primary) through `POST /capture/isbn`, and **Scan**:
+  the Mac's camera (built-in, else an iPhone as a Continuity Camera) shows a live preview and takes the first EAN-13 that
+  is a valid ISBN as soon as it is read, with no shutter, then stops (`BookBarcodeCamera`, the one file that opens a camera,
+  on `AVImportLintTests`' list). The number lands in the field and the person confirms the status and presses Add. The
+  camera opens only on the click (macOS asks then, `NSCameraUsageDescription`; the release entitlement
+  `device.camera`), stops on a read, on Stop and when the page closes; frames are read in memory by Vision and dropped,
+  never stored, never sent. Denied or none: one line with the fix. The result is one line after the lookup (read from
+  `GET /sources/books/scans/{id}`): "Added · <title>" or "Already in your books · <title>", with *Open* for the page. The
+  list below is what was scanned. A book's status line adds where it came in from ("Reading now · Apple Books · Scanned")
+  only when there is more than one way (`BookStatusRecord.ways`).
+  A book page shows no link preview (`MediaBlock.isBook`, the paper rule). The phone app scans too (`cicada-app`, "Scan a book").
   **Covers and status (ruling 61; DR-9, DR-12, DR-31, DR-38, DR-59).** After a sync the reader reads the covers Apple Books
   keeps (`AppleBooksCovers`: `Library/Caches/BCCoverCache-1/BICDiskDataStore/<asset id>/` beside the same container's
   `Documents`, read on macOS 27.2; the largest `jpg`/`heic` its file name states, never the `.astc` textures, drawn down to

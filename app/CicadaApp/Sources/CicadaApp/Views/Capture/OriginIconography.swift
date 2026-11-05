@@ -65,6 +65,8 @@ enum OriginIconography {
         "substack-saved", "substack-history",
         // G39, G233: books (ROR-107 gave Goodreads its mark, so the sweep must see it).
         "apple-books", "goodreads", "book-scan",
+        // G43: Voice Memos, read by the app after the person turns it on (Apple's own mark, drawn from the installed app).
+        "voice-memos",
         // G135 R-R26: a remote connector's app, as its episodes stamp it
         "claude-web", "chatgpt", "perplexity", "claude-code-remote",
         "codex-remote", "vscode", "remote-app",
@@ -113,6 +115,7 @@ enum OriginIconography {
         case "reminders-local": "Reminders"
         // G39, G233 — books.
         case "apple-books": "Apple Books"
+        case "voice-memos": "Voice Memos"
         case "goodreads": "Goodreads"
         case "book-scan": "Book scan"
         case "notion-export", "notion-api": "Notion"
@@ -204,6 +207,7 @@ enum OriginIconography {
         case "contacts-local": "person.crop.circle"
         case "reminders-local": "checklist"
         case "apple-books", "goodreads", "book": "book.closed"
+        case "voice-memos": "waveform"
         // ROR-107: what the phone's camera read off a book's barcode; two tiles never wore one book (Goodreads has its mark).
         case "book-scan": "barcode.viewfinder"
         case "notion-export", "notion-api": "doc.text"
@@ -401,6 +405,8 @@ enum OriginIconography {
         case "reminders-local": "com.apple.reminders"
         // G39 — Cicada reads Apple Books' own store, so the app is here; Apple's marks are never committed.
         case "apple-books": "com.apple.iBooksX"
+        // G43 — Cicada reads Voice Memos' own store, so the app is here; Apple's marks are never committed.
+        case "voice-memos": "com.apple.VoiceMemos"
         // G179 — Cicada reads the Messages app's own database, so the app is here; Apple's marks are never committed.
         case "imessage": "com.apple.MobileSMS"
         case "whatsapp": "net.whatsapp.WhatsApp"

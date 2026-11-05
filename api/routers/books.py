@@ -9,6 +9,7 @@
 * ``GET|PUT /sources/apple-books/settings`` and ``POST /sources/apple-books/sync`` — the app reads Apple Books after
   the person turned it on and posts a projection (``apple_books``); a sync while it is off is refused (409).
 * ``POST /sources/goodreads/preview`` and ``POST /sources/goodreads/import`` — the person's own Goodreads export CSV.
+* ``GET /sources/books/scans/{episodeId}`` — what a scan became, so the Mac's Add can say "Already in your books".
 * ``GET /sources/books`` — counts for the Reading rows: books by status, and scans waiting for their lookup.
 * ``POST /sources/apple-books/covers`` — the covers the app read from Apple Books' cache (ruling 61, ``book_covers``).
 * ``GET /entities/{id}/book-status``, ``POST /entities/{id}/book-status/undo`` — the book's status and "Not right".
@@ -73,6 +74,18 @@ async def capture_isbn(req: IsbnCaptureRequest, request: Request, settings: Sett
 
     _, body, _ = await idempotency.run_once(idempotency.scope_of(request), "/capture/isbn", key, work)
     return body
+
+
+@router.get("/sources/books/scans/{episode_id}")
+async def book_scan_result(episode_id: str, settings: Settings = Depends(get_settings)):
+    """What became of one scan (the ``episodeId`` its ``POST /capture/isbn`` answered): ``{state: waiting}`` until the
+    number resolves at the home, then ``{state: added, entityId, name, existing}`` — ``existing`` when the book was
+    already in the bank (another edition, Apple Books, Goodreads). Not a Store domain: the Add reads it once or twice.
+    404 for an id that is no scan."""
+    out = await run_in_threadpool(books.scan_result, settings.memory_path, episode_id)
+    if out is None:
+        raise HTTPException(404, "no such scan")
+    return out
 
 
 @router.get("/sources/books")

@@ -66,7 +66,7 @@ enum LocalReaders {
     /// own attempt, so it always waits on them.
     static func waitingOnAccess(calendar: CalendarReader?, contacts: ContactsReader?, reminders: RemindersReader?,
                                 books: AppleBooksReader?, messages: MessagesWatcher?,
-                                whatsApp: WhatsAppWatcher?) -> [String: String] {
+                                whatsApp: WhatsAppWatcher?, voiceMemos: VoiceMemosReader? = nil) -> [String: String] {
         var out: [String: String] = [:]
         if calendar?.status == .denied { out[CalendarRow.channelId] = Copy.sourceNeedsAccess }
         if let contacts, contacts.enabled, contacts.status == .denied {
@@ -76,6 +76,7 @@ enum LocalReaders {
             out[RemindersReader.channel] = Copy.sourceNeedsAccess
         }
         if let books, books.enabled, books.deniedByMac { out[AppleBooksReader.channel] = Copy.sourceNeedsAccess }
+        if let voiceMemos, voiceMemos.enabled, voiceMemos.deniedByMac { out[VoiceMemosReader.channel] = Copy.sourceNeedsAccess }
         if case .needsAccess? = messages?.status { out[MessagesWatcher.channel] = Copy.sourceNeedsAccess }
         if case .needsAccess? = whatsApp?.status { out[WhatsAppWatcher.channel] = Copy.sourceNeedsAccess }
         return out
@@ -434,8 +435,9 @@ struct SourceCatalogDetail: View {
         case ContactsReader.channel: ContactsSlot(slot: .connect)
         case RemindersReader.channel: RemindersSlot(slot: .connect)
         case AppleBooksReader.channel: AppleBooksSlot(slot: .connect, channel: mine.first)
+        case VoiceMemosReader.channel: VoiceMemosSlot(slot: .connect)
         case "goodreads": GoodreadsSlot()
-        case "book-scan": SourceConnectLine(text: Copy.bookScansLine)
+        case "book-scan": BookAddSlot()
         case MessagesWatcher.channel: ChatPickerSlot(slot: .connect, kind: .messages)
         case WhatsAppWatcher.channel: ChatPickerSlot(slot: .connect, kind: .whatsApp)
         case TelegramChats.channel: TelegramSlot(slot: .connect)
@@ -662,6 +664,7 @@ struct SourceCatalogDetail: View {
         case ContactsReader.channel: ContactsSlot(slot: .footer)
         case RemindersReader.channel: RemindersSlot(slot: .footer)
         case AppleBooksReader.channel: AppleBooksSlot(slot: .footer, channel: mine.first)
+        case VoiceMemosReader.channel: VoiceMemosSlot(slot: .footer)
         case MessagesWatcher.channel: ChatPickerSlot(slot: .footer, kind: .messages)
         case WhatsAppWatcher.channel: ChatPickerSlot(slot: .footer, kind: .whatsApp)
         case TelegramChats.channel: TelegramSlot(slot: .footer)

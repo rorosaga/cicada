@@ -16,6 +16,15 @@
 
 ## Current state and evidence
 
+- **2026-11-05 — multimodality scorecard and Voice Memos as a source (G43, G195; branch `multimodal-g43`).** Owner: rate every
+  kind to a 10; later: play and show everything in the app, each item an entity with a markdown body (summary, why it matters,
+  the transcription, the transcribing model as contributor). [`multimodal-scorecard.md`](multimodal-scorecard.md) scores YouTube,
+  screen recording, video file, image, audio file and Voice Memos on what exists (today the added-file kinds open in the default
+  app, have no page and no lexical leg). Built: Voice Memos through the `media_files` store (`storage.md`). **Pick up here:**
+  run the Swift filter below; open the tile once against a scratch `HOME` holding a synthetic store; check the real
+  `CloudRecordings.db` columns by hand (never in development). **Owner decisions, undecided:** may Sleep read memos and as
+  whose words; a page per added file (rulings 56, 62 and the files-outside-the-bank rail); naming the transcriber as a
+  contributor (copy rail). YouTube extraction stays out (G162).
 - **2026-11-05 — no source asks for a secret (ROR-113, G219, G232; branch `notion-oauth-no-token-forms`).** The owner: "Any one that you ask for a token fucking find a way to sync it properly, either direct integration, syncing some other type of way, or browser as last resort." Notion signs in through its hosted MCP (OAuth + PKCE, read-only tool allow-list) with a Connect button; the Reddit, X and Pinterest forms, GitHub's token field and the Telegram bot tile (unless a bot is already set up) are gone from every app surface; a connector already connected keeps its row and Disconnect; a Swift lint fails on a secret field in a source surface. Notion's page says in one line that the sign-in acts as the person. Binding until the owner rules otherwise.
 - **2026-11-05 — agents can look into what Sleep has not read (ROR-29, G207; branch `ror29-ask-unread`).** Ask reads an
   unread conversation or note whole when short, else by its matching passages, in one 4,000-character budget per question,
@@ -3586,6 +3595,21 @@ A whole row moves to DONE only after its remaining implementation and required a
     while waiting costs a late update. The record is the drain's own progress; CPU was rejected because a drain waiting
     on a model looks idle. The person's click may go past Sleep on one line naming the cost; an automatic install never
     does. **Revisit** if a batch is measured past two hours, or a hung backend is seen holding an update.
+67. **One book is one page whichever door it came in by; the Mac adds books by number or camera (owner, 2026-11-05; G233, ROR-116).**
+   The owner: "yes ofc i want books on the mac and it has to have some overlap with potential books from ibooks." (a) Amends
+   review-of-#600 B1: after an identifier (ISBN, work id, a source's id) fails, **exactly the same** title (or title +
+   subtitle, or a source's own spelling) and author set, with case, accents and punctuation set aside, joins a record to the
+   one page that holds both — never a prefix, an article, a series note or a likeness, so "Dune" and "Dune: House Atreides"
+   stay two. More than one page, or an author a side lacks or only partly shares, never joins: the record keeps its page and
+   the inbox asks "same book?" per candidate (≤ 3, answered by folding, never silent). The same title by other authors asks
+   nothing. A join only adds identifiers, aliases and the source's id: marks, status records and history stay. Both orders
+   and editions are one page. *Why:* an Apple Books entry rarely has an ISBN (1 of 284 on the owner's Mac), so identifiers
+   alone made a second page for the one book held in both. (b) The Mac adds a book through the phone's own
+   `POST /capture/isbn`; the camera opens only on the click, shows its feed, takes the first valid book barcode with no
+   shutter and stops; frames are never stored or sent. (c) A book's page names its doors only when it has more than one.
+   (d) A Books tab on Clusters is not done: tabs are keyed by entity type (a closed set of 10) across the grid, rows and
+   menu. **Trigger to revisit (a):** a real wrong join measured, or the same-book question asked often enough to be noise.
+
 65. **A question rests on the model's stated stake; any skill takes 2+ conversations (owner, 2026-11-05; G239, PR #623).**
    The owner: "I don't think that with stuff like this there is any benefit of answering when nothing really depends on it.
    Tho there are some questions like an ongoing project that may not be relevant right now, but will be in the future, maybe

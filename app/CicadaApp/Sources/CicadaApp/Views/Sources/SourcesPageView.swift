@@ -55,7 +55,8 @@ struct SourcesPageView: View {
                                   checked: chatChecks, notInstalled: localSources.missingApps,
                                   waitingOn: LocalReaders.waitingOnAccess(
                                       calendar: calendarReader, contacts: contactsReader, reminders: remindersReader,
-                                      books: appleBooksReader, messages: messagesWatcher, whatsApp: whatsApp),
+                                      books: appleBooksReader, messages: messagesWatcher, whatsApp: whatsApp,
+                                      voiceMemos: voiceMemosReader),
                                   suggested: suggested, browserReads: reading.settings?.browserReads ?? [:],
                                   watch: { browserWatcher?.state(for: $0) })
     }
@@ -78,6 +79,7 @@ struct SourcesPageView: View {
     @Environment(ContactsReader.self) private var contactsReader: ContactsReader?
     @Environment(RemindersReader.self) private var remindersReader: RemindersReader?
     @Environment(AppleBooksReader.self) private var appleBooksReader: AppleBooksReader?
+    @Environment(VoiceMemosReader.self) private var voiceMemosReader: VoiceMemosReader?
     @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
     @Environment(WatchHistoryWatcher.self) private var watchHistory: WatchHistoryWatcher?
     @Environment(BrowserWatcher.self) private var browserWatcher: BrowserWatcher?
@@ -89,7 +91,8 @@ struct SourcesPageView: View {
         LocalReaders.on(calendar: calendarReader, contacts: contactsReader, tabGroups: tabGroups,
                         watchHistory: watchHistory, browsers: browserWatcher, notes: notesWatcher,
                         traces: traceRecorder, reminders: remindersReader)
-            .merging([AppleBooksReader.channel: appleBooksReader?.enabled ?? false]) { _, new in new }
+            .merging([AppleBooksReader.channel: appleBooksReader?.enabled ?? false,
+                      VoiceMemosReader.channel: voiceMemosReader?.enabled ?? false]) { _, new in new }
     }
 
     var body: some View {
