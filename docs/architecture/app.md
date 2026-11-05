@@ -3630,7 +3630,14 @@ from Cicada → Check for Updates…, it reads GitHub's latest release and its `
 semver, refusing a release that needs a newer macOS), downloads the zip, and `UpdateInstaller.stage` verifies size,
 sha256 and the Ed25519 signature against `CicadaUpdatePublicKey` (`UpdateVerifier`, CryptoKit) before unzipping,
 checks the bundle id, distribution and version and `codesign --verify`, and copies it beside the installed app. It
-installs when the person quits — or at once with *Restart to update* — never while Sleep is writing: a detached
+installs when the person quits — or at once with *Restart to update* — never while Sleep is writing. **A slow answer
+is busy (owner 2026-11-05, ruling 66):** only nothing listening counts as idle; a timeout, a dropped or unreadable
+answer defers. `BackendSilence` is what keeps a hung backend updatable: three looks ten minutes apart with no real
+answer, two hours from the first to now, and no drain's `running` record (`$CICADA_HOME/sleep/<bank>/run.json`, rewritten
+at every batch commit) touched in those two hours. The looks are kept in `~/.cicada/update-backend-silent.json`, so they
+outlast a quit, and a real answer ends them; the helper is told `hung`, logs it, and still defers on a clear "running". A
+quit never goes past Sleep. The person's click may: one line names the cost and the button becomes *Restart Anyway*
+(DR-41 keeps its pressed states; a disabled button could not be insisted through). A detached
 helper (`posix_spawn` in its own session) waits for the app to exit, boots out `com.cicada.backend` if its plist
 exists, swaps the two copies by rename in the same folder, moves the old one to the Trash, bootstraps the service
 again (three tries) and relaunches. The backend is asked fresh whether Sleep is writing — by the app at hand-off and by

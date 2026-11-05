@@ -1,11 +1,12 @@
 """Clarification queue — holds entities Cicada couldn't confidently extract.
 
-A clarification is created when an entity is extracted with low confidence and
-no existing match. The user (or a later, higher-confidence extraction) resolves
-it. Three resolution paths exist:
+A clarification is created when Stage 1 says only the person can tell who or what
+a name is and something rests on it (``ask_person``, G239); a low confidence alone
+asks nothing, the name waits in the index. Three resolution paths exist:
 
 1. **Organic** — a later sleep cycle extracts the same entity with confidence
-   >= 0.6 and the pending clarification is auto-resolved.
+   >= 0.6 and the pending clarification is auto-resolved, unless it was asked on
+   purpose (``why_asked``): that one stays with the person.
 2. **Agent-initiated** — Bookworm surfaces the clarification when the current
    query touches it, letting the agent ask in conversation flow.
 3. **Manual** — the user answers via the companion app.
@@ -27,7 +28,6 @@ from thefuzz import fuzz
 from api.services import markdown_parser
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
-CONFIDENCE_THRESHOLD = 0.5
 ORGANIC_RESOLUTION_THRESHOLD = 0.6
 
 _CLARIFICATION_KINDS = ("clarification", "merge_suggestion")
@@ -54,8 +54,12 @@ class ClarificationManager:
         heard_in: dict | None = None,
         same_title: list[str] | None = None,
         target_id: str | None = None,
+        why_asked: str | None = None,
     ) -> str | None:
         """Create a clarification file. Returns its id, or None if duplicate.
+
+        ``why_asked`` (G239): the model's clause on why only the person can answer this, said on the card. Its presence
+        also marks a question asked on purpose, which no lookup answers and no "said in passing" rule closes.
 
         ``same_title`` / ``target_id`` (G227): a mention titled exactly as one or more pages — the candidate's own id
         is the merge target (a name two pages share never resolves to one), and every page sharing the title is kept
@@ -136,9 +140,15 @@ class ClarificationManager:
             # through another of the pages that share its name is the same question.
             open_path = next((p for p in (find_open(self.memory_path, kind, sanitize_id(entity_name), str(pid))
                                           for pid in same_title if str(pid) != second) if p is not None), None)
+        if open_path is None and why_asked and not is_duplicate:
+            # G239: one question a name, whatever the mention's own wording made of its type.
+            open_path = self._open_question(sanitize_id(entity_name))
         if open_path is not None:
             parsed = markdown_parser.parse(open_path)
             parsed.frontmatter["updated_date"] = str(date.today())
+            if why_asked and not is_duplicate and not parsed.frontmatter.get("why_asked"):
+                # G239: the model now says something rests on a question already open, raised before it had a stake.
+                parsed.frontmatter["why_asked"] = str(why_asked)
             markdown_parser.write(open_path, parsed.frontmatter, parsed.body)
             return None
 
@@ -190,6 +200,8 @@ class ClarificationManager:
                     frontmatter["title"] = f"Is this {same_name.label(self.memory_path, target_id, entity_name)}?"
         if source_episode_timestamp:
             frontmatter["source_episode_timestamp"] = str(source_episode_timestamp)
+        if why_asked and not is_duplicate:
+            frontmatter["why_asked"] = str(why_asked)
         if is_duplicate and isinstance(heard_in, dict) and heard_in.get("mention") and heard_in.get("page"):
             # Where each side was heard (`entity_resolver._held_alias_questions`): words for the question, never ids.
             frontmatter["heard_in"] = {"mention": str(heard_in["mention"])[:40], "page": str(heard_in["page"])[:40]}
@@ -237,19 +249,25 @@ class ClarificationManager:
 
         ``merged_into``: the page Stage 2 just matched the name to. A "Possible duplicate" question is answered by that
         only when it is the page the question proposed (G209): a name that matched its own page leaves the question
-        "is it the same as that other page?" open, as it was."""
+        "is it the same as that other page?" open, as it was.
+
+        A question asked on purpose (``why_asked``, G239) is never closed here: it was raised on a stake, whatever the
+        confidence, and a confident mention says nothing about the stake. Only the person's own words settle it
+        (their answer, or `inbox_tend`'s located words, ruling 29)."""
         if confidence < ORGANIC_RESOLUTION_THRESHOLD:
             return False
         existing = self._existing_for(entity_name)
         if not existing:
             return False
-        if merged_into is not None:
-            try:
-                fm = markdown_parser.parse(existing).frontmatter
-            except Exception:
-                fm = {}
-            if fm.get("kind") == "merge_suggestion" and str(fm.get("merge_target_hint") or "") != merged_into:
-                return False
+        try:
+            fm = markdown_parser.parse(existing).frontmatter
+        except Exception:
+            fm = {}
+        if fm.get("why_asked"):
+            return False
+        if (merged_into is not None and fm.get("kind") == "merge_suggestion"
+                and str(fm.get("merge_target_hint") or "") != merged_into):
+            return False
         try:
             existing.unlink()
             logger.info(
@@ -278,6 +296,16 @@ class ClarificationManager:
                 or parsed.frontmatter.get("entity_mention", "")
             ).strip().lower()
             if _same_mention(mention, target):
+                return filepath
+        return None
+
+    def _open_question(self, entity_id: str) -> Path | None:
+        for filepath in sorted(self.dir.glob("inbox-*.md")):
+            try:
+                fm = markdown_parser.parse(filepath).frontmatter
+            except Exception:  # noqa: BLE001
+                continue
+            if fm.get("kind") == "clarification" and fm.get("status") == "pending" and fm.get("entity_id") == entity_id:
                 return filepath
         return None
 

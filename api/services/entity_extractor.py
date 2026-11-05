@@ -18,6 +18,9 @@ from api.services import (act_object, authorship, book_marks, contact_identity, 
                           sensitive_flags, source_dates)
 from api.services.json_parse import parse_json_object
 
+#: Stage 1's ``ask_person``: the model's one clause on why a question is worth the person's attention, kept for its card.
+MAX_ASK_REASON = 160
+
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
 Given a conversation transcript, extract meaningful entities and the relationships between them.
 
@@ -43,6 +46,7 @@ Output valid JSON with this exact structure:
       "website": "https://example.com   (optional; company, tool or project only)",
       "application": {"status": "drafted|filled|sent|registered|accepted|rejected|attended", "by": "user|assistant"},
       "reading_status": {"status": "reading|finished|want|not_started", "quote": "the user's exact words", "on": "YYYY-MM-DD   (optional)"},
+      "ask_person": "what rests on the answer, in one short clause   (optional; see ASK PERSON below)",
       "description": "Optional. Same content as summary; kept only for backward compatibility."
     }
   ],
@@ -184,6 +188,19 @@ the context of the conversation, says where THEY stand with it now:
   the film or series of the name, a book they are writing, and anything only the assistant said. This field is the
   only place for it: no value for it in values[]. Unsure? Omit it.
 
+ASK PERSON (optional, per entity) — a question goes to the person's inbox and costs their attention, so it has to earn
+it. Set ask_person only when both of these hold, and write the stake itself in one short clause, in plain words ("the
+lease depends on him"), never that you do not know who this is:
+- Only they can answer: the conversation leaves open who or what this is to them, who holds it or where it stands, and no
+  public source could.
+- Something real rests on it: money, a deadline, a decision or a commitment in this conversation turns on this name, or
+  it is a thing still in motion that will matter later, such as an ongoing project whose owner or status is left unclear,
+  so memory would act differently knowing the answer.
+Omit it otherwise, which is nearly always. What the conversation itself explains needs no question, nor does a thing anyone
+could look up. A name in a to-do, a remark or a list with nothing depending on it ("call <name>", "<name> said no") has no stake memory
+could act on, however little is said about them: the person knows who they meant. A name you do not ask about is not lost: it waits with what
+was said about it, and it comes back if it is named again.
+
 TIME (every conversation is written up as of its own date):
 - A note before the conversation gives the date it took place and today's date. Write what it says as of the
   conversation's date, never as of today.
@@ -217,6 +234,9 @@ EXTRACTION GUIDELINES:
 - The agent's own runtime (its working directory, platform, shell, git status, the date of the session)
   is never conversation content: extract nothing from it, and never an entity for a path it shows you.
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
+- An entity's name is a name: what the thing is called, something a person could say again in another conversation. What
+  someone does, knows or is good at, said as a phrase ("maintains <x> checklists for <y>"), is a key_fact on whoever does
+  it or on the thing it is for, never an entity of its own. Write a name as it was said, with nothing added to it.
 - A detail of the assistant's answer is not an entity: a function or variable in a code example, a
   command, a library, tool or place the assistant only suggested or listed. Extract it only when the
   user engaged with it — used it, asked about it by name, chose it, built it, went there.
@@ -1167,6 +1187,9 @@ async def extract(
                         narration += len(facts) - len(kept)
                         entity["key_facts"] = kept
                     entity["mention_exchanges"], entity["named_by_person"] = promotion.measure(entity, units)
+                    asked = entity.pop("ask_person", None)
+                    if isinstance(asked, str) and asked.strip():
+                        entity["ask_person"] = " ".join(asked.split())[:MAX_ASK_REASON]
                     if promotion.label_only(entity, content):
                         entity[promotion.LABEL_ONLY] = True   # named only by a folder, a list, a calendar
                     sanitize_entity_type(entity)

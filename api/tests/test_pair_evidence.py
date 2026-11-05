@@ -241,3 +241,21 @@ def test_sleep_retires_an_open_owner_pair_and_an_unpaired_one_and_undo_brings_th
     web_settle.commit_sync(memory, web_settle.commit_message("Sleep's settle undone", lines, authors=["user"]), paths)
     assert restored == "inbox-001"
     assert _decide(memory, "inbox-001") == (None, "undone")     # the person's now: Sleep never retires it again
+
+
+def test_the_judges_unsure_on_two_names_sharing_nothing_needs_a_line_naming_both(memory):
+    """Owner 2026-11-05: a conversation naming both is evidence they are two, not that they may be one."""
+    _page(memory, "lena-orr", "Lena Orr", type="person")
+    _episode(memory, "ep_2026-02-01_001", "Tomas was late.\nLena Orr sent the form.")
+    kw = dict(a_id="tomas", a_name="Tomas", b_id="lena-orr", b_name="Lena Orr", person=True,
+              source_episode="ep_2026-02-01_001", owner="", fresh=False)
+    assert pair_evidence.judge(memory, **kw).ask, "a lead with its own reason is not this rule"
+    assert pair_evidence.judge(memory, **kw, judged=True).reason == "names_unrelated"
+    _episode(memory, "ep_2026-02-01_002", "Tomas, or Lena Orr as the form has it, sent it.")
+    kw["source_episode"] = "ep_2026-02-01_002"
+    assert pair_evidence.judge(memory, **kw, judged=True).ask, "the judge reads that line"
+
+
+def test_a_shared_word_or_a_close_spelling_ties_two_names():
+    assert pair_evidence.names_tied(["lena"], ["lena orr"]) and pair_evidence.names_tied(["kovask"], ["kovasc"])
+    assert not pair_evidence.names_tied(["tomas"], ["lena orr"])
