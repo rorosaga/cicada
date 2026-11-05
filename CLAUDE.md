@@ -235,8 +235,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   locked note's body is never requested; the app reads a locked note's title, inside the app only, and only its hash
   leaves, compared and never stored, to find what was kept under the id it had before the lock; the backend drops a
   flagged body and keeps only a count; what it kept leaves `episodes/` for one file no engine or agent door reads (only the person's review and Remove, no model), destruction the person's call; what Sleep
-  already derived from it stays until they decide. **A pin (ROR-15, 2026-11-05)** is `Z_PK` of unlocked rows alone, from a copy of
-  Notes' store, only with Full Disk Access already held — never a title or `ZICNOTEDATA`; a locked note's is never read (`capture-and-sleep.md`).
+  already derived from it stays until they decide; a pin (ROR-15) is `Z_PK` of unlocked rows alone, never `ZICNOTEDATA` (`capture-and-sleep.md`).
 - **Messages are read only for conversations the person ticked (G179)**: the app reads them, the backend refuses any
   other; a texted agent's words are its `assistant:` turns and its claims `external:<name>`, never the person's own —
   as are a harness session's or a chat export's assistant's (`external:<harness|app>`, 2026-10-27; relayed apps keep
