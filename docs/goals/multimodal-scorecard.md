@@ -26,11 +26,11 @@ values never go in this file. Related: G43, G195 (meaning index 2), G162 (no dow
 | Kind | Plays or shows in the app | A page with a markdown body | Summary and why it matters | Transcription shown | Transcriber named |
 |---|---|---|---|---|---|
 | YouTube video | 6 | 2 | 3 | 0 | 0 |
-| Screen recording | 7 | 0 | 0 | 0 | 1 |
-| Any video file | 8 | 0 | 0 | 0 | 1 |
-| Image | 8 | 1 | 0 | 0 | 0 |
-| Audio file | 8 | 0 | 0 | 0 | 1 |
-| Voice Memos | 5 | 0 | 0 | 0 | 1 |
+| Screen recording | 8 | 8 | 0 | 7 | 8 |
+| Any video file | 9 | 8 | 0 | 8 | 8 |
+| Image | 9 | 8 | 0 | n/a | n/a |
+| Audio file | 9 | 8 | 0 | 8 | 8 |
+| Voice Memos | 6 | 7 | 0 | 7 | 8 |
 
 "Transcriber named" is 1 where the name is now *recorded* (`meta.json` `transcribed_by`, from the app) and shown nowhere.
 
@@ -104,6 +104,23 @@ suites named in the PR pass (139 run, 0 failed, 1 skipped), including the Mac's 
   meaning hit lands on the segment holding the most query words, and on a paraphrase holding none of them, on the passage's start. A
   segment can run several seconds, so the second is the segment's start, not the word's.
 - **What the person sees 7 (6 for Voice Memos, 6 for an image).** A row now shows the words and their real time.
+
+## Re-score after item pages (ROR-117, PR 648, coordinator, 2026-11-05)
+
+Checked in the real app on a scratch home with synthetic files. This run found two faults the tests had passed: the page dropped
+its player data, and the transcript was never fetched. Both are fixed; the numbers below are after the fixes.
+
+- **A page 8 (7 for Voice Memos).** Each added item has one page, with no transcript word in the page file or in git history.
+  Not 9: the Summary and Why it matters sections are still empty, and the page opens in the graph's side panel from a row that
+  says only "Media".
+- **Plays or shows 9, screen recording 8, Voice Memos 6.** The file now plays on its own page, and a timestamp seeks it (clicked
+  0:12 on a synthetic MP4). Not 10: only three formats have been run, and no real screen recording or real memo.
+- **Transcription shown 8 (7 for screen recording and Voice Memos).** Every segment with a stamp that seeks. Not 10: a long
+  recording's transcript has not been run for speed, and there is no search within it. A screen recording with no speech has no transcript.
+- **Transcriber named 8.** "Transcribed by" sits above the words, and the name is in the provenance reply. Not 10: the Mac's
+  recogniser gives one fixed name, with no version.
+- **Summary and why it matters 0.** Next PR.
+- **YouTube is unchanged:** none of these three PRs touched it.
 
 ## What is missing for a 10, per column (the follow-up's list)
 
