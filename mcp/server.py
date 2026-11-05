@@ -471,6 +471,8 @@ TOOLS = [
                     },
                     "description": "Required for read: the posts the list showed (at most 200 a call).",
                 },
+                "handle": {"type": "string", "description": "Optional: the person's own handle on that site as the signed-in page shows it (one word, without the @). Shown on their Sources page."},
+                "profile_url": {"type": "string", "description": "Optional: the link to the person's own profile on that site (https, that site's own address). Shown on their Sources page; opened only when they click it."},
                 "via": {"type": "string", "description": "Optional: the tool you read with. Shown as what you said, never as proof."},
             },
             "required": ["platform", "outcome"],
@@ -1858,7 +1860,8 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
                                         arguments.get("via"))
     elif name == "cicada_record_saved_list":
         return mcp_tools.record_saved_list(_ctx(), arguments.get("platform", ""), arguments.get("outcome", ""),
-                                           arguments.get("items"), arguments.get("via"))
+                                           arguments.get("items"), arguments.get("via"), arguments.get("handle"),
+                                           arguments.get("profile_url"))
     elif name == "cicada_record_substack_list":
         return mcp_tools.record_substack_list(_ctx(), arguments.get("list", ""), arguments.get("outcome", ""),
                                               arguments.get("items"), arguments.get("via"))
