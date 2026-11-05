@@ -1,6 +1,6 @@
 {
  "generated": "2026-11-05",
- "count": 50,
+ "count": 52,
  "needs_a_mac": [
   "Calendar",
   "Contacts",
@@ -86,7 +86,8 @@
    ],
    "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of Google LLC; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "The four-colour sparkle the Gemini app serves today. The bundled gemini-cli.png (a terminal glyph) goes: Gemini CLI and Antigravity sit under this one mark."
+   "note": "The four-colour sparkle the Gemini app serves today. The bundled gemini-cli.png (a terminal glyph) goes: Gemini CLI and Antigravity sit under this one mark.",
+   "upstream_sha256": "5e7cfecaa53f4f65a313fe89b0f389548126544a78fad8489510c70ae641a4a1"
   },
   {
    "slug": "grok",
@@ -312,7 +313,8 @@
    "replaces_bundled": [],
    "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of Warp; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "Below the 256 px bar: warp.dev’s largest is 196 px and it serves no SVG. svgl’s warp.svg is the retired teal mark; simple-icons’ is a mono redraw."
+   "note": "Below the 256 px bar: warp.dev’s largest is 196 px and it serves no SVG. svgl’s warp.svg is the retired teal mark; simple-icons’ is a mono redraw.",
+   "upstream_sha256": "052f0aa0c1b45740c49072743708a53c7a0e317582385fb61dd8b6c67f74d9e2"
   },
   {
    "slug": "amp",
@@ -350,7 +352,8 @@
    "replaces_bundled": [],
    "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of Instinct; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "Below the bar: the only icon the homepage links is a 64 px stick figure; no app is on the App Store. instinct.com also serves an unlinked favicon.svg (a black “I” on white, src/site/instinctcom-2.svg) — likely older; not used."
+   "note": "Below the bar: the only icon the homepage links is a 64 px stick figure; no app is on the App Store. instinct.com also serves an unlinked favicon.svg (a black “I” on white, src/site/instinctcom-2.svg) — likely older; not used.",
+   "upstream_sha256": "0b666ba5c89408ca2b9c790ce7bf65da063645ca60a5e06426461924b0c1fd08"
   },
   {
    "slug": "openrouter",
@@ -372,7 +375,8 @@
    ],
    "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of OpenRouter, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": null
+   "note": null,
+   "upstream_sha256": "e6ce76bf956ac68569a7b1456fe0310fb9cc22bc1bc0fd8defd5daae099480b8"
   },
   {
    "slug": "fireworks",
@@ -489,7 +493,8 @@
    ],
    "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of X Corp.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": null
+   "note": null,
+   "upstream_sha256": "a83542eb0563242949d7dbde720014fb7ab48ae14ed59f43eec34907cb90c477"
   },
   {
    "slug": "instagram",
@@ -594,7 +599,8 @@
    ],
    "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of ByteDance; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": null
+   "note": null,
+   "upstream_sha256": "5e9c735171956561f39711ea2c6b593ad1d288e53cad060237d0f986202ffb36"
   },
   {
    "slug": "github",
@@ -872,7 +878,8 @@
    "replaces_bundled": [],
    "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of Wispr AI; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": null
+   "note": null,
+   "upstream_sha256": "bcd62d7ca4ecd8dfc0e427d9834958a51860a8613fc384b636ed99f0ca453371"
   },
   {
    "slug": "notion",
@@ -891,7 +898,8 @@
    "replaces_bundled": [],
    "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of Notion Labs, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": null
+   "note": null,
+   "upstream_sha256": "483846a85e43e22879445047b83b22033e70fcc25ab34809ebadb7f856507ee0"
   },
   {
    "slug": "readwise",
@@ -991,7 +999,8 @@
    "replaces_bundled": [],
    "license": "CC0 for the vector as published by simple-icons; the mark stays its owner's, nominative use only",
    "trademark": "Trademark of Substack Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "Substack's own site serves this shape only inside a wide empty margin (substack.com/img/substack.png), too small in a tile; the same shape as a vector, with the fill #FF6719 added: the colour that file uses."
+   "note": "Substack's own site serves this shape only inside a wide empty margin (substack.com/img/substack.png), too small in a tile; the same shape as a vector, with the fill #FF6719 added: the colour that file uses.",
+   "upstream_sha256": "2ccf1b8fcdda9a8073e5bcfbb57c1a99e114eba05a8d274ba7b2ed05d19b302a"
   },
   {
    "slug": "goodreads",
@@ -1049,6 +1058,49 @@
    "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of The Browser Company; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
    "note": "The largest the vendor's site serves."
+  },
+  {
+   "slug": "perplexity",
+   "group": "agent",
+   "file": "perplexity.svg",
+   "format": "svg",
+   "pixels": null,
+   "meets_bar": true,
+   "source_tier": "official site",
+   "source_url": "https://www.perplexity.ai/favicon.svg",
+   "fetched": "2026-11-05",
+   "sha256": "00180a688c194d684a69b247769cdf24a7720712256dbe0f334f97e8a15821e4",
+   "umbrella": "Perplexity",
+   "sub_products": [
+    "Perplexity app",
+    "Perplexity connector"
+   ],
+   "dark_variant": null,
+   "replaces_bundled": [],
+   "license": "Vendor’s own published asset; no licence beyond nominative use",
+   "trademark": "Trademark of Perplexity AI, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+   "note": "The site's own SVG icon, the same drawing as its 192 px PNG and 180 px touch icon. Commons has only a wordmark."
+  },
+  {
+   "slug": "comet",
+   "group": "browser",
+   "file": "comet.png",
+   "format": "png",
+   "pixels": 512,
+   "meets_bar": true,
+   "source_tier": "official app icon",
+   "source_url": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/4f/fe/a4/4ffea43e-694a-2940-1b00-23923364b2af/AppIcon-0-0-1x_U007epad-0-1-85-220.png/512x512bb.png",
+   "fetched": "2026-11-05",
+   "sha256": "c9961fb22c098ab3fc53873ac23570c19d5011de80eeeb6a5576e489d61a8e31",
+   "umbrella": "Comet (Perplexity)",
+   "sub_products": [
+    "Comet browser"
+   ],
+   "dark_variant": null,
+   "replaces_bundled": [],
+   "license": "Vendor’s own published asset; no licence beyond nominative use",
+   "trademark": "Trademark of Perplexity AI, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+   "note": "The App Store icon of 'Comet - AI Browser & Assistant', seller Perplexity AI Inc., seller URL perplexity.ai/comet. The same swoosh as the 32 px icon its site serves. An opaque tile, as published."
   }
  ]
 }

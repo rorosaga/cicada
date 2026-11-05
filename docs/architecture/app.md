@@ -3216,7 +3216,7 @@ curvature instead, and `LogoAssetTests` names any opaque plate so another cannot
 **Claude Code is the Claude mark plus an app-drawn `>_` badge** (R-AG8, `BrandMark`, composed in
 `LogoImage`: `claude-code` → `claude.png` + badge, `claude-desktop` → the plain `claude.png`); callers
 keep passing the logical name, and no mark file is edited. **ROR-107 (2026-11-05):** Substack, Goodreads, Vivaldi and Dia
-gained their marks; Comet's vendor serves nothing above 32 px, so it stays on the globe unless it is installed. A tile with no brand
+gained their marks. **Owner 2026-11-05 ("Sources should always have their logos and the latest versions of them"):** T3 Code, Grok, Perplexity and Comet gained theirs (Comet's site serves 32 px; its mark is its App Store icon). `SourceMarkCoverageTests` reads `HARNESS_LABELS` and every `SourceCatalog` entry, and fails on one with no bundled mark unless it is Apple's or on its one named list. `scripts/check-logo-upstream.py`, a release step, prints which set sources differ upstream; it writes nothing and nothing fetches at runtime. A tile with no brand
 wears one outline glyph that says what it holds: Chat exports `square.and.arrow.up`, Files and links `doc.on.doc` (its own key,
 `SourceCatalog.filesOrigin`, for the picture only), Book scans `barcode.viewfinder`, Activity `clock.arrow.circlepath`. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
 transform is an exact luminance inversion of a *monochrome* mark into its `-dark` sibling, which

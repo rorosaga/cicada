@@ -292,7 +292,7 @@ final class RemoteConnectorTests: XCTestCase {
         XCTAssertEqual(OriginIconography.logoName(for: "chatgpt"), "chatgpt")
         XCTAssertEqual(OriginIconography.logoName(for: "claude-code-remote"), "claude-code")
         XCTAssertEqual(OriginIconography.logoName(for: "codex-remote"), "codex")
-        XCTAssertNil(OriginIconography.logoName(for: "perplexity"))
+        XCTAssertEqual(OriginIconography.logoName(for: "perplexity"), "perplexity")
         XCTAssertEqual(OriginIconography.label(for: "claude-web"), "Claude")
         XCTAssertEqual(OriginIconography.label(for: "vscode"), "GitHub Copilot")
         XCTAssertNotEqual(OriginIconography.symbol(for: "perplexity"), "tray")
@@ -304,7 +304,7 @@ final class RemoteConnectorTests: XCTestCase {
         XCTAssertTrue(snippets[0].contains(link))
         XCTAssertFalse(snippets[0].contains("Bearer"))
         XCTAssertEqual(OriginIconography.label(for: "grok"), "Grok")
-        XCTAssertNil(OriginIconography.logoName(for: "grok"))
+        XCTAssertEqual(OriginIconography.logoName(for: "grok"), "grok")
     }
 
     func testCreatingSendsTheChosenExpiry() async throws {

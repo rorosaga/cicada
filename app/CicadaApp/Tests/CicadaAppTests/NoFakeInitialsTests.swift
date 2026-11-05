@@ -15,9 +15,9 @@ final class NoFakeInitialsTests: XCTestCase {
 
     /// A known app counts only when it is installed: with no icon from Launch Services and no bundled logo, nothing.
     func testAKnownAppCountsOnlyWhenInstalled() {
-        XCTAssertNil(OriginIconography.logoName(for: "comet-bookmark"), "the case under test has no bundled logo")
-        XCTAssertFalse(OriginMark.hasRealMark("comet-bookmark", appIcon: { _ in false }), "app missing, no logo: nothing")
-        XCTAssertTrue(OriginMark.hasRealMark("comet-bookmark", appIcon: { $0 == "ai.perplexity.comet" }))
+        XCTAssertNil(OriginIconography.logoName(for: "hex"), "the case under test has no bundled logo")
+        XCTAssertFalse(OriginMark.hasRealMark("hex", appIcon: { _ in false }), "app missing, no logo: nothing")
+        XCTAssertTrue(OriginMark.hasRealMark("hex", appIcon: { $0 == "anomaly.hex" }))
         XCTAssertTrue(OriginMark.hasRealMark("chrome-bookmark", appIcon: { _ in false }), "app missing, bundled logo: logo")
         XCTAssertFalse(OriginMark.hasRealMark("no-such-origin-example", appIcon: { _ in true }))
     }

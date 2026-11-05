@@ -20,6 +20,8 @@ CI, the release PR check and `make release` all ask it — and any disagreement 
 1. **Check `dev` is ready.** Suites green (`api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider`,
    `cd app/CicadaApp && swift test`), and the last dry run green (below). Optional: `make release-app` builds the
    installable app on this Mac and smoke-tests it in a temp folder; it installs nothing.
+   Run `scripts/check-logo-upstream.py`: a line it prints is a mark to review by eye before it is replaced (the README in
+   `app/assets/logo-set/`).
 2. **Bump the version: `make release VERSION=x.y.z`.** It works in a temporary worktree — your checkout is never
    switched — and bumps `VERSION`, `api/pyproject.toml`, uv.lock's project line and the formula's tag on a `release/vx.y.z` branch off
    `origin/dev`, shows what it will push and asks, then pushes that branch and opens a PR to `dev` titled

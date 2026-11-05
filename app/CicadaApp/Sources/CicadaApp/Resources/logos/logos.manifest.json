@@ -66,6 +66,19 @@
       "umbrella": "Anthropic / Claude"
     },
     {
+      "file": "comet.png",
+      "id": "comet",
+      "licence": "Vendor’s own published asset; no licence beyond nominative use",
+      "origin": "set",
+      "restrictions": "Trademark of Perplexity AI, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/comet.png",
+      "sha256": "5f97c737b5ea39d737924bea21dbcad2b4e96514fc373a602e0be5955f551ae7",
+      "sourceTier": "official app icon",
+      "sourceUrl": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/4f/fe/a4/4ffea43e-694a-2940-1b00-23923364b2af/AppIcon-0-0-1x_U007epad-0-1-85-220.png/512x512bb.png",
+      "svgSha256": "c9961fb22c098ab3fc53873ac23570c19d5011de80eeeb6a5576e489d61a8e31",
+      "umbrella": "Comet (Perplexity)"
+    },
+    {
       "file": "copilot.png",
       "id": "copilot",
       "licence": "Vendor’s own published asset; no licence beyond nominative use",
@@ -468,6 +481,19 @@
       "sourceUrl": "https://openrouter.ai/favicon/glyph.png",
       "svgSha256": "c12aeae275fd148aaf14bacf01a8e180ac1cb02c0642e74c2ed9ec3787fae53f",
       "umbrella": "OpenRouter"
+    },
+    {
+      "file": "perplexity.png",
+      "id": "perplexity",
+      "licence": "Vendor’s own published asset; no licence beyond nominative use",
+      "origin": "set",
+      "restrictions": "Trademark of Perplexity AI, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/perplexity.svg",
+      "sha256": "b06bd7ef9d438498987dd27d226d06c41cec8a2aeebf200ffafc92ac561cc375",
+      "sourceTier": "official site",
+      "sourceUrl": "https://www.perplexity.ai/favicon.svg",
+      "svgSha256": "00180a688c194d684a69b247769cdf24a7720712256dbe0f334f97e8a15821e4",
+      "umbrella": "Perplexity"
     },
     {
       "file": "pinterest.png",
