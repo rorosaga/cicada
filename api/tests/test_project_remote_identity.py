@@ -27,6 +27,14 @@ def observer():
     return mod
 
 
+def real_git_observer():
+    """For a test about what real git answers, not how fast: `TIMEOUT_S` (0.1 s, unchanged) is the hook's own bound and
+    a loaded machine passes it; the synthetic-clock test below pins it."""
+    mod = observer()
+    mod.TIMEOUT_S = 30.0
+    return mod
+
+
 def _git(tmp_path, *args):
     git_env = {"PATH": os.environ.get("PATH", os.defpath), "HOME": str(tmp_path),
                "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
@@ -58,7 +66,7 @@ def test_anything_but_one_url_line_is_no_remote(raw):
 
 
 def test_the_hook_sends_a_salted_hash_and_never_the_url(tmp_path):
-    mod = observer()
+    mod = real_git_observer()
     repo = _repo(tmp_path, tmp_path / "work" / "alpha-project")
     env = {"HOME": str(tmp_path), "PATH": os.environ["PATH"]}
     home = tmp_path / "hook-home"
@@ -78,7 +86,7 @@ def test_the_hook_sends_a_salted_hash_and_never_the_url(tmp_path):
 
 
 def test_no_origin_or_no_salt_keeps_the_pair_without_a_remote(tmp_path):
-    mod = observer()
+    mod = real_git_observer()
     env = {"HOME": str(tmp_path), "PATH": os.environ["PATH"]}
     bare = _repo(tmp_path, tmp_path / "no-origin", origin=None)
     assert {"repo_root", "common_dir"} <= set(value := mod.observe(str(bare), home=tmp_path / "h", environ=env))
@@ -161,7 +169,7 @@ def _moved(tmp_path, repo, how):
 
 @pytest.mark.parametrize("how", ["rename", "move", "reclone"])
 def test_the_startup_pointer_follows_the_repository(env, tmp_path, how):
-    mod = observer()
+    mod = real_git_observer()
     git_env = {"HOME": str(tmp_path), "PATH": os.environ["PATH"]}
     hook_home = tmp_path / "hook-home"
     repo = _repo(tmp_path, tmp_path / "work" / "alpha-project")
@@ -176,7 +184,7 @@ def test_the_startup_pointer_follows_the_repository(env, tmp_path, how):
 
 def test_two_clones_active_together_are_two_checkouts(env, tmp_path):
     """Clone B was in use before clone A's session: A is not B renamed or moved, so B never adopts A's history."""
-    mod = observer()
+    mod = real_git_observer()
     git_env = {"HOME": str(tmp_path), "PATH": os.environ["PATH"]}
     hook_home = tmp_path / "hook-home"
     clone_a = _repo(tmp_path, tmp_path / "work" / "alpha-project")
@@ -194,7 +202,7 @@ def test_two_clones_active_together_are_two_checkouts(env, tmp_path):
 
 
 def test_a_worker_worktree_of_the_moved_repository_is_still_only_a_choice(env, tmp_path):
-    mod = observer()
+    mod = real_git_observer()
     git_env = {"HOME": str(tmp_path), "PATH": os.environ["PATH"]}
     hook_home = tmp_path / "hook-home"
     repo = _repo(tmp_path, tmp_path / "work" / "alpha-project")

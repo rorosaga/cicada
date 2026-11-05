@@ -99,8 +99,8 @@ with open(os.environ['PIPELINE_TRACE'], 'a') as log:
         # instead of a ModuleNotFoundError deep in the import: the system python3 moves on its own (a Homebrew
         # upgrade leaves Pillow behind in the previous version's site-packages).
         if importlib.util.find_spec('PIL') is None:
-            self.fail(f'needs Pillow, which {sys.executable} lacks; run '
-                      '`uv run --no-project --with pillow python tools/test_export_pipeline.py`')
+            self.skipTest(f'needs Pillow, which {sys.executable} lacks; run '
+                          '`uv run --no-project --with pillow python tools/test_export_pipeline.py`')
         with tempfile.TemporaryDirectory(dir=ART / 'qa', prefix='manifest-test-') as td:
             res = Path(td)
             for p in RES.iterdir():
