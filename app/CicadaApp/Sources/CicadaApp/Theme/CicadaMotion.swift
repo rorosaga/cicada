@@ -139,6 +139,20 @@ enum CicadaMotion {
     static let reducedFadeDuration: TimeInterval = 0.1
     static var fade: Animation { .linear(duration: reducedFadeDuration) }
 
+    // MARK: - G233: the book scanner's window
+    /// The mark on a taken code growing and filling. Movement (a slight scale) goes under Reduce Motion; the fill stays
+    /// as DR-66's short fade.
+    static let scanLockDuration: TimeInterval = 0.25
+    /// How long the confirmed mark stays before the scanner goes back to looking. A hold, not an animation.
+    static let scanLockHold: TimeInterval = 0.7
+    /// How long a one-line notice ("not a book's number") stays. A hold, not an animation.
+    static let scanNoticeHold: TimeInterval = 2.5
+    /// How long the app may sit in the background before the scanner closes and the camera stops. Not an animation.
+    static let scanAwayGrace: TimeInterval = 3.0
+    static func scanLock(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.out(scanLockDuration)
+    }
+
     // MARK: - G191: the "what made you save this?" panel growing out of the notch
     /// The panel arriving: the notch's own black shape grows down and out into the panel, a quick spring with a
     /// little give (owner 2026-10-14: "the thing coming down out of the notch").

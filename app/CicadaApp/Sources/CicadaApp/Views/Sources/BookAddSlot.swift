@@ -13,23 +13,29 @@ final class BookAddFlow {
     private(set) var line: BooksRowText.Line?
     /// The book the number became, once the home has looked it up: the Add draws it and opens its page.
     private(set) var found: BookScanResult?
-    private(set) var busy = false
+    /// Numbers sent whose lookup has not answered. The Add waits on it; the scanner does not — it takes the next book
+    /// while the last is looked up, so `submit` can be called again before an earlier call returns.
+    private var pending = 0
+    var busy: Bool { pending > 0 }
 
     /// Sends the number as the phone's `POST /capture/isbn` does, then follows what it became a few times (the lookup
-    /// runs at the home; a slow one lands on its own). True when the number was accepted.
+    /// runs at the home; a slow one lands on its own). True when the number was accepted. `onFound` hears the book as
+    /// soon as the lookup answers, or nil when it has not by the time the follow gives up.
     @discardableResult
-    func submit(_ raw: String, status: String? = nil) async -> Bool {
-        guard let isbn = BookISBN.parse(raw), !busy else {
-            if !busy { line = .init(text: Copy.bookAddNotABook, isProblem: true) }
+    func submit(_ raw: String, status: String? = nil, onFound: ((BookScanResult?) -> Void)? = nil) async -> Bool {
+        guard let isbn = BookISBN.parse(raw) else {
+            line = .init(text: Copy.bookAddNotABook, isProblem: true)
             return false
         }
-        busy = true
-        defer { busy = false }
+        pending += 1
+        defer { pending -= 1 }
         found = nil
         do {
             let sent = try await APIClient.shared.captureISBN(isbn, status: status)
             line = .init(text: Copy.bookAddWaiting)
-            await follow(sent.episodeId)
+            let result = await follow(sent.episodeId)
+            if let result { found = result; line = nil }
+            onFound?(result)
             return true
         } catch {
             line = .init(text: Copy.bookAddFailed, isProblem: true)
@@ -39,16 +45,15 @@ final class BookAddFlow {
 
     func clear() { line = nil; found = nil }
 
-    private func follow(_ episodeId: String?) async {
-        guard let episodeId else { return }
+    private func follow(_ episodeId: String?) async -> BookScanResult? {
+        guard let episodeId else { return nil }
         for _ in 0..<12 {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             guard let result = try? await APIClient.shared.bookScanResult(episodeId: episodeId),
                   result.state == "added", result.entityId != nil, result.name != nil else { continue }
-            found = result
-            line = nil
-            return
+            return result
         }
+        return nil
     }
 }
 
@@ -88,13 +93,12 @@ private struct BookFoundRow: View {
 /// the result in one line — "Added · <title>", or "Already in your books · <title>" with a way to open that page.
 struct BookAddSlot: View {
     @Environment(Store.self) private var store
-    @State private var camera = BookBarcodeCamera()
+    @State private var scanOpen = false
     @State private var text = ""
     @State private var status: String?
     @FocusState private var focused: Bool
 
     private var flow: BookAddFlow { .shared }
-    private var scanning: Bool { camera.state == .starting || camera.state == .running }
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -111,54 +115,26 @@ struct BookAddSlot: View {
                 }
                 NeutralButton(title: Copy.bookAdd, size: .compact,
                               isDisabled: flow.busy || BookISBN.parse(text) == nil) { Task { await add() } }
-                NeutralButton(title: scanning ? Copy.bookAddStopScan : Copy.bookAddScan,
-                              systemImage: "barcode.viewfinder", size: .compact, help: Copy.bookAddScanHelp) {
-                    if scanning { camera.stop() } else { scan() }
+                NeutralButton(title: Copy.bookAddScan, systemImage: "barcode.viewfinder", size: .compact,
+                              help: Copy.bookAddScanHelp) {
+                    flow.clear()
+                    scanOpen = true   // The person's click: the camera opens inside the window, nowhere else.
                 }
                 Spacer(minLength: 0)
             }
-            if scanning {
-                let shape = CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                BookCameraPreview(session: camera.session)
-                    .frame(maxWidth: CicadaTheme.scaled(320))
-                    .frame(height: CicadaTheme.scaled(180))
-                    .clipShape(shape)
-                    .overlay { shape.stroke(CicadaTheme.ring(.resting), lineWidth: 1) }
-                    .accessibilityHidden(true)
-            }
-            if let message = cameraLine ?? flow.line?.text {
-                SourceConnectLine(text: message, isAttention: cameraLine != nil || (flow.line?.isProblem ?? false))
+            if let message = flow.line?.text {
+                SourceConnectLine(text: message, isAttention: flow.line?.isProblem ?? false)
             }
             if let found = flow.found { BookFoundRow(result: found) }
         }
-        .onDisappear { camera.stop() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
-            camera.stop()   // Not left watching a room while the person is in another app.
+        // The scanner is its own window over the app: it owns the camera, and closing it (Esc, its button, the page
+        // going away) stops it.
+        .sheet(isPresented: $scanOpen) {
+            BookScanSheet { await store.refresh([.channels, .sources, .sourcesOverview, .status]) }
         }
-    }
-
-    /// The one fix when the camera cannot open, in words.
-    private var cameraLine: String? {
-        switch camera.state {
-        case .denied: Copy.bookAddCameraDenied
-        case .unavailable: Copy.bookAddNoCamera
-        default: nil
-        }
-    }
-
-    /// The person's click: the camera opens (macOS asks now, if it has not), and the first book's number fills the field
-    /// with the camera already stopped — the person confirms the status and presses Add.
-    private func scan() {
-        flow.clear()
-        camera.onISBN = { isbn in
-            text = isbn
-            focused = false
-        }
-        Task { await camera.start() }
     }
 
     private func add() async {
-        camera.stop()
         let sent = text
         let chosen = status
         if await flow.submit(sent, status: chosen) {
