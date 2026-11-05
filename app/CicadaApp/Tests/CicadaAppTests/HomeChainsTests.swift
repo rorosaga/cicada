@@ -80,6 +80,8 @@ final class HomeChainsTests: XCTestCase {
     /// parting before the join, and neither the proposal nor the chain's taps stay.
     func testTwoAnswersInOneMessageResolveBothPairsAtOnce() async throws {
         var open = try items()
+        let decay = try JSONDecoder().decode(InboxItem.self, from: Data(#"{"id":"d1","kind":"decay","requiredInput":"choice","title":"Still tracking Beta?","allowDefer":true,"options":[{"key":"keep","label":"Keep"},{"key":"archive","label":"Archive"}]}"#.utf8))
+        open.append(decay)
         var held: [[(String, QuestionResolution)]] = []
         let s = CatchupSession(
             queue: HomeQuestions.figures(open, now: .now).catchUp, items: { open },
