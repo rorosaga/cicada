@@ -467,6 +467,10 @@ struct SourceCatalogDetail: View {
                                       line: feed.lastError)
                 } else if let error = feed.lastError, !error.isEmpty {
                     SourceConnectLine(text: error, isAttention: true)
+                    // ROR-41: the gate is off and this Mac's background service is what turns it on.
+                    if store.status.value?.gates?.feedFetch == false, !ServerConnection.current.isServer {
+                        SettingsInlineLink(section: .general, row: .backgroundService, label: Copy.Catalog.feedsTurnOn)
+                    }
                 }
             } else if let tile = entry.tile, row.status == .off {
                 SourceConnectArea(primary: SourcePrimaryAction(title: verbTitle(entry.verb)) { flowTile = tile })

@@ -16,7 +16,11 @@ struct AppleBooksSlot: View {
         switch slot {
         case .connect:
             let line = BooksRowText.appleBooks(reader.status, lastError: channel?.lastError)
-            if reader.enabled {
+            if reader.enabled && reader.deniedByMac {
+                SourceConnectArea(primary: SourcePrimaryAction(title: Copy.allowFullDiskAccess) {
+                    NSWorkspace.shared.open(BrowserFileError.fullDiskAccessURL)
+                }, line: line?.text, lineIsAttention: true)
+            } else if reader.enabled {
                 SourceConnectArea(line: line?.text, lineIsAttention: line?.isProblem ?? false)
             } else {
                 // A first read that failed before the reader came on keeps Connect, with why beside it.

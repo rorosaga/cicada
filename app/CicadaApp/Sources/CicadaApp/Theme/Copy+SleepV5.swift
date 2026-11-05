@@ -255,8 +255,7 @@ extension Copy {
         static func spendChoice(_ usd: Double) -> String {
             usd == usd.rounded() ? "$\(Int(usd))" : "$" + String(format: "%.2f", usd)
         }
-        static let spendHelp =
-            "A run stops reading here and files what it read, so it can pass this by about one read plus that filing. Only Sleep runs count: Ask, the quick read after a chat, inbox tidying, repairs and your clicks aren't limited, and a scheduled run that was interrupted starts over with a fresh allowance. A model with no known price stops the run."
+        static let spendHelp = "Sleep runs only. A run stops here and files what it read, about one read over at most."
         static let keyLimitTail = "Stopped at your API key's limit — details in Past reads."
         static func reserveChoice(_ pct: Int) -> String { "\(pct)% of the window" }
         static func reserveValue(_ pct: Int, windows: [String]) -> String {

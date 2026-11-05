@@ -79,6 +79,9 @@ struct SourceCatalogRow: Identifiable, Equatable {
     let lastSync: Date?
     /// 2026-11-04 — the app this source reads was removed from this Mac: Off, and the row says why.
     var notInstalled = false
+    /// False for a row Connected only through a reader another row holds (`readerHome`): it reads Connected, and the
+    /// eyebrow does not count that reader twice.
+    var countsAsConnected = true
     var id: String { entry.id }
 }
 
@@ -279,6 +282,10 @@ enum SourceCatalog {
     /// Chrome's watched days are both `youtube-history`.
     static let sharedWithReader: [String: String] = ["youtube-history": WatchHistoryWatcher.channel]
 
+    /// ROR-41 ("Sources · 2 connected" with one switch on) — a channel two entries speak for belongs to the entry whose
+    /// page holds its switch. Chrome's YouTube history is on Chrome's page and shows on YouTube's: one connection.
+    static let readerHome: [String: String] = [WatchHistoryWatcher.channel: browserPrefix + WatchHistoryWatcher.browser]
+
     /// One entry's status: Needs sign-in when a connector's last failure says so; Connected when a channel is connected
     /// and, for a reader this Mac runs, that reader is still on (`localReaders`: channel id → on; 2026-10-23 — a
     /// Calendar disconnected here kept reading Connected, because the backend only knows it synced once); also a
@@ -353,13 +360,17 @@ enum SourceCatalog {
             // 2026-11-04 — an app removed from this Mac (`LocalSourceWatcher.missingApps`) reads Off, whatever the bank's
             // switch says: nothing more can come from it.
             let gone = notInstalled.contains(entry.id)
-            return SourceCatalogRow(entry: entry,
-                                    status: gone ? .off : status(for: entry, channels: channels, overview: overview,
-                                                                 readableSites: readableSites,
-                                                                 localReaders: localReaders,
-                                                                 savedListsOn: savedListsOn, localAgent: localAgent),
+            func read(_ readers: [String: Bool]) -> SourceCatalogStatus {
+                gone ? .off : status(for: entry, channels: channels, overview: overview, readableSites: readableSites,
+                                     localReaders: readers, savedListsOn: savedListsOn, localAgent: localAgent)
+            }
+            // What this row would read with every reader it only borrows switched off.
+            let borrowed = entry.channels.filter { readerHome[$0].map { $0 != entry.id } ?? false }
+            let own = borrowed.isEmpty ? nil
+                : read(localReaders.merging(borrowed.map { ($0, false) }) { _, off in off })
+            return SourceCatalogRow(entry: entry, status: read(localReaders),
                                     lastSync: [synced, checked[entry.id]].compactMap { $0 }.max(),
-                                    notInstalled: gone)
+                                    notInstalled: gone, countsAsConnected: own.map { $0 == .connected } ?? true)
         }
     }
 
@@ -378,9 +389,10 @@ enum SourceCatalog {
     /// The rows in the order the page draws them (`grouped`, flattened): what the arrow keys walk.
     static func drawnOrder(_ rows: [SourceCatalogRow]) -> [SourceCatalogRow] { grouped(rows).flatMap(\.rows) }
 
-    /// "Sources · 6 connected" — the eyebrow counts what is connected; a list waiting for an agent is not.
+    /// "Sources · 6 connected" — the eyebrow counts what is connected, each reader once (`readerHome`); a list waiting
+    /// for an agent is not.
     static func connectedCount(_ rows: [SourceCatalogRow]) -> Int {
-        rows.filter { $0.status == .connected }.count
+        rows.filter { $0.status == .connected && $0.countsAsConnected }.count
     }
 
     /// The second line, only when it says something: when it last synced ("2 h ago"), else nothing (the status word

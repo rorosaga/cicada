@@ -400,8 +400,7 @@ async def ingest_rss(
         if os.environ.get("CICADA_ALLOW_FEED_FETCH") != "1":
             raise HTTPException(
                 status_code=422,
-                detail="Live feed fetch is disabled. Set CICADA_ALLOW_FEED_FETCH=1 "
-                "or pass feedXml directly.",
+                detail=channel_registry.FEED_FETCH_OFF,
             )
         import httpx
 

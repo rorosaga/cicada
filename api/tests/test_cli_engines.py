@@ -1033,3 +1033,22 @@ def test_grok_stays_off_auto():
     source = inspect.getsource(cli_engines)
     assert "AUTO_SPECS: tuple[EngineSpec, ...] = (CURSOR, OPENCODE)" in source
     assert "grok-plan" not in engine_select._AUTO_LADDER
+
+
+@pytest.mark.parametrize("inside", ["Contents/Resources/opencode-cli", "Contents/MacOS/opencode-cli"])
+def test_opencodes_tool_is_found_where_either_desktop_build_carries_it(tmp_path, monkeypatch, inside):
+    """ROR-41: the Electron desktop carries it in ``process.resourcesPath``, an older build beside the app's binary."""
+    from api.services.connections import base
+
+    tool = tmp_path / "OpenCode.app" / inside
+    tool.parent.mkdir(parents=True)
+    tool.write_text("#!/bin/sh\n")
+    tool.chmod(0o755)
+    monkeypatch.setattr(base, "APP_DIRS", (str(tmp_path),))
+    assert base.bundled_tool("opencode") == str(tool)
+
+
+def test_every_install_line_names_a_command_never_a_docs_page():
+    """ROR-41: Grok's line pointed at a page that went away; a command is the exact step."""
+    for spec in cli_engines.SPECS.values():
+        assert "curl " in spec.install

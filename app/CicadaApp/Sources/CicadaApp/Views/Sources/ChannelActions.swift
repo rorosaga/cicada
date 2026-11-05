@@ -188,7 +188,7 @@ enum ChannelActions {
     /// A user-initiated poll still honours the backend's fetch gate: the
     /// result says so plainly instead of reporting "0 new" as if it had run.
     static func poll(_ channelId: String) async throws -> String {
-        let disabled = "Live fetch is disabled on this backend — set CICADA_ALLOW_FEED_FETCH=1 and restart."
+        let disabled = Copy.Catalog.feedsNotChecked
         if channelId == "calendar" {
             let r = try await APIClient.shared.pollCalendars()
             return r.skippedNoNetwork > 0 ? disabled : "\(r.new) new event(s)"

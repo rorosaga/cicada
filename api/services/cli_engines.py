@@ -100,7 +100,7 @@ OPENCODE = EngineSpec(
 GROK = EngineSpec(
     mode="grok", label="grok-cli", connection="grok-plan", name="Grok", plan_name="Grok plan",
     binaries=("grok",),
-    install="Install Grok Build (see docs.x.ai/build/cli), then run `grok login`.",
+    install="Install Grok Build (curl -fsSL https://x.ai/cli/install.sh | bash), then run `grok login`.",
     sign_in="grok login",
     billing_note=("Runs on your signed-in Grok subscription, only on xAI's own Grok models, and only when you "
                   "start a read. A key you set in Grok's own settings for one of those models would still bill "
