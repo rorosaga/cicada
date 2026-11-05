@@ -676,8 +676,9 @@ async def _resolve_books_safely(memory_path: Path) -> None:
         # (a merge, an alias), a cover the app posted during the window waits for its stamp.
         await book_jobs.lookup_waiting(memory_path)
         report = await asyncio.to_thread(books.apply_pending, memory_path)
-        if report["paths"]:
-            await folder_source.commit_paths_for(memory_path, report["paths"], subject="Books", trigger="books/apply",
+        if report["paths"] or report["cicada_paths"]:
+            await folder_source.commit_paths_for(memory_path, report["paths"] + report["cicada_paths"],
+                                                 subject="Books", trigger="books/apply",
                                                  author="cicada", channel=book_jobs.CHANNEL)
         if report["applied"] or report["waiting"]:
             logger.info(f"Books: {report['applied']} applied, {report['pages_created']} new pages, "

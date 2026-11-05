@@ -146,9 +146,11 @@ def test_a_scan_is_staged_then_resolved_at_the_home_into_a_work_page_with_its_is
     stamped = markdown_parser.parse(ep).frontmatter
     assert stamped[books.APPLIED_KEY] == stamped["content_hash"] and books.SAVE_KEY not in stamped
     assert not books.pending(memory)
-    # The User-Agent names no person; Open Library was asked once for the edition and once for its author.
+    # The User-Agent names no person; Open Library was asked for the edition, its author and its work, and Google Books
+    # (the edition has no publisher or description) once.
     assert "@" not in book_lookup.USER_AGENT
-    assert [u.rsplit("/", 1)[-1] for u in calls] == [f"{PAPERBACK}.json", "OL1A.json"]
+    assert [u.rsplit("/", 1)[-1] for u in calls] == [f"{PAPERBACK}.json", "OL1A.json", "OL7W.json",
+                                                      f"volumes?q=isbn:{PAPERBACK}"]
 
 
 def test_a_resend_with_the_same_key_is_one_scan(client):
@@ -609,5 +611,6 @@ def test_the_lookup_paces_the_redirect_hop_and_shares_its_pacer_across_runs(monk
 
     hit = asyncio.run(book_lookup.lookup(PAPERBACK, fetch=fetch))
     assert hit and hit["title"] == "The Lantern Orchard"
-    assert [u.rsplit("/", 1)[-1] for u in calls] == [f"{PAPERBACK}.json", "OL1M.json", "OL1A.json"]
+    assert [u.rsplit("/", 1)[-1] for u in calls] == [f"{PAPERBACK}.json", "OL1M.json", "OL1A.json", "OL7W.json",
+                                                      f"volumes?q=isbn:{PAPERBACK}"]
     assert len(waits) == len(calls)                                    # every request, the redirect hop included

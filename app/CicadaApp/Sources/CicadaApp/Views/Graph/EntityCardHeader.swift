@@ -79,8 +79,11 @@ struct EntityCardHeader: View {
                 HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
                     // Owner 2026-10-28: no picture, no tile — the name starts the line; *Add a picture…* is in the page menu
                     // (owner 2026-10-29: no blue words; a drawn picture is itself the control).
-                    EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 40, held: entity.pictureRef,
-                                  heldInputs: pictureInputs, editing: .tile, collapsesWhenEmpty: true)
+                    // G233 (DR-38): a book's cover is drawn once, in its head, never again as a tile here.
+                    if entity.media?.isBook != true {
+                        EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 40, held: entity.pictureRef,
+                                      heldInputs: pictureInputs, editing: .tile, collapsesWhenEmpty: true)
+                    }
                     // Wraps rather than truncates: a selectable name cut short opened over the Summary on a click.
                     // G227: the plain name; a shared one carries its qualifier as a `Tag` beside it (DR-44).
                     HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {

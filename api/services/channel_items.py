@@ -771,7 +771,9 @@ def _book_rows(memory_path: Path, channel_id: str, media: "_Media") -> list[dict
             continue
         page = str(fm.get("book_entity_id") or fm.get("media_entity_id") or "").strip()
         if not page:
-            rows.append(_episode_row(fm, f.stem))
+            # A scan whose number is still being looked up is no item of its own: the book appears when it resolves.
+            rows.append({**_episode_row(fm, f.stem), "kind": "unknown", "title": "Looking it up…"}
+                        if channel_id == books.SCAN_ORIGIN else _episode_row(fm, f.stem))
         elif page not in seen and (row := media.row(page)) is not None:
             seen.add(page)
             cover = media_preview.preview_path(page, media.pages.get(page) or {})

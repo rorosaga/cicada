@@ -15,6 +15,15 @@ struct PageInShort: View {
     let relevance: EntityRelevance?
     var today: ISODay = .today()
 
+    /// Whether the In short slot draws for this page: never for an added file (its own Why it matters), and never the
+    /// "no personal relation" line on a book (G233, DR-38: the head already says how it came in). A relation that
+    /// exists still shows.
+    static func isDrawn(relevance: EntityRelevance?, media: MediaBlock?) -> Bool {
+        if media?.isFile == true { return false }
+        if media?.isBook == true, (relevance?.tense ?? "none") == "none" { return false }
+        return true
+    }
+
     static func counts(_ r: EntityRelevance?, today: ISODay) -> String? {
         guard let r, r.conversations > 0 else { return nil }
         var parts = [Copy.Pages.conversations(r.conversations)]

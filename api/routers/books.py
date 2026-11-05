@@ -12,6 +12,7 @@
 * ``GET /sources/books/scans/{episodeId}`` — what a scan became, so the Mac's Add can say "Already in your books".
 * ``GET /sources/books`` — counts for the Reading rows: books by status, and scans waiting for their lookup.
 * ``POST /sources/apple-books/covers`` — the covers the app read from Apple Books' cache (ruling 61, ``book_covers``).
+* ``GET /entities/{id}/book`` — what the page leads with (subtitle, facts line, subjects, the description's source, ways in).
 * ``GET /entities/{id}/book-status``, ``POST /entities/{id}/book-status/undo`` — the book's status and "Not right".
 """
 from __future__ import annotations
@@ -206,6 +207,15 @@ async def get_book_status(entity_id: str, settings: Settings = Depends(get_setti
     out = await run_in_threadpool(books.current_status, settings.memory_path, entity_id)
     if out is None:
         raise HTTPException(404, "no status on this page")
+    return out
+
+
+@router.get("/entities/{entity_id}/book")
+async def get_book_card(entity_id: str, settings: Settings = Depends(get_settings)):
+    """What a book's page leads with (`books.book_card`); 404 for a page that is no book."""
+    out = await run_in_threadpool(books.book_card, settings.memory_path, entity_id)
+    if out is None:
+        raise HTTPException(404, "not a book")
     return out
 
 
