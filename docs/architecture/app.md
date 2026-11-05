@@ -2026,7 +2026,12 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   "notion-api"]`; *Accounts* also carried Readwise until the owner removed it, 2026-11-03). Its detail opens `ConnectorSetupPanel` — the panel Reddit,
   Pinterest and X already use, so no new pattern (DR-40 buttons, DR-20/DR-2 caption text, DR-81 no fold, DR-52 marks:
   Notion its export's symbol; an earlier Readwise episode still draws the `highlighter` symbol in the Reader) — which says what the connector reads
-  (`reads`) and where the token comes from (`tokenHelp`) before Save, then Refresh and Disconnect. A refused token reads
+  (`reads`) before anything is connected; **ROR-113 (owner 2026-11-05) removed every form from it**: a source with a browser sign-in shows
+  one `Connect <name>` (`Sign in again` when it lapsed), one with none says "No sign-in here. Use your browser or a file.", a connected one
+  keeps Refresh and Disconnect, and Notion's `reads` line says before Connect that the sign-in acts as the person. The Reddit, X and Pinterest
+  key forms, GitHub's "Use a token instead" and the Telegram bot's token step are gone (the bot tile shows only for a bot already set up,
+  `SourceCatalog.entries(channels:)`); `NoSourceSecretFieldsLintTests` fails on a `SecureField` or a "paste a token" line in any source
+  surface (the one named exception: Telegram's own-account password). A refused token reads
   Needs sign-in (`signInChannels`). Notion's detail keeps the export's steps and drop below the live panel.
   **G32 (2026-10-29):** *Accounts* gains **Spotify** (id `spotify`, `verb: .importFile`, channels `spotify` — the
   library's saved items — and `spotify-listening` — the listening days, shown as "Spotify history" within `SourceDisplayName`'s 16 characters). Its detail is the Files & links row's own

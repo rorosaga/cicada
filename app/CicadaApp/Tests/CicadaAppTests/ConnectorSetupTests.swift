@@ -44,13 +44,11 @@ final class ConnectorSetupTests: XCTestCase {
         let status = try JSONDecoder().decode(ConnectorStatus.self, from: json)
         XCTAssertTrue(status.isTokenConnector)
         XCTAssertEqual(status.reads, "Reads the pages you shared with the connection.")
-        XCTAssertEqual(ConnectorSetupState.stepLabel(status), "Paste your own token")
-        // Said once, on one line (owner 2026-11-03): what it reads, then where the token comes from until connected.
-        XCTAssertEqual(ConnectorSetupState.readsLine(status),
-                       "Reads the pages you shared with the connection. Get a token at notion.so/profile/integrations.")
-        let connected = try JSONDecoder().decode(ConnectorStatus.self, from: Data(String(decoding: json, as: UTF8.self)
-            .replacingOccurrences(of: #""connected": false"#, with: #""connected": true"#).utf8))
-        XCTAssertEqual(ConnectorSetupState.readsLine(connected), "Reads the pages you shared with the connection.")
+        // Owner 2026-11-05: no token is asked for. With no sign-in to offer, the panel says where it comes in instead;
+        // what it reads is said once, whether or not it is connected.
+        XCTAssertEqual(ConnectorSetupState.action(status), .none)
+        XCTAssertEqual(ConnectorSetupState.stepLabel(status), Copy.Connect.noSignIn)
+        XCTAssertEqual(ConnectorSetupState.readsLine(status), "Reads the pages you shared with the connection.")
         let older = """
         {"id": "reddit", "label": "Reddit", "connected": false, "fields": [], "loginMode": "credentials"}
         """.data(using: .utf8)!
@@ -60,47 +58,53 @@ final class ConnectorSetupTests: XCTestCase {
         XCTAssertNil(ConnectorSetupState.readsLine(legacy))
     }
 
-    func testOAuthConnectorWithSavedAppButNoTokenStillNeedsAuthorization() throws {
-        let status = ConnectorStatus(
-            id: "pinterest", label: "Pinterest", connected: false,
-            fields: [ConnectorField(name: "PINTEREST_APP_ID", label: "App ID",
-                                    secret: false, present: true),
-                     ConnectorField(name: "PINTEREST_APP_SECRET", label: "App secret",
-                                    secret: true, present: true)],
-            lastSync: nil, lastError: nil, detail: nil, loginMode: "oauth")
-        XCTAssertTrue(status.needsAuthorization)
-    }
-
-    func testCredentialConnectorNeverNeedsAuthorization() {
+    func testCredentialConnectorIsNotOAuth() {
         let status = ConnectorStatus(
             id: "reddit", label: "Reddit", connected: false, fields: [],
             lastSync: nil, lastError: nil, detail: nil, loginMode: "credentials")
-        XCTAssertFalse(status.needsAuthorization)
         XCTAssertFalse(status.isOAuth)
     }
 
-    // MARK: - Copy
+    // MARK: - The one sign-in (owner 2026-11-05: no form for a token, key or password)
 
-    func testStepLabelWalksTheUserThroughTheOAuthFlow() {
-        let unsaved = ConnectorStatus(
-            id: "pinterest", label: "Pinterest", connected: false,
-            fields: [ConnectorField(name: "PINTEREST_APP_ID", label: "App ID",
-                                    secret: false, present: false)],
-            lastSync: nil, lastError: nil, detail: nil, loginMode: "oauth")
-        XCTAssertEqual(ConnectorSetupState.stepLabel(unsaved), "Step 1 of 2 — save your app keys")
+    private func status(connected: Bool = false, appSignIn: Bool? = nil, how: String? = nil,
+                        reconnect: Bool? = nil) -> ConnectorStatus {
+        ConnectorStatus(id: "notion-api", label: "Notion", connected: connected,
+                        fields: [ConnectorField(name: "CICADA_NOTION_TOKEN", label: "Token", secret: true, present: false)],
+                        lastSync: nil, lastError: nil, detail: nil, loginMode: "credentials",
+                        appSignIn: appSignIn, how: how, reconnect: reconnect)
+    }
 
-        let saved = ConnectorStatus(
-            id: "pinterest", label: "Pinterest", connected: false,
-            fields: [ConnectorField(name: "PINTEREST_APP_ID", label: "App ID",
-                                    secret: false, present: true)],
-            lastSync: nil, lastError: nil, detail: nil, loginMode: "oauth")
-        XCTAssertEqual(ConnectorSetupState.stepLabel(saved),
-                       "Step 2 of 2 — authorize in your browser")
+    func testANotConnectedSourceWithASignInOffersConnectAndNothingElse() {
+        let s = status(appSignIn: true)
+        XCTAssertEqual(ConnectorSetupState.action(s), .connect)
+        XCTAssertNil(ConnectorSetupState.stepLabel(s))
+        XCTAssertEqual(Copy.Connect.connect("Notion"), "Connect Notion")
+    }
 
-        let connected = ConnectorStatus(
-            id: "pinterest", label: "Pinterest", connected: true, fields: [],
-            lastSync: "2026-08-30T10:00:00Z", lastError: nil, detail: nil, loginMode: "oauth")
+    func testALapsedSignInAsksAgainAndAConnectedOneOffersNoSignIn() {
+        XCTAssertEqual(ConnectorSetupState.action(status(appSignIn: true, how: "reconnect")), .signInAgain)
+        XCTAssertEqual(ConnectorSetupState.action(status(appSignIn: true, reconnect: true)), .signInAgain)
+        // A pasted-token connection keeps its row, Refresh and Disconnect; no sign-in is pushed on it.
+        let connected = status(connected: true, appSignIn: true, how: "token")
+        XCTAssertEqual(ConnectorSetupState.action(connected), .none)
         XCTAssertEqual(ConnectorSetupState.stepLabel(connected), "Connected")
+    }
+
+    func testASourceWithNoSignInSaysSoAndOffersNoForm() {
+        XCTAssertEqual(ConnectorSetupState.action(status()), .none)
+        XCTAssertEqual(ConnectorSetupState.stepLabel(status()), Copy.Connect.noSignIn)
+    }
+
+    func testTheSignInFlagsDecodeAndAnOlderBackendStillDecodes() throws {
+        let json = """
+        {"id": "notion-api", "label": "Notion", "connected": false, "fields": [], "loginMode": "credentials",
+         "appSignIn": true, "how": "reconnect", "reconnect": true}
+        """.data(using: .utf8)!
+        let s = try JSONDecoder().decode(ConnectorStatus.self, from: json)
+        XCTAssertEqual(s.appSignIn, true)
+        XCTAssertEqual(s.how, "reconnect")
+        XCTAssertEqual(s.reconnect, true)
     }
 
     func testSyncSummaryReportsEachOutcomeHonestly() {
