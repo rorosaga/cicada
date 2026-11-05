@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from api.services import bank_index, history_index, markdown_parser, sleep_cycle, source_refresh, sync_state
-from api.services import github_repos
+from api.services import github_repos, project_ownership
 from api.services.connections import secrets
 from api.services.connectors import ADAPTERS, github, github_auth, tier2
 
@@ -558,6 +558,67 @@ def test_a_new_project_from_a_repository_lists_it(api, bank):
     assert missing.status_code == 404 and "Repositories come in with a GitHub sync" in missing.json()["detail"]
     assert api.post("/sources/github/repos/project",
                     json={"fullName": "bob-example/side-notes", "project": "nope"}).status_code == 404
+
+
+def test_the_persons_link_starts_a_page_they_never_started_and_revives_it(api, bank):
+    """Ruling 56: linking their own repository is the person's act, and a start is a mention."""
+    _project(bank, "alpha-project", status="archived", confidence=0.15, last_referenced="2026-01-01")
+    _synced(api)
+    page = bank / "entities" / "alpha-project.md"
+    assert not project_ownership.listed(markdown_parser.parse(page).frontmatter, page)
+
+    linked = api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project",
+                                                             "project": "alpha-project"})
+    assert linked.status_code == 200 and linked.json() == {"project": "alpha-project", "created": False,
+                                                           "linked": True}, linked.text
+    fm = markdown_parser.parse(page).frontmatter
+    assert project_ownership.listed(fm, page) and fm["mine"]["via"] == project_ownership.VIA_ACCEPTED
+    assert fm["mine"]["by"] == "user" and fm["status"] == "active" and fm["confidence"] > 0.15
+    assert [r["how"] for r in fm["repositories"]] == [github_repos.HOW_USER]
+    # One commit, the start and the link together: nothing is left behind in the tree.
+    assert "entities/alpha-project.md" in _git(bank, "show", "--name-only", "--format=", "HEAD")
+    assert "alpha-project.md" not in _git(bank, "status", "--porcelain")
+
+    # Taking the repository off again is no start and no removal from the list.
+    assert api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project",
+                                                           "project": "alpha-project", "remove": True}).json()["linked"] is False
+    assert project_ownership.listed(markdown_parser.parse(page).frontmatter, page)
+
+
+def test_only_the_persons_link_starts_a_page_and_never_one_they_took_out(api, bank):
+    _project(bank, "started-one", mine=MINE)
+    _project(bank, "taken-out")
+    _project(bank, "never-started")
+    project_ownership.dismiss(bank, "taken-out")
+    _synced(api)
+    started_before = markdown_parser.parse(bank / "entities" / "started-one.md").frontmatter["mine"]
+    full = "bob-example/alpha-project"
+
+    # Already theirs: the mark they made stays as it was.
+    assert api.post("/sources/github/repos/project", json={"fullName": full, "project": "started-one"}).status_code == 200
+    assert markdown_parser.parse(bank / "entities" / "started-one.md").frontmatter["mine"] == started_before
+
+    # Taken out: the link holds and the page stays out; adding it back is its own act.
+    assert api.post("/sources/github/repos/project", json={"fullName": full, "project": "taken-out"}).status_code == 200
+    out = bank / "entities" / "taken-out.md"
+    assert markdown_parser.parse(out).frontmatter["repositories"] and not project_ownership.listed(
+        markdown_parser.parse(out).frontmatter, out)
+
+    # An agent's link, or an unlink, on a page never started starts nothing.
+    never = bank / "entities" / "never-started.md"
+    eid = _pages(bank)[full]["id"]
+    github_repos.link(bank, "never-started", eid, by="claude-code", how="agent")
+    assert not project_ownership.listed(markdown_parser.parse(never).frontmatter, never)
+    assert api.post("/sources/github/repos/project", json={"fullName": full, "project": "never-started",
+                                                           "remove": True}).status_code == 200
+    assert not project_ownership.listed(markdown_parser.parse(never).frontmatter, never)
+
+    # A page Sleep only proposed is no project to link to: refused in words, nothing written.
+    _project(bank, "proposed-one", type="concept", proposed_type="project")
+    head = _git(bank, "rev-parse", "HEAD")
+    refused = api.post("/sources/github/repos/project", json={"fullName": full, "project": "proposed-one"})
+    assert refused.status_code == 404 and _git(bank, "rev-parse", "HEAD") == head
+    assert "repositories" not in markdown_parser.parse(bank / "entities" / "proposed-one.md").frontmatter
 
 
 def test_a_trusted_agent_links_a_repository_page_and_any_other_only_proposes(api, bank):
