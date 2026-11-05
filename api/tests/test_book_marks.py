@@ -1,0 +1,344 @@
+"""Ruling 64 (ROR-95, G39): what the person marked in a book is kept word for word with no model, it lights the page, and
+Sleep reads a book's record for what its marks share, in one bounded chunk. Invented books and passages only."""
+from __future__ import annotations
+
+import asyncio
+import re
+from datetime import date, datetime, timezone
+from types import SimpleNamespace
+
+import pytest
+
+from api.services import apple_books, bank_index, book_marks, books, entity_extractor, evidence, goodreads_export, \
+    markdown_parser, page_blocks, quiet_pages, sensitive_text
+from api.services.claims import HIGHLIGHTED, NOTED, is_mark, is_persons_words, parse_claims
+
+NOW = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+TODAY = date(2026, 10, 1)
+PASSAGE_A = "The lanterns were lit long before anyone agreed on the way home."
+PASSAGE_B = "An orchard keeps its own calendar,\nand no one reads it twice."
+NOTE_A = "This is what I meant about the slow walk back."
+
+
+@pytest.fixture
+def bank(tmp_path, monkeypatch):
+    root = tmp_path / "memory"
+    (root / "entities").mkdir(parents=True)
+    (root / "episodes").mkdir()
+    monkeypatch.setattr(books, "_owner", lambda _m: "user")
+    bank_index.invalidate()
+    return root
+
+
+def _note(text, day="2026-05-01", uuid="n", note=""):
+    return {"uuid": uuid, "selectedText": text, "note": note, "createdAt": f"{day}T10:00:00Z"}
+
+
+def _book(annotations=(), *, asset="ASSET-A", title="The Lantern Orchard", author="Ada Example", finished=False,
+          progress=0.5):
+    return {"assetId": asset, "title": title, "author": author, "isFinished": finished, "progress": progress,
+            "contentType": 1, "addedAt": "2026-03-01T10:00:00Z", "lastOpenedAt": "2026-09-10T20:00:00Z",
+            "finishedAt": "2026-09-12T21:00:00Z" if finished else None, "annotations": list(annotations)}
+
+
+def _sync(bank, *items):
+    apple_books.sync(bank, {"books": list(items)}, now=NOW, bank="test")
+    bank_index.invalidate(bank)
+    out = books.apply_pending(bank, today=TODAY)
+    bank_index.invalidate(bank)
+    return out
+
+
+def _page(bank, entity="the-lantern-orchard"):
+    parsed = markdown_parser.parse(bank / "entities" / f"{entity}.md")
+    return parsed, parse_claims(parsed.body)
+
+
+def _marks(bank, entity="the-lantern-orchard"):
+    return [c for c in _page(bank, entity)[1] if is_mark(c)]
+
+
+def test_every_highlight_and_note_is_a_claim_word_for_word_with_a_span(bank):
+    _sync(bank, _book([_note(PASSAGE_A, uuid="1", note=NOTE_A), _note(PASSAGE_B, "2026-05-02", uuid="2")]))
+    marks = _marks(bank)
+    assert [c.predicate for c in marks] == [HIGHLIGHTED, NOTED, HIGHLIGHTED]
+    assert marks[0].text == f"Highlighted: {PASSAGE_A}"
+    assert marks[1].text == f"Noted: {NOTE_A}"
+    assert marks[2].text == f"Highlighted: {PASSAGE_B}", "a passage of two lines keeps both, in its own lines"
+    assert [c.valid_from for c in marks] == ["2026-05-01", "2026-05-01", "2026-05-02"]
+    body = evidence.source_text(bank, marks[0].evidence[0].episode)
+    assert [c.evidence[0].kind for c in marks] == ["page", "user", "page"], "the book's words, then the person's"
+    span = marks[0].evidence[0]
+    assert body[span.start:span.end] == PASSAGE_A and span.hash == evidence.body_hash(body)
+    assert body[marks[1].evidence[0].start:marks[1].evidence[0].end] == NOTE_A
+    two_lines = marks[2].evidence[0]
+    assert body[two_lines.start:two_lines.end] == PASSAGE_B.replace("\n", "\n> ")
+    assert all(c.authored_by == "user" and c.source_episodes == [span.episode] for c in marks)
+
+
+def test_a_library_entry_with_nothing_marked_gets_no_mark_and_no_stamp(bank):
+    _sync(bank, _book())
+    assert _marks(bank) == []
+    episode = next((bank / "episodes").glob("*.md"))
+    assert books.MARKS_KEY not in markdown_parser.parse(episode).frontmatter
+
+
+def test_a_status_change_moves_the_spans_and_writes_nothing_twice(bank):
+    item = [_note(PASSAGE_A, uuid="1", note=NOTE_A)]
+    _sync(bank, _book(item))
+    first = {c.id: c.evidence[0].start for c in _marks(bank)}
+    _sync(bank, _book(item))   # nothing changed: nothing pending
+    assert {c.id: c.evidence[0].start for c in _marks(bank)} == first
+    _sync(bank, _book(item, finished=True))   # the status line grows, every passage moves
+    marks = _marks(bank)
+    assert {c.id for c in marks} == set(first) and all(c.evidence[0].start != first[c.id] for c in marks)
+    body = evidence.source_text(bank, marks[0].evidence[0].episode)
+    assert body[marks[0].evidence[0].start:marks[0].evidence[0].end] == PASSAGE_A
+    assert marks[0].evidence[0].hash == evidence.body_hash(body), "on the body as it stands"
+
+
+def test_a_removed_highlight_closes_and_comes_back_when_marked_again(bank):
+    one, two = _note(PASSAGE_A, uuid="1"), _note(PASSAGE_B, "2026-05-02", uuid="2")
+    _sync(bank, _book([one, two]))
+    _sync(bank, _book([one]))
+    by = {c.text: c for c in _marks(bank)}
+    assert by[f"Highlighted: {PASSAGE_B}"].valid_to == TODAY.isoformat(), "history, never deleted"
+    assert by[f"Highlighted: {PASSAGE_A}"].valid_to is None
+    assert [i["text"] for i in book_marks.block(_page(bank)[1])["items"]] == [PASSAGE_A]
+    _sync(bank, _book([one, two]))
+    assert all(c.valid_to is None for c in _marks(bank))
+
+
+def test_a_mark_the_person_took_back_is_never_written_again(bank):
+    from api.services.claims import RETRACT_PREDICATE, Claim, write_claims
+
+    one, two = _note(PASSAGE_A, uuid="1"), _note(PASSAGE_B, "2026-05-02", uuid="2")
+    _sync(bank, _book([one]))
+    parsed, claims = _page(bank)
+    victim = next(c for c in claims if is_mark(c))
+    claims.append(Claim(id="clm_r", text="Not right.", subject=victim.subject, predicate=RETRACT_PREDICATE,
+                        object=victim.id, object_kind="literal"))
+    victim.valid_to = TODAY.isoformat()
+    markdown_parser.write(bank / "entities" / "the-lantern-orchard.md", parsed.frontmatter,
+                          write_claims(parsed.body, claims))
+    _sync(bank, _book([one, two]))
+    assert next(c for c in _marks(bank) if c.id == victim.id).valid_to == TODAY.isoformat()
+    assert [i["text"] for i in book_marks.block(_page(bank)[1])["items"]] == [PASSAGE_B]
+
+
+def test_a_record_applied_before_this_ruling_gets_its_marks_without_a_second_status(bank):
+    item = _book([_note(PASSAGE_A, uuid="1")], finished=True)
+    _sync(bank, item)
+    # An older bank: the record is applied, and its page holds its status but no marks.
+    parsed, claims = _page(bank)
+    from api.services.claims import write_claims
+
+    kept = [c for c in claims if not is_mark(c)]
+    markdown_parser.write(bank / "entities" / "the-lantern-orchard.md", parsed.frontmatter,
+                          write_claims(parsed.body, kept))
+    episode = next((bank / "episodes").glob("*.md"))
+    ep = markdown_parser.parse(episode)
+    fm = {k: v for k, v in ep.frontmatter.items() if k != books.MARKS_KEY}
+    markdown_parser.write(episode, fm, ep.body)
+    bank_index.invalidate(bank)
+    assert len(books.pending(bank)) == 1
+    before = [c for c in _page(bank)[1] if not is_mark(c)]
+    assert books.apply_pending(bank, today=TODAY)["applied"] == 0
+    bank_index.invalidate(bank)
+    assert [c.text for c in _marks(bank)] == [f"Highlighted: {PASSAGE_A}"]
+    assert [c.id for c in _page(bank)[1] if not is_mark(c)] == [c.id for c in before], "status untouched"
+    assert books.pending(bank) == []
+
+
+def test_a_goodreads_review_is_a_note_on_the_page(bank):
+    csv = ("Book Id,Title,Author,ISBN13,My Rating,Exclusive Shelf,Date Read,Date Added,My Review,Private Notes,"
+           "Bookshelves,Number of Pages\n"
+           f'77,The Quiet Engine,Bea Sample,,0,read,2026/02/01,2026/01/01,"{NOTE_A}",,,\n').encode()
+    goodreads_export.stage(bank, csv, bank="test", now=NOW)
+    bank_index.invalidate(bank)
+    books.apply_pending(bank, today=TODAY)
+    bank_index.invalidate(bank)
+    marks = _marks(bank, "the-quiet-engine")
+    assert [(c.predicate, c.text, c.evidence[0].kind) for c in marks] == [(NOTED, f"Noted: {NOTE_A}", "user")]
+
+
+# ---- quiet --------------------------------------------------------------------------------------------------------
+
+
+def test_a_highlighted_book_is_not_quiet_and_a_library_entry_stays_quiet(bank):
+    _sync(bank, _book([_note(PASSAGE_A, uuid="1")]),
+          _book(asset="ASSET-B", title="The Unopened Atlas"))
+    assert quiet_pages.page_is_quiet(bank, "the-lantern-orchard") is False
+    assert quiet_pages.page_is_quiet(bank, "the-unopened-atlas") is True
+
+
+def test_a_book_whose_only_highlight_was_removed_goes_quiet_again(bank):
+    _sync(bank, _book([_note(PASSAGE_A, uuid="1")]))
+    assert quiet_pages.page_is_quiet(bank, "the-lantern-orchard") is False
+    _sync(bank, _book())
+    assert quiet_pages.page_is_quiet(bank, "the-lantern-orchard") is True
+
+
+def test_a_model_writing_the_same_predicate_is_no_mark():
+    claim = SimpleNamespace(predicate=HIGHLIGHTED, origin="claude-code")
+    assert is_mark(claim) is False and is_persons_words(claim) is False
+
+
+# ---- what a caller sees --------------------------------------------------------------------------------------------
+
+
+def test_the_card_draws_notes_under_their_passage_and_a_remote_caller_sees_no_words(bank):
+    _sync(bank, _book([_note(PASSAGE_A, uuid="1", note=NOTE_A), _note(PASSAGE_B, "2026-05-02", uuid="2")]))
+    blocks = page_blocks.for_page(bank, "the-lantern-orchard", page_blocks.wanted(["marks"], remote=False))
+    assert "marks" in blocks["order"]
+    assert blocks["marks"]["total"] == 2
+    assert [(i["text"], i["note"]) for i in blocks["marks"]["items"]] == [(PASSAGE_A, NOTE_A), (PASSAGE_B, None)]
+    kinds = page_blocks.wanted(["marks"], remote=True)
+    assert kinds == ("marks",)
+    masked = page_blocks.for_caller(blocks, kinds, verbatim=False)
+    said = page_blocks.words(masked, kinds, verbatim=False) + str(masked)
+    assert "lanterns" not in said and "slow walk" not in said and masked["marks"]["total"] == 2
+    full = page_blocks.words(page_blocks.for_caller(blocks, kinds, verbatim=True), kinds, verbatim=True)
+    assert PASSAGE_A in full and NOTE_A in full
+    assert all(is_persons_words(c) for c in _marks(bank)), "the words are gated like the person's own"
+
+
+def test_a_mark_is_never_a_belief_sentence_on_the_page(bank):
+    _sync(bank, _book([_note(PASSAGE_A, uuid="1")]))
+    from api.services import page_citations
+
+    parsed, claims = _page(bank)
+    block = page_citations.block(bank, "the-lantern-orchard", fm=parsed.frontmatter, body=parsed.body, claims=claims)
+    assert PASSAGE_A not in str(block.get("beliefs"))
+
+
+def test_a_flagged_value_is_never_repeated_on_the_page_and_the_body_keeps_it(bank):
+    card = "4539 1488 0343 6467"
+    assert sensitive_text.find(f"my card is {card}"), "the fixture is one the detector flags"
+    _sync(bank, _book([_note(PASSAGE_A, uuid="1", note=f"my card is {card}")]))
+    note = next(c for c in _marks(bank) if c.predicate == NOTED)
+    assert card not in note.text and "held back" in note.text and card not in note.object
+    body = evidence.source_text(bank, note.evidence[0].episode)
+    assert card in body, "the stored record is untouched"
+
+
+def test_a_big_book_spills_into_its_ledger_and_every_reader_still_holds_every_mark(bank):
+    many = [_note(f"Passage number {i} of the invented orchard, {'with room ' * 30}.", uuid=f"{i:05d}")
+            for i in range(400)]
+    _sync(bank, _book(many))
+    assert (bank / "entities" / "the-lantern-orchard.claims.jsonl").exists()
+    assert len(_marks(bank)) == 400
+    bank_index.invalidate(bank)
+    assert quiet_pages.page_is_quiet(bank, "the-lantern-orchard") is False
+    blocks = page_blocks.for_page(bank, "the-lantern-orchard", ("marks",))
+    assert blocks["marks"]["total"] == 400
+
+
+# ---- the private-use character --------------------------------------------------------------------------------------
+
+
+def test_private_use_characters_are_stripped_from_every_text_apple_books_posts(bank):
+    _sync(bank, _book([_note("Long walk\U000f0001 home.", uuid="1", note="Mine.")],
+                      title="The Lantern Orchard", author="Ada Example"))
+    episode = next((bank / "episodes").glob("*.md"))
+    parsed = markdown_parser.parse(episode)
+    assert apple_books._PRIVATE_USE.search(parsed.body) is None
+    fm = _page(bank)[0].frontmatter
+    assert fm["book"]["authors"] == ["Ada Example"] and fm["name"] == "The Lantern Orchard"
+    assert [c.text for c in _marks(bank)] == ["Highlighted: Long walk home.", "Noted: Mine."]
+
+
+# ---- what Sleep reads ------------------------------------------------------------------------------------------------
+
+
+def _episode(body, **extra):
+    return {"id": "ep_1", "origin": "apple-books", "book": {"status": "reading"}, "content": body, **extra}
+
+
+def _big_body(n=2000, width=300):
+    head = "**Status:** Reading now\n**Book:** The Lantern Orchard\n**Author:** Ada Example\n"
+    return head + "".join(f"\n## Highlight, 2026-05-01\n> {i:05d} {'orchard ' * (width // 8)}\n" for i in range(n))
+
+
+def test_a_book_that_fits_is_read_whole_and_a_big_one_is_a_spread_within_one_chunk():
+    small = "**Book:** X\n\n## Highlight, 2026-05-01\n> One.\n"
+    assert book_marks.plan_read(small) is None
+    body = _big_body() + "\n## User note\nThis one is mine.\n"
+    spans, shown, there = book_marks.plan_read(body)
+    assert there == 2001 and 20 < shown < 200
+    assert sum(hi - lo for lo, hi in spans) + 2 * len(spans) <= book_marks.READ_CHARS + 2
+    text = "\n\n".join(body[lo:hi] for lo, hi in spans)
+    assert "This one is mine." in text, "every note first"
+    numbers = sorted(int(m) for m in re.findall(r"(\d{5}) orchard", text))
+    assert numbers[0] < 100 and numbers[-1] > 1800, "spread from one end to the other"
+
+
+def test_a_revision_that_fits_reads_its_window_and_one_that_does_not_reads_a_spread_of_it():
+    body = _big_body(200)
+    assert book_marks.plan_read(body, [(len(body) - 400, len(body))]) is None
+    spans, shown, there = book_marks.plan_read(body, [(0, 100), (len(body) - 30_000, len(body))])
+    assert there < 200 and shown <= there
+    assert sum(hi - lo for lo, hi in spans) <= book_marks.READ_CHARS
+
+
+def test_the_status_lines_are_blanked_with_every_offset_kept():
+    body = "**Status:** Finished\n**Finished on:** 2026-01-02\n**My rating:** 5 of 5\n**Book:** X\n"
+    masked = book_marks.mask_status(body)
+    assert len(masked) == len(body) and "Finished" not in masked and "rating" not in masked and "**Book:** X" in masked
+
+
+def test_the_note_is_only_for_a_book_with_marks_and_names_what_is_held():
+    assert book_marks.note({"id": "e", "origin": "apple-books", "book": {}, "content": "**Status:** Finished\n"}) is None
+    assert book_marks.note({"id": "e", "origin": "chat", "content": "## User note\nhi"}) is None
+    said = book_marks.note(_episode("## User note\nhi"), themes=["Attention"], shown=(5, 50))
+    assert said.startswith(book_marks.NOTE_PREFIX) and "Attention" in said and "5 spread" in said
+    assert book_marks.THEME_PREDICATE in said
+
+
+def _extract(episodes, monkeypatch, memory=None):
+    seen: list[dict] = []
+
+    async def fake(ep_id, chunk, ci, total, settings, **kw):
+        seen.append({"chunk": chunk, "ci": ci, "total": total, **kw})
+        return {"entities": [], "relationships": []}
+
+    monkeypatch.setattr(entity_extractor, "_extract_chunk", fake)
+    asyncio.run(entity_extractor.extract(episodes, SimpleNamespace(memory_path=memory, litellm_model="m")))
+    return seen
+
+
+def test_stage_one_makes_one_call_per_book_without_the_status_line(monkeypatch):
+    big = _episode(_big_body(), id="ep_big", timestamp="2026-05-01T10:00:00Z")
+    seen = _extract([big], monkeypatch)
+    assert len(seen) == 1 and seen[0]["total"] == 1, "one call, however many highlights"
+    assert len(seen[0]["chunk"]) <= book_marks.READ_CHARS + 4 * 200
+    assert "Reading now" not in seen[0]["chunk"] and "The Lantern Orchard" in seen[0]["chunk"]
+    assert seen[0]["source_note"].startswith(book_marks.NOTE_PREFIX)
+    assert "spread across it are shown" in seen[0]["source_note"]
+
+
+def test_stage_one_leaves_every_other_episode_alone(monkeypatch):
+    other = {"id": "ep_chat", "origin": "claude-code", "content": "user: **Status:** Reading now\n",
+             "timestamp": "2026-05-01T10:00:00Z"}
+    seen = _extract([other], monkeypatch)
+    assert "Reading now" in seen[0]["chunk"] and "source_note" not in seen[0]
+
+
+def test_theme_hints_name_pages_books_link_to_and_names_held_from_a_book(bank):
+    from api.services import pending_store
+
+    _sync(bank, _book([_note(PASSAGE_A, uuid="1")]))
+    parsed, _ = _page(bank)
+    markdown_parser.write(bank / "entities" / "the-lantern-orchard.md",
+                          {**parsed.frontmatter, "related": ["[[slow-attention]]"]}, parsed.body)
+    markdown_parser.write(bank / "entities" / "slow-attention.md", {"name": "Slow attention", "type": "concept"}, "x")
+    episode = next((bank / "episodes").glob("*.md")).stem
+    pending_store.upsert(bank, pending_store.PendingEntity(
+        name="Walking home", type="concept", description="", source_episode=episode, confidence=0.7, tags=[],
+        history_entries=[]))
+    pending_store.upsert(bank, pending_store.PendingEntity(
+        name="A chat name", type="concept", description="", source_episode="ep_none", confidence=0.7, tags=[],
+        history_entries=[]))
+    bank_index.invalidate(bank)
+    hints = book_marks.theme_hints(bank)
+    assert "Slow attention" in hints and "Walking home" in hints and "A chat name" not in hints

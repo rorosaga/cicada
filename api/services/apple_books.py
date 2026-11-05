@@ -55,6 +55,9 @@ MAX_BODY_CHARS = 400_000
 #: highlight and send the whole book back to Sleep for a line that says nothing new (the count is in ``trimmed``).
 NOT_KEPT_LINE = ("**Not kept:** later highlights past this book's cap (3,000 highlights or 400,000 characters) were "
                  "not kept.")
+#: Unicode's private-use areas: Apple Books leaves such a character in some text, drawn as nothing or a box, and it would
+#: reach the page and recall. Never anyone's words.
+_PRIVATE_USE = re.compile("[\ue000-\uf8ff\U000f0000-\U000ffffd\U00100000-\U0010fffd]")
 _URN_ISBN = re.compile(r"(?:urn:isbn:|isbn[:\s]*)?([0-9Xx\- ]{10,17})$", re.IGNORECASE)
 
 
@@ -97,7 +100,7 @@ def _z(at: datetime) -> str:
 
 
 def _clean(text, limit: int = 300) -> str:
-    return " ".join(str(text or "").split())[:limit]
+    return " ".join(_PRIVATE_USE.sub("", str(text or "")).split())[:limit]
 
 
 def _block(text: str) -> str:
@@ -141,8 +144,8 @@ def draft_for(book: dict, *, now: datetime) -> EpisodeDraft | None:
     for a in book.get("annotations") or []:
         if not isinstance(a, dict) or a.get("deleted"):
             continue
-        text = str(a.get("selectedText") or "").strip()[:MAX_TEXT]
-        note = str(a.get("note") or "").strip()[:MAX_TEXT]
+        text = _PRIVATE_USE.sub("", str(a.get("selectedText") or "")).strip()[:MAX_TEXT]
+        note = _PRIVATE_USE.sub("", str(a.get("note") or "")).strip()[:MAX_TEXT]
         if not text and not note:
             continue
         notes.append((_instant(a.get("createdAt")) or now, str(a.get("uuid") or ""), text, note))

@@ -48,7 +48,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import evidence, markdown_parser
-from api.services.claims import Claim, Evidence, is_event, is_record
+from api.services.claims import Claim, Evidence, is_event, is_mark, is_record
 
 #: The episode dict key the cycle attaches a :class:`Revision` under.
 KEY = "prior_read"
@@ -427,7 +427,9 @@ class Plan:
 def _closable(c: Claim) -> bool:
     from api.services.claim_reconciler import is_human
 
-    return (c.valid_to is None and not is_human(c) and not c.recorded_ts and not is_event(c) and not is_record(c))
+    # A book's mark has its own writer, which reads the record itself (`book_marks.apply`).
+    return (c.valid_to is None and not is_human(c) and not c.recorded_ts and not is_event(c) and not is_record(c)
+            and not is_mark(c))
 
 
 def reanchor(claims_by_subject: dict[str, list[Claim]], revisions: dict[str, Revision]) -> Plan:

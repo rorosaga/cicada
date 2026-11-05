@@ -183,11 +183,12 @@ def inferred(claim) -> bool:
 
 
 def _belief_rows(claims, sources: _Sources) -> tuple[list[dict], int, dict[str, dict[int, list]]]:
-    from api.services.claims import Evidence, is_current, is_event, is_persons_words, is_record
+    from api.services.claims import Evidence, is_current, is_event, is_mark, is_persons_words, is_record
 
     kept = []
     for c in claims or []:
-        if is_record(c) or c.superseded_by or getattr(c, "recovered_by", None) or is_event(c):
+        # A passage the person marked is the `marks` block's (`book_marks`), never a belief of the page.
+        if is_record(c) or c.superseded_by or getattr(c, "recovered_by", None) or is_event(c) or is_mark(c):
             continue
         if is_current(c) or c.valid_to:
             kept.append(c)

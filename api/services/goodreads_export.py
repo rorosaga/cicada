@@ -115,7 +115,7 @@ def draft_for(row: dict, *, now: datetime) -> EpisodeDraft | None:
     pages = str(row.get("Number of Pages") or "").strip()
     record = {"goodreads_id": book_id, "title": title, "authors": authors, "isbns": isbns, "status": status,
               "day": day, "dated": bool(status == books.FINISHED and read),
-              "rating": rating if 1 <= rating <= 5 else None, "rated_day": read or added,
+              "reviewed": bool(review or notes), "rating": rating if 1 <= rating <= 5 else None, "rated_day": read or added,
               "published": (str(row.get("Original Publication Year") or row.get("Year Published") or "").strip()
                             or None), "pages": int(pages) if pages.isdigit() else None,
               "has_note": bool(review or notes)}

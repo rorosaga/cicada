@@ -170,9 +170,9 @@ TOOLS = [
                     "type": "array",
                     "items": {"type": "string",
                               "enum": ["blocks", "relevance", "summary", "sources", "coordinates", "looks", "ongoing",
-                                       "citations",
+                                       "marks", "citations",
                                        "history"]},
-                    "maxItems": 9,
+                    "maxItems": 10,
                     "description": "Also return what the page holds, as short structured blocks after it: `relevance` "
                                    "(why it matters to the person), `summary` (the 2-3 sentence In short Sleep writes "
                                    "for a long page the person talks about often), `sources` (where to check, each with its state), "

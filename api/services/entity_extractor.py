@@ -13,7 +13,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import (act_object, authorship, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
+from api.services import (act_object, authorship, book_marks, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
                           episode_revision, evidence, fact_policy, participation, project_birth, promotion, section_provenance,
                           sensitive_flags, source_dates)
 from api.services.json_parse import parse_json_object
@@ -866,6 +866,14 @@ async def extract(
 
     today = today or current_day()
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
+    themes_read: list[list[str]] = []
+
+    def book_themes() -> list[str]:
+        """Ruling 64: theme names already on the record, read once per fan-out, only if it holds a book's record."""
+        if not themes_read:
+            bank = getattr(settings, "memory_path", None)
+            themes_read.append(book_marks.theme_hints(Path(bank)) if bank else [])
+        return themes_read[0]
     results: list[dict | None] = [None] * len(episodes)
     success = 0
     failed = 0
@@ -966,13 +974,22 @@ async def extract(
 
         spans = _chunk_spans(content) if revision is None else [
             (lo + s, lo + e) for lo, hi in revision.windows for s, e in _chunk_spans(content[lo:hi])]
+        # Ruling 64: a book's record is read for what its marks share, in one chunk whatever its size (`book_marks`).
+        book = book_marks.holds_marks(episode)
+        book_plan = book_marks.plan_read(content, revision.windows if revision is not None else None) if book else None
+        if book_plan is not None:
+            spans = book_plan[0]
         # G110 gate B2: blank the episode's own gap range on the WHOLE body, then slice.
         gaps = tuple(episode.get("gaps") or ())
         masked = evidence.mask_gaps(content, gaps)
+        if book:
+            masked = book_marks.mask_status(masked)   # already records: Stage 1 never restates them
         # G235: what these windows hold that is likely sensitive, found with no model before any is sent. Ruling 60: the
         # engine reads a typed mark where a confident hit was; the stored body and every offset stay as they are.
         guard = sensitive_flags.Guard.of(episode, spans)
         chunks = [guard.chunk(masked, s, e) for s, e in spans]
+        if book_plan is not None:   # one chunk, located over the whole body
+            chunks, spans = ["\n\n".join(chunks)], [(0, len(content))]
         # G194 A1: every chunk is told when the conversation took place and what day it is now.
         ep_day = source_dates.episode_day(episode)
         # "Facts yes, activity no" (owner 2026-10-08): a memory export entry's date is the summary's, not a
@@ -989,7 +1006,9 @@ async def extract(
         # G179: a message conversation says who its other side is, before every chunk.
         # A harness session says whose its assistant lines are, and that their acts are not the person's.
         source_note = (correspondent_note(episode.get("correspondent")) or agent_session_note(episode)
-                       or agent_save_note(episode) or meeting_note(episode))
+                       or agent_save_note(episode) or meeting_note(episode)
+                       or book_marks.note(episode, themes=book_themes() if book else (),
+                                          shown=(book_plan[1], book_plan[2]) if book_plan else None))
         # Ruling 45 addendum: the provider's project grouping, or the relaying app's word on it, as context.
         if (went_on := relayed_note(episode)) is not None:
             source_note = (source_note or "") + went_on

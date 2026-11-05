@@ -21,7 +21,9 @@ The rule. A page is quiet when
    neither: it never lights a page and never makes one quiet. An episode id that no longer resolves says nothing
    either way.
 
-The owner's page is never quiet. A page with no recorded episode at all (written by the person, an agent or a seed) has
+**A book the person marked is never quiet (owner 2026-11-04, ruling 64):** a live highlight or note on the page
+(``claims.is_mark``) is their own act, whatever the words' kind, and it lights the page like a mention. A library entry
+with nothing marked stays quiet. The owner's page is never quiet. A page with no recorded episode at all (written by the person, an agent or a seed) has
 no import evidence, so it is never quiet either: the rule dims what an import made, not what nobody wrote down.
 
 Decay is untouched (decay classes, rulings 1 and 30): quiet is a presentation and an inbox gate, not a confidence.
@@ -32,6 +34,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from api.services import bank_index, promotion
+from api.services.claims import is_mark
 
 #: A save: the media writer stamps every save episode (and a note on a save) with the page it made.
 SAVE_KEY = "media_entity_id"
@@ -106,6 +109,8 @@ def is_quiet(fm: dict, claims: Iterable, kind_of: Callable[[str], str | None]) -
     if not _imported_and_unmentioned(fm, kind_of):
         return False
     for claim in claims or []:
+        if is_mark(claim) and not getattr(claim, "valid_to", None):   # a passage they marked (ruling 64)
+            return False
         # A person's own words wake it — never someone else's claim (`external:`, a group member's, #499 review).
         if promotion.claim_cites_person(claim, located=False):
             return False

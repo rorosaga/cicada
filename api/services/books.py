@@ -73,6 +73,9 @@ DOORS = (SCAN_ORIGIN, APPLE_ORIGIN, GOODREADS_ORIGIN)
 #: (the ``content_hash`` it applied) so a re-sync that changed nothing is not applied twice.
 EPISODE_KEY = "book"
 APPLIED_KEY = "book_applied"
+#: The ``content_hash`` whose highlights and notes ``book_marks`` wrote: a separate stamp, so a record applied before
+#: ruling 64 gets its marks without its status being applied twice.
+MARKS_KEY = "book_marks"
 #: ``media_entity_id`` — the save stamp ``quiet_pages`` and ``authorship`` read.
 SAVE_KEY = "media_entity_id"
 
@@ -637,12 +640,19 @@ def pending(memory_path: Path, *, limit: int = MAX_APPLY) -> list:
             continue
         if str(fm.get("origin") or "") not in DOORS:
             continue
-        if fm.get(APPLIED_KEY) and fm.get(APPLIED_KEY) == fm.get("content_hash"):
+        if fm.get(APPLIED_KEY) and fm.get(APPLIED_KEY) == fm.get("content_hash") and not _marks_due(fm):
             continue
         out.append(f)
         if len(out) >= limit:
             break
     return out
+
+
+def _marks_due(fm: dict) -> bool:
+    """A record that says it holds marks, or last wrote some, whose marks are not those of this body."""
+    rec = fm.get(EPISODE_KEY) or {}
+    has = rec.get("highlights") or rec.get("notes") or rec.get("reviewed") or fm.get(MARKS_KEY)
+    return bool(has) and fm.get(MARKS_KEY) != fm.get("content_hash")
 
 
 def waiting_isbns(memory_path: Path) -> list[str]:
@@ -727,6 +737,13 @@ def _stamp_local_covers(memory_path: Path) -> list[str]:
     return paths
 
 
+def _stamp_marks(path: Path, digest: str) -> None:
+    with episode_ids.episode_lock(path.parent):
+        parsed = markdown_parser.parse(path)
+        if parsed.frontmatter.get("content_hash") == digest:
+            markdown_parser.write(path, {**parsed.frontmatter, MARKS_KEY: digest}, parsed.body)
+
+
 def _stamp_episode(path: Path, *, digest: str, entity_id: str, save: bool) -> bool:
     """Mark the episode applied (and, for a save, whose page it is) — under the episode lock, re-read first: a re-sync
     that landed meanwhile keeps its new body, and its new hash keeps it pending."""
@@ -772,10 +789,23 @@ def _facts_from_episode(fm: dict) -> BookFacts | None:
                      title_from=origin if title else "placeholder")
 
 
+def _apply_marks(memory_path: Path, entity_id: str, episode_id: str, ep_path: Path, digest: str, *, observer: str,
+                 today: str) -> list[str]:
+    """What the person marked, word for word (``book_marks``, ruling 64), then its stamp. A page's marks are written
+    before the stamp, so a stop re-does them, and the writer is idempotent."""
+    from api.services import book_marks
+
+    rel = [f"episodes/{ep_path.name}"]
+    if book_marks.apply(memory_path, entity_id, episode_id, observer=observer, today=today):
+        rel.append(f"entities/{entity_id}.md")
+    _stamp_marks(ep_path, digest)
+    return rel
+
+
 def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = MAX_APPLY) -> dict:
-    """Make every pending book episode's page, status and rating, with no model and no network. Returns ``{applied,
-    waiting, pages_created, paths}`` (memory-relative, for the caller's own commit). The caller holds the bank's write
-    admission (a route) or Sleep's window (the tail); this holds the page lock."""
+    """Make every pending book episode's page, status, rating and marks (``book_marks``), with no model and no network.
+    Returns ``{applied, waiting, pages_created, paths}`` (memory-relative, for the caller's own commit). The caller holds
+    the bank's write admission (a route) or Sleep's window (the tail); this holds the page lock."""
     memory_path = Path(memory_path)
     today_s = (today or date.today()).isoformat()
     out = {"applied": 0, "waiting": 0, "pages_created": 0, "paths": []}
@@ -792,6 +822,11 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
                     out["waiting"] += 1
                     continue
                 episode_id = str(fm.get("id") or Path(entry.path).stem)
+                digest = str(fm.get("content_hash") or "")
+                if fm.get(APPLIED_KEY) == digest and fm.get("book_entity_id"):   # only its marks are due
+                    paths += _apply_marks(memory_path, str(fm["book_entity_id"]), episode_id, Path(entry.path), digest,
+                                          observer=observer, today=today_s)
+                    continue
                 rec = fm.get(EPISODE_KEY) or {}
                 status = rec.get("status") if rec.get("status") in STATUSES else None
                 entity_id, created, changed = ensure_page(memory_path, index, facts, episode_id, today_s)
@@ -828,6 +863,9 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
                     if set_rating(memory_path, entity_id, rating=rating, day=day, episode_id=episode_id,
                                   quote=f"{rating} of 5", observer=observer, today=today_s):
                         paths.append(f"entities/{entity_id}.md")
+                if _marks_due(fm):
+                    paths += _apply_marks(memory_path, entity_id, episode_id, ep_path, digest, observer=observer,
+                                          today=today_s)
                 out["applied"] += 1
             except Exception as exc:  # noqa: BLE001 — one bad record never stops the rest
                 from api.services import tool_contract
