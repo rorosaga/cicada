@@ -15,22 +15,22 @@ values never go in this file. Related: G43, G195 (meaning index 2), G162 (no dow
 | Kind | In | By words | By meaning | Opens at the moment | What the person sees |
 |---|---|---|---|---|---|
 | YouTube video | 5 | 4 | 4 | n/m | 5 |
-| Screen recording | 6 | 0 | 5 | 1 | 4 |
-| Any video file | 7 | 0 | 6 | 1 | 4 |
-| Image | 3 | 1 | 6 | n/a | 4 |
-| Audio file | 7 | 0 | 7 | 1 | 3 |
-| Voice Memos | 5 | 0 | 7 | 1 | 3 |
+| Screen recording | 6 | 0 | 5 | 4 | 6 |
+| Any video file | 7 | 0 | 6 | 4 | 6 |
+| Image | 5 | 1 | 6 | n/a | 6 |
+| Audio file | 7 | 0 | 7 | 4 | 6 |
+| Voice Memos | 5 | 0 | 7 | 3 | 5 |
 
 ## 2. The owner's bar (2026-11-05)
 
 | Kind | Plays or shows in the app | A page with a markdown body | Summary and why it matters | Transcription shown | Transcriber named |
 |---|---|---|---|---|---|
 | YouTube video | 6 | 2 | 3 | 0 | 0 |
-| Screen recording | 0 | 0 | 0 | 0 | 1 |
-| Any video file | 0 | 0 | 0 | 0 | 1 |
-| Image | 2 | 1 | 0 | 0 | 0 |
-| Audio file | 0 | 0 | 0 | 0 | 1 |
-| Voice Memos | 0 | 0 | 0 | 0 | 1 |
+| Screen recording | 7 | 0 | 0 | 0 | 1 |
+| Any video file | 8 | 0 | 0 | 0 | 1 |
+| Image | 8 | 1 | 0 | 0 | 0 |
+| Audio file | 8 | 0 | 0 | 0 | 1 |
+| Voice Memos | 5 | 0 | 0 | 0 | 1 |
 
 "Transcriber named" is 1 where the name is now *recorded* (`meta.json` `transcribed_by`, from the app) and shown nowhere.
 
@@ -72,6 +72,22 @@ values never go in this file. Related: G43, G195 (meaning index 2), G162 (no dow
   (`test_media_files.py` adds: one item per recording by id, dated by its own date, an edit re-stages, a deletion is
   tombstoned, a demo bank refuses). *Opens 1, sees 3, plays 0:* the hit opens the recording in the default app
   (`MediaFilePlaces` remembers the file for each memo); no time.
+
+## Re-score after the player (ROR-117, PR 646, coordinator, 2026-11-05)
+
+Checked by running the real app on a scratch home with synthetic files: an H.264 MP4, an AAC M4A and a JPEG. The Swift suites
+named in the PR pass (143 run, 0 failed, 1 skipped). Each number below replaces the older evidence for that cell.
+
+- **Plays or shows, video 8, audio 8, image 8.** A search hit played the video in the app, the list opened the audio with its
+  position moving, and the photo opened in the viewer. Not 10: only those three formats were run, the photo and a recording were
+  posted through the API rather than the picker, and none of it shows yet on the item's own page.
+- **Screen recording 7.** The same player, but no real screen recording was run, and one with no speech has no words to reach a moment by.
+- **Voice Memos 5.** The same player, but no real memo has ever been read on this Mac, so a real store's file is unproven.
+- **Opens at the moment 4 (3 for Voice Memos).** A hit opens at the second its result names, but that second is the start of the
+  passage, not of the words. A sentence said at 0:12 opened at 0:00 in the run. Fixing this is on the by-words PR.
+- **What the person sees 6 (5 for Voice Memos).** A real surface for each kind, a moved file says so with a way to choose it
+  (run on a moved MP4). There is still no transcript or summary beside the player.
+- **Image in 5.** A photo has a door by drop or pick and an item in the list. The door is covered by tests only, and a folder of photos has no door.
 
 ## What is missing for a 10, per column (the follow-up's list)
 
