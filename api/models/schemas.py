@@ -5093,6 +5093,9 @@ class NotesSyncRequest(CamelModel):
     # G234: the ids of the notes that are locked, beside the dump for the same reason. Used to drop and retire, counted,
     # never stored. None from an older app, which is told apart by this: there a record with no text is taken as locked.
     locked_note_ids: Optional[list[str]] = Field(default=None, max_length=100_000)
+    # G234: locking gives a note a new id, so what was kept under its old id is found by these: hashes of each locked
+    # note's name (`notes_sync.locked_key`), made in the app. Compared, never stored.
+    locked_note_keys: Optional[list[str]] = Field(default=None, max_length=100_000)
 
 
 class NotesSyncResponse(CamelModel):

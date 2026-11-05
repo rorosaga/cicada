@@ -1637,6 +1637,12 @@
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_retire_file",
+      "method": "write",
+      "frontmatter": "record",
+      "disposition": "fresh_frontmatter_untracked"
     }
   ],
   "services/sensitive_flags.py": [
