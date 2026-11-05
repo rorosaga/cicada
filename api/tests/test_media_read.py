@@ -487,3 +487,41 @@ def test_an_answer_with_a_link_a_heading_or_the_held_mark_is_refused():
     assert media_read.decide(c, {"summary": "A fine summary [held back: password] here.", "why": ""})[0] \
         == "A fine summary here."
     assert media_read.decide(c, {"summary": "A fine summary.", "why": "[[Crossing Redesign]] link."})[1] is None
+
+
+# --------------------------------------------------------------------------- the route
+
+
+def _client(bank, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from api import config, main
+    from api.services import image_index
+
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(bank))
+    config.get_settings.cache_clear()
+    monkeypatch.setattr(image_index, "start_refresh", lambda mp, **kw: True)
+    monkeypatch.setattr(media_pages, "start_sync", lambda mp, **kw: True)
+    return TestClient(main.app)
+
+
+def test_the_route_answers_the_usual_refusals_and_reads_through_the_click(bank, monkeypatch):
+    c = _client(bank, monkeypatch)
+    with c:
+        fid = add(bank)
+        assert c.post("/files/0123456789abcdef/read").status_code == 404
+        with monkeypatch.context() as sleeping:
+            sleeping.setattr(write_admission, "holding", lambda: True)
+            busy = c.post(f"/files/{fid}/read")
+        assert busy.status_code == 409 and "Sleep" in busy.text
+        seen = {}
+
+        async def fake(memory_path, settings, file_id, **kw):
+            seen["id"] = file_id
+            return {"id": "page", "summary": True, "why": False}
+
+        monkeypatch.setattr(media_read, "read_now", fake)
+        done = c.post(f"/files/{fid}/read")
+        assert done.status_code == 200 and seen["id"] == fid and done.json()["summary"] is True
+        monkeypatch.setattr(demo_guard, "is_demo", lambda _p: True)
+        assert c.post(f"/files/{fid}/read").status_code == 409
