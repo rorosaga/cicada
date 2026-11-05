@@ -3395,7 +3395,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     >
     > **A wrong match costs more than hidden digits, and it can still happen:** "add Tesla 2025550143", "vendí mi celular 1500000", or from someone else, "tu número es 1500000". In your own line the digits move to the file for good. Models are told a code is a phone number, so a model could file the first as the number of someone called Tesla. In someone else's line a wrong match is blanked for good, with no copy kept. You can't delete one wrong entry from a working file.
     >
-    > **Counted on your memory, changing nothing:** this rule would have turned <would_token> digit runs in your own chat lines into codes and left <digit_runs_left> as they are, and blanked <other_lines_would_redact> lines from other people or agents.
+    > **Counted on your memory, changing nothing:** this rule would have turned 0 digit runs in your own chat lines into codes and left 55 as they are, and blanked 0 lines from other people or agents.
     >
     > **Where digits stay as they are today, in git and read by models:**
     > - everything under "What this gives up", even if that person is in your memory;
