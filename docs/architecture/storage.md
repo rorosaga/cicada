@@ -2348,6 +2348,32 @@ those embed in ≈ 70 s an hour (the worst case, a frame kept at every sample, 1
 owner's 8,028-page bank with one hour added, interleaved: recall p50 269 → 278 ms, p95 1,629 → 1,568 ms (noise); the
 `files` leg 2.1 / 3.5 ms with no table … 3.4 / 6.2 ms with the hour.
 
+### Voice Memos (G43, 2026-11-05)
+`media_files.record_media(source="voice_memos", source_key, recorded_at, transcribed_by)`, `POST /files/voice-memos`, the
+app's `VoiceMemosReader`. The scorecard for every kind of media is [`multimodal-scorecard.md`](../goals/multimodal-scorecard.md).
+**Same store, same rails as a recording the person adds:** words made on this Mac and posted as derivatives, outside every bank,
+`words_by: the recording`, never read by Sleep, the audio never leaves the Mac, a demo bank answers 409 and a replica forwards
+nothing (`CAPTURE`). **What differs:** the item is keyed by the store's own id (`sha256("voice_memos:<id>")[:16]`, pinned in
+both test suites), not by its bytes, and dated by its own date (`recorded_at`, aware UTC, ruling 39; `added_at` is when Cicada
+heard of it). The same bytes posted again are `unchanged`; a changed recording re-stages the same item (`updated`); a body that
+carries `present` (sent only after a complete read) tombstones every item the store no longer lists (`retire_source`: words and
+frames go, `meta.json` stays with `deleted_at`, vectors leave at the next refresh; a recording that returns is a fresh add).
+`transcribed_by` (also on a dropped file) names who made the words; nothing shows it yet.
+
+**The app reads, the backend parses bytes.** `VoiceMemosReader` (off by default, on only from the person's Connect on the
+*Voice Memos* tile, which draws Apple's icon from the installed app by bundle id and commits none) copies
+`~/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/CloudRecordings.db` with its `-wal`/`-shm` into a
+temporary folder, reads `ZCLOUDRECORDING`'s whitelisted columns that exist (`ZUNIQUEID`, `ZPATH`, `ZCUSTOMLABEL`, `ZDATE`,
+`ZDURATION`, `ZTRASHEDDATE`), and takes a row only with a valid id, no trashed date and an audio file *inside that folder*
+(only the path's last component). Anything missing reads as "no recording". It transcribes with `MediaFileIndexer`'s recogniser
+(Speech Recognition asked for only inside Connect), posts one memo a call, and re-reads a memo only when its file's size or
+write time changed. Full Disk Access is needed only if macOS refuses the folder: then the existing needs-access words and
+the Full Disk Access button show. **Not verified:** the table and column names are Core Data's usual and were not checked against
+a real store (the owner's recordings are never read in development); `ZTRASHEDDATE` may not exist; the on-disk file type
+(`.m4a`, or a newer container) is judged by its UTType; macOS 14+'s own embedded transcript is not used. **Open (owner):** a
+voice memo is usually the person speaking, yet its words are stored as the recording's and never read by Sleep; whether Sleep
+may read them, and as whose words, is not decided here.
+
 ### The quick read's provisional records (G207, 2026-10-22)
 `<bank>/.awake/<episode>.json`, one per conversation a quick read covered (`awake_read`, its only writer). It holds
 the body revision, the read time, the engine and model, the provisional claims (each `Claim.to_dict()`, G118 spans

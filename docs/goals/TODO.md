@@ -14,6 +14,15 @@
 
 ## Current state and evidence
 
+- **2026-11-05 — multimodality scorecard and Voice Memos as a source (G43, G195; branch `multimodal-g43`).** Owner: rate every
+  kind to a 10; later: play and show everything in the app, each item an entity with a markdown body (summary, why it matters,
+  the transcription, the transcribing model as contributor). [`multimodal-scorecard.md`](multimodal-scorecard.md) scores YouTube,
+  screen recording, video file, image, audio file and Voice Memos on what exists (today the added-file kinds open in the default
+  app, have no page and no lexical leg). Built: Voice Memos through the `media_files` store (`storage.md`). **Pick up here:**
+  run the Swift filter below; open the tile once against a scratch `HOME` holding a synthetic store; check the real
+  `CloudRecordings.db` columns by hand (never in development). **Owner decisions, undecided:** may Sleep read memos and as
+  whose words; a page per added file (rulings 56, 62 and the files-outside-the-bank rail); naming the transcriber as a
+  contributor (copy rail). YouTube extraction stays out (G162).
 - **2026-11-05 — a citation opens its source on its words, one standard (ROR-16, G118; branch `ror16-evidence-spans`).** One
   judge and wire shape (`source_spans`), one drawing (`SourceSpansView`), `GET /episodes/{id}/spans` by page; the demo gains
   a note, a meeting and a book, plus one stale and one held. **Pick up here:** the click proof in the scratch app and
