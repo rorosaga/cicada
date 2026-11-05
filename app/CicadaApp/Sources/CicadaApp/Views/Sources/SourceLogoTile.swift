@@ -30,7 +30,9 @@ struct SourceLogoTile: View {
 /// Status as a dot and one word (ruling 36's connection model; design-refs pattern 4). The dot's colour is a data hue
 /// (DR-8): success, warning, or the tertiary ink for Off — never the accent (DR-5).
 struct StatusWord: View {
-    enum Tone { case on, attention, off }
+    /// `browser` (ROR-114): the info hue for a source the person's own agent reads in their browser, told apart from
+    /// a green connection.
+    enum Tone { case on, attention, off, browser }
 
     let word: String
     let tone: Tone
@@ -53,6 +55,7 @@ struct StatusWord: View {
         case .on: CicadaTheme.success
         case .attention: CicadaTheme.warning
         case .off: CicadaTheme.textTertiary
+        case .browser: CicadaTheme.info
         }
     }
 }

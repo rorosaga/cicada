@@ -386,7 +386,7 @@ def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sit
     if saved_lists_ is not None:
         # G206: the same standing ask as a YouTube list, one per walled site's saved list.
         if not isinstance(saved_lists_, dict) or any(str(k) not in SAVED_LISTS for k in saved_lists_):
-            raise SettingsError("savedLists must be a map of x, instagram or linkedin to true or false. "
+            raise SettingsError("savedLists must be a map of x, instagram, linkedin, reddit, pinterest or tiktok to true or false."
                                 "Nothing was changed.")
         if any(saved_lists_.values()) and not _ack_ok(data):
             raise SettingsError(

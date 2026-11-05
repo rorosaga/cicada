@@ -55,7 +55,8 @@ enum SourceGridSection: Hashable, Identifiable {
 extension SourceCatalogRow {
     /// Waiting on the person: a sign-in, an agent, a permission, or a read their page already calls Needs you.
     var needsYou: Bool {
-        !notInstalled && (status == .needsSignIn || status == .waitingForAgent || waitingOn != nil)
+        !notInstalled && (status == .needsSignIn || status == .waitingForAgent || waitingOn != nil
+            || browser?.state == .signedOut)
     }
 
     /// What the eyebrow counts, so the Connected section and "6 connected" can never disagree (#619): a row Connected
@@ -73,10 +74,15 @@ extension SourceCatalogRow {
     var word: String {
         if waitingOn == Copy.sourceNeedsAccess { return Copy.Catalog.needsAccess }
         if waitingOn != nil { return Copy.SourcePage.needsYou }
-        return status.word
+        return browser?.state.word ?? status.word
     }
 
-    var tone: StatusWord.Tone { waitingOn != nil ? .attention : status.tone }
+    /// A source read through the person's own browser has its own colour (ROR-114, DR-5/DR-8): blue when it reads,
+    /// grey before the first read, amber when signed out or unreadable. A connection stays green.
+    var tone: StatusWord.Tone {
+        if waitingOn != nil { return .attention }
+        return browser?.state.tone ?? status.tone
+    }
 
     /// What the person sees on hover: the whole reason when there is one.
     var help: String {
@@ -120,6 +126,8 @@ enum SourceGrid {
         if row.notInstalled { return Line(word: Copy.SourcePage.notInstalledRow, tone: .off) }
         if row.status == .waitingForAgent { return Line(word: Copy.Catalog.waitsForAgent, tone: .off) }
         if row.needsYou { return Line(word: row.word, tone: row.tone) }
+        // The section already says Connected; the colour and these words say how it is read.
+        if row.browser != nil, row.status == .connected { return Line(word: row.word, tone: row.tone) }
         guard row.status == .connected else { return nil }
         if let lastSync = row.lastSync { return Line(word: SourceCatalog.ago(lastSync, now: now, locale: locale), tone: .on) }
         return headed && row.section == .connected ? nil : Line(word: row.status.word, tone: .on)

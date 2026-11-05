@@ -375,7 +375,7 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertEqual(row("x", in: r)?.status, .connected)
         XCTAssertEqual(row("linkedin", in: r)?.status, .off)
         XCTAssertFalse(Copy.Catalog.instagramHonest.lowercased().contains("coming"))
-        XCTAssertEqual(SourceCatalog.savedListSites, ["x", "instagram", "linkedin"])
+        XCTAssertEqual(SourceCatalog.savedListSites, ["x", "instagram", "linkedin", "reddit", "pinterest", "tiktok"])
     }
 
     func testReadingSettingsDecodeTheSavedListsAndAnOlderBackendHasNone() throws {

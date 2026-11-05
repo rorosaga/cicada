@@ -1351,7 +1351,7 @@ npm-global install or a checkout, whose exec is `node` — those threads are sti
 the label is missing. The hook posts `host: t3code` beside the harness (`/capture/transcript`, `/capture/session`,
 `/capture/turn`; additive, an unknown value dropped, never a refusal). The episode keeps `harness`, `origin`, the
 transcript rail and `external:<harness>` claims — the agent really is Claude Code — and gains `host: t3code` outside
-the hash, kept once written; the source row is T3 Code's (`source_overview.source_key`), and a capture that kept
+the hash, kept once written; there is **no source row** for T3 Code (ROR-114: a session files under the harness it drives, `source_overview.source_key`; `t3code` is not a harness label), and a capture that kept
 something stamps the last-seen registry (`agent_seen`, via `hook`), which is how the Agents page sees T3 Code.
 **What T3 Code writes into a turn is not kept as the person's words — only under its host, only on its full shape**
 (`transcript_extract.host_envelope(text, host)`, through `_Builder._add` on every path). It runs only when the

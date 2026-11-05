@@ -56,7 +56,8 @@ struct SourcesPageView: View {
                                   waitingOn: LocalReaders.waitingOnAccess(
                                       calendar: calendarReader, contacts: contactsReader, reminders: remindersReader,
                                       books: appleBooksReader, messages: messagesWatcher, whatsApp: whatsApp),
-                                  suggested: suggested, watch: { browserWatcher?.state(for: $0) })
+                                  suggested: suggested, browserReads: reading.settings?.browserReads ?? [:],
+                                  watch: { browserWatcher?.state(for: $0) })
     }
 
     /// 2026-11-03 — when each chat reader on this Mac last read its ticked chats (`ChatCheck`).

@@ -31,7 +31,6 @@ extension Copy {
         static let saved = "Saved"
         static let chooseChats = "Choose chats…"
         static func requestExport(_ app: String) -> String { "Request your \(app) export" }
-        static let savedList = "Keep your saved list current"
         static let browserSettings = "Browser reading…"
         static let browserSettingsHelp = "What your own agent may read in your signed-in browser, and how"
         static func notesRead(new: Int, unchanged: Int) -> String {

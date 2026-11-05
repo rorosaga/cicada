@@ -61,6 +61,95 @@ struct SourceCatalogEntry: Identifiable, Equatable {
     var verb: SourceCatalogVerb = .connect(Copy.Catalog.connect)
     /// A `/sources/overview` row with no catalogue entry (an agent's conversations, until the Agents page holds them).
     var overviewId: String? = nil
+
+    /// ROR-114 — the key of the saved list the person's own agent keeps current in their browser
+    /// (`reading_settings.SAVED_LISTS`): the entry's id, for the six that have one. Pinterest has no walled `site`, so
+    /// this, not `site`, is what draws its switch.
+    var savedListKey: String? { SourceCatalog.savedListSites.contains(id) ? id : nil }
+    /// The key `BrowserRead`s are filed under: a saved list's, or the lists YouTube and Substack are read by.
+    var browserKey: String? {
+        savedListKey ?? (id == "youtube" ? "youtube" : (id == SourceCatalog.substackId ? SourceCatalog.substackId : nil))
+    }
+}
+
+/// ROR-114 (owner: "just saying these get read through your browser should be fine … 'connection' as green, vs 'read
+/// through browser' should be different colors … if I'm logged out Cicada should detect this, healthy meaning I'm
+/// logged in") — how a source read through the person's own browser stands. Learned only when an agent tries the page:
+/// no cookie is read and no browser runs in the background.
+struct BrowserRead: Equatable {
+    enum State: Equatable {
+        /// On, and no agent has tried the page yet.
+        case notReadYet
+        /// The last attempt read the list: the person is signed in.
+        case read
+        /// The last attempt met a login wall.
+        case signedOut
+        /// The last attempt was blocked or failed.
+        case couldntRead
+
+        init(backend word: String) {
+            switch word {
+            case "read": self = .read
+            case "signed_out": self = .signedOut
+            case "couldnt_read": self = .couldntRead
+            default: self = .notReadYet
+            }
+        }
+
+        var word: String {
+            switch self {
+            case .read: Copy.Browser.through
+            case .notReadYet: Copy.Browser.notReadYet
+            case .signedOut: Copy.Browser.signedOut
+            case .couldntRead: Copy.Browser.couldntRead
+            }
+        }
+
+        /// Blue for a healthy browser read (a data hue, DR-5/DR-8: never the accent), grey before any read, amber when
+        /// the person has something to do or it failed.
+        var tone: StatusWord.Tone {
+            switch self {
+            case .read: .browser
+            case .notReadYet: .off
+            case .signedOut, .couldntRead: .attention
+            }
+        }
+    }
+
+    var state: State = .notReadYet
+    var lastRead: Date? = nil
+    /// The person's handle on the site and the link to their profile, as the agent reported them (checked by the
+    /// backend: https, the site's own host).
+    var handle: String? = nil
+    var profileURL: String? = nil
+}
+
+extension ReadingSettingsResponse {
+    /// What each browser-read list stands at, by `SourceCatalogEntry.browserKey`: the six saved lists (the `saved`
+    /// block), YouTube's and Substack's (their pause and last outcomes).
+    var browserReads: [String: BrowserRead] {
+        var out: [String: BrowserRead] = [:]
+        for (key, list) in saved?.lists ?? [:] {
+            out[key] = BrowserRead(state: BrowserRead.State(backend: list.state),
+                                   lastRead: list.lastReadAt.flatMap(ISODate.parse), handle: list.handle,
+                                   profileURL: list.profileUrl)
+        }
+        out["youtube"] = Self.pausedRead(outcomes: youtube?.lists.values.map(\.lastOutcome) ?? [],
+                                         reads: youtube?.lists.values.compactMap(\.lastReadAt) ?? [],
+                                         paused: youtube?.pausedUntil != nil)
+        out[SourceCatalog.substackId] = Self.pausedRead(outcomes: substack?.lists.values.map(\.lastOutcome) ?? [],
+                                                        reads: substack?.lists.values.compactMap(\.lastReadAt) ?? [],
+                                                        paused: substack?.pausedUntil != nil)
+        return out
+    }
+
+    /// A list family with a shared pause: signed out or blocked only while paused, else read once any list was.
+    private static func pausedRead(outcomes: [String?], reads: [String], paused: Bool) -> BrowserRead {
+        let newest = reads.compactMap(ISODate.parse).max()
+        if paused, outcomes.contains("needs_login") { return BrowserRead(state: .signedOut, lastRead: newest) }
+        if paused, outcomes.contains("blocked") { return BrowserRead(state: .couldntRead, lastRead: newest) }
+        return BrowserRead(state: newest == nil ? .notReadYet : .read, lastRead: newest)
+    }
 }
 
 /// One entry as the list draws it: status, last sync and the line under the name.
@@ -77,6 +166,9 @@ struct SourceCatalogRow: Identifiable, Equatable {
     var waitingOn: String? = nil
     /// Off, and its app is on this Mac: offered above the rest (`SourceGrid.suggested`).
     var suggested = false
+    /// ROR-114 — set when this row is Connected only because the person's own agent reads it in their browser (no
+    /// connection, no import, no reader on this Mac): how that read stands, and whose list it is.
+    var browser: BrowserRead? = nil
     var id: String { entry.id }
 }
 
@@ -288,7 +380,7 @@ enum SourceCatalog {
     static let signInChannels: Set<String> = ["pinterest", "reddit", "x", "notion-api", "github"]
     /// G206 (#426): the sites whose saved list the person's own agent can keep current from their signed-in browser
     /// (`reading_settings.SAVED_LISTS`).
-    static let savedListSites: Set<String> = ["x", "instagram", "linkedin"]
+    static let savedListSites: Set<String> = ["x", "instagram", "linkedin", "reddit", "pinterest", "tiktok"]
     /// An overview row an import shares with a reader on this Mac → that reader's channel: Takeout's watch history and
     /// Chrome's watched days are both `youtube-history`.
     static let sharedWithReader: [String: String] = ["youtube-history": WatchHistoryWatcher.channel]
@@ -307,22 +399,38 @@ enum SourceCatalog {
     static func status(for entry: SourceCatalogEntry, channels: [SourceChannel], overview: [SourceOverview],
                        readableSites: Set<String>, localReaders: [String: Bool] = [:],
                        savedListsOn: Set<String> = [], localAgent: Bool = false) -> SourceCatalogStatus {
+        resolved(for: entry, channels: channels, overview: overview, readableSites: readableSites,
+                 localReaders: localReaders, savedListsOn: savedListsOn, localAgent: localAgent).status
+    }
+
+    /// `status`, and whether the row is Connected only because the person's own agent reads it in their browser
+    /// (ROR-114): then the tile says so, in its own colour, instead of the green of a connection.
+    static func resolved(for entry: SourceCatalogEntry, channels: [SourceChannel], overview: [SourceOverview],
+                         readableSites: Set<String>, localReaders: [String: Bool] = [:],
+                         savedListsOn: Set<String> = [], localAgent: Bool = false)
+        -> (status: SourceCatalogStatus, viaBrowser: Bool) {
         // G218 — traces read Connected only while the recorder records here; paused, off or on a server they read Off
         // (ruling 36's three words; the detail's own line says "Paused until …").
-        if entry.id == tracesId { return localReaders[tracesId] == true ? .connected : .off }
+        if entry.id == tracesId { return (localReaders[tracesId] == true ? .connected : .off, false) }
         let mine = channelsOf(entry, in: channels)
         if mine.contains(where: { signInChannels.contains($0.id) && readsAsSignIn($0.lastError) }) {
-            return .needsSignIn
+            return (.needsSignIn, false)
         }
         // 2026-11-04 (owner: "I just pressed sync contacts … it said syncing and then it turned off … now that it finished
         // syncing, it says connected. But I don't get why it wasn't connected from the start") — a reader this Mac runs
         // is Connected while it is on (allowed and turned on), whether or not the bank has recorded a sync yet: the
         // backend's `connected` means "a sync was recorded", which a fresh bank, a first read still running or a read
         // the bank refused (Sleep writing) leaves false. Off here stays Off whatever synced before (2026-10-23).
-        if entry.channels.contains(where: { localReaders[$0] == true }) { return .connected }
-        if mine.contains(where: { $0.connected && localReaders[$0.id] != false }) { return .connected }
-        if entry.overviewId != nil, overviewRow(for: entry, in: overview) != nil { return .connected }
-        if entry.id == "chat-exports", mine.contains(where: { $0.count > 0 }) { return .connected }
+        if entry.channels.contains(where: { localReaders[$0] == true }) { return (.connected, false) }
+        if mine.contains(where: { $0.connected && localReaders[$0.id] != false }) { return (.connected, false) }
+        if entry.overviewId != nil, overviewRow(for: entry, in: overview) != nil { return (.connected, false) }
+        if entry.id == "chat-exports", mine.contains(where: { $0.count > 0 }) { return (.connected, false) }
+        // ROR-114 (owner: "why cant i turn on instagram, tiktok or reddit"): a saved list the person turned on is read
+        // through their browser, whatever else came in — an import no longer paints it as a connection. Only a real
+        // connection or a reader on this Mac (above) outranks it.
+        if let key = entry.savedListKey, savedListsOn.contains(key) {
+            return localAgent ? (.connected, true) : (.waitingForAgent, false)
+        }
         // An account's import that fed memory counts, as a chat export does (2026-10-23, live test: YouTube read Off
         // over a Takeout's thousands of episodes). Only an overview row no channel speaks for — an import — and not one a
         // reader on this Mac also writes while that reader is off (`youtube-history` holds Chrome's watched days too),
@@ -331,19 +439,17 @@ enum SourceCatalog {
             row.channelId == nil && row.episodes > 0 && entry.channels.contains(row.id)
                 && !(sharedWithReader[row.id].map { localReaders[$0] == false } ?? false)
         }) {
-            return .connected
+            return (.connected, false)
         }
         let agentReads = entry.site.map { site in
-            (entry.verb == .turnOn && readableSites.contains(site))
-                // G206: the person's agent keeps this site's saved list current (agent reading on, the list's switch on).
-                || savedListsOn.contains(site)
+            entry.verb == .turnOn && readableSites.contains(site)
         } ?? false
             // 2026-10-26: the same for YouTube's Watch later and history (`savedListsOn` holds "youtube" then).
             || (entry.id == "youtube" && savedListsOn.contains("youtube"))
             // G89: and for Substack's lists (`savedListsOn` holds "substack" then).
             || (entry.id == substackId && savedListsOn.contains(substackId))
-        if agentReads { return localAgent ? .connected : .waitingForAgent }
-        return .off
+        if agentReads { return localAgent ? (.connected, true) : (.waitingForAgent, false) }
+        return (.off, false)
     }
 
     static func channelsOf(_ entry: SourceCatalogEntry, in channels: [SourceChannel]) -> [SourceChannel] {
@@ -367,21 +473,24 @@ enum SourceCatalog {
                      savedListsOn: Set<String> = [], localAgent: Bool = false,
                      checked: [String: Date] = [:], notInstalled: Set<String> = [],
                      waitingOn: [String: String] = [:], suggested: Set<String> = [],
+                     browserReads: [String: BrowserRead] = [:],
                      watch: (String) -> BrowserWatchState? = { _ in nil }) -> [SourceCatalogRow] {
         entries.map { entry in
             let synced = lastSync(for: entry, channels: channels, overview: overview)
             // 2026-11-04 — an app removed from this Mac (`LocalSourceWatcher.missingApps`) reads Off, whatever the bank's
             // switch says: nothing more can come from it.
             let gone = notInstalled.contains(entry.id)
-            func read(_ readers: [String: Bool]) -> SourceCatalogStatus {
-                gone ? .off : status(for: entry, channels: channels, overview: overview, readableSites: readableSites,
-                                     localReaders: readers, savedListsOn: savedListsOn, localAgent: localAgent)
+            func resolve(_ readers: [String: Bool]) -> (status: SourceCatalogStatus, viaBrowser: Bool) {
+                gone ? (.off, false)
+                    : resolved(for: entry, channels: channels, overview: overview, readableSites: readableSites,
+                               localReaders: readers, savedListsOn: savedListsOn, localAgent: localAgent)
             }
+            func read(_ readers: [String: Bool]) -> SourceCatalogStatus { resolve(readers).status }
             // What this row would read with every reader it only borrows switched off.
             let borrowed = entry.channels.filter { readerHome[$0].map { $0 != entry.id } ?? false }
             let own: SourceCatalogStatus? = borrowed.isEmpty ? nil
                 : read(localReaders.merging(borrowed.map { ($0, false) }) { _, off in off })
-            let current = read(localReaders)
+            let (current, viaBrowser) = resolve(localReaders)
             // ROR-7 — a connected reader that cannot read waits on the person: the same channel, the same words, as the
             // *Needs you* its own page says (`SourcePageStatus`), so the tile and the page never disagree.
             var problem: String?
@@ -393,7 +502,9 @@ enum SourceCatalog {
                                     lastSync: [synced, checked[entry.id]].compactMap { $0 }.max(),
                                     notInstalled: gone, countsAsConnected: own.map { $0 == .connected } ?? true,
                                     waitingOn: gone ? nil : (waitingOn[entry.id] ?? problem),
-                                    suggested: suggested.contains(entry.id))
+                                    suggested: suggested.contains(entry.id),
+                                    browser: viaBrowser && current == .connected
+                                        ? (entry.browserKey.flatMap { browserReads[$0] } ?? BrowserRead()) : nil)
         }
     }
 

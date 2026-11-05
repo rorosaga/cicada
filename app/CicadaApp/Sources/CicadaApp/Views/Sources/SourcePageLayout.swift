@@ -33,6 +33,7 @@ enum SourceConnectState: Equatable {
     static func of(_ status: SourcePageStatus) -> SourceConnectState {
         switch status {
         case .connected, .checked: .connected
+        case .browser(let read): read.state == .signedOut || read.state == .couldntRead ? .needsAttention : .connected
         case .syncing: .connecting
         case .needsYou: .needsAttention
         case .off, .notInstalled: .notConnected
