@@ -139,7 +139,7 @@ async def get_files(settings: Settings = Depends(get_settings)) -> dict:
 @router.get("/files/{file_id}/transcript")
 async def get_transcript(file_id: str, settings: Settings = Depends(get_settings)) -> dict:
     """A file's words with their times, drawn on its page at view time. They live outside every bank and are never
-    committed or indexed as page text; the app's token reaches this, no agent door does. 404 for a file that is gone."""
+    kept in git or indexed as page text; the app's token reaches this, no agent door does. 404 for a file that is gone."""
     out = await run_in_threadpool(media_files.transcript, settings.memory_path, file_id)
     if out is None:
         raise HTTPException(404, "no such file")
