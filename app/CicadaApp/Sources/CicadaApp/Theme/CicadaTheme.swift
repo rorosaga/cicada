@@ -143,6 +143,9 @@ enum CicadaTheme {
     static var bgPane: Color { mode == .dark ? Dark.bgPane : Light.bgPane }
     static var bgHover: Color { mode == .dark ? Dark.bgHover : Light.bgHover }
     static var bgFocus: Color { mode == .dark ? Dark.bgFocus : Light.bgFocus }
+    /// The plain disc of anyone with no photo (owner 2026-11-05). `bgFocus` is the card a picture sits on, so it vanished
+    /// there; this stands off every surface in both modes, and `textSecondary` clears 4.5:1 on it.
+    static var pictureFill: Color { mode == .dark ? Dark.pictureFill : Light.pictureFill }
     static var bgOption: Color { mode == .dark ? Dark.bgOption : Light.bgOption }
     static var bgButton: Color { mode == .dark ? Dark.bgButton : Light.bgButton }
     static var bgButtonHover: Color { mode == .dark ? Dark.bgButtonHover : Light.bgButtonHover }
@@ -627,6 +630,7 @@ private extension CicadaTheme {
         static let bgPane = Color(hex: 0x141517)
         static let bgHover = Color(hex: 0x1B1C1E)
         static let bgFocus = Color(hex: 0x18191B)
+        static let pictureFill = Color(hex: 0x3A3C41)
         static let bgOption = Color(hex: 0x1D1E21)
         static let bgButton = Color(hex: 0x232427)
         static let bgButtonHover = Color(hex: 0x2C2D30)
@@ -789,6 +793,7 @@ private extension CicadaTheme {
         static let bgPane = Color(hex: 0xFBFBFA)
         static let bgHover = Color(hex: 0xEFEFEC)
         static let bgFocus = Color(hex: 0xFFFFFF)
+        static let pictureFill = Color(hex: 0xC4C4C0)
         static let bgOption = Color(hex: 0xF7F7F5)
         static let bgButton = Color(hex: 0xF2F2F0)
         static let bgButtonHover = Color(hex: 0xE3E3E0)

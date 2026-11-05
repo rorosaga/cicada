@@ -810,7 +810,7 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   read ends, the way the list has always worked. The list's only other
   reads are chat-list fields (`ZARCHIVED`, where the copy has it, places a row in an Archived group below the rest,
   tickable like any other), plus the one date the list already read for its order (`MAX(ZMESSAGEDATE)`, 2026-11-03: a
-  date per chat, never a message's words). A picture is the file `ZWAPROFILEPICTUREITEM` names for the chat's own `ZJID` or its `.thumb`/`.jpg`
+  date per chat, never a message's words; owner 2026-11-05 on this and the picker's reads: "it can read everything except contents of chats"). A picture is the file `ZWAPROFILEPICTUREITEM` names for the chat's own `ZJID` or its `.thumb`/`.jpg`
   sibling, read once per list load, and never a guess from a file's name (2026-11-05: `<creator>-<time>` can be a legacy
   group's, so a person's chat could wear a group's face). Measured on the owner's store, counts only: 509 of the 510 files
   in `Media/Profile` are named by a row, and the name matching found nothing rows do not. The person's own chat wears

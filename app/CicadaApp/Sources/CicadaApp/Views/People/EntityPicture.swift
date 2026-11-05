@@ -245,8 +245,8 @@ struct EntityPictureFallback: View {
 
     var body: some View {
         switch EntityPictureLayout.fallback(type, name: name, chosenInitials: chosenInitials) {
-        case .initials(let text): letters(text).background(Circle().fill(CicadaTheme.bgFocus))
-        case .monogram(let text): letters(text).background(CicadaTheme.bgFocus)
+        case .initials(let text): letters(text).background(Circle().fill(CicadaTheme.pictureFill))
+        case .monogram(let text): letters(text).background(CicadaTheme.pictureFill)
         case .none:
             Color.clear
                 .frame(width: frame.width, height: frame.height)
