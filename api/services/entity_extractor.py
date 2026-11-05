@@ -46,7 +46,7 @@ Output valid JSON with this exact structure:
       "website": "https://example.com   (optional; company, tool or project only)",
       "application": {"status": "drafted|filled|sent|registered|accepted|rejected|attended", "by": "user|assistant"},
       "reading_status": {"status": "reading|finished|want|not_started", "quote": "the user's exact words", "on": "YYYY-MM-DD   (optional)"},
-      "ask_person": "why only the person can say who or what this is, and what rests on it   (optional; see ASK PERSON below)",
+      "ask_person": "what rests on the answer, in one short clause   (optional; see ASK PERSON below)",
       "description": "Optional. Same content as summary; kept only for backward compatibility."
     }
   ],
@@ -189,8 +189,8 @@ the context of the conversation, says where THEY stand with it now:
   only place for it: no value for it in values[]. Unsure? Omit it.
 
 ASK PERSON (optional, per entity) — a question goes to the person's inbox and costs their attention, so it has to earn
-it. Set ask_person only when both of these hold, and say what rests on it in one short clause, in plain words ("the lease
-depends on him"):
+it. Set ask_person only when both of these hold, and write the stake itself in one short clause, in plain words ("the
+lease depends on him"), never that you do not know who this is:
 - Only they can answer: the conversation does not say who or what this is to them, and no public source could.
 - Something real rests on it: money, a deadline, a decision or a commitment in this conversation turns on this name, so
   memory would act differently knowing the answer.

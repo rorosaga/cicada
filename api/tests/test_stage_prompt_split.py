@@ -83,7 +83,7 @@ Respond with JSON only:
 
 If there is no contradiction, set has_unresolvable_contradiction to false, question to "", and options to []."""
 
-OLD_SKILLS = """You are analyzing patterns in a personal knowledge graph to extract procedural skills and preferences.
+OLD_SKILLS = """You are reading what changed in a person's knowledge graph, to find how this person works.
 
 ENTITY CHANGES THIS CYCLE:
 {changes}
@@ -94,19 +94,18 @@ FREQUENTLY CO-OCCURRING ENTITIES (appeared together in 3+ conversations):
 RELATED EXISTING ENTITIES:
 {existing}
 
-Look for:
-1. WORKFLOW PATTERNS — recurring sequences of actions or tools used together.
-   Example: "Always checks GitHub before answering questions about projects."
-2. PREFERENCE PATTERNS — consistent choices or styles across conversations.
-   Example: "Prefers concise summaries over detailed explanations."
-3. RELATIONSHIP PATTERNS — entities that are consistently discussed together.
-   Example: "Career conversations always involve both the current employer and the field."
+A skill is something an agent could follow next time to work the way this person does: a sequence they keep repeating, or
+a choice they keep making.
+   Examples: "Always checks GitHub before answering questions about projects."
+             "Prefers concise summaries over detailed explanations."
+It is not a fact about them: what they do, know or use, where they work, who they work with or what comes up together is
+already on a page, and is no skill however often it is said.
 
 Output valid JSON:
 {{
   "skills": [
     {{
-      "name": "Descriptive Skill Name",
+      "name": "What to do, or how they like it done",
       "description": "1-2 sentence procedural description written as an instruction or observation",
       "evidence_entities": ["Entity A", "Entity B"],
       "confidence": 0.7

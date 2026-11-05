@@ -215,14 +215,14 @@ def test_cancel_after_one_name_writes_no_clarification_and_no_pending_entry(tmp_
     memory = _init_bank(tmp_path)
     spy = _install_spy_indexer(monkeypatch)
 
-    # Both names are brand new, low confidence, no existing match, single
+    # Both names are brand new, one the model asks about (G239), no existing match, single
     # mention — the "else" branch: would create a clarification AND index a
     # pending entity. "Ambiguous Person" is more specific (two tokens) so it
     # sorts first and gets judged; "X" is blocked by cancellation.
     extracted = [{
         "episode_id": "ep1",
         "entities": [
-            {"name": "Ambiguous Person", "type": "person", "confidence": 0.2,
+            {"name": "Ambiguous Person", "type": "person", "confidence": 0.2, "ask_person": "the lease rests on them",
              "source_episode": "ep1", "description": "someone mentioned in passing"},
             {"name": "X", "type": "concept", "confidence": 0.2, "source_episode": "ep1"},
         ],
@@ -243,7 +243,7 @@ def test_cancel_after_one_name_writes_no_clarification_and_no_pending_entry(tmp_
 
 
 def test_uncancelled_run_still_creates_the_clarification_and_pending_entry(tmp_path, monkeypatch):
-    """Control: the SAME low-confidence scenario, never cancelled — the fix
+    """Control: the SAME scenario, never cancelled — the fix
     must not have silently broken clarification creation for the normal
     path."""
     memory = _init_bank(tmp_path)
@@ -252,7 +252,7 @@ def test_uncancelled_run_still_creates_the_clarification_and_pending_entry(tmp_p
     extracted = [{
         "episode_id": "ep1",
         "entities": [
-            {"name": "Ambiguous Person", "type": "person", "confidence": 0.2,
+            {"name": "Ambiguous Person", "type": "person", "confidence": 0.2, "ask_person": "the lease rests on them",
              "source_episode": "ep1", "description": "someone mentioned in passing"},
         ],
         "relationships": [],
