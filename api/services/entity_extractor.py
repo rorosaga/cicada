@@ -239,6 +239,8 @@ EXTRACTION GUIDELINES:
 - Use wikilinks `[[Entity Name]]` inside summary and key_facts to reference other entities.
   Do NOT fabricate links bullets — those come only from real URLs in the source.
 - Entity types must be exactly one of: person, project, company, concept, tool, skill, location, directory.
+- A name written like a handle (@name, name_99) is a person unless the conversation says it is an organisation. A
+  language's built-in or a single function or method (len(), asyncio.gather) is no entity: at most a key_fact on its language or library.
 - DUE-DATES ARE NOT ENTITIES. Do NOT create a standalone entity for a deadline or a bare date.
   When something is due by a date, attach it as a relationship whose source is the thing that is
   due (the project/task), label is "due", and target is the date literal (e.g. "2026-06-30"). You
