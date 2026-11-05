@@ -68,6 +68,10 @@ BAD_ENDPOINT = "Linear's sign-in answered with an address Cicada does not trust,
 SIGNED_OUT = "Linear signed Cicada out. Connect Linear again."
 
 
+class RequestLimit(base.ConnectorError):
+    """The sync's own budget, not a fault in what it was reading: stop and carry on next time, nothing is unreadable."""
+
+
 class WriteToolRefused(base.ConnectorError):
     """A tool outside :data:`ALLOWED_TOOLS` was asked for; nothing was sent."""
 
@@ -285,7 +289,7 @@ class Session:
         if name not in ALLOWED_TOOLS:
             raise WriteToolRefused(f"Linear tool {name!r} is not on the read-only list")
         if self.calls >= MAX_CALLS_PER_SYNC:
-            raise base.ConnectorError("Linear: this sync reached its request limit; the next one carries on")
+            raise RequestLimit("Linear: this sync reached its request limit; the next one carries on")
         await self.start()
         self.calls += 1
         rpc = await self._rpc("tools/call", {"name": name, "arguments": arguments})

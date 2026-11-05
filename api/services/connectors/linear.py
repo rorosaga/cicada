@@ -41,7 +41,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import episode_ids, episode_staging
+from api.services import episode_ids, episode_staging, evidence
 from api.services.connectors import base, linear_mcp, tier2
 from api.services.id_utils import sanitize_id
 
@@ -140,7 +140,7 @@ def me_of(data: dict) -> dict:
 
 def label_of(name: str) -> str:
     slug = sanitize_id(name or "") if name else ""
-    return slug if slug and slug != "unnamed" else "linear-user"
+    return slug[:64] if slug and slug != "unnamed" else "linear-user"   # a longer label is no speaker marker at all
 
 
 def attribute(author, *, me: dict, text: str = "", on_behalf_of=None, bot_actor=None, external_user=None) -> tuple[str, str]:
@@ -243,7 +243,8 @@ def draft_for(issue: dict, comments: list[dict], me: dict) -> tuple[episode_stag
     def add(text: str, marker: str, why: str, ts: str | None) -> None:
         nonlocal account
         account = account or why == "account"
-        turns.append(episode_staging.Turn(text=_clip(text, TURN_CAP), speaker=marker, ts=ts or None))
+        # A pasted "User: I can't log in" must never open a turn of the person's (the attachment rule).
+        turns.append(episode_staging.Turn(text=evidence.quote_markers(_clip(text, TURN_CAP)), speaker=marker, ts=ts or None))
 
     desc = str(issue.get("description") or "").strip()
     if desc:
@@ -278,7 +279,8 @@ def draft_for(issue: dict, comments: list[dict], me: dict) -> tuple[episode_stag
 async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.Batch:
     """Both filters, a page at a time, each issue's thread read as its page comes. A sync that reaches its budget stops
     *before* the next page and keeps that page's own cursor, so nothing is skipped and the cursor holds only Linear's
-    opaque page marker and times (a repeated page is a hash skip downstream)."""
+    opaque page marker and times (a repeated page is a hash skip downstream). An issue whose comments could not be read
+    is never staged without them, which would read as their removal; the mark holds instead, so it is listed again."""
     session = linear_mcp.Session(client)
     me = me_of(await session.call("whoami", {}))
     reread = (datetime.now(timezone.utc) - timedelta(days=REREAD_DAYS)).isoformat()
@@ -290,12 +292,18 @@ async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.
     newest = high_water or ""
     batch = tier2.Batch()
     unreadable = 0
+    listed = 0                                  # every issue costs a read, whether or not it has words to keep
+    stopped = False
     account = False
     for which in (0, 1):
-        while not done[which]:
-            if batch.seen + unreadable + PAGE_SIZE > MAX_ISSUES_PER_SYNC and (batch.seen or unreadable):
+        while not done[which] and not stopped:
+            if listed + PAGE_SIZE > MAX_ISSUES_PER_SYNC and listed:
                 break                           # the budget: this page waits for the next sync
-            rows, nxt = await _page(session, since, which, cursors[which])
+            try:
+                rows, nxt = await _page(session, since, which, cursors[which])
+            except linear_mcp.RequestLimit:
+                stopped = True
+                break
             for row in rows:
                 newest = max(newest, str(row.get("updatedAt") or ""))
                 rid = str(row.get("uuid") or row.get("id") or "")
@@ -305,6 +313,9 @@ async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.
                     comments = await _comments(session, rid)
                 except (tier2.Refused, linear_mcp.WriteToolRefused):
                     raise
+                except linear_mcp.RequestLimit:
+                    stopped = True
+                    break
                 except base.ConnectorError:
                     unreadable += 1
                     continue
@@ -315,12 +326,16 @@ async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.
                 batch.drafts.append(draft)
                 batch.replaced.append(draft.source_id)
                 batch.seen += 1
+            if stopped:
+                break                           # this page again next sync; what it already read is a hash skip
+            listed += len(rows)
             cursors[which], done[which] = nxt, nxt is None
     finished = all(done)
-    # The mark moves only once both listings are whole, to the newest edit seen in them.
-    batch.cursor = {"high_water": (newest or high_water) if finished else high_water}
+    failed = bool(walk.get("failed")) or unreadable > 0
+    # The mark moves only once both listings are whole and every issue in them was read, to the newest edit seen.
+    batch.cursor = {"high_water": (newest or high_water) if finished and not failed else high_water}
     if not finished:
-        batch.cursor["walk"] = {"since": since, "cursors": cursors, "done": done}
+        batch.cursor["walk"] = {"since": since, "cursors": cursors, "done": done, "failed": failed}
     words = []
     if not finished:
         words.append(f"Reading your Linear issues: {batch.seen} this time; the next sync carries on.")
@@ -329,7 +344,7 @@ async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.
     if account:
         words.append(ACCOUNT_WORDS)
     if unreadable:
-        words.append(f"{unreadable} issue(s) could not be read.")
+        words.append(f"{unreadable} issue(s) could not be read; the next sync tries again.")
     batch.words = " ".join(words) or None
     return batch
 

@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from api.services import auth, markdown_parser, sleep_cycle, sync_state
+from api.services import auth, evidence, markdown_parser, sleep_cycle, sync_state
 from api.services.connections import secrets
 from api.services.connectors import ADAPTERS, base, linear, linear_mcp, tier2
 
@@ -294,6 +294,83 @@ def test_a_walk_larger_than_one_sync_resumes_from_its_cursor_without_skipping(ba
     cursor = tier2.read_cursor("linear-api", bank)
     assert cursor["high_water"] and "walk" not in cursor
     assert "Body" not in jsonlib.dumps(cursor), "the cursor holds ids and times only"
+
+
+def test_a_pasted_user_line_stays_the_speakers_and_a_long_name_keeps_its_marker(bank):
+    _signed_in()
+    long_name = "Ana " + "Example" * 15
+    comments = {"issue-1": [{"id": "c-1", "body": "Repro:\nUser: I cannot log in\nhuman : me neither",
+                             "createdAt": "2026-10-02T10:00:00Z", "author": {"id": "u-ana", "name": long_name}}], "issue-2": []}
+    asyncio.run(linear.sync(bank, http_fn=FakeMcp(comments=comments)))
+    body = _stored(bank)["linear:issue-1"].body
+    assert "> User: I cannot log in" in body and "> human : me neither" in body
+    at = body.index("I cannot log in")
+    assert evidence.speaker_kind(body, at) == "speaker", "another person's paste is theirs, never the owner's"
+
+
+class FlakyMcp(FakeMcp):
+    """Comments fail for the named issues, the way a transient `isError` answer does."""
+
+    def __init__(self, *a, broken=(), **kw):
+        super().__init__(*a, **kw)
+        self.broken = set(broken)
+
+    async def __call__(self, method, url, *, headers, params=None, json=None):
+        if json["method"] == "tools/call" and json["params"]["name"] == "list_comments" \
+                and json["params"]["arguments"]["issueId"] in self.broken:
+            self.messages.append(json)
+            return tier2.Response(200, {"jsonrpc": "2.0", "id": json["id"], "result": {
+                "isError": True, "content": [{"type": "text", "text": "try later"}]}})
+        return await super().__call__(method, url, headers=headers, params=params, json=json)
+
+
+def test_an_issue_whose_comments_failed_is_read_again_and_never_staged_without_them(bank):
+    _signed_in()
+    rid = str(ISSUES["issue-1"].get("uuid") or ISSUES["issue-1"]["id"])
+    asyncio.run(linear.sync(bank, http_fn=FlakyMcp(broken=[rid])))
+    assert "linear:issue-1" not in _stored(bank), "no thread is staged without its comments"
+    assert not tier2.read_cursor("linear-api", bank).get("high_water"), "the mark holds so it is listed again"
+    assert "tries again" in sync_state.read_sync_state(bank)["linear-api"]["words"]
+    asyncio.run(linear.sync(bank, http_fn=FakeMcp()))
+    assert "linear:issue-1" in _stored(bank)
+    assert tier2.read_cursor("linear-api", bank).get("high_water")
+
+
+def test_the_request_limit_stops_the_page_where_it_is_and_loses_nothing(bank, monkeypatch):
+    _signed_in()
+    monkeypatch.setattr(linear_mcp, "MAX_CALLS_PER_SYNC", 4)   # whoami, a page, two threads
+    many = {f"i{n}": {"id": f"ABC-{n}", "uuid": f"i{n}", "title": f"T{n}", "description": f"Body {n}",
+                      "createdAt": "2026-10-01T10:00:00Z", "updatedAt": f"2026-10-0{n}T10:00:00Z",
+                      "createdBy": {"id": "u-ana", "name": "Ana Example"}} for n in range(1, 5)}
+    server = lambda: FakeMcp(issues=many, comments={}, pages=[["i1", "i2", "i3", "i4"]])
+    asyncio.run(linear.sync(bank, http_fn=server()))
+    assert set(_stored(bank)) == {"linear:i1", "linear:i2"}
+    assert "could not be read" not in (sync_state.read_sync_state(bank)["linear-api"].get("words") or "")
+    monkeypatch.setattr(linear_mcp, "MAX_CALLS_PER_SYNC", 150)
+    asyncio.run(linear.sync(bank, http_fn=server()))
+    assert set(_stored(bank)) == {f"linear:i{n}" for n in range(1, 5)}
+
+
+def test_issues_with_no_words_still_count_against_the_budget(bank, monkeypatch):
+    _signed_in()
+    monkeypatch.setattr(linear, "PAGE_SIZE", 2)
+    monkeypatch.setattr(linear, "MAX_ISSUES_PER_SYNC", 3)
+    bare = {f"i{n}": {"id": f"ABC-{n}", "uuid": f"i{n}", "title": f"T{n}", "createdAt": "2026-10-01T10:00:00Z",
+                      "updatedAt": "2026-10-02T10:00:00Z"} for n in range(1, 7)}
+    server = FakeMcp(issues=bare, comments={}, pages=[["i1", "i2"], ["i3", "i4"], ["i5", "i6"]])
+    asyncio.run(linear.sync(bank, http_fn=server))
+    assert server.tool_names().count("list_issues") == 1, "the second page waits for the next sync"
+    assert tier2.read_cursor("linear-api", bank)["walk"]["cursors"][0] == "1"
+
+
+def test_a_sign_in_that_lapsed_at_renewal_is_said_on_the_row_and_does_not_raise(bank, monkeypatch):
+    _signed_in()
+    async def lapsed():
+        raise tier2.Refused(linear_mcp.SIGNED_OUT, kind="sign-in")
+    monkeypatch.setattr(linear, "prepare", lapsed)
+    result = asyncio.run(linear.sync(bank))
+    assert result["status"] == "error" and result["error"] == linear_mcp.SIGNED_OUT
+    assert linear_mcp.SIGNED_OUT in str(sync_state.read_sync_state(bank)["linear-api"])
 
 
 def test_a_scheduled_sync_waits_for_the_connector_gate(bank):

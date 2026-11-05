@@ -377,7 +377,11 @@ async def run(adapter: ModuleType, memory_path: Path, *, http_fn: Transport | No
             cursor = {}     # a new or reset bank: the whole history again, never nothing
         # An adapter whose sign-in lapses renews it first (GitHub's device-flow token, `github.prepare`).
         if http_fn is None and (prepare := getattr(adapter, "prepare", None)) is not None:
-            await prepare()
+            try:
+                await prepare()
+            except Refused as exc:      # a lapsed sign-in is said on the row, like any other refusal
+                sync_state.record_error(memory_path, channel, exc.words)
+                return {**_empty("error", error=exc.words), "resources_read": 0}
         client = Client(adapter, token(adapter), http_fn)
         started = time.perf_counter()
         try:
