@@ -192,13 +192,16 @@ def _first_match(text: str, terms: set[str]) -> int | None:
 
 def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name: str | None = None,
            terms: set[str] | None = None, max_episodes: int = MAX_EPISODES, max_excerpts: int = MAX_EXCERPTS,
-           total_chars: int = TOTAL_CHARS, breadth: bool = False, follow: bool = False) -> list[Excerpt]:
+           total_chars: int = TOTAL_CHARS, breadth: bool = False, follow: bool = False,
+           deep: dict | None = None) -> list[Excerpt]:
     """The excerpts for ``question`` from the episodes ``found`` points at, oldest first (see the module doc).
     ``terms``: the question's words to rank turns by (default: all of its subject words). ``breadth`` (a count or
     a list): each episode's best turn first, in rank order, each at most :data:`BREADTH_EXCERPT_CHARS` — one line from
     every conversation the shown items came from before a second from any — then the rest by score. ``follow`` (a
     question by meaning, :func:`by_meaning`): a shown line leads to the turn that told it by the line's own words, as
-    for ``breadth`` — the question's words are not the record's, so they find no turn."""
+    for ``breadth`` — the question's words are not the record's, so they find no turn. ``deep`` (ROR-29, G207): the
+    one reading budget (:data:`UNREAD_EXTRA_CHARS`) the caller shares with :func:`gather_search`; a ``breadth`` line of
+    a conversation Sleep has not read is read past :data:`BREADTH_EXCERPT_CHARS` from it, a read one never."""
     terms = set(terms) if terms else question_terms(question)
     terms = (terms - QUESTION_WORDS) or terms
     by_episode: dict[str, dict] = {}
@@ -250,7 +253,7 @@ def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name
         led = {id(c) for c in lead}
         candidates = lead + [c for c in candidates if id(c) not in led]
         return _take(candidates, docs, terms, owner_name, max_excerpts=max_excerpts, total_chars=total_chars,
-                     excerpt_chars=BREADTH_EXCERPT_CHARS)
+                     excerpt_chars=BREADTH_EXCERPT_CHARS, deep=deep)
     return _take(candidates, docs, terms, owner_name, max_excerpts=max_excerpts, total_chars=total_chars)
 
 
@@ -1632,7 +1635,8 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
 
 def gather_search(memory_path: Path, question: str, found: Searched, *, owner_name: str | None = None,
                   taken: set[tuple[str, int]] | None = None, max_episodes: int = SEARCH_EPISODES,
-                  max_excerpts: int = SEARCH_EXCERPTS, total_chars: int = SEARCH_CHARS) -> list[Excerpt]:
+                  max_excerpts: int = SEARCH_EXCERPTS, total_chars: int = SEARCH_CHARS,
+                  deep: dict | None = None) -> list[Excerpt]:
     """The turns of the best :func:`search` conversations that hold the question's words, the rarer words counting
     more, oldest first. A conversation kept for its day (the newest on the subject, a day the question names) shows
     its best turn before the others fill the budget by score, so the one that settled the subject is never crowded out.
@@ -1718,7 +1722,8 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         asked = asked_about(question, owner_name)
         candidates = _about_first(candidates, docs, asked, weights, owner_name)
     led = {id(c) for c in lead}
-    deep = {"left": UNREAD_EXTRA_CHARS}   # G207: one budget for everything read past the usual excerpt
+    # G207: one budget for everything read past the usual excerpt — the caller's when the page leg drew on it too.
+    deep = deep if deep is not None else {"left": UNREAD_EXTRA_CHARS}
     chosen = _take(lead + [c for c in candidates if id(c) not in led], docs, terms, owner_name,
                    max_excerpts=max_excerpts, total_chars=total_chars, taken=taken, deep=deep)
     if enumerate_:
@@ -1735,7 +1740,7 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
                 firsts[c[3]] = c
         chosen += _take(sorted(firsts.values(), key=lambda c: c[1]), extra_docs, terms, owner_name,
                         max_excerpts=len(firsts), total_chars=ENUM_CHARS, taken=taken,
-                        excerpt_chars=ENUM_EXCERPT_CHARS, context=False)
+                        excerpt_chars=ENUM_EXCERPT_CHARS, context=False, deep=deep)
         chosen.sort(key=lambda e: e.order)
     if found.adds:
         # Beside the words: the meaning leg's best turns not already shown, a conversation the words left out first.
@@ -1937,7 +1942,7 @@ def render(excerpts: list[Excerpt], *, with_episode: bool = False) -> str:
     lines: list[str] = []
     for e in excerpts:
         at = f"{e.day} [{e.episode}]" if with_episode else e.day
-        if with_episode and e.unread:
+        if e.unread:
             at += ", not yet read by Sleep"
         if e.before:
             lines.append(f"- {at}, {e.before[0]} (the turn before): \"{e.before[1]}\"")
