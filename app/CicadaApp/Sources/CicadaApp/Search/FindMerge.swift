@@ -106,7 +106,8 @@ enum FindRowText {
         case .action: "Action"
         case .bank: "Memory bank"
         case .askedBefore: "Asked before"
-        case .file: { if case .still = row.mark { return "Video frame" }; return "Recording" }()
+        case .file: { if row.badge == "Photo" { return "Photo" }
+            if case .still = row.mark { return "Video frame" }; return "Recording" }()
         }
     }
 

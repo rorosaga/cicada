@@ -215,6 +215,39 @@ def test_frames_become_pictures_with_their_time(bank):
     assert f"frame:{SHA[:16]}@0" in {q.key for q in image_index.sources(bank)}
 
 
+PHOTO = "ef" * 32
+
+
+def test_a_photo_keeps_one_derivative_and_is_a_picture_with_no_time(bank):
+    """ROR-117 — a photo the person adds: no words, one ≤ 640 × 400 JPEG, searched as a picture, opened in the viewer."""
+    got = media_files.record_media(bank, name="trip.heic", kind="image", sha256=PHOTO)
+    fid = PHOTO[:16]
+    assert got == {"action": "added", "id": fid}
+    assert media_files.record_frames(bank, fid, [(0.0, jpeg())]) == {"kept": 1, "total": 1}
+    with pytest.raises(media_files.FileRefused):
+        media_files.record_frames(bank, fid, [(0.0, jpeg()), (3.0, jpeg())])
+    # A second derivative replaces the first: a photo never grows a list of frames.
+    assert media_files.record_frames(bank, fid, [(0.0, jpeg(320, 200))]) == {"kept": 1, "total": 1}
+    pics = {p.key: p for p in media_files.pictures(bank)}
+    p = pics[f"photo:{fid}"]
+    assert p.source == "photo" and p.at is None and p.title == "trip.heic" and p.file_id == fid
+    assert "at" not in p.meta() and p.thumb == f"/files/{fid}/frames/0"
+    assert media_files.staged(bank) == [], "a photo has no words to embed"
+    assert [f["kind"] for f in media_files.list_files(bank)] == ["image"]
+
+
+def test_the_photo_route_and_the_demo_gate(client, bank, monkeypatch):
+    body = {"name": "trip.png", "kind": "image", "sha256": PHOTO, "size": 10}
+    assert client.post("/files/media", json=body).status_code == 200
+    r = client.post(f"/files/{PHOTO[:16]}/frames", json={"frames": [{"t": 0, "jpeg": base64.b64encode(jpeg()).decode()}]})
+    assert r.status_code == 200 and r.json() == {"kept": 1, "total": 1}
+    assert client.get(f"/files/{PHOTO[:16]}/frames/0").status_code == 200
+    from api.services import demo_guard
+
+    monkeypatch.setattr(demo_guard, "is_demo", lambda p: True)
+    assert client.post("/files/media", json={**body, "sha256": "12" * 32}).status_code == 409
+
+
 def test_recall_lists_the_recordings_words_on_a_local_door_only(bank, monkeypatch):
     from api.services import mcp_tools
 

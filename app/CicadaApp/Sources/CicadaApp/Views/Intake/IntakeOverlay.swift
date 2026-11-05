@@ -49,7 +49,7 @@ enum IntakePicker {
     /// Meaning index 2 — the same panel for File → Add Recording or Video…: audio and video files only (no folders:
     /// a folder is never walked for recordings). What it returns goes through `IntakeRouter.accept`, the one door a
     /// drop takes, so the roots guard and the speech rule are the drop's own.
-    static let mediaContentTypes: [UTType] = [.audio, .movie, .audiovisualContent]
+    static let mediaContentTypes: [UTType] = [.audio, .movie, .audiovisualContent, .image]
 
     @MainActor
     static func chooseMedia() -> [URL] {

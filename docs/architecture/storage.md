@@ -2301,6 +2301,8 @@ stamp current for EmbeddingGemma 2 and this fingerprint — is copied into the `
 app's find palette (a design-direction-D decision).
 
 ### Recordings and videos the person adds (meaning index 2, 2026-10-28; G195 stage 2)
+*ROR-117:* a third kind, `image` (a photo) — no words, exactly one derivative (`frames/0.jpg`, a second post replaces
+it), indexed as a `photo` picture with a file id and no time; `list_files` shows it; the app's viewer opens the original.
 `api/services/media_files.py`, `api/routers/files.py`, the app's `MediaFileIndexer`. **Decided:** the owner told the
 coordinator to go with the recommendation (2026-10-28) — speech is transcribed on the Mac by Apple's own recogniser and
 the words embedded in the same space (no 561 MB audio model); a video's frames are sampled from the local file the

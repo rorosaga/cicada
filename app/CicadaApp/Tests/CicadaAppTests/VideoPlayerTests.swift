@@ -10,7 +10,12 @@ final class FakePlaybackController: VideoPlaybackController {
     let url: URL
     private(set) var isPlaying = false
     private(set) var toggles = 0
+    private(set) var currentTime: Double = 0
+    var length: Double? = 600
+    private(set) var stops = 0
     init(url: URL) { self.url = url }
+    func seek(to seconds: Double) { currentTime = seconds }
+    func stop() { isPlaying = false; stops += 1 }
     func play() { isPlaying = true }
     func pause() { isPlaying = false }
     func toggle() { toggles += 1; isPlaying.toggle() }
