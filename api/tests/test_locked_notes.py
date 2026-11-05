@@ -577,13 +577,13 @@ def test_a_row_waiting_before_retirement_survives_it_with_no_name(bank):
 
     stub = markdown_parser.parse(path)
     assert stub.body.strip() == "" and stub.frontmatter[sensitive_flags.KEY]["read"][0]["engine"] == "test-engine"
-    report = sensitive_flags.sync_review(bank)
-    assert report.rows == 1
+    item_path, _ = sensitive_flags._item(bank)   # the retirement itself made the review
+    assert sensitive_flags.sync_review(bank).rows == 1
     bank_index.invalidate()
-    item = markdown_parser.parse(bank / report.paths[0])
+    item = markdown_parser.parse(item_path)
     assert item.frontmatter["rows"][0]["title"] == notes_sync.LOCKED_TITLE
     assert item.frontmatter["rows"][0]["kinds"] == ["password"]
-    written = (bank / report.paths[0]).read_text(encoding="utf-8")
+    written = item_path.read_text(encoding="utf-8")
     assert "Vault-title" not in written and FOLDER not in written and VALUE not in written
 
     assert sensitive_flags.keep_episode(bank, path.stem) == [f"episodes/{path.name}"]   # Leave it, on the empty record
@@ -600,16 +600,51 @@ def test_the_inbox_answer_removes_through_the_kept_file_too(bank):
     markdown_parser.write(path, {**fm, sensitive_flags.KEY: {"read": [{"engine": "test-engine", "at": "t", "kinds": {"password": 1}}]}},
                           markdown_parser.parse(path).body)
     _lock(bank, "Vault", _record("n9", "ordinary words", name="Plain"))
-    report = sensitive_flags.sync_review(bank)
-    _git(bank, "add", "-A")
-    _git(bank, "commit", "-qm", "review")
-    item = bank / report.paths[0]
+    item, _ = sensitive_flags._item(bank)
     parsed = markdown_parser.parse(item)
     done = sensitive_flags.answer(bank, item, dict(parsed.frontmatter), parsed.frontmatter["rows"], sensitive_flags.REMOVE, None)
     sensitive_flags._cleanup.join(timeout=30)
     bank_index.invalidate()
     assert done == {"failed": 0} and not item.exists()
     assert _holders(bank) == [] and sensitive_flags.plan(bank) == []
+
+
+def test_a_review_row_loses_the_note_title_at_retirement_in_its_own_commit_unless_sleep_holds(bank, monkeypatch):
+    path, = _read_by_sleep(bank, _record("n1", SAID, name="Vault-title"))
+    fm = markdown_parser.parse(path).frontmatter
+    markdown_parser.write(path, {**fm, sensitive_flags.KEY: {"read": [{"engine": "test-engine", "at": "t", "kinds": {"password": 1}}]}},
+                          markdown_parser.parse(path).body)
+    bank_index.invalidate()
+    item = bank / sensitive_flags.sync_review(bank).paths[0]
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-qm", "review")
+    assert "Vault-title" in item.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)   # the write window: left to Sleep's own tail
+    _lock(bank, "Vault-title", _record("n9", "ordinary words", name="Plain"))
+    assert "Vault-title" in item.read_text(encoding="utf-8")
+    monkeypatch.undo()
+
+    bank_index.invalidate()
+    run(notes_sync._review_in_step(bank))
+
+    assert markdown_parser.parse(item).frontmatter["rows"][0]["title"] == notes_sync.LOCKED_TITLE
+    assert "Vault-title" not in item.read_text(encoding="utf-8")
+    assert "Vault-title" not in _git(bank, "show", f"HEAD:{item.relative_to(bank).as_posix()}")
+    assert _git(bank, "status", "--porcelain", "--", "inbox") == ""
+    assert "Sensitive review" in _git(bank, "log", "-1", "--format=%s")
+
+
+def test_a_retirement_brings_the_review_in_step_with_no_window_shut(bank):
+    path, = _read_by_sleep(bank, _record("n1", SAID, name="Vault-title"))
+    fm = markdown_parser.parse(path).frontmatter
+    markdown_parser.write(path, {**fm, sensitive_flags.KEY: {"read": [{"engine": "test-engine", "at": "t", "kinds": {"password": 1}}]}},
+                          markdown_parser.parse(path).body)
+    bank_index.invalidate()
+    _lock(bank, "Vault-title", _record("n9", "ordinary words", name="Plain"))
+    item, _ = sensitive_flags._item(bank)
+    assert markdown_parser.parse(item).frontmatter["rows"][0]["title"] == notes_sync.LOCKED_TITLE
+    assert _git(bank, "status", "--porcelain", "--", "inbox") == ""
 
 
 def test_a_kept_file_never_starts_a_row_of_its_own(bank):

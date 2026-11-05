@@ -80,9 +80,11 @@ Seven rails hold across all of them:
   read the kept file (`notes_sync.kept_copy`, `sensitive_flags` alone asks), so a value only that note held stays the
   person's to remove. The row goes when the value does. A kept file never starts a row of its own: no `row_kept`, no
   read, whatever the detector would find there, and a value the person left before the lock is found only by value.
-  Three things stay: earlier versions in git history (as the review's copy says); a guarded value (unsure or common in
-  this bank), which stays out of a file not tied to its row, like any other, and is said in `stayed`; and, until the
-  next Sleep or Remove, the row's old title in the review item, without the value. The hold (`sensitive_hold`) learns a
+  A sync that retires brings the review item in step at once, one admitted transaction with its own commit
+  (`_review_in_step`), so its row loses the note's title; while Sleep holds the pages, and for Sleep's own retirement, its
+  tail does the same step, and an item dirty before it is left until the next pass.
+  Two things stay: earlier versions in git history (as the review's copy says); and a guarded value (unsure or common in
+  this bank), which stays out of a file not tied to its row, like any other, and is said in `stayed`. The hold (`sensitive_hold`) learns a
   value from `episodes/` only, so after retirement a value on a page is held back only if the page's own text shows it
   as one.
   **Limits:** a note locked after the last sync is retired only by the next one, so a Sleep in that gap can read it; a

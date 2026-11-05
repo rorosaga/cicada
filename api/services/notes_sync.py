@@ -30,14 +30,14 @@ import os
 import threading
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
 from api.services import (bank_index, episode_ids, episode_scrub, evidence, history_index, markdown_parser, sensitive_flags,
-                          sync_state)
+                          sync_state, write_admission)
 
 NOTES_INDEX_FILENAME = "notes_index.json"
 
@@ -393,6 +393,36 @@ def _forget_derived(memory_path: Path, retired: Retired) -> None:
         logger.warning(f"Notes: could not clear a retired note from an index: {type(exc).__name__}")
 
 
+class _SleepHolds(Exception):
+    pass
+
+
+async def _review_in_step(memory_path: Path) -> None:
+    """The review item's rows carry each conversation's title, so a retired note's row loses its name now. One admitted
+    transaction with its own commit; while Sleep holds the pages it is left to Sleep's tail, which does this same step on
+    every exit path, and an item dirty before this is left, as that tail leaves it. Never raises."""
+    from api.services import git_service, page_lock
+
+    has_git = (Path(memory_path) / ".git").exists()
+
+    def step(skip: frozenset[str]) -> None:
+        with page_lock.page_lock(memory_path):
+            bank_index.invalidate(memory_path)
+            report = sensitive_flags.sync_review(memory_path, skip)
+            if report.paths and has_git:
+                git_service.commit_touched_sync(memory_path, sensitive_flags.commit_message(report, date.today()), report.paths)
+
+    async def body() -> None:
+        await asyncio.to_thread(step, await git_service.dirty_paths(memory_path) if has_git else frozenset())
+
+    try:
+        await write_admission.run_admitted(memory_path, body, refuse=_SleepHolds)
+    except _SleepHolds:
+        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Notes: could not bring the review in step: {type(exc).__name__}")
+
+
 async def _commit_retired(memory_path: Path, paths: list[str], author: str, trigger: str) -> None:
     """Its own commit, naming paths only: nothing about a note reaches a commit message."""
     from api.services import git_service
@@ -483,6 +513,7 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
             await _commit_retired(memory_path, retired.paths, "user", "user/notes_sync")
         except Exception as e:
             logger.warning(f"Locked notes commit failed: {type(e).__name__}")
+        await _review_in_step(memory_path)
     # 2026-11-04 — the app sends each note's account beside the dump (`note_accounts`), so a backend that predates it
     # still reads the 8-field records; a ninth field in the dump itself is read too.
     for note in notes:
