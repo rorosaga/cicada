@@ -48,7 +48,7 @@ enum AgentCatalog {
               kind: .prompt(runsItself: false), setupHarnesses: ["hermes"], featured: true),
         .init(id: "openclaw", name: "OpenClaw", mark: "openclaw", symbol: "terminal",
               kind: .prompt(runsItself: false), setupHarnesses: ["openclaw"], featured: true),
-        .init(id: "grok", name: "Grok", mark: nil, symbol: "bubble.left.and.bubble.right",
+        .init(id: "grok", name: "Grok", mark: "grok", symbol: "bubble.left.and.bubble.right",
               kind: .remote(.grok), setupHarnesses: ["grok"], featured: true),
         .init(id: "gemini-cli", name: "Gemini CLI", mark: "gemini-cli", symbol: "terminal",
               kind: .prompt(runsItself: true), setupHarnesses: ["gemini-cli"], featured: false),

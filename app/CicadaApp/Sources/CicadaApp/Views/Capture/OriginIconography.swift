@@ -70,6 +70,8 @@ enum OriginIconography {
         "codex-remote", "vscode", "remote-app",
         // Round 4 R-AG7: Grok's connector.
         "grok",
+        // G228: a host app's sessions (`host:` on the harness's episode).
+        "t3code",
         // Round 4 C8 — agent pills, ready for the day G48 stamps a harness label for their stdio episodes.
         "opencode", "hermes", "openclaw",
     ]
@@ -174,6 +176,7 @@ enum OriginIconography {
         case "chatgpt": "ChatGPT"
         case "perplexity": "Perplexity"
         case "grok": "Grok"
+        case "t3code": "T3 Code"
         case "claude-code-remote": "Claude Code (remote)"
         case "codex-remote": "Codex (remote)"
         case "vscode": "GitHub Copilot"
@@ -332,10 +335,11 @@ enum OriginIconography {
         // ROR-107 (owner 2026-11-05: "the Substack one is not there"): the marks these sources were missing.
         case "substack-saved", "substack-history": "substack"
         case "goodreads": "goodreads"
-        // Below an installed copy's own icon, so a browser that is not on this Mac is not one more globe. Comet stays on
-        // the globe: its vendor serves nothing above 32 px.
+        // Below an installed copy's own icon, so a browser that is not on this Mac is not one more globe. Comet's site
+        // serves 32 px; its mark is its App Store icon.
         case "vivaldi-bookmark": "vivaldi"
         case "dia-bookmark": "dia"
+        case "comet-bookmark": "comet"
         case "pinterest": "pinterest"
         case "reddit-saved", "reddit": "reddit"
         case "x-bookmarks", "x-likes", "x": "x"
@@ -345,9 +349,12 @@ enum OriginIconography {
         case "github", "github-starred", "github-added", "github-owned": "github"
         case "instagram-saved": "instagram"
         case "youtube-playlist", "youtube-history": "youtube"
-        // G135 R-R26/R-R34 — a remote app wears the same mark as its local
-        // twin. Perplexity and `remote-app` stay nil: the only Commons
-        // Perplexity file is a wordmark, and "Other" has no brand.
+        // G135 R-R26/R-R34 — a remote app wears the same mark as its local twin. `remote-app` stays nil: "Other" has no
+        // brand (`SourceMarkCoverageTests` holds the list).
+        case "perplexity": "perplexity"
+        case "grok": "grok"
+        // G228 (owner 2026-11-05: "why does t3 code not have the logo"): a host app's sessions.
+        case "t3code": "t3code"
         case "claude-web": "claude"
         case "chatgpt": "chatgpt"
         case "claude-code-remote": "claude-code"

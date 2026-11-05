@@ -1,8 +1,8 @@
 import XCTest
 @testable import CicadaApp
 
-/// R-AG1 — the app's agent list is the backend's (one fixture), and every pill wears a real mark or, for Grok, a
-/// neutral glyph until a sourced xAI mark exists (R-AG9).
+/// R-AG1 — the app's agent list is the backend's (one fixture), and every pill wears a real mark; "Another agent"
+/// names no vendor, so it wears a neutral glyph.
 final class AgentCatalogTests: XCTestCase {
     private struct Fixture: Decodable { let live: [String]; let featured: [String]; let setup: [String] }
 
@@ -21,11 +21,11 @@ final class AgentCatalogTests: XCTestCase {
         XCTAssertEqual(AgentCatalog.setupHarnesses, Set(f.setup))
     }
 
-    func testEveryMarkShipsAndOnlyGrokAndAnotherAgentUseAGlyph() {
+    func testEveryMarkShipsAndOnlyAnotherAgentUsesAGlyph() {
         for entry in AgentCatalog.all {
             if let mark = entry.mark { XCTAssertTrue(LogoImage.exists(name: mark), entry.id) }
         }
-        XCTAssertEqual(AgentCatalog.all.filter { $0.mark == nil }.map(\.id), ["grok", "other"])
+        XCTAssertEqual(AgentCatalog.all.filter { $0.mark == nil }.map(\.id), ["other"])
         // "Another agent" names no vendor: it wears Integrations' own "Other agents" glyph, never another app's mark.
         XCTAssertEqual(AgentCatalog.entry(for: "other")?.symbol, IntegrationHarnessRows.otherAgentsSymbol)
     }
