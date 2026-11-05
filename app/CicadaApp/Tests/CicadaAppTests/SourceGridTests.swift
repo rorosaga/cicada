@@ -201,7 +201,8 @@ final class SourceGridTests: XCTestCase {
     func testEveryWordListNamesARealSource() {
         let every = SourceCatalog.entries(browsers: BrowserInventory.catalog, wisprPresent: true, hexPresent: true,
                                           overview: []).map(\.id)
-        for id in SourceGrid.alsoKnownAs.keys {
+        // The bot's tile shows only once one is set up (ROR-113); its words still find it then.
+        for id in SourceGrid.alsoKnownAs.keys where id != "telegram" {
             XCTAssertTrue(every.contains(id), "\(id) is on no tile")
         }
     }
