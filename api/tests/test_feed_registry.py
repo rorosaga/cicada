@@ -475,3 +475,93 @@ def test_the_default_fetch_refuses_a_loopback_feed_and_a_redirect_inward(tmp_pat
     finally:
         server.shutdown()
     assert served == [], "not one byte asked of a loopback address"
+
+
+# --- ROR-108: which feed an item came from, and how its last poll went --------
+
+
+class _Refused(Exception):
+    def __init__(self, status):
+        super().__init__("a fetch error's own words")
+        self.response = type("R", (), {"status_code": status})()
+
+
+EMPTY_FEED = '<rss version="2.0"><channel><title>Quiet</title></channel></rss>'
+
+
+def _feeds_by_host(memory):
+    return {f["url"].split("/")[2]: f for f in feed_registry.list_feeds(memory)}
+
+
+def test_poll_stamps_each_listed_item_with_its_feed_and_learns_the_title(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    memory = _memory(tmp_path)
+    feed_registry.subscribe_feed(memory, "https://a.example.com/rss")
+    run(feed_registry.poll_feeds(memory, fetch_fn=lambda url: RSS_FEED_A))
+
+    index = media_ingestor.load_url_index(memory)
+    fid = feed_registry.feed_id("https://a.example.com/rss")
+    assert [e["feed"] for e in index.values()] == [fid, fid]
+    assert feed_registry.list_feeds(memory)[0]["title"] == "Feed A"
+    assert "last_problem" not in feed_registry.list_feeds(memory)[0]
+
+
+def test_an_item_held_before_the_stamp_gains_it_on_the_next_poll_and_the_first_feed_keeps_it(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    memory = _memory(tmp_path)
+    run(media_ingestor.ingest_feed(RSS_FEED_A, memory, commit=False))
+    assert all("feed" not in e for e in media_ingestor.load_url_index(memory).values())
+
+    feed_registry.subscribe_feed(memory, "https://first.example.com/rss")
+    feed_registry.subscribe_feed(memory, "https://second.example.com/rss")
+    result = run(feed_registry.poll_feeds(memory, fetch_fn=lambda url: RSS_FEED_A))
+
+    assert result["new"] == 0
+    first = feed_registry.feed_id("https://first.example.com/rss")
+    assert {e["feed"] for e in media_ingestor.load_url_index(memory).values()} == {first}
+
+
+def test_a_failed_poll_keeps_a_code_never_the_errors_text_and_a_good_poll_clears_it(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    memory = _memory(tmp_path)
+    for host in ("limited", "refused", "gone", "down", "dark", "page", "quiet"):
+        feed_registry.subscribe_feed(memory, f"https://{host}.example.com/rss")
+    errors = {"limited": _Refused(429), "refused": _Refused(403), "gone": _Refused(404), "down": _Refused(503),
+              "dark": OSError("a fetch error's own words")}
+
+    def fetch(url):
+        host = url.split("/")[2].split(".")[0]
+        if host in errors:
+            raise errors[host]
+        return "<html>a consent page</html>" if host == "page" else EMPTY_FEED
+
+    run(feed_registry.poll_feeds(memory, fetch_fn=fetch))
+    feeds = _feeds_by_host(memory)
+    assert {h.split(".")[0]: f.get("last_problem") for h, f in feeds.items()} == {
+        "limited": "rate_limited", "refused": "refused", "gone": "gone", "down": "server", "dark": "unreachable",
+        "page": "not_a_feed", "quiet": None}
+    assert "own words" not in (memory / "feeds.yaml").read_text()
+    assert feed_registry.problem_words(feeds["limited.example.com"]) == "Last check failed: too many requests"
+    assert feed_registry.problem_words(feeds["quiet.example.com"]) is None
+
+    run(feed_registry.poll_feeds(memory, fetch_fn=lambda url: EMPTY_FEED))
+    assert all("last_problem" not in f for f in feed_registry.list_feeds(memory))
+
+
+def test_a_stamp_alone_is_committed_and_a_repeat_poll_commits_nothing(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    memory = _memory(tmp_path)
+    feed_registry.subscribe_feed(memory, "https://a.example.com/rss")
+    feed_registry.subscribe_feed(memory, "https://b.example.com/rss")
+    run(media_ingestor.ingest_feed(RSS_FEED_A, memory, commit=False))
+    calls = []
+
+    async def commit(*a):
+        calls.append(a)
+
+    monkeypatch.setattr(feed_registry, "_commit_poll", commit)
+    run(feed_registry.poll_feeds(memory, fetch_fn=lambda url: RSS_FEED_A))
+    assert len(calls) == 1
+    assert '"feed"' in (memory / "sources" / "url_index.json").read_text()
+    run(feed_registry.poll_feeds(memory, fetch_fn=lambda url: RSS_FEED_A))
+    assert len(calls) == 1, "same day, same items: nothing changed, nothing committed"

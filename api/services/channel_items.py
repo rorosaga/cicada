@@ -21,6 +21,9 @@ means wherever the bank records it, and says so channel by channel below:
   (``sources/bookmark_seen.json``) joined to the saved-URL index, then the
   links Cicada kept after they left the browser, each with ``left`` (G191 v4);
   a bank synced before that file existed falls back to the browser's media pages.
+* ``rss`` — as the next line says, each row also filed under the followed feed that brought it in (ROR-108,
+  :func:`_feed_rows`, the page's list of feeds :func:`_feed_tree`): the feed a poll stamped on its ``url_index`` row;
+  with no stamp yet, the one followed feed on the item's host; else *Other* (a pasted feed, an unfollowed one).
 * ``safari-tabs``, the connectors, ``rss``, ``files`` — the media pages stamped
   with the channel's origins (``source_overview.CATALOG``); ``files`` also takes
   the pages written before writers stamped an origin, as its card does.
@@ -90,6 +93,7 @@ from api.services import (
     reminders_local,
     episode_scrub,
     fact_sources,
+    feed_registry,
     folder_source,
     history_index,
     media_ingestor,
@@ -127,7 +131,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-15`: 2026-11-04 — a meeting row carries `duration_s`; `collection` narrows a page to one calendar, list or
 #: Notes folder (`collections`).
 #: `g161-17`: G161 (ROR-111) — a row whose item records where it lives carries `place`, the kind of that place.
-SHAPE = "g161-17"
+#: `g161-18`: ROR-108 — `collection` narrows RSS to one followed feed; `collections` lists the feeds.
+SHAPE = "g161-18"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -435,6 +440,8 @@ class _Media:
         # Read only for the page served (`items`): the site and the why are per-row file reads at thousands of rows.
         row["_url"] = entry.get("url") or fm.get("url")
         row["_episode"] = entry.get("episode_id")
+        row["_feed"] = entry.get("feed")
+        row["_publication"] = fm.get("channel")
         return row
 
     def by_origins(self, origins: tuple[str, ...], *, unstamped: bool = False) -> list[dict]:
@@ -464,6 +471,65 @@ def _site(url) -> dict:
     if site := reading_hosts.mark_key(raw):
         out["site"] = site
     return out
+
+
+#: ROR-108 — the RSS channel, and the collection holding what no followed feed accounts for.
+FEED_CHANNEL = "rss"
+FEED_OTHER = "other"
+
+
+def _bare_host(url) -> str:
+    return reading_hosts.display_host(reading_hosts.host_of(str(url or ""))) or ""
+
+
+def _followed(memory_path: Path) -> dict[str, dict]:
+    """The followed feeds by id, in subscription order."""
+    out: dict[str, dict] = {}
+    for record in feed_registry.list_feeds(memory_path):
+        if isinstance(record, dict) and record.get("url"):
+            out.setdefault(feed_registry.feed_id(str(record["url"])), record)
+    return out
+
+
+def _feed_rows(memory_path: Path, media: "_Media") -> list[dict]:
+    """The RSS rows, each filed under its feed (``_collection``). The host is asked only of a row with no usable stamp:
+    a host two feeds share names neither."""
+    rows = media.by_origins(_catalog_origins(FEED_CHANNEL))
+    followed = _followed(memory_path)
+    hosts: dict[str, list[str]] = {}
+    for fid, record in followed.items():
+        hosts.setdefault(_bare_host(record["url"]), []).append(fid)
+    for row in rows:
+        fid = row.get("_feed")
+        if fid not in followed:
+            owners = hosts.get(_bare_host(row.get("_url")), [])
+            fid = owners[0] if len(owners) == 1 else FEED_OTHER
+        row["_collection"] = fid
+    return rows
+
+
+def _feed_tree(memory_path: Path) -> dict:
+    """Every followed feed, one collection each with nothing in it included, then *Other* when anything is there. A
+    feed's name: its record's title, else the publication its newest item names, else its host. ``problem`` says a
+    failed last poll in words, ``polled`` is that poll's day; neither is asked of the network."""
+    held: dict[str, list[dict]] = {}
+    for row in _collect(memory_path, FEED_CHANNEL):
+        held.setdefault(row["_collection"], []).append(row)
+    feeds = []
+    for fid, record in _followed(memory_path).items():
+        mine = held.pop(fid, [])
+        newest = max(mine, key=lambda r: r["_sort"], default={})
+        name = record.get("title") or newest.get("_publication") or _bare_host(record["url"]) or record["url"]
+        feeds.append({"id": fid, "name": _title(name), "count": len(mine), "latest": _latest(mine),
+                      "url": str(record["url"]), "polled": record.get("last_polled"),
+                      "problem": feed_registry.problem_words(record)})
+    feeds.sort(key=lambda c: (str(c["name"]).casefold(), c["id"]))
+    other = [row for rows in held.values() for row in rows]
+    if other:
+        feeds.append({"id": FEED_OTHER, "name": "Other", "count": len(other), "latest": _latest(other)})
+    count = sum(c["count"] for c in feeds)
+    accounts = [{"name": None, "provider": None, "count": count, "collections": feeds}] if feeds else []
+    return {"channel": FEED_CHANNEL, "accounts": accounts}
 
 
 def _live(fm: dict) -> bool:
@@ -602,6 +668,8 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
     if channel_id in {bookmark_sync.channel_for(b) for b in bookmark_sync.CHROMIUM_BROWSERS} \
             or channel_id == "safari-bookmarks":
         return _bookmarks(memory_path, channel_id, media)
+    if channel_id == FEED_CHANNEL:
+        return _feed_rows(memory_path, media)
     if channel_id in _MEDIA_CHANNELS:
         return media.by_origins(_catalog_origins(channel_id), unstamped=channel_id == "files")
     if channel_id in books.DOORS:
@@ -1175,6 +1243,8 @@ def collections(memory_path: Path, channel_id: str) -> dict | None:
     memory_path = Path(memory_path)
     if not known(memory_path, channel_id):
         return None
+    if channel_id == FEED_CHANNEL:
+        return _feed_tree(memory_path)
     if channel_id not in COLLECTION_CHANNELS:
         return {"channel": channel_id, "accounts": []}
     rows = _collect(memory_path, channel_id)

@@ -1406,15 +1406,18 @@ async def list_channel_collections(
     """Where a channel's items live, as their own app files them (2026-11-04): accounts (iCloud, On My Mac, a Google
     or Exchange account), each with its collections (a calendar, a Reminders list, a Notes folder), how many items each
     holds and the day the newest came in (`channel_items.collections`). A channel that files nothing this way answers
-    no accounts. Read-only, engine-free, never a Store domain; ETagged like the items, plus what the channel's last
-    sync named (kept beside it in `sync_state.json`)."""
+    no accounts. RSS (ROR-108) answers one unnamed account holding every followed feed, each with its last poll's
+    `polled` and `problem`; it fetches nothing. Read-only, engine-free, never a Store domain; ETagged like the items,
+    plus what the channel's last sync named (kept beside it in `sync_state.json`)."""
     memory_path = settings.memory_path
     if not channel_items.known(memory_path, channel_id):
         raise HTTPException(status_code=404, detail="Unknown channel")
     named = source_collections.known(memory_path, channel_id)
     digest = hashlib.sha256(json.dumps(named, sort_keys=True).encode()).hexdigest()[:16]
     with sync_ticker.request_scans(memory_path):
-        etag = sync_service.etag_for(memory_path, "sources", "episodes",
+        # RSS counts media pages; `sources` holds `feeds.yaml` (the polls' results) and the url index (the stamps).
+        pages = ("entities",) if channel_id == channel_items.FEED_CHANNEL else ()
+        etag = sync_service.etag_for(memory_path, "sources", "episodes", *pages,
                                      extra=f"{channel_items.SHAPE}|collections|{channel_id}|{digest}")
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early

@@ -50,6 +50,9 @@ extension Copy {
             return place.map { "Search \(what) in \($0)" } ?? "Search \(what)"
         }
 
+        static let feedNothingYet = "Nothing yet"
+        static func feedChecked(_ day: String) -> String { "checked \(day)" }
+
         static let loading = "Reading…"
         static let nothing = "Nothing here yet."
         static let contactsSearch = "Search contacts"
