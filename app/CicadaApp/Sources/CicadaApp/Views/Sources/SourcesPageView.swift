@@ -40,7 +40,8 @@ struct SourcesPageView: View {
         let channels = store.channels.value ?? []
         let entries = SourceCatalog.entries(
             browsers: BrowserRows.shown(inventory: browsers, channels: channels),
-            wisprPresent: localSources.wisprInstalled || channels.contains { $0.id == LocalSourceWatcher.wisprChannel },
+            wisprPresent: SourceCatalog.wisprOffered
+                && (localSources.wisprInstalled || channels.contains { $0.id == LocalSourceWatcher.wisprChannel }),
             hexPresent: localSources.hexInstalled, meetingFolders: localSources.folders,
             overview: overview)
         return SourceCatalog.rows(entries: entries, channels: channels, overview: overview,

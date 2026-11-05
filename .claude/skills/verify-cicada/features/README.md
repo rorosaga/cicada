@@ -21,6 +21,8 @@ call (see `../SKILL.md`).
   $CV capture --session verify-s2 --turn t1 --user "Back on alpha-project: it turns birdsong recordings into spectrograms before classifying them." --assistant "Got it."
   $CV sleep
   ```
+
+  That leaves `alpha-project` a page, and never a listed project (ruling 56); `projects.md` says how to start it.
 - Never drive an instance this run did not start, and never the person's own app, backend or bank.
 
 ## Driving conventions

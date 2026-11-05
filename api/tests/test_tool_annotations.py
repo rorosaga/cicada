@@ -61,7 +61,5 @@ def test_the_remote_door_agrees_with_the_one_list():
     for definition in remote_tools.REMOTE_TOOLS.values():
         name = definition["name"]
         read_only = definition["annotations"]["read_only_hint"]
-        if name in stdio:
-            assert read_only == (name in reads), name
-        else:   # a remote-only tool (relayed capture) is a write
-            assert name in catalog.REMOTE_ONLY and read_only is False, name
+        assert name in stdio
+        assert read_only == (name in reads), name

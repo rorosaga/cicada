@@ -1,31 +1,35 @@
-"""Where a project page comes from (G141, TODO ruling 36 D4).
+"""What a conversation says about where a project comes from (G141, TODO ruling 36 D4, amended by ruling 56).
 
-A project page is born from one of two things, never from consolidation alone:
+Since ruling 56 (owner, 2026-11-04) Sleep never makes a project: a project starts only from the person, in the app or
+their shell, or from an agent on their ask (``project_ownership``). What this module reads from a conversation is now a
+**signal**, recorded on the page and never acted on by itself:
 
 * **a repository** the person works in with an agent: a harness session whose episode carries the hook's own
   observation of a git checkout (``workspace_identity`` with a ``family_hash``, G110 D2) and whose ``project_dir``
   names the thing Stage 1 called a project. The backend reads only those two stored values; it never opens, stats or
   runs git in the path. The repository's name is read from the stored path itself: its last component, or the one
   before a ``.worktrees``/``worktrees`` folder. Since D2's amendment (owner 2026-10-29) the observation may also carry
-  the origin's salted hash (``remote_hash``; the URL never reaches the backend): a birth records it as
-  ``repo.remote``, and a repository renamed, moved or cloned again is the same project page
-  (:func:`same_repository_page`), never a second one.
+  the origin's salted hash (``remote_hash``; the URL never reaches the backend): it is recorded as ``repo.remote``, and
+  a repository renamed, moved or cloned again is the same page (:func:`same_repository_page`), never a second one.
 * **the person's own words** saying it is a project: one sentence of their own turn (or another person's in a
   meeting) that names the thing beside a word for "project" (a few languages, :data:`PROJECT_WORD`), located exactly
   in the conversation and kept as a span, never a copy (G118).
-* A watched folder the person named in the app (``folder_source.ensure_project``) is the person's own words too: they
-  typed the name. Its ``born`` says ``via: folder``.
+* A watched folder the person named in the app (``folder_source.ensure_project``) is their own act: it does make a
+  project, and its ``born`` says ``via: folder``.
 
-Everything else Stage 1 calls a project is never a project page. Below the promotion bar it waits as a mention in the
+Everything Stage 1 calls a project with no page yet goes one way. Below the promotion bar it waits as a mention in the
 pending store, as any name does (``pending_store``). Over the bar — counted over every spelling the judge says is the
-same thing — it gets a **fallback page** (owner 2026-10-23): a ``concept`` marked :data:`PROPOSED_KEY`, so it shows in
-the app; a later repository or the person's words make that page the project (:func:`retype_on_birth`), never a
-second page (``entity_resolver._settle_unborn``). Pages born before this rule are
-never archived or deleted for it: :func:`classify` says, per page, which origin the bank can show and why, and the
+same thing, and the person's own words calling it a project clear the bar — it gets a **fallback page** (owner
+2026-10-23): a ``concept`` marked :data:`PROPOSED_KEY`, carrying the signal as ``born``. A repository's signal alone
+never clears the bar. A later start makes that page the project in place (:func:`start_page`), never a second page.
+An agent reading a page whose ``born`` is the person's words is told it may offer to start it, once, on the topic
+(``mcp_tools.recall_detail``): that is what replaced the Suggested list. Pages from before this rule are never
+archived, deleted or retyped for it: :func:`classify` says, per page, which origin the bank can show and why, and the
 dry run (``python -m api.scripts.project_origins``) lists them for the owner to read.
 
-The ``born`` frontmatter key is written once, where the page is born, and never rewritten:
-``{origin: repo|words, day, episode, repo?: {name, family, remote?}, span?: {start, end, hash, kind}, via?: folder}``.
+The ``born`` frontmatter key is written once and never rewritten:
+``{origin: repo|words, day, episode, repo?: {name, family, remote?}, span?: {start, end, hash, kind}, via?: folder}``,
+or ``{origin: created, via, day, ...}`` for a project someone started from nothing.
 """
 from __future__ import annotations
 
@@ -289,7 +293,7 @@ def said_project(entity: dict, text: str, *, override: str | None = None, gaps=(
     return None
 
 
-# --- birth, where Stage 1 reads a conversation ----------------------------------------------------------------------
+# --- the signal, where Stage 1 reads a conversation -------------------------------------------------------------
 
 
 def at_extraction(entity: dict, *, episode_id: str, frontmatter: dict, text: str, day: str | None,
@@ -318,16 +322,19 @@ def folder_birth(day: str) -> dict:
     return {"origin": WORDS, "day": day, "via": "folder"}
 
 
-# --- the fallback page (owner 2026-10-23, amends D4) ----------------------------------------------------------------
+# --- the fallback page (owner 2026-10-23, amends D4; ruling 56) -----------------------------------------------------
 
-#: The frontmatter key a fallback page carries: Stage 1 called the thing a project, nothing gave it a birth, and it
-#: cleared the promotion bar, so it was written as :data:`FALLBACK_TYPE` instead of waiting unseen in the pending
-#: store. The key is what lets a later birth retype that page (:func:`retype_on_birth`) and lets a later project
-#: mention of the same thing be judged against it (``entity_resolver._candidate_types``).
+#: The frontmatter key a fallback page carries: Stage 1 called the thing a project and it cleared the promotion bar, so
+#: it was written as :data:`FALLBACK_TYPE` instead of waiting unseen in the pending store. The key is what lets a later
+#: start make that page the project (:func:`start_page`) and lets a later project mention of the same thing be judged
+#: against it (``entity_resolver._candidate_types``).
 PROPOSED_KEY = "proposed_type"
 #: ``concept`` is the closed set's general type (``entity_types.FALLBACK``): of the ten, the only one that holds an
 #: endeavour that is not a person, organisation, place, tool, skill or folder — a canoe being built, a garden plan.
 FALLBACK_TYPE = "concept"
+#: What a start changed on a page that was not a project: ``{type, proposed?, wrote_born?}``, so removing it from the
+#: person's projects gives the page back as it was (:func:`undo_start`).
+STARTED_FROM_KEY = "started_from"
 
 
 def proposed(frontmatter: dict | None) -> bool:
@@ -335,19 +342,59 @@ def proposed(frontmatter: dict | None) -> bool:
     return str((frontmatter or {}).get(PROPOSED_KEY) or "").lower() == "project"
 
 
-def retype_on_birth(frontmatter: dict, birth) -> bool:
-    """A fallback page whose thing the person later calls a project in their own words (or a repository gives it):
-    the page becomes the project, its ``born`` written once and the marker gone. True when it changed.
-
-    Only a page this fallback wrote — a ``concept`` carrying :data:`PROPOSED_KEY` and no ``born`` — is ever retyped:
-    a project page, a page born with any other type, or one the person retyped by hand is left as it is."""
+def note_signal(frontmatter: dict, signal) -> bool:
+    """Sleep read a repository or the person's words about a fallback page's thing: the page records it as ``born``,
+    once, and stays what it is. Ruling 56: nothing Sleep reads makes a project. True when it changed."""
     fm = frontmatter
-    if (not isinstance(birth, dict) or not proposed(fm) or str(fm.get("type") or "").lower() != FALLBACK_TYPE
-            or isinstance(fm.get("born"), dict)):
+    if not isinstance(signal, dict) or not proposed(fm) or isinstance(fm.get("born"), dict):
         return False
-    fm["type"] = "project"
-    fm["born"] = birth
-    fm.pop(PROPOSED_KEY, None)
+    fm["born"] = signal
+    return True
+
+
+def said_by_person(frontmatter: dict | None) -> bool:
+    """A fallback page whose thing the person called a project in their own words: what an agent may offer to start."""
+    fm = frontmatter or {}
+    born = fm.get("born")
+    return proposed(fm) and isinstance(born, dict) and born.get("origin") == WORDS
+
+
+def start_page(frontmatter: dict, birth: dict) -> bool:
+    """The person, or an agent on their ask, starts a project from a page that already exists: a concept becomes the
+    project in place, its marker gone. ``born`` is never rewritten: a signal Sleep recorded stays (its repository is
+    what ties the project's sessions), and ``birth`` is written only on a page with none. True when it changed."""
+    fm = frontmatter
+    changed = False
+    was: dict = {}
+    kind = str(fm.get("type") or "").lower()
+    if kind != "project":
+        was["type"] = kind or FALLBACK_TYPE
+        fm["type"] = "project"
+        changed = True
+    if fm.pop(PROPOSED_KEY, None) is not None:
+        was["proposed"] = True
+        changed = True
+    if not isinstance(fm.get("born"), dict):
+        fm["born"] = birth
+        was["wrote_born"] = True
+        changed = True
+    if "type" in was:
+        fm[STARTED_FROM_KEY] = was
+    return changed
+
+
+def undo_start(frontmatter: dict) -> bool:
+    """Remove from the person's projects: a page :func:`start_page` retyped goes back to what it was. True when it did;
+    a page that was a project all along has nothing to undo."""
+    fm = frontmatter
+    was = fm.pop(STARTED_FROM_KEY, None)
+    if not isinstance(was, dict) or not was.get("type"):
+        return False
+    fm["type"] = str(was["type"])
+    if was.get("proposed"):
+        fm[PROPOSED_KEY] = "project"
+    if was.get("wrote_born"):
+        fm.pop("born", None)
     return True
 
 

@@ -17,7 +17,8 @@ from fastapi.testclient import TestClient
 from _demo_scenario import T, d, demo
 from api import config, main
 from api.services import (bank_index, claim_expiry, demo_guard, followups, git_service, handshake, inbox_service,
-                          markdown_parser, mcp_tools, owner_identity, progress, sleep_cycle, telemetry)
+                          markdown_parser, mcp_tools, owner_identity, progress, project_ownership, project_timeline,
+                          sleep_cycle, telemetry)
 from api.services.claims import Claim, parse_claims, write_claims
 
 CAMERA = "Bob started calibrating the gripper camera"
@@ -73,10 +74,14 @@ def _open(bank) -> dict[str, dict]:
             if (fm := markdown_parser.parse(p).frontmatter).get("kind") == "followup"}
 
 
-def _project(bank, pid):
+def _project(bank, pid, started=True):
+    """A project page; started by default, since a follow-up is only ever about one the person started (ruling 56).
+    `accepted`: theirs with no activity day of its own, which would widen the gap the quiet test reads."""
     markdown_parser.write(bank / "entities" / f"{pid}.md", {
         "type": "project", "name": pid.replace("-", " ").title(), "status": "active", "confidence": 0.8,
-        "created": d(-100), "last_referenced": d(-100)}, f"# {pid.replace('-', ' ').title()}\n")
+        "created": d(-100), "last_referenced": d(-100),
+        **({"mine": {"via": "accepted", "day": d(-100), "by": "user"}} if started else {})},
+        f"# {pid.replace('-', ' ').title()}\n")
     bank_index.invalidate()
 
 
@@ -483,3 +488,153 @@ def test_the_projects_list_counts_the_demos_follow_up(tmp_path, monkeypatch):
         config.get_settings.cache_clear()
     assert rows["rover-arm-project"]["followups"] == 1
     assert _git(b, "log", "-1", "--format=%s") == f"Follow-ups {T}\n"
+
+
+# --------------------------------------------------------------------------- ruling 56: only projects the person started
+
+
+def _pending_followup(bank, pid, claim_id, name="inbox-901"):
+    """One asked before the rule: what a bank holds on the day it lands."""
+    markdown_parser.write(bank / "inbox" / f"{name}.md", {
+        "kind": "followup", "required_input": "choice", "status": "pending", "priority": 0.5, "entity_id": pid,
+        "entity_name": pid, "predicate": "happened", "claim_id": claim_id, "title": followups.TITLE,
+        "created_date": d(-5)}, "A follow-up.")
+    bank_index.invalidate()
+
+
+def _commit_all(bank):
+    _git(bank, "add", "-A")
+    _git(bank, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "fixture", "--allow-empty")
+
+
+def _settle(bank, name):
+    from api.services import inbox_tend
+
+    path = bank / "inbox" / f"{name}.md"
+    decision, why = inbox_tend.policy(bank, path, markdown_parser.parse(path).frontmatter)
+    if decision is not None:
+        decision.fingerprint = path.read_bytes()
+    return decision, why
+
+
+def test_a_quiet_thread_on_a_page_never_started_is_never_asked(bank):
+    _project(bank, "orchard-e-project", started=False)
+    _thread(bank, "orchard-e-project", 40)
+    claim = _thread(bank, "orchard-e-project", 41, text="Carol is pruning the second row")
+    report = _propose(bank)
+    assert not any(fm["entity_id"] == "orchard-e-project" for fm in _open(bank).values()), report
+    assert claim
+
+
+def test_starting_the_project_is_what_lets_it_be_asked(bank):
+    _project(bank, "orchard-e-project", started=False)
+    _thread(bank, "orchard-e-project", 40)
+    _propose(bank)
+    project_ownership.accept(bank, "orchard-e-project")
+    bank_index.invalidate()
+    _propose(bank)
+    assert any(fm["entity_id"] == "orchard-e-project" for fm in _open(bank).values())
+
+
+def test_one_already_asked_is_retired_by_sleep_undoably_and_never_just_deleted(bank):
+    from api.services import inbox_tend, web_settle
+
+    _project(bank, "orchard-e-project", started=False)
+    claim = _thread(bank, "orchard-e-project", 40)
+    _pending_followup(bank, "orchard-e-project", claim)
+    _commit_all(bank)
+    page = (bank / "entities" / "orchard-e-project.md").read_text()
+    report = _propose(bank)
+    assert (bank / "inbox" / "inbox-901.md").exists() and "inbox/inbox-901.md" not in report.removed
+    decision, _ = _settle(bank, "inbox-901")
+    assert (decision.rule, decision.request) == ("not_started", None)
+    assert asyncio.run(inbox_tend.apply(bank, SimpleNamespace(memory_path=bank), decision))
+    assert not (bank / "inbox" / "inbox-901.md").exists()
+    assert (bank / "entities" / "orchard-e-project.md").read_text() == page      # what it asked about stays
+    assert "not_started" in _git(bank, "log", "-1", "--format=%B")
+    rows = [r for r in web_settle.list_settled(bank) if r["rule"] == "not_started"]
+    assert rows and rows[0]["group"] == "sleep" and rows[0]["reason"] == inbox_tend.RULES["not_started"]
+    restored, paths, lines, _rec = inbox_tend.undo(bank, "inbox-901")
+    web_settle.commit_sync(bank, web_settle.commit_message("Sleep's settle undone", lines, authors=["user"]), paths)
+    bank_index.invalidate()
+    assert restored == "inbox-901" and (bank / "inbox" / "inbox-901.md").exists()
+    assert _settle(bank, "inbox-901") == (None, "undone")                        # the person's now
+    _propose(bank)
+    assert (bank / "inbox" / "inbox-901.md").exists()
+
+
+def test_one_on_a_project_they_started_then_removed_is_retired_in_words_true_of_that_too(bank):
+    from api.services import inbox_tend, project_ownership
+
+    _project(bank, "orchard-e-project")
+    _pending_followup(bank, "orchard-e-project", _thread(bank, "orchard-e-project", 40))
+    project_ownership.dismiss(bank, "orchard-e-project")
+    bank_index.invalidate()
+    _commit_all(bank)
+    decision, _ = _settle(bank, "inbox-901")
+    assert (decision.rule, decision.request) == ("not_started", None)
+    assert "never" not in decision.answer and "never" not in inbox_tend.RULES["not_started"]
+    assert "not one of your projects" in decision.answer and "not one of your projects" in inbox_tend.RULES["not_started"]
+
+
+def test_sleeps_own_tending_pass_retires_it_and_leaves_one_on_a_started_project(bank):
+    """Through `tend`, the door Sleep calls once per drain, not the rule on its own."""
+    from api.services import inbox_tend
+
+    _project(bank, "orchard-e-project", started=False)
+    _project(bank, "orchard-f-project")
+    _pending_followup(bank, "orchard-e-project", _thread(bank, "orchard-e-project", 40), name="inbox-901")
+    _pending_followup(bank, "orchard-f-project", _thread(bank, "orchard-f-project", 40), name="inbox-902")
+    _commit_all(bank)
+
+    async def no_model(*_a, **_k):   # the rule is engine-free: a model call here would be the bug
+        raise AssertionError("no model call expected")
+
+    report = asyncio.run(inbox_tend.tend(bank, SimpleNamespace(memory_path=bank), episodes=[], run_policy=True,
+                                         llm_fn=no_model))
+    assert report.settled >= 1
+    assert not (bank / "inbox" / "inbox-901.md").exists() and (bank / "inbox" / "inbox-902.md").exists()
+    assert (bank / "inbox" / inbox_tend.SETTLED_DIR / "inbox-901.md").exists()
+
+
+def test_one_on_a_page_not_started_holds_no_slot_of_the_three(bank):
+    for n, pid in enumerate(("orchard-e-project", "orchard-f-project", "orchard-g-project")):
+        _project(bank, pid, started=False)
+        _pending_followup(bank, pid, _thread(bank, pid, 40), name=f"inbox-90{n}")
+    _project(bank, "orchard-h-project")
+    _thread(bank, "orchard-h-project", 40)
+    _commit_all(bank)
+    _propose(bank)
+    assert any(fm["entity_id"] == "orchard-h-project" for fm in _open(bank).values())
+
+
+def test_one_on_a_started_project_or_a_part_of_it_stays_for_the_person(bank):
+    _project(bank, "orchard-e-project")
+    claim = _thread(bank, "orchard-e-project", 40)
+    _pending_followup(bank, "orchard-e-project", claim)
+    assert _settle(bank, "inbox-901") == (None, "needs_person")
+    assert followups.on_started_project(bank, {"entity_id": "orchard-e-project", "claim_id": claim})
+    assert not followups.on_started_project(bank, {"entity_id": "no-such-page", "claim_id": claim})
+
+
+def test_a_thread_on_the_owners_page_follows_the_project_it_names(bank):
+    owner = project_timeline._Bank(bank, "UTC").owner()
+    assert owner
+    _project(bank, "orchard-e-project")
+    _project(bank, "orchard-f-project", started=False)
+
+    def thread(about, text):
+        r = progress.record_happening(bank, subject=owner, text=text, status="ongoing",
+                                      participants=[{"name": about, "role": "with"}],
+                                      observer="agent", origin="mcp", authored_by="claude-code",
+                                      day=T - timedelta(days=30), date_basis="person", today=T - timedelta(days=30),
+                                      tz_name="UTC")
+        assert r["action"] == "written", r
+        bank_index.invalidate()
+        return r["claim_id"]
+
+    started = thread("orchard-e-project", "Bob is pruning the started rows")
+    never = thread("orchard-f-project", "Bob is pruning the other rows")
+    assert followups.on_started_project(bank, {"entity_id": owner, "claim_id": started})
+    assert not followups.on_started_project(bank, {"entity_id": owner, "claim_id": never})
+    assert not followups.on_started_project(bank, {"entity_id": owner, "claim_id": "clm_no_such_thread"})

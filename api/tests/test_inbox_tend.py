@@ -1056,6 +1056,7 @@ def test_a_followup_is_answered_from_the_record_dated_the_day_the_person_said_it
                    valid_from="2026-07-01", recorded_at="2026-07-01", observer="owner-example",
                    evidence=[Evidence(episode="ep_2026-07-01_001", kind="user")])
     _entity(memory, "alpha-project", type="project", name="Alpha Project", status="active",
+            mine={"via": "app", "day": "2026-07-01", "by": "user"},   # ruling 56: a follow-up only on a started project
             body=write_claims("## Summary\nA project.\n", [thread]))
     _item(memory, "inbox-001", kind="followup", entity_id="alpha-project", entity_name="Alpha Project",
           predicate="happened", claim_id="clm_thread", created_date="2026-08-01")

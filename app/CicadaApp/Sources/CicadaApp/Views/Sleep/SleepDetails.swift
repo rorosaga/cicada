@@ -51,6 +51,10 @@ struct SleepWaitingList: View {
                           onSelectEntity: onSelectEntity, room: room)
                 .id(DetailsSection.waiting.anchorID)
                 .saturation(liveness.saturation)
+            if let kept = Copy.keptForLookup(queue?.kept ?? 0) {
+                Text(kept).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
@@ -246,7 +250,10 @@ struct LastCycleRow: Equatable, Identifiable {
         }
         // The vendor's own sentence, whole (it carries the reset time) — until that time has passed.
         if let drain, drain.stop?.reason == "plan_limit", !planPauseLapsed {
-            rows.append(LastCycleRow(kind: .paused, title: Copy.SleepDetailsWords.pausedTitle,
+            // G237: a key's limit is the key's, never the person's plan.
+            let title = drain.stop?.limit == "key_limit" ? Copy.SleepV5.pausedTitle("key_limit")
+                : Copy.SleepDetailsWords.pausedTitle
+            rows.append(LastCycleRow(kind: .paused, title: title,
                                      text: drain.stop?.sentence ?? Copy.SleepDetailsWords.pausedFallback))
         }
         if drainHasNews(drain), let drain {

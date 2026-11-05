@@ -25,6 +25,8 @@ enum InboxKind: String, Codable {
     // G205: an agent asking the person to do something only they can (today: sign in to a site so it can read a page).
     // Drawn as a small card above the questions, never as a question row; sent as a Mac notification once.
     case agentRequest = "agent_request"
+    // G235: the one review of what may be sensitive. Drawn as a card above the questions, the person's alone.
+    case sensitive
     // Forward-compat fallback (matches `EntityType`/`Epistemic`/`SourceTrust`'s
     // existing pattern in this codebase). Before this, an unrecognized raw
     // value threw `DecodingError.dataCorrupted` out of `InboxItem.init(from:)`,
@@ -54,6 +56,7 @@ enum InboxKind: String, Codable {
         case .followup: "Follow-up"
         case .pageEdit: "Page edit"
         case .agentRequest: "Agent request"
+        case .sensitive: "May be sensitive"
         case .unknown: "Update available"
         }
     }
@@ -71,6 +74,7 @@ enum InboxKind: String, Codable {
         case .followup: "Follow-ups"
         case .pageEdit: "Proposed page edits"
         case .agentRequest: "Agent requests"
+        case .sensitive: "May be sensitive"
         case .unknown: "Other questions"
         }
     }
@@ -88,6 +92,7 @@ enum InboxKind: String, Codable {
         case .followup: "arrow.uturn.backward.circle"
         case .pageEdit: "pencil"
         case .agentRequest: "person.crop.circle.badge.questionmark"
+        case .sensitive: "lock"
         case .unknown: "questionmark.circle"
         }
     }
@@ -307,6 +312,40 @@ struct AgentRequestInfo: Codable, Equatable {
     }
 }
 
+/// G235 — one conversation of the sensitive review: which one, what kind, who read it. Never the words.
+struct SensitiveRow: Codable, Equatable, Identifiable {
+    var id: String
+    var episode: String
+    var title: String
+    var day: String
+    var kinds: [String]
+    var readBy: [String]
+    var heldKinds: [String]
+    var heldFrom: [String]
+    var earlier: Bool
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        episode = try c.decode(String.self, forKey: .episode)
+        title = ((try? c.decodeIfPresent(String.self, forKey: .title)) ?? nil) ?? ""
+        day = ((try? c.decodeIfPresent(String.self, forKey: .day)) ?? nil) ?? ""
+        kinds = ((try? c.decodeIfPresent([String].self, forKey: .kinds)) ?? nil) ?? []
+        readBy = ((try? c.decodeIfPresent([String].self, forKey: .readBy)) ?? nil) ?? []
+        heldKinds = ((try? c.decodeIfPresent([String].self, forKey: .heldKinds)) ?? nil) ?? []
+        heldFrom = ((try? c.decodeIfPresent([String].self, forKey: .heldFrom)) ?? nil) ?? []
+        earlier = ((try? c.decodeIfPresent(Bool.self, forKey: .earlier)) ?? nil) ?? false
+    }
+
+    /// "A password held back from Claude plan · Nov 1".
+    static func line(_ row: SensitiveRow) -> String {
+        let day = row.day.isEmpty ? nil : SleepHistoryPresentation.dateText(row.day)
+        return [Copy.Sensitive.fate(kinds: row.kinds, heldKinds: row.heldKinds, readBy: row.readBy,
+                                    heldFrom: row.heldFrom, earlier: row.earlier), day]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
 /// G61 "Where to check" (ruling 36 D5, #422) — one waiting link of the grouped review (`asks: "sources"`): its page,
 /// the link, what kind of link it is, who added it and where it was found (offsets, never a copy).
 struct WhereToCheckRow: Codable, Equatable, Identifiable {
@@ -419,6 +458,9 @@ struct InboxItem: Identifiable, Codable {
     /// G61 "Where to check" — the links waiting (`asks: "sources"`), and whether this is the ONE grouped review.
     var rows: [WhereToCheckRow]? = nil
     var review: Bool = false
+    /// G235 — a `sensitive` item's rows, and how many conversations hold something replaced before it was stored.
+    var sensitiveRows: [SensitiveRow]? = nil
+    var replaced: Int? = nil
     /// Ruling 48 (1) — the question as a person would ask it and its reason (`inbox_wording`, derived at read). Home's
     /// rows, a page's questions strip and the catch-up chat say these; nil from an older server or cache.
     var spokenQuestion: String? = nil
@@ -442,7 +484,7 @@ struct InboxItem: Identifiable, Codable {
         case uncertaintyType, suggestedClassification, suggestedConfidence, mergeTargetHint, asks
         case entityType, sourceEpisode, sourceEpisodeTimestamp, claimId, cause
         case extractorConfidence, extractorModel, recommendedKey, informational, checks
-        case subject, fold, request, rows, review, spokenQuestion, spokenReason
+        case subject, fold, request, rows, review, spokenQuestion, spokenReason, sensitiveRows, replaced
         case chain, chainQuestion, chainReason, chainPairs
         case entityDisplayName, mergeTargetDisplayName, sameTitle
     }
@@ -502,6 +544,8 @@ struct InboxItem: Identifiable, Codable {
         request = (try? c.decodeIfPresent(AgentRequestInfo.self, forKey: .request)) ?? nil
         rows = ((try? c.decodeIfPresent([Lenient<WhereToCheckRow>].self, forKey: .rows)) ?? nil)?.compactMap(\.value)
         review = (try? c.decodeIfPresent(Bool.self, forKey: .review)) ?? false
+        sensitiveRows = ((try? c.decodeIfPresent([Lenient<SensitiveRow>].self, forKey: .sensitiveRows)) ?? nil)?.compactMap(\.value)
+        replaced = (try? c.decodeIfPresent(Int.self, forKey: .replaced)) ?? nil
         spokenQuestion = (try? c.decodeIfPresent(String.self, forKey: .spokenQuestion)) ?? nil
         spokenReason = (try? c.decodeIfPresent(String.self, forKey: .spokenReason)) ?? nil
         chain = (try? c.decodeIfPresent([String].self, forKey: .chain)) ?? nil
@@ -517,7 +561,7 @@ struct InboxItem: Identifiable, Codable {
     /// G61 — the one grouped "Confirm N links" review, drawn as its own card above the questions.
     var isWhereToCheckReview: Bool { asks == "sources" && review && !(rows ?? []).isEmpty }
     /// Drawn above the questions, never as a question row (G205 agent requests, the G61 grouped review).
-    var isTopCard: Bool { kind == .agentRequest || isWhereToCheckReview }
+    var isTopCard: Bool { kind == .agentRequest || kind == .sensitive || isWhereToCheckReview }
 
     /// Display name for the card header, falling back to the title when no
     /// entity name is attached (pure clarification with no entity yet).

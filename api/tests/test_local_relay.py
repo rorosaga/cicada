@@ -1,0 +1,699 @@
+"""Ruling 57 — capture for apps with no hook defaults to the tool their model calls as they talk: the Claude desktop
+app's local connection is offered and asked for `cicada_capture_turns`, by exact client name, stored as relayed, and a
+hook-captured harness never is, whatever it calls itself. Ruling 58 — an export stays a one-time import that upgrades a
+relayed conversation in place, from either provider's shape."""
+from __future__ import annotations
+
+import json
+import re
+import time
+from datetime import date, datetime, timedelta, timezone
+
+import pytest
+
+from _intake_fixtures import _zip
+from _stdio_server import stdio_server
+from _synthetic_bank import _bank
+from api import config
+from api.remote import catalog
+from api.remote.runtime import RemoteRuntime
+from api.routers import conversations as conv
+from api.routers import intake
+from api.services import (
+    cli_map, demo_guard, episode_actor, evidence, handshake, markdown_parser, mcp_tools, promotion, relay_capture,
+    state_dictionary, tool_door, turn_capture, tx_outbox,
+)
+
+CC_ID = "11111111-2222-3333-4444-555555555555"
+FIRST = "Help me plan the alpha-project launch for next week, starting with the checklist."
+REPLY = "Here is a checklist for the alpha-project launch: scope, owners, dates."
+SECOND = "Add a rollback step after the dates please."
+
+
+@pytest.fixture
+def memory(tmp_path, monkeypatch):
+    bank = _bank(tmp_path)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(bank))
+    for name in ("CLAUDE_CODE_SESSION_ID", "CICADA_SESSION_ID", "CICADA_SESSION_HARNESS", "CICADA_CAPTURE",
+                 "CICADA_API_BASE", "CICADA_ENGINE_SPAWN"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("CICADA_PORT", "1")     # no backend here: the stdio door's own write
+    config.get_settings.cache_clear()
+    yield bank
+    config.get_settings.cache_clear()
+
+
+@pytest.fixture
+def server(memory, monkeypatch):
+    module = stdio_server()
+    monkeypatch.setattr(module, "get_memory_path", lambda: memory)
+    monkeypatch.setattr(module, "SESSION", module.SessionIdentity("ses_2026-11-04_abcd1234", "unknown", None))
+    monkeypatch.setattr(module, "CLIENT_INFO", {})
+    return module
+
+
+def _connect(module, name):
+    module.CLIENT_INFO.clear()
+    if name is not None:
+        module.CLIENT_INFO.update({"name": name, "version": "1"})
+    return {t["name"] for t in module.tools_for_client()}
+
+
+def _ctx(memory, *, client="claude-ai", harness="unknown"):
+    return mcp_tools.ToolContext(memory_path=lambda: memory, session_id="ses_2026-11-04_abcd1234", harness=harness,
+                                 project_dir=None, client_name=client, client_version="1", skipped_inbox_ids=set(),
+                                 state_hint_sent=False, post=lambda p, d: {}, headers=dict, backend_url="")
+
+
+def _relayed(memory):
+    def relayed(path):
+        try:
+            return isinstance(markdown_parser.parse(path).frontmatter.get("relay"), dict)
+        except Exception:  # noqa: BLE001 — the malformed neighbours these tests plant
+            return False
+
+    return [p for p in sorted((memory / "episodes").glob("ep_*.md")) if relayed(p)]
+
+
+# --- telling a client apart -------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name", ["claude-ai", "claude-desktop", "Claude AI", "claude_desktop"])
+def test_the_desktop_app_by_its_exact_name_is_offered_the_tool(server, name):
+    assert "cicada_capture_turns" in _connect(server, name)
+
+
+@pytest.mark.parametrize("name", ["claude-code", "codex", "codex-mcp-client", "cursor", "gemini-cli", "windsurf", "",
+                                  "claude", "claude-ai-next", "my claude-ai client", None])
+def test_a_named_harness_an_unknown_or_an_unnamed_client_is_not(server, name):
+    assert "cicada_capture_turns" not in _connect(server, name)
+
+
+def test_nothing_is_offered_before_initialize_names_the_client(server):
+    assert "cicada_capture_turns" not in {t["name"] for t in server.tools_for_client()}
+
+
+def test_claude_code_calling_itself_the_desktop_app_is_still_not_offered_it(server, monkeypatch):
+    """A client's name is its own word; the session id Claude Code injects is not."""
+    monkeypatch.setattr(server, "SESSION", server.SessionIdentity(CC_ID, "claude-code", None))
+    assert "cicada_capture_turns" not in _connect(server, "claude-ai")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", CC_ID)
+    assert relay_capture.local_relay_allowed("claude-ai", "unknown") is False
+
+
+@pytest.mark.parametrize("env", [{"CLAUDE_CODE_SESSION_ID": CC_ID}, {"CICADA_SESSION_ID": "s-12345678"},
+                                 {"CICADA_SESSION_HARNESS": "cursor"}, {"CICADA_CAPTURE": "off"},
+                                 {"CICADA_CAPTURE": "OFF"}])
+def test_a_named_session_or_the_capture_switch_turns_it_off(env):
+    assert relay_capture.local_relay_allowed("claude-ai", "unknown", env=env) is False
+    assert relay_capture.local_relay_allowed("claude-ai", "unknown", env={}) is True
+
+
+def test_no_double_capture_a_claude_code_call_writes_nothing_and_answers_unknown_tool(server, memory, monkeypatch):
+    monkeypatch.setattr(server, "SESSION", server.SessionIdentity(CC_ID, "claude-code", None))
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", CC_ID)
+    for name in ("claude-code", "claude-ai"):
+        _connect(server, name)
+        before = sorted((memory / "episodes").glob("*"))
+        result = server.call_tool("cicada_capture_turns", {"message": FIRST, "conversation": "new"})
+        assert result["isError"] is True and "Unknown tool" in result["content"][0]["text"]
+        assert sorted((memory / "episodes").glob("*")) == before
+
+
+def test_an_engine_spawn_is_offered_nothing_whatever_it_is_called(server, monkeypatch):
+    monkeypatch.setenv("CICADA_ENGINE_SPAWN", "1")
+    assert _connect(server, "claude-ai") == set()
+
+
+# --- the primer -------------------------------------------------------------------------------------------------------
+
+def _primer(memory, **kw):
+    return handshake.build(state_dictionary.read_state(memory), bank="memory", **kw)
+
+
+def test_only_a_client_offered_the_tool_is_asked_for_it(memory):
+    assert "cicada_capture_turns" in _primer(memory, variant="desktop", relay=True)
+    assert "cicada_capture_turns" not in _primer(memory, variant="desktop")
+    for variant in ("claude-code", "codex", "generic"):
+        assert "cicada_capture_turns" not in _primer(memory, variant=variant, relay=True)
+
+
+def test_the_stdio_primer_matches_the_tool_list_for_every_client(server, memory, monkeypatch, tmp_path):
+    """R12 in both directions, through the real door: named in the primer exactly when listed."""
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    for name, offered in (("claude-ai", True), ("claude-code", False), ("cursor", False), (None, False)):
+        listed = "cicada_capture_turns" in _connect(server, name)
+        assert listed is offered
+        assert ("cicada_capture_turns" in server._handshake_text(delivery="tool")) is offered
+    monkeypatch.setenv("CICADA_CAPTURE", "off")   # a real desktop app with the switch off is told nothing of it
+    assert "cicada_capture_turns" not in _connect(server, "claude-ai")
+    text = server._handshake_text(delivery="tool")
+    assert "cicada_capture_turns" not in text and "## Desktop app" in text
+
+
+def test_a_route_with_no_tool_to_hold_never_asks(memory, tmp_path):
+    text, meta = handshake.load_or_build(memory, "claude-ai", cache_dir=tmp_path / "c")
+    assert meta["variant"] == "desktop" and "cicada_capture_turns" not in text
+
+
+def test_the_primer_and_its_cached_copy_are_keyed_on_the_ask(memory, tmp_path):
+    cache = tmp_path / "c"
+    asked, _ = handshake.load_or_build(memory, "claude-ai", cache_dir=cache, relay=True)
+    plain, _ = handshake.load_or_build(memory, "claude-ai", cache_dir=cache)
+    again, meta = handshake.load_or_build(memory, "claude-ai", cache_dir=cache, relay=True)
+    assert asked == again and meta["cached"] and "cicada_capture_turns" not in plain
+
+
+def test_every_argument_the_primer_names_is_in_the_schema(server, memory):
+    schema = next(t for t in server.TOOLS if t["name"] == "cicada_capture_turns")["inputSchema"]
+    text = _primer(memory, variant="desktop", relay=True)
+    [args] = re.findall(r"`cicada_capture_turns\(([^`]*)\)`", text)
+    assert {a.strip() for a in args.split(",")} <= set(schema["properties"])
+    assert set(schema["required"]) <= {a.strip() for a in args.split(",")}
+
+
+def test_the_ask_fits_the_budget(memory):
+    """R10's basis, chars/4: the line is fixed text the state trims around, with reading on and a state over budget."""
+    from _synthetic_bank import _settings
+
+    state_dictionary.refresh(memory, _settings(memory), force=True)
+    state = dict(state_dictionary.read_state(memory))
+    state["people"] = [{"id": f"person-{i}", "name": f"Person {i}", "line": "x" * 200} for i in range(40)]
+    state["standing"] = [{"id": f"page-{i}", "name": f"Page {i}", "line": "y" * 200} for i in range(40)]
+    fixed = handshake.build(None, variant="desktop", bank="memory", relay=True, reading=True)
+    full = handshake.build(state, variant="desktop", bank="memory", relay=True, reading=True)
+    assert len(handshake._LOCAL_RELAY_LINE) // 4 < 90 and len(fixed) // 4 < handshake.MAX_TOKENS
+    assert len(full) // 4 <= handshake.MAX_TOKENS and "cicada_capture_turns" in full
+
+
+def _projects_over_budget(n, name_len=60):
+    return {"projects": [{"id": f"project-{i}", "name": ("Project %d " % i).ljust(name_len, "x"),
+                          "repos": [{"path": f"~/code/some-folder/with-a-rather-long-path-for-the-review-case/project-{i}",
+                                     "branch": "feature/some-branch", "state": "ok"}]}
+                         for i in range(n)]}
+
+
+@pytest.mark.parametrize("relay", [True, False])
+@pytest.mark.parametrize("n", [7, 12, 40, 200])
+@pytest.mark.parametrize("variant", ["desktop", "claude-code", "codex", "generic"])
+def test_fit_holds_the_primer_under_its_budget_with_reading_on(variant, n, relay):
+    """The review's case: 7 projects with 60-character titles, one repo each and reading on overflowed (1,818 there,
+    1,805 on this state, before `_fit` could give up a project's repos)."""
+    text = handshake.build(_projects_over_budget(n), variant=variant, bank="memory", reading=True, relay=relay,
+                           tz="Europe/Madrid")
+    assert len(text) // 4 <= handshake.MAX_TOKENS, len(text) // 4
+    assert "`project-0`" in text and "### Current" in text     # R10: the list a cursor exists for is never dropped whole
+    if n == 7:
+        assert all(f"`project-{i}`" in text for i in range(7)) and "more projects" not in text
+
+
+def test_fit_says_how_many_projects_it_left_out():
+    text = handshake.build(_projects_over_budget(200), variant="desktop", bank="memory", reading=True, relay=True)
+    assert re.search(r"and \d+ more projects", text)
+
+
+@pytest.mark.parametrize("harness", ["claude-code", "codex"])
+@pytest.mark.parametrize("n,agreements", [(7, 5), (3, 3)])
+def test_a_reserve_never_costs_a_harness_its_projects_or_agreements(harness, n, agreements):
+    """Claude Code and Codex are captured by their hooks and this PR leaves their notes as they were: with a previous
+    session's pointer riding along (the 300 reserve, `hook_recall`), `_fit`'s new steps do not run, whole note compared."""
+    from api.services import recall_text
+
+    state = {"projects": [{"id": f"project-{i}", "name": ("Project %d " % i).ljust(60, "x"), "one_liner": "A line. " * 8,
+                           "repos": [{"path": f"~/code/project-{i}", "branch": "main", "state": "ok"}]} for i in range(n)],
+             "preferences": [{"id": f"agreement-{i}", "name": f"Agreement {i}", "one_liner": "Say it plainly. " * 3}
+                             for i in range(agreements)]}
+    primer = handshake.build(state, variant=harness, bank="memory", reading=True, tz="Europe/Madrid",
+                             max_tokens=handshake.MAX_TOKENS - 300)
+    assert all(f"`project-{i}`" in primer for i in range(n)) and "How to work with me" in primer
+    assert "more projects" not in primer and "~/code/project-0@main" in primer
+    note, rendering, _ = recall_text.compose_note(
+        recall_text.PRIMER_HEADER, primer, block_for=lambda room: ("Previously: cicada_continue(session=x).", "pointer"),
+        reading=None, max_tokens=handshake.MAX_TOKENS)
+    assert rendering == "pointer" and primer in note and len(note) // 4 <= handshake.MAX_TOKENS
+
+
+# --- stored as relayed ------------------------------------------------------------------------------------------------
+
+def _turn(server, message, conversation, previous=None):
+    args = {"message": message, "conversation": conversation}
+    if previous:
+        args["previous_reply"] = previous
+    return server.call_tool("cicada_capture_turns", args)
+
+
+def test_one_chat_is_one_relayed_episode_and_two_chats_two_in_one_process(server, memory):
+    _connect(server, "claude-ai")
+    first = _turn(server, FIRST, "new")
+    assert "isError" not in first
+    text = first["content"][0]["text"]
+    assert "Cicada memory" in text        # said once, in words the person sees
+    handle = re.search(r'conversation="(lc_[^"]+)"', text).group(1)
+    assert "Cicada memory" not in _turn(server, SECOND, handle, REPLY)["content"][0]["text"]
+    assert _turn(server, SECOND, handle, REPLY)["content"][0]["text"] == "Already captured."
+    [path] = _relayed(memory)
+    stored = markdown_parser.parse(path)
+    fm = stored.frontmatter
+    assert stored.body == f"user: {FIRST}\nassistant: {REPLY}\nuser: {SECOND}"
+    assert fm["session_id"] == handle and fm["harness"] == "claude-desktop" and fm["processed"] is False
+    assert fm["evidence_kind"] == "assistant"
+    assert fm["relay"]["app"] == "claude" and fm["relay"]["channel"] == "local" and fm["relay"]["first"]
+    assert "connector" not in fm["relay"]
+    _turn(server, "A different chat about the beta-project budget for the winter quarter.", "new")
+    assert len(_relayed(memory)) == 2
+
+
+def test_a_replica_with_no_backend_never_writes_its_copy(server, memory, monkeypatch):
+    monkeypatch.setattr(server.runtime_layout, "is_replica", lambda *a, **k: True)
+    _connect(server, "claude-ai")
+    result = _turn(server, FIRST, "new")
+    assert result["isError"] is True and not _relayed(memory)
+
+
+# --- a queued or a re-sent `new`: still one conversation ----------------------------------------------------------------
+
+def _queued_like_a_home_away(server, monkeypatch):
+    """What `/tools/call` answers on a replica whose home is away (`routers/tools._to_home`), keeping each call as the
+    outbox does. The app's model then has only what the reply told it."""
+    sent, options_seen = [], []
+
+    def call(name, args, options=None, *, local=False):
+        sent.append(dict(args))
+        options_seen.append(dict(options or {}))
+        return {"text": tx_outbox.QUEUED_TEXT, "code": "queued_for_home", "data": {"queued": True, "id": f"tx{len(sent)}"},
+                "error": None, "segments": None, "state": {}}
+
+    monkeypatch.setattr(server.runtime_layout, "is_replica", lambda *a, **k: True)
+    monkeypatch.setattr(server, "_remote_call", call)
+    return sent, options_seen
+
+
+def test_a_queued_chat_lands_as_one_episode_and_one_conversation(server, memory, monkeypatch):
+    sent, options = _queued_like_a_home_away(server, monkeypatch)
+    _connect(server, "claude-ai")
+    first = _turn(server, FIRST, "new")
+    assert "isError" not in first
+    text = first["content"][0]["text"]
+    assert text.startswith(tx_outbox.QUEUED_TEXT) and "Cicada memory" in text
+    handle = re.search(r'conversation="(lc_[^"]+)"', text).group(1)
+    second = _turn(server, SECOND, handle, REPLY)["content"][0]["text"]
+    assert "Pass conversation" not in second
+    _turn(server, "One more thing about the alpha-project rollback plan.", handle, "Added the rollback step.")
+    assert [a["conversation"] for a in sent] == [handle] * 3 and not _relayed(memory)
+    assert cli_map.by_tool()["cicada_capture_turns"].replica_side == "home"     # what sends it to the outbox
+
+    assert all(o["said_at"] and isinstance(o["utc_offset_minutes"], int) for o in options)
+
+    for args, said in zip(sent, options):       # the home takes the outbox in order
+        _door(memory, client="claude-ai", args=args, options=said)
+    [path] = _relayed(memory)
+    stored = markdown_parser.parse(path)
+    assert stored.frontmatter["session_id"] == handle and stored.body.count("user: ") == 3
+    assert len(promotion.conversation_keys([path.stem], memory)) == 1
+
+
+def test_a_chat_queued_for_days_is_dated_when_it_was_said_and_received_when_it_landed(memory):
+    """Rulings 34, 39: the id's day and `timestamp` are the conversation's, `received_at` the landing."""
+    said = datetime.now(timezone.utc) - timedelta(days=3)
+    handle = f"lc_{said.date().isoformat()}_abcd1234"
+    _door(memory, client="claude-ai", args={"message": FIRST, "conversation": handle},
+          options={"said_at": said.isoformat(), "utc_offset_minutes": 0})
+    _door(memory, client="claude-ai", args={"message": SECOND, "previous_reply": REPLY, "conversation": handle},
+          options={"said_at": (said + timedelta(minutes=5)).isoformat(), "utc_offset_minutes": 0})
+    [path] = _relayed(memory)
+    fm = markdown_parser.parse(path).frontmatter
+    assert path.stem.startswith(f"ep_{said.date().isoformat()}_")
+    assert fm["timestamp"].startswith(said.date().isoformat())
+    assert fm["received_at"].startswith(datetime.now(timezone.utc).date().isoformat())
+    assert fm["last_turn_at"].startswith((said + timedelta(minutes=5)).date().isoformat())
+
+
+def test_the_real_outbox_entry_keeps_when_it_was_said():
+    entry = tx_outbox.tool_entry("cicada_capture_turns", {"message": FIRST}, bank_id=None, base_seq=1, caller={},
+                                 surface="mcp", options={"said_at": "2026-11-01T10:00:00+00:00"})
+    assert entry["options"]["said_at"] == "2026-11-01T10:00:00+00:00"
+
+
+@pytest.mark.parametrize("bad", [None, 12, "not a time", "2026-11-01T10:00:00", "2999-01-01T00:00:00+00:00", "x" * 60])
+def test_a_said_at_that_makes_no_sense_is_now(memory, bad):
+    assert relay_capture.clean_said_at(bad) is None
+    relay_capture.capture_local(_ctx(memory), FIRST, conversation="new", queue_index=False, said_at=bad)
+    [path] = _relayed(memory)
+    assert path.stem.startswith(f"ep_{date.today().isoformat()}_")
+
+
+def test_a_replica_says_the_handle_even_when_its_own_backend_refused_the_first_call(server, memory, monkeypatch):
+    from api.services import tool_client
+
+    def call(*a, **k):
+        raise tool_client.ToolClientError("Cicada's server could not be reached.")
+
+    monkeypatch.setattr(server.runtime_layout, "is_replica", lambda *a, **k: True)
+    monkeypatch.setattr(server, "_remote_call", call)
+    _connect(server, "claude-ai")
+    result = _turn(server, FIRST, "new")
+    assert result["isError"] is True and 'conversation="lc_' in result["content"][0]["text"] and not _relayed(memory)
+
+
+def test_a_backend_that_answered_late_and_the_local_write_are_one_episode(server, memory, monkeypatch):
+    """The call ran at the backend and timed out here, so the stdio door writes it again: the same handle, unchanged."""
+    from api.services import tool_client
+
+    def call(name, args, options=None, *, local=False):
+        relay_capture.capture_local(_ctx(memory), args["message"], args.get("previous_reply"), args["conversation"],
+                                    queue_index=False)
+        raise tool_client.ToolClientError(tool_client.TIMED_OUT_WRITE_TEXT)
+
+    monkeypatch.setattr(server, "_remote_call", call)
+    _connect(server, "claude-ai")
+    text = _turn(server, FIRST, "new")["content"][0]["text"]
+    assert text.startswith("Already captured.") and 'conversation="lc_' in text and len(_relayed(memory)) == 1
+
+
+def test_a_client_machine_mints_too_and_keeps_no_copy(server, memory, monkeypatch):
+    sent = []
+
+    def call(name, args, options=None, *, local=False):
+        assert local is False
+        sent.append(dict(args))
+        return {"text": "Captured.", "code": None, "data": {"status": "created"}, "error": None, "segments": None,
+                "state": {}}
+
+    monkeypatch.setattr(server.runtime_layout, "is_client", lambda *a, **k: True)
+    monkeypatch.setattr(server, "_remote_call", call)
+    _connect(server, "claude-ai")
+    text = _turn(server, FIRST, "new")["content"][0]["text"]
+    assert sent[0]["conversation"] in text and relay_capture.LOCAL_HANDLE_RE.match(sent[0]["conversation"])
+
+
+# --- a bad neighbour never loses a turn --------------------------------------------------------------------------------
+
+BROKEN = {
+    "yaml": "---\nid: a: stray: colon\ntitle: [unclosed\n---\nuser: hi\n",
+    "list": "---\n- one\n- two\n---\nuser: hi\n",
+    "scalar": "---\njust some words\n---\nuser: hi\n",
+    "bad-stamp": "---\nid: ep_x\ntimestamp: not a time\nrelay:\n  app: claude\n  channel: remote\n  first: x\n---\nuser: hi\n",
+    "relay-a-list": "---\nid: ep_x\nrelay: [a, b]\n---\nuser: hi\n",
+    "relay-no-stamp": "---\nid: ep_x\nrelay:\n  app: claude\n  channel: remote\n---\nuser: " + FIRST + "\n",
+}
+
+
+def _broken(memory, kind):
+    path = memory / "episodes" / f"ep_{date.today().isoformat()}_900.md"
+    if kind == "bytes":
+        path.write_bytes(b"---\nid: \xff\xfe\n---\n")
+    else:
+        path.write_text(BROKEN[kind])
+
+
+@pytest.mark.parametrize("kind", [*BROKEN, "bytes"])
+def test_one_malformed_episode_never_stops_a_new_relayed_chat_on_the_local_door(server, memory, kind):
+    _broken(memory, kind)
+    _connect(server, "claude-ai")
+    result = _turn(server, FIRST, "new")
+    assert "isError" not in result, result
+    assert 'conversation="lc_' in result["content"][0]["text"] and len(_relayed(memory)) >= 1
+
+
+@pytest.mark.parametrize("kind", [*BROKEN, "bytes"])
+def test_one_malformed_episode_never_stops_a_new_relayed_chat_on_the_remote_door(memory, kind):
+    _broken(memory, kind)
+    runtime = RemoteRuntime(post=lambda p, d: {"status": "resolved"}, sleep_running=lambda: False)
+    text, status = runtime.call(_connector(), "cicada_capture_turns", {"message": FIRST})
+    assert status == "ok" and str(text).startswith("Captured.")
+
+
+# --- only a person's whole turn is the other door's ------------------------------------------------------------------
+
+PROMPT = "Plan the alpha-project launch checklist and list every owner by name, please."
+
+
+def _remote(memory):
+    return RemoteRuntime(post=lambda p, d: {"status": "resolved"}, sleep_running=lambda: False), _connector()
+
+
+def test_a_prompt_the_other_doors_assistant_offered_is_a_new_chat(memory):
+    runtime, connector = _remote(memory)
+    runtime.call(connector, "cicada_capture_turns", {"message": FIRST})
+    runtime.call(connector, "cicada_capture_turns",
+                 {"message": SECOND, "previous_reply": f"Start a fresh chat and paste this: {PROMPT}"})
+    assert relay_capture.capture_local(_ctx(memory), PROMPT, conversation="new", queue_index=False).data["status"] == "created"
+
+
+def test_the_prompt_inside_a_longer_person_turn_is_a_new_chat(memory):
+    runtime, connector = _remote(memory)
+    runtime.call(connector, "cicada_capture_turns", {"message": f"Before anything else, {PROMPT} And then stop."})
+    assert relay_capture.capture_local(_ctx(memory), PROMPT, conversation="new", queue_index=False).data["status"] == "created"
+
+
+def test_a_turn_that_waited_in_an_outbox_still_finds_its_copy_on_the_other_door(memory):
+    """Measured from when it was said, not when it landed: the remote door kept it then, and this one queued hours."""
+    runtime, connector = _remote(memory)
+    runtime.call(connector, "cicada_capture_turns", {"message": FIRST})
+    [path] = _relayed(memory)
+    stored = markdown_parser.parse(path)
+    said = datetime.now(timezone.utc) - timedelta(hours=3)
+    markdown_parser.write(path, {**stored.frontmatter, "last_turn_at": said.isoformat()}, stored.body)
+    reply = relay_capture.capture_local(_ctx(memory), FIRST, conversation="new", queue_index=False,
+                                        said_at=said.isoformat(), utc_offset_minutes=0)
+    assert reply.data["status"] == "elsewhere" and len(_relayed(memory)) == 1
+
+
+def test_and_the_reverse_direction_on_the_remote_door(memory):
+    relay_capture.capture_local(_ctx(memory), FIRST, conversation="new", queue_index=False)
+    [path] = _relayed(memory)
+    handle = markdown_parser.parse(path).frontmatter["session_id"]
+    relay_capture.capture_local(_ctx(memory), SECOND, f"Start a fresh chat and paste this: {PROMPT}", handle,
+                                queue_index=False)
+    relay_capture.capture_local(_ctx(memory), f"Before anything else, {PROMPT} And then stop.", "A reply.", handle,
+                                queue_index=False)
+    runtime, connector = _remote(memory)
+    text, status = runtime.call(connector, "cicada_capture_turns", {"message": PROMPT})
+    assert status == "ok" and str(text).startswith("Captured.") and len(_relayed(memory)) == 2
+
+
+def test_a_long_message_held_as_a_later_turn_is_still_the_same_turn(memory):
+    """A later turn keeps a 2k head, a first 16k: the whole message either way, so a model that went on calling is told."""
+    long_message = " ".join(f"Word{i}" for i in range(1200))
+    runtime, connector = _remote(memory)
+    runtime.call(connector, "cicada_capture_turns", {"message": FIRST})
+    runtime.call(connector, "cicada_capture_turns", {"message": long_message, "previous_reply": REPLY})
+    reply = relay_capture.capture_local(_ctx(memory), long_message, conversation="new", queue_index=False)
+    assert reply.data["status"] == "elsewhere"
+
+
+# --- a model that goes on calling ---------------------------------------------------------------------------------------
+
+def test_a_model_that_ignores_stop_makes_no_second_episode(memory):
+    runtime = RemoteRuntime(post=lambda p, d: {"status": "resolved"}, sleep_running=lambda: False)
+    text = runtime.call(_connector(), "cicada_capture_turns", {"message": FIRST})[0]
+    handle = relay_capture.capture_local(_ctx(memory), FIRST, conversation="new", queue_index=False)
+    assert handle.data["status"] == "elsewhere" and str(text).startswith("Captured.")
+    runtime.call(_connector(), "cicada_capture_turns", {"message": SECOND, "previous_reply": REPLY})
+    later = relay_capture.capture_local(_ctx(memory), SECOND, REPLY, conversation="new", queue_index=False)
+    assert later.data["status"] == "elsewhere" and len(_relayed(memory)) == 1
+
+
+def test_a_relayed_chat_is_never_the_persons_own_words(server, memory):
+    _connect(server, "claude-ai")
+    _turn(server, FIRST, "new")
+    [path] = _relayed(memory)
+    stored = markdown_parser.parse(path)
+    kind = stored.frontmatter["evidence_kind"]
+    assert {t.role for t in evidence.turns(stored.body, override=kind)} == {"assistant"}
+    assert all(person == "" for person, _ in promotion.exchanges(stored.body, override=kind))
+    assert promotion.measure({"name": "alpha-project"}, promotion.exchanges(stored.body, override=kind))[1] is False
+    assert episode_actor.actor(stored.frontmatter) == "Claude Desktop, relayed by its model"
+
+
+def test_the_writer_scrubs_a_relayed_secret(server, memory):
+    _connect(server, "claude-ai")
+    _turn(server, "Use sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789 for the alpha-project launch please.", "new")
+    [path] = _relayed(memory)
+    assert "abcdefghijklmnopqrstuvwxyz0123456789" not in path.read_text()
+
+
+def test_a_demo_bank_refuses_it_like_every_other_write(tmp_path):
+    from test_demo_capture import _loose_demo
+
+    bank = _loose_demo(tmp_path)
+    reply = relay_capture.capture_local(_ctx(bank), FIRST, conversation="new", queue_index=False)
+    assert str(reply) == demo_guard.AGENT_REFUSAL and getattr(reply, "code", None) == "demo_bank"
+    assert not list((bank / "episodes").glob("ep_*.md"))
+
+
+@pytest.mark.parametrize("bad", [None, "", "rc_ab12cd34_2026-11-04_abcd1234", "lc_../../etc", "../x", 12])
+def test_a_handle_this_tool_did_not_give_is_refused(memory, bad):
+    reply = relay_capture.capture_local(_ctx(memory), FIRST, conversation=bad, queue_index=False)
+    assert getattr(reply, "code", None) == "invalid_arguments" and not _relayed(memory)
+
+
+def test_a_chat_outlives_its_process(memory):
+    handle = relay_capture.capture_local(_ctx(memory), FIRST, conversation="new", queue_index=False).data["conversation"]
+    reply = relay_capture.capture_local(_ctx(memory), SECOND, REPLY, handle, queue_index=False)
+    assert reply.data["status"] == "updated" and len(_relayed(memory)) == 1
+
+
+# --- both doors in one app --------------------------------------------------------------------------------------------
+
+def _connector():
+    return catalog.Connector(id="ab12cd34", label="Claude", app="claude", scopes=frozenset(catalog.DEFAULT_SCOPES),
+                             created_at="2026-09-01T00:00:00+00:00", auth="oauth")
+
+
+def test_the_apps_other_door_never_makes_a_second_copy_of_the_same_turn(memory):
+    """A connector added on claude.ai shows in the desktop app beside its local connection, and both primers ask."""
+    relayed = relay_capture.capture_local(_ctx(memory), FIRST, conversation="new", queue_index=False)
+    runtime = RemoteRuntime(post=lambda p, d: {"status": "resolved"}, sleep_running=lambda: False)
+    text, status = runtime.call(_connector(), "cicada_capture_turns", {"message": FIRST})
+    assert status == "ok" and "other Cicada connection" in text and len(_relayed(memory)) == 1
+    assert "Stop calling" in text and relayed.data["status"] == "created"
+
+
+def test_and_the_local_door_second_is_told_the_same(memory):
+    runtime = RemoteRuntime(post=lambda p, d: {"status": "resolved"}, sleep_running=lambda: False)
+    runtime.call(_connector(), "cicada_capture_turns", {"message": FIRST})
+    reply = relay_capture.capture_local(_ctx(memory), FIRST, conversation="new", queue_index=False)
+    assert reply.data["status"] == "elsewhere" and "conversation" not in reply.data and len(_relayed(memory)) == 1
+
+
+def test_a_different_chat_or_a_short_message_is_not_the_other_doors(memory):
+    runtime = RemoteRuntime(post=lambda p, d: {"status": "resolved"}, sleep_running=lambda: False)
+    runtime.call(_connector(), "cicada_capture_turns", {"message": FIRST})
+    relay_capture.capture_local(_ctx(memory), "Another chat entirely about the winter budget.", conversation="new",
+                                queue_index=False)
+    relay_capture.capture_local(_ctx(memory), "Hello there", conversation="new", queue_index=False)
+    # Too short to tell apart: the other door's day bucket takes it anyway, and no turn is dropped.
+    assert runtime.call(_connector(), "cicada_capture_turns", {"message": "Hello there"})[1] == "ok"
+    bodies = [markdown_parser.parse(p).body for p in _relayed(memory)]
+    assert len(bodies) == 3 and sum("Hello there" in b for b in bodies) == 2
+
+
+def test_an_old_identical_first_message_is_a_new_chat(memory, monkeypatch):
+    runtime = RemoteRuntime(post=lambda p, d: {"status": "resolved"}, sleep_running=lambda: False)
+    runtime.call(_connector(), "cicada_capture_turns", {"message": FIRST})
+    monkeypatch.setattr(turn_capture, "ELSEWHERE_WINDOW_S", -1)
+    assert relay_capture.capture_local(_ctx(memory), FIRST, conversation="new",
+                                       queue_index=False).data["status"] == "created"
+
+
+# --- the door ---------------------------------------------------------------------------------------------------------
+
+def _door(memory, *, client, harness="unknown", args=None, options=None):
+    state = tool_door.SessionState(skipped_inbox_ids=set(), state_hint_sent=False, listed_revisions={})
+    ctx = tool_door.context(memory_path=memory, bank_name=None,
+                            caller=tool_door.Caller(session_id="ses_2026-11-04_abcd1234", harness=harness,
+                                                    project_dir=None, client_name=client, client_version="1"),
+                            state=state, surface="mcp", device_id="dev12345", backend_url="", headers=dict)
+    return tool_door.run("cicada_capture_turns", args or {"message": FIRST, "conversation": "new"}, ctx=ctx,
+                         state=state, surface="mcp", options=options or {}, root=memory.parent, bank_name=None)
+
+
+def test_a_client_machines_desktop_app_relays_through_the_door_and_says_which_device(memory):
+    answer = _door(memory, client="claude-ai")
+    assert answer.data["status"] == "created"
+    [path] = _relayed(memory)
+    assert markdown_parser.parse(path).frontmatter["relay"]["device"] == "dev12345"
+
+
+@pytest.mark.parametrize("client,harness", [("claude-code", "claude-code"), ("claude-ai", "claude-code"),
+                                            ("cursor", "unknown"), (None, "unknown")])
+def test_the_door_asks_the_same_question(memory, client, harness):
+    answer = _door(memory, client=client, harness=harness)
+    assert answer.code == "invalid_arguments" and "Unknown tool" in answer.text and not _relayed(memory)
+
+
+def test_the_command_line_never_relays(memory):
+    state = tool_door.SessionState(skipped_inbox_ids=set(), state_hint_sent=False, listed_revisions={})
+    ctx = tool_door.context(memory_path=memory, bank_name=None,
+                            caller=tool_door.Caller(session_id="s-12345678", harness="unknown", project_dir=None,
+                                                    client_name="claude-ai", client_version="1"),
+                            state=state, surface="cli", device_id=None, backend_url="", headers=dict)
+    with pytest.raises(tool_door.DoorError):
+        tool_door.run("cicada_capture_turns", {"message": FIRST, "conversation": "new"}, ctx=ctx, state=state,
+                      surface="cli", options={}, root=memory.parent, bank_name=None)
+
+
+def test_a_door_primer_asks_only_when_the_stdio_side_offered_it(memory, tmp_path, monkeypatch):
+    """An older client machine's stdio server lists no such tool and sends no flag: its primer must not ask."""
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    state = tool_door.SessionState(skipped_inbox_ids=set(), state_hint_sent=False, listed_revisions={})
+    ctx = tool_door.context(memory_path=memory, bank_name=None,
+                            caller=tool_door.Caller(session_id="s-12345678", harness="unknown", project_dir=None,
+                                                    client_name="claude-ai", client_version="1"),
+                            state=state, surface="mcp", device_id=None, backend_url="", headers=dict)
+    for options, asks in (({}, False), ({"relay": True}, True), ({"relay": "yes"}, False)):
+        answer = tool_door.run("cicada_handshake", {}, ctx=ctx, state=state, surface="mcp", options=options,
+                               root=memory.parent, bank_name=None)
+        assert ("cicada_capture_turns" in answer.text) is asks
+
+
+# --- ruling 58: a one-time export upgrades it in place, either provider's shape --------------------------------------
+
+def _claude_export_zip():
+    stamp = f"{date.today().isoformat()}T10:00:00.000000Z"
+    return _zip({"users.json": "[]", "conversations.json": json.dumps([{
+        "uuid": "conv-claude-1", "name": "Launch plan", "created_at": stamp, "updated_at": stamp,
+        "chat_messages": [
+            {"uuid": "m0", "sender": "human", "text": FIRST, "content": [], "created_at": stamp},
+            {"uuid": "m1", "sender": "assistant", "text": REPLY + " (full)", "content": [], "created_at": stamp},
+            {"uuid": "m2", "sender": "human", "text": SECOND, "content": [], "created_at": stamp}]}])})
+
+
+def _chatgpt_export_zip():
+    at = time.time()
+
+    def node(role, text, when):
+        return {"message": {"author": {"role": role}, "content": {"parts": [text]}, "create_time": when}}
+
+    return _zip({"user.json": "{}", "conversations.json": json.dumps([{
+        "conversation_id": "conv-gpt-1", "title": "Launch plan", "create_time": at, "update_time": at + 60,
+        "mapping": {"a": node("user", FIRST, at), "b": node("assistant", REPLY + " (full)", at + 30),
+                    "c": node("user", SECOND, at + 40)}}])})
+
+
+def _import(memory, content):
+    parsed = intake.parse_export(content, "export.zip")
+    return conv._stage_export(parsed.episodes, memory / "episodes")
+
+
+def _upgraded(memory, content, relay_first):
+    relay_first()
+    [path] = _relayed(memory)
+    assert markdown_parser.parse(path).frontmatter["evidence_kind"] == "assistant"
+    staged = _import(memory, content)
+    assert (staged.updated, staged.created) == (1, 0)
+    assert [p.name for p in _relayed(memory)] == [path.name]      # the same file, the same id
+    stored = markdown_parser.parse(path)
+    assert "evidence_kind" not in stored.frontmatter and stored.frontmatter["relay"]["upgraded_at"]
+    assert "(full)" in stored.body
+    assert _import(memory, content).skipped == 1                  # one-time: a repeat changes nothing
+    return stored
+
+
+def test_an_anthropic_export_upgrades_a_desktop_relay_in_place(memory):
+    stored = _upgraded(memory, _claude_export_zip(),
+                       lambda: relay_capture.capture_local(_ctx(memory), FIRST, conversation="new", queue_index=False))
+    assert stored.frontmatter["harness"] == "claude-desktop" and stored.frontmatter["relay"]["upgraded_by"] == "claude"
+
+
+def test_an_anthropic_export_upgrades_a_remote_relay_in_place(memory):
+    runtime = RemoteRuntime(post=lambda p, d: {"status": "resolved"}, sleep_running=lambda: False)
+    _upgraded(memory, _claude_export_zip(), lambda: runtime.call(_connector(), "cicada_capture_turns", {"message": FIRST}))
+
+
+def test_an_openai_export_upgrades_a_remote_relay_in_place(memory):
+    runtime = RemoteRuntime(post=lambda p, d: {"status": "resolved"}, sleep_running=lambda: False)
+    connector = catalog.Connector(id="cd34ef56", label="ChatGPT", app="chatgpt", auth="oauth",
+                                  scopes=frozenset(catalog.DEFAULT_SCOPES), created_at="2026-09-01T00:00:00+00:00")
+    stored = _upgraded(memory, _chatgpt_export_zip(),
+                       lambda: runtime.call(connector, "cicada_capture_turns", {"message": FIRST}))
+    assert stored.frontmatter["relay"]["upgraded_by"] == "chatgpt"
+
+
+@pytest.mark.parametrize("content", [_claude_export_zip, _chatgpt_export_zip], ids=["anthropic", "openai"])
+def test_a_new_bank_imports_either_export_with_nothing_relayed_first(memory, content):
+    staged = _import(memory, content())
+    assert (staged.created, staged.updated) == (1, 0) and not _relayed(memory)
+    [path] = [p for p in (memory / "episodes").glob("ep_*.md")
+              if markdown_parser.parse(p).frontmatter.get("source_id") in ("conv-claude-1", "conv-gpt-1")]
+    assert FIRST in path.read_text()

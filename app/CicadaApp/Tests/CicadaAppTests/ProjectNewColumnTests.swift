@@ -110,12 +110,12 @@ final class ProjectNewColumnTests: XCTestCase {
         XCTAssertEqual(built, 2)
     }
 
-    /// Owner 2026-11-04: an empty Projects list says nothing — no sentence, at most the quiet suggestions line.
+    /// Owner 2026-11-04: an empty Projects list says nothing — no sentence. Ruling 56: no suggestions line either.
     func testTheEmptyListDrawsNoSentence() throws {
         let rows = try String(contentsOf: Self.source("Views/Projects/ProjectsRows.swift"), encoding: .utf8)
         XCTAssertFalse(rows.contains("EmptyStateView("), "no empty-state card on the Projects list")
         XCTAssertFalse(rows.contains("emptyMine"+"Message"))
-        XCTAssertEqual(Copy.ProjectsOpen.suggestedLine(750), "750 suggested")
+        XCTAssertFalse(rows.contains("suggested"+"Fold"))
     }
 
     private static func source(_ path: String) -> URL {

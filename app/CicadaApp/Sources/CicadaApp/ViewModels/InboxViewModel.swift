@@ -61,6 +61,7 @@ final class InboxViewModel {
     /// list, its tabs and its walk read the questions only.
     var questions: [InboxItem] { derived.questions }
     var agentRequests: [InboxItem] { derived.agentRequests }
+    var sensitiveReviews: [InboxItem] { derived.sensitiveReviews }
     var whereToCheckReviews: [InboxItem] { derived.whereToCheckReviews }
 
     /// The questions in the order the list draws them (owner 2026-10-26): grouped by kind under All, by page inside
@@ -77,6 +78,7 @@ final class InboxViewModel {
         let questions: [InboxItem]
         let agentRequests: [InboxItem]
         let whereToCheckReviews: [InboxItem]
+        let sensitiveReviews: [InboxItem]
         let visible: [InboxItem]
         let sections: [InboxGroups.Section]
         let tabs: [TextTab<InboxKind>]
@@ -113,6 +115,7 @@ final class InboxViewModel {
             questions: questions,
             agentRequests: items.filter { $0.kind == .agentRequest },
             whereToCheckReviews: items.filter(\.isWhereToCheckReview),
+            sensitiveReviews: items.filter { $0.kind == .sensitive },
             visible: sections.flatMap(\.items),
             sections: sections,
             tabs: InboxTabs.tabs(questions),

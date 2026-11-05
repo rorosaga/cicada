@@ -48,7 +48,8 @@ class DrainStop:
     """Why a drain stopped. ``sentence`` is a plain sentence for the person (the
     vendor's own, for a plan limit); ``resets_at`` the vendor's unix reset time
     when one was measured — never estimated. ``limit`` says which limit
-    (``five_hour | seven_day | overage | unknown``) for a plan stop."""
+    (``five_hour | seven_day | overage | key_limit | unknown``) for a plan stop, ``spend`` for the person's own
+    spending limit (reason ``reserve``, the same soft stop)."""
     reason: str
     sentence: str = ""
     resets_at: int | None = None
@@ -153,10 +154,15 @@ class DrainState:
     #: ``OFFLINE_CAUSES`` value, else ``None``); ``offline_waits`` counts the waits this leg took.
     waiting: str | None = None
     offline_waits: int = 0
+    #: G235: this leg's conversations an engine read holding something likely sensitive (id -> kinds), and the ones
+    #: holding something already replaced. Folded into the run's summary; never a word.
+    sensitive: dict[str, list[str]] = field(default_factory=dict)
+    replaced_ids: set[str] = field(default_factory=set)
     engine_label: str | None = None                       # the engine the run resolved once, and its model
     engine_model: str | None = None
     engine_shown: str | None = None                       # its model as the Sleep page shows one (`engine_select.shown_model`)
     guard: object | None = None                           # sleep_reserve.ReserveGuard, when a line is set
+    spend: object | None = None                           # sleep_spend.SpendGuard, on a key with a limit
     ended_mono: float | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
@@ -211,6 +217,15 @@ def note_call(cycle_id: str | None) -> None:
         ds.note_call()
 
 
+def note_spend(cycle_id: str | None, cost_usd: float | None) -> None:
+    """What one metered call cost, ``None`` when it has no known price (``sleep_spend``). Thread-safe; a discarded
+    batch's spend still counts: it was charged."""
+    ds = drain_for(cycle_id)
+    guard = getattr(ds, "spend", None) if ds is not None else None
+    if guard is not None:
+        guard.observe(cost_usd)
+
+
 def batches_for(n: int, size: int) -> int:
     """How many batches ``n`` episodes make at ``size`` a batch."""
     if n <= 0:
@@ -227,16 +242,52 @@ def next_batch(frozen_ids: list[str], waiting: set[str], settled: set[str], size
     return batch, len(todo) - len(batch)
 
 
+#: What one batch may hold, in bytes of episode files (ruling 62, measured 2026-11-04). A stop loses the batch in
+#: progress, so a batch is what a stop may cost: Stage 1 alone is a call per 12,000 characters, and two long sessions
+#: are 15 calls before Stage 2 has seen a name. By count alone a run of 22 was one batch of 22, and a plan limit 180
+#: calls in lost all of it. About five chunks, so a long session is its own batch and a run of short ones keeps the
+#: person's count (`sleep_run_prefs`).
+BATCH_BYTES = 60_000
+
+
+def _fill(ordered: list[str], size: int, sizes: dict[str, int] | None, max_bytes: int) -> list[str]:
+    """The head of ``ordered`` a batch holds: at most ``size`` ids and ``max_bytes``, never fewer than one, so a session
+    larger than the bound reads alone rather than never."""
+    cap = max(1, size)
+    if not sizes:
+        return ordered[:cap]
+    out: list[str] = []
+    held = 0
+    for i in ordered[:cap]:
+        weight = int(sizes.get(i, 0) or 0)
+        if out and held + weight > max_bytes:
+            break
+        out.append(i)
+        held += weight
+    return out
+
+
+def batches_left(ids: list[str], size: int, sizes: dict[str, int] | None, max_bytes: int = BATCH_BYTES) -> int:
+    """How many batches these ids make, read in this order. An estimate of the same rule, for "Batch 3 of 7"."""
+    rest, n = list(ids), 0
+    while rest:
+        rest = rest[len(_fill(rest, size, sizes, max_bytes)):]
+        n += 1
+    return n
+
+
 def next_batch_retrying(frozen_ids: list[str], waiting: set[str], settled: set[str], size: int,
-                        attempts: dict[str, int]) -> tuple[list[str], int]:
+                        attempts: dict[str, int], *, sizes: dict[str, int] | None = None,
+                        max_bytes: int = BATCH_BYTES) -> tuple[list[str], int]:
     """``next_batch`` with the retry rule: a conversation that failed for its own
     reasons goes first in the very next batch (its one more try), then the oldest
-    frozen ids in queue order."""
+    frozen ids in queue order. ``sizes`` (episode file sizes by id): the batch is bounded by what it holds too
+    (:data:`BATCH_BYTES`); without them, by count alone."""
     todo = [i for i in frozen_ids if i not in settled and i in waiting]
     retries = [i for i in todo if attempts.get(i, 0) >= 1]
     rest = [i for i in todo if attempts.get(i, 0) < 1]
     ordered = retries + rest
-    batch = ordered[:max(1, size)]
+    batch = _fill(ordered, size, sizes, max_bytes)
     return batch, len(ordered) - len(batch)
 
 
@@ -408,6 +459,8 @@ def classify_episode(exc: BaseException) -> tuple[str, str | None]:
     so it can receive its second conversation attempt and be parked."""
     from api.services import json_parse
 
+    if isinstance(exc, engine_errors.EngineRefused):
+        return "content", "refused"
     try:   # the metered rung: a key, a model or a quota is the engine's trouble, never the conversation's
         import litellm
 

@@ -31,7 +31,10 @@ words are already the question's cause or one option's evidence).
 * ``conflict`` / ``clarification`` about Cicada's OWN runtime settings, on its own page — which engine Sleep runs read
   with, whether scheduled runs use the plan, the schedule's time (``web_settle.own_settings``; owner 2026-10-19) — retired as ``own_settings`` (no claim touched): the system
   knows them and Settings shows them, so they are never asked;
-* everything else — a clarification, a follow-up, a proposed edit — stays for the person (move 1 aside).
+* ``followup`` — one on a page not in the person's list, never started or taken out (ruling 56, ``not_started``):
+  retired with nothing written;
+* everything else — a clarification, a follow-up on a project they started, a proposed edit — stays for the person (move
+  1 aside).
 
 Never a question about who a person is, or merging two people, without the person's own words on the record (move 1).
 
@@ -113,6 +116,7 @@ RULES: dict[str, str] = {
     "named_account": "You gave this link for them in your own words",
     "owner_unsaid": "Nothing you said names you that: it is not a question about you",
     "no_pair_evidence": "No conversation names the two together",
+    "not_started": "It is not one of your projects",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
 RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
@@ -120,7 +124,7 @@ RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
                          "multi_valued", "in_passing", "newest_words", "own_settings", "named_account",
-                         "owner_unsaid", "no_pair_evidence"})
+                         "owner_unsaid", "no_pair_evidence", "not_started"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
 MAX_REASON_CHARS = 160
@@ -128,7 +132,7 @@ MAX_EVIDENCE_LINES = 2
 #: Kinds the person's words in a conversation may answer (decay is answered by the mention itself; a fold and a
 #: proposed edit are the app's; a follow-up is progress, written only by `progress.py`).
 CONVERSATION_KINDS = frozenset({"conflict", "clarification", "merge_suggestion"})
-NEVER = frozenset({"page_edit"})
+NEVER = frozenset({"page_edit", "sensitive"})
 #: The page types a decay question may be assumed for ("pages nobody would miss").
 ONE_OFF_TYPES = frozenset({"concept", "tool", "media", "company"})
 JUDGE_THRESHOLD = 0.9
@@ -608,6 +612,15 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
             # Retired like a question whose subject is gone: moved to its record, no claim touched, one Sleep commit.
             return Decision(item_id, kind, "own_settings", None, answer="Cicada's own settings",
                             guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
+    if kind == "followup":
+        # Ruling 56 (owner 2026-11-04: "Yeah only projects I started."): one asked before that rule is retired like a
+        # question whose subject is gone, moved to its record, no claim touched, one Sleep commit. What it asked stays.
+        from api.services import followups
+
+        if not followups.on_started_project(memory_path, fm):
+            return Decision(item_id, kind, "not_started", None, answer="Not asked: it is not one of your projects",
+                            guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
+        return None, "needs_person"
     if kind == "merge_suggestion":
         return _merge_rule(memory_path, item_id, fm)
     if kind == "normalization":
@@ -2414,6 +2427,7 @@ VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
     "named_account": (frozenset({"clarification"}), frozenset({"resolve"})),
     "owner_unsaid": (frozenset({"merge_suggestion"}), frozenset({None})),
     "no_pair_evidence": (frozenset({"merge_suggestion"}), frozenset({None})),
+    "not_started": (frozenset({"followup"}), frozenset({None})),
 }
 #: The rules an engine read: only these may carry the judging model and its engine as the commit's author.
 VETTED_ENGINE_RULES = frozenset({"judged_same", "judged_different", "judged_fold", "judged_conflict",

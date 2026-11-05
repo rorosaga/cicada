@@ -1,6 +1,6 @@
 import Foundation
 
-/// Projects v2 (TODO ruling 45) — the words for the person's own list, Suggested, the header, the "project knowledge"
+/// Projects v2 (TODO ruling 45) — the words for the person's own list, the header, the "project knowledge"
 /// panel and Add an influence. DR-59: sentence case, plain verbs, no "!"; provider-neutral (a provider is named only
 /// where it is the person's own: their ChatGPT or Claude project). Q6: the dated list is called "Timeline".
 extension Copy {
@@ -12,13 +12,8 @@ extension Copy {
         static let namePlaceholder = "What it's called"
         static let create = "Create"
         static let cancel = "Cancel"
-        static let suggested = "Suggested"
-        static let suggestedHelp = "Projects Cicada noticed that you haven't added. Nothing here is deleted."
         static let addToMine = "Add to my projects"
-        static let notMine = "Not mine"
-        static let notMineHelp = "Leave it out of your projects. It stays in memory, and you can add it later."
-        static let nameItTitle = "Name this project"
-        static let nameItMessage = "It's a group of your conversations with no name of its own."
+        static let removeFromMine = "Remove from my projects"
 
         // MARK: New project, as a page (owner 2026-11-04: one line of copy, no paragraph, no title over the fields)
         static let newName = "Project name"
@@ -33,18 +28,6 @@ extension Copy {
         static let nothingFound = "No page in your memory matches."
         static let repository = "Repository"
         static let kindMenu = "Kind"
-
-        /// The reason a suggestion is offered, from the server's `whyKind` (its sentence rides as `why`).
-        static func reasonGlyph(_ kind: String) -> String {
-            switch kind {
-            case "repo": return "chevron.left.forwardslash.chevron.right"
-            case "words": return "text.quote"
-            case "agent": return "sparkles"
-            case "provider", "export": return "square.stack"
-            case "fallback": return "circle.dashed"
-            default: return "circle"
-            }
-        }
 
         /// A wire day (`YYYY-MM-DD`) as the reader's own words for it (DR-58: `RelativeDay`, never the raw ISO string).
         static func day(_ raw: String?, today: ISODay = ISODay.today(), locale: Locale = .autoupdatingCurrent) -> String? {
@@ -65,7 +48,7 @@ extension Copy {
             case "folder": how = "You named this folder as a project"
             case "import": how = "You made this project in Claude"
             case "progress": how = "You've logged progress here"
-            default: how = "Suggested by Cicada"
+            default: how = "Not in your projects"
             }
             return Self.day(day).map { "\(how) · \($0)" } ?? how
         }

@@ -29,7 +29,7 @@ LinkedIn connections (2026-10-16, G154's pattern): the person picks their export
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
@@ -58,6 +58,9 @@ from api.models.schemas import (
     MessagesSyncRequest,
     MessagesSyncResponse,
     MessagesWaitingResponse,
+    ContactsBookRequest,
+    ContactsBookResponse,
+    ContactsBookSaved,
     RemindersLocalSyncRequest,
     RemindersLocalSyncResponse,
     TabGroupsSyncRequest,
@@ -70,7 +73,9 @@ from api.models.schemas import (
 )
 from api.services import (
     calendar_local,
+    contacts_book,
     contacts_local,
+    device_context,
     folder_source,
     linkedin_people,
     local_refs,
@@ -511,6 +516,56 @@ async def forget_contacts_waiting(connection: str | None = Query(None, max_lengt
     Stage 2's first-mention index, Stage 5's seed, the tail's rematch and its save back — treats what it read before
     the marker as empty. ``connection`` (the app's id for the connection it ends) drops any sync still in flight from
     it. Counts only, never a name."""
+    return {"forgotten": await run_in_threadpool(contacts_local.forget_waiting, connection)}
+
+
+def _book_scope() -> str:
+    """The device that signed this request (from its token, never its body): a Mac reads only the book it posted."""
+    return contacts_book.scope_of(device_context.current())
+
+
+@router.put("/sources/contacts-local/book", response_model=ContactsBookSaved, dependencies=_DEMO_GATE)
+async def put_contacts_book(req: ContactsBookRequest, settings: Settings = Depends(get_settings)):
+    """G154 (owner 2026-11-04): every card of the book the app read, names and thumbnails, for the Contacts page's
+    faces. Outside every bank and read by no match (``contacts_book``), so it is accepted while Sleep runs; on a copy it
+    runs here, where the reader is. 409 for a connection the person ended, 413 above ``MAX_CONTACTS``."""
+    bank = settings.memory_path.name
+    cards = [c.model_dump(by_alias=False) for c in req.cards]
+    try:
+        total = await run_in_threadpool(contacts_book.save, bank, _book_scope(), cards, connection=req.connection)
+    except contacts_local.PayloadError as exc:
+        raise HTTPException(413, str(exc))
+    except contacts_local.Disconnected as exc:
+        raise HTTPException(409, str(exc))
+    return ContactsBookSaved(total=total)
+
+
+@router.get("/sources/contacts-local/book", response_model=ContactsBookResponse)
+async def get_contacts_book(settings: Settings = Depends(get_settings)):
+    """Every card this Mac posted, as faces: the app's own read, token-gated like every route and on no agent door (no
+    tool, no CLI command, not on the remote listener). A read that is not a Store domain, no ETag; the app caches it in
+    memory. Which card has a page is derived from the pages here."""
+    memory_path = settings.memory_path
+    return ContactsBookResponse(**await run_in_threadpool(contacts_book.read, memory_path, memory_path.name,
+                                                          _book_scope()))
+
+
+@router.get("/sources/contacts-local/book/{key}/photo")
+async def get_contacts_book_photo(key: str, settings: Settings = Depends(get_settings)):
+    """One face's thumbnail from this Mac's own book; 404 draws the monogram. ``no-store``: a forget leaves no copy in
+    a disk cache."""
+    memory_path = settings.memory_path
+    found = await run_in_threadpool(contacts_book.photo, memory_path, memory_path.name, _book_scope(), key)
+    if found is None:
+        raise HTTPException(404, "no photo for this card")
+    media = "image/png" if found[1] == "png" else "image/jpeg"
+    return Response(content=found[0], media_type=media, headers={"Cache-Control": "no-store"})
+
+
+@router.delete("/sources/contacts-local/book")
+async def forget_contacts_book(connection: str | None = Query(None, max_length=64)):
+    """Contacts was stopped: the same forget as ``DELETE /waiting``, under a route that runs on this computer. On a copy
+    ``/waiting`` goes to the home and this computer's own book would stay, so the app sends both. Counts only."""
     return {"forgotten": await run_in_threadpool(contacts_local.forget_waiting, connection)}
 
 

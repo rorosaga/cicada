@@ -934,6 +934,9 @@ Round 4 (C2–C4):
   engine-free step's `agent` proposals and Contacts cards stay on their pages. Engine-free, read from the frontmatter
   cache, ETag over `entities` plus `source_roster.SHAPE`; it writes nothing — the Sources area adds and removes through
   the page's own routes, so `fact_sources` stays the one writer.
+  **A plan run reads a changed page first (54a, 2026-11-04):** a tracked public page marked `changed` is read by the settling
+  step's model through `source_refresh.apply`, its quote checked on the bytes opened, and keeps waiting for the person's agent
+  if it cannot be read. A conflict on the page may be answered from its tracked sources too (`features.md`).
   **Re-checked, dated, the newest evidence wins (G61, TODO ruling 26, owner 2026-10-14).** A tracked source (trusted, not
   `only_me`, a `url`) keeps its re-check state on its own entry: `refresh: {at, outcome, good, episode, hash, changed?,
   asked?, tries?, blocked?, misses?: [{at, outcome}], dead?: {since, at, outcome}}` and the person's cadence
@@ -1401,11 +1404,16 @@ Round 4 (C2–C4):
   evidence text and is read back only while `evidence.span_status` says current or grown (`project_birth.quote`).
   A page without it (older than the rule) is classified on read (`project_birth.classify`: a declared `repos:` →
   repo, `paths:`/`folder` → words, then the cited conversations) and never rewritten for it (`capture-and-sleep.md`).
-  A fallback page that a later birth retypes gets its `born:` then, the one time (`project_birth.retype_on_birth`).
-- `proposed_type: project` (owner 2026-10-23, amends D4) — on a `concept` page Sleep wrote for a thing Stage 1 called a
-  project that has no birth yet but cleared the promotion bar (the fallback page, `capture-and-sleep.md`). Read by the
-  judge (a later project mention meets the page) and by Stage 5, which removes it when a birth makes the page the
-  project; nothing else writes it.
+  Since ruling 56 a fallback page may carry `born:` as a signal Sleep read (`project_birth.note_signal`), once, and a
+  start keeps it (`project_birth.start_page`); `{origin: created, via, day}` is written only on a page with none.
+- `proposed_type: project` (owner 2026-10-23; ruling 56) — on a `concept` page for a thing Stage 1 called a project that
+  cleared the promotion bar (the fallback page, `capture-and-sleep.md`), or another client's proposed project. Read by the
+  judge (a later project mention meets the page); removed when the person or an agent on their ask starts the page.
+- `started_from: {type, proposed?, wrote_born?}` (ruling 56) — what a start changed on a page that was not a project, so
+  Remove gives it back; a start also revives a faded or archived page, as a mention would.
+- `conversations_added` / `entities_added` rows (ruling 56) — an agent's row is `{episode|entity, by, session?, reason?,
+  proposed?}`: `reason` is its one sentence (scrubbed, ≤ 300), shown to the person; `proposed` is an agent off the trust
+  list, never counted or drawn as part of the project until the person takes it. `repositories:` rows carry `reason` too.
 - **Ruling 45 (2026-10-27): whose project it is** — keys on a `project` page (or a fallback page), written only by the
   person's doors (the app's routes, `cicada projects new`, a trusted agent on their ask) through `project_ownership`, the
   one writer of `mine` / `not_mine` and the two conversation lists; never by Sleep, which carries them through every
@@ -1484,6 +1492,26 @@ Round 4 (C2–C4):
 `$CICADA_HOME/numbers_switch.json` is the one switch every process reads (`phone_numbers.enabled`; `cicada numbers switch`,
 `PUT /people/numbers/switch`), never an environment variable. Off, every path is byte for byte what it was. `phone_numbers`
 is the one module.
+A book is a `media` page with `media.kind: book` (the paper's shape: no new entity type in the closed set) and a
+`book:` block — `title`, `subtitle`, `authors`, `isbns`, `work_id` (Open Library's), `published`, `pages`,
+`apple_books` (asset ids), `goodreads` (book ids) and `title_from` (`openlibrary`, `googlebooks`, `apple-books`,
+`goodreads` or `placeholder`). **The page is the work, not the copy:** `books.BookIndex` matches only an identifier —
+any ISBN, the Open Library work id, a source's own id. **Title and author never join two pages** (review of #600, B1:
+"Dune" and "Dune: House Atreides", two volumes of one series, two authors sharing a surname are different works); a copy
+with no shared identifier keeps its own page. Every ISBN-13 (and, for 978, its ISBN-10) and each source's own spelling
+of the title are aliases. Decay is
+evergreen, `enrichment_attempted: true` (never scraped), `media.url` the Open Library work or edition — a link to open,
+never fetched for a card (the app shows no link preview for `kind: book`).
+
+**Its picture (ruling 61, owner 2026-11-04: "I want the book covers, yes").** The picture precedence's "a media thumbnail"
+rung, by `media_preview._book_source`, from the frontmatter alone: (1) `book.local_cover`, the cover of the person's own
+copy, read by the app from Apple Books' cache and kept at `$CICADA_HOME/books/covers/<bank>/<sha>.<ext>` with an `index.json`
+(asset id → sha; `book_covers`), stamped on the page by `books.apply_pending` so a picture arriving moves its ETag; (2)
+Open Library's by `book.cover_id`; (3) by the page's first ISBN. Neither: no picture, and nothing is drawn in its place
+(owner 2026-10-28). **Never a title**: a title search is a guess at a work (the reason title and author never join two
+pages, B1) and would send the person's reading list out where nothing else needs it. A page whose kept cover is not on this
+computer (a bank moved) falls back to (2) and (3). What was fetched is stored and served like every preview
+(`$CICADA_HOME/previews/<bank>/`, outside every bank; `network.md`).
 
 **A token in the bank, the digits in a vault.** In the person's own new lines of a ticked chat a number becomes
 `[number:<ten letters>]`, an HMAC of its last nine digits under a key held only in
@@ -1538,6 +1566,25 @@ while off. Used to settle a name or flag another card, never for a claim.
 | The 5 `phone` claims already in clear | **digits, in git for good** | not touched; a page's clear value becomes the token when the person restates it | `same_number` |
 
 The reasoning and the owner's question are ruling 55's.
+- `reading-status` (literal `reading` · `finished` · `want` · `not_started`): one per record, dated `valid_from` the
+  record's day; the newest by day (on one day, the later record; for a conversation's word, the one further along,
+  ruling 61) is open, every earlier one closed on the next one's day with `superseded_by` — never deleted. `GET
+  /sources/books` counts pages by the open one. A conversation's word writes the same record (`book_said`,
+  `capture-and-sleep.md`), its evidence a located span of the person's own turn. *Not right* (`books.undo_status`) closes a
+  record behind a `retracts` record, opens the one before and the reading thread its finish settled, and is never written
+  again. A conversation that only says the status again joins the record as evidence.
+- `happened` through `progress.record_happening` (the one event writer): "Started reading" (`ongoing`) and "Finished
+  reading" (`done`, settling an open "Started reading" that began before it) — **only on a day that is the act's
+  own** (review of #600, B2): a scan's (`date_basis: episode`), or a finish date the source gives (Apple Books'
+  `ZDATEFINISHED`, Goodreads' Date Read; `stated`). A fallback day (the last open, the day it was shelved, the import)
+  dates the `reading-status` record only. Want and not started are not events.
+- `rated` (`n/5`) from a Goodreads rating; a newer rating closes the older.
+
+Whose act: the span's kind comes from the episode (`authorship`). A scan is the person's act (`user`) and lights the
+page; an Apple Books or Goodreads record is `page`, and a want-to-read or not-started scan is stamped
+`media_entity_id` (a save, ruling 30; its `book` record keeps it out of ruling 62's lean pass, whose `saved` kind is for
+what has no such record) — so an imported library and a shelf stay quiet (`quiet_pages`) until the person
+writes or talks about the book (a note, a review, a chat).
 
 ### Backlogs (G150)
 
@@ -1924,6 +1971,10 @@ short wikilinked body, ≤ 6 KB, zero LLM, deterministic. Written only by
 `state_dictionary.refresh`. A digest of the `entities`/`inbox`/`episodes`/`bank`/`backlog` sync components is
 stored as `inputs_version`; unchanged inputs mean no write. **Never `git_head`** — its own
 `State snapshot` commit would self-invalidate.
+
+Starting, accepting or removing a project in the app, or linking a repository, refreshes it right after the route's own
+commit (`refresh_held`, ruling 56), so the next agent's primer has it; a trusted agent's `cicada_create_project` runs in
+the MCP process, which never writes the projection (R4), and shows from the next refresh.
 
 Every regeneration that touches disk goes through `state_dictionary.refresh_and_commit`, which
 commits `_state.md` ALONE (`commit_paths`, never `git add -A`) as `State snapshot <date>` /
@@ -2614,3 +2665,8 @@ time alone may leave them behind until the next Sleep or sync (normally at most
 one Sleep). A paused Sleep delays that refresh. Read-time vector checks still
 exclude expired results, but cannot add a previously future claim until sync.
 The graph's Store-domain ETag remains tied to its existing version vector.
+
+**`read_asked` (ruling 62, 2026-11-04).** On a bare save's episode: `{why, at}`, written once by `history_index.wake` when the
+person talked about it (`said-the-link`, `said-the-title`, `page-mentioned`). It takes the episode out of the `saved` kind for
+good, so its one real read happens once and says why. A save's page keeps `decay_class: evergreen` and stays quiet
+(`quiet_pages`) until a conversation or the person's words reach it; being indexed writes nothing on it.

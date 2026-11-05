@@ -43,7 +43,7 @@ from loguru import logger
 
 from api.services import (
     agent_turns, capture_commit, continuity_sessions, demo_guard, episode_ids, episode_staging, episode_title, evidence, markdown_parser,
-    session_stats, telemetry,
+    sensitive_flags, session_stats, telemetry,
 )
 from api.services.transcript_extract import HARNESSES, Conversation, extract
 
@@ -302,7 +302,7 @@ def _superseded(fm: dict, read_bytes: int, path: Path | None, size: int | None =
 
 @dataclass
 class CaptureResult:
-    status: str  # created | updated | unchanged | metadata | superseded | empty | refused
+    status: str  # created | updated | unchanged | metadata | superseded | empty | refused | upgraded | elsewhere
     episode_id: str | None
     turns_user: int
     turns_assistant: int
@@ -818,6 +818,10 @@ def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Con
         _record(harness, session_id, "empty", conv, bank, event=hook_event)
         return CaptureResult("empty", None, 0, 0, conv.summary)
 
+    if existing is not None:
+        stored = stored if stored is not None else markdown_parser.parse(existing)
+        # G235: text the person took out stays out, though the transcript still says it.
+        sensitive_flags.reapply_conversation(conv, stored.frontmatter)
     body = _body(conv)
     content_hash = hashlib.sha256(body.encode()).hexdigest()[:12]
     now = episode_ids.utc_now_iso()

@@ -73,7 +73,7 @@ def next_inbox_num(inbox_dir: Path) -> int:
 
 
 def _required_input_for(kind: str) -> str:
-    if kind in ("decay", "conflict", "divergence", "normalization", "removal", "followup", "page_edit"):
+    if kind in ("decay", "conflict", "divergence", "normalization", "removal", "followup", "page_edit", "sensitive"):
         return "choice"
     if kind == "merge_suggestion":
         return "merge"
@@ -270,6 +270,9 @@ def _item_from_file(
         suggested_confidence=fm.get("suggested_confidence"),
         merge_target_hint=fm.get("merge_target_hint"),
         asks=_opt_str(fm.get("asks")),
+        sensitive_rows=([r for r in fm.get("rows") if isinstance(r, dict) and r.get("id") and r.get("episode")]
+                        if kind == "sensitive" and isinstance(fm.get("rows"), list) else None),
+        replaced=(int(fm["replaced"]) if kind == "sensitive" and isinstance(fm.get("replaced"), int) else None),
         rows=([r for r in fm.get("rows") if isinstance(r, dict) and r.get("id") and r.get("page") and r.get("ref")]
               if str(fm.get("asks") or "") == "sources" and isinstance(fm.get("rows"), list) else None),
         review=bool(fm.get("review")) if str(fm.get("asks") or "") == "sources" else False,
@@ -841,7 +844,7 @@ def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) 
         if key:
             return key
         return "answer" if (request.answer or "").strip() else (action or "answer")
-    if kind == "removal":
+    if kind in ("removal", "sensitive"):
         if action == "skip":
             return "skip"
         if key in ("keep", "remove"):
@@ -1402,6 +1405,9 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
 
     parsed = markdown_parser.parse(path)
     kind = str(parsed.frontmatter.get("kind", "decay"))
+    if kind == "sensitive" and ((request.via or "").strip().lower() == "agent" or request.relayed_by or request.quote):
+        # G235: taking words out of a conversation, or leaving them, is the person's act alone.
+        raise HTTPException(403, "This is the person's to answer, in the app.")
     if kind == "page_edit" and ((request.via or "").strip().lower() == "agent" or request.relayed_by or request.quote):
         # A relayed quote is an agent's account (G115): it never stands in for the person applying a proposal either.
         # G198 review B1: only the person applies or leaves a proposed edit — an agent's answer, its author's least
@@ -1544,6 +1550,8 @@ async def _route_resolution(kind: str, path, parsed, request, settings, item_id:
         )
     elif kind == "page_edit":
         entity_id, skipped, committed = await _resolve_page_edit(path, parsed, settings, label, before)
+    elif kind == "sensitive":
+        entity_id, skipped, committed = await _resolve_sensitive(path, parsed, request, settings, label, before)
     else:
         raise HTTPException(400, f"Unknown kind {kind}")
     return entity_id, skipped, extra_lines, emit_extra, committed
@@ -2704,6 +2712,36 @@ async def _resolve_where_to_check(path, parsed, request, settings) -> tuple[str,
     trigger = f"inbox/clarification/resolved:{'yes' if take else 'no'}"
     first = pages[0] if pages else str(target[0].get("page") or "")
     return first, False, [f"entities/{p}.md: updated (trigger: {trigger})" for p in pages[1:]]
+
+
+# ---------- G235: what may be sensitive, the person's alone ----------
+
+
+async def _resolve_sensitive(path, parsed, request, settings, label: str, before) -> tuple[str, bool, bool]:
+    """``remove`` takes the flagged text out of the row's conversation and everything that repeated it; ``keep`` leaves
+    it and remembers. ``row`` names one conversation; without it, every row is answered. ``skip`` writes nothing. Commits
+    its own answer: the item, the conversations and the pages together, as the person's."""
+    import asyncio
+
+    from api.services import sensitive_flags
+
+    if label == "skip":
+        return "", True, False
+    if label not in (sensitive_flags.REMOVE, sensitive_flags.KEEP):
+        raise HTTPException(400, f"This takes optionKey 'remove' or 'keep' — got {label!r}.")
+    rows = [r for r in parsed.frontmatter.get("rows") or [] if isinstance(r, dict)]
+    wanted = (request.row or "").strip()
+    target = [r for r in rows if r.get("id") == wanted] if wanted else rows
+    if not target:
+        raise HTTPException(404, "That conversation is no longer waiting in this review.")
+    try:
+        done = await asyncio.to_thread(sensitive_flags.answer, settings.memory_path, path, dict(parsed.frontmatter), target,
+                                       label, before)
+    except sensitive_flags.RemovalRefused as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if done["failed"]:
+        raise HTTPException(409, "Some of this could not be taken out. It is still there; try again.")
+    return "", False, True
 
 
 # ---------- G198: an agent's proposed page edit ----------

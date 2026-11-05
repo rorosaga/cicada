@@ -74,7 +74,8 @@ times — and Ask said "the assistant" where the episode recorded a Claude Code 
 **Every episode id reads (2026-10-27).** `cicada_sources(entity_id)` takes an episode id Cicada printed (`ep_<day>_<n>`
 from Ask, recall's excerpts, a page) and returns that conversation: a header (id, day, title), `With: <actor>`, a
 removed-from-source or not-yet-read note when true, then its words as stored — scrubbed at capture, the dropped-middle
-marker labelled (gate B2). An index-only episode (ruling 30: a watched day, a month's summary, a saved-list item, a
+marker labelled (gate B2). A bare save (ruling 62) answers one line with its title and link, an agent's way to look
+further. Any other index-only episode (ruling 30: a watched day, a month's summary, a saved-list item, a
 trace day — `history_index.kind`) answers one line saying what it is and that it is indexed for lookup, never its
 text. The door is `cicada_sources` and not a new tool: it is the `sources` scope's own tool, so a
 remote connection reads a conversation only with that scope, at R-R28's 1,000 characters, and every door fences it as
@@ -84,7 +85,7 @@ named like an episode id still wins). A stdio read returns up to `EPISODE_READ_M
 
 **Who was on the other side (2026-10-27).** `episode_actor.actor(fm)` names it from the episode's own fields, never
 guessed: `a Claude Code session (id <session>, resumable, model <m>)` (resumable for Claude Code and Codex), `an
-agent's saved note from a … session`, `Claude, relayed through the remote connector` (ruling 32), `<name> (an AI
+agent's saved note from a … session`, `Claude, relayed through the remote connector` (ruling 32), `Claude Desktop, relayed by its model` (ruling 57), `<name> (an AI
 agent), over Messages` or `<name>, over Messages` (the episode's `correspondent`), `ChatGPT, from the person's
 exported conversations`; `None` — and no label — for the person's own capture. Ask's prompt labels an agent's turn
 `a Claude Code session — the assistant, not the person` (no id; a caller without the person's verbatim words — a remote
@@ -226,11 +227,20 @@ that stale identity match. This is one recorded source call, with no chain walk 
 (`CONTRACT_VERSION` 15, A2). The primer and installed skill gently suggest an optional brief `State:`
 (in flight / blocked / next) at the end of working replies; continuity does not depend on it. This line is included
 in the whole ≤1,800 proxy-token handshake budget, including max-primer/startup fixtures; R12 still holds.
-**Projects (ruling 45, 2026-10-27).** `cicada_create_project(project, description?, evidence?, repo?)` starts a project
-the person asked for: a harness on their G198 trust list lands it in their list (`mine: {via: agent}`), any other client
-— a remote app always — leaves a suggestion labelled as its proposal; a name already a page is refused with that page
-named. `cicada_link_conversation(project, reason, episode? | session?, remove?)` ties a conversation (recorded with the
-agent's name); an agent unties only what it tied, and the person's untie is final. `cicada_add_influence(project, what? |
+**Projects (rulings 45 and 56).** `cicada_create_project(project, description?, evidence?, reason?, repo?)` starts a
+project the person asked for, and is refused with neither `reason` nor `evidence`: a harness on their G198 trust list
+lands it in their list (`mine: {via: agent}`), any other client — a remote app always — files one `page_edit` inbox
+question (`start_project`) on a quiet concept page, and only their yes starts it. A name a page holds adopts that page
+(`project_ownership.start_target`): same id, words and history; a person, company, place, repository page or the owner's
+is refused by name, two candidates are refused, never picked; a page the person took out is refused. `repo` records the
+hook's observation as `born.repo` only when it names the checkout this session ran in.
+`cicada_link_conversation(project, reason, episode? | session?, remove?)` ties a conversation, with no `episode` the one
+the agent is in: a trusted harness at once, any other as a proposal on the project's page, never counted until taken
+(ruling 56). Each row keeps the agent's name and `reason`; an agent unties only what it tied, and the person's untie is
+final. **An agent ties proactively**, told by the primer, the skill and the tool descriptions: when the conversation shows
+a thing belongs, with a stated reason, never for a mere mention. **On a page not started** `cicada_recall_detail` and
+`cicada_project` add one line, an `own` segment outside the reference markers (G199), that the agent may offer once in its
+own words; only where `cicada_create_project` exists (R12). `cicada_add_influence(project, what? |
 url?, how?, evidence?)` records what fed a project — a link as the agent's source, a name as a claim with the agent as
 observer (`inspired-by`, `references`, `uses`; a person as `works-on` on their page), plain text when no page matches,
 never a page made. `cicada_link_entity(project, entity, reason, remove?)` (decision 10, 2026-10-28) ties a page
@@ -245,8 +255,10 @@ create|link|tie-page|influence`, proposed spellings; `/v1` `projects_create`, `p
 weeks, what it waits on; Gone quiet is its own "Quiet:" lines) and the pages in the project, proposals apart.
 `cicada_edit_page` takes `name` and `description` for a project (the header, `description_by` the harness; the old name
 stays an alias; untrusted → an inbox proposal). `cicada_project`'s reply says whether the project is in the person's
-list, their description (remote: only with `sources`), and how many conversations and influences are tied. Handshake
-Option A: the primer names none of them; the skill does. `cicada_capture_turns` takes an optional `project` — the
+list, their description (remote: only with `sources`), and how many conversations and influences are tied. The primer
+names the three in one sentence (ruling 56 amends Option A; contract 25, remote 16). Its state lists what the person
+started under "Current projects", then "Recent project pages, not started as projects" (`projects_started`, state schema
+5), the same 7 rows: on a bank where nothing is started an arriving agent still learns what the person works on. `cicada_capture_turns` takes an optional `project` — the
 relaying app's word on which project the conversation is in, only from its own context, kept as `relay.project`.
 **`cicada_note_progress`** (G141) records a happening or a milestone the person
 described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date
@@ -1988,6 +2000,21 @@ OWN advertised table (stdio `TOOLS` in `mcp/server.py`, remote `REMOTE_TOOLS`), 
 - **The fixture.** `api/tests/fixtures/mcp_stdio_golden.json` pins whole `tools/call` results (`call_tool`), refusals
   and the spelled-number refusal included; `api/tests/test_mcp_error_contract.py` holds the rest.
 
+## A hookless app's own connection (ruling 57, owner 2026-11-04)
+
+`mcp/server.py` holds `cicada_capture_turns` in `TOOLS` for its schema and a `cli_map` row (`capture-turns`, MCP only), and
+answers `tools/list` from `tools_for_client()`: only a client `relay_capture.local_relay_allowed` names is offered it, `call_tool`
+refuses every other with the usual "Unknown tool", and the door asks the same question (with `env={}`, since the caller's
+environment is its own machine's). The primer asks exactly where it is offered: `load_or_build(relay=True)` adds one line to the
+`desktop` prelude (R11), part of the cache key and off by default, so `GET /handshake?client=claude-ai` and an older client machine,
+which sends no `options.relay`, never ask for a tool they do not hold (R12). A real desktop app with `CICADA_CAPTURE=off` keeps the
+`desktop` prelude without the line. The line is 86 tokens by R10's chars/4, in the fixed part `_fit` trims around: the desktop
+primer's fixed part goes from 1,233 to 1,319 (1,486 with reading on), under the 1,800. `_fit` holds the whole under it unless a
+fixed part alone is over: past the one-liners it gives up a project's next and backlog count, its repos, the working agreements, and
+last the projects from the list's end, counted in one line, the first never (R10). Those last steps answer only to the 1,800, never to
+a SessionStart reserve: `compose_note` settles that note whole, so a pointer riding along never costs a project or an agreement. What it stores and how a person turns it
+off: `capture-and-sleep.md`, "The Claude desktop app, on its local connection".
+
 ## The remote connector's sign-in and capture (ruling 32, owner 2026-10-19)
 
 - **Sign-in.** The G135 listener is also an OAuth 2.1 authorization server (`api/remote/oauth.py`; the whole flow,
@@ -1996,8 +2023,7 @@ OWN advertised table (stdio `TOOLS` in `mcp/server.py`, remote `REMOTE_TOOLS`), 
   lists, scopes, the Sleep gate, the ledger and every write's provenance (`Cicada-Author: <app harness>`,
   `Cicada-Session: rc_…`) are the link connector's, unchanged. The secret link (`/c/<token>/mcp`) still works; the docs
   and the From anywhere group steer Claude and ChatGPT to sign-in, which puts no secret in a URL.
-- **`cicada_capture_turns(message, previous_reply?, conversation)`** (`record` scope, remote only —
-  `catalog.REMOTE_ONLY`, so `test_remote_tools.py` classifies every stdio tool plus it). Not read-only, idempotent, not
+- **`cicada_capture_turns(message, previous_reply?, conversation)`** (`record` scope; on stdio, ruling 57 below). Not read-only, idempotent, not
   destructive and not open-world: an app that confirms writes (ChatGPT) asks the person, who can allow it always.
   `REMOTE_CONTRACT_VERSION` 12 puts "Capture every turn" first in the remote contract, only where the connection holds
   the tool (R12 per scope set). What it writes and why it is never the person's own words: `capture-and-sleep.md`,

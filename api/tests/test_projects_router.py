@@ -38,7 +38,9 @@ def test_the_list_and_the_detail_answer(client):
     r = c.get("/projects")
     assert r.status_code == 200 and r.json()["tzName"] == "UTC"
     ids = [p["id"] for p in r.json()["projects"]]
-    assert {"rover-arm-project", "pick-and-place-demo", "garden-sensor-project"} <= set(ids)
+    assert {"pick-and-place-demo", "garden-sensor-project"} <= set(ids)
+    # Ruling 56: this fixture's Bob logged nothing, so the page is not on his list, and it still answers as a page.
+    assert "rover-arm-project" not in ids
     t = c.get("/projects/rover-arm-project/timeline")
     assert t.status_code == 200 and t.json()["project"]["children"] == ["pick-and-place-demo"]
     for bad in ("nobody-here", "lab-cluster-example"):

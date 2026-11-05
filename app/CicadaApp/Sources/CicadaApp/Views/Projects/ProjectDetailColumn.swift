@@ -456,6 +456,7 @@ struct ProjectDetailColumn: View {
             timeline: t, conversations: cache.displayConversations(projectId), blocked: blocked,
             openConversation: { row in provenance.open(ReaderTarget(episode: row.episodeId, subjectId: projectId, knownTitle: row.title, knownHarness: row.harness, fromProject: projectId)) },
             untie: { row in Task { await change(.tie(id: projectId, episode: row.episodeId, remove: true)) } },
+            take: { row in Task { await change(.tie(id: projectId, episode: row.episodeId, remove: false)) } },
             openEntity: openEntity, addInfluence: { addingInfluence = true },
             undoInfluence: { row in
                 Task { await change(.withdrawInfluence(id: projectId, claimId: row.claimId, page: row.page,
@@ -563,6 +564,14 @@ struct ProjectDetailColumn: View {
                     InlineLink(title: Copy.Projects.partOf(parentName), help: Copy.Projects.openHelp) { openProject(parent) }
                 }
                 Spacer(minLength: 0)
+                // Ruling 56 — a page the person reached from search or the graph, and never started: one button (DR-40).
+                if let ref, !ref.mine {
+                    NeutralButton(title: Copy.ProjectsMine.addToMine, size: .compact, isDisabled: blocked,
+                                  disabledHelp: Copy.Projects.sleepBusy) {
+                        Task { await change(.accept(id: projectId, name: nil)) }
+                    }
+                    .fixedSize()
+                }
                 Menu {
                     // Every item needs a project on screen: the header also draws while it is still loading.
                     Button(Copy.Projects.addMilestone) { requestAdd() }
@@ -572,6 +581,16 @@ struct ProjectDetailColumn: View {
                     Button(Copy.Projects.logLabel(name)) { logFocused = true }
                         .disabled(blocked || cache.display(projectId) == nil)
                     Button(Copy.Projects.openCard) { openEntity(projectId) }
+                    // Ruling 56 — the one way off the list, and back: nothing about the page changes.
+                    if ref?.mine == true {
+                        Button(Copy.ProjectsMine.removeFromMine) {
+                            Task {
+                                // A page a start retyped goes back to what it was, and has no project view to stay on.
+                                if await change(.dismiss(id: projectId))?.retyped == true { onClose() }
+                            }
+                        }
+                        .disabled(blocked)
+                    }
                 } label: {
                     Image(systemName: "ellipsis").font(CicadaTheme.icon(.list))
                 }

@@ -1,7 +1,9 @@
 import CryptoKit
 import Foundation
+import ImageIO
 import Observation
 import SQLite3
+import UniformTypeIdentifiers
 
 /// G39 — the columns the app may read from Apple Books' two stores, named once. `apple_books.py` re-applies the same
 /// filters to whatever arrives; `AppleBooksReaderTests` proves nothing else is read.
@@ -38,6 +40,94 @@ enum AppleBooksPaths {
         store(in: documents.appendingPathComponent("AEAnnotation", isDirectory: true), prefix: "AEAnnotation_")
     }
 }
+
+/// Ruling 61 — the cover Apple Books itself keeps of each book it has shown (read on macOS 27.2): one folder per asset
+/// in its sandbox's cache, `<asset id>|<scale>|<width>|<height>|<n>.<jpg|heic|astc>`. Read by the app after the person
+/// turned Apple Books on, the same container as the library; nothing leaves this Mac but the backend's own post. The
+/// largest picture ImageIO can read is drawn down to a small JPEG (the `.astc` textures are not pictures it reads).
+enum AppleBooksCovers {
+    static let longestSide: CGFloat = 600
+    static let maxBytes = 512 * 1024
+    /// How many covers one sync reads; the next sync goes on from there.
+    static let maxPerSync = 200
+    /// `book_covers.MAX_PER_POST`.
+    static let perPost = 25
+    private static let readable: Set<String> = ["jpg", "jpeg", "png", "heic"]
+    /// `ZCONTENTTYPE` of a PDF and an audiobook (`apple_books.py` names them): not a book's cover.
+    private static let notBooks: Set<Int> = [3, 5]
+
+    /// The assets whose cover is worth sending: books the person has not hidden.
+    static func assets(of books: [AppleBooksBookRecord]) -> [String] {
+        books.filter { !$0.isHidden && !notBooks.contains($0.contentType ?? 1) }.map(\.assetId)
+    }
+
+    static func folder(documents: URL) -> URL {
+        documents.deletingLastPathComponent()
+            .appendingPathComponent("Library/Caches/BCCoverCache-1/BICDiskDataStore", isDirectory: true)
+    }
+
+    /// An asset id names a folder only when it is one path component: never a separator, never `..`.
+    static func isPathSafe(_ asset: String) -> Bool {
+        !asset.isEmpty && asset.count <= 200 && !asset.contains("/") && !asset.contains("\\") && !asset.hasPrefix(".")
+    }
+
+    /// The largest readable picture of this asset, by the pixels its name states.
+    static func bestFile(asset: String, in folder: URL) -> URL? {
+        guard isPathSafe(asset) else { return nil }
+        let own = folder.appendingPathComponent(asset, isDirectory: true)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: own.path)) ?? []
+        func pixels(_ name: String) -> Int {
+            let parts = name.split(separator: "|")
+            guard parts.count >= 4, let w = Int(parts[2]), let h = Int(parts[3]) else { return 0 }
+            return w * h
+        }
+        return names.filter { readable.contains(($0 as NSString).pathExtension.lowercased()) && pixels($0) > 0 }
+            .max { (pixels($0), $0) < (pixels($1), $1) }
+            .map { own.appendingPathComponent($0) }
+    }
+
+    /// What decides whether a cover is sent again: which file it is and when Apple Books wrote it.
+    static func fingerprint(_ file: URL) -> String {
+        let at = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        return "\(file.lastPathComponent)|\(Int(at?.timeIntervalSince1970 ?? 0))"
+    }
+
+    /// The picture as a JPEG no longer than `longestSide`, or nil for a file ImageIO cannot read.
+    static func jpeg(_ file: URL) -> Data? {
+        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: longestSide,
+              ] as CFDictionary) else { return nil }
+        let out = NSMutableData()
+        guard let target = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(target, image, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary)
+        guard CGImageDestinationFinalize(target), out.length <= maxBytes else { return nil }
+        return out as Data
+    }
+
+    /// The covers not yet accepted by this memory, up to `maxPerSync`: `(asset, fingerprint, jpeg)`.
+    static func unsent(assets: [String], folder: URL, sent: [String: String]) -> [(String, String, Data)] {
+        var out: [(String, String, Data)] = []
+        for asset in assets where out.count < maxPerSync {
+            guard let file = bestFile(asset: asset, in: folder) else { continue }
+            let stamp = fingerprint(file)
+            if sent[asset] == stamp { continue }
+            if let data = jpeg(file) { out.append((asset, stamp, data)) }
+        }
+        return out
+    }
+}
+
+struct AppleBooksCoverPost: Encodable, Sendable {
+    struct Cover: Encodable, Sendable { let assetId: String; let coverB64: String }
+    let covers: [Cover]
+}
+
+struct AppleBooksCoverReply: Decodable, Sendable { let stored: Int }
 
 /// One book as the backend's `POST /sources/apple-books/sync` takes it (camelCase on the wire).
 struct AppleBooksBookRecord: Codable, Equatable, Sendable {
@@ -194,6 +284,7 @@ private extension JSONEncoder {
 protocol AppleBooksSyncAPI: Sendable {
     func saveAppleBooksSettings(enabled: Bool) async throws
     func syncAppleBooks(_ payload: AppleBooksSyncPayload) async throws -> AppleBooksSyncResult
+    func postAppleBooksCovers(_ post: AppleBooksCoverPost) async throws -> AppleBooksCoverReply
 }
 
 /// G39 — Apple Books, read by the APP after the person turns it on, posted to the backend, which parses it; one way.
@@ -217,6 +308,8 @@ final class AppleBooksReader {
     /// Per memory: the books over their cap and how many highlights each left out, so a book not sent again (unchanged)
     /// still counts.
     nonisolated static let notKeptKey = "cicada.appleBooks.notKept"
+    /// Per memory: the covers it accepted (asset id → `AppleBooksCovers.fingerprint`).
+    nonisolated static let coversKey = "cicada.appleBooks.covers"
     static let shared = AppleBooksReader()
 
     private(set) var status: Status = .off
@@ -334,6 +427,26 @@ final class AppleBooksReader {
         let total = books.reduce(0) { $0 + $1.annotations.filter { !($0.selectedText ?? "").isEmpty }.count }
         status = .synced(at: now(), books: books.filter { !$0.isHidden }.count, highlights: max(total, highlights),
                          notKept: notKept.values.reduce(0, +))
+        await sendCovers(assets: AppleBooksCovers.assets(of: books), generation: gen)
+    }
+
+    /// Ruling 61: the covers Apple Books keeps, after the books themselves. Best-effort and said nowhere: a book with no
+    /// cover here draws nothing, and the next sync goes on from what was accepted.
+    private func sendCovers(assets: [String], generation gen: Int) async {
+        let key = Self.coversKey + "." + bank()
+        var sent = (defaults.dictionary(forKey: key) as? [String: String]) ?? [:]
+        let already = sent
+        let folder = AppleBooksCovers.folder(documents: documents)
+        let unsent = await Task.detached(priority: .utility) {
+            AppleBooksCovers.unsent(assets: assets, folder: folder, sent: already)
+        }.value
+        for start in stride(from: 0, to: unsent.count, by: AppleBooksCovers.perPost) {
+            let chunk = Array(unsent[start..<min(start + AppleBooksCovers.perPost, unsent.count)])
+            let post = AppleBooksCoverPost(covers: chunk.map { .init(assetId: $0.0, coverB64: $0.2.base64EncodedString()) })
+            guard (try? await api.postAppleBooksCovers(post)) != nil, gen == generation else { return }
+            for item in chunk { sent[item.0] = item.1 }
+            defaults.set(sent, forKey: key)
+        }
     }
 
     static func failureMessage(_ error: Error) -> String {

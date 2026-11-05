@@ -298,6 +298,18 @@ def _excluded_media(url: str, mtype: str) -> bool:
     return "instagram.com" in url or "linkedin.com" in url
 
 
+def lean_page(memory_path: Path, fm: dict) -> bool:
+    """Ruling 62: a saved page nobody has said anything about: every episode it rests on is a bare save or a list save.
+    No model describes it, no recon relates it and no claim is written until one of them gets its read, whatever the
+    page's description. A page with no episode on record is not one (it did not come through a saving door)."""
+    from api.services import bank_index, history_index
+
+    episodes = [str(e).split("#", 1)[0] for e in (fm.get("source_episodes") or []) if str(e).startswith("ep_")]
+    found = [bank_index.file(Path(memory_path), "episodes", f"{e}.md") for e in episodes]
+    held = [f for f in found if f is not None]
+    return bool(held) and all(history_index.kind(f.frontmatter) in ("saved", "list") for f in held)
+
+
 def _candidates(memory_path: Path, max_per_cycle: int, *, min_len: int = 120,
                 scour_floor: int = 0, retry_days: int = 30) -> list[Path]:
     """Media pages needing IN-CYCLE enrichment: type==media, not an excluded
@@ -326,6 +338,8 @@ def _candidates(memory_path: Path, max_per_cycle: int, *, min_len: int = 120,
             continue
         fm = parsed.frontmatter or {}
         if fm.get("type") != "media" or fm.get("enrichment_attempted"):
+            continue
+        if lean_page(memory_path, fm):
             continue
         # R-LS19: a paper page is described by the arXiv/Crossref APIs
         # (`paper_metadata`), never by a page fetch of arxiv.org.
@@ -940,6 +954,8 @@ def scan_backfill(memory_path: Path, settings, *, today: date | None = None) -> 
             continue
         fm = parsed.frontmatter or {}
         if fm.get("type") != "media" or fm.get("enrichment_status") == "junk":
+            continue
+        if lean_page(memory_path, fm):
             continue
         # R-LS19: a paper page is described by the arXiv/Crossref APIs
         # (`paper_metadata`), never by a page fetch of arxiv.org.

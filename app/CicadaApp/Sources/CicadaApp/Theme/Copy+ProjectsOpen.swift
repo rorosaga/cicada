@@ -1,7 +1,7 @@
 import Foundation
 
 /// Projects v3 (decisions 9, 10 and 17, owner 2026-10-28) — the page with no folds: the pulse, the open capped
-/// sections and their "All N", Pages in this project, Suggested as one line. DR-59: sentence case, plain verbs, no "!";
+/// sections and their "All N", Pages in this project. DR-59: sentence case, plain verbs, no "!";
 /// provider-neutral (an agent is named only as the one that did the tie).
 extension Copy {
     enum ProjectsOpen {
@@ -72,16 +72,5 @@ extension Copy {
         }
         static let pagesHelp = "A page is part of a project when something you said ties them, or when you add it here — never because a name happens to come up."
         static let addPageTitle = "Add a page to this project"
-
-        // MARK: Suggested, as one line
-        static func suggestedLine(_ n: Int) -> String { "\(UsageFormat.count(n)) suggested" }
-        static let review = "Review"
-        static let reviewHelp = "See the projects Cicada noticed, and add the ones that are yours"
-        static let suggestedTitle = "Suggested by Cicada"
-        static let suggestedBlurb = "Cicada noticed these. Add the ones that are yours; nothing here is deleted."
-        static let suggestedTab = "Suggested"
-        static let dismissedTab = "Not mine"
-        static let closeSuggested = "Close the suggestions"
-        static let noneSuggested = "Nothing waiting. Cicada suggests a project when a repository, your own words or an agent names one."
     }
 }

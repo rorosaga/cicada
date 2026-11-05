@@ -25,6 +25,7 @@ GATED = {
     ("POST", "/capture/isbn"): "/capture/isbn",                                  # G233: a scanned book
     ("POST", "/sources/apple-books/sync"): "/sources/apple-books/sync",          # G39
     ("PUT", "/sources/apple-books/settings"): "/sources/apple-books/settings",
+    ("POST", "/sources/apple-books/covers"): "/sources/apple-books/covers",      # ruling 61
     ("POST", "/sources/goodreads/preview"): "/sources/goodreads/preview",        # G233
     ("POST", "/sources/goodreads/import"): "/sources/goodreads/import",
     ("POST", "/sources/github/repos/project"): "/sources/github/repos/project",   # G230: a repository's project link
@@ -54,6 +55,8 @@ GATED = {
     # G71 (2026-10-16): the YouTube videos watched in Chrome — day episodes.
     ("POST", "/sources/watch-history/sync"): "/sources/watch-history/sync",
     ("POST", "/sources/contacts-local/sync"): "/sources/contacts-local/sync",
+    # G154: the Contacts page's faces, outside the bank, but a demo bank takes in no address book.
+    ("PUT", "/sources/contacts-local/book"): "/sources/contacts-local/book",
     # G219: Apple Reminders — the ticked lists, episodes only.
     ("POST", "/sources/reminders-local/sync"): "/sources/reminders-local/sync",
     # 2026-10-16: LinkedIn connections — the import writes person pages; the preview is pointless into a demo bank.

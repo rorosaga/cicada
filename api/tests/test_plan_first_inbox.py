@@ -356,3 +356,14 @@ def test_an_answer_with_no_search_is_counted_no_search_or_strayed_and_never_sett
     assert (a.ok, a.reason) == (False, "no_search")
     (_c, a), = asyncio.run(web_lookup.look_up(no_search(True), todo, web_lookup.Report()))
     assert (a.ok, a.reason) == (False, "query_strayed"), "a sure answer from no search settles nothing"
+
+
+def test_one_click_on_a_metered_key_looks_up_at_most_what_one_run_may(bank):
+    """Review of #614, ruling 63: each lookup is money on the person's key; a plan's sweep stays uncapped."""
+    calls: list = []
+    settings = _settings(bank)
+    settings.web_check_per_run = 2
+    resolved, label, _why = ENGINE
+    out = asyncio.run(web_lookup.sweep(bank, settings, dry_run=True, limit=50, llm_fn=_fake(calls),
+                                       engine=(resolved, label, "metered")))
+    assert len(calls) == out["looked_up"] == 2 and out["capped_at"] == 2 and out["eligible"] == 11

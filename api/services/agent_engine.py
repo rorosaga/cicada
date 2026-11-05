@@ -672,7 +672,8 @@ _BREAKER_RESETS: dict[str, int] = {}
 #: the opt-in continue-after-reset both need to tell a 5-hour window (back in
 #: hours) from a weekly one (back in days) and from extra usage. Enums only.
 _BREAKER_KIND: dict[str, str] = {}
-LIMIT_KINDS = ("five_hour", "seven_day", "overage", "unknown")
+#: ``key_limit`` (G237): a key's rate or spending limit, never the person's plan; nothing automatic arms on it.
+LIMIT_KINDS = ("five_hour", "seven_day", "overage", "key_limit", "unknown")
 
 
 def limit_kind_of(exc: BaseException | None = None, limit_type: str | None = None) -> str:
@@ -681,6 +682,8 @@ def limit_kind_of(exc: BaseException | None = None, limit_type: str | None = Non
     if isinstance(exc, engine_errors.EngineOverage):
         return "overage"
     lt = (limit_type or getattr(exc, "limit_type", None) or "").lower()
+    if lt == "key_limit":
+        return "key_limit"
     if lt == "five_hour":
         return "five_hour"
     if lt.startswith("seven_day") or lt in ("weekly", "week"):
@@ -887,6 +890,7 @@ def complete(
         # What the call searched for, so the caller can hold it to the pinned query (never logged).
         envelope["_tool_uses"] = [[name, dict(inp)] for name, inp in stream.tool_uses]
         envelope["_tool_results"] = list(stream.tool_results)
+        envelope["_search_results"] = list(stream.search_results)
     return envelope
 
 

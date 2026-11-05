@@ -87,6 +87,10 @@ enum SourceCatalog {
     static let browserPrefix = "browser:"
     /// `LocalSourceWatcher.wisprChannel` (main-actor isolated there).
     static let wisprChannel = "wispr-flow"
+    /// Owner 2026-11-04 ("remove wisprflow also from sources for now"): not on offer anywhere, and the app's reader does
+    /// not run, for everyone, connected or not. What already came in stays, a turned-on setting and the read cursor too,
+    /// so this one line brings the row, the tile, the notch's offer and the reader back, resuming where it stopped.
+    static let wisprOffered = false
     /// G218 — activity traces' entry, origin and `localReaders` key: recorded by the app, kept by This Mac's backend.
     static let tracesId = "traces"
     /// G95 (2026-11-03) — Meeting recorders: Hex's own Markdown folder, and any other folder of transcripts. Both are
@@ -153,6 +157,9 @@ enum SourceCatalog {
                            verb: .connect(Copy.SourceLayout.connect(Copy.appleBooksTitle))),
         SourceCatalogEntry(id: "goodreads", group: .reading, title: Copy.goodreadsTitle, origin: "goodreads",
                            channels: ["goodreads"], verb: .importFile),
+        // G233: what the phone scanned. No control here: the scanner is the phone's.
+        SourceCatalogEntry(id: "book-scan", group: .reading, title: Copy.bookScansTitle, origin: "book-scan",
+                           channels: ["book-scan"]),
         SourceCatalogEntry(id: "files", group: .exports, title: Copy.Catalog.filesAndLinks, origin: "bookmark",
                            channels: ["files"], tile: .bookmarksFile, verb: .importFile),
         // G219 slice 1: a Notion export (Markdown & CSV) through the one intake; ruling 47 tier 2: or live, through the

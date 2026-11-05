@@ -17,7 +17,7 @@ import pytest
 from _cli import cli_env, envelope, health_server, run_cli
 from _continuity_fixtures import write_session
 from _synthetic_bank import _bank, _entity
-from api.services import continuity, markdown_parser, mcp_tools
+from api.services import continuity, markdown_parser, mcp_tools, project_ownership
 from test_continuity import A_TURNS
 
 UUID = "11111111-2222-4333-8444-555555555555"
@@ -79,12 +79,24 @@ def _long_page(memory):
 
 def test_get_reads_a_whole_page_like_the_mcp_tool(tmp_path):
     memory = _bank(tmp_path, git=False)
+    project_ownership.accept(memory, "alpha-project")          # started: no offer applies on either door
     out = envelope(run_cli(["get", "alpha-project", "--json"], _env(tmp_path, memory), cwd=_work(tmp_path)))
     stdio = mcp_tools.recall_detail(mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s",
                                                           harness="unknown"), "alpha-project")
     assert out["ok"] is True and out["text"] == stdio                        # verbatim
     assert out["data"]["entity_id"] == "alpha-project" and out["data"]["type"] == "project"
     assert out["data"]["from"] == 1 and out["data"]["count"] == out["data"]["total_lines"]
+
+
+def test_a_page_not_started_differs_only_by_the_offer_the_shell_cannot_act_on(tmp_path):
+    """Ruling 56 and R12: the offer names `cicada_create_project`, which the command line does not expose, so a shell is
+    never told to run it. The page's words are otherwise verbatim."""
+    memory = _bank(tmp_path, git=False)
+    out = envelope(run_cli(["get", "alpha-project", "--json"], _env(tmp_path, memory), cwd=_work(tmp_path)))
+    stdio = str(mcp_tools.recall_detail(mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s",
+                                                              harness="unknown"), "alpha-project"))
+    assert "cicada_create_project" not in out["text"] and "offer once" in stdio
+    assert stdio.startswith(out["text"].rstrip("\n"))
 
 
 @pytest.mark.parametrize("args, first, count", [

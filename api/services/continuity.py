@@ -53,6 +53,7 @@ import yaml
 from loguru import logger
 
 from api.services import continuity_sessions, episode_ids, evidence, markdown_parser, workspace_identity
+from api.services import sensitive_flags
 
 SCHEMA = 3
 #: The index file's suffix in the continuity home: ``<bank-id>.index.json``.
@@ -562,7 +563,7 @@ def view(memory_path: Path, chosen: tuple[str, dict], *, deadline: float | None 
         return None
     return SessionView(
         filename=name, episode_id=str(fm["id"]), harness=str(fm["harness"]), session_id=str(fm["session_id"]),
-        project_dir=fm.get("project_dir"), title=str(fm.get("title") or ""),
+        project_dir=fm.get("project_dir"), title=sensitive_flags.title_for_others(str(fm.get("title") or "")),
         content_hash=str(fm.get("content_hash") or ""), processed=fm.get("processed") is True,
         processed_by=fm.get("processed_by"), last_turn_at=_iso(fm.get("last_turn_at")),
         captured_at=_iso(fm.get("captured_at")), turn_count=int(fm.get("turn_count") or 0),

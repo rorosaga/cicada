@@ -72,7 +72,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import bank_index, episode_scrub, inbox_service, markdown_parser, session_stats, sync_service
+from api.services import bank_index, episode_scrub, inbox_service, markdown_parser, sensitive_flags, session_stats, sync_service
 from api.services.claims import strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.skill_tag import is_agent_skill
@@ -85,7 +85,7 @@ STATE_FILENAME = "_state.md"
 # happenings); both absolute, neither today-dependent.
 # 4: G150 — a project row carries backlog_open (items open or doing) when it
 # has any; a bank with no backlog renders as v3 did apart from this number.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5   # 5: ruling 56 — `projects_started`, how many leading project rows the person started
 # R10: the handshake primer that embeds this file is budgeted at ~1,800
 # tokens; 6 KiB of cursor leaves room for the contract text around it.
 MAX_BYTES = 6 * 1024
@@ -581,7 +581,9 @@ def _conversations(memory_path: Path, n: int) -> list[dict]:
     rows = session_stats.aggregate_conversations(memory_path, limit=max(1, n) + RECORD_HEADROOM,
                                                  transcript_exists=lambda *_: False)
     rows = [r for r in rows if not inbox_tend.record_origin(r.get("origin"))][:max(1, n)]
-    return [{"id": r["conversation_id"], "harness": r["harness"], "title": r["title"][:TITLE_LIMIT],
+    # G235: a capture's title is its first line, which may be the very line; this list rides every agent's primer.
+    return [{"id": r["conversation_id"], "harness": r["harness"],
+             "title": sensitive_flags.title_for_others(r["title"])[:TITLE_LIMIT],
              "last_seen": r["last_seen"], "episode_count": r["episode_count"]} for r in rows]
 
 
@@ -597,6 +599,21 @@ def _now() -> datetime:
     run "the next night" against a still bank and assert nothing is written —
     the idle-night rail (R1) is only real if it holds across a date change."""
     return datetime.now(timezone.utc)
+
+
+def _ranked_projects(memory_path: Path, today: date, n: int) -> list[tuple[bank_index.IndexedFile, bool]]:
+    """``(page, started)``: the person's own projects first (ruling 45's list, the same rule), then recent project pages
+    they never started, up to ``n`` together. Ruling 56 keeps those in the note on purpose: a bank whose person has
+    started none (the owner's, 2026-11-04: 0 of 711) would otherwise tell every arriving agent nothing about what they
+    work on. Each row says which it is, so the note never calls a page the person's project when it is not."""
+    from api.services import project_ownership
+
+    ranked = _ranked(memory_path, "project", today, 1 << 30)
+    own = [f for f in ranked if project_ownership.listed(f.frontmatter, f.path)]
+    mine = {f.stem for f in own}
+    rest = [f for f in ranked if f.stem not in mine and not project_ownership.dismissed(f.frontmatter)]
+    top = own[:max(0, n)]
+    return [(f, True) for f in top] + [(f, False) for f in rest[:max(0, n - len(top))]]
 
 
 def _limit(settings, key: str) -> int:
@@ -645,7 +662,8 @@ def build(
         open_backlog = {}
 
     projects = []
-    for f in _ranked(memory_path, "project", today, _limit(settings, "state_projects")):
+    ranked_projects = _ranked_projects(memory_path, today, _limit(settings, "state_projects"))
+    for f, _started in ranked_projects:
         row = {
             "id": f.stem, "name": _name(f), "one_liner": _one_liner(f),
             "confidence": round(float(f.frontmatter.get("confidence", 0.5) or 0.0), 2),
@@ -691,6 +709,7 @@ def build(
         "sleep": _sleep_block(memory_path, git_runner),
         "inbox": _inbox_block(memory_path),
         "projects": projects,
+        "projects_started": sum(1 for _f, started in ranked_projects if started),
         "people": people,
         "conversations": _conversations(memory_path, _limit(settings, "state_conversations")),
         "preferences": preferences,
@@ -717,7 +736,8 @@ def render_body(fm: dict) -> str:
         lines += ["", "## The person",
                   f"- `{fm['owner_id']}`" + (f" — {fm['owner_one_liner']}" if fm.get("owner_one_liner") else "")]
     lines += ["", "## Projects"]
-    for p in fm["projects"]:
+
+    def project_line(p: dict) -> str:
         repo_bits = ", ".join(
             f"{r['path']}@{r['branch']}" + (f" (dirty {r['dirty']})" if r.get("dirty") else "")
             if r.get("state") == "ok"
@@ -725,8 +745,13 @@ def render_body(fm: dict) -> str:
             else f"{r['path']} ({r.get('state')})" for r in p.get("repos", [])
         )
         tail = f" — {p['one_liner']}" if p.get("one_liner") else ""
-        lines.append(f"- [[{p['name']}]] (`{p['id']}`){tail}{_cursor(p)}"
-                     + (f" — repo: {repo_bits}" if repo_bits else ""))
+        return f"- [[{p['name']}]] (`{p['id']}`){tail}{_cursor(p)}" + (f" — repo: {repo_bits}" if repo_bits else "")
+
+    started = fm.get("projects_started", len(fm["projects"]))
+    lines += [project_line(p) for p in fm["projects"][:started]]
+    if fm["projects"][started:]:
+        lines += ["", "## Recent pages, not started"]
+        lines += [project_line(p) for p in fm["projects"][started:]]
     if not fm["projects"]:
         lines.append("- (no active projects yet)")
     lines += ["", f"## In focus (last {FOCUS_WINDOW_DAYS} days)"]
@@ -903,6 +928,22 @@ async def refresh_and_commit(
             f"{type(exc).__name__}: {exc}"
         )
     return result
+
+
+async def refresh_held(memory_path: Path, settings=None, **refresh_kw) -> dict | None:
+    """``refresh_and_commit`` for a route already inside its admitted transaction, after its own commit: ``_state.md``
+    commits alone, and it is skipped — ``None`` — while Sleep holds the pages. Best-effort: a failure logs and returns
+    ``None``, never failing the write that came before it. For a write an arriving agent must see at once (ruling 56:
+    starting or removing a project moves it in the primer)."""
+    from api.services import write_admission
+
+    try:
+        if write_admission.holding():
+            return None
+        return await refresh_and_commit(memory_path, settings, **refresh_kw)
+    except Exception as exc:  # noqa: BLE001 — the projection never fails the person's write
+        logger.info(f"state refresh skipped: {type(exc).__name__}")
+        return None
 
 
 async def refresh_admitted(memory_path: Path, settings=None, **refresh_kw) -> dict | None:

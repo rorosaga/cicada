@@ -41,7 +41,7 @@ def build(bank, root: str, tree: list[str], around: dict[str, dict], commons: se
     rows: dict[str, ProjectPageRow] = {}
     order: dict[str, int] = {}
 
-    def row(eid: str, tie: str, by: str | None, n: int) -> None:
+    def row(eid: str, tie: str, by: str | None, n: int, reason: str | None = None) -> None:
         info = around.get(eid) or {}
         roles = info.get("roles")
         phrases = info.get("phrases")
@@ -49,7 +49,7 @@ def build(bank, root: str, tree: list[str], around: dict[str, dict], commons: se
         q = same.get(eid)
         rows[eid] = ProjectPageRow(id=eid, name=bank.name(eid), type=bank.type_of(eid), role_phrase=phrase,
                                    fact=member_fact(bank, eid), count=int(info.get("count") or 0),
-                                   last_seen=info.get("last"), tie=tie, by=by, qualifier=q,
+                                   last_seen=info.get("last"), tie=tie, by=by, qualifier=q, reason=reason,
                                    display_name=same_name.display(bank.name(eid), q) if q else None)
         order[eid] = n
 
@@ -62,7 +62,8 @@ def build(bank, root: str, tree: list[str], around: dict[str, dict], commons: se
         if isinstance(entry, str):
             row(eid, "user", "user", n)
         else:
-            row(eid, "proposed" if entry.get("proposed") else "agent", str(entry.get("by") or "agent"), n)
+            row(eid, "proposed" if entry.get("proposed") else "agent", str(entry.get("by") or "agent"), n,
+                reason=entry.get("reason"))
     # Ruling 53: the project's GitHub repositories (`repositories:`, `github_repos` their one writer) are pages in it
     # too — the person's link, a trusted agent's, or Cicada's own by the checkout's origin.
     from api.services import github_repos
@@ -78,7 +79,7 @@ def build(bank, root: str, tree: list[str], around: dict[str, dict], commons: se
         elif by == "user":
             row(eid, "user", "user", n)
         else:
-            row(eid, "agent", by, n)
+            row(eid, "agent", by, n, reason=entry.get("reason"))
     for eid in around:
         if eid in rows or eid in skip or eid in removed or eid in commons or not bank.live(eid):
             continue

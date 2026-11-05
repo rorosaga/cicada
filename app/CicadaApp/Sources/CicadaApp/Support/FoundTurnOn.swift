@@ -77,7 +77,7 @@ enum AppSourceDrivers {
                 stop: { AppleNotesWatcher.shared.disconnect() },
                 isOn: { AppleNotesWatcher.shared.enabled })
         }
-        if let local {
+        if let local, SourceCatalog.wisprOffered {
             out[Self.wispr] = AppSourceDriver(
                 start: {
                     var settings = local.wisprSettings

@@ -15,7 +15,7 @@ from tqdm import tqdm
 from api.config import Settings
 from api.services import (act_object, authorship, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
                           episode_revision, evidence, fact_policy, participation, phone_numbers, project_birth, promotion, section_provenance,
-                          source_dates)
+                          sensitive_flags, source_dates)
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -42,6 +42,7 @@ Output valid JSON with this exact structure:
       "decay_class": "durable|active|volatile",
       "website": "https://example.com   (optional; company, tool or project only)",
       "application": {"status": "drafted|filled|sent|registered|accepted|rejected|attended", "by": "user|assistant"},
+      "reading_status": {"status": "reading|finished|want|not_started", "quote": "the user's exact words", "on": "YYYY-MM-DD   (optional)"},
       "description": "Optional. Same content as summary; kept only for backward compatibility."
     }
   ],
@@ -170,6 +171,18 @@ or the assistant did one of those for them in their tools ("by": "assistant").
   ("<user> applied to <event>").
 - Never for a bookmark, a link saved for later, a thing only mentioned or considered, or an assistant only
   explaining how to apply. Omit the field otherwise.
+
+READING STATUS (optional, per entity) — only on a SPECIFIC book, named by its title, when the USER'S OWN line, read in
+the context of the conversation, says where THEY stand with it now:
+- status: reading (they started it or are in it), finished (they read it to the end), want (they mean to read it),
+  not_started (they have it and say they have not begun).
+- quote: their exact words, verbatim, at most 240 characters, from a line of the user's. "it" is fine when the
+  conversation makes plain which book ("How was <title>?" "Finished it last night.").
+- on: the day they started or finished it, only when the conversation states it (as ENDS says); else omit.
+- Omit the field for someone else's reading ("my friend finished <title>"), a wish or a plan about a book they are not
+  saying where they stand with ("I'd love to finish <title>"), a question, a thing they only asked about or looked up,
+  the film or series of the name, a book they are writing, and anything only the assistant said. This field is the
+  only place for it: no value for it in values[]. Unsure? Omit it.
 
 TIME (every conversation is written up as of its own date):
 - A note before the conversation gives the date it took place and today's date. Write what it says as of the
@@ -520,6 +533,15 @@ def meeting_note(episode: dict) -> str | None:
             "words. What someone says about the person is that speaker's statement, not something the person said.]\n\n")
 
 
+def relayed_note(episode: dict) -> str | None:
+    """Ruling 58: the note for a chat that went on after its import. ``None`` for every other episode."""
+    relay = episode.get("relay") if isinstance(episode.get("relay"), dict) else {}
+    if not isinstance(relay.get("tail_at"), int):
+        return None
+    return ('[Source: lines starting "relayed [" are what the person said later in this chat, as the app\'s model relayed '
+            'it: the model\'s account, which may paraphrase, never the person\'s own words.]\n\n')
+
+
 def project_note(episode: dict) -> str | None:
     """Ruling 45 addendum: the provider's own project grouping (a ChatGPT ``g-p-`` id) or the relaying app's word on the
     project, told to the model as context — the conversation sits in a project the person made there. Never a claim by
@@ -758,6 +780,8 @@ async def _extract_chunk(
         )
         raw = response.choices[0].message.content
         return _parse_json_lenient(raw)
+    except engine_errors.EngineRefused:
+        raise   # the model declined this text: asking again is paying twice for the same answer (G237)
     except _EXTRACT_RETRYABLE as e:
         if _attempt >= 1:
             raise
@@ -787,6 +811,7 @@ async def extract(
     on_episode_read: Callable[[dict], None] | None = None,
     on_episode_failed: Callable[[dict, BaseException], None] | None = None,
     on_episode_skipped: Callable[[dict], None] | None = None,
+    on_sensitive: Callable[[dict, dict, str | None, dict], None] | None = None,
     stop_check: Callable[[], bool] | None = None,
     today: date | None = None,
     stage: str = "extraction",
@@ -869,7 +894,7 @@ async def extract(
     from api.services import application_page as _application_page
 
     on_record = _application_page.standing(getattr(settings, "memory_path", None))
-    plan_name = engine_select.PLAN_NAMES.get(_engine, "Claude plan")
+    plan_name = engine_select.PLAN_NAMES.get(_engine, "The API key")
     from api.services import cli_engines
 
     _cli_spec = cli_engines.spec_for(_engine)
@@ -944,7 +969,10 @@ async def extract(
         # G110 gate B2: blank the episode's own gap range on the WHOLE body, then slice.
         gaps = tuple(episode.get("gaps") or ())
         masked = evidence.mask_gaps(content, gaps)
-        chunks = [masked[s:e] for s, e in spans]
+        # G235: what these windows hold that is likely sensitive, found with no model before any is sent. Ruling 60: the
+        # engine reads a typed mark where a confident hit was; the stored body and every offset stay as they are.
+        guard = sensitive_flags.Guard.of(episode, spans)
+        chunks = [guard.chunk(masked, s, e) for s, e in spans]
         # G194 A1: every chunk is told when the conversation took place and what day it is now.
         ep_day = source_dates.episode_day(episode)
         # "Facts yes, activity no" (owner 2026-10-08): a memory export entry's date is the summary's, not a
@@ -963,6 +991,8 @@ async def extract(
         source_note = (correspondent_note(episode.get("correspondent")) or agent_session_note(episode)
                        or agent_save_note(episode) or meeting_note(episode))
         # Ruling 45 addendum: the provider's project grouping, or the relaying app's word on it, as context.
+        if (went_on := relayed_note(episode)) is not None:
+            source_note = (source_note or "") + went_on
         if (in_project := project_note(episode)) is not None:
             source_note = (source_note or "") + in_project
         # G179 groups: who each member is, before every chunk; a claim resting on one member's lines is theirs.
@@ -991,6 +1021,8 @@ async def extract(
                 return
             if on_episode_started is not None:
                 on_episode_started(episode)
+            if guard.hits and on_sensitive is not None:
+                on_sensitive(episode, guard.kinds(), _engine, guard.held())   # before the send: the record outlives a crash
             try:
                 # Extract from all chunks and merge results
                 all_entities = []
@@ -1054,6 +1086,9 @@ async def extract(
                         revision, all_entities, all_relationships, all_values)
                     if left:
                         logger.info(f"  {ep_id}: revision — {left} item(s) from unchanged lines left as first read")
+                # G235: a value is taken back out of what the model answered, whatever it was shown; a page never
+                # repeats it. After the spans above: a quote is consumed there and never stored.
+                all_entities, all_relationships, all_values = guard.clean(all_entities, all_relationships, all_values)
                 # What the model was given counts as said: the conversation, the owner's name and the source note.
                 given = "\n".join(t for t in (masked, owner or "", source_note or "") if t)
                 if plan_ids and engine_identity.scrub_extraction(all_entities, all_relationships, all_values,
@@ -1069,6 +1104,15 @@ async def extract(
                 # gets its page from this one conversation, and the application lives there, not on the owner's.
                 app_values = _application_pages(all_entities, episode, ep_id, content, owner=owner, on_record=on_record,
                                                 day=ep_day.isoformat() if ep_day and not untimed else None, gaps=gaps)
+                # Ruling 61: what the person said about a book's status — the model's reading, checked on the record
+                # and carried on the result, never on the entity (`book_said`).
+                from api.services import book_said
+
+                said_books = [m for m in (book_said.at_extraction(
+                    entity, episode_id=ep_id, frontmatter=episode, text=content,
+                    day=ep_day.isoformat() if ep_day and not untimed else None,
+                    override=authorship.of_episode(episode), gaps=gaps)
+                    for entity in all_entities if isinstance(entity, dict)) if m]
                 narration = 0
                 for entity in all_entities:
                     facts = entity.get("key_facts")
@@ -1144,6 +1188,8 @@ async def extract(
                     "relationships": all_relationships,
                     "values": all_values,
                 }
+                if said_books:
+                    results[i][book_said.KEY] = said_books
                 if session_id:
                     # The session it was said in, from the episode's own record: every claim read from it carries
                     # it (`entities_to_claims`), so an agent's act names the session that did it.
@@ -1179,6 +1225,8 @@ async def extract(
             # G74(a): the agent rung's failures are subprocess-shaped. Each one
             # names its own fix so the Sleep page never says "check API credits"
             # for a plan that has no credits to check.
+            except engine_errors.SpendLimitReached:
+                _note_skipped(episode)   # never sent past the person's limit: nobody's failure, it goes back to wait
             except engine_errors.EngineThrottled as e:
                 failed += 1
                 _note_failed(episode, e)

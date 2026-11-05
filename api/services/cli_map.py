@@ -178,7 +178,7 @@ ROWS: tuple[Row, ...] = (
     # Ruling 45 (2026-10-27): proposed spellings, not exposed — `project` is the read's own command, so these live under
     # `projects`; the person's own shell starts one with `projects new` (an app command, below).
     Row(("projects", "create"), "cicada_create_project", "Start a project the person asked for.",
-        (_p("project"), _f("description"), _f("evidence", "json"), _f("repo")), mutates=True),
+        (_p("project"), _f("description"), _f("evidence", "json"), _f("repo"), _f("reason")), mutates=True),
     Row(("projects", "link"), "cicada_link_conversation", "Tie a conversation to a project, or untie one you tied.",
         (_p("project"), _p("reason"), _f("episode"), _f("session"), _f("remove", "bool")), mutates=True),
     Row(("projects", "tie-page"), "cicada_link_entity", "Tie a page to a project, or take back a tie you made.",
@@ -231,6 +231,9 @@ ROWS: tuple[Row, ...] = (
          _f("via"), _f("last_modified"), _f("loaded_at"), _f("pages", "json"), _f("found", "json"),
          _f("robots", "json"), _f("section", "json"), _f("design", "json")), mutates=True),
     Row(("explore", "map"), "cicada_site_map", "The pages found and opened on an explored site.", (_f("site"),)),
+    Row(("capture-turns",), "cicada_capture_turns", "Keep a hookless app's chat, turn by turn.",
+        (_p("message"), _p("conversation"), _f("previous_reply"), _f("project")), mutates=True,
+        mcp_only="a turn is relayed by the app that had the conversation; a shell has none (ruling 57)"),
     Row(("explore", "start"), "cicada_explore_start", "Start exploring the person's saved sites.",
         (_f("scope"), _f("origins", "list", flag_name="origin"), _f("look", "list")), mutates=True,
         mcp_only="a run starts only from the person's own request in a conversation, or their click (D5); never from "
@@ -305,8 +308,8 @@ ROWS: tuple[Row, ...] = (
          (_f("mode"), _f("at"), _f("every", "int"), _f("use_plan")), via="backend", mutates=True, person=True),
     _app(("sleep", "engine"), "Which engine and model Sleep reads with; --mode and --model change it.",
          (_f("mode"), _f("model")), via="backend", mutates=True, person=True),
-    _app(("sleep", "options"), "How Sleep reads: batch size, continue after a plan reset, the reserve.",
-         (_f("batch_size", "int"), _f("continue_after_reset"), _f("reserve")), via="backend", mutates=True,
+    _app(("sleep", "options"), "How Sleep reads: batch size, continue after a plan reset, the reserve, a key's spending limit.",
+         (_f("batch_size", "int"), _f("continue_after_reset"), _f("reserve"), _f("spend_limit")), via="backend", mutates=True,
          person=True),
     _app(("sleep", "history"), "Past Sleep runs, newest first.", (_f("limit", "int"),)),
     # The search index and model.
@@ -338,6 +341,14 @@ ROWS: tuple[Row, ...] = (
          mutates=True, person=True),
     _app(("connector", "sync"), "Read one now (your click: no gate, but never while Sleep holds your memory).",
          (_p("connector"),), via="backend", mutates=True, person=True),
+    # Ruling 59: the remote connector's own public address, the same one click the app has.
+    _app(("funnel", "status"), "Whether the remote connector is open to the internet through your Tailscale, checked "
+                               "through that address; the exact command `funnel on` would run.", via="backend"),
+    _app(("funnel", "on"), "Make the remote connector reachable from the internet through your Tailscale: its port "
+                           "only, its memory tools and sign-in only. Turns the connector on if it is off.",
+         via="backend", mutates=True, person=True),
+    _app(("funnel", "off"), "Close that one public address; the connector and your other Tailscale mappings stay.",
+         via="backend", mutates=True, person=True),
     # G230: repositories on the graph — connecting by a code, the synced lists, and a project's repositories. Nothing
     # is added by hand (owner 2026-11-03): every repository page comes from a sync.
     _app(("github", "connect"), "Connect GitHub with a code you enter on github.com (no token to make); then install "

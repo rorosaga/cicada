@@ -596,10 +596,7 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
     if channel_id in _MEDIA_CHANNELS:
         return media.by_origins(_catalog_origins(channel_id), unstamped=channel_id == "files")
     if channel_id in books.DOORS:
-        rows = _episodes(memory_path, lambda fm: fm.get("origin") == channel_id, media=media,
-                         among=_episode_index(memory_path).origins((channel_id,)))
-        # A book has no saved link, so the Feed holds no row for it: its row opens the book's page.
-        return [{**row, "kind": "page"} if row["kind"] == "media" else row for row in rows]
+        return _book_rows(memory_path, channel_id, media)
     if channel_id in _SAVED_SOURCE_ROWS:
         return media.by_origins(tuple(_SAVED_SOURCE_ROWS[channel_id]))
     if channel_id in _HISTORY_ROWS:
@@ -613,6 +610,26 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
     if (folder_id := folder_source.folder_id_of(channel_id)) is not None:
         return _folder(memory_path, folder_id)
     return []
+
+
+def _book_rows(memory_path: Path, channel_id: str, media: "_Media") -> list[dict]:
+    """A door's books, one row each. A book has no saved link, so the Feed holds no row for it: its row opens the book's
+    page and carries its cover when it has one (ruling 61; an acted-on scan is no save, so it is found by its
+    ``book_entity_id``). One whose page waits stays its episode."""
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for f in _episode_index(memory_path).origins((channel_id,)):
+        fm = f.frontmatter or {}
+        if fm.get("origin") != channel_id or not _live(fm):
+            continue
+        page = str(fm.get("book_entity_id") or fm.get("media_entity_id") or "").strip()
+        if not page:
+            rows.append(_episode_row(fm, f.stem))
+        elif page not in seen and (row := media.row(page)) is not None:
+            seen.add(page)
+            cover = media_preview.preview_path(page, media.pages.get(page) or {})
+            rows.append({**row, "kind": "page", "book": True, **({"cover": cover} if cover else {})})
+    return rows
 
 
 def _watched_days(memory_path: Path, origins: set[str]) -> list[dict]:

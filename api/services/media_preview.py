@@ -19,6 +19,10 @@ and ``GET /entities/{id}/preview`` serves the stored copy.
 A ``person`` page never has one (it is not a ``media`` page), and a paper keyed by arXiv/DOI has none of the three:
 its picture is the person's own PDF (``POST /entities/{id}/picture/pdf``, rung 1) or its monogram.
 
+**A book** (ruling 61, :func:`_book_source`) has its own ladder: the cover of the person's own copy, read by the app from
+Apple Books' cache (``book_covers``, no network and no gate); else Open Library's, asked by the catalogue's cover id or
+an ISBN, never a title, and only under the picture gate. Neither: no picture, and nothing drawn in its place.
+
 **The cache** is ``$CICADA_HOME/previews/<bank>/<id>.<ext>`` with a ``<id>.json`` sidecar — machine-global, never
 inside a bank, like logos (a preview is a derived artifact of the outside world). One file per page, so no shared
 index and no cross-process merge. A hit is kept for good while the page's source is unchanged: it is never re-fetched,
@@ -44,8 +48,10 @@ import hashlib
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Awaitable, Callable
 from urllib.parse import quote, urljoin, urlparse
@@ -68,6 +74,20 @@ YOUTUBE_STILL = "https://i.ytimg.com/vi/{id}/hqdefault.jpg"
 _YOUTUBE_ID_RE = re.compile(r"[A-Za-z0-9_-]{6,20}")
 #: `papers.KIND` (spelled here so this module stays light for the graph builder; a test pins the two equal).
 PAPER_KIND = "paper"
+#: `books.KIND`, spelled here for the same reason; a test pins the two equal.
+BOOK_KIND = "book"
+#: Open Library's covers (read 2026-11-04, openlibrary.org/dev/docs/api/covers): `default=false` answers 404 where the
+#: default is a 43-byte blank image; "M" is what a details page asks for. Asked only when the person's view draws the
+#: book, once, then served from the store — their terms: for showing covers, not bulk download, don't crawl.
+COVERS_HOST = "covers.openlibrary.org"
+COVER_BY_ID = "https://" + COVERS_HOST + "/b/id/{id}-M.jpg?default=false"
+COVER_BY_ISBN = "https://" + COVERS_HOST + "/b/isbn/{isbn}-M.jpg?default=false"
+_ISBN_RE = re.compile(r"97[89]\d{10}")
+_LOCAL_COVER_RE = re.compile(r"[0-9a-f]{12}")
+#: Their limit is 100 lookups by ISBN per IP per 5 minutes, a 403 past it. We stay under it with room for anything else
+#: on the same address; over this budget a cover is simply not asked yet, never recorded as a miss.
+COVER_BUDGET = 90
+COVER_WINDOW_S = 300.0
 WALL_STATUSES = frozenset({401, 403, 407, 451})
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 MEDIA_TYPES = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
@@ -96,6 +116,7 @@ class Fetched:
     body: bytes
     content_type: str = ""
     location: str | None = None
+    retry_after: str | None = None
 
 
 Fetcher = Callable[[str], Awaitable[Fetched]]
@@ -140,6 +161,28 @@ def _never_scraped(url: str) -> bool:
     return never_scraped(url)
 
 
+def _book_network_source(book: dict) -> Source | None:
+    """Open Library's cover, by the cover id its catalogue gave (no rate limit) or the page's first ISBN — never a
+    title (ruling 61): ``default=false`` so a book with no cover is a 404, never their blank image."""
+    cover_id = book.get("cover_id")
+    if isinstance(cover_id, int) and not isinstance(cover_id, bool) and cover_id > 0:
+        return Source("image", COVER_BY_ID.format(id=cover_id))
+    for isbn in book.get("isbns") or []:
+        if isinstance(isbn, str) and _ISBN_RE.fullmatch(isbn):
+            return Source("image", COVER_BY_ISBN.format(isbn=isbn))
+    return None
+
+
+def _book_source(fm: dict) -> Source | None:
+    """A book's picture: the cover of the person's own copy when Apple Books gave one (``book_covers``, no network),
+    else Open Library's. A book with neither has none, and draws nothing (owner 2026-10-28)."""
+    book = fm.get("book") if isinstance(fm.get("book"), dict) else {}
+    local = book.get("local_cover")
+    if isinstance(local, str) and _LOCAL_COVER_RE.fullmatch(local):
+        return Source("local", local)
+    return _book_network_source(book)
+
+
 def source_for(fm: dict) -> Source | None:
     """A ``media`` page's preview source, from its frontmatter alone (no I/O). None for every other page."""
     fm = fm or {}
@@ -148,6 +191,8 @@ def source_for(fm: dict) -> Source | None:
     media = fm.get("media")
     if not isinstance(media, dict) or media.get("kind") == PAPER_KIND:
         return None
+    if media.get("kind") == BOOK_KIND:
+        return _book_source(fm)
     page_url = media.get("url") if isinstance(media.get("url"), str) else ""
     page_url = page_url.strip()
     thumb = media.get("thumbnail")
@@ -279,6 +324,9 @@ def fresh_miss(meta: dict, key: str, *, now: datetime | None = None) -> bool:
     if at is None:
         return False
     ttl = RETRY_TTL if miss.get("transient") else MISS_TTL
+    wait = miss.get("wait_s")
+    if isinstance(wait, int):   # the covers host said how long: never sooner than our hour, never past a week
+        ttl = min(max(ttl, timedelta(seconds=wait)), MISS_TTL)
     return (now or datetime.now(timezone.utc)) - at < ttl
 
 
@@ -324,14 +372,27 @@ async def _http_get(url: str) -> Fetched:
                 if len(body) > MAX_BYTES:
                     break
             return Fetched(status=resp.status_code, body=bytes(body),
-                           content_type=resp.headers.get("content-type", ""), location=resp.headers.get("location"))
+                           content_type=resp.headers.get("content-type", ""), location=resp.headers.get("location"),
+                           retry_after=resp.headers.get("retry-after"))
 
 
 class _Miss(Exception):
-    def __init__(self, reason: str, *, transient: bool = False):
+    def __init__(self, reason: str, *, transient: bool = False, wait_s: int | None = None):
         super().__init__(reason)
         self.reason = reason
         self.transient = transient
+        self.wait_s = wait_s
+
+
+def _retry_after_s(raw: str | None) -> int | None:
+    """A ``Retry-After`` as seconds from now (a number or an HTTP date), or None."""
+    value = (raw or "").strip()
+    if value.isdigit():
+        return int(value)
+    try:
+        return max(0, int((parsedate_to_datetime(value) - datetime.now(timezone.utc)).total_seconds()))
+    except (TypeError, ValueError):
+        return None
 
 
 async def _get(url: str, fetcher: Fetcher) -> Fetched:
@@ -355,9 +416,13 @@ async def _get(url: str, fetcher: Fetcher) -> Fetched:
             current = nxt
             continue
         if got.status in WALL_STATUSES:
-            raise _Miss("blocked")
+            # On the covers host a 403 is their rate limit, not a wall: asked again later as it was, never another way.
+            covers = urlparse(current).hostname == COVERS_HOST
+            raise _Miss("blocked", transient=covers, wait_s=_retry_after_s(got.retry_after) if covers else None)
         if got.status == 429 or got.status >= 500:
-            raise _Miss(f"http {got.status}", transient=True)
+            covers = urlparse(current).hostname == COVERS_HOST
+            raise _Miss(f"http {got.status}", transient=True,
+                        wait_s=_retry_after_s(got.retry_after) if covers else None)
         if got.status != 200:
             raise _Miss(f"http {got.status}")
         if len(got.body) > MAX_BYTES:
@@ -399,6 +464,20 @@ def _lock(name: str) -> asyncio.Lock:
     return _locks.setdefault(name, asyncio.Lock())
 
 
+_cover_asks: list[float] = []
+
+
+def _take_cover_budget(*, clock: Callable[[], float] = time.monotonic) -> bool:
+    """One covers-host request, if this process has asked fewer than :data:`COVER_BUDGET` in the last
+    :data:`COVER_WINDOW_S` seconds. Runs on the event loop, between awaits: no lock needed."""
+    now = clock()
+    _cover_asks[:] = [at for at in _cover_asks if now - at < COVER_WINDOW_S]
+    if len(_cover_asks) >= COVER_BUDGET:
+        return False
+    _cover_asks.append(now)
+    return True
+
+
 def fetch_allowed(*, unattended: bool = False) -> bool:
     if not logo_service.fetch_allowed():
         return False
@@ -434,6 +513,17 @@ async def ensure_preview(memory_path, entity_id: str, *, fetcher: Fetcher | None
         source = source_for(fm)
         if source is None:
             return None
+        if source.kind == "local":
+            # The person's own copy's cover: kept outside the bank, served as it is, no network and no gate.
+            from api.services import book_covers
+
+            kept = book_covers.stored(bank, source.url)
+            if kept is not None:
+                return kept
+            # Not on this computer (a bank moved here): the catalogue's, on the usual terms.
+            source = _book_network_source(fm.get("book") or {})
+            if source is None:
+                return None
         meta = read_meta(bank, entity_id)
         stored = stored_file(bank, entity_id)
         hit = meta.get("hit") if isinstance(meta.get("hit"), dict) else None
@@ -444,13 +534,16 @@ async def ensure_preview(memory_path, entity_id: str, *, fetcher: Fetcher | None
         if fetcher is None:
             if not fetch_allowed(unattended=unattended):
                 return stored   # never asked: not a miss
+            if urlparse(source.url).hostname == COVERS_HOST and not _take_cover_budget():
+                return stored   # not asked yet: not a miss
             fetcher = _http_get
         at = (now or datetime.now(timezone.utc)).isoformat()
         try:
             body, ext = await _produce(source, fetcher, renderer or _default_renderer)
         except _Miss as miss:
             logger.debug(f"preview miss for a {source.kind} source: {miss.reason}")
-            meta["miss"] = {"key": source.key, "at": at, "reason": miss.reason, "transient": miss.transient}
+            meta["miss"] = {"key": source.key, "at": at, "reason": miss.reason, "transient": miss.transient,
+                            **({"wait_s": miss.wait_s} if miss.wait_s is not None else {})}
             await asyncio.to_thread(_write_meta, bank, entity_id, meta)
             return stored   # a dead link keeps the copy already stored
         target = _inside(_root(bank), f"{entity_id}.{ext}")

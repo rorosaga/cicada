@@ -63,7 +63,8 @@ $CV launch [--run-id ID] [--checkout PATH] [--evidence DIR] [--port N] [--search
 
 `--env KEY=VALUE` (repeatable) sets a feature's own switch in the backend's env; only `CICADA_AWAKE_*` keys pass (the
 G207 awake read: `CICADA_AWAKE_READ=on`, `CICADA_AWAKE_QUIET_S=10` to read a conversation ten seconds after its last
-turn). Never a credential, a path or an engine.
+turn), plus exactly `CICADA_ALLOW_CONNECTOR_FETCH=on` for a proof of what Sleep itself fetches (ruling 54's settling
+step). Never a credential, a path or an engine.
 
 Starts `python -m uvicorn api.main:app` from the checkout (default: the one holding the current directory; pass
 `--checkout` to verify another worktree's branch with this skill) on a free port, with that checkout's venv (else its
@@ -110,6 +111,9 @@ $CV bank log | ls | cat entities/alpha-project.md      # read the scratch bank
   ends idle with no error, pause or cancel, every waiting episode processed, none requeued, nothing left unprocessed,
   and no warning but the expected one. Its commit carries `Cicada-Author: claude-haiku-*`, `Cicada-Engine: claude-cli`
   and one `Cicada-Session:` per conversation.
+- `mcp --client claude-ai` names the client as that app does, with no session in the environment (default: `verify-cicada`,
+  session `verify-<id>`); `--claude-code-session <uuid>` adds what Claude Code injects. Ruling 57's tool is offered only
+  to the first. Its answer gives the handle to pass on the next call (a new process each call, as a restarted app).
 - `mcp` spawns `mcp/server.py` per call and speaks newline JSON-RPC: `initialize`, `notifications/initialized`, then
   `tools/list` or `tools/call`. The exchange goes to `evidence/mcp/<time>-<tool>.jsonl`, the server's stderr beside it.
   Each answer has `--timeout` seconds. `schema <tool>` prints a tool's input schema; read it before a first call.

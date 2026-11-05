@@ -108,6 +108,25 @@ class RemoteListener:
 LISTENER = RemoteListener()
 
 
+async def warn_if_exposed() -> None:
+    """After a start with no listener up (it failed to bind, or the switch is off), say in the log if a public mapping
+    points at a port another program holds. Never closes it here: a start must not touch Tailscale, and that program
+    may be a second Cicada whose address this is. The page and `cicada funnel status` say it to the person. The port is
+    asked first, so a normal start never runs Tailscale at all. Never raises into boot."""
+    from api.remote import reach
+
+    try:
+        port = store.remote_port()
+        if LISTENER.up or port <= 0 or not await asyncio.to_thread(reach.port_accepts, port):
+            return
+        state = await asyncio.to_thread(reach.funnel_state, port)
+        if state.step in ("on", "terminal"):
+            logger.warning(f"Remote connector: a public address points at port {port}, held by another program. "
+                           "Settings → Devices, or `cicada funnel off`, closes it.")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Remote connector: could not check its public address: {type(exc).__name__}")
+
+
 async def start_if_enabled() -> bool:
     """Called by the backend lifespan. Never raises into boot."""
     try:

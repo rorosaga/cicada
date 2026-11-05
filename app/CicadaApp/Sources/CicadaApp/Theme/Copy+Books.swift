@@ -6,6 +6,14 @@ extension Copy {
     static let readingGroup = "Reading"
     static let appleBooksTitle = "Apple Books"
     static let goodreadsTitle = "Goodreads"
+    static let bookScansTitle = "Book scans"
+    static let bookScansLine = "Scan a book with Cicada on your phone."
+    // Ruling 61: the same words a status record is written in (`books.STATUS_WORDS`).
+    static let bookStatusWords = ["reading": "Reading now", "finished": "Finished", "want": "Want to read",
+                                  "not_started": "Not started"]
+    static let bookStatusFromChat = "you said so"
+    static let bookStatusNotRight = "Not right"
+    static let bookStatusNotRightHelp = "Take this back; the status before it returns."
     /// The Connect button's hover: what is read, and the one prompt that comes with the first read.
     static let appleBooksConnectHelp = "Your library and its status, your highlights and your notes. macOS asks once "
         + "whether Cicada may read Apple Books' data. Cicada never writes to Apple Books."

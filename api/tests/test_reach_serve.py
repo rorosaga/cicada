@@ -75,17 +75,17 @@ def test_the_click_runs_exactly_the_serve_the_guide_showed_then_reads_ready(fake
     assert out["ok"] is True and out["message"] is None and out["ran"] == shown["command"]
     assert _changes(log()) == [["serve", "--bg", "--https=8443", "8000"]]
     assert out["guide"]["step"] == "ready" and out["guide"]["url"] == "https://mac.example.ts.net:8443"
-    assert out["guide"]["stopCommand"] == "tailscale serve --https=8443 off"
+    assert out["guide"]["stopCommand"] == "tailscale serve --https=8443 --set-path=/ off"
 
 
 def test_the_stop_turns_off_that_one_mapping_and_nothing_else(fake):
     kw, set_state, log = fake
     set_state(serve={"Web": {"mac.example.ts.net:9443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8000"}}}}})
     shown = reach.guide(8000, **kw)
-    assert shown["step"] == "ready" and shown["stopCommand"] == "tailscale serve --https=9443 off"
+    assert shown["step"] == "ready" and shown["stopCommand"] == "tailscale serve --https=9443 --set-path=/ off"
     out = reach.run_serve("stop", 8000, **kw)
     assert out["ok"] and out["ran"] == shown["stopCommand"]
-    assert _changes(log()) == [["serve", "--https=9443", "off"]]
+    assert _changes(log()) == [["serve", "--https=9443", "--set-path=/", "off"]]
     assert out["guide"]["step"] == "serve"
 
 
@@ -193,7 +193,7 @@ def test_the_route_takes_an_action_never_an_argv_and_checks_after(server, monkey
     monkeypatch.setattr(reach, "run_serve", lambda action, port, **kw: ran.append((action, port)) or {
         "ok": True, "message": None, "ran": f"tailscale serve --bg --https=8443 {port}",
         "guide": {"tailscale": "running", "dnsName": "mac.example.ts.net", "url": "https://mac.example.ts.net:8443",
-                  "command": None, "step": "ready", "stopCommand": "tailscale serve --https=8443 off"}})
+                  "command": None, "step": "ready", "stopCommand": "tailscale serve --https=8443 --set-path=/ off"}})
     monkeypatch.setattr(reach, "self_check", lambda url, **kw: {"ok": True, "failed": None, "ms": 9})
     headers = {"Authorization": f"Bearer {master}"}
     got = client.post("/devices/reach/serve", json={"action": "serve", "argv": ["up"]}, headers=headers)

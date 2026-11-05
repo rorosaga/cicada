@@ -140,10 +140,10 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
 
 
 def _write_scenario_ownership(bank_dir: Path, today: date) -> None:
-    """Ruling 45: the Projects page lists the person's own projects and suggests the rest. The demo shows both: the
-    Pick And Place Demo is one Bob started in the app (with his description); the Garden Sensor Project was born from a
-    repository an agent session ran in, so it waits under Suggested with that reason. (The Rover Arm Project is Bob's
-    already: he logged progress on it in the app.) Frontmatter only, through the ownership module's own writers."""
+    """Rulings 45 and 56: the Projects page lists the person's own projects. The Pick And Place Demo is one Bob started
+    in the app (with his description); the Garden Sensor Project's page came from a repository an agent session ran in,
+    and he added it to his projects. (The Rover Arm Project is Bob's already: he logged progress on it in the app.)
+    Frontmatter only, through the ownership module's own writers."""
     from api.services import project_ownership
 
     ents = bank_dir / "entities"
@@ -160,6 +160,7 @@ def _write_scenario_ownership(bank_dir: Path, today: date) -> None:
     fm = dict(parsed.frontmatter)
     fm["born"] = {"origin": "repo", "day": str(today - timedelta(days=52)),
                   "repo": {"name": "garden-sensor", "family": "demo-garden-sensor"}}
+    fm[project_ownership.MINE_KEY] = {"via": project_ownership.VIA_ACCEPTED, "day": day, "by": "user"}
     markdown_parser.write(page, fm, parsed.body)
     paths = ["entities/pick-and-place-demo.md", "entities/garden-sensor-project.md"]
     _run_commit(bank_dir, git_service.build_commit_message(
