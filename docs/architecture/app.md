@@ -1976,7 +1976,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   and what a book's cap left out, or the failure. The footer's Disconnect (asked first) stops it and deletes nothing.
   *Goodreads* (`GoodreadsSlot`): one *Import a file* way, the source's mark on a file, where the export comes from on
   its hover (a file importer); then the preview's counts as the line beside *Import*. No footer: nothing to refresh or
-  disconnect. *Book scans* (ROR-115, `BookAddSlot`): add a book on the Mac. A field for an ISBN (typed or pasted; the Add enables
+  disconnect. *Book scans* (ROR-116, `BookAddSlot`): add a book on the Mac. A field for an ISBN (typed or pasted; the Add enables
   on a valid number, `BookISBN.parse`, the backend's check), the phone's three statuses as chips (Reading · Finished · Want
   to read; none chosen says nothing about reading), **Add** (DR-5's one primary) through `POST /capture/isbn`, and **Scan**:
   the Mac's camera (built-in, else an iPhone as a Continuity Camera) shows a live preview and takes the first EAN-13 that

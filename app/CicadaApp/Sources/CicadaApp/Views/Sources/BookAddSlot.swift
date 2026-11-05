@@ -1,6 +1,6 @@
 import SwiftUI
 
-// ROR-115, G233 — Sources → Reading → Book scans: add a book on the Mac, by number or by this Mac's camera, through the
+// ROR-116, G233 — Sources → Reading → Book scans: add a book on the Mac, by number or by this Mac's camera, through the
 // phone's own `POST /capture/isbn`. DR-5 (one primary: Add), DR-9 (a ring, not a border), DR-34 (heights from tokens),
 // DR-38 (said once), DR-41 (a disabled button keeps its label), DR-59 (one line; no paragraph).
 

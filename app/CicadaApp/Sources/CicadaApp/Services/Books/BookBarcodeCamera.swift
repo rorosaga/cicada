@@ -3,7 +3,7 @@ import AVFoundation
 import SwiftUI
 import Vision
 
-/// ROR-115, G233 — "Scan with the camera" on the Book scans page: this Mac's camera (the built-in one, or an iPhone as a
+/// ROR-116, G233 — "Scan with the camera" on the Book scans page: this Mac's camera (the built-in one, or an iPhone as a
 /// Continuity Camera) shows its live feed, and the first barcode that is a book's is taken with no shutter.
 ///
 /// Rails (capture, CLAUDE.md "Books"): the camera starts only on the person's click — macOS asks then, never before; a

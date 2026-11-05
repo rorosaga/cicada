@@ -166,7 +166,7 @@ def test_stage_twos_join_counts_only_for_a_book_page(bank):
 
 
 def test_two_copies_of_one_title_stay_a_mention_held_on_the_episode(bank):
-    # Two works that share a title (another author each): the words alone join neither (ROR-115).
+    # Two works that share a title (another author each): the words alone join neither (ROR-116).
     first = _book(bank, "Example Title", isbn="", apple="asset-a")
     second = _book(bank, "Example Title", isbn="9780131103627", author="Another Author")
     assert first != second

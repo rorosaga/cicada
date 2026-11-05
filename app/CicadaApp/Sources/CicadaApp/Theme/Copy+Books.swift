@@ -7,7 +7,7 @@ extension Copy {
     static let appleBooksTitle = "Apple Books"
     static let goodreadsTitle = "Goodreads"
     static let bookScansTitle = "Book scans"
-    // ROR-115: adding a book on the Mac. Typed or pasted, or read from the camera; the status is the person's to choose.
+    // ROR-116: adding a book on the Mac. Typed or pasted, or read from the camera; the status is the person's to choose.
     static let bookAddPrompt = "ISBN"
     static let bookAdd = "Add"
     static let bookAddScan = "Scan"

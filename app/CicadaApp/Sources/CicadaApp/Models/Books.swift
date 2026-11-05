@@ -85,7 +85,7 @@ enum BooksRowText {
     static func status(_ record: BookStatusRecord, locale: Locale = .autoupdatingCurrent) -> String {
         let word = Copy.bookStatusWords[record.status] ?? record.status
         let day = EntityDates.day(record.day, locale: locale)
-        // Where it came from is said only when there is more than one way in (ROR-115).
+        // Where it came from is said only when there is more than one way in (ROR-116).
         let ways = record.ways.count > 1 ? record.ways.joined(separator: " · ") : nil
         return ([word, day, record.fromChat ? Copy.bookStatusFromChat : nil, ways] as [String?]).compactMap { $0 }
             .joined(separator: " · ")

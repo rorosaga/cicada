@@ -1,7 +1,7 @@
 import XCTest
 @testable import CicadaApp
 
-/// ROR-115 — adding a book on the Mac: the number a barcode or a field holds, and where a book came in from. Invented
+/// ROR-116 — adding a book on the Mac: the number a barcode or a field holds, and where a book came in from. Invented
 /// numbers with valid check digits; no camera is opened.
 final class BookAddTests: XCTestCase {
     func testAnISBN13IsTakenFromHyphensAndAnISBN10IsConverted() {
