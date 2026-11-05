@@ -257,6 +257,16 @@ loop (`test_inbox_load_perf.py`; the 0.5 s budget at that scale is the `bench` t
 age and source day parse through formatters built once with each stamp's answer kept (`ISOStamp`), since the question
 list is a non-lazy stack that draws every row on each render.
 
+**A rebuild never searches (G209, 2026-11-05).** A person question whose own and pages' recent conversations do not name
+both sides asks the lexical index for one that does, on every rebuild of the list, which is any read after an answer or a
+Sleep batch. It asks one query per card over one connection (`search_index.episodes_naming_each`, `one_reader`): the sides
+may sit in different passages, nothing is built, refreshed or started, and with no index the card keeps its usual tiers
+until the list next rebuilds. Fixture: 4,700 pages, 913 items, 221 such cards, no conversations. CPU per rebuild: 0.19 s
+before the tier existed; 10.6–15.9 s with four `search_service.search` calls a card and no index yet, 0.52 s with one;
+now 0.23 s and 0.24 s. A conversations-only search with no index also returns at once instead of walking every page's
+frontmatter. A bank with 5,000 synthetic conversations: 10.4 ms a card before any hit was read, now 4.0 ms, 1.4 ms when
+one side names nothing.
+
 **Question object (G60).** Every item carries `question`, `options: [{key, label, description, …}]`,
 `allow_other`, `allow_defer`, `predicate` and an optional `hint`. Descriptions lead with the age
 phrase ("6 months ago") so staleness is visible before choosing; `age_days` is derived at read time,

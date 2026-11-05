@@ -36,6 +36,7 @@ from api.services import (
     predicates,
     quiet_pages,
     same_name_pick,
+    search_index,
     source_check,
     telemetry,
 )
@@ -610,7 +611,8 @@ def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[Inb
             hit = _BUILT.get(slot)
         if hit is not None and hit[0] == key:
             return list(hit[1])
-        items = _build_inbox(memory_path, today=today, include_deferred=include_deferred)
+        with search_index.one_reader(memory_path):
+            items = _build_inbox(memory_path, today=today, include_deferred=include_deferred)
     with _BUILT_LOCK:
         _BUILT[slot] = (key, items)
     return list(items)

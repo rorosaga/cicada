@@ -315,8 +315,8 @@ class InboxContext:
 
     def _pair_episode(self, fm: dict, item_ep: str) -> str | None:
         """Owner 2026-11-04 (`pair_evidence`): the card of "Is A the same as B?" about PEOPLE shows a conversation that
-        names both — the item's own when it does, else one of the two pages' own conversations that does (bounded,
-        no search, derived on read). ``None``: keep the usual tiers (the item's own conversation names both, or none
+        names both — the item's own when it does, else one of the two pages' own conversations that does, else one the
+        lexical index holds with both (one query, no build; derived on read). ``None``: keep the usual tiers (the item's own conversation names both, or none
         of these does — Sleep retires a person question no conversation pairs)."""
         from api.services import pair_evidence
 
@@ -345,8 +345,10 @@ class InboxContext:
             for ep_id in eps[-self.PAIR_EPISODES:][::-1]:
                 if ep_id != item_ep and both(ep_id):
                     return ep_id
-        # Last, the lexical index as it is (never a wait for a build): rare — Sleep retires a person question that no
-        # conversation pairs, so this is a card whose pairing conversation is older than its pages' recent ones.
+        # Last, the lexical index as it is: rare — Sleep retires a person question that no conversation pairs, so this is
+        # a card whose pairing conversation is older than its pages' recent ones. Every rebuild of the list runs it for
+        # each such card (`inbox_service.load_inbox`): one query, never `search_service.search`, which cost 16 s a rebuild
+        # with no index yet and 0.33 s with one at the owner's scale (G209, 2026-11-05).
         found = pair_evidence.pair_episode(self.memory_path, a_names, b_names, fresh=False)
         return found if found and found != item_ep else None
 
