@@ -3286,12 +3286,14 @@ A whole row moves to DONE only after its remaining implementation and required a
     (`is_persons_words`): a remote caller without `sources` is told how many, never what, on every tool. What the sensitive
     detector flags is its typed mark; the person's own section of a saved record is now read by it (it skipped them, a hole
     in ruling 60 for any save with a reason). The page draws them as a `marks` block from the claims, derived on read: no
-    prose section, so no merge copies them and no model reads them when it rewrites a page. **(b) What they share.** Stage 1
+    prose section, so no merge copies them, and no model reads them when it rewrites a page, in code at each reader (the
+    article's inputs and its material, the orientation, a revision's removed passage). **(b) What they share.** Stage 1
     reads a marked book's record for its themes, told so in a source note: a passage is the book's words and never a fact
     about the person, a concept of one to three words per theme, an `explores-theme` link with a passage as evidence. A theme
     page comes from the existing 2+ rule, two books naming it. The status lines are blanked before it reads (offsets kept);
-    a read keeps no entry for the book itself and nothing about the owner unless it rests on the person's own note, in code,
-    because haiku ignored the same words in the note. Books are read one at a time, each told the themes so far: read at
+    a read keeps no entry for the book itself and none for the owner, and what reaches the owner's page is only a link or a
+    value located in a `user` span of the person's own note, in code, because haiku ignored the same words in the note. Any
+    name Stage 2 could join to their page counts as the owner, a first name included (owner, 2026-11-05). Books are read one at a time, each told the themes so far: read at
     once, five themes across three books never met. **(c) Cost.** One Stage 1 call per marked book, one chunk (12,000
     characters of notes first, then passages spread across the book); an unmarked entry costs none. **(d) Quiet.** A record
     holding a highlight or a note counts as a conversation (`quiet_pages.marked_record`), so the book and a theme page drawn
