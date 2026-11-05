@@ -138,6 +138,30 @@ def test_first_sync_splits_into_sittings_and_names_who_is_who(bank, chat):
     assert not any("someone else" in d.body for d in _episodes(bank, live_only=False))
 
 
+def test_a_texted_agents_chat_lists_under_messages_and_never_under_other_agents(bank, chat):
+    """ROR-109: a chat with an agent is a chat. The display moves; its turns stay the agent's (the G179 rail)."""
+    from api.services import bank_index, session_stats, source_overview
+    _tick(bank, chat.chat_guid(chat.instinct))
+    _sync(bank, chat, chat.instinct, name="Instinct", **AGENT_CADENCE)
+    assert any("assistant:" in d.body for d in _episodes(bank)), "still the agent's turns"
+    # A legacy agent note beside it: a session id, no harness. This is what "Other agents" means.
+    note = "00000000-0000-4000-8000-000000000001"
+    (bank / "episodes" / "ep_2020-01-01_001.md").write_text(
+        f"---\nid: ep_2020-01-01_001\ntimestamp: '2020-01-01T09:00:00Z'\ntitle: A note\nprocessed: true\n"
+        f"origin: mcp\nsession_id: {note}\n---\n\nbody\n", encoding="utf-8")
+    bank_index.invalidate()
+
+    def listed(**kw):
+        return session_stats.aggregate_conversations(bank, limit=200, transcript_exists=lambda *_: False, **kw)
+
+    assert [r["conversation_id"] for r in listed(harness="unknown")] == [note]
+    chats = listed(origin="imessage")
+    assert chats and {r["harness"] for r in chats} == {""}
+    rows = {r["id"]: r for r in source_overview.build_overview(bank, channels=[])}
+    assert rows["harness:unknown"]["conversations"] == 1
+    assert rows["imessage"]["conversations"] == len(chats)
+
+
 def test_a_tapback_never_puts_the_agents_words_under_the_persons_marker(bank, chat):
     _tick(bank, chat.chat_guid(chat.instinct))
     _sync(bank, chat, chat.instinct, **AGENT_CADENCE)

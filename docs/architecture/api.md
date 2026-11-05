@@ -899,7 +899,8 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   returns nothing. `truncated` is the UNION of three caps; `linesTruncated` specifically means "the
   ordered list was cut" and is what a client renders its banner on.
 - `GET /conversations/recent` is **CAPPED** (limit ≤ 200) and is never a membership test; filters
-  (`harness`, `origin`, and `q`, a title filter) apply BEFORE the cap. Use `GET /conversations/{id}` to
+  (`harness`, `origin`, and `q`, a title filter) apply BEFORE the cap; `harness` names an overview row, the partition
+  its count uses, never the episode's field (ROR-109). Use `GET /conversations/{id}` to
   resolve one id against the whole bank.
 - `GET /search` runs in the threadpool. `mode=prefix` (the per-keystroke pass) is FTS only and never
   loads the embedding model; `mode=hybrid` (the default) fuses FTS with the stored vectors and reports
