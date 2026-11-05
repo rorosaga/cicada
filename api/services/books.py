@@ -747,7 +747,41 @@ def scan_result(memory_path: Path, episode_id: str) -> dict | None:
     page = page_redirects.resolve(Path(memory_path), page) or page
     page_fm = (bank_index.file(Path(memory_path), "entities", f"{page}.md").frontmatter or {})
     first = (page_fm.get("source_episodes") or [None])[0]
-    return {"state": "added", "entityId": page, "name": str(page_fm.get("name") or page), "existing": first != episode_id}
+    from api.services import media_preview
+
+    book = page_fm.get("book") if isinstance(page_fm.get("book"), dict) else {}
+    cover = media_preview.preview_path(page, page_fm)
+    return {"state": "added", "entityId": page, "name": str(page_fm.get("name") or page), "existing": first != episode_id,
+            "authors": [str(a) for a in book.get("authors") or []][:3], **({"cover": cover} if cover else {})}
+
+
+def book_card(memory_path: Path, entity_id: str) -> dict | None:
+    """What the book's page leads with (the app draws the cover from the page's own picture): subtitle, authors, one line
+    of year, pages and publisher, a few subjects, where the description came from and when it was saved, and the ways
+    the book came in — each a label, a scan with the day the person scanned it. None for a page that is no book."""
+    entry = bank_index.file(Path(memory_path), "entities", f"{entity_id}.md")
+    fm = (entry.frontmatter or {}) if entry is not None else {}
+    if not is_book(fm) or not isinstance(fm.get("book"), dict):
+        return None
+    book = fm["book"]
+    scanned: list[str] = []
+    for episode in fm.get("source_episodes") or []:
+        ep = bank_index.file(Path(memory_path), "episodes", f"{episode}.md")
+        efm = (ep.frontmatter or {}) if ep is not None else {}
+        if efm.get("origin") == SCAN_ORIGIN and (day := utc_day(efm.get("original_date") or efm.get("timestamp"))):
+            scanned.append(day)
+    ways = []
+    for door in (APPLE_ORIGIN, GOODREADS_ORIGIN, SCAN_ORIGIN):
+        if DOOR_WORDS[door] in ways_in(fm):
+            ways.append({"door": door, "label": DOOR_WORDS[door],
+                         **({"day": min(scanned)} if door == SCAN_ORIGIN and scanned else {})})
+    source = str(book.get("description_source") or "")
+    return {"subtitle": book.get("subtitle") or None, "authors": [str(a) for a in book.get("authors") or []][:3],
+            "published": str(book.get("published") or "") or None, "pages": book.get("pages") or None,
+            "publisher": book.get("publisher") or None, "subjects": [str(x) for x in book.get("subjects") or []][:5],
+            "descriptionSource": SOURCE_NAMES.get(source) if book.get("description_at") else None,
+            "descriptionAt": book.get("description_at") or None, "descriptionUrl": book.get("description_url") or None,
+            "ways": ways}
 
 
 def set_rating(memory_path: Path, entity_id: str, *, rating: int, day: str, episode_id: str, quote: str,

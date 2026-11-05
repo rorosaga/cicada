@@ -178,3 +178,28 @@ def test_a_failed_refresh_keeps_the_old_answer_and_backs_off(client, monkeypatch
     asyncio.run(book_lookup.resolve([PAPERBACK], fetch=down, pacer=_NoWait()))
     assert book_lookup.cached(PAPERBACK)["authors"] == ["Ada Example"]
     assert not book_lookup.due(PAPERBACK)                           # waits, then asks again
+
+
+def test_the_card_names_the_ways_in_with_the_scan_day_and_the_scan_result_carries_authors(client, monkeypatch):
+    c, memory, eid, page = _scan_with(client, BARE, {"description": "A lamplighter."}, GOOGLE, monkeypatch)
+    card = c.get(f"/entities/{eid}/book").json()
+    assert card["authors"] == ["Ada Example"] or card["authors"] == ["Bea Sample"]
+    assert card["publisher"] == "Example House"
+    assert card["descriptionSource"] == "Open Library" and card["descriptionAt"]
+    [way] = card["ways"]
+    assert way["door"] == "book-scan" and way["label"] == "Scanned" and len(way["day"]) == 10
+    assert c.get("/entities/nobody/book").status_code == 404
+    [episode] = [p.stem for p in (memory / "episodes").glob("*.md")
+                 if markdown_parser.parse(p).frontmatter.get("origin") == "book-scan"]
+    seen = c.get(f"/sources/books/scans/{episode}").json()
+    assert seen["state"] == "added" and seen["authors"] == card["authors"] and seen["entityId"] == eid
+
+
+def test_a_scan_is_no_item_of_its_own_in_the_list(client):
+    c, memory, calls = client
+    c.post("/capture/isbn", json={"isbn": PAPERBACK})
+    [row] = c.get("/sources/channels/book-scan/items").json()["items"]
+    assert row["kind"] == "unknown" and PAPERBACK not in row["title"] and "scan" not in row["title"].lower()
+    _run(memory)
+    [row] = c.get("/sources/channels/book-scan/items").json()["items"]
+    assert row["kind"] == "page" and row["book"] is True and row["title"] == "The Lantern Orchard"
