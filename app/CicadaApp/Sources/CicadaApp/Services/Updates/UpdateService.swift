@@ -35,7 +35,9 @@ enum UpdateState: Equatable {
 /// **Never while Sleep writes.** Installing stops the background service (the helper boots it out to swap the
 /// bundle it runs from), which would cut a cycle mid-stage — the G85 smear. Three looks, freshest last: the Store's
 /// cached status disables "Restart to update" (DR-41); at hand-off the backend is asked directly (`SleepProbe` — the
-/// cache is nil before the first poll); and the helper asks once more right before anything moves. A deferred install
+/// cache is nil before the first poll); and the helper asks once more right before anything moves. A slow answer is
+/// busy; only `BackendSilence` calls a backend hung, and only the person's click on the line that names the cost goes
+/// past a Sleep still reading (owner 2026-11-05). A quit never does. A deferred install
 /// keeps its staged copy, and the next launch adopts it (`UpdateInstaller.recoverStaged`) — no second download.
 ///
 /// **Not at logout or shutdown.** A quit macOS starts on its way down (`NSWorkspace.willPowerOffNotification`)
@@ -59,7 +61,7 @@ final class UpdateService {
         var check: @MainActor () async throws -> UpdateCheckResult
         var stage: @MainActor (UpdateManifest, @escaping @Sendable (Double) -> Void) async throws -> StagedUpdate
         /// Writes and starts the helper; the Bool is "reopen Cicada afterwards".
-        var handOff: @MainActor (StagedUpdate, Bool) throws -> Void
+        var handOff: @MainActor (StagedUpdate, Bool, UpdateInstaller.SleepGate) throws -> Void
         var terminate: @MainActor () -> Void
         var consumeFailure: @MainActor () -> UpdateFailureRecord?
         /// The version the helper left waiting for Sleep (`update-deferred.json`), read once.
@@ -71,6 +73,8 @@ final class UpdateService {
         var isSleepWriting: @MainActor () -> Bool
         /// The backend asked directly, with a timeout (`SleepProbe`).
         var probeSleep: @Sendable (Duration) async -> SleepProbe.Answer = { _ in .noAnswer }
+        /// One look recorded on disk (`BackendSilence`); true when it finds the backend hung.
+        var noteBackendLook: @MainActor (SleepProbe.Answer) -> Bool = { _ in false }
         /// `BackendAgentService.reinstallIfStopped`: true when the service runs afterwards.
         var repairService: @MainActor () async -> Bool = { true }
         var sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
@@ -177,6 +181,8 @@ final class UpdateService {
 
     /// One turn of the schedule: a check only while the switch is on.
     func scheduledTick() async {
+        // A ready update counts its looks here too, so a hung backend reaches the bound while the app stays open.
+        if case .ready = state, staged != nil { _ = deps.noteBackendLook(await deps.probeSleep(Self.handOffProbeTimeout)) }
         guard automatic else { return }
         await check(userInitiated: false)
     }
@@ -232,19 +238,35 @@ final class UpdateService {
 
     /// "Restart to update": ask the backend fresh, hand off with relaunch, then quit through the normal flow (a held
     /// Inbox answer is still sent, the backend child still stopped). Deferred — a no-op with a sentence — while Sleep
-    /// writes.
+    /// writes or the backend won't say.
     func restartToUpdate() async {
-        guard isActive, !handedOff, case .ready(let manifest) = state, let staged else { return }
-        guard !deps.isSleepWriting() else { return }
+        guard isActive, !handedOff, case .ready(let manifest) = state else { return }
         let answer = await deps.probeSleep(Self.handOffProbeTimeout)
         // The state may have moved while the backend answered.
         guard !handedOff, state == .ready(manifest) else { return }
-        guard !SleepProbe.isBusy(answer) else {
+        guard let gate = sleepGate(after: answer) else {
             sleepRefusedRestart = true
             return
         }
+        install(manifest, gate: gate)
+    }
+
+    /// The person read the line and went ahead: at most the batch in progress is lost, and it is read again.
+    func restartAnyway() {
+        guard isActive, !handedOff, case .ready(let manifest) = state else { return }
+        install(manifest, gate: .insisted)
+    }
+
+    /// The helper's gate for this answer, or nil to wait. Never `insisted`: only `restartAnyway` is.
+    private func sleepGate(after answer: SleepProbe.Answer) -> UpdateInstaller.SleepGate? {
+        if deps.noteBackendLook(answer) { return .hung }
+        return deps.isSleepWriting() || SleepProbe.isBusy(answer) ? nil : .strict
+    }
+
+    private func install(_ manifest: UpdateManifest, gate: UpdateInstaller.SleepGate) {
+        guard let staged else { return }
         do {
-            try deps.handOff(staged, true)
+            try deps.handOff(staged, true, gate)
             handedOff = true
             sleepRefusedRestart = false
             state = .installing(manifest)
@@ -260,14 +282,14 @@ final class UpdateService {
     /// notification handler can't await); the helper asks again before anything moves.
     func appWillTerminate() {
         guard isActive, !handedOff, !poweringOff, case .ready = state, let staged else { return }
-        guard !deps.isSleepWriting(), !SleepProbe.isBusy(probeBlocking(Self.quitProbeTimeout)) else { return }
-        if (try? deps.handOff(staged, false)) != nil { handedOff = true }
+        guard let gate = sleepGate(after: probeBlocking(Self.quitProbeTimeout)) else { return }
+        if (try? deps.handOff(staged, false, gate)) != nil { handedOff = true }
     }
 
     /// The async probe, waited for on this thread. The probe runs off the main actor (a detached task on the global
-    /// executor), so blocking here can't deadlock it; no answer in time counts as no answer.
+    /// executor), so blocking here can't deadlock it; no answer in time counts as slow.
     private func probeBlocking(_ timeout: Duration) -> SleepProbe.Answer {
-        final class Box: @unchecked Sendable { var answer: SleepProbe.Answer = .noAnswer }
+        final class Box: @unchecked Sendable { var answer: SleepProbe.Answer = .slow }
         let box = Box()
         let done = DispatchSemaphore(value: 0)
         let probe = deps.probeSleep
@@ -276,7 +298,7 @@ final class UpdateService {
             done.signal()
         }
         let seconds = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
-        return done.wait(timeout: .now() + seconds + 0.5) == .timedOut ? .noAnswer : box.answer
+        return done.wait(timeout: .now() + seconds + 0.5) == .timedOut ? .slow : box.answer
     }
 
     // MARK: Live wiring
@@ -297,7 +319,9 @@ final class UpdateService {
         let deps = Dependencies(
             check: { try await checker.check() },
             stage: { manifest, progress in try await installer.stage(manifest, progress: progress) },
-            handOff: { staged, relaunch in try installer.handOff(staged, relaunch: relaunch, currentVersion: version) },
+            handOff: { staged, relaunch, gate in
+                try installer.handOff(staged, relaunch: relaunch, currentVersion: version, sleepGate: gate)
+            },
             terminate: { NSApp.terminate(nil) },
             consumeFailure: { UpdateFailureMarker.consume(home: runtime.cicadaHome) },
             consumeDeferral: { UpdateFailureMarker.consumeDeferral(home: runtime.cicadaHome) },
@@ -307,6 +331,7 @@ final class UpdateService {
             },
             isSleepWriting: isSleepWriting,
             probeSleep: SleepProbe.live(port: runtime.port, tokenFile: installer.tokenFile),
+            noteBackendLook: { BackendSilence.note($0, home: runtime.cicadaHome) },
             repairService: repairService)
         return UpdateService(runtime: runtime, repoConfigured: UpdateChecker.isValidRepo(repo), currentVersion: version,
                              dependencies: deps)

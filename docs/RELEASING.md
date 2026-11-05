@@ -138,8 +138,10 @@ itself each time it opens, so moving or updating the app never breaks them.
 **Updates.** A release app checks GitHub's latest release on launch and every six hours while Settings → General →
 *Install updates automatically* is on (the default). It downloads the new zip, verifies its sha256 and its Ed25519
 signature against the key built into the app, and installs it when you quit (or at once with *Restart to update*):
-the old copy goes to the Trash, the background service is restarted on the new copy. A failed install keeps the old
-app and says why. With the switch off, Cicada never checks on its own; Cicada → Check for Updates… still does.
+the old copy goes to the Trash, the background service is restarted on the new copy. While Sleep is reading, or the
+backend answers too slowly to say, a quit waits for the next quit and the button says what restarting now costs (at most
+the batch in progress, which is read again); a backend silent for two hours with no drain moving counts as hung and no
+longer holds an update. A failed install keeps the old app and says why. With the switch off, Cicada never checks on its own; Cicada → Check for Updates… still does.
 Developer builds never update themselves.
 
 **Search model.** A fresh install searches by meaning with the small model built into the app. Settings → Privacy & data →
