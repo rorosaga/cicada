@@ -1615,7 +1615,8 @@ words, a `page` span) and `noted` (the person's, a `user` span), id from the pag
 highlight's day, `origin: book`, `authored_by: user`. `claims.is_mark` is the one test (predicate and origin, so a model
 writing the word is not one). The writer makes the page match the body: a span follows when a status line or an earlier
 section moves it, a passage gone from the record closes (`valid_to`, unless another door's record holds it), comes back
-open if marked again, and one the person took back (`retracts`) is never rewritten. `episode_revision` never closes one.
+open if marked again, and one the person took back (`retracts`) is never rewritten; a re-sync reopens neither recovered
+history (`claims.is_recovered_history`, G148) nor a mark a successor closed. `episode_revision` never closes one.
 Its stamp is `book_marks:` beside `book_applied`, so a record applied before this gets its marks with no second status; a
 page merged away since sends them to the page it became (`page_redirects`), and a record with no page left is stamped, not
 retried. A changed record follows the page it was last applied to the same way when no book holds its identities

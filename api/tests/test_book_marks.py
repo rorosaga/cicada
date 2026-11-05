@@ -126,6 +126,26 @@ def test_a_mark_the_person_took_back_is_never_written_again(bank):
     assert [i["text"] for i in book_marks.block(_page(bank)[1])["items"]] == [PASSAGE_B]
 
 
+@pytest.mark.parametrize("close", [{"recovered_by": "claim_recovery"}, {"superseded_by": "clm_successor"}],
+                         ids=["recovered_history", "closed_by_a_successor"])
+def test_a_resync_never_reopens_a_mark_something_else_closed(bank, close):
+    one, two = _note(PASSAGE_A, uuid="1"), _note(PASSAGE_B, "2026-05-02", uuid="2")
+    _sync(bank, _book([one]))
+    parsed, claims = _page(bank)
+    victim = next(c for c in claims if is_mark(c))
+    victim.valid_to = "2026-06-01"
+    for field, value in close.items():
+        setattr(victim, field, value)
+    markdown_parser.write(bank / "entities" / "the-lantern-orchard.md", parsed.frontmatter,
+                          write_claims(parsed.body, claims))
+    for book in ([one], [one, two]):   # the same highlights again, then a real change, so the writer runs over it
+        _sync(bank, _book(book))
+        kept = next(c for c in _marks(bank) if c.id == victim.id)
+        assert kept.valid_to == "2026-06-01", "still closed"
+        assert all(getattr(kept, field) == value for field, value in close.items())
+    assert [i["text"] for i in book_marks.block(_page(bank)[1])["items"]] == [PASSAGE_B], "the new passage still lands"
+
+
 def test_a_record_applied_before_this_ruling_gets_its_marks_without_a_second_status(bank):
     item = _book([_note(PASSAGE_A, uuid="1")], finished=True)
     _sync(bank, item)
