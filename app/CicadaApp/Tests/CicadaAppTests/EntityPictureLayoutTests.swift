@@ -28,9 +28,9 @@ final class EntityPictureLayoutTests: XCTestCase {
         XCTAssertEqual(EntityPictureLayout.fallback(.person, name: "Dana Example", chosenInitials: true), .initials("DE"))
         XCTAssertTrue(EntityPictureLayout.ringed(.upload, hasImage: true, type: .person))
         XCTAssertFalse(EntityPictureLayout.ringed(.logo, hasImage: true, type: .company), "a logo stands bare (DR-52)")
-        XCTAssertFalse(EntityPictureLayout.ringed(nil, hasImage: false, type: .person), "a person's ring is its hue ring")
+        XCTAssertFalse(EntityPictureLayout.ringed(nil, hasImage: false, type: .person), "initials are a plain disc")
         XCTAssertFalse(EntityPictureLayout.ringed(nil, hasImage: false, type: .concept), "an empty slot draws no ring")
-        XCTAssertTrue(EntityPictureLayout.ringed(.initials, hasImage: false, type: .concept), "a chosen monogram is ringed")
+        XCTAssertFalse(EntityPictureLayout.ringed(.initials, hasImage: false, type: .concept), "a chosen monogram is a plain shape")
     }
 
     /// One decision everywhere: empty means "not a person and no picture"; a list keeps its picture column only while
