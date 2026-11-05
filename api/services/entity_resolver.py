@@ -188,7 +188,9 @@ async def resolve(
         if agent_engine.is_runtime_path(str(name)):
             continue  # an old leaked page: never a merge target, endpoint or judge candidate
         held = existing_by_name.get(name.lower())
-        if held is None or str(held.get("id")) != sanitize_id(name):
+        if held is not None and _is_file_page(e) and not _is_file_page(held):
+            pass    # a recording's page (ROR-117) never takes the name's key from a page of any other kind
+        elif held is None or str(held.get("id")) != sanitize_id(name):
             # G227: two pages may share a title now (a new same-named page keeps the clean title, `_another_id`): the
             # page whose own id the title spells keeps the name's key, so a join on the name never moves to the newer
             # page by listing order.
@@ -289,8 +291,11 @@ async def resolve(
     # Track name -> final entity_id so we can resolve relationships to existing IDs
     name_to_id: dict[str, str] = {}
 
-    # First, register all existing entities
+    # First, register all existing entities (a recording's page is never a person's endpoint, ROR-117)
+    person_names = {str(e.get("name") or "").lower() for e in all_entities if _is_person(e)}
     for existing_name, existing_data in existing_by_name.items():
+        if existing_name in person_names and _is_file_page(existing_data):
+            continue
         name_to_id[existing_name] = existing_data["id"]
 
     # Deduplicate entities by exact normalized name: the strongest extraction
@@ -447,7 +452,7 @@ async def resolve(
                 parked = _merge_entity_payload(parked, sibling)
             line = _pending_line(name, entity, parked, siblings, confidence)
             against = existing_by_name.get(name.strip().lower())
-            if against is not None:
+            if against is not None and not (_is_person(entity) and _is_file_page(against)):
                 line.held_against = str(against.get("id") or "")   # held although a page bears its name (G209)
             pending_actions.append((indexer.index_pending_entity, (line,), {}))
 
@@ -1131,6 +1136,9 @@ def existing_by_name(existing: list[dict]) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for e in existing:
         name = e["frontmatter"].get("name", e["id"].replace("-", " ").title())
+        held = out.get(str(name).lower())
+        if held is not None and _is_file_page(e) and not _is_file_page(held):
+            continue    # a recording's page (ROR-117) never takes the name's key from a page of any other kind
         out[str(name).lower()] = e
     return out
 
@@ -2465,6 +2473,8 @@ def _find_direct_candidate_match(
     person = _is_person(new_entity)
 
     existing_match = existing_by_name.get(new_name_lower)
+    if person and _is_file_page(existing_match):
+        existing_match = None   # a recording's page (ROR-117) never takes a person's mention, by name or close spelling
     if existing_match is not None and same_title is not None and not person:
         # G227: a title two pages share, or a page of another kind than the mention, is never joined on the name
         # alone — the one page of the mention's kind is, and anything else goes to the same-title judge
@@ -2484,6 +2494,8 @@ def _find_direct_candidate_match(
 
     if existing_match is None:
         for existing_name, existing_data in existing_by_name.items():
+            if person and _is_file_page(existing_data):
+                continue
             if (fuzz.ratio(new_name_lower, existing_name) > 85
                     and (person or not distinct_names(new_name_lower, existing_name))
                     and not (person and (_near_person(new_name, existing_name)
@@ -2609,6 +2621,14 @@ def _another_id(name: str, existing_ids: set[str], creates: dict[str, dict]) -> 
     while f"{base}-{n}" in existing_ids or f"{base}-{n}" in creates:
         n += 1
     return f"{base}-{n}"
+
+
+def _is_file_page(page: dict | None) -> bool:
+    """A recording, video, memo or photo's page (``media_pages``, ROR-117): a file's name is no one's name, so a person's
+    mention never joins it — by title, close spelling or alias — and it is never the key a person's name resolves to."""
+    from api.services import media_pages
+
+    return page is not None and media_pages.is_file_page(page.get("frontmatter"))
 
 
 def _is_person(entity: dict) -> bool:

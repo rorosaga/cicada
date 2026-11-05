@@ -389,7 +389,10 @@ def start_sync(memory_path, *, delay_s: float = 0.0) -> bool:
     raises. A demo bank, or a bank with nothing stored, does nothing."""
     try:
         memory_path = Path(memory_path)
-        if demo_guard.is_demo(memory_path) or not media_files.any_files(memory_path):
+        if demo_guard.is_demo(memory_path):
+            return False
+        # A queued retirement outlives an empty store (the last file deleted, or a crash after the store's delete).
+        if not media_files.any_files(memory_path) and not _journal(memory_path):
             return False
         key = str(memory_path.resolve())
         with _GUARD:
@@ -432,8 +435,8 @@ def _run(memory_path: Path, runner: _Runner) -> None:
 
 def _retry(memory_path: Path) -> None:
     with _GUARD:
-        runner = _RUNNERS.get(str(memory_path.resolve()))
-        if runner is None or (runner.timer is not None and runner.timer.is_alive()):
+        runner = _RUNNERS.setdefault(str(memory_path.resolve()), _Runner())
+        if runner.timer is not None and runner.timer.is_alive():
             return
         runner.timer = threading.Timer(RETRY_S, start_sync, args=(memory_path,))
         runner.timer.daemon = True

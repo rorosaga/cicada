@@ -161,6 +161,86 @@ def test_sleep_holding_the_pages_loses_nothing(bank, monkeypatch):
     assert media_pages.sync(bank)["created"] == 1 and media_pages.page_for(bank, fid)
 
 
+def _recording_and_person(bank):
+    """A recording page named as a person, and a person page of the same title with a different id."""
+    fid = add(bank, name="Alice Smith.m4a")
+    media_pages.sync(bank)
+    page = media_pages.page_for(bank, fid)
+    recording = {"id": page, "frontmatter": page_of(bank, fid).frontmatter}
+    person = {"id": "alice-smith-2", "frontmatter": {"name": "Alice Smith", "type": "person", "status": "active"}}
+    return recording, person
+
+
+def test_a_person_mention_never_joins_a_recording_page_named_as_they_are(bank):
+    from api.services import entity_resolver as er
+
+    recording, person = _recording_and_person(bank)
+    mention = {"name": "Alice Smith", "type": "person"}
+    same_title = {"alice smith": [recording]}
+    for kw in ({}, {"same_title": same_title}):
+        assert er._find_direct_candidate_match(mention, er.existing_by_name([recording]), {}, {}, **kw) is None
+    close = {"name": "Alice Smyth", "type": "person"}
+    assert er._find_direct_candidate_match(close, er.existing_by_name([recording]), {}, {}) is None
+    # The recording's `clip.m4a`-style alias is no person's name either.
+    assert er._alias_index(er.existing_by_name([recording])).get("alice smith.m4a")
+    assert er._answered_match({"name": "Alice Smith.m4a", "type": "person"},
+                              er._alias_index(er.existing_by_name([recording]))) is None
+    # A concept or media mention naming the recording still lands on it where the type allows.
+    event = er._find_direct_candidate_match({"name": "Alice Smith", "type": "event"}, er.existing_by_name([recording]), {})
+    assert event is not None and event["candidate"]["id"] == recording["id"]
+
+
+def test_a_person_page_keeps_the_name_whatever_the_order_beside_a_recording_page(bank):
+    from api.services import entity_resolver as er
+
+    recording, person = _recording_and_person(bank)
+    mention = {"name": "Alice Smith", "type": "person"}
+    for pages in ([recording, person], [person, recording]):
+        assert er.existing_by_name(pages)["alice smith"]["id"] == person["id"]
+        match = er._find_direct_candidate_match(mention, er.existing_by_name(pages), {}, {},
+                                                {"alice smith": pages})
+        assert match is not None and match["candidate"]["id"] == person["id"]
+
+
+def _resolve(bank, existing, kind):
+    import asyncio
+    from types import SimpleNamespace
+
+    from api.services import entity_resolver as er
+
+    ep = "ep_2026-10-15_001"
+    entity = {"name": "Alice Smith", "type": kind, "confidence": 0.9, "description": "A colleague.",
+              "source_episode": ep, "source_episode_timestamp": "2026-10-15T10:00:00Z"}
+    settings = SimpleNamespace(memory_path=bank, litellm_model="fake", litellm_disambiguation_model="fake",
+                               sleep_promotion_threshold=2, sleep_resolve_concurrency=1)
+
+    async def no_judge(**_kw):
+        return "different"
+
+    return asyncio.run(er.resolve([{"episode_id": ep, "origin": "chat", "entities": [entity], "relationships": []}],
+                                  existing, settings))
+
+
+def test_stage_two_leaves_a_recording_page_out_of_a_persons_name(bank, monkeypatch):
+    from api.services import entity_resolver as er
+
+    monkeypatch.setattr(er.SqliteVecIndexer, "_rebuild_pending_index", lambda self, entries: None)
+    monkeypatch.setattr(er, "_llm_judge_same_entity", lambda **kw: _no(kw))
+    recording, person = _recording_and_person(bank)
+    for pages in ([recording, person], [person, recording]):
+        out = _resolve(bank, pages, "person")
+        assert recording["id"] not in {c["id"] for c in out["changes"]}
+        assert out["name_to_id"].get("alice smith") != recording["id"]
+        assert [c["id"] for c in out["changes"]] == [person["id"]]
+    alone = _resolve(bank, [recording], "person")
+    assert recording["id"] not in {c["id"] for c in alone["changes"]}
+    assert alone["name_to_id"].get("alice smith") != recording["id"]
+
+
+async def _no(_kw):
+    return "different"
+
+
 # --------------------------------------------------------------------------- the cost
 
 
@@ -215,6 +295,56 @@ def test_a_sleep_run_holding_the_pages_defers_a_retirement_without_losing_it(ban
     assert media_pages.sync(bank)["retired"] == 1
     assert not (bank / "entities" / f"{page}.md").exists()
     assert "Cicada-Author: user" in git(bank, "log", "-1", "--format=%B")
+
+
+def _wait_for_runner(bank):
+    key = str(bank.resolve())
+    runner = media_pages._RUNNERS[key]
+    if runner.thread is not None:
+        runner.thread.join(10)
+    assert runner.thread is None or not runner.thread.is_alive()
+    return runner
+
+
+@pytest.fixture
+def runners():
+    media_pages._RUNNERS.clear()
+    yield media_pages._RUNNERS
+    for r in media_pages._RUNNERS.values():
+        if r.timer is not None:
+            r.timer.cancel()
+    media_pages._RUNNERS.clear()
+
+
+def test_the_last_file_deleted_while_sleep_holds_is_retired_by_a_later_start_sync(bank, monkeypatch, runners):
+    fid = add(bank)
+    media_pages.sync(bank)
+    page = media_pages.page_for(bank, fid)
+    assert media_files.delete(bank, fid, by=git_service.USER_AUTHOR) and not media_files.any_files(bank)
+    with monkeypatch.context() as sleeping:
+        sleeping.setattr(write_admission, "holding", lambda: True)
+        assert media_pages.sync_or_later(bank) is None
+    # The retry was armed although no runner existed for the bank yet.
+    assert runners[str(bank.resolve())].timer is not None
+    assert (bank / "entities" / f"{page}.md").exists()
+    assert media_pages.start_sync(bank) is True, "a queued retirement outlives an empty store"
+    _wait_for_runner(bank)
+    assert not (bank / "entities" / f"{page}.md").exists() and not media_pages._journal(bank)
+
+
+def test_a_crash_after_the_store_delete_is_retired_by_the_next_startup(bank, runners):
+    fid = add(bank)
+    media_pages.sync(bank)
+    page = media_pages.page_for(bank, fid)
+    media_pages.queue_retirement(bank, [fid], by=git_service.USER_AUTHOR)
+    import shutil
+
+    shutil.rmtree(media_files.root(bank) / fid)          # the process dies here
+    assert not media_files.any_files(bank) and (bank / "entities" / f"{page}.md").exists()
+    assert media_pages.start_sync(bank) is True
+    _wait_for_runner(bank)
+    assert not (bank / "entities" / f"{page}.md").exists()
+    assert media_pages.start_sync(bank) is False, "nothing stored and nothing queued does nothing"
 
 
 # --------------------------------------------------------------------------- the routes
