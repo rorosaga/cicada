@@ -20,20 +20,27 @@ enum BookISBN {
     static func parse(_ raw: String) -> String? {
         let text = raw.uppercased().filter { !"- ".contains($0) }.replacingOccurrences(of: "ISBN", with: "")
         if text.count == 10, let isbn = fromTen(text) { return isbn }
-        guard text.count == 13, text.allSatisfy(\.isNumber), text.hasPrefix("978") || text.hasPrefix("979"),
+        guard text.count == 13, text.allSatisfy({ digit($0) != nil }), text.hasPrefix("978") || text.hasPrefix("979"),
               checkDigit(String(text.prefix(12))) == text.last else { return nil }
         return text
     }
 
+    /// Only ASCII 0-9. `Character.isNumber` is also true of Arabic-Indic digits, fractions and superscripts, which a
+    /// barcode's payload can hold and `Int(_:)` cannot read.
+    private static func digit(_ c: Character) -> Int? {
+        guard let a = c.asciiValue, (48...57).contains(a) else { return nil }
+        return Int(a) - 48
+    }
+
     private static func checkDigit(_ body: String) -> Character {
-        let total = body.enumerated().reduce(0) { $0 + (Int(String($1.element)) ?? 0) * ($1.offset % 2 == 0 ? 1 : 3) }
+        let total = body.enumerated().reduce(0) { $0 + (digit($1.element) ?? 0) * ($1.offset % 2 == 0 ? 1 : 3) }
         return Character(String((10 - total % 10) % 10))
     }
 
     private static func fromTen(_ text: String) -> String? {
         let digits = Array(text)
-        guard digits.prefix(9).allSatisfy(\.isNumber), digits[9].isNumber || digits[9] == "X" else { return nil }
-        let total = digits.enumerated().reduce(0) { $0 + (10 - $1.offset) * ($1.element == "X" ? 10 : Int(String($1.element))!) }
+        guard digits.prefix(9).allSatisfy({ digit($0) != nil }), digit(digits[9]) != nil || digits[9] == "X" else { return nil }
+        let total = digits.enumerated().reduce(0) { $0 + (10 - $1.offset) * ($1.element == "X" ? 10 : (digit($1.element) ?? 0)) }
         guard total % 11 == 0 else { return nil }
         let body = "978" + String(text.prefix(9))
         return body + String(checkDigit(body))
@@ -81,8 +88,9 @@ final class BookBarcodeCamera {
         guard let device = Self.device() else { state = .unavailable; return }
         state = .starting
         mirrored = device.deviceType == .builtInWideAngleCamera
-        analyzer.onFrame = { [weak self] frame in Task { @MainActor in self?.deliver(frame) } }
-        analyzer.onEvent = { [weak self] event in Task { @MainActor in self?.deliver(event) } }
+        analyzer.setHandlers(
+            onFrame: { [weak self] frame in Task { @MainActor in self?.deliver(frame) } },
+            onEvent: { [weak self] event in Task { @MainActor in self?.deliver(event) } })
         let session = session, analyzer = analyzer
         queue.async { [weak self] in
             // The preview is up as soon as the session runs; configuring and starting never block the main thread.
@@ -113,8 +121,10 @@ final class BookBarcodeCamera {
     func stop() {
         guard state != .off else { return }
         state = .off
-        analyzer.onFrame = nil
-        analyzer.onEvent = nil
+        analyzer.setHandlers(onFrame: nil, onEvent: nil)
+        // The sheet's closures hold its view; a stopped camera must not keep them (each open would leak one).
+        onFrame = nil
+        onEvent = nil
         let session = session
         queue.async { if session.isRunning { session.stopRunning() } }
     }
@@ -139,8 +149,9 @@ private final class FrameAnalyzer: NSObject, AVCaptureVideoDataOutputSampleBuffe
     static let minInterval: TimeInterval = 1.0 / 20.0
     static let rectangleEvery = 3
 
-    var onFrame: (@Sendable (ScanFrame) -> Void)?
-    var onEvent: (@Sendable (ScanEvent) -> Void)?
+    /// Written from the main actor, read on the frame queue: both only under `lock`.
+    private var onFrame: (@Sendable (ScanFrame) -> Void)?
+    private var onEvent: (@Sendable (ScanEvent) -> Void)?
     private let lock = NSLock()
     private var stabilizer = BookScanStabilizer()
     private var lastAt = -Double.infinity
@@ -149,6 +160,10 @@ private final class FrameAnalyzer: NSObject, AVCaptureVideoDataOutputSampleBuffe
 
     func reset() {
         lock.lock(); stabilizer = BookScanStabilizer(); lastAt = -.infinity; count = 0; book = nil; lock.unlock()
+    }
+
+    func setHandlers(onFrame: (@Sendable (ScanFrame) -> Void)?, onEvent: (@Sendable (ScanEvent) -> Void)?) {
+        lock.lock(); self.onFrame = onFrame; self.onEvent = onEvent; lock.unlock()
     }
 
     func forget(_ isbn: String) { lock.lock(); stabilizer.forget(isbn); lock.unlock() }
@@ -166,8 +181,9 @@ private final class FrameAnalyzer: NSObject, AVCaptureVideoDataOutputSampleBuffe
         lock.lock()
         if count % Self.rectangleEvery == 0 { book = BookFrameVision.bookRectangle(handler) }
         count += 1
-        let event = stabilizer.feed(readings)
+        let event = stabilizer.feed(readings, at: at)
         let book = book
+        let (onFrame, onEvent) = (self.onFrame, self.onEvent)   // one snapshot: the handlers change only under the lock
         lock.unlock()
         let primary = readings.first(where: { $0.isbn != nil }) ?? readings.first
         onFrame?(ScanFrame(imageSize: CGSize(width: CVPixelBufferGetWidth(pixels), height: CVPixelBufferGetHeight(pixels)),
@@ -189,17 +205,42 @@ struct BookCameraPreview: NSViewRepresentable {
         layer.frame = view.bounds
         layer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         view.layer = layer
-        apply(layer)
+        context.coordinator.attach(layer, mirrored: mirrored)
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        if let layer = nsView.layer as? AVCaptureVideoPreviewLayer { apply(layer) }
+        context.coordinator.mirrored = mirrored
+        context.coordinator.apply()
     }
 
-    private func apply(_ layer: AVCaptureVideoPreviewLayer) {
-        guard let connection = layer.connection, connection.isVideoMirroringSupported else { return }
-        connection.automaticallyAdjustsVideoMirroring = false
-        connection.isVideoMirrored = mirrored
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    /// The layer's connection does not exist until the session has its input (configured later, off the main thread), so
+    /// `makeNSView` cannot set the mirroring. The coordinator sets it when the connection appears (the session starting),
+    /// and on every update, so what the preview shows is always the flag the highlight maps with.
+    @MainActor
+    final class Coordinator {
+        var mirrored = false
+        private weak var layer: AVCaptureVideoPreviewLayer?
+        private var observer: NSObjectProtocol?
+
+        func attach(_ layer: AVCaptureVideoPreviewLayer, mirrored: Bool) {
+            self.layer = layer
+            self.mirrored = mirrored
+            observer = NotificationCenter.default.addObserver(
+                forName: AVCaptureSession.didStartRunningNotification, object: layer.session, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.apply() }
+            }
+            apply()
+        }
+
+        func apply() {
+            guard let connection = layer?.connection, connection.isVideoMirroringSupported else { return }
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = mirrored
+        }
+
+        deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
     }
 }

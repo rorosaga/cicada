@@ -125,6 +125,41 @@ final class BookScanMathTests: XCTestCase {
         XCTAssertEqual(again, .book(isbn))
     }
 
+    func testAFailedCaptureWithTheBookStillInViewDoesNotRefireAtOnce() {
+        var rule = BookScanStabilizer()
+        var t = 0.0
+        func frame() -> ScanEvent? { t += 0.05; return rule.feed([reading(isbn)], at: t) }
+        var fired = 0
+        for _ in 0..<3 { if case .book = frame() { fired += 1 } }
+        XCTAssertEqual(fired, 1)
+        rule.forget(isbn)                                    // the capture failed (a demo bank, the backend down)
+        // Held continuously for just under the wait: nothing, however many frames.
+        while t < BookScanStabilizer.retryAfterFailure - 0.1 { XCTAssertNil(frame()) }
+        // Then it may fire again, once.
+        var later = 0
+        for _ in 0..<(Int(BookScanStabilizer.retryAfterFailure * 20) + 20) { if case .book = frame() { later += 1 } }
+        XCTAssertEqual(later, 1)
+    }
+
+    func testAFailedCaptureIsReadAgainAtOnceWhenTheCodeLeavesAndReturns() {
+        var rule = BookScanStabilizer()
+        for i in 0..<3 { _ = rule.feed([reading(isbn)], at: Double(i) * 0.05) }
+        rule.forget(isbn)
+        for i in 3..<7 { _ = rule.feed([], at: Double(i) * 0.05) }
+        var again: ScanEvent?
+        for i in 7..<10 { again = rule.feed([reading(isbn)], at: Double(i) * 0.05) ?? again }
+        XCTAssertEqual(again, .book(isbn))
+    }
+
+    func testAPayloadWithNonASCIIDigitsIsNotABookAndDoesNotCrash() {
+        XCTAssertNil(BookISBN.parse("٠١٢٣٤٥٦٧٨٩"))         // 10 Arabic-Indic digits
+        XCTAssertNil(BookISBN.parse("012345678\u{00B2}"))  // a superscript check digit
+        XCTAssertNil(BookISBN.parse("0123456\u{00BD}89"))  // a fraction
+        XCTAssertNil(BookISBN.parse("٩٧٨٠١٤٠٤٤٩١٣٦"))        // 13 Arabic-Indic digits
+        XCTAssertNil(BookISBN.parse("978014044913\u{00B2}"))
+        XCTAssertEqual(BookISBN.parse(isbn), isbn)
+    }
+
     func testANonBookCodeBesideABookDoesNotHideTheBook() {
         var rule = BookScanStabilizer()
         var last: ScanEvent?

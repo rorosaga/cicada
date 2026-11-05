@@ -74,21 +74,33 @@ enum ScanEvent: Equatable, Sendable {
 /// forgiven twice, so a flicker of glare does not reset the count). One misread frame cannot fire it: an EAN-13 that
 /// fails its check digit is never an ISBN at all, and a different number resets the run. **A number taken in this
 /// session never fires again** (so a book still in view is not added twice and does not flash again); it is let go
-/// only by ``forget(_:)`` when its lookup failed. A code that is not a book's number says so once per sighting.
+/// only by ``forget(_:)`` when its lookup failed, and then not at once: a failure with the book still in view would
+/// otherwise re-fire on the next frame, once per round trip. **A forgotten number may fire again after
+/// ``retryAfterFailure`` seconds, or as soon as its code has left the view and come back (the person showing it again),
+/// whichever comes first** — time alone would make a deliberate re-scan wait, the code leaving alone would let a book
+/// held still retry never. A code that is not a book's number says so once per sighting.
 struct BookScanStabilizer {
     static let framesNeeded = 3
     static let missesForgiven = 2
+    /// How long a number whose capture failed waits before a book still in view may fire it again.
+    static let retryAfterFailure: TimeInterval = 4
 
     private var key: String?
     private var streak = 0
     private var misses = 0
     private var told = false
     private(set) var taken = Set<String>()
+    /// A forgotten number, and the time before which it may not fire.
+    private var cooling = [String: TimeInterval]()
+    /// The time of the latest frame fed (`forget` is called from elsewhere, with no clock of its own).
+    private var clock: TimeInterval = 0
 
-    mutating func feed(_ readings: [BarcodeReading]) -> ScanEvent? {
+    /// `now` is the frame's own time in seconds (any steady clock); only differences matter.
+    mutating func feed(_ readings: [BarcodeReading], at now: TimeInterval = 0) -> ScanEvent? {
+        clock = now
         guard let reading = readings.first(where: { $0.isbn != nil }) ?? readings.first else {
             misses += 1
-            if misses > Self.missesForgiven { key = nil; streak = 0; told = false }
+            if misses > Self.missesForgiven { key = nil; streak = 0; told = false; cooling = [:] }
             return nil
         }
         misses = 0
@@ -97,6 +109,10 @@ struct BookScanStabilizer {
         guard streak >= Self.framesNeeded else { return nil }
         if let isbn = reading.isbn {
             guard !taken.contains(isbn) else { return nil }
+            if let until = cooling[isbn] {
+                guard now >= until else { return nil }
+                cooling[isbn] = nil
+            }
             taken.insert(isbn)
             return .book(isbn)
         }
@@ -106,7 +122,11 @@ struct BookScanStabilizer {
     }
 
     /// A number whose capture failed may be read again.
-    mutating func forget(_ isbn: String) { taken.remove(isbn) }
+    mutating func forget(_ isbn: String) {
+        taken.remove(isbn)
+        key = nil; streak = 0; told = false
+        if misses <= Self.missesForgiven { cooling[isbn] = clock + Self.retryAfterFailure }   // already out of view: no wait
+    }
 }
 
 /// Keeps a highlight steady: a corner moves part of the way to where it was just seen (so it follows without
