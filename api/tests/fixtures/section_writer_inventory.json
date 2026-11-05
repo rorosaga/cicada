@@ -1539,6 +1539,14 @@
       "disposition": "preserve_frontmatter_guarded"
     }
   ],
+  "services/media_read.py": [
+    {
+      "function": "write",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/watch_rows_migration.py": [
     {
       "function": "_move",

@@ -17,7 +17,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import CamelModel
-from api.services import demo_guard, git_service, image_index, media_files, media_pages
+from api.services import demo_guard, git_service, image_index, media_files, media_pages, media_read
 
 router = APIRouter()
 
@@ -172,3 +172,14 @@ async def delete_file(file_id: str, settings: Settings = Depends(get_settings)) 
     if not demo_guard.is_demo(settings.memory_path):
         await run_in_threadpool(media_pages.sync_or_later, settings.memory_path)
     return {"deleted": file_id}
+
+
+@router.post("/files/{file_id}/read", dependencies=[Depends(_not_demo)])
+async def read_file(file_id: str, settings: Settings = Depends(get_settings)) -> dict:
+    """``Read it now`` (ROR-117, ruling 68): the page's Summary and Why it matters from the file's words, the same
+    one read Sleep makes. 409 while Sleep holds the pages, with no engine chosen or when the page changed meanwhile;
+    404 for no such file or nothing here to read; 429 at a plan's limit."""
+    try:
+        return await media_read.read_now(settings.memory_path, settings, file_id)
+    except media_read.Refused as refused:
+        raise HTTPException(refused.status, refused.message)

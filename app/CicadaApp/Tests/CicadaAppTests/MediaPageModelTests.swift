@@ -86,6 +86,26 @@ final class MediaPageModelTests: XCTestCase {
         XCTAssertEqual(ProvenanceSummary.chipCount(plain), "2 beliefs")
     }
 
+    /// ROR-117 / ruling 68: `Read it now` is offered only for a page with words and an empty `## Summary`.
+    func testReadItNowIsOfferedOnlyForWordsAndAnEmptySummary() throws {
+        let words = try JSONDecoder().decode(FileTranscript.self, from: Data(#"{"segments":[{"start":0,"end":2,"text":"hi"}]}"#.utf8))
+        let none = try JSONDecoder().decode(FileTranscript.self, from: Data(#"{"segments":[]}"#.utf8))
+        let empty = "## Summary\n\n## Why it matters\n"
+        XCTAssertTrue(MediaPageModel.canRead(words, markdown: empty))
+        XCTAssertFalse(MediaPageModel.canRead(none, markdown: empty), "a photo with no words has nothing to read")
+        XCTAssertFalse(MediaPageModel.canRead(words, markdown: "## Summary\n\nWritten.\n\n## Why it matters\n"))
+        XCTAssertFalse(MediaPageModel.canRead(words, markdown: "## Why it matters\n"), "no Summary heading: the page is the person's")
+        XCTAssertFalse(MediaPageModel.canRead(nil, markdown: empty))
+        XCTAssertTrue(MediaPageModel.summaryIsEmpty("## Summary\n   \n## Other\n\ntext"))
+    }
+
+    func testASummarizedByContributorIsNamedByItsRole() throws {
+        let c = ProvenanceContributor(author: "claude-haiku-4-5", kind: "model", commits: 1, role: "summarized")
+        XCTAssertTrue(c.summarizedTheWords)
+        XCTAssertFalse(c.transcribedTheWords)
+        XCTAssertEqual(ProvenanceSummary.chipCount(c), "summary · 1 edit")
+    }
+
     func testTheSheetLinksToThePageOnlyOnceTheFileHasOne() throws {
         let with = try JSONDecoder().decode(AddedFile.self, from: Data(#"{"id":"0123456789abcdef","name":"Standup","kind":"audio","page":"file-standup"}"#.utf8))
         let without = try JSONDecoder().decode(AddedFile.self, from: Data(#"{"id":"0123456789abcdef","name":"Standup","kind":"audio"}"#.utf8))

@@ -591,7 +591,18 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   a scheduled run on a plan only through ruling 4b's switch; no qualifying page resolves no engine; a plan limit pauses
   it; one commit as the model (`In short <day>`); demo banks included (nothing comes from outside); skipped when the
   run stopped at the plan's limit. Measured on an owner-scale copy: 32 pages qualify, ~4.2k tokens in and 80–600 out
-  per page, 2.6–4.5 s each; the candidate scan is 1.9–3.4 s. **Stopping Contacts forgets them (review of #391):** Disconnect, or the app finding
+  per page, 2.6–4.5 s each; the candidate scan is 1.9–3.4 s. **Recording notes** (`_media_read_safely` → `media_read.run_tail`, ROR-117 3b, ruling
+  68 (e)): the same slot and engine rules; an added file's `media` page whose words have not been read (`media.read.words`
+  a hash of them; a transcript that changed is a new version) gets one call of the words from the start up to 30,000
+  characters (whole passages, picture text beside the speech) and a small memory view chosen with no model (the owner's
+  page; the pages the words' rarest repeated terms find, title and a line), at most `media_read_per_run` (5; 0 off), demo
+  banks none. It writes `## Summary` ("Read from the first N minutes." when it stopped short) and, only when the
+  sentence names a page the view showed, `## Why it matters`; a section is Sleep's only while empty or its own text (a
+  hash in `media.read`), pinned fixes reapplied, `media.read.by` the contributor beside the transcriber. No claim,
+  question, link or episode. A failed read is noted in `read.json` in the store (3 tries, 12 h apart); the click is
+  `POST /files/{id}/read` (409 while Sleep runs). One commit as the model (`Recording notes <day>`). At haiku list price
+  ($1 / $5 per million tokens) a one-hour recording is ~7,500 tokens of words plus ~900 of directions in and ~250 out:
+  about $0.01. **Stopping Contacts forgets them (review of #391):** Disconnect, or the app finding
   access refused or taken away in System Settings, calls `DELETE /sources/contacts-local/waiting`, which deletes every
   bank's `contacts.json` and thumbnails (Contacts is app-wide; token-gated like every route; counts only), so no first
   mention and no tail rematch uses a card again; what matched pages already gained stays. LinkedIn's kept export has
@@ -672,7 +683,7 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   (`channel_for`, `folder_id_of`; a notes folder stays `folder:<id>`). `meeting_transcripts` is the one parser: **one
   episode per file** through the stager (`source_id` `meetings:<folder>:<relpath>` — an edited transcript is rewritten
   in place and re-queued, a rename keeps the episode by content hash, a deletion is tombstoned), `queue_for_sleep` like
-  any conversation — unlike a recording the person adds as a media file (`media_files`, never read by Sleep). Dated by
+  any conversation — unlike a recording the person adds as a media file (`media_files`, read only for `media_read`'s prose). Dated by
   the meeting's own start (ruling 39): the file name's `YYYY-MM-DD HHMM` (Hex's), else a `Date:` line, read as wall time
   in the posted zone, else the file's time; a day with no time is the file's own time when that falls on the same day,
   else that day's midday (never its midnight, which a reader in another zone shows as the day before); the id day is

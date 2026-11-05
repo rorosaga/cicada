@@ -520,7 +520,7 @@ struct EntityDetailCard: View {
             }
             if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
             if !showRawMarkdown, entity.type == .media, let id = entity.media?.fileId, entity.media?.isFile == true {
-                MediaPageTranscript(fileId: id, session: mediaPage)
+                MediaPageTranscript(fileId: id, session: mediaPage, markdown: entity.markdownContent, changed: reloadPage)
             }
         }
     }

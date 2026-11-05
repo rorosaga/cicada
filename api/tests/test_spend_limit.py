@@ -376,7 +376,7 @@ def test_a_run_past_the_limit_with_nothing_left_to_read_skips_the_paid_tail(tmp_
             ran.append(name)
         return step
 
-    for name in ("_in_short_safely", "_web_check_safely", "_web_context_safely", "_backfill_links_safely"):
+    for name in ("_in_short_safely", "_media_read_safely", "_web_check_safely", "_web_context_safely", "_backfill_links_safely"):
         monkeypatch.setattr(sleep_cycle, name, spy(name))
     stub = StubAnthropic(answer=lambda b: _answer(b["system"][0]["text"], b["messages"][-1]["content"]))
     stub.install(monkeypatch)

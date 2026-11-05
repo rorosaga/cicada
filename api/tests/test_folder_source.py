@@ -236,6 +236,8 @@ APP_SYNC_ROUTED = {
     "notion-api",
     # G230: GitHub's repositories and stars, a token connector like Notion's live one.
     "github",
+    # ROR-115 (#645): Linear's issues and comments, a token connector in `ChannelActions.connectorChannels` like the others.
+    "linear-api",
     # round 4 (C9): rows that appear once synced — the test gives each a sync.
     "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
     # round 4 (G160): Chrome's open tab groups, once synced.

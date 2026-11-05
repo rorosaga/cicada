@@ -409,7 +409,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   (2026-10-28):** only pictures already on this Mac, embedded outside Sleep in the picture child, never on a search;
   a search embeds words only; the remote connector never sees picture hits (`image_index`, `storage.md`). So are the
   words and kept frames of a recording or video the person adds — read by the app, posted as derivatives, stored
-  outside every bank, the recording's words and never the person's, never read by Sleep (`media_files`).
+  outside every bank, the recording's words and never the person's, read by Sleep only as a prose note (`media_files`, ruling 68).
 - **The telemetry ledger is ids and enums only, never text, never in a bank or git.** Nothing learned from it is
   auto-applied.
 - **Git:** every Sleep commit is machine-parseable, with three trailer families (`Cicada-Author`, `Cicada-Engine` — omitted

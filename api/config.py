@@ -281,6 +281,9 @@ class Settings(BaseSettings):
     # Ruling 48 part 5 (2026-10-29): "In short" lines Sleep's tail writes for long pages the person talks about often —
     # at most this many pages a run, on the engine's small tier; 0 turns the step off. `in_short`.
     in_short_per_run: int = 10                 # CICADA_IN_SHORT_PER_RUN
+    # ROR-117 / ruling 68: recordings and files whose words Sleep reads once for a summary — at most this many a run,
+    # on the engine's small tier; 0 turns the step off. `media_read`.
+    media_read_per_run: int = 5                # CICADA_MEDIA_READ_PER_RUN
     # Track C: reuse (zero-LLM) and fetch+summarize shared that one budget with
     # reuse spent first, so a night with 20 reuse candidates read no new page.
     # This many of the cap are reserved for fetches while any wait (the in-cycle

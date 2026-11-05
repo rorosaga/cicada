@@ -42,7 +42,7 @@ LIMIT = "spend"
 SENTENCE = "Spending limit reached; what was read is kept. Continue spends up to it again."
 NO_PRICE_SENTENCE = "No price known for this model, so the limit can't hold. Change either to go on."
 #: The calls refused past the line. Everything else in a batch files what was already read.
-LINE_STAGES = frozenset({"extraction", "enrichment", "in_short", "inbox_tend", "web_check", "web_context"})
+LINE_STAGES = frozenset({"extraction", "enrichment", "in_short", "media_read", "inbox_tend", "web_check", "web_context"})
 #: What one read may write at most (``anthropic_engine.DEFAULT_MAX_TOKENS``): the first batch's price, before any is known.
 READ_OUTPUT_TOKENS = 64_000
 POLL_S = 0.05

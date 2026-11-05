@@ -171,6 +171,7 @@ ROUTES: dict[str, str] = {
     "POST /files/voice-memos": CAPTURE,
     "POST /files/{file_id}/frames": CAPTURE,
     # --- everything else changes the memory or a store the home keeps: forwarded ----------------------------------------
+    "POST /files/{file_id}/read": FORWARD,
     "DELETE /design/{ref_id}": FORWARD,
     "DELETE /entities/{entity_id}/coordinates": FORWARD,
     "DELETE /entities/{entity_id}/picture": FORWARD,
