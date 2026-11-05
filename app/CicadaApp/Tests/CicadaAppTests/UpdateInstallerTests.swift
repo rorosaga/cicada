@@ -352,8 +352,9 @@ final class UpdateInstallerTests: XCTestCase {
         let script = UpdateInstaller.helperScript(Self.plan())
         XCTAssertTrue(script.contains("statusurl='http://127.0.0.1:8000/sleep/status'"))
         XCTAssertTrue(script.contains("tokenfile='/Users/x/.cicada/api_token'"))
-        XCTAssertTrue(script.contains(#"printf 'header = "Authorization: Bearer %s"\n' "$(/bin/cat "$tokenfile")" | /usr/bin/curl -fsS --noproxy '*' --max-time 2 -K - "$statusurl""#))
-        XCTAssertTrue(script.contains("7|28|52|56) return 1 ;;"), "no answer at all: no cycle is running there")
+        XCTAssertTrue(script.contains(#"printf 'header = "Authorization: Bearer %s"\n' "$(/bin/cat "$tokenfile")" | /usr/bin/curl -fsS --noproxy '*' --max-time 10 -K - "$statusurl""#))
+        XCTAssertTrue(script.contains("7) return 1 ;;"), "nothing listening: no cycle is running there")
+        XCTAssertFalse(script.contains("7|28|52|56)"), "a timeout or a dropped answer is busy, never idle")
         XCTAssertTrue(script.contains(#"*'"writing":true'*|*'"status":"running"'*|*'"inboxTidy":true'*) return 0 ;;"#))
         XCTAssertTrue(script.contains("deferred='/Users/x/.cicada/update-deferred.json'"))
     }
@@ -480,6 +481,79 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertEqual(try runHelper(plan), 0)
         XCTAssertEqual(which(plan.installedApp), "old")
         XCTAssertTrue(fm.fileExists(atPath: plan.deferredMarker))
+    }
+
+    /// A socket that listens and never accepts: curl connects, then times out, exactly as against a stalled backend.
+    private func silentPort(close closeIt: Bool = false) throws -> (fd: Int32, url: String) {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        var size = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let ok = withUnsafeMutablePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, size) == 0 && listen(fd, 4) == 0 && getsockname(fd, $0, &size) == 0
+            }
+        }
+        XCTAssertTrue(ok)
+        if closeIt { close(fd) }
+        return (fd, "http://127.0.0.1:\(UInt16(bigEndian: addr.sin_port))/sleep/status")
+    }
+
+    private func runGate(_ gate: UpdateInstaller.SleepGate, status: String) throws -> String {
+        try? fm.removeItem(at: dir.appendingPathComponent("Apps"))
+        try? fm.removeItem(at: dir.appendingPathComponent("home"))
+        var plan = realPlan(folder: dir.appendingPathComponent("Apps"), pid: try deadPID(), status: status)
+        plan.sleepGate = gate
+        plan.probeSeconds = 1
+        try makeApp(at: plan.installedApp, marker: "old")
+        try makeApp(at: plan.stagedApp, marker: "new")
+        XCTAssertEqual(try runHelper(plan), 0)
+        return which(plan.installedApp) ?? ""
+    }
+
+    func testASlowBackendDefersTheHelperAndOnlyAHungVerdictOrAnInsistedClickGoesPast() throws {
+        let silent = try silentPort()
+        defer { close(silent.fd) }
+        XCTAssertEqual(try runGate(.strict, status: silent.url), "old", "slow is deferred")
+        XCTAssertEqual(try runGate(.hung, status: silent.url), "new", "hung past the bound proceeds")
+        XCTAssertEqual(try runGate(.insisted, status: silent.url), "new", "the person's own click")
+        XCTAssertEqual(try runGate(.strict, status: try silentPort(close: true).url), "new", "nothing listening proceeds")
+        XCTAssertEqual(try runGate(.hung, status: try statusFile(#"{"status":"running"}"#)), "old",
+                       "hung is about silence: a clear running still defers")
+    }
+
+    func testBackendSilenceAsksForAllOfItsBoundAndSurvivesAQuit() throws {
+        let home = dir.appendingPathComponent("silence")
+        try fm.createDirectory(at: home, withIntermediateDirectories: true)
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        func look(_ answer: SleepProbe.Answer, _ minutes: Double) -> Bool {
+            BackendSilence.note(answer, home: home, now: start.addingTimeInterval(minutes * 60))
+        }
+        XCTAssertFalse(look(.slow, 0))
+        XCTAssertFalse(look(.slow, 1), "too soon after the last to count")
+        XCTAssertFalse(look(.slow, 60), "two looks")
+        XCTAssertFalse(look(.slow, 119), "three looks, short of the span")
+        XCTAssertTrue(look(.ambiguous, 120), "three looks across two hours, read back from disk each time")
+
+        let run = home.appendingPathComponent("sleep/bank-abc/run.json")
+        try fm.createDirectory(at: run.deletingLastPathComponent(), withIntermediateDirectories: true)
+        func setRecord(_ phase: String, minutesAgo: Double) throws {
+            try Data(#"{"phase":"\#(phase)"}"#.utf8).write(to: run)
+            try fm.setAttributes([.modificationDate: start.addingTimeInterval((120 - minutesAgo) * 60)], ofItemAtPath: run.path)
+        }
+        try setRecord("running", minutesAgo: 30)
+        XCTAssertFalse(look(.slow, 120), "a running record plus a timeout is deferred")
+        try setRecord("running", minutesAgo: 120)
+        XCTAssertTrue(look(.slow, 120), "a record that stopped moving is no sign of life")
+        try setRecord("paused", minutesAgo: 1)
+        XCTAssertTrue(look(.slow, 120), "a paused run isn't reading")
+
+        XCTAssertFalse(look(.busy, 121), "any real answer ends the series")
+        XCTAssertFalse(fm.fileExists(atPath: BackendSilence.url(home: home).path))
+        XCTAssertFalse(look(.slow, 400), "and it starts over")
+        XCTAssertFalse(look(.noAnswer, 401), "nothing listening ends it too")
+        XCTAssertFalse(fm.fileExists(atPath: BackendSilence.url(home: home).path))
     }
 
     func testTheHelperPutsTheOldCopyBackWhenTheNewOneCantMoveIn() throws {
@@ -612,7 +686,9 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertEqual(SleepProbe.classify(statusCode: 200, body: body(#"{"other":1}"#), error: nil), .ambiguous)
         XCTAssertEqual(SleepProbe.classify(statusCode: 401, body: body("{}"), error: nil), .ambiguous)
         XCTAssertEqual(SleepProbe.classify(statusCode: nil, body: nil, error: URLError(.cannotConnectToHost)), .noAnswer)
-        XCTAssertEqual(SleepProbe.classify(statusCode: nil, body: nil, error: URLError(.timedOut)), .noAnswer)
+        XCTAssertEqual(SleepProbe.classify(statusCode: nil, body: nil, error: URLError(.timedOut)), .slow)
+        XCTAssertEqual(SleepProbe.classify(statusCode: nil, body: nil, error: URLError(.networkConnectionLost)), .slow)
+        XCTAssertTrue(SleepProbe.isBusy(.slow), "slow is busy: only nothing listening is idle")
         XCTAssertEqual(SleepProbe.classify(statusCode: nil, body: nil, error: URLError(.badServerResponse)), .ambiguous)
         XCTAssertTrue(SleepProbe.isBusy(.busy))
         XCTAssertTrue(SleepProbe.isBusy(.ambiguous))

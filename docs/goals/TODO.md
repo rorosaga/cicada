@@ -3512,6 +3512,17 @@ A whole row moves to DONE only after its remaining implementation and required a
     **Revisit** when the person has listed 3 or more projects (measure the `named` rows they untie, and whether the guard
     misses what they re-tie); if they turn down most of a harness's links (the trust list is wrong for links); or if they
     ask to mark pages in bulk, which needs per-item answers first.
+66. **A slow answer is busy; a hung backend still updates (owner, 2026-11-05; G182).** The owner's words: yes, a slow
+    answer is busy, and "the problem you describe... should be taken into account and resolved". The updater read a
+    `/sleep/status` timeout as nothing running, so a slow answer during Sleep let an update stop the backend mid-batch (a
+    review measured 2.22 s against a 2 s limit, after the stall fix). A test deliberately kept a hung backend updatable,
+    since an update may be its fix, and both must hold. **Decision:** only nothing listening is idle. Hung
+    (`BackendSilence`) takes three looks at least ten minutes apart with no real answer, two hours from the first to now,
+    and no drain's `running` record touched in those two hours; the looks are on disk, so they outlast a quit. **Why these:**
+    two hours is about seven of the longest batch measured (about 17 minutes), and being wrong costs at most that batch,
+    while waiting costs a late update. The record is the drain's own progress; CPU was rejected because a drain waiting
+    on a model looks idle. The person's click may go past Sleep on one line naming the cost; an automatic install never
+    does. **Revisit** if a batch is measured past two hours, or a hung backend is seen holding an update.
 64. **What the person marked in a book is their own record: kept word for word, read for what it shares, and it lights the
     page (owner, 2026-11-04; G39, G233, ROR-95; amends the quiet rule of 2026-10-20).** The owner tested Apple Books on their
     real library and said yes to three changes. **(a) Word for word, no model.** Each highlight and note is a claim on the

@@ -224,7 +224,7 @@ struct UpdateStatusLine: View {
             HStack(alignment: .center, spacing: CicadaTheme.spacingSM) {
                 if let line = Copy.Updates.statusLine(updates.state, now: context.date,
                                                       deferredVersion: updates.deferredVersion,
-                                                      sleepRefused: updates.sleepRefusedRestart) {
+                                                      sleepRefused: mustInsist) {
                     Text(line)
                         .font(CicadaTheme.captionFont.monospacedDigit())
                         .foregroundStyle(CicadaTheme.textSecondary)
@@ -245,11 +245,13 @@ struct UpdateStatusLine: View {
             }
         case .ready(let manifest):
             notes(manifest)
-            let sleeping = ProjectWriteGate.sleepRunning(store.status.value)
-            NeutralButton(title: Copy.Updates.restart, size: .compact, isDisabled: sleeping,
-                          help: Copy.Updates.restartHelp(manifest.version), disabledHelp: Copy.Updates.waitForSleep) {
-                guard !ProjectWriteGate.sleepRunning(store.status.value) else { return }
-                Task { await updates.restartToUpdate() }
+            if mustInsist {
+                NeutralButton(title: Copy.Updates.restartAnyway, size: .compact,
+                              help: Copy.Updates.restartHelp(manifest.version)) { updates.restartAnyway() }
+            } else {
+                NeutralButton(title: Copy.Updates.restart, size: .compact, help: Copy.Updates.restartHelp(manifest.version)) {
+                    Task { await updates.restartToUpdate() }
+                }
             }
         case .checking, .downloading, .installing:
             ProgressView().controlSize(.small)
@@ -257,6 +259,9 @@ struct UpdateStatusLine: View {
             EmptyView()
         }
     }
+
+    /// Sleep is reading, or the backend wouldn't say: the line names what a restart costs, and the button goes ahead.
+    private var mustInsist: Bool { updates.sleepRefusedRestart || ProjectWriteGate.sleepRunning(store.status.value) }
 
     /// The release notes, only from a secure address the manifest named; opened in the person's browser on their click.
     @ViewBuilder private func notes(_ manifest: UpdateManifest) -> some View {
