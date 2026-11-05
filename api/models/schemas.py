@@ -545,6 +545,8 @@ class PageBlockMark(CamelModel):
     day: str = ""
     text: Optional[str] = None
     note: Optional[str] = None
+    # ROR-16: where the mark stands in its record, so a mark can open on its own words. Offsets, never the words.
+    evidence: Optional[dict] = None
 
 
 class PageBlockMarks(CamelModel):

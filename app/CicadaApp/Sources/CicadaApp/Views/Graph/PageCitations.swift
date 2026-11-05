@@ -155,6 +155,7 @@ struct CitationPopover: View {
     let entityId: String
     let key: CiteKey
     @Environment(ProvenanceRouter.self) private var router: ProvenanceRouter?
+    @Environment(\.dismiss) private var dismiss
     @State private var phase: Phase = .loading
 
     enum Phase: Equatable {
@@ -235,6 +236,7 @@ struct CitationPopover: View {
     private func open(_ d: PageCitationDetail) {
         guard let router, let target = target(d) else { return }
         router.open(target)
+        dismiss()   // The source opens beside the article; the popover would stay over whatever moved under it.
     }
 
     private func load() async {
