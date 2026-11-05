@@ -2773,6 +2773,11 @@ actor APIClient {
         try await get("/entities/\(encodedID(id))/book-status")
     }
 
+    /// `GET /entities/{id}/book` — what the book's page leads with; 404 for a page that is no book.
+    func fetchBookCard(id: String) async throws -> BookCard {
+        try await get("/entities/\(encodedID(id))/book")
+    }
+
     /// `POST /entities/{id}/book-status/undo` — "Not right": that record is taken back, the one before it opens.
     func undoBookStatus(id: String, claimId: String) async throws {
         let _: BookStatusUndoReply = try await post("/entities/\(encodedID(id))/book-status/undo",

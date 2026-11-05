@@ -16,19 +16,10 @@ struct AppleBooksSlot: View {
     var body: some View {
         switch slot {
         case .connect:
-            let line = BooksRowText.appleBooks(reader.status, lastError: channel?.lastError)
-            if reader.enabled && reader.deniedByMac {
-                SourceConnectArea(primary: SourcePrimaryAction(title: Copy.allowFullDiskAccess) {
-                    NSWorkspace.shared.open(BrowserFileError.fullDiskAccessURL)
-                }, line: line?.text, lineIsAttention: true)
-            } else if reader.enabled {
-                SourceConnectArea(line: line?.text, lineIsAttention: line?.isProblem ?? false)
-            } else {
-                // A first read that failed before the reader came on keeps Connect, with why beside it.
-                SourceConnectArea(primary: SourcePrimaryAction(title: Copy.SourceLayout.connect(Copy.appleBooksTitle),
-                                                               help: Copy.appleBooksConnectHelp) {
-                    run { await reader.turnOn() }
-                }, line: line?.text, lineIsAttention: line?.isProblem ?? false)
+            // G233: a book is added here too (the owner looked for the number and the camera on this page).
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                connectArea
+                BookAddSlot()
             }
         case .footer:
             if reader.enabled {
@@ -37,6 +28,24 @@ struct AppleBooksSlot: View {
                     .disconnect(Copy.appleBooksTitle) { run { await reader.turnOff() } },
                 ])
             }
+        }
+    }
+
+    @ViewBuilder
+    private var connectArea: some View {
+        let line = BooksRowText.appleBooks(reader.status, lastError: channel?.lastError)
+        if reader.enabled && reader.deniedByMac {
+            SourceConnectArea(primary: SourcePrimaryAction(title: Copy.allowFullDiskAccess) {
+                NSWorkspace.shared.open(BrowserFileError.fullDiskAccessURL)
+            }, line: line?.text, lineIsAttention: true)
+        } else if reader.enabled {
+            SourceConnectArea(line: line?.text, lineIsAttention: line?.isProblem ?? false)
+        } else {
+            // A first read that failed before the reader came on keeps Connect, with why beside it.
+            SourceConnectArea(primary: SourcePrimaryAction(title: Copy.SourceLayout.connect(Copy.appleBooksTitle),
+                                                           help: Copy.appleBooksConnectHelp) {
+                run { await reader.turnOn() }
+            }, line: line?.text, lineIsAttention: line?.isProblem ?? false)
         }
     }
 
@@ -53,12 +62,14 @@ struct AppleBooksSlot: View {
 /// not a border), DR-12 (corners that scale), owner 2026-10-28 (no stand-in). Asked only when its row is drawn.
 struct BookCoverThumb: View {
     let path: String?
+    /// 40 pt in a row; the page's head and the Add's result draw it larger.
+    var points: CGFloat = 40
 
     @Environment(Store.self) private var store: Store?
     @State private var image: NSImage?
 
     var body: some View {
-        let height = CicadaTheme.scaled(40)
+        let height = CicadaTheme.scaled(points)
         let shape = CicadaTheme.shape(CicadaTheme.scaled(3))
         Group {
             if let image {
@@ -75,6 +86,56 @@ struct BookCoverThumb: View {
             guard let path else { image = nil; return }
             image = await SourcePictureStore.shared.image(path: path, bank: store?.bank ?? "")
         }
+    }
+}
+
+/// G233 — a book's page leads with the book: its cover at a real size (none, no empty box), then subtitle, authors, one
+/// line of year, pages and publisher, the ways it came in as small labels, and where the person stands with it. The
+/// title is the card's own header. DR-59 (one line each), DR-38 (said once), DR-9 (a ring, not a border).
+struct BookPageHead: View {
+    let entityId: String
+    /// The page's own picture path (`media.preview`), nil for a book with no cover.
+    let cover: String?
+    let changed: () -> Void
+
+    @State private var card: BookCard?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: CicadaTheme.spacingLG) {
+            if cover != nil { BookCoverThumb(path: cover, points: 168) }
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                if let subtitle = card?.subtitle {
+                    Text(subtitle).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                }
+                if let authors = card?.authors, !authors.isEmpty {
+                    Text(authors.joined(separator: ", ")).font(CicadaTheme.rowFont)
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                }
+                if let facts = card?.factsLine {
+                    Text(facts).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                }
+                if let ways = card?.ways, !ways.isEmpty {
+                    HStack(spacing: CicadaTheme.spacingXS) {
+                        ForEach(ways, id: \.door) { way in
+                            Text(BooksRowText.way(way))
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                                .padding(.horizontal, CicadaTheme.spacingSM)
+                                .frame(height: CicadaTheme.scaled(20))
+                                .overlay { CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                                    .stroke(CicadaTheme.ring(.resting), lineWidth: 1) }
+                        }
+                    }
+                }
+                BookStatusLine(entityId: entityId, changed: changed)
+                if let subjects = card?.subjects, !subjects.isEmpty {
+                    Text(subjects.joined(separator: " · ")).font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .task(id: entityId) { card = try? await APIClient.shared.fetchBookCard(id: entityId) }
     }
 }
 

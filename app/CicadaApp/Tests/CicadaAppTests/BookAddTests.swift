@@ -46,4 +46,22 @@ final class BookAddTests: XCTestCase {
         XCTAssertEqual(added.existing, true)
         XCTAssertEqual(Copy.bookAddAlready("A Book"), "Already in your books · A Book")
     }
+
+    /// G233 — the book's page leads with the book; being scanned is one small label with its day.
+    func testABookCardReadsItsFactsLineAndLabelsHowItCameIn() throws {
+        let json = #"""
+        {"subtitle":"A Tale","authors":["Ada Example"],"published":"2019","pages":320,"publisher":"Example House",
+         "subjects":["Orchards"],"ways":[{"door":"book-scan","label":"Scanned","day":"2026-11-05"},
+                                         {"door":"apple-books","label":"Apple Books"}]}
+        """#
+        let card = try JSONDecoder().decode(BookCard.self, from: Data(json.utf8))
+        XCTAssertEqual(card.factsLine, "2019 · 320 pages · Example House")
+        let en = Locale(identifier: "en_US")
+        XCTAssertEqual(BooksRowText.way(card.ways[0], locale: en), "Scanned Nov 5")
+        XCTAssertEqual(BooksRowText.way(card.ways[1], locale: en), "Apple Books")
+        let bare = try JSONDecoder().decode(BookCard.self, from: Data("{}".utf8))
+        XCTAssertNil(bare.factsLine)
+        XCTAssertEqual(BooksRowText.found(authors: [], existing: true), "Already in your books")
+        XCTAssertEqual(BooksRowText.found(authors: ["Ada Example"], existing: false), "Ada Example")
+    }
 }
