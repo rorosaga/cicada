@@ -116,9 +116,15 @@
 - **2026-11-04 — locked Apple Notes are never read (G234; branch `g234-locked-notes`).** Owner (ROR-93): locked notes
   must be unavailable to read, and the app should show it detects them. The reader asks only through `whose password
   protected is false`; the backend drops a flagged body and retires what it kept; Sleep retires text-less stubs before
-  it freezes; only a count stays, one line on the Notes page. **Open:** what `password protected` and `plaintext` return
-  for a locked note open in the session needs the owner's Touch ID on a throwaway note. **The owner decides:** an
-  already-read note's text and git history (options in the PR body).
+  it freezes; only a count stays, one line on the Notes page. **Measured on a throwaway note:** `password protected` stays
+  true while a locked note is open, `plaintext` asked directly then returns its text, and the filter returns only the id;
+  locking changes a note's id, so a follow-up (owner yes, 2026-11-05) finds what was kept by a hash of the name, made in
+  the app, never stored; a note this read saw unlocked never matches. Name alone, not the proposed name and dates: a note
+  edited before its lock has no matching date, and a stored date depends on the locale and time zone of its read.
+  Remove reaches the kept file by value (by suffix), `residue` counts it, and a row waiting at retirement survives on the
+  empty record; name keys go only with a complete read.
+  **Retired text leaves `episodes/`** for `sources/locked_notes/`, so every reader finds an empty record, with no check
+  per caller. **The owner decides:** what Sleep already derived from such a note, the kept file, and git history.
 - **2026-11-04 — books: scan an ISBN, Apple Books, a Goodreads export (G233, G39; branch `books-g39` + cicada-app `feat/scan-a-book`).** Owner: "integrate ISBN codes to include books I'm reading … iBooks too, to track progress … save books I want to read (maybe including Goodreads)"; then "be able to consolidate highlights and such is important", not started as its own status, the scanner in the phone app. `POST /capture/isbn` is the phone's contract (`{isbn, status?, id?}`, keep it stable); the home resolves the number behind the connector gate; `books.apply_pending` makes one `media` page per work with dated `reading-status` claims and happenings (`progress.py`). Apple Books is read by the app after Connect; Goodreads only by its export (no API keys since 2020); both on the standard source page (`BooksSlots.swift`). Highlights are read by Sleep, revision-read as they grow. Verified on scratch state with a synthetic library, a sample export and a capture-only phone (`feature-status.md`). **Owner's steps:** the four decisions on the G233 row; a real-iPhone camera test once the Apple Developer Program signup is done.
 - **2026-11-04 — a question about two people rests on a conversation naming both; never the owner without their own
   words (G209; branch `fix/person-dedup-evidence`).** Owner: "why tf would <handle> be me?" about "Is <handle> the same
