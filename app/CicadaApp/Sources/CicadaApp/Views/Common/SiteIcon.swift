@@ -18,6 +18,8 @@ struct SiteIcon: View {
     var savedItem: String? = nil
     /// Owner 2026-10-20 — the same, for a saved link Sleep has not made a page of yet: its episode's id.
     var savedEpisode: String? = nil
+    /// ROR-108 — the same, for a followed feed's row: the feed's id.
+    var feed: String? = nil
     @Environment(Store.self) private var store
     @State private var image: NSImage?
 
@@ -39,8 +41,9 @@ struct SiteIcon: View {
         }
         .frame(width: side, height: side)
         .accessibilityHidden(true)
-        .task(id: "\(store.bank)|\(site)|\(entity ?? "")|\(savedItem ?? "")|\(savedEpisode ?? "")") {
+        .task(id: "\(store.bank)|\(site)|\(entity ?? "")|\(savedItem ?? "")|\(savedEpisode ?? "")|\(feed ?? "")") {
             let saved: SiteIconStore.SavedRef? = savedItem.map { .media($0) } ?? savedEpisode.map { .episode($0) }
+                ?? feed.map { .feed($0) }
             image = await SiteIconStore.shared.image(site: site, bank: store.bank, entity: entity, saved: saved)
         }
     }

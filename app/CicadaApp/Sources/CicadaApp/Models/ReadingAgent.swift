@@ -189,11 +189,11 @@ struct SubstackListsStatus: Decodable, Equatable {
     enum CodingKeys: String, CodingKey { case pausedUntil, lists }
 }
 
-/// G89 — how many publications Cicada follows for the person's Substack: the feeds their agent's read of
-/// Subscriptions followed (tag `substack`). Pure.
+/// G89 — how many publications the person follows: the count the backend gives their channel, by its one rule. Pure.
 enum SubstackFollowing {
-    static let tag = "substack"
-    static func count(_ feeds: [FeedSubscription]) -> Int { feeds.filter { $0.tags.contains(tag) }.count }
+    static func count(_ channels: [SourceChannel]) -> Int {
+        channels.first { $0.id == FeedChannelText.substackChannel }?.count ?? 0
+    }
 }
 
 /// The words under each Substack list's switch — pure, so a test reads them.

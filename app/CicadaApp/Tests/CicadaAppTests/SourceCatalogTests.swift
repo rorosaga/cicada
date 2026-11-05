@@ -131,10 +131,21 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertEqual(row(SourceCatalog.substackId, in: rows(overview: reads))?.status, .connected)
     }
 
-    func testSubstackFollowingCountsOnlyTheFeedsItsSubscriptionsReadFollowed() {
-        let feeds = [FeedSubscription(url: "https://alpha-example.substack.com/feed", tags: ["substack"]),
-                     FeedSubscription(url: "https://bob-example.org/feed")]
-        XCTAssertEqual(SubstackFollowing.count(feeds), 1)
+    func testAPublicationFollowedConnectsSubstackAndLeavesRssOff() {
+        let channels = [SourceChannel(id: "rss", label: "RSS", connected: false),
+                        SourceChannel(id: FeedChannelText.substackChannel, label: "Publications", connected: true,
+                                      count: 9)]
+        let all = rows(channels: channels)
+        XCTAssertEqual(row(SourceCatalog.substackId, in: all)?.status, .connected)
+        XCTAssertEqual(row("rss", in: all)?.status, .off)
+    }
+
+    func testSubstackFollowingIsTheCountOfThePublicationsChannel() {
+        let publications = SourceChannel(id: FeedChannelText.substackChannel, label: "Publications", connected: true,
+                                         count: 1)
+        XCTAssertEqual(SubstackFollowing.count([SourceChannel(id: "rss", label: "RSS", connected: true, count: 4),
+                                                publications]), 1)
+        XCTAssertEqual(SubstackFollowing.count([]), 0)
         XCTAssertEqual(Copy.Reading.substackFollowing(1), "Following 1 publication through its public feed.")
     }
 

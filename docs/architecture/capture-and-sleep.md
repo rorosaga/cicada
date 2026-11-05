@@ -810,7 +810,7 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   read ends, the way the list has always worked. The list's only other
   reads are chat-list fields (`ZARCHIVED`, where the copy has it, places a row in an Archived group below the rest,
   tickable like any other), plus the one date the list already read for its order (`MAX(ZMESSAGEDATE)`, 2026-11-03: a
-  date per chat, never a message's words). A picture is the file `ZWAPROFILEPICTUREITEM` names for the chat's own `ZJID` or its `.thumb`/`.jpg`
+  date per chat, never a message's words; owner 2026-11-05 on this and the picker's reads: "it can read everything except contents of chats"). A picture is the file `ZWAPROFILEPICTUREITEM` names for the chat's own `ZJID` or its `.thumb`/`.jpg`
   sibling, read once per list load, and never a guess from a file's name (2026-11-05: `<creator>-<time>` can be a legacy
   group's, so a person's chat could wear a group's face). Measured on the owner's store, counts only: 509 of the 510 files
   in `Media/Profile` are named by a row, and the name matching found nothing rows do not. The person's own chat wears
@@ -1414,8 +1414,8 @@ Cowork's settings), so its stdio server now does what the remote connector does.
 - **What the person sees, and the switches.** The tool's description says what it does in the app's own tool list, and the
   app asks before a tool's first use unless they allowed it always. The first reply of each conversation asks the model to
   say so once, in a few words; connecting the app says it in one line (`agent_wiring`); the remote connector's Record scope
-  says it too. **No new setting.** To turn it off: in the app, set that tool to never run; or disconnect the app in
-  Settings → Agents; or `CICADA_CAPTURE=off` in the server's `env`, the switch every hook answers to, which also drops the
+  says it too. **No new setting.** To turn it off: in the app, set that tool to never run; or disconnect the app where it
+  was connected; or `CICADA_CAPTURE=off` in the server's `env`, the switch every hook answers to, which also drops the
   primer's line. On the remote connector: untick Record or revoke it. `capture_assistant_replies` still keeps the replies out.
 - **Why not the browser.** Anthropic's Consumer Terms §3 bar access "through automated or non-human means" except by API
   key or where explicitly permitted, so an agent paging claude.ai's list is what the ToS rail stops, unlike G166's reads.

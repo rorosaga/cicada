@@ -1416,7 +1416,7 @@ async def list_channel_collections(
     digest = hashlib.sha256(json.dumps(named, sort_keys=True).encode()).hexdigest()[:16]
     with sync_ticker.request_scans(memory_path):
         # RSS counts media pages; `sources` holds `feeds.yaml` (the polls' results) and the url index (the stamps).
-        pages = ("entities",) if channel_id == channel_items.FEED_CHANNEL else ()
+        pages = ("entities",) if channel_id in channel_items.FEED_CHANNELS else ()
         etag = sync_service.etag_for(memory_path, "sources", "episodes", *pages,
                                      extra=f"{channel_items.SHAPE}|collections|{channel_id}|{digest}")
         if (early := sync_service.conditional(request, response, etag)) is not None:
@@ -1451,6 +1451,18 @@ async def get_saved_episode_site_icon(episode_id: str, request: Request, setting
     cache and the same fetch as the saved-link route. 404 means "draw the monogram"."""
     memory_path = settings.memory_path
     site = await run_in_threadpool(channel_items.saved_episode_site, memory_path, episode_id)
+    return await _serve_own_site_icon(request, memory_path, site)
+
+
+@router.get("/sources/feeds/{feed_id}/site-icon")
+async def get_followed_feed_site_icon(feed_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """A followed feed's own site icon (ROR-108), for its row on the RSS page the person opened. A feed's items are
+    captured, not saved, so the saved-link routes refuse them; a feed is a site the person chose, so this stands on the
+    same footing: the site is read from THAT feed's record (`channel_items.feed_site`), with the same gate, per-site
+    cache and fetch. A feed wearing a bundled mark asks nothing. 404 means "draw the monogram". Nothing calls this but
+    the app's row; neither a poll nor Sleep does."""
+    memory_path = settings.memory_path
+    site = await run_in_threadpool(channel_items.feed_site, memory_path, feed_id)
     return await _serve_own_site_icon(request, memory_path, site)
 
 

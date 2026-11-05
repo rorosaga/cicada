@@ -180,7 +180,7 @@ def test_the_channel_row_is_always_listed_and_lists_what_came_in(client):
         return {r["id"]: r for r in c.get("/sources/channels").json()["channels"]}
 
     assert rows()["reminders-local"]["connected"] is False
-    assert channel_registry.CHANNELS_SHAPE == "book-scan"   # g219 added this row; the newest always-listed row names it
+    assert channel_registry.CHANNELS_SHAPE == "g89-publications"   # g219 added this row; the newest row names it
     _post(c, [_reminder("R1")])
     row = rows()["reminders-local"]
     assert row["connected"] is True and row["count"] == 1 and row["label"] == "Apple Reminders"

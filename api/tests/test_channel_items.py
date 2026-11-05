@@ -742,3 +742,74 @@ def test_a_demo_bank_lists_and_answers_like_any_other(bank):
     _note_with_id(bank)
     assert channel_items.items(bank, "notes")["total"] >= 1
     assert channel_items.place(bank, "notes", "ep_2026-09-06_001")["kind"] == "notes"
+
+
+def test_a_feed_row_names_its_mark_with_no_network(tmp_path, monkeypatch):
+    """ROR-108: a Substack publication wears the bundled mark on its own domain too (the tag says so); any other feed
+    names its own site. Listing asks nobody."""
+    bank = tmp_path / "memory"
+    (bank / "sources").mkdir(parents=True)
+    on_host = "https://alpha.substack.com/feed"
+    own_domain = "https://www.gamma.example.org/feed"
+    plain = "https://blog.delta.example.net/rss"
+    for url, tags in ((on_host, []), (own_domain, ["substack"]), (plain, ["news"])):
+        feed_registry.subscribe_feed(bank, url, tags)
+    monkeypatch.setattr(feed_registry, "_default_fetch", lambda *_: pytest.fail("no feed is fetched"))
+    publications = channel_items.collections(bank, "substack-feeds")["accounts"][0]["collections"]
+    rows = {c["url"]: c for c in [*_tree(bank), *publications]}
+    assert (rows[on_host].get("mark"), rows[on_host].get("site")) == ("substack", None)
+    assert (rows[own_domain].get("mark"), rows[own_domain].get("site")) == ("substack", None)
+    assert (rows[plain].get("mark"), rows[plain].get("site")) == (None, "example.net")
+
+
+@pytest.fixture
+def split_bank(tmp_path):
+    """Two publications (one on its own domain, by its tag) and one other feed, with an item each and one no feed claims."""
+    bank = tmp_path / "memory"
+    (bank / "sources").mkdir(parents=True)
+    on_host, own_domain, plain = ("https://alpha.substack.com/feed", "https://gamma.example.org/feed",
+                                  "https://delta.example.net/rss")
+    index = {}
+    for url, tags in ((on_host, []), (own_domain, ["substack"]), (plain, ["news"])):
+        feed_registry.subscribe_feed(bank, url, tags)
+    for eid, url, feed in (("sub-1", "https://alpha.substack.com/p/one", feed_registry.feed_id(on_host)),
+                           ("sub-2", "https://gamma.example.org/p/two", feed_registry.feed_id(own_domain)),
+                           ("plain-1", "https://delta.example.net/three", feed_registry.feed_id(plain)),
+                           ("stray", "https://elsewhere.example.org/four", "000000000000")):
+        _page(bank, eid, type="media", name=eid, origin="rss", url=url, created="2026-10-09")
+        index[media_ingestor.url_hash(url)] = {"media_entity_id": eid, "url": url, "title": eid,
+                                               "saved_at": "2026-10-09", "feed": feed}
+    _json(bank, "sources/url_index.json", index)
+    return bank, (on_host, own_domain, plain)
+
+
+def test_a_publication_lists_on_substack_and_every_item_under_one_source(split_bank):
+    """G89 (owner 2026-11-05): the same rule as the mark; what no followed feed claims stays on RSS's Other."""
+    bank, (on_host, own_domain, plain) = split_bank
+    tree = lambda c: channel_items.collections(bank, c)["accounts"][0]["collections"]
+    assert {c.get("url") for c in tree("substack-feeds")} == {on_host, own_domain}
+    assert all(c["mark"] == "substack" and c["count"] == 1 for c in tree("substack-feeds"))
+    assert [c.get("url") for c in tree("rss")] == [plain, None]
+    assert tree("rss")[-1]["name"] == "Other"
+    ids = lambda c: {r["id"] for r in channel_items.items(bank, c)["items"]}
+    assert ids("substack-feeds") == {"sub-1", "sub-2"} and ids("rss") == {"plain-1", "stray"}
+    one = tree("substack-feeds")[0]
+    assert channel_items.items(bank, "substack-feeds", collection=one["id"])["all"] == 1
+
+
+def test_with_only_publications_rss_answers_no_accounts(tmp_path):
+    bank = tmp_path / "memory"
+    (bank / "sources").mkdir(parents=True)
+    feed_registry.subscribe_feed(bank, "https://alpha.substack.com/feed", [])
+    assert channel_items.collections(bank, "rss") == {"channel": "rss", "accounts": []}
+    assert channel_items.items(bank, "rss")["all"] == 0
+    assert channel_items.collections(bank, "substack-feeds")["accounts"][0]["count"] == 0
+
+
+def test_the_mark_and_the_page_read_one_rule():
+    assert feed_registry.is_substack({"url": "https://substack.com/feed"})
+    assert feed_registry.is_substack({"url": "https://a.substack.com/feed"})
+    assert feed_registry.is_substack({"url": "https://own.example.org/feed", "tags": ["Substack "]})
+    assert not feed_registry.is_substack({"url": "https://notsubstack.com/feed"})
+    assert channel_items._feed_mark({"url": "https://a.substack.com/feed"}) == "substack"
+    assert channel_items._feed_mark({"url": "https://own.example.org/feed"}) is None

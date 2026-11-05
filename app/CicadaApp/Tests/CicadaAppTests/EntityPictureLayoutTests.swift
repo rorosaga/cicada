@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import XCTest
 @testable import CicadaApp
 
@@ -64,5 +65,30 @@ final class NoTypeGlyphLintTests: XCTestCase {
             }
         }
         XCTAssertEqual(offenders, [], "a type glyph stands in for a picture or a label — draw the picture or nothing")
+    }
+
+    /// Owner 2026-11-05: a no-photo disc stands off whatever it sits on, in both modes, and its letters read on it.
+    func testTheDiscStandsOffEverySurfaceAndItsLettersRead() {
+        let original = CicadaTheme.mode
+        defer { CicadaTheme.mode = original }
+        for mode in [AppColorScheme.light, .dark] {
+            CicadaTheme.mode = mode
+            let disc = CicadaTheme.pictureFill
+            for ground in [CicadaTheme.bgBase, CicadaTheme.bgPane, CicadaTheme.bgFocus, CicadaTheme.bgHover,
+                           CicadaTheme.bgSelected] {
+                XCTAssertGreaterThanOrEqual(Self.contrast(disc, ground), 1.3, "\(mode): the disc against a surface")
+            }
+            XCTAssertGreaterThanOrEqual(Self.contrast(CicadaTheme.textSecondary, disc), 4.5, "\(mode): the letters")
+        }
+    }
+
+    private static func contrast(_ a: Color, _ b: Color) -> Double {
+        func luminance(_ color: Color) -> Double {
+            let c = NSColor(color).usingColorSpace(.sRGB) ?? .black
+            func f(_ v: CGFloat) -> Double { v <= 0.03928 ? Double(v) / 12.92 : pow((Double(v) + 0.055) / 1.055, 2.4) }
+            return 0.2126 * f(c.redComponent) + 0.7152 * f(c.greenComponent) + 0.0722 * f(c.blueComponent)
+        }
+        let (x, y) = (luminance(a), luminance(b))
+        return (max(x, y) + 0.05) / (min(x, y) + 0.05)
     }
 }

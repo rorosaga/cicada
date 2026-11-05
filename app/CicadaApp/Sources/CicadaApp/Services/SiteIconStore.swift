@@ -29,16 +29,22 @@ actor SiteIconStore {
     /// (`GET /sources/saved/episodes/{id}/site-icon`). Kept under the same per-site key as `SavedFetcher`'s answer.
     typealias SavedEpisodeFetcher = @Sendable (String) async throws -> Data?
 
-    /// How a saved link's own icon is asked: by its media page's id, or — before Sleep made the page — its episode's.
+    /// ROR-108 — the same icon for a followed feed's row, by the feed's id (`GET /sources/feeds/{id}/site-icon`).
+    typealias FeedFetcher = @Sendable (String) async throws -> Data?
+
+    /// How a site's own icon is asked: by a saved link's media page, its episode before Sleep made the page, or a
+    /// followed feed's id.
     enum SavedRef: Equatable, Sendable {
         case media(String)
         case episode(String)
+        case feed(String)
 
         /// The id a miss is remembered under.
         var tag: String {
             switch self {
             case .media(let id): "media:\(id)"
             case .episode(let id): "episode:\(id)"
+            case .feed(let id): "feed:\(id)"
             }
         }
     }
@@ -54,6 +60,7 @@ actor SiteIconStore {
     private let fetchForEntity: EntityFetcher
     private let fetchForSaved: SavedFetcher
     private let fetchForSavedEpisode: SavedEpisodeFetcher
+    private let fetchForFeed: FeedFetcher
     private let maxConcurrent: Int
     private let missTTL: TimeInterval
     private let now: @Sendable () -> Date
@@ -68,6 +75,7 @@ actor SiteIconStore {
          fetchForSavedEpisode: @escaping SavedEpisodeFetcher = {
              try await APIClient.shared.fetchSavedEpisodeSiteIcon(episodeId: $0)
          },
+         fetchForFeed: @escaping FeedFetcher = { try await APIClient.shared.fetchFeedSiteIcon(feedId: $0) },
          maxConcurrent: Int = SiteIconStore.maxConcurrent,
          missTTL: TimeInterval = SiteIconStore.missTTL,
          now: @escaping @Sendable () -> Date = { Date() }) {
@@ -75,6 +83,7 @@ actor SiteIconStore {
         self.fetchForEntity = fetchForEntity
         self.fetchForSaved = fetchForSaved
         self.fetchForSavedEpisode = fetchForSavedEpisode
+        self.fetchForFeed = fetchForFeed
         self.maxConcurrent = max(1, maxConcurrent)
         self.missTTL = missTTL
         self.now = now
@@ -137,11 +146,13 @@ actor SiteIconStore {
         let fetchForEntity = self.fetchForEntity
         let fetchForSaved = self.fetchForSaved
         let fetchForSavedEpisode = self.fetchForSavedEpisode
+        let fetchForFeed = self.fetchForFeed
         let task = Task<Answer, Never> {
             do {
                 let bytes: Data? = switch saved {
                 case .media(let id): try await fetchForSaved(id)
                 case .episode(let id): try await fetchForSavedEpisode(id)
+                case .feed(let id): try await fetchForFeed(id)
                 case nil: if let entity { try await fetchForEntity(entity, site) } else { try await fetch(site) }
                 }
                 guard let data = bytes, let image = NSImage(data: data) else { return .none }

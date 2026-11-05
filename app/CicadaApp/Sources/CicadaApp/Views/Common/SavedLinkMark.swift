@@ -9,16 +9,18 @@ import SwiftUI
 ///
 /// Pure, so `SavedLinkMarkTests` holds it; `SavedLinkMark` is its only view, so the surfaces cannot drift.
 enum SavedLinkMarkModel {
-    /// How the backend is asked for the icon: by the saved item's media page, or — before Sleep made the page — by its
-    /// waiting episode. Nil when there is no id to ask by (the mark stops at the bundled mark or the monogram).
+    /// How the backend is asked for the icon: by the saved item's media page, before Sleep made the page by its waiting
+    /// episode, or by a followed feed's id (ROR-108). Nil when there is no id to ask by (the mark stops at the bundled mark or the monogram).
     enum Door: Equatable, Sendable {
         case media(String)
         case episode(String)
+        case feed(String)
 
         var ref: SiteIconStore.SavedRef {
             switch self {
             case .media(let id): .media(id)
             case .episode(let id): .episode(id)
+            case .feed(let id): .feed(id)
             }
         }
     }
@@ -80,6 +82,7 @@ struct SavedLinkMark: View {
             switch door {
             case .media(let id)?: SiteIcon(site: key, label: label, size: size, savedItem: id)
             case .episode(let id)?: SiteIcon(site: key, label: label, size: size, savedEpisode: id)
+            case .feed(let id)?: SiteIcon(site: key, label: label, size: size, feed: id)
             case nil: SiteIcon(site: key, label: label, size: size)
             }
         case .monogram(let letter):

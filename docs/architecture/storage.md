@@ -1205,7 +1205,10 @@ Round 4 (C2–C4):
   gate, fetch and per-site cache. Rows name the key the mark is drawn under — `siteKey` on `GET /sources` items (shape
   `site-key-1`; only on a page the media route serves, `channel_items.is_saved_link_page`), `site` on `GET /sleep/episodes` rows (`episodes-2`) and on `GET /episodes/{id}/text` (`site1`) — from
   one function, `reading_hosts.mark_key` (a walled family's name, else the registrable domain); the icon is always asked
-  by an id, never by that name.
+  by an id, never by that name. **A followed feed (ROR-108)** is a site the person chose, on the same footing, through its
+  own door because a feed's items are captured, not saved: `GET /sources/feeds/{feed_id}/site-icon` reads the site from
+  THAT feed's record (`channel_items.feed_site`), same gate, fetch and per-site cache, only from the RSS page's row, never
+  a poll or Sleep; a feed wearing the bundled Substack mark asks nothing.
   **Discovery, amended (owner 2026-10-20: "a lot of them don't show any logo … when I open the website I can clearly
   see a favicon in the Chrome tab").** The 2026-10-19 rule asked two fixed paths and never the HTML; it missed every
   site that declares its icon at another path, on a CDN, or only behind a redirect to www. Now, like a browser
