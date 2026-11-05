@@ -17,8 +17,16 @@ def observer():
     return mod
 
 
-def test_real_pair_handles_subfolders_and_arbitrary_worktrees(tmp_path, repos):
+def real_git_observer():
+    """For a test about what real git answers, not how fast: `TIMEOUT_S` (0.1 s, unchanged) is the hook's own bound and
+    a loaded machine passes it; the synthetic-clock tests pin it."""
     mod = observer()
+    mod.TIMEOUT_S = 30.0
+    return mod
+
+
+def test_real_pair_handles_subfolders_and_arbitrary_worktrees(tmp_path, repos):
+    mod = real_git_observer()
     env = {"HOME": str(tmp_path), "PATH": os.environ["PATH"]}
     values = [mod.observe(str(repos[k]), home=tmp_path, environ=env) for k in ("root", "sub", "worker", "lexical")]
     assert [v["repo_root"] for v in values] == [str(repos[k]) for k in ("root", "root", "worker", "lexical")]
@@ -27,7 +35,7 @@ def test_real_pair_handles_subfolders_and_arbitrary_worktrees(tmp_path, repos):
 
 
 def test_clones_nested_repos_submodules_and_separate_git_dir(tmp_path, repos):
-    mod = observer()
+    mod = real_git_observer()
     clone, nested = tmp_path / "clone", repos["root"] / "nested"
     repos["git"]("clone", repos["root"], clone)
     repos["git"]("init", nested)

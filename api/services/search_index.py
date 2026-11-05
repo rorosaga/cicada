@@ -45,6 +45,8 @@ re-indexed document is re-inserted with a fresh, larger ``doc_id``,
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
 import secrets
 import sqlite3
@@ -993,6 +995,68 @@ def episodes_with_words(memory_path: Path, q: str | None) -> set[str] | None:
             return {str(ref) for (ref,) in reader.conn.execute(sql, (match, EPISODE_WORDS_CAP))}
     except sqlite3.Error:
         return None
+
+
+class _OneReader:
+    """One lazily opened connection for one :func:`one_reader` block; a connection costs 0.9 ms (the schema is parsed
+    again on each, measured at 4,700 pages)."""
+
+    def __init__(self, memory_path: Path):
+        self.memory_path = Path(memory_path)
+        self._reader: Reader | None = None
+
+    def reader(self) -> "Reader":
+        if self._reader is None:
+            self._reader = Reader(self.memory_path)
+        return self._reader
+
+    def close(self) -> None:
+        if self._reader is not None:
+            self._reader.close()
+
+
+_ONE_READER: contextvars.ContextVar[_OneReader | None] = contextvars.ContextVar("search_index_one_reader", default=None)
+
+
+@contextlib.contextmanager
+def one_reader(memory_path: Path):
+    """Within this block, :func:`episodes_naming_each` on this bank shares one read connection: a rebuild of the Inbox
+    asks once per card. Opened only if something asks."""
+    held = _OneReader(memory_path)
+    token = _ONE_READER.set(held)
+    try:
+        yield
+    finally:
+        _ONE_READER.reset(token)
+        held.close()
+
+
+def episodes_naming_each(memory_path: Path, sides: tuple[list[str], ...], limit: int) -> list[str]:
+    """The episodes holding a spelling of EVERY side (a title or any passage; the sides may sit in different passages),
+    newest written first, at most ``limit``: one query off rowids, a side with no match costs nothing. A candidate list,
+    prefix terms; the caller checks the words. The index as it is: this never builds, refreshes or starts a build. ``[]``
+    when no usable index answers. The names are never logged or stored."""
+    if not db_path(memory_path).exists():
+        return []
+    matches: list[str] = []
+    for names in sides:
+        spellings = [tokens for tokens in (text_fold.query_tokens(n) for n in names) if tokens]
+        if not spellings:
+            return []
+        matches.append(" OR ".join(f"({match_expression(tokens)})" for tokens in spellings))
+    held = " AND ".join(
+        f"d.id IN (SELECT rowid >> {ROW_BITS} FROM pas WHERE pas MATCH ? UNION SELECT rowid >> {ROW_BITS} FROM epi WHERE epi MATCH ?)"
+        for _ in matches)
+    sql = f"SELECT d.ref FROM docs d WHERE d.kind = 'episode' AND {held} ORDER BY d.id DESC LIMIT ?"
+    params = [m for match in matches for m in (match, match)] + [int(limit)]
+    shared = _ONE_READER.get()
+    try:
+        if shared is not None and shared.memory_path == Path(memory_path):
+            return [str(ref) for (ref,) in shared.reader().conn.execute(sql, params)]
+        with Reader(memory_path) as reader:
+            return [str(ref) for (ref,) in reader.conn.execute(sql, params)]
+    except sqlite3.Error:
+        return []
 
 
 def pages_citing_many(memory_path: Path, episode_ids: list[str]) -> dict[str, list[str]] | None:
