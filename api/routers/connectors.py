@@ -30,6 +30,7 @@ route rather than one per connector.
 from __future__ import annotations
 
 import html
+import inspect
 import secrets as pysecrets
 import time
 
@@ -198,6 +199,8 @@ async def authorize(connector_id: str, settings: Settings = Depends(get_settings
     base_url = f"http://{settings.host}:{settings.port}"
     try:
         url = adapter.authorize_url(state, base_url=base_url)
+        if inspect.isawaitable(url):
+            url = await url
     except base.ConnectorError as exc:
         # Words the person can act on (G232: this build has no app, or the backend is off the registered address).
         raise HTTPException(status_code=422, detail=str(exc))
