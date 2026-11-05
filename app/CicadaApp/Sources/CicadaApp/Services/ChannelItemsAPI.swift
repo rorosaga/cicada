@@ -70,6 +70,22 @@ extension APIClient: ChannelItemsAPI {
     }
 
     /// 2026-11-04 — where a channel's items live (`GET /sources/channels/{id}/collections`).
+    /// G161 (ROR-111) — where one listed item lives, read on the person's click, never kept. Encoded as a list's path.
+    nonisolated static func itemPlacePath(channel: String, item: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        let base = SourceListKey.parts(channel).0
+        return "/sources/channels/\(base.addingPercentEncoding(withAllowedCharacters: allowed) ?? base)"
+            + "/items/\(item.addingPercentEncoding(withAllowedCharacters: allowed) ?? item)/place"
+    }
+
+    func fetchItemPlace(channel: String, item: String) async throws -> ItemPlace {
+        let answer: Conditional<ItemPlace> = try await getConditional(Self.itemPlacePath(channel: channel, item: item),
+                                                                      etag: nil)
+        guard let place = answer.value else { throw APIError.serverUnreachable }
+        return place
+    }
+
     func fetchChannelCollections(channel: String, etag: String?) async throws -> Conditional<ChannelCollections> {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#")

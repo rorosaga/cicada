@@ -56,6 +56,10 @@ the newest answer the person gave to "What made you save this?"
 (``saved_why`` on the link's episode: the reasons' labels and their own
 words), when there is one.
 
+``place`` (G161, ROR-111) says that an item can be opened where it lives and what kind of place that is (``notes``,
+``github``, ``web``); absent when none is known. A list still never carries the URL or a note's id: :func:`place`
+answers them for one item, when the person clicks.
+
 Titles only on the wire (scrubbed, one line, ≤ 120 characters), never a body.
 Engine-free, read-only, never outside the bank, and never a Store domain: the
 router ETags each page and the app keeps it in memory, like provenance. The
@@ -67,10 +71,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from datetime import date, datetime, timezone
 from functools import cached_property
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from api.services import (
     bank_index,
@@ -120,7 +126,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-14`: G39, G233 — Apple Books, Goodreads and book scans list their books.
 #: `g161-15`: 2026-11-04 — a meeting row carries `duration_s`; `collection` narrows a page to one calendar, list or
 #: Notes folder (`collections`).
-SHAPE = "g161-16"
+#: `g161-17`: G161 (ROR-111) — a row whose item records where it lives carries `place`, the kind of that place.
+SHAPE = "g161-17"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -488,6 +495,7 @@ def _notes(memory_path: Path) -> list[dict]:
         folder = str(entry.get("folder") or fm.get("folder") or "").strip()
         row["_account"], row["_folder"] = account, folder
         row["_collection"] = note_collection_id(account, folder)
+        row["_note"] = entry.get("note_id") or fm.get("note_id")
         rows.append(row)
     return rows
 
@@ -522,6 +530,7 @@ def _episodes(memory_path: Path, keep, *, among, when_key: str | None = None,
         # icon by the episode's id (`GET /sources/saved/episodes/{id}/site-icon`) instead of drawing a letter.
         if url := saved_episode_url(fm):
             row["_url"] = url
+        row["_place_url"] = fm.get("url")
         rows.append(row)
     return rows
 
@@ -1004,9 +1013,58 @@ def _why(memory_path: Path, episode_id) -> dict | None:
     return {"labels": labels, "text": text or None}
 
 
+#: What Notes itself calls a note (`id of note`). An id from an older shape, or a key made up when a dump had none,
+#: is no place: Notes would only say it has no such note.
+_NOTE_ID = re.compile(r"x-coredata://[A-Za-z0-9._/-]+\Z")
+_WEB_SCHEMES = ("http", "https")
+_GITHUB_HOSTS = ("github.com", "www.github.com")
+
+
+def _web_place(raw) -> dict | None:
+    """A stored URL is data: only a plain http(s) link with a host is a place. ``file:``, a custom scheme, a link
+    carrying credentials and anything a browser and this parser could read differently (a backslash, a space, a control
+    character) is none. The host is what says GitHub, so a look-alike is only a web link."""
+    url = str(raw or "")
+    if not url or any(c.isspace() or ord(c) < 32 or c == "\\" for c in url):
+        return None
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        if parts.scheme.lower() not in _WEB_SCHEMES or not host or parts.username or parts.password:
+            return None
+        parts.port   # raises on a malformed port
+    except ValueError:
+        return None
+    return {"kind": "github" if host in _GITHUB_HOSTS else "web", "url": url}
+
+
+def _row_place(row: dict) -> dict | None:
+    """Where a listed item lives, from what its row already holds: nothing is fetched or looked up."""
+    note = str(row.get("_note") or "")
+    if _NOTE_ID.match(note):
+        return {"kind": "notes", "note_id": note}
+    return _web_place(row.get("_url")) or _web_place(row.get("_place_url"))
+
+
+def place(memory_path: Path, channel_id: str, item_id: str) -> dict | None:
+    """Where one item of this channel lives, or None: a channel it does not list, or no place known. Only what the
+    channel lists can be asked, so a retired note or a hidden page never answers (G234 never lists them). Read when the
+    person clicks; the Notes branch reads the id from a header, never a body."""
+    memory_path = Path(memory_path)
+    if not known(memory_path, channel_id):
+        return None
+    for row in _collect(memory_path, channel_id):
+        if row.get("id") == item_id:
+            return _row_place(row)
+    return None
+
+
 def _enrich(memory_path: Path, row: dict) -> dict:
-    """A served saved-link row gains its `site` and its `why`; every private key is dropped."""
+    """A served saved-link row gains its `site` and its `why`, any row with a known place its kind; every private key
+    is dropped."""
     out = {k: v for k, v in row.items() if not k.startswith("_")}
+    if found := _row_place(row):
+        out["place"] = found["kind"]
     if row.get("kind") == "episode" and row.get("_url"):
         out.update(_site(row["_url"]))
     if row.get("kind") == "media":
