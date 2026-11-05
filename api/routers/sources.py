@@ -1385,6 +1385,17 @@ async def list_channel_items(
     return page
 
 
+@router.get("/sources/channels/{channel_id}/items/{item_id}/place")
+async def channel_item_place(channel_id: str, item_id: str, settings: Settings = Depends(get_settings)):
+    """Where one listed item lives (G161, ROR-111): `{kind: "notes", note_id}` or `{kind: "github"|"web", url}`, an
+    http(s) link only. Read on the person's click and never cached; nothing is fetched. 404 when the channel does not
+    list the item or no place is known."""
+    found = await run_in_threadpool(channel_items.place, settings.memory_path, channel_id, item_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="No known place")
+    return found
+
+
 @router.get("/sources/channels/{channel_id}/collections")
 async def list_channel_collections(
     channel_id: str,

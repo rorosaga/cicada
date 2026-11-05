@@ -276,6 +276,18 @@ def source_key(fm: dict) -> str:
     return _ORIGIN_TO_ID.get(origin, f"origin:{origin}")
 
 
+def row_key(fm: dict) -> str | None:
+    """The row an episode counts under, or ``None`` when it counts nowhere — what the overview's numbers and a source's
+    own conversation list (`session_stats`) both read, so a card and the list under it are one partition (ROR-109)."""
+    from api.services import history_index
+
+    if is_check_record(fm):
+        return None   # Sources v4: a settled check's citation, not an intake (`CHECK_RECORD_SOURCES`)
+    if history_index.kind(fm) == "locked":
+        return None   # G234: a retired locked note counts nowhere
+    return source_key(fm)
+
+
 def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
     if key.startswith("harness:"):
         harness = key.split(":", 1)[1]
@@ -340,11 +352,9 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
     chats: dict[str, dict[str, tuple[float, str]]] = {}
     for f in bank_index.files(memory_path, "episodes"):
         fm = f.frontmatter
-        if is_check_record(fm):
-            continue   # Sources v4: a settled check's citation, not an intake (`CHECK_RECORD_SOURCES`)
-        if history_index.kind(fm) == "locked":
-            continue   # G234: a retired locked note counts nowhere
-        key = source_key(fm)
+        key = row_key(fm)
+        if key is None:
+            continue
         episode_key[str(fm.get("id") or f.stem)] = key
         state = states.setdefault(key, _new_state(key, labels))
         state["episodes"] += 1

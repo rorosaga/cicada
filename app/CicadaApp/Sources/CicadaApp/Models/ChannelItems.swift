@@ -48,10 +48,13 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     /// or nothing at all, never a stand-in. Nil for every other row and from an older backend.
     var book: Bool? = nil
     var cover: String? = nil
+    /// G161 (ROR-111) — the kind of place this item lives in (`ItemPlaceKind`), when one is known. Never the place
+    /// itself: `ItemPlaceControl` asks for that on the click.
+    var place: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case kind, id, title, day, left, host, site, why, chat, videos, sittings, video, received, messages, group
-        case ticked, pinned, book, cover
+        case ticked, pinned, book, cover, place
         case lastAt = "last_at"
         case syncedAt = "synced_at"
         case durationS = "duration_s"
@@ -90,6 +93,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         lastAt = try? c.decodeIfPresent(String.self, forKey: .lastAt)
         syncedAt = try? c.decodeIfPresent(String.self, forKey: .syncedAt)
         durationS = try? c.decodeIfPresent(Int.self, forKey: .durationS)
+        place = try? c.decodeIfPresent(String.self, forKey: .place)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -98,6 +102,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encode(id, forKey: .id)
         try c.encode(title, forKey: .title)
         try c.encodeIfPresent(day, forKey: .day)
+        try c.encodeIfPresent(place, forKey: .place)
         try c.encodeIfPresent(left, forKey: .left)
         try c.encodeIfPresent(host, forKey: .host)
         try c.encodeIfPresent(site, forKey: .site)

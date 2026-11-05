@@ -217,6 +217,42 @@ enum AppleNotesReader {
         return .success(dump)
     }
 
+    // MARK: Showing one note (G161, ROR-111)
+
+    /// Asks Notes to show one note, on the person's click. The id is an argument, never part of the script, and no
+    /// property is read: not a body, not a name. A locked note gets a new id when it locks (above), so its old id is
+    /// simply gone.
+    static let showScript = """
+    on run argv
+        tell application "Notes"
+            show note id (item 1 of argv)
+            activate
+        end tell
+    end run
+    """
+    /// Long enough for Notes to launch: the click may be what opens it.
+    static let showTimeout: TimeInterval = 15
+
+    typealias ShowRunner = @Sendable (_ noteId: String, _ timeout: TimeInterval) async -> Output
+
+    static func showArguments(_ noteId: String) -> [String] { ["-e", showScript, noteId] }
+
+    static let runShow: ShowRunner = { noteId, timeout in
+        let out = await ChildProcess.run(URL(fileURLWithPath: "/usr/bin/osascript"), arguments: showArguments(noteId),
+                                         timeout: timeout)
+        return Output(status: out.status, stdout: out.stdout, stderr: out.stderr, timedOut: out.timedOut)
+    }
+
+    /// The words for a show that did not happen, nil when it did. -1743: the same needs-access words as a read.
+    /// -1728 and -1719: Notes has no such note, deleted, locked since, or on another Mac.
+    static func showProblem(_ output: Output) -> String? {
+        if output.timedOut { return ReadError.timedOut.errorDescription }
+        guard output.status != 0 else { return nil }
+        if output.stderr.contains("-1743") { return ReadError.notAllowed.errorDescription }
+        return output.stderr.contains("-1728") || output.stderr.contains("-1719") ? Copy.Place.noteGone
+                                                                                   : Copy.Place.noteFailed
+    }
+
     /// `/usr/bin/osascript -e <script>` as a child `Process` (never a shell), through `ChildProcess`: both pipes
     /// drain while it runs — a library's dump is far larger than a pipe's buffer, so reading only at exit would
     /// deadlock. A launch failure reads as status 127, as it always did.

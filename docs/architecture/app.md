@@ -2296,7 +2296,12 @@ pending from that category, as a small notification."*
   Check records (`web-check`, `source-check`) are left out of every row (`source_overview.CHECK_RECORD_SOURCES`), so
   an agent's check no longer makes an "Other agents" conversation either. **"Other agents"** (`harness:unknown`) stays
   for real conversations an agent saved without naming its app, with its own sentence, never folded into an app it may
-  not be. Tests: `SourcesV4Tests`; screenshots render offscreen in `SourcesV4RenderTests` (skipped without
+  not be. **A card and the list under it are one partition (ROR-109, 2026-11-05):** `/conversations/recent?harness=`
+  names an overview row (`source_overview.row_key`), not the episode's `harness` field. Before, `unknown` meant "the
+  field is empty", true of every source-keyed record, so a chat over Messages, a note and a feed item all listed under
+  "Other agents" while its card counted one. A texted agent's chat lists under Messages like any other chat; its turns
+  stay `assistant:` and its claims `external:<name>` (G179). A host's sessions list under the host that counts them
+  (G228). Tests: `SourcesV4Tests`; screenshots render offscreen in `SourcesV4RenderTests` (skipped without
   `SOURCES_V4_RENDER_DIR`).
 
 **Explore saved sites (G166 slice 1, owner 2026-10-14).** A neutral **Explore saved sites** button (on a browser's
@@ -2342,6 +2347,17 @@ shows the held list at once; a search settles 180 ms before it asks (`SourceSear
 later (a feed's back catalogue, an old bookmark) its help and spoken label add "· added <day>"
 (`CapturedItems.withReceived`), and the Reader's meta line reads "May 1, 2023 · added Oct 24, 2026"
 (`EpisodeText.receivedAt`, `Copy.Provenance.added`).
+
+**Open where it lives (G161, ROR-111; DR-40, DR-53, DR-69).** `ItemPlaceControl` is the one control: an `IconButton`
+over the trailing edge of `CapturedItemRow`, `SavedItemRow` and `GitHubRepoRow`, beside the row's own button rather than
+inside it, with help text *Open in Notes*, *Open on GitHub* or *Open in browser*. It draws only when the row says a kind
+it knows and the list is not a preview (onboarding). On the click it asks the backend for the place, checks it again
+(`ItemPlaceOpen`: http(s) with a host and no credentials, GitHub's exact host, Notes' own id form), then opens the browser
+or runs `AppleNotesReader.runShow`: `show note id` with the id as an `osascript` argument, reading no property. Nothing
+runs on hover or on load. A failure is one line under the row until the next press; a missing Automation grant says the
+same words as a Notes read, and a note since deleted or locked (a lock changes its id) says it is no longer in Notes.
+A watched day's videos already open in the browser on their own row, so they carry no second control.
+
 `GET /sources/channels/{id}/items?offset&limit` (≤ 200; `api/services/channel_items.py`)
 derives it at read from the same set the row's count means — the notes index, the calendar and tab-group episodes (never
 a tombstoned one), the bookmark seen-set joined to the url index, a channel's media pages, a folder's files — engine-free

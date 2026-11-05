@@ -14,6 +14,11 @@
 
 ## Current state and evidence
 
+- **2026-11-05 — open a source's item where it lives (ROR-111, G161; PR #630, branch `ror-111-open-in-place`).** One control on the
+  item row: Notes by its own id, GitHub, saved links, feed items, saved videos. A list says only the kind; the place is
+  read on the click. Not yet seen in the real app: the first press against a real note is the person's. Which sources
+  have it and why the others do not is on G161.
+- **2026-11-05 — A chat over Messages reads as a chat (ROR-109, G179; PR #628).** The Other agents list filtered on an empty `harness` field while its card counted by `source_key`; both now read `source_overview.row_key`. Reproduced on synthetic data. **Pick up here:** on the live install, `GET /conversations/recent?harness=unknown&limit=200` should return exactly the card's one conversation.
 - **2026-11-05 — Sleep asks only what the person alone can answer (G239; PR #623, branch `noisy-questions`).** A run read 53
   conversations and raised 25 questions; the causes were proxies standing in for the model's judgement. Stage 1 now says what
   rests on a question, the judge is told what UNSURE costs and reads the lines naming both, Stage 4 asks for how the person
