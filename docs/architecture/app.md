@@ -551,6 +551,16 @@ context menu keeps *Open in default app* and *Show in Finder*. **A photo** joins
 and one ≤ 640 × 400 JPEG at time 0 to `/files/<id>/frames` (the existing derivative path; it is a `photo` picture of the
 one index, shown in the palette as a Photo row, and the Speech prompt is never raised for it). The viewer reads the
 original from `MediaFilePlaces`; nothing is downloaded, no stream is derived (G162).
+**A recording's page (ROR-117 3a, ruling 68; DR-5, DR-9, DR-59, DR-60, DR-78, DR-81).** An added item is a `media` page
+(`media.kind: file`; `EntityMedia` carries `fileId`, `recordedAt`, and an empty `url`). `EntityDetailCard.pageBlock`
+leads with `MediaPageHead` — the same `MediaPlayerPane` / `PhotoViewer` / `MissingFilePane` as the sheet, never a
+second player, and it never autoplays — then one line (`Recording · 1:05 · Mar 2`), then the article, then
+`MediaPageTranscript`: *The recording's words*, one row per segment, each stamp a click that seeks the shared player
+(`MediaPageSession`; plain text when the file is not on this Mac or is a photo). The words are read from
+`GET /files/{id}/transcript` when the page opens and held in view state only. A file not on this Mac keeps the sheet's
+sentence. `WikiArticle` draws no `##` section with nothing under it (DR-81). The transcriber is a chip in *Where this
+came from* ("transcript", `ProvenanceContributor.role`), outside "Written by". The sheet's header gains *Open page*
+once the file has one. Tests: `MediaPageModelTests`.
 
 **Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1. The painted band is gone (off since G189(a),
 2026-10-06; retired with every painting on 2026-10-16, owner: "Remove it from everywhere"), so the first content is

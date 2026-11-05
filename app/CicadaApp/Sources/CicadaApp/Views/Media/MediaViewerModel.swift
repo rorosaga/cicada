@@ -78,9 +78,11 @@ struct AddedFile: Decodable, Equatable, Identifiable {
     let recordedAt: String?
     /// A store that names its own items (`voice_memos`); nil for a file the person picked or dropped.
     let source: String?
+    /// The file's page in memory (`media_pages`), once it has one.
+    let page: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, kind, source
+        case id, name, kind, source, page
         case durationS = "duration_s", addedAt = "added_at", recordedAt = "recorded_at"
     }
 

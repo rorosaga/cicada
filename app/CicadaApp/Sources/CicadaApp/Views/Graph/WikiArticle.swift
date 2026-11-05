@@ -101,6 +101,11 @@ struct WikiArticle: Sendable, Equatable {
                 continue
             }
             if let heading = headingLevel(trimmed, line.text) {
+                // DR-81 — a section with nothing in it is not drawn (the empty sections a recording's page starts with).
+                if heading.level == 2, sectionIsEmpty(after: reader) {
+                    reader.advance()
+                    continue
+                }
                 let level = contained && heading.level > 2 ? heading.level - 1 : heading.level
                 add(.heading(level: level), WikiInline.attributed(heading.text), line.start..<line.end,
                     links: LinkGrammar.links(in: heading.text))
@@ -222,6 +227,20 @@ struct WikiArticle: Sendable, Equatable {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.hasPrefix("```") else { return nil }
         return String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Whether the `## ` section the reader stands on holds nothing: only blank lines (or the claims fence, which has
+    /// its own surface) up to the next `# ` or `## ` heading or the end. A `### ` under it is content.
+    private static func sectionIsEmpty(after reader: LineReader) -> Bool {
+        var ahead = reader
+        ahead.advance()
+        while let next = ahead.peek() {
+            let text = next.text.trimmingCharacters(in: .whitespaces)
+            if text.isEmpty { ahead.advance(); continue }
+            if let level = headingLevel(text, next.text) { return level.level <= 2 }
+            return fenceLanguage(next.text)?.lowercased() == "claims"
+        }
+        return true
     }
 
     private static func headingLevel(_ trimmed: String, _ line: String) -> (level: Int, text: String)? {

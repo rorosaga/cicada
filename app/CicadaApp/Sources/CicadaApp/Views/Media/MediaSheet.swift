@@ -12,6 +12,8 @@ struct MediaSheet: View {
     @State private var cameFromList = false
     /// The File → Add door, for the list's empty state.
     var onAdd: () -> Void = {}
+    /// The file's page in memory (ROR-117): closes the sheet and opens the page.
+    var openPage: (String) -> Void = { _ in }
     var places = MediaFileIndexer.shared.places
     let close: () -> Void
 
@@ -25,7 +27,8 @@ struct MediaSheet: View {
                     route = .file(id: file.id, at: nil)
                 }
             case .file(let id, let at):
-                MediaFilePane(id: id, at: at, places: places, back: cameFromList ? { route = .list } : nil, close: close)
+                MediaFilePane(id: id, at: at, places: places, back: cameFromList ? { route = .list } : nil,
+                              openPage: openPage, close: close)
                     .id(id)
             }
         }
@@ -40,6 +43,7 @@ struct MediaSheetHeader: View {
     let title: String
     var back: (() -> Void)?
     var openDefault: (() -> Void)?
+    var openPage: (() -> Void)?
     let close: () -> Void
 
     var body: some View {
@@ -54,6 +58,9 @@ struct MediaSheetHeader: View {
                 .truncationMode(.middle)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: CicadaTheme.spacingSM)
+            if let openPage {
+                IconButton(systemName: "doc.text", help: Copy.mediaOpenPage, action: openPage)
+            }
             if let openDefault {
                 IconButton(systemName: "arrow.up.right.square", help: Copy.mediaOpenDefault, action: openDefault)
             }
@@ -72,6 +79,7 @@ private struct MediaFilePane: View {
     let at: Double?
     let places: MediaFilePlaces
     var back: (() -> Void)?
+    var openPage: (String) -> Void = { _ in }
     let close: () -> Void
 
     @State private var target: MediaViewerModel.Target = .missing
@@ -80,7 +88,7 @@ private struct MediaFilePane: View {
     var body: some View {
         VStack(spacing: 0) {
             MediaSheetHeader(title: title, back: back, openDefault: playableURL.map { url in { NSWorkspace.shared.open(url) } },
-                             close: close)
+                             openPage: record?.page.map { page in { openPage(page) } }, close: close)
             content
         }
         .task(id: id) {
@@ -120,10 +128,14 @@ private struct MediaFilePane: View {
 
 /// R-V6 — the player itself, held as the protocol. Starts at the hit's second and plays; closing the surface stops
 /// it and lets go of the file (the sheet's `onDisappear`), so nothing keeps running.
-private struct MediaPlayerPane: View {
+struct MediaPlayerPane: View {
     let url: URL
     let kind: MediaKind
     let start: Double
+    /// A recording's page does not start playing when it opens; the sheet does (a hit is a request to hear it).
+    var autoplay = true
+    /// The page shares the player with its transcript: told whenever the controller is made or let go.
+    var onController: (VideoPlaybackController?) -> Void = { _ in }
 
     @State private var controller: VideoPlaybackController?
 
@@ -143,11 +155,13 @@ private struct MediaPlayerPane: View {
         .task(id: url) {
             let c = VideoPlayerModel.controller(for: url, existing: controller, make: AVPlaybackController.init)
             controller = c
-            MediaViewerModel.begin(c, at: start)
+            onController(c)
+            if autoplay { MediaViewerModel.begin(c, at: start) }
         }
         .onDisappear {
             MediaViewerModel.end(controller)
             controller = nil
+            onController(nil)
         }
         .focusable()
         .onKeyPress(.space) { VideoPlayerModel.handleSpace(controller) ? .handled : .ignored }
@@ -211,7 +225,7 @@ struct AudioSurface: View {
 }
 
 /// R9 — a file that moved, was deleted, or is known from another device: one sentence and a way to act.
-private struct MissingFilePane: View {
+struct MissingFilePane: View {
     let id: String
     let record: AddedFile?
     let places: MediaFilePlaces

@@ -275,7 +275,10 @@ struct ContentView: View {
         }
         // ROR-117 — an added recording, video or photo plays or shows here; the sheet closing stops the player.
         .sheet(item: Binding(get: { router.mediaRoute }, set: { router.mediaRoute = $0 })) { route in
-            MediaSheet(route: route, onAdd: addMedia) { router.mediaRoute = nil }
+            MediaSheet(route: route, onAdd: addMedia, openPage: { page in
+                router.mediaRoute = nil
+                router.routeToEntity(page)
+            }) { router.mediaRoute = nil }
         }
         // R-DS24 — the palette never shares the window with the panel, and the intake's overlay
         // (a drop, the Dock) takes the window back from it.
