@@ -222,7 +222,7 @@ final class FindPaletteModel {
         let sleeper = self.sleeper
         serverTask = Task { [weak self] in
             do { try await sleeper(SearchTiming.serverDebounce) } catch { return }
-            await self?.runPass(q, mode: "prefix")
+            await self?.runPass(q, mode: "prefix", kinds: FindServerRows.prefixKinds)
             do { try await sleeper(SearchTiming.semanticIdle - SearchTiming.serverDebounce) } catch { return }
             await self?.runPass(q, mode: "hybrid", kinds: FindServerRows.hybridKinds)
         }

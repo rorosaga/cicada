@@ -501,6 +501,12 @@
       "disposition": "uninstrumented_guarded"
     },
     {
+      "function": "set_pinned",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
       "function": "_set_extras",
       "method": "write",
       "frontmatter": "fm",

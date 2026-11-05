@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import ImageIO
 import XCTest
 @testable import CicadaApp
@@ -96,6 +97,41 @@ final class MediaFileIndexerTests: XCTestCase {
         let img = try XCTUnwrap(CGImageSourceCreateImageAtIndex(src, 0, nil))
         XCTAssertLessThanOrEqual(img.width, 640)
         XCTAssertLessThanOrEqual(img.height, 400)
+    }
+
+    // MARK: Text read from a picture (ROR-117)
+
+    func testTheRecognisersLinesBecomeOneRunOfWords() {
+        XCTAssertEqual(PictureText.tidy(["  Roadmap   Q4 ", "", "Roadmap   Q4", "Owner:  Dana"]), "Roadmap Q4 Owner: Dana",
+                       "trimmed, empty lines gone, a repeated line once")
+        XCTAssertEqual(PictureText.tidy([]), "")
+        XCTAssertEqual(PictureText.tidy([String(repeating: "word ", count: 2_000)]).count, PictureText.maxChars)
+    }
+
+    func testTheTextRidesBesideItsFrameAndAFrameNeverReadSendsNone() {
+        let read = KeptFrame(t: 3, jpeg: Data([0xFF, 0xD8]), text: "Roadmap Q4")
+        let blank = KeptFrame(t: 6, jpeg: Data([0xFF, 0xD8]), text: "")
+        let unread = KeptFrame(t: 9, jpeg: Data([0xFF, 0xD8]))
+        let rows = MediaFrames.body([read, blank, unread][...])
+        XCTAssertEqual(rows.compactMap { $0["text"] as? String }, ["Roadmap Q4", ""],
+                       "empty text clears an old one; no text key leaves what the backend kept")
+        XCTAssertNil(rows[2]["text"])
+        XCTAssertEqual(rows.map { $0["t"] as? Double }, [3, 6, 9])
+    }
+
+    func testTheMacsOwnRecogniserReadsWordsOffAPicture() throws {
+        let image = picture({ ctx in
+            ctx.setFillColor(gray: 1, alpha: 1)
+            ctx.fill(CGRect(x: 0, y: 0, width: 1280, height: 720))
+            let font = CTFontCreateWithName("Helvetica-Bold" as CFString, 110, nil)
+            let line = CTLineCreateWithAttributedString(NSAttributedString(
+                string: "Pelicanwick roadmap", attributes: [NSAttributedString.Key(kCTFontAttributeName as String): font]))
+            ctx.textPosition = CGPoint(x: 40, y: 300)
+            CTLineDraw(line, ctx)
+        })
+        let text = SystemPictureTextReader().read(image)
+        try XCTSkipIf(text.isEmpty, "this Mac has no text recognition model to run")
+        XCTAssertTrue(text.lowercased().contains("pelicanwick"), "read: \(text)")
     }
 
     func testOnlyTheDerivativesArePostedNeverThePathOrTheBytes() async throws {

@@ -881,8 +881,10 @@ def search(
     if "image" in ctx.kinds:
         grouped["image"] = _image_kind(ctx, embed_fn) if semantic else []
     if "file" in ctx.kinds:
-        grouped["file"] = _file_kind(ctx, embed_fn) if semantic else []
-    meaning_ran = ctx.legs is not None or grouped.get("image") or grouped.get("file")
+        # ROR-117: the words leg runs on every pass (the palette's prefix pass included, no embedding call); the
+        # meaning leg only on a hybrid one.
+        grouped["file"] = _file_kind(ctx, embed_fn, semantic)
+    meaning_ran = ctx.legs is not None or (semantic and (grouped.get("image") or grouped.get("file")))
     ran = ctx.mode if ctx.mode == "prefix" or meaning_ran else "lexical"
     results = [hit for kind in ctx.kinds for hit in grouped.get(kind, [])]
     _qualify(ctx.memory_path, results)
@@ -921,23 +923,30 @@ def _image_kind(ctx: _Ctx, embed_fn) -> list[SearchHit]:
     return hits
 
 
-def _file_kind(ctx: _Ctx, embed_fn) -> list[SearchHit]:
-    """Recordings and videos the person added (meaning index 2): passages of their words by meaning, only those well
-    above the query's mean (``media_files.TEXT_LIFT_MIN``). The snippet is the recording's words — never the
-    person's own (``subtitle`` says so). Hybrid only, ranked, never counted."""
+def _file_kind(ctx: _Ctx, embed_fn, semantic: bool = True) -> list[SearchHit]:
+    """Recordings and videos the person added, and the text read from their pictures (meaning index 2; ROR-117):
+    passages found by their words (``file_words``, every pass) and by meaning (hybrid, only those well above the
+    query's mean, ``media_files.TEXT_LIFT_MIN``), fused into one hit per passage (``media_files.find``). The snippet
+    is the recording's words — never the person's (``subtitle`` says so; a picture's says it was read from the
+    picture). Ranked, never counted."""
     from api.services import media_files
 
     hits = []
-    for row in media_files.search_text(ctx.memory_path, ctx.q, top_k=ctx.per_kind, embed_fn=embed_fn):
+    for row in media_files.find(ctx.memory_path, ctx.q, top_k=ctx.per_kind, embed_fn=embed_fn, semantic=semantic,
+                                plain_words=ctx.mode == "hybrid"):
         meta = row.get("metadata") or {}
-        start = meta.get("start")
+        at = row["at"]
+        from_picture = meta.get("from") == "picture"
         snippet, offsets = snippet_window(row.get("text") or "", ctx.tokens)
         hits.append(SearchHit(
-            id=f"{meta.get('file_id')}@{int(float(start or 0))}", name=str(meta.get("name") or "A recording"),
+            id=f"{meta.get('file_id')}@{int(at)}" + (":text" if from_picture else ""),
+            name=str(meta.get("name") or "A recording"),
             type=str(meta.get("kind") or "audio"), status="active", confidence=0.0, score=float(row["score"]),
-            snippet=snippet, snippet_offsets=offsets, kind="file", matched_field="semantic",
-            subtitle=f"the recording's words, at {media_files.clock(start)}", file_id=meta.get("file_id") or None,
-            at_seconds=start, end_seconds=meta.get("end"),
+            snippet=snippet, snippet_offsets=offsets, kind="file",
+            matched_field="semantic" if row["via"] == "meaning" else "passage",
+            subtitle=("text read from the picture" if from_picture else "the recording's words")
+            + f", at {media_files.clock(at)}", file_id=meta.get("file_id") or None,
+            at_seconds=at, end_seconds=meta.get("end"),
         ))
     return hits
 

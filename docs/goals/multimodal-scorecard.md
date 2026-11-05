@@ -15,11 +15,11 @@ values never go in this file. Related: G43, G195 (meaning index 2), G162 (no dow
 | Kind | In | By words | By meaning | Opens at the moment | What the person sees |
 |---|---|---|---|---|---|
 | YouTube video | 5 | 4 | 4 | n/m | 5 |
-| Screen recording | 6 | 0 | 5 | 4 | 6 |
-| Any video file | 7 | 0 | 6 | 4 | 6 |
-| Image | 5 | 1 | 6 | n/a | 6 |
-| Audio file | 7 | 0 | 7 | 4 | 6 |
-| Voice Memos | 5 | 0 | 7 | 3 | 5 |
+| Screen recording | 6 | 6 | 5 | 8 | 7 |
+| Any video file | 7 | 9 | 6 | 8 | 7 |
+| Image | 5 | 6 | 6 | n/a | 6 |
+| Audio file | 7 | 9 | 7 | 8 | 7 |
+| Voice Memos | 5 | 7 | 7 | 6 | 6 |
 
 ## 2. The owner's bar (2026-11-05)
 
@@ -88,6 +88,22 @@ named in the PR pass (143 run, 0 failed, 1 skipped). Each number below replaces 
 - **What the person sees 6 (5 for Voice Memos).** A real surface for each kind, a moved file says so with a way to choose it
   (run on a moved MP4). There is still no transcript or summary beside the player.
 - **Image in 5.** A photo has a door by drop or pick and an item in the list. The door is covered by tests only, and a folder of photos has no door.
+
+## Re-score after search by words (ROR-117, PR 647, coordinator, 2026-11-05)
+
+Checked in the real app on a scratch home: typing six letters of a word said once at 0:12 in a synthetic MP4 found it as
+you type, with no model on the machine, and the hit opened the player at 0:12. Backend tests pass (`test_file_words.py`), Swift
+suites named in the PR pass (139 run, 0 failed, 1 skipped), including the Mac's recogniser reading words off a drawn picture.
+
+- **By words, video 9, audio 9.** Recall of a word said once was 90 of 90 at rank 1 in 1,800 synthetic passages. Palette cost is
+  p95 +1.1 ms at 25,000 passages on a loaded Mac. Not 10: no real recording with accents, crosstalk or mistranscribed names was run.
+- **Screen recording 6, image 6.** The text read from kept frames and photos is searchable, but no real screen recording or real
+  photo has been run. Frames are kept per shot, so text on screen between shots is not read.
+- **Voice Memos 7.** The same path, and no real memo has ever been read.
+- **Opens at the moment 8 (6 for Voice Memos).** A word hit lands on the second of the segment that says it, as the run shows. A
+  meaning hit lands on the segment holding the most query words, and on a paraphrase holding none of them, on the passage's start. A
+  segment can run several seconds, so the second is the segment's start, not the word's.
+- **What the person sees 7 (6 for Voice Memos, 6 for an image).** A row now shows the words and their real time.
 
 ## What is missing for a 10, per column (the follow-up's list)
 

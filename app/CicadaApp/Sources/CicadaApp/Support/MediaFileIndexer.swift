@@ -16,6 +16,8 @@ import UniformTypeIdentifiers
 /// * for a video, samples a frame every `MediaFrames.every` seconds (at most `MediaFrames.maxSamples`) and keeps one
 ///   per shot — an 8 × 8 average hash that moved more than `MediaFrames.minBits` bits from the last kept frame — each
 ///   a ≤ 640 × 400 JPEG with its time;
+/// * reads the text visible in each kept frame on this Mac (`PictureText`, Apple's on-device recogniser, ROR-117) and
+///   posts it beside the frame, so a screen recording with no speech is found by what it shows;
 /// * posts only those derivatives (`POST /files/media`, `POST /files/<id>/frames`): never the path, never the bytes.
 ///
 /// **Speech permission (checked with fixtures only, never raised on a developer's Mac).** `SFSpeechRecognizer`'s
@@ -170,9 +172,19 @@ enum MediaFrames {
         return (0..<n).map { Double($0) * every }
     }
 
+    /// One call's frames as the backend takes them: the time, the JPEG and — when the Mac read some — its text.
+    static func body(_ frames: ArraySlice<KeptFrame>) -> [[String: Any]] {
+        frames.map { frame in
+            var row: [String: Any] = ["t": frame.t, "jpeg": frame.jpeg.base64EncodedString()]
+            if let text = frame.text { row["text"] = text }
+            return row
+        }
+    }
+
     /// A photo's one derivative: the file decoded on this Mac (orientation applied, never larger than needed) and kept
-    /// as a ≤ 640 × 400 JPEG at time 0. `nil` for a file ImageIO cannot decode.
-    static func photoFrame(_ url: URL) -> KeptFrame? {
+    /// as a ≤ 640 × 400 JPEG at time 0, with the text the Mac reads in it (the same reader a video's frames use).
+    /// `nil` for a file ImageIO cannot decode.
+    static func photoFrame(_ url: URL, reader: any PictureTextReading = SystemPictureTextReader()) -> KeptFrame? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
@@ -180,7 +192,7 @@ enum MediaFrames {
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
               let data = jpeg(image) else { return nil }
-        return KeptFrame(t: 0, jpeg: data)
+        return KeptFrame(t: 0, jpeg: data, text: reader.read(image))
     }
 
     /// A ≤ 640 × 400 JPEG of `image` (aspect kept), ≤ 200 KB: lower quality until it fits.
@@ -208,6 +220,8 @@ enum MediaFrames {
 struct KeptFrame: Equatable {
     var t: Double
     var jpeg: Data
+    /// ROR-117 — the words the Mac's own recogniser read in this frame (nil: not read; empty: nothing to read).
+    var text: String? = nil
 }
 
 protocol FrameSampling: Sendable {
@@ -215,6 +229,8 @@ protocol FrameSampling: Sendable {
 }
 
 struct SystemFrameSampler: FrameSampling {
+    var reader: any PictureTextReading = SystemPictureTextReader()
+
     func frames(_ url: URL) async -> (length: Double?, frames: [KeptFrame]) {
         let asset = AVURLAsset(url: url)
         let duration = (try? await asset.load(.duration)).map { CMTimeGetSeconds($0) }
@@ -231,8 +247,11 @@ struct SystemFrameSampler: FrameSampling {
             sampled.append((t, image))
         }
         let kept = MediaFrames.keep(sampled.map { MediaFrames.averageHash($0.1) })
-        let frames = kept.compactMap { i -> KeptFrame? in
-            MediaFrames.jpeg(sampled[i].1).map { KeptFrame(t: sampled[i].0, jpeg: $0) }
+        // The text is read from the sampled image (up to twice the posted size), not from the small JPEG.
+        let frames = kept.enumerated().compactMap { n, i -> KeptFrame? in
+            MediaFrames.jpeg(sampled[i].1).map {
+                KeptFrame(t: sampled[i].0, jpeg: $0, text: n < PictureText.maxPerFile ? reader.read(sampled[i].1) : nil)
+            }
         }
         return (duration, frames)
     }
@@ -253,9 +272,7 @@ extension APIClient: MediaFilesAPI {
 
     func postMediaFrames(fileId: String, frames: [KeptFrame]) async throws {
         for start in stride(from: 0, to: frames.count, by: 64) {
-            let batch = frames[start..<min(frames.count, start + 64)].map {
-                ["t": $0.t, "jpeg": $0.jpeg.base64EncodedString()] as [String: Any]
-            }
+            let batch = MediaFrames.body(frames[start..<min(frames.count, start + 64)])
             let _: [String: Int] = try await postVideo("/files/\(fileId)/frames", body: ["frames": batch])
         }
     }
@@ -380,7 +397,8 @@ final class MediaFileIndexer {
     /// ROR-117 — a photo: no words, one ≤ 640 × 400 derivative posted as the file's frame at 0. The original stays
     /// where it is; the viewer opens it from `places`.
     private func addPhoto(_ url: URL, sha: String) async -> AddOutcome {
-        guard let frame = MediaFrames.photoFrame(url) else { return .failed }
+        // Off the main actor: the text read takes real time on a large photo.
+        guard let frame = await Task.detached(operation: { MediaFrames.photoFrame(url) }).value else { return .failed }
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         let body: [String: Any] = ["name": url.lastPathComponent, "kind": MediaKind.image.rawValue,
                                    "sha256": sha, "size": size, "segments": [[String: Any]]()]

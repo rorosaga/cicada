@@ -233,6 +233,9 @@ def _state(memory_path: Path) -> _BankState:
 
 def reset(memory_path: Path | None = None) -> None:
     """Forget cached process state (tests; never needed in production)."""
+    from api.services import file_words
+
+    file_words.reset(memory_path)
     with _STATES_LOCK:
         if memory_path is None:
             _STATES.clear()

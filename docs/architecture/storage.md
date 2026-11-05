@@ -2372,6 +2372,35 @@ those embed in ≈ 70 s an hour (the worst case, a frame kept at every sample, 1
 owner's 8,028-page bank with one hour added, interleaved: recall p50 269 → 278 ms, p95 1,629 → 1,568 ms (noise); the
 `files` leg 2.1 / 3.5 ms with no table … 3.4 / 6.2 ms with the hour.
 
+### Found by the words inside (ROR-117, G43, 2026-11-05)
+`api/services/file_words.py`, `media_files.find`, `search_service._file_kind`, the app's `PictureText`. **Why:** the meaning
+leg alone cannot find a distinctive word said once (a surname, a product, a number), a lone passage never clears its floor,
+and the palette's as-you-type pass cannot call an embedding model. **Where:** an FTS5 table `fil` (+ `fil_state`, one stamp and
+one rowid slot per file) **inside `search_index.db`** — not a table in `vector_index.db`, whose mtime is Sleep's sync cursor
+and whose existence says a model has indexed something, and not a kind of its own: a words index must exist with no model.
+`search_index` never touches it (its builds drop only its own tables); the table is created only when a file exists, rebuilt
+from the store when missing or when its layout tag changes (bulk, in a background thread; a search serves what is there),
+diffed against the store's stamps at most every 2 s, and a write re-indexes its file at once. **Taking a file out** (`DELETE
+/files/<id>`, `retire_source`) drops its rows in the same call (a rowid-range delete). **The same passages** the meaning kind
+embeds, so the two lists fuse per passage with `search_service.rrf_scores` (the one fusion): a hit is a passage, never a word
+hit and a meaning hit of the same one. **Where a hit lands:** the start of the segment of the passage that holds most of the
+query's words (the earliest on a tie), for a word hit and a meaning hit alike; the passage's start when none holds any
+(`media_files._at_ms`; a passage keeps `[offset, start ms]` marks per segment). **Doors:** `kinds=file` is now asked by the
+palette's prefix pass too (words only, no embedding call; frames stay hybrid), `/search`, and recall's "From recordings and
+videos you added" (words and meaning, the excerpt around the words). A question in plain words falls back to the question's
+rare words (those few passages hold) when no passage holds every word. **Rails:** a derived file, git-ignored and in
+`bank_registry`'s never-copied list; the words are the recording's, never an episode, never read by Sleep (a test pins that no
+Sleep module imports either module); the query and the passages are never logged; the remote connector still sees no `files`
+section (recall's is local-doors-only; a test proves the new words are not in a remote recall).
+**Text read from a picture.** The app reads the text in each kept frame with Apple's on-device recogniser
+(`VNRecognizeTextRequest`; no permission, nothing sent) and posts it as the frame's `text` on `POST /files/<id>/frames`;
+`media_files.record_frame_text(file_id, [(seconds, text)])` is the one function a photo item calls too (a photo is `(0, text)`).
+Stored beside the frames (`frame_text.json`, ≤ 4,000 characters a picture, scrubbed with `episode_scrub` like a transcript), a
+run of the same text over consecutive frames is one passage, embedded as a `files` passage with `from: picture` (so searchable by
+meaning) and indexed by words; a hit says "text read from the picture, at 0:42". At most 600 of a video's kept frames are read
+(time only). Coordinator's decision: this OCR is allowed because it is on-device, app-side and goes through the same scrub.
+**Measured** (synthetic; scratch home; `benchmarks.perf.file_words_bench`): the palette's prefix pass on a synthetic bank of 2,000 pages and 1,500 conversations (the size the 12.5 ms figure was taken at), this Mac under other sessions' load, so its own baseline is p50 11 / p95 18 ms: adding `file` costs p50 +0.7 ms and p95 +0.5 ms at 2,000 passages, +1.0 at 10,000 and +1.1 at 25,000 (the words leg alone: p50 0.7 ms; p95 1.0 / 3.2 / 4.5 ms at 2,000 / 10,000 / 25,000 passages; a two-letter prefix is unranked, newest first). Building the table from the store: 1.7 s / 10 s / 34 s for those counts, in the background when more than 40 files are out of step. Recall of a distinctive word said once (an invented surname, a code, an eight-digit number) with the real text model (EmbeddingGemma 300m, local cache), 1,800 passages: the word alone, by meaning only 89 of 90 at rank 1, by words only 90 of 90, fused 90 of 90; inside a question ("what did they say about <word>"), meaning 87 of 90 at rank 1 (88 in the top 8), words 90 of 90, fused 90 of 90. At 240 passages meaning already finds 30 of 30, so the gain is the tail and the cases the model is not there for: no model, a lone passage, as-you-type. Two passages: a paraphrase is found by meaning, not by words; the exact word by both.
+
 ### Voice Memos (G43, 2026-11-05)
 `media_files.record_media(source="voice_memos", source_key, recorded_at, transcribed_by)`, `POST /files/voice-memos`, the
 app's `VoiceMemosReader`. The scorecard for every kind of media is [`multimodal-scorecard.md`](../goals/multimodal-scorecard.md).

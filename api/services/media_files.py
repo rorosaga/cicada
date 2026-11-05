@@ -55,6 +55,9 @@ MAX_SECONDS = 48 * 3600.0
 MAX_FRAMES = 1_200                  # DigUp's cap: 1 h at one frame every 3 s
 MAX_FRAMES_PER_CALL = 64
 MAX_FRAME_BYTES = 200 * 1024
+FRAME_TEXT_FILE = "frame_text.json"
+MAX_FRAME_TEXT_CHARS = 4_000        # the text read from one picture (a screen full is about 2,000)
+MAX_TEXT_ITEMS_PER_CALL = 64
 FRAME_W, FRAME_H = 640, 400
 PASSAGE_CHARS = 1_600               # vector_index.EPISODE_CHUNK_CHARS: what the search models read
 #: A passage is a hit only this far above the query's mean cosine over every passage. Calibrated on the real text
@@ -207,6 +210,7 @@ def record_media(memory_path, *, name: str, kind: str, sha256: str | None = None
     _write_atomic(folder / "transcript.json", json.dumps(kept, ensure_ascii=False).encode())
     _write_atomic(folder / "meta.json", (json.dumps(meta, indent=2, ensure_ascii=False) + "\n").encode())
     episode_scrub.record(SCRUB_WRITER, scrubbed)
+    _reindex(memory_path, fid)
     return {"action": "updated" if old and not old.get("deleted_at") else "added", "id": fid}
 
 
@@ -227,11 +231,12 @@ def retire_source(memory_path, source: str, present: set[str]) -> int:
         from api.services import media_pages
 
         media_pages.queue_retirement(memory_path, [folder.name])      # its page goes with it (the next sync)
-        for name in ("transcript.json", "frames.json"):
+        for name in ("transcript.json", "frames.json", FRAME_TEXT_FILE):
             (folder / name).unlink(missing_ok=True)
         shutil.rmtree(folder / "frames", ignore_errors=True)
         meta.update({"deleted_at": _now(), "segments": 0})
         _write_atomic(folder / "meta.json", (json.dumps(meta, indent=2, ensure_ascii=False) + "\n").encode())
+        _unindex(memory_path, folder.name)
         n += 1
     return n
 
@@ -321,6 +326,7 @@ def delete(memory_path, file_id: str, *, by: str = "cicada") -> bool:
 
     media_pages.queue_retirement(memory_path, [file_id], by=by)
     shutil.rmtree(folder)
+    _unindex(memory_path, file_id)
     return True
 
 
@@ -349,21 +355,21 @@ def clock(seconds) -> str:
     return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
 
 
-def passages(meta: dict, segments: list[dict]) -> list[tuple[str, str, dict]]:
-    """``(key, text, metadata)`` for ``vector_index``'s sync: whole segments packed to about ``PASSAGE_CHARS``, each
-    passage keeping the start of its first segment and the end of its last."""
-    out, buf, start, end = [], [], None, 0.0
+def _pack(meta: dict, segments: list[dict]) -> list[dict]:
+    """Whole segments packed to about ``PASSAGE_CHARS``: ``{"key", "text", "md", "marks"}`` per passage, each keeping
+    the start of its first segment and the end of its last; ``marks`` are ``[character offset, start ms]`` of every
+    segment in the passage (what lets a word hit land on its own second)."""
+    out, buf, marks, start, end = [], [], [], None, 0.0
     fid = str(meta.get("id"))
 
     def flush():
-        nonlocal buf, start
+        nonlocal buf, marks, start
         if buf:
             i = len(out)
-            out.append((f"{fid}#{i}", " ".join(buf),
-                        {"file_id": fid, "name": meta.get("name"), "kind": meta.get("kind"), "start": start,
-                         "end": end, "words_by": "the recording",
-                         "recorded_at": meta.get("recorded_at")}))
-        buf, start = [], None
+            out.append({"key": f"{fid}#{i}", "text": " ".join(buf), "marks": marks,
+                        "md": {"file_id": fid, "name": meta.get("name"), "kind": meta.get("kind"), "start": start,
+                               "end": end, "words_by": "the recording", "recorded_at": meta.get("recorded_at")}})
+        buf, marks, start = [], [], None
 
     size = 0
     for seg in segments:
@@ -373,11 +379,107 @@ def passages(meta: dict, segments: list[dict]) -> list[tuple[str, str, dict]]:
             size = 0
         if start is None:
             start = float(seg.get("start") or 0)
+        marks.append([size, int(round(float(seg.get("start") or 0) * 1000))])
         buf.append(text)
         size += len(text) + 1
         end = float(seg.get("end") or seg.get("start") or 0)
     flush()
     return out
+
+
+def passages(meta: dict, segments: list[dict]) -> list[tuple[str, str, dict]]:
+    """``(key, text, metadata)`` for ``vector_index``'s sync: whole segments packed to about ``PASSAGE_CHARS``, each
+    passage keeping the start of its first segment and the end of its last."""
+    return [(p["key"], p["text"], p["md"]) for p in _pack(meta, segments)]
+
+
+# --------------------------------------------------------------------------- text read from a picture (ROR-117)
+
+
+def clean_picture_text(text) -> tuple[str, int]:
+    """The one cleaning of text an app read from a picture — a kept frame, or a photo item (a door that adds one
+    calls :func:`record_frame_text`): whitespace collapsed, at most ``MAX_FRAME_TEXT_CHARS``, and the same scrub as a
+    transcript before anything is stored. ``(text, how many secrets it scrubbed)``."""
+    from api.services import episode_scrub
+
+    flat = " ".join(str(text or "").split())[:MAX_FRAME_TEXT_CHARS]
+    return episode_scrub.scrub(flat) if flat else ("", 0)
+
+
+def _frame_text_rows(folder: Path) -> list[dict]:
+    rows = _json(folder / FRAME_TEXT_FILE)
+    if not isinstance(rows, list):
+        return []
+    return [r for r in rows if isinstance(r, dict) and isinstance(r.get("ms"), int) and r.get("text")]
+
+
+def record_frame_text(memory_path, file_id: str, items: list[tuple[float, str]]) -> dict:
+    """Keep the text an app read from a picture at a time of the item (``[(seconds, text)]``): each kept frame of a
+    video, or ``(0, text)`` for a photo item. Read on this Mac by the app (Apple's on-device recogniser) and posted as
+    a derivative; it is the picture's words — never the person's, never read by Sleep — searchable by words and by
+    meaning, marked as read from the picture. A time already kept is replaced; empty text removes it. Scrubbed like a
+    transcript. ``{"kept", "total"}``; raises :class:`FileRefused` and writes nothing for anything out of shape."""
+    from api.services import episode_scrub
+
+    folder = _folder(memory_path, file_id)
+    if folder is None or not (folder / "meta.json").is_file():
+        raise FileRefused("add the file before its picture text")
+    if len(items) > MAX_TEXT_ITEMS_PER_CALL:
+        raise FileRefused(f"at most {MAX_TEXT_ITEMS_PER_CALL} pictures' text a call")
+    index = {int(r["ms"]): str(r["text"]) for r in _frame_text_rows(folder)}
+    checked, scrubbed = [], 0
+    for t, text in items:
+        text, n = clean_picture_text(text)
+        scrubbed += n
+        checked.append((int(round(_seconds(t, "a picture's time") * 1000)), text))
+    for ms, text in checked:
+        if text:
+            index[ms] = text
+        else:
+            index.pop(ms, None)
+    if len(index) > MAX_FRAMES:
+        raise FileRefused(f"at most {MAX_FRAMES} pictures' text a file")
+    rows = [{"ms": ms, "text": index[ms]} for ms in sorted(index)]
+    if rows:
+        _write_atomic(folder / FRAME_TEXT_FILE, json.dumps(rows, ensure_ascii=False).encode())
+    else:
+        (folder / FRAME_TEXT_FILE).unlink(missing_ok=True)
+    episode_scrub.record(SCRUB_WRITER, scrubbed)
+    _reindex(memory_path, file_id)
+    return {"kept": len([1 for _, text in checked if text]), "total": len(rows)}
+
+
+def _picture_pack(meta: dict, rows: list[dict]) -> list[dict]:
+    """One or more passages per picture's text (a run of the same text over consecutive kept frames is one): the
+    same shape as :func:`_pack`, ``md["from"] = "picture"`` and a single mark at the picture's time."""
+    out, last, fid = [], None, str(meta.get("id"))
+    for row in sorted(rows, key=lambda r: r["ms"]):
+        text = " ".join(str(row["text"]).split())
+        if not text or text == last:
+            continue
+        last = text
+        ms = int(row["ms"])
+        pieces, rest = [], text
+        while rest:
+            if len(rest) <= PASSAGE_CHARS:
+                pieces.append(rest)
+                break
+            cut = rest.rfind(" ", 0, PASSAGE_CHARS)
+            cut = cut if cut > 0 else PASSAGE_CHARS
+            pieces.append(rest[:cut])
+            rest = rest[cut:].lstrip()
+        for j, piece in enumerate(pieces):
+            out.append({"key": f"{fid}#t{ms}" + (f".{j}" if j else ""), "text": piece, "marks": [[0, ms]],
+                        "md": {"file_id": fid, "name": meta.get("name"), "kind": meta.get("kind"),
+                               "start": ms / 1000.0, "end": ms / 1000.0, "words_by": "the recording",
+                               "from": "picture", "recorded_at": meta.get("recorded_at")}})
+    return out
+
+
+def _packed(folder: Path, meta: dict) -> list[dict]:
+    segs = _json(folder / "transcript.json")
+    out = _pack(meta, segs) if isinstance(segs, list) and segs else []
+    return out + _picture_pack(meta, _frame_text_rows(folder))
 
 
 def staged(memory_path) -> list[tuple[str, str, dict]]:
@@ -387,10 +489,65 @@ def staged(memory_path) -> list[tuple[str, str, dict]]:
         return rows
     for folder in sorted(base.iterdir()):
         meta = _json(folder / "meta.json") if FILE_ID_RE.match(folder.name) else None
-        segs = _json(folder / "transcript.json") if isinstance(meta, dict) else None
-        if isinstance(segs, list) and segs:
-            rows += passages(meta, segs)
+        if isinstance(meta, dict):
+            rows += [(p["key"], p["text"], p["md"]) for p in _packed(folder, meta)]
     return rows
+
+
+# --------------------------------------------------------------------------- into the lexical index (file_words)
+
+_STAMPED = ("transcript.json", FRAME_TEXT_FILE, "meta.json")
+
+
+def _stamp(folder: Path) -> str | None:
+    """What the store holds for one item, for ``file_words``' diff: ``None`` when it holds no words or text."""
+    parts = []
+    for name in _STAMPED:
+        try:
+            st = (folder / name).stat()
+            parts.append(f"{st.st_mtime_ns}:{st.st_size}")
+        except OSError:
+            parts.append("-")
+    return None if parts[0] == "-" and parts[1] == "-" else "|".join(parts)
+
+
+def store_stamps(memory_path) -> dict[str, str]:
+    """``{file id: stamp}`` of every item that holds words or picture text."""
+    base = root(memory_path)
+    if not base.is_dir():
+        return {}
+    out = {}
+    for folder in base.iterdir():
+        if FILE_ID_RE.match(folder.name) and (stamp := _stamp(folder)):
+            out[folder.name] = stamp
+    return out
+
+
+def lexical_rows(memory_path, file_id: str) -> tuple[str | None, list[dict]]:
+    """``(stamp, rows)`` for ``file_words``: the item's passages (the ones the meaning index embeds) as
+    ``{"body", "s", "e" (ms), "src", "marks", "name", "kind"}``. ``(None, [])`` for an item taken out."""
+    folder = _folder(memory_path, file_id)
+    meta = _json(folder / "meta.json") if folder is not None else None
+    stamp = _stamp(folder) if folder is not None and isinstance(meta, dict) and not meta.get("deleted_at") else None
+    if stamp is None:
+        return None, []
+    rows = [{"body": p["text"], "s": int(round(float(p["md"]["start"] or 0) * 1000)),
+             "e": int(round(float(p["md"]["end"] or p["md"]["start"] or 0) * 1000)),
+             "src": p["md"].get("from") or "", "marks": p["marks"], "name": meta.get("name") or "",
+             "kind": meta.get("kind") or "audio"} for p in _packed(folder, meta)]
+    return stamp, rows
+
+
+def _reindex(memory_path, file_id: str) -> None:
+    from api.services import file_words
+
+    file_words.reindex(memory_path, file_id)
+
+
+def _unindex(memory_path, file_id: str) -> None:
+    from api.services import file_words
+
+    file_words.drop(memory_path, file_id)
 
 
 def pictures(memory_path) -> list:
@@ -511,4 +668,74 @@ def search_text(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> li
         out.append({"key": (h.get("metadata") or {}).get("file_id", ""), "score": round(score, 4),
                     "cosine": round(float(h["score"]), 4), "text": h.get("text") or "",
                     "metadata": h.get("metadata") or {}})
+    return out
+
+
+def _at_ms(body: str, marks: list, tokens: list[str], default: int) -> int:
+    """The second a hit lands on: the start of the segment (or picture) of the passage that holds the most of the
+    query's words (a word-start each, the subject words when the query has some), the earliest on a tie; the
+    passage's own start (``default``) when no segment holds any."""
+    from api.services import text_fold
+
+    subject = [t for t in tokens if text_fold.subject_terms(t)] or tokens
+    if not marks or not subject:
+        return default
+    best, best_n = default, 0
+    for i, (offset, ms) in enumerate(marks):
+        end = marks[i + 1][0] - 1 if i + 1 < len(marks) else len(body)
+        words = text_fold.words(body[offset:end])
+        n = sum(1 for t in subject if any(w.startswith(t) for w in words))
+        if n > best_n:
+            best, best_n = int(ms), n
+    return best
+
+
+def find(memory_path, query: str, *, top_k: int = 8, embed_fn=None, semantic: bool = True,
+         plain_words: bool = True) -> list[dict]:
+    """Passages of added recordings, videos and the text read from their pictures for ``query``, best first: by
+    meaning (:func:`search_text`) and by words (``file_words``), the two lists fused into one hit per passage by
+    the one reciprocal-rank fusion (``search_service.rrf_scores``). ``[{"key" (file id), "score", "text",
+    "metadata" (file_id, name, kind, start, end, from?), "at" (seconds the hit lands on), "via" ("words" |
+    "meaning" | "both")}]``. ``semantic=False`` is the type-as-you-go path: words only, no embedding call.
+    ``plain_words`` lets a question in plain words find its rarest word. Never raises; the query is never logged."""
+    from api.services import file_words, search_service, text_fold
+
+    query = (query or "").strip()
+    top_k = max(1, int(top_k))
+    tokens = text_fold.query_tokens(query)
+    sem = search_text(memory_path, query, top_k=top_k, embed_fn=embed_fn) if semantic else []
+    try:
+        lex = file_words.search(memory_path, query, limit=top_k, plain_words=plain_words)
+    except Exception as exc:  # noqa: BLE001 — a derived leg fewer, never an error
+        logger.debug(f"media_files: the words leg failed ({type(exc).__name__})")
+        lex = []
+
+    def sem_key(row):
+        md = row.get("metadata") or {}
+        return f"{md.get('file_id')}|{int(round(float(md.get('start') or 0) * 1000))}|{md.get('from') or ''}"
+
+    def lex_key(row):
+        return f"{row['fid']}|{row['s']}|{row['src']}"
+
+    scores, _ = search_service.rrf_scores([{"id": lex_key(r)} for r in lex], [{"id": sem_key(r)} for r in sem])
+    by_lex, by_sem = {lex_key(r): r for r in lex}, {sem_key(r): r for r in sem}
+    out = []
+    for k in sorted(scores, key=lambda x: -scores[x])[:top_k]:
+        lx, sm = by_lex.get(k), by_sem.get(k)
+        if lx is not None:
+            md = {"file_id": lx["fid"], "name": lx["name"], "kind": lx["kind"], "start": lx["s"] / 1000.0,
+                  "end": lx["e"] / 1000.0, "words_by": "the recording"}
+            if lx["src"]:
+                md["from"] = lx["src"]
+            at = _at_ms(lx["body"], lx["marks"], tokens, lx["s"]) / 1000.0
+            text = lx["body"]
+        else:
+            md = dict(sm.get("metadata") or {})
+            text = sm.get("text") or ""
+            start_ms = int(round(float(md.get("start") or 0) * 1000))
+            held = file_words.passage(memory_path, md.get("file_id", ""), start_ms, md.get("from") or "")
+            at = (_at_ms(held["body"], held["marks"], tokens, start_ms) if held else start_ms) / 1000.0
+        out.append({"key": md.get("file_id", ""), "score": round(scores[k], 4), "text": text, "metadata": md,
+                    "at": at, "via": "both" if lx is not None and sm is not None else "words" if lx is not None
+                    else "meaning"})
     return out

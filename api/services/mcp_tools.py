@@ -2380,7 +2380,7 @@ def _recall(ctx: ToolContext, query: str) -> str:
         file_lines = _file_lines(memory_path, query)
         if file_lines:
             output_parts.append("**From recordings and videos you added (the recording's words, not yours; by "
-                                "meaning):**\n" + "\n".join(file_lines))
+                                "words and meaning):**\n" + "\n".join(file_lines))
 
     # G180: a graph with no page at all is an empty graph whether or not `entities/` was
     # scaffolded; the text is unchanged, the refusal is typed (never matched on the sentence).
@@ -2452,21 +2452,22 @@ def _file_lines(memory_path: Path, query: str) -> list[str]:
     """At most ``RECALL_FILE_LINES`` passages of added recordings (``media_files``): the file's name, where in it,
     and a short excerpt of its words — hits only (G195: an agent sees a hit; the whole file only on the person's ask).
     None when nothing clears the floor."""
-    from api.services import media_files
+    from api.services import media_files, text_fold
 
     try:
-        rows = media_files.search_text(memory_path, query, top_k=RECALL_FILE_LINES)
+        rows = media_files.find(memory_path, query, top_k=RECALL_FILE_LINES)
     except Exception as exc:  # noqa: BLE001 — never fails a recall
         from loguru import logger
 
         logger.debug(f"recall: file leg skipped ({type(exc).__name__})")
         return []
-    lines = []
+    lines, tokens = [], text_fold.query_tokens(query)
     for row in rows:
         meta = row.get("metadata") or {}
-        words = " ".join(str(row.get("text") or "").split())[:RECALL_EXCERPT_CHARS]
+        words, _ = search_service.snippet_window(row.get("text"), tokens, RECALL_EXCERPT_CHARS)   # around the words
+        read = "text read from the picture, " if meta.get("from") == "picture" else ""
         lines.append(f"- {str(meta.get('name') or 'A recording')[:RECALL_HOP_CHARS]} ({meta.get('kind') or 'audio'}, "
-                     f"at {media_files.clock(meta.get('start'))}): {words}")
+                     f"{read}at {media_files.clock(row.get('at', meta.get('start')))}): {words}")
     return lines
 
 

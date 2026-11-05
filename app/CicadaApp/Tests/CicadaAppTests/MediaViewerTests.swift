@@ -137,6 +137,13 @@ final class MediaViewerTests: XCTestCase {
         XCTAssertTrue(IntakePicker.mediaContentTypes.contains(.image))
     }
 
+    func testAPhotoCarriesTheTextReadFromIt() throws {
+        struct Reader: PictureTextReading { func read(_ image: CGImage) -> String { "words on the sign" } }
+        let frame = try XCTUnwrap(MediaFrames.photoFrame(try png("sign.png"), reader: Reader()))
+        XCTAssertEqual(frame.text, "words on the sign")
+        XCTAssertEqual(MediaFrames.body([frame][...]).first?["text"] as? String, "words on the sign")
+    }
+
     func testAPhotoPostsOneSmallDerivativeAndAsksForNoSpeech() async throws {
         let photo = try png("trip.png")
         let api = FakeMediaAPI()

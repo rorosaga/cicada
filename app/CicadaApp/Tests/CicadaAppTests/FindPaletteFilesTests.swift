@@ -59,8 +59,9 @@ final class FindPaletteFilesTests: XCTestCase {
         let built = FindServerRows.rows(response, query: "budget", context: .init())
         let totals = FindServerRows.totals(response, rows: built, kinds: FindServerRows.hybridKinds, perKind: 8)
         XCTAssertEqual(totals[.files], .exact(3))
-        XCTAssertNil(FindServerRows.kind(for: .files), "no prefix pass for files: expanding fetches nothing")
-        XCTAssertFalse(FindServerRows.kinds.contains("file"), "the prefix pass never asks for files")
+        XCTAssertNil(FindServerRows.kind(for: .files), "no expansion for files: \"More…\" fetches nothing")
+        XCTAssertFalse(FindServerRows.kinds.contains("file"), "the expansion kinds never include files")
+        XCTAssertEqual(FindServerRows.prefixKinds, FindServerRows.kinds + ["file"], "as you type: the words, not the frames")
         XCTAssertTrue(FindGroupID.files > .sources && FindGroupID.files < .inbox)
         XCTAssertEqual(FindGroupID.files.title, "Files")
     }
@@ -73,14 +74,15 @@ final class FindPaletteFilesTests: XCTestCase {
         return model
     }
 
-    func testOnlyTheHybridPassAsksForFilesAndTheGroupAppears() async {
+    func testTheWordsOfAFileAreAskedAsYouTypeAndTheFramesOnlyByMeaning() async {
         let api = FakeFindSearch()
         api.response = FakeFindSearch.decode(Self.wire)
         let m = model(api)
         m.setQuery("budget")
         await m.serverTask?.value
         XCTAssertEqual(api.calls.map(\.mode), ["prefix", "hybrid"])
-        XCTAssertEqual(api.calls[0].kinds, FindServerRows.kinds)
+        XCTAssertEqual(api.calls[0].kinds, FindServerRows.prefixKinds)
+        XCTAssertFalse(api.calls[0].kinds.contains("image"), "a frame is found by meaning, never by prefix")
         XCTAssertEqual(api.calls[1].kinds, FindServerRows.hybridKinds)
         let files = m.sections.first { $0.group == .files }
         XCTAssertEqual(files?.rows.count, 3)
