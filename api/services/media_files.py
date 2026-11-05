@@ -42,7 +42,7 @@ import numpy as np
 from loguru import logger
 
 ROOT_DIR = "files"
-KINDS = ("audio", "video")
+KINDS = ("audio", "video", "image")
 TEXT_KIND = "files"
 FILE_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -149,7 +149,7 @@ def record_media(memory_path, *, name: str, kind: str, sha256: str | None = None
 
     kind = str(kind or "").strip().lower()
     if kind not in KINDS:
-        raise FileRefused("only audio and video files are kept here")
+        raise FileRefused("only audio, video and picture files are kept here")
     sha = str(sha256 or "").strip().lower()
     when = None
     if source is not None:
@@ -238,8 +238,11 @@ def record_frames(memory_path, file_id: str, frames: list[tuple[float, bytes]]) 
     folder = _folder(memory_path, file_id)
     if folder is None or not (folder / "meta.json").is_file():
         raise FileRefused("add the file before its frames")
-    if (_json(folder / "meta.json") or {}).get("kind") != "video":
-        raise FileRefused("only a video has frames")
+    kind = (_json(folder / "meta.json") or {}).get("kind")
+    if kind not in ("video", "image"):
+        raise FileRefused("only a video or a picture has frames")
+    if kind == "image" and len(frames) > 1:
+        raise FileRefused("a picture keeps one picture")
     if len(frames) > MAX_FRAMES_PER_CALL:
         raise FileRefused(f"at most {MAX_FRAMES_PER_CALL} frames a call")
     index = {int(r["ms"]): r for r in (_json(folder / "frames.json") or []) if isinstance(r, dict) and "ms" in r}
@@ -253,6 +256,8 @@ def record_frames(memory_path, file_id: str, frames: list[tuple[float, bytes]]) 
         if size is None or size[0] > FRAME_W or size[1] > FRAME_H:
             raise FileRefused("a frame must be at most 640 × 400")
         checked.append((int(round(at * 1000)), data))
+    if kind == "image":
+        index = {}      # a photo keeps one derivative: a new one replaces the old
     if len(set(index) | {ms for ms, _ in checked}) > MAX_FRAMES:
         raise FileRefused(f"at most {MAX_FRAMES} frames a file")
     for ms, data in checked:
@@ -375,6 +380,7 @@ def pictures(memory_path) -> list:
         meta = _json(folder / "meta.json") if FILE_ID_RE.match(folder.name) else None
         if not isinstance(meta, dict):
             continue
+        photo = meta.get("kind") == "image"
         for row in _json(folder / "frames.json") or []:
             if not isinstance(row, dict) or "ms" not in row:
                 continue
@@ -382,6 +388,13 @@ def pictures(memory_path) -> list:
             if not path.is_file():
                 continue
             at = int(row["ms"]) / 1000.0
+            if photo:
+                # A photo added by the person: its one derivative, named by the file, with no time.
+                out.append(image_index.Picture(
+                    f"photo:{folder.name}", "photo", path, title=str(meta.get("name") or "A photo"),
+                    file_id=folder.name, day=str(meta.get("added_at") or "")[:10] or None,
+                    thumb=f"/files/{folder.name}/frames/{int(row['ms'])}", sha=str(row.get("sha256") or "") or None))
+                continue
             out.append(image_index.Picture(
                 f"frame:{folder.name}@{int(row['ms'])}", "frame", path,
                 title=f"{meta.get('name') or 'A video'} at {clock(at)}", file_id=folder.name, at=at,

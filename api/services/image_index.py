@@ -91,7 +91,7 @@ def recipe() -> str | None:
 class Picture:
     """One picture Cicada holds, and where it came from (all ids, never a path, on the wire)."""
     key: str                       # "<source>:<id>", the row's stable key
-    source: str                    # look | capture | preview | still | frame
+    source: str                    # look | capture | preview | still | frame | photo
     path: Path
     title: str = ""
     entity_id: str | None = None
