@@ -30,6 +30,7 @@ marked or how many books they own. A theme becomes a page through the normal rul
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -241,6 +242,35 @@ def for_caller(marks: dict | None) -> dict | None:
     return {"total": marks.get("total", 0),
             "items": [{"claimId": i["claimId"], "day": i["day"], "text": None, "note": None}
                       for i in marks.get("items") or []]}
+
+
+#: What a mark reads as for a caller that may not see the words: the person's own, or a passage they chose.
+HIDDEN = "(what the person marked: this connection can't read it)"
+
+
+def masked_page(text: str) -> str:
+    """A page as an agent reads the file (fence and ledger lines), with each mark's words taken out. A line that does not
+    parse is left to the reader that already refuses it."""
+    out = []
+    for line in text.splitlines(keepends=True):
+        if line.startswith('{"id": "clm_book_') and f'"origin": "{MARK_ORIGIN}"' in line:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                out.append(line)
+                continue
+            if row.get("predicate") in (HIGHLIGHTED, NOTED):
+                row["text"], row["object"] = HIDDEN, ""
+                line = json.dumps(row, ensure_ascii=False) + ("\n" if line.endswith("\n") else "")
+        out.append(line)
+    return "".join(out)
+
+
+def without_marks(body: str) -> str:
+    """A page's body with its marks out of the claims block, for a reader that hands claims to a caller or a model on the
+    behalf of a caller without ``sources``."""
+    claims = parse_claims(body or "")
+    return write_claims(body, [c for c in claims if not is_mark(c)]) if any(is_mark(c) for c in claims) else body
 
 
 # ---- what Sleep reads ------------------------------------------------------------------------------------------------

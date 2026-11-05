@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, episode_time
-from api.services import entity_relations, episode_actor, page_blocks
+from api.services import book_marks, entity_relations, episode_actor, page_blocks
 from api.services import history_index, saved_lookup, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import (bank_index, entity_bands, link_views, markdown_parser, page_lock, same_name, search_index,
@@ -2902,6 +2902,8 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             page_text = path.read_text(encoding="utf-8")
             fm = parse_frontmatter(page_text)[0]
             text = _with_ledger(path, _without_plumbing(page_text))
+            if not ctx.raw_excerpts:   # ruling 64: what the person marked in a book is gated like their own words
+                text = book_marks.masked_page(text)
             shared = _same_name_note(memory_path, cid, fm)
             if shared:
                 text = text.rstrip("\n") + "\n\n" + shared + "\n"
@@ -4676,8 +4678,8 @@ def get_perspective(
         _log_failure("cicada_get_perspective", e)
         return Reply(f"Could not read '{subject}' ({type(e).__name__}).", code="error")
 
-    page_claims = parse_claims(parsed.body)
-    from api.services.claims import is_current, read_valid_to
+    from api.services.claims import is_current, is_mark, read_valid_to
+    page_claims = [c for c in parse_claims(parsed.body) if ctx.raw_excerpts or not is_mark(c)]
     claims = [c for c in page_claims if is_current(c)]
     if observer:
         claims = [c for c in claims if c.observer == observer]

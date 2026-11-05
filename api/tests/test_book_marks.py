@@ -212,6 +212,39 @@ def test_the_card_draws_notes_under_their_passage_and_a_remote_caller_sees_no_wo
     assert all(is_persons_words(c) for c in _marks(bank)), "the words are gated like the person's own"
 
 
+def test_a_caller_without_sources_reads_no_passage_or_note_through_any_tool(bank, monkeypatch):
+    from api.services import ask_service, mcp_tools
+
+    _sync(bank, _book([_note(PASSAGE_A, uuid="1", note=NOTE_A)]))
+    secret = ("lanterns were lit", "slow walk back")
+    remote = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="s", harness="unknown", raw_excerpts=False,
+                                   read_surface="remote")
+    local = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="s", harness="unknown")
+    page = "the-lantern-orchard"
+
+    def calls(ctx):
+        return {"recall": mcp_tools.recall(ctx, "lanterns"),
+                "detail": mcp_tools.recall_detail(ctx, page, include=["blocks"]),
+                "perspective": mcp_tools.get_perspective(ctx, page),
+                "timeline": mcp_tools.timeline(ctx, since="2020-01-01")}
+
+    for name, reply in calls(remote).items():
+        assert not any(word in str(reply) for word in secret), name
+    assert secret[0] in str(calls(local)["detail"]) and secret[1] in str(calls(local)["perspective"])
+    seen: list[str] = []
+
+    def llm(prompt, *a, **k):
+        seen.append(str(prompt))
+        return "{}"
+
+    retrieve = lambda _q, _k: [{"id": page, "text": "x", "score": 1.0, "metadata": {"entity_id": page}}]   # noqa: E731
+    ask_service.answer_query(bank, "what did I mark?", retrieve_fn=retrieve, llm_fn=llm, source_words=False)
+    assert seen and not any(word in " ".join(seen) for word in secret)
+    seen.clear()
+    ask_service.answer_query(bank, "what did I mark?", retrieve_fn=retrieve, llm_fn=llm, source_words=True)
+    assert seen and secret[0] in " ".join(seen)
+
+
 def test_a_mark_is_never_a_belief_sentence_on_the_page(bank):
     _sync(bank, _book([_note(PASSAGE_A, uuid="1")]))
     from api.services import page_citations
@@ -368,7 +401,7 @@ def test_the_page_says_why_it_matters_in_a_count_and_never_in_the_words(bank):
 
     _sync(bank, _book([_note(PASSAGE_A, uuid="1", note=NOTE_A), _note(PASSAGE_B, "2026-05-02", uuid="2")]))
     line = page_relevance.for_page(bank, "the-lantern-orchard").to_dict()["line"]
-    assert "you marked 3 passages in it" in line and "lanterns" not in line and "slow walk" not in line
+    assert "you marked 2 passages in it" in line and "lanterns" not in line and "slow walk" not in line
 
 
 def test_theme_hints_name_pages_books_link_to_and_names_held_from_a_book(bank):
