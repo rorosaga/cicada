@@ -28,6 +28,27 @@ final class AVPlaybackController: VideoPlaybackController {
         self.player = AVPlayer(url: url)
     }
 
+    var currentTime: Double {
+        let t = player.currentTime().seconds
+        return t.isFinite ? max(0, t) : 0
+    }
+
+    var length: Double? {
+        guard let t = player.currentItem?.duration.seconds, t.isFinite, t > 0 else { return nil }
+        return t
+    }
+
+    func seek(to seconds: Double) {
+        guard seconds.isFinite else { return }
+        let target = CMTime(seconds: max(0, seconds), preferredTimescale: 600)
+        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    func stop() {
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+    }
+
     func play() { player.play() }
     func pause() { player.pause() }
     func toggle() { isPlaying ? pause() : play() }

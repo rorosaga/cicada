@@ -273,6 +273,10 @@ struct ContentView: View {
         .sheet(isPresented: Binding(get: { router.reportProblemOpen }, set: { router.reportProblemOpen = $0 })) {
             ReportProblemSheet { router.reportProblemOpen = false }
         }
+        // ROR-117 — an added recording, video or photo plays or shows here; the sheet closing stops the player.
+        .sheet(item: Binding(get: { router.mediaRoute }, set: { router.mediaRoute = $0 })) { route in
+            MediaSheet(route: route, onAdd: addMedia) { router.mediaRoute = nil }
+        }
         // R-DS24 — the palette never shares the window with the panel, and the intake's overlay
         // (a drop, the Dock) takes the window back from it.
         .onChange(of: router.settingsOpen) { _, open in if open && paletteOpen { closePalette() } }
@@ -523,21 +527,29 @@ struct ContentView: View {
             // R-HS20 — the one door (R-DS22). The palette has already closed itself; Home's field
             // (page placement) stays, under the panel.
             router.openSettings(section, row: row)
-        case .addedFile(let id, _), .revealAddedFile(let id):
-            // Meaning index 2 — the file where this Mac last saw it (the app's own record; the backend never has a
-            // path). The default app opens it; ⌥⏎ shows it in Finder. Moved since: said in words, nothing opened.
+        case .addedFile(let id, let at):
+            // ROR-117 — the file plays or shows in the app, at the second the hit matched (`MediaSheet`); moved or
+            // gone, the sheet says so and offers the way to act. The default app stays one click in its header.
+            router.openMedia(id: id, at: at)
+        case .revealAddedFile(let id):
+            // Meaning index 2 — ⌥⏎ shows the file where this Mac last saw it (the app's own record; the backend never
+            // has a path) in Finder. Moved since: said in words, nothing opened.
             guard let url = MediaFileIndexer.shared.places.url(of: id) else {
                 store.toast = Copy.mediaFileMoved
                 break
             }
-            if case .revealAddedFile = destination {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
-            } else {
-                NSWorkspace.shared.open(url)
-            }
+            NSWorkspace.shared.activateFileViewerSelecting([url])
         case .ask, .askedBefore:
             break
         }
+    }
+
+    /// The viewer's list is empty: the File menu's own door, so the roots guard and the speech rule are the drop's.
+    private func addMedia() {
+        let urls = IntakePicker.chooseMedia()
+        guard !urls.isEmpty else { return }
+        router.mediaRoute = nil
+        intake.accept(urls: urls, from: .fileMenu)
     }
 
     /// R-SU13 — the same calls the owning pages make.

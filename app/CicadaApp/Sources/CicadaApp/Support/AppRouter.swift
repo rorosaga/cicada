@@ -334,6 +334,13 @@ final class AppRouter {
         reportProblemOpen = true
     }
 
+    /// ROR-117 — the in-app viewer for an added recording, video or photo, or the list of them (`MediaSheet`): the
+    /// find palette's hit and File → Added Files… set it, `ContentView` presents it.
+    var mediaRoute: MediaRoute?
+
+    func openMedia(id: String, at: Double?) { mediaRoute = .file(id: id, at: at) }
+    func openAddedFiles() { mediaRoute = .list }
+
     /// The Sources page with its *Reading in your browser* sheet open (Reading the web's switches since D6).
     var pendingReadingSheet = false
 
