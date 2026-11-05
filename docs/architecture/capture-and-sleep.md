@@ -1617,13 +1617,26 @@ its `content_hash`, so the queue is derived from the bank — a move or a restor
   stay two. A page records its doors (`book.doors`: `apple-books`, `goodreads`, `book-scan`) and `GET
   /entities/{id}/book-status` answers `ways` (`books.ways_in`: "Apple Books", "Goodreads", "Scanned"; an older page is
   known by its Apple Books and Goodreads ids), which the page's status line shows when there is more than one.
-- **The lookup** (`book_lookup`, home only): Open Library's `/isbn/<isbn>.json` then `/authors/<id>.json` (≤ 3), else
-  Google Books `volumes?q=isbn:`; one request a second, a redirect hop paced like any request, the pacer shared
+- **The lookup** (`book_lookup`, home only): Open Library's `/isbn/<isbn>.json`, `/authors/<id>.json` (≤ 3, from the edition,
+  else the work's), `/works/<id>.json` (a description, subjects), and Google Books `volumes?q=isbn:` whenever one still lacks
+  an author, description, publisher, page count or year (**merged**: Open Library's value kept, Google Books fills the rest;
+  alone when Open Library has no edition). **A page is worth opening (G233, 2026-11-05):** the answer carries `description`
+  (the source's own words, capped at 700 characters at a sentence end — a blurb, not the publisher's page — never a model's),
+  `description_source`/`description_url`, `publisher` and ≤ 5 `subjects`; a cached answer carries `v: 2` and an older hit is
+  asked again **once** (`book_lookup.stale`, via `books.waiting_isbns`, same pacing, cache and gate; a failure backs off and
+  keeps the old answer, a miss never erases it). The page's article is the description under its source and the day saved
+  (`## Summary`, then "From [Open Library](link), saved <day>", ruling 44's shape); with none the article is empty — the
+  `<Title> — a book.` line is gone from every writer (`books._book_prose`, which also clears it from older pages and never
+  touches words a person or agent wrote). `book.publisher`/`subjects` fill once; a person's title is never replaced.
+  `GET /entities/{id}/book` serves the head's facts and the ways in (`ways`: Apple Books, Goodreads, Scanned with the scan's
+  day, from `book.doors` and the episode); `GET /sources/books/scans/{id}` adds `authors` and `cover`. A scan episode is in
+  no search index and its list row, while the number waits, reads "Looking it up…" and opens nothing: the book is the item.
+  Requests: one a second, a redirect hop paced like any request, the pacer shared
   across runs (Open Library's unidentified rate, read 2026-11-04), the ToS
   rail's 4 s / 512 KB / no cookies / ≤ 3 redirects, `net_guard` on every hop, a User-Agent naming the software and no
   person. Behind `CICADA_ALLOW_CONNECTOR_FETCH` on both callers (the background job after a scan and the tail): off,
   the scan waits (`GET /sources/books` counts it as `waiting`). Every answer is cached outside every bank
-  (`$CICADA_HOME/books/isbn_cache.json`): a hit is never asked again; a definite miss (Open Library 404 and zero
+  (`$CICADA_HOME/books/isbn_cache.json`): a current hit is never asked again; a definite miss (Open Library 404 and zero
   Google results) makes a placeholder page ("Book with ISBN …") and is asked again after 30 days, the page upgraded in
   place; no answer backs off 10 min → 1 h → 6 h → a day and makes no page. At most 30 numbers a run.
 - **Apple Books** (`apple_books`; the app's `AppleBooksReader`). Turned on by the person (Sources → Reading →
