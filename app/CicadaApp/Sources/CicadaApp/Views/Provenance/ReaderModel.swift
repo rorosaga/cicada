@@ -293,7 +293,7 @@ enum ReaderLayout {
             // ROR-16 — a note or a book's record is the person's own document, not "You · turn 1".
             let spoken = EvidenceSpeaker.turnSpeaker(turn, harness: doc.harness, origin: doc.origin, source: doc.source,
                                                      correspondent: doc.correspondent)
-            let speaker = SourceKind.isOwnDocument(doc.sourceKind) && spoken == Copy.you ? "" : spoken
+            let speaker = SpanSourceKind.isOwnDocument(doc.sourceKind) && spoken == Copy.you ? "" : spoken
             // A feed's or a calendar's turn wears its source's mark beside "From the feed" (DR-52, DR-57).
             let mark = turn.role == "assistant"
                 ? EvidenceSpeaker.agentOrigin(harness: doc.harness, origin: doc.origin)
@@ -314,7 +314,7 @@ enum ReaderLayout {
                     index: turn.index, chunk: n, role: turn.role, speaker: speaker, mark: mark, time: time,
                     text: scalars.slice(piece.lowerBound, piece.upperBound),
                     contentStart: piece.lowerBound, washes: washes,
-                    showsTurnNumber: !doc.isPage && SourceKind.hasTurns(doc.sourceKind))
+                    showsTurnNumber: !doc.isPage && SpanSourceKind.hasTurns(doc.sourceKind))
             }
         }
     }
@@ -468,7 +468,7 @@ enum ReaderHeader {
                 parts.append(Copy.Provenance.added(received))
             }
         }
-        if !doc.isPage, SourceKind.hasTurns(doc.sourceKind), !doc.turns.isEmpty {
+        if !doc.isPage, SpanSourceKind.hasTurns(doc.sourceKind), !doc.turns.isEmpty {
             parts.append(Copy.Provenance.turnCount(doc.turns.count))
         }
         if !doc.isPage, let device { parts.append(Copy.Devices.from(device)) }

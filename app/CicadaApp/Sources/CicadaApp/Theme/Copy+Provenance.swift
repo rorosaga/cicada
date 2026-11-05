@@ -23,6 +23,8 @@ extension Copy {
 
         static let stale = "This changed after it was noted. The words may have moved."
         static let grown = "This continued after it was noted."
+        /// The chip's hover says it; opening the source says nothing (ROR-16).
+        static let inferred = "Cicada inferred this. No sentence says it in so many words."
         /// The owner's wording (2026-09-23 brief): a derived match is labelled
         /// for what it is — found by searching, not quoted by a contributor.
         static let derived = "Found by searching for the name. This was noted before Cicada kept exact quotes."

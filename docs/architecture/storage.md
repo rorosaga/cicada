@@ -787,8 +787,8 @@ claims, and `totals.firstSaid`/`lastSaid` with `firstConversation`/`lastConversa
 relay of an inbox answer (`source: agent_relay`, 2026-10-14; it carries its conversation's `session_id`, so it groups
 with that conversation); the person card's facts read
 these, never the page's `created`/`last_referenced`, which are write dates), and `GET
-/episodes/{id}/citations` (every claim citing the document, by a raw-text prefilter over
-`entities/` — no index dependency). `/ask` citations also carry `claimId` + `evidence`, read from
+/episodes/{id}/citations` (every claim citing the document, through `source_spans`' index of the raw text of
+`entities/` and its ledgers). `/ask` citations also carry `claimId` + `evidence`, read from
 the cited page rather than the index. Every claim on the wire is built by one function,
 `transclusion_resolver.claim_to_model`, and carries `authorKind`/`authorProvider` from
 `git_service.author_identity`. **Freshness is one rule, `evidence.span_status`:** `current`,
@@ -806,6 +806,24 @@ does (the cut block runs to the next top-level key, so a hand-edited key after i
 `has_turns`, and a reader that places a span in its turn reads the file's sidecar through `bank_index.with_turns` (a
 small memo keyed on the file's stamp) or from a parse it already makes. First `/status` on that bank: 1.4–1.8 s →
 0.5 s.
+
+**One standard for a part of a source (ROR-16, `source_spans`).** A stored span is coordinates; whether they may be drawn is
+decided on read, against the source as it is now, by one judge (`Source.status`) answering in one shape (`SourceSpan`):
+`{source, status, kind, hash, at, claimId, current}`. `status` is `current`, `grown`, `derived` (each with `at`) or `stale`,
+`held`, `unlocated` (never with `at`; the citation opens the source and draws nothing). `current` is the claim's: whether
+it is still believed. `at` is `{type: "text", start, end}`, code points into `/episodes/{id}/text`; a recording's time
+range or a PDF's page is a later `type`, which an older client decodes, leaves undrawn and still opens. **`held`** is a
+span touching what `sensitive_text` is sure of (G235), minus what the person left: no offsets and no excerpt on `/text`'s
+focus, `/span`, `/citations` or a popover's quote, and an excerpt whose neighbourhood holds a value carries no words. The
+source itself opens as stored: the person's own read, and what the sensitive review opens. Only an episode is checked; a
+held offset is kept in memory per body, never a value. A locked note is no document (`evidence.source_document`), so its
+kept file never reaches any of this. `kind_of` says what a source is (`conversation`, `note`, `meeting`, `book`, `save`,
+`page`, `web`, `video`, `item`), from its record, never its words. **The index** (`pages_citing`): which pages name which
+source, per page file and ledger stamp, from raw text with no YAML, so `/citations` no longer misses a claim in a ledger
+and no longer reads every page per call. Coordinates parse on the first read needing a page and stay until its stamp
+moves. Measured on synthetic pages at 9,500 conversations, 21,000 claims, 4,700 pages (one owner-sized page holding a
+third of the claims): first read of the bank 347 ms; first read of the owner page 177 ms; a warm `for_source` p50 17 ms,
+p95 20 ms over 200 sources; one page changed 64 ms.
 
 G110 A2's `reply_gaps: [{offset, omitted_chars}]` records clipped final-reply gaps outside `content_hash`.
 

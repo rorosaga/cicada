@@ -52,7 +52,7 @@ struct ReaderTarget: Hashable, Identifiable {
 
     var id: String { "\(episode)|\(focus)|\(subjectId ?? "")" }
 
-    /// What `/episodes/{id}/text` is asked for. `.inferred`/`.stale` ask for
+    /// What `/episodes/{id}/text` is asked for. `.stale` asks for
     /// nothing: there is no offset to judge.
     var query: ReaderFocusQuery {
         switch focus {

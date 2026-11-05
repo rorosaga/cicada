@@ -12,6 +12,12 @@
 
 ## Current state and evidence
 
+- **2026-11-05 — a citation opens its source on its words, one standard (ROR-16, G118; branch `ror16-evidence-spans`).** One
+  judge and wire shape (`source_spans`), one drawing (`SourceSpansView`), `GET /episodes/{id}/spans` by page; the demo gains
+  a note, a meeting and a book, plus one stale and one held. **Pick up here:** the click proof in the scratch app and
+  `swift test` were refused by guards in the worker's shell (`HOME=`, sourcing `harness.sh`, overlays over the window), so
+  they wait for the coordinator; then ROR-15 as the thin use `app.md` describes.
+
 - **2026-11-05 — the Stage 2 stall (G238, PR #620).** A scheduled Sleep held the event loop about 7 minutes at 8,500
   pages: a parse of the whole pending store per project page per project name with no page. Fixed and moved off the
   loop. **For the owner:** the auto-updater reads a timed-out `/sleep/status` as nothing running, so a stall past 2 s lets

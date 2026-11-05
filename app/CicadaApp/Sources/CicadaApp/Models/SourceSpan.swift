@@ -137,7 +137,7 @@ struct SourceSpans: Codable, Hashable {
 }
 
 /// What a source is (`source_spans.kind_of`), for the words a citation opens it with.
-enum SourceKind {
+enum SpanSourceKind {
     static let conversation = "conversation", meeting = "meeting", note = "note", book = "book", save = "save"
 
     /// A source with turns to count and name. Anything else is one document: it has no "turn 1".

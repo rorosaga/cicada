@@ -274,7 +274,7 @@ struct PageMarks: View {
                         }
                         // ROR-16 (DR-31): a mark points at its own words in the record, as any citation does.
                         if let router, let target = item.evidence.flatMap({ ReaderTarget.evidence($0, subjectId: entityId) }) {
-                            TextButton(title: Copy.Provenance.showIn(SourceKind.book) + " ›") { router.open(target) }
+                            TextButton(title: Copy.Provenance.showIn(SpanSourceKind.book) + " ›") { router.open(target) }
                                 .fixedSize()
                         }
                     }
