@@ -31,19 +31,64 @@ Seven rails hold across all of them:
   `notes_sync` dates the episode when the note was last written (read on time); the human `modified` string stays the
   dedup key, and a 6-field record from an older app still parses and is dated now.
   **Locked notes (G234, 2026-11-04).** Every property the script reads is asked through `whose password protected is
-  false`, evaluated inside Notes, so no event names a locked note's body; a locked note gives only its id, moved out of
-  the dump into `lockedNoteIds` (`AppleNotesReader.split`; an older backend ignores the key and never sees those notes).
+  false`, evaluated inside Notes, so no event names a locked note's body; a locked note gives its id and its name, its
+  own event and `try`, and neither enters the dump: the ids go in `lockedNoteIds`, the names only as hashes in
+  `lockedNoteKeys` (`AppleNotesReader.split`; an older backend ignores the key and never sees those notes).
   The bulk lists are separate events, so the ids are read again last and a folder that changed in between waits for the
   next read; every folder refused is a failed read (`statsMark`). `notes_sync` drops a record flagged locked whatever it
   carries, never stages a record with no text (from an older app, which sends no ids, that shape is taken as locked),
-  never stores the ids, and keeps only a count (`sync_state.json`, `notes.locked`). `retire_locked` retires every
-  episode of those notes by their own `note_id`, plus any Notes episode with no text, and drops them from
-  `notes_index.json`: `locked_note: true`, `source_deleted_at`, read by the index (`history_index.kind` `locked`). A
-  stub keeps its file but no title, folder, tags or note id; an episode with text from before the lock keeps its text,
-  hidden, because destroying it is the person's call. A retired episode is in no index, list or count and reads as no
-  document (`evidence.source_document`). Sleep runs the same retirement first in `_index_without_model_safely`, whatever
-  the tree's state, before ids freeze; a failed commit keeps the retirement. A note unlocked later is simply new. Git
-  history is untouched. An older app's body read from a locked note open at that moment cannot be told apart.
+  never stores the ids or the hashes, and keeps only a count (`sync_state.json`, `notes.locked`). `retire_locked` retires
+  every episode of those notes by their own `note_id`, plus any Notes episode with no text, and drops them from
+  `notes_index.json`. **A retired episode is an empty record by construction:** the file stays so its id is never reused,
+  with `locked_note: true`, `source_deleted_at`, the title "Locked note" and no folder, tags, note id or body
+  (`history_index.kind` `locked`). Text from before the lock moves whole, with its frontmatter, to
+  `sources/locked_notes/<id>.locked` (`kept_path`), committed with it, because destroying it is the person's call. No
+  reader carries a check, and none can forget one: `evidence.source_document` reads no document, every other reader of
+  `episodes/` finds nothing, no walk of a bank's text a reader uses takes the suffix, and a test fails if any other
+  module names the folder. Only Remove's walk takes it (`sensitive_purge.bank_files`, by suffix), below. The retirement clears the words index and drops the vectors at once
+  (`_forget_derived`; `_without_locked_notes` holds if that fails). An episode #608 only stamped is finished by the next
+  sync or Sleep. Sleep runs the same retirement first in `_index_without_model_safely`, whatever the tree's state, before
+  ids freeze; a failed commit keeps the retirement. A note unlocked later is simply new. An older app's body read from a
+  locked note open at that moment cannot be told apart.
+  **Measured on real Notes (2026-11-04, one throwaway note, by id):** unlocked, `password protected` is false and
+  `plaintext` the full text, title first; locked and open in the session, `password protected` stays **true**, `plaintext`
+  asked directly returns the **full text**, and the reader's filter returns only the id; locked and closed, `plaintext` is
+  empty. So the filter is the guard, and any read of `plaintext` without it would leak an open note. **Locking gives a note
+  a new id** while its name survives, so an episode kept under the old id is found by a hash of the name (`locked_key`,
+  made in the app, compared, never stored) and every episode of that old id goes with it. A note this same read saw
+  unlocked never matches, whatever its title, and name keys go only with a complete read (`AppleNotesReader.split`:
+  no folder failed or waited, nor a note dropped), since a partial read's "saw it" protects nothing. A locked note then
+  retires on the next complete read; **a folder that fails on every read stops retirement by name altogether**, and its
+  cost is that an older episode stays live, said nowhere but here. Name and not name-plus-date: a note edited before its lock (the usual way
+  a secret gets in) no longer has the date Cicada kept, and that date is a string in the locale and time zone of the old
+  read.
+  **What a false match costs.** An episode of a note missing from a complete read (gone from Notes, or not there yet)
+  is retired if its title equals a locked note's. A note gone from Notes never comes back: its episode stays an empty
+  record and no route restores it; its words stay in the kept file and in git. A note that does return comes back as a
+  new episode, whose words then count as a second conversation for the 2+ rule, and the old `.locked` file stays. It is
+  left rather than removed on return because the empty record holds no note id to tie them, and destroying it is the
+  person's call.
+  **What retirement does not reach.** What Sleep already derived from the note before the lock (a claim's text, a page's
+  prose, a question, a held mention) is the bank's own words, read like any other; only the person's decision or a
+  Remove (`sensitive_purge`) changes it. Earlier versions stay in git history, which no route reads for an episode
+  (`get_entity_commit_diff` is scoped to a page). The app's on-disk Store replaces a row on its next fetch.
+  **Remove keeps its promise over the kept file.** Remove is the person's own act and finds a value with no model, so
+  the file is still read by no engine and no agent door. By value: `sensitive_purge` walks and cleans the suffix like
+  any file and `residue` counts it, so Remove on another conversation's row takes a shared value out of it, and never
+  reports clean while it stands there. By row: a row waiting when the note was emptied survives (`record_for_stub`
+  keeps the `sensitive` record on the empty record with `row_kept`), titled "Locked note", and its Remove or Leave it
+  read the kept file (`notes_sync.kept_copy`, `sensitive_flags` alone asks), so a value only that note held stays the
+  person's to remove. The row goes when the value does. A kept file never starts a row of its own: no `row_kept`, no
+  read, whatever the detector would find there, and a value the person left before the lock is found only by value.
+  A sync that retires brings the review item in step at once, one admitted transaction with its own commit
+  (`_review_in_step`), so its row loses the note's title; while Sleep holds the pages, and for Sleep's own retirement, its
+  tail does the same step, and an item dirty before it is left until the next pass.
+  Two things stay: earlier versions in git history (as the review's copy says); and a guarded value (unsure or common in
+  this bank), which stays out of a file not tied to its row, like any other, and is said in `stayed`. The hold (`sensitive_hold`) learns a
+  value from `episodes/` only, so after retirement a value on a page is held back only if the page's own text shows it
+  as one.
+  **Limits:** a note locked after the last sync is retired only by the next one, so a Sleep in that gap can read it; a
+  note whose first line (its name) changed between the last read and the lock is not found.
   **Where an item lives (2026-11-04, PR #599).** The script's ninth field names the note's Notes **account**
   ("iCloud", "On My Mac", a mail account's name); the app moves it out of the dump into `noteAccounts` (by note id,
   `AppleNotesReader.split`) so a backend that predates it, which checks a record's field count, still reads every note
