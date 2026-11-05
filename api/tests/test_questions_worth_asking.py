@@ -59,7 +59,7 @@ def test_the_models_word_asks_and_says_why_on_the_card(tmp_path):
     assert fm["title"] == "Who or what is Bob?"
     assert fm["why_asked"] == "the lease depends on him"
     assert "Bob" in (memory / "pending_entities.jsonl").read_text()
-    assert inbox_wording.spoken(fm, "2026-01-02").reason == "the lease depends on him"
+    assert inbox_wording.spoken(fm, "2026-01-02").reason == "The lease depends on him."
 
 
 def test_a_sibling_that_asks_is_enough_and_its_own_conversation_is_cited(tmp_path):
@@ -152,7 +152,7 @@ def test_the_judge_reads_every_conversation_of_the_batch_that_named_the_mention(
     _episode(memory, "ep_2026-01-01_001", "Ana has the spare keys.")
     _episode(memory, "ep_2026-01-02_001", "Ana might be Anna, I can't tell.")
     candidate = {"source": "existing", "id": "anna", "data": _page("anna", "Anna", "person")}
-    mention = _name("Ana", **{entity_resolver.HEARD_IN: ["ep_2026-01-01_001", "ep_2026-01-02_001"]})
+    mention = _name("Ana", **{entity_resolver.BATCH_EPISODES: ["ep_2026-01-01_001", "ep_2026-01-02_001"]})
     assert "Ana might be Anna" in entity_resolver._with_said_together(candidate, mention, _settings(memory))["note"]
 
 

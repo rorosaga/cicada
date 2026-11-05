@@ -12,6 +12,14 @@
 
 ## Current state and evidence
 
+- **2026-11-05 — Sleep asks only what the person alone can answer (G239; PR #NOISYPR, branch `noisy-questions`).** A run read 53
+  conversations and raised 25 questions; the causes were proxies standing in for the model's judgement. Stage 1 now says what
+  rests on a question, the judge is told what UNSURE costs and reads the lines naming both, Stage 4 asks for how the person
+  works. Two real Sleeps a side on invented notes: questions 7, 6 to 3, 3, noise 5, 4 to 0, 1, phrase `skill` pages 3, 2 to 0, 0,
+  the question that matters 0 of 2 to 2 of 2. **The owner decides (proposed ruling 65):** questions on the model's stake rather
+  than a low confidence, and a Stage-1 skill on 2+ conversations. On yes, CLAUDE.md's "A Stage-4 skill" line says "A skill".
+  **Also his:** whether the existing person questions should be tidied by a new rule; `passing_rule` and `_merge_rule` keep
+  them, by design. `POST /inbox/tidy?dryRun=true` on a copy counts what the rules already close.
 - **2026-11-05 — the Stage 2 stall (G238, PR #620).** A scheduled Sleep held the event loop about 7 minutes at 8,500
   pages: a parse of the whole pending store per project page per project name with no page. Fixed and moved off the
   loop. **For the owner:** the auto-updater reads a timed-out `/sleep/status` as nothing running, so a stall past 2 s lets

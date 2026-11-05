@@ -2647,10 +2647,43 @@ hash of them. Pure and engine-free. Kinds, the reading per speaker, and the meas
   lists what Remove would touch per row (other conversations, files, tokens that stay) and its plan stamp, and `--apply --plan <stamp>` removes exactly that through
   `POST /sensitive/remove`. Neither prints a value, a title or a path.
 
+### What Sleep asks (G239)
+A question is worth the person's attention only when they alone can answer it and the answer changes something. Everything
+else stays a mention in the index (`pending_store`), never lost, and comes back if it is named again.
+
+- **"Who or what is <name>?" is the model's call (`ask_person`).** Stage 1 reads the whole conversation and says, in one
+  clause, what rests on the answer: the entity's optional `ask_person`, kept as the item's `why_asked` and shown as the
+  card's reason. `entity_resolver`'s `ask` raises the question on that alone, for a name held below the bar or a new page.
+  It used to be raised on a low extraction confidence (below 0.5, 0.3 when absent), which measures certainty about a name's
+  attributes and only ever fired for a first mention: a name with a lease resting on it reads confidently and was never
+  asked, and a stray first name read as unsure and always was.
+- **A question asked on purpose stays with the person:** `why_asked` keeps it out of `in_passing` (`passing_rule`) and out of
+  a web lookup (`web_settle.classify`, `person_context`), since the model read it as nothing public could answer.
+- **"Is A the same as B?" takes a reason on the record.** The judge's UNSURE (`_UNSURE_GUIDELINE`, both prompts) is told it
+  puts a question in front of the person, and that names which look alike or little to go on are DIFFERENT: two entries,
+  nothing lost, a later conversation can join them. It used to be told "if you are hesitating, return UNSURE", on leads that
+  need only a shared word or one edit of spelling. `pair_evidence`'s "a conversation naming both" then passed on a note
+  listing two people, which is evidence they are two. So the judge now reads those lines too
+  (`_with_said_together`: B's conversations of this batch, the lines naming both, at most two): "A has the keys, not B"
+  separates them, and "might be the same" gives the reason.
+- **What a Sleep on a key does with a public thing.** A key on a model with a price row runs the ordinary public-thing
+  lookup (`web_lookup.engine_for`, `metered`): at most 8 questions a run, about 1¢ a search plus its tokens, against the
+  person's limit (ruling 63 (i)). The settling step and a tracked source's read stay plan-only (`_plan_only`, `metered_only`):
+  those questions wait, are looked at again each run, and never settle on a key. A key with no price row or another
+  provider answers `no_search_tool` or `search_unreported`, so every public question waits. Not raising a question that
+  needs none is what stops both piles; rulings 27, 44 and 54 are unchanged.
+
 ### Entity promotion
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the
 vector index only; promotion needs **2+ separate conversations**, OR substantive discussion (>3
 exchanges) in one, OR an explicit link to an existing high-confidence entity.
+
+**A skill takes two conversations by either door (G239, proposed ruling 65).** A note's lines are all the person's own, so a
+phrase Stage 1 typed `skill` and linked to any page got one from a single note. A Stage-1 skill now waits in the index until
+a second conversation names it; the one-conversation rungs do not apply to it. Stage 4 keeps `skill_hold`, and its prompt
+now asks for what an agent could follow to work the way this person does: "relationship patterns" (what comes up together)
+wrote "<x> as the hub for <y>" pages, grounded on any two notes naming one of their pages. Stage 1 is told a name is a name,
+and that what someone does, said as a phrase, is a fact on whoever does it.
 
 **Sleep never makes a project (ruling 56, 2026-11-04, amends ruling 36 D4; `api/services/project_birth.py`).** A project
 starts only from the person or an agent on their ask (`project_ownership`). A `project` mention with no page takes the
