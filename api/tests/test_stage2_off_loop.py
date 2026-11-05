@@ -23,6 +23,10 @@ from drain_harness import git, install
 from api.services import engine_errors, entity_resolver, markdown_parser, pending_store, sleep_cycle, vector_index
 
 
+#: The real seam, before the harness's stub replaces it.
+REAL_RESOLVE = entity_resolver.resolve
+
+
 def _line(name: str, **kw) -> pending_store.PendingEntity:
     return pending_store.PendingEntity(name=name, type="concept", description="d", source_episode="ep_2026-09-01_001",
                                        confidence=0.5, tags=[], history_entries=[], **kw)
@@ -54,15 +58,11 @@ def _extraction(*names: str, kind: str = "project") -> list[dict]:
                            "summary": f"{n}."} for n in names]}]
 
 
-def _stub_judges(monkeypatch, *, seen: list | None = None):
+def _stub_judges(monkeypatch):
     async def one(*_a, **_kw):
-        if seen is not None:
-            seen.append(threading.get_ident())
         return "different"
 
     async def many(*a, **kw):
-        if seen is not None:
-            seen.append(threading.get_ident())
         return ["different"] * len(kw.get("candidates") or a[3])
 
     monkeypatch.setattr(entity_resolver, "_llm_judge_same_entity", one)
@@ -143,7 +143,6 @@ def test_weighing_project_names_reads_the_store_a_bounded_number_of_times(tmp_pa
 def test_stage_2_works_off_the_loop_and_judges_on_it(tmp_path, monkeypatch):
     memory = _bank(tmp_path, projects=5)
     judged_on: list[int] = []
-    _stub_judges(monkeypatch, seen=None)
     worked_on: list[int] = []
     real = entity_resolver._waiting_cards
 
@@ -163,8 +162,6 @@ def test_stage_2_works_off_the_loop_and_judges_on_it(tmp_path, monkeypatch):
         return call
 
     monkeypatch.setattr("api.services.providers.resolve_llm_fn", fake_llm_fn)
-    monkeypatch.setattr(entity_resolver, "_llm_judge_same_entity", ORIGINAL_ONE)
-    monkeypatch.setattr(entity_resolver, "_llm_judge_batch", ORIGINAL_MANY)
     loop_thread: list[int] = []
 
     async def go():
@@ -175,10 +172,6 @@ def test_stage_2_works_off_the_loop_and_judges_on_it(tmp_path, monkeypatch):
     assert asyncio.run(go())["changes"] is not None
     assert worked_on and loop_thread[0] not in worked_on, "the work ran on the event loop"
     assert judged_on and set(judged_on) == {loop_thread[0]}, "a judge call left the backend's loop"
-
-
-ORIGINAL_ONE = entity_resolver._llm_judge_same_entity
-ORIGINAL_MANY = entity_resolver._llm_judge_batch
 
 
 def test_an_engine_error_on_the_loop_reaches_the_batch(tmp_path, monkeypatch):
@@ -372,6 +365,3 @@ def test_a_whole_batch_at_the_owners_scale_answers_healthz_within_a_second(bench
     assert rig.extract_batches, "the batch never ran"
     over = {path: round(lag, 2) for path, lag in worst.items() if lag >= 1.0}
     assert set(worst) == {"/healthz", "/sleep/status"} and not over, f"a request waited past a second: {worst}"
-
-
-REAL_RESOLVE = entity_resolver.resolve
