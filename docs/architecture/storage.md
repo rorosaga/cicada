@@ -1586,9 +1586,9 @@ while off. No claim's value comes from a card, and no digit does.
   (`own=True` only from `tokenise`).
 - **Who it is** (`card_links`, from the hashes, the waiting cards and the pages' own `addressbook://` sources, never `contacts_book`): one
   card with a page, or whose whole name is one page's name or alias, is `page`; one card waiting is `card`. The model is told the
-  card's whole name, its bracket included, in a note on that conversation (`card_note`, prompt only): it judges what a bracket means. `take`
+  card's whole name in a note on that conversation (`card_note`, prompt only). Any word of it may be a nickname, a trade or where they know the person: the model judges, no rule reads a bracket or takes a last word for a surname, and no word becomes a fact or a title beyond what the model reasons. `take`
   files the number by that name with no model entry needed, and over a model's reading ("my brothers") unless the
-  person's line spells another name beside it ("Bob's number is N" stays Bob's, and `annotate` asks if a page says otherwise).
+  person's line spells another name beside it ("Bob's number is N" stays Bob's, and `annotate` asks if a page says otherwise; one shared surname is not the card's person).
 - **Born from it:** `take` marks the mention (`number_card`) and `entity_resolver._number_card` finds that one waiting card by id, so its page
   is born by the Contacts rail. A sync keeps a one-part card waiting only while on and only if it holds a number; it is never matched by
   name, so a later sync drops the sources seeded on its page and the page is then found by its name.

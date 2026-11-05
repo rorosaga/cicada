@@ -3444,8 +3444,10 @@ A whole row moves to DONE only after its remaining implementation and required a
     when it IS a contact's). It becomes a token. (2) A `+` number with no card is kept as a token where the scrub used to blank it
     with no copy; other speakers' lines are as they were. (3) A token that matched one card is linked to it: Sleep files the
     number on that card's page, and the person giving the number counts as naming that one waiting card, so its page is born by
-    the Contacts promotion rail, a one-part nickname's too. The card's whole name, its bracket included, reaches the model as a
-    hint it judges; no rule decodes a suffix. An unmatched token stays a token and Stage 1 decides. Two cards on one number:
+    the Contacts promotion rail, a one-part nickname's too. The card's whole name reaches the model as a hint it judges. The owner's
+    correction, same day: 'The "(ie)" might not be ie btw, can be something like Johnny Cerrajero.' So any word of the name may say
+    where they know the person, a trade given as a surname included: no rule reads a suffix or takes a last word for a surname, and no
+    word of it becomes a stated fact or a title beyond what the model reasons. An unmatched token stays a token and Stage 1 decides. Two cards on one number:
     never a guess, one question in the existing form, on a page; with no page yet it is held on a name and asks when that page
     exists. (4) The faces store is not read: the hashes and the waiting cards only. Off stays a true no-op, a stored line never
     moves, and numbers already blanked in old chats stay blanked (`storage.md`, "A number on a Contacts card").

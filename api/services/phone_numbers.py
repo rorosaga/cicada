@@ -991,11 +991,11 @@ def _clean_strings(value, loose: re.Pattern[str] | None, bank, on: bool, person:
 
 def _named_apart(content: str, tid: str, said: str, card_name: str) -> bool:
     """Whether the person's words name someone else beside this number: "Bob's number is N", with N on Ana's card, stays
-    Bob's, and `annotate` asks when a page says otherwise. A name sharing a word with the card's is the card's person, and
-    a model's reading the person's line doesn't spell as a name ("my brothers": a chat message is stored as one line, so
+    Bob's, and `annotate` asks when a page says otherwise. A name made only of the card's words is the card's person (one
+    word in common is not: two of a family share a surname), and a model's reading the person's line doesn't spell as a name ("my brothers": a chat message is stored as one line, so
     that line may well hold the word) is outranked by the card."""
     words = set(re.findall(r"[^\W\d_]{2,}", said))
-    if {w.casefold() for w in words} & {w.casefold() for w in re.findall(r"[^\W\d_]{2,}", card_name)}:
+    if words and {w.casefold() for w in words} <= {w.casefold() for w in re.findall(r"[^\W\d_]{2,}", card_name)}:
         return False
     names = {w for w in words if w[0].isupper()}
     needle = token(tid)
@@ -1276,7 +1276,7 @@ def card_links(bank, tids: Iterable[str]) -> dict[str, dict]:
 
 def card_note(content: str | None, bank) -> str:
     """What the model is told about the tokens a card holds: the card's whole name as the person saved it, for the model to
-    judge. No rule here reads what a nickname or its bracket means. Empty with nothing to say; goes to the model only."""
+    judge. No rule here reads any word of it: not a bracket, not a last word as a surname. Empty with nothing to say; goes to the model only."""
     lines = []
     for tid, link in card_links(bank, set(token_ids(content))).items():
         if link["kind"] == "me":
@@ -1286,9 +1286,11 @@ def card_note(content: str | None, bank) -> str:
                          "the user's words name the person.")
         else:
             lines.append(f"{token(tid)} is on the user's Contacts card \"{link['name']}\", so it is that person's number even "
-                         "when no line names them: use that name as the entity. It is the name the user saved them "
-                         "under, and what it adds (a nickname, a word in brackets) may hint at where they know this "
-                         "person: judge that yourself, and put it in the summary only when it is clear.")
+                         "when no line names them: use that whole name as the entity, as it stands. It is the label the "
+                         "user saved them under, not a record of who they are: any word in it may be a nickname, a trade, "
+                         "a place or where they know this person rather than a surname. Judge that yourself. No word of "
+                         "it is a stated fact, a role or a title unless the conversation or your own reasoning supports "
+                         "it, and then only as your reading.")
     return f"[Cicada's note, not part of the conversation: {' '.join(lines)}]\n\n" if lines else ""
 
 

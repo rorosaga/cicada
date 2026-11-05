@@ -2268,3 +2268,23 @@ def test_ruling_55_off_is_a_true_no_op(tmp_path, home):
 def test_ruling_55_a_page_s_prose_is_not_widened(memory):
     sync_cards(memory, (C1, "Ana", "Diaz", [A]))
     assert phone_numbers._spans("+44 20 7946 0958 and 202 555 0143", memory) == []
+
+
+def test_ruling_55_any_word_of_a_cards_name_is_the_models_to_judge(memory):
+    """Owner 2026-11-05: a trade given as a surname is a hint too, in no fixed place. An invented card: "Marta Fontanera"."""
+    sync_cards(memory, (C1, "Marta", "Fontanera", [A]))
+    t = phone_numbers.token(card_key(memory.name, A))
+    note = phone_numbers.card_note(t, memory)
+    assert '"Marta Fontanera"' in note and "rather than a surname" in note and "No word of it is a stated fact" in note
+    entities, values = took(memory, f"user: {t}")
+    assert [v["entity"] for v in values] == ["Marta Fontanera"] and values[0]["attribute"] == "phone number"
+    (mention,) = entities
+    assert mention["name"] == "Marta Fontanera" and not mention["key_facts"] and not mention["summary"], "code adds no fact"
+    assert len(values) == 1, "no role or title comes from a word of the name"
+
+
+def test_ruling_55_one_shared_surname_is_not_the_cards_person(memory):
+    sync_cards(memory, (C1, "Bea", "Diaz", [A]))
+    t = phone_numbers.token(card_key(memory.name, A))
+    _e, values = took(memory, f"user: Ana Diaz's number is {t}", values=[{"entity": "Ana Diaz", "attribute": "phone number", "value": t}])
+    assert [v["entity"] for v in values] == ["Ana Diaz"]
