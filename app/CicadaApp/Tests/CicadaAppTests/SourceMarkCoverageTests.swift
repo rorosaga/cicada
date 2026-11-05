@@ -36,7 +36,7 @@ final class SourceMarkCoverageTests: XCTestCase {
             guard line.drop(while: \.isWhitespace).hasPrefix("\"") else { return nil }
             return line.split(separator: "\"", omittingEmptySubsequences: false).dropFirst().first.map(String.init)
         }
-        XCTAssertTrue(keys.contains("t3code") && keys.contains("claude-code"), "the parse found \(keys)")
+        XCTAssertTrue(keys.contains("codex") && keys.contains("claude-code"), "the parse found \(keys)")
         return keys
     }
 
@@ -62,7 +62,7 @@ final class SourceMarkCoverageTests: XCTestCase {
     }
 
     func testTheBrandsThatDrewATrayNowHaveTheirMarks() {
-        for (origin, file) in [("t3code", "t3"), ("grok", "grok"), ("perplexity", "perplexity"), ("comet-bookmark", "comet")] {
+        for (origin, file) in [("codex", "t3"), ("grok", "grok"), ("perplexity", "perplexity"), ("comet-bookmark", "comet")] {
             let name = OriginIconography.logoName(for: origin)
             XCTAssertEqual(name.map { BrandMark.composition(for: $0).file }, file, origin)
         }
