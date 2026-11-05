@@ -12,7 +12,10 @@ extension Copy {
     static let bookAdd = "Add"
     static let bookAddScan = "Scan"
     static let bookAddScanHelp = "Hold the barcode to your Mac's camera. Nothing is saved or sent but the number."
-    static let bookAddStopScan = "Stop"
+    static let bookScanClose = "Close"
+    static let bookScanLookingUp = "Looking it up"
+    static let bookScanAddedNoDetail = "Added"
+    static func bookScanCount(_ n: Int) -> String { "\(n) added" }
     static let bookAddNotABook = "That is not a book's number."
     static let bookAddWaiting = "Added. Looking it up…"
     static let bookAddFailed = "Couldn't add it. Try again."

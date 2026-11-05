@@ -85,7 +85,9 @@ struct BookCoverThumb: View {
                 Color.clear
             }
         }
-        .frame(width: drawn ? height * 2 / 3 : 0, height: drawn ? height : 0)
+        // Top-aligned: a cover that is not exactly 2:3 sits at the top of its slot, level with the text beside it on a
+        // book's page, instead of floating in the slot's middle (the `HStack` is `.top`, the picture was centred).
+        .frame(width: drawn ? height * 2 / 3 : 0, height: drawn ? height : 0, alignment: .top)
         .padding(.trailing, image != nil ? trailing : 0)
         .accessibilityHidden(true)
         .task(id: "\(store?.bank ?? "")|\(path ?? "")") {
