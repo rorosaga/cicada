@@ -172,7 +172,7 @@ struct InboxFocusCard: View {
     private var quote: some View {
         if let segments = QuoteSegments.of(item) {
             // Selectable and washed: a selectable `Text` never reaches the span renderer, so the washes ride `CitedPassage`.
-            CitedPassage(segments: segments)
+            RevealingPassage(segments: segments)
                 .quoteBlock()
                 .padding(.top, CicadaTheme.scaled(20))
             if QuoteSegments.isDerived(item) {

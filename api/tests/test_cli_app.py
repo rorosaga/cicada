@@ -314,6 +314,8 @@ PERSON_ARGV = {
     "feed poll": ["feed", "poll"],
     "projects new": ["projects", "new", "Alpha Garden"],
     "settings owner": ["settings", "owner", "--name", "Alex Example"],
+    "numbers switch": ["numbers", "switch", "--state", "on"],
+    "numbers new-vault": ["numbers", "new-vault"],
     "picture set": ["picture", "set", "bob-example", "PICTURE"],
     "picture initials": ["picture", "initials", "bob-example"],
     "picture clear": ["picture", "clear", "bob-example"],

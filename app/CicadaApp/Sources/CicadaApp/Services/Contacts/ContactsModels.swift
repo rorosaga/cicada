@@ -16,9 +16,13 @@ struct ContactRecord: Encodable, Equatable, Sendable {
     /// never to a namesake, and never keeps it waiting. A flag about the person, not a fact from anyone's card — sent
     /// only on that one card, so every other card crosses the wire exactly as before.
     var isMe: Bool = false
+    /// Proposed ruling 55: the card's numbers as keyed hashes (`PhoneNumberKeys`), never a digit. Empty while the backend
+    /// gives no key, and then the card crosses the wire exactly as before.
+    var phoneKeys: [String] = []
 
     enum CodingKeys: String, CodingKey {
-        case id, givenName, familyName, hasOrganization, hasJobTitle, hasEmail, hasPhone, hasBirthday, photoB64, isMe
+        case id, givenName, familyName, hasOrganization, hasJobTitle, hasEmail, hasPhone, hasBirthday, photoB64, isMe,
+             phoneKeys
     }
 
     func encode(to encoder: Encoder) throws {
@@ -33,6 +37,7 @@ struct ContactRecord: Encodable, Equatable, Sendable {
         try c.encode(hasBirthday, forKey: .hasBirthday)
         try c.encodeIfPresent(photoB64, forKey: .photoB64)
         if isMe { try c.encode(true, forKey: .isMe) }
+        if !phoneKeys.isEmpty { try c.encode(phoneKeys, forKey: .phoneKeys) }
     }
 }
 
@@ -169,12 +174,20 @@ protocol ContactStore: AnyObject, Sendable {
     func access() -> ContactsAccess
     func requestAccess() async -> Bool
     func snapshot() async -> [ContactRecord]
+    /// Proposed ruling 55: the same cards, each number as a keyed hash when the backend gave a key.
+    func snapshot(numberKey: String?) async -> [ContactRecord]
     /// `CNContactStore.currentHistoryToken` — it moves whenever the address book does (R-SR10).
     func historyToken() -> Data?
     func changes() -> AsyncStream<Void>
 }
 
+extension ContactStore {
+    func snapshot(numberKey: String?) async -> [ContactRecord] { await snapshot() }
+}
+
 protocol ContactsSyncAPI: Sendable {
+    /// Proposed ruling 55: the key to hash a card's numbers with; `nil` while the feature is off.
+    func numberMatchKey() async -> String?
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult
     /// Review of #391: Contacts stopped — every bank's waiting cards are deleted on the backend; `connection` names the
     /// connection that ended, so a sync of it still in flight is dropped (review of #393).
@@ -187,6 +200,10 @@ protocol ContactsSyncAPI: Sendable {
     func forgetContactsBook(connection: String?) async throws
 }
 
+extension ContactsSyncAPI {
+    func numberMatchKey() async -> String? { nil }
+}
+
 extension APIClient: ContactsSyncAPI {}
 
 /// Pure pieces of the mapping (R-SR8): names trimmed, facts as booleans, a thumbnail only when it is small.
@@ -195,12 +212,12 @@ enum ContactMapper {
 
     static func record(id: String, given: String, family: String, organization: String, jobTitle: String,
                        emails: Int, phones: Int, hasBirthday: Bool, thumbnail: Data?,
-                       isMe: Bool = false) -> ContactRecord {
+                       isMe: Bool = false, phoneKeys: [String] = []) -> ContactRecord {
         let trim: (String) -> String = { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let photo = thumbnail.flatMap { !$0.isEmpty && $0.count <= photoCap ? $0.base64EncodedString() : nil }
         return ContactRecord(id: id, givenName: trim(given), familyName: trim(family),
                              hasOrganization: !trim(organization).isEmpty, hasJobTitle: !trim(jobTitle).isEmpty,
                              hasEmail: emails > 0, hasPhone: phones > 0, hasBirthday: hasBirthday, photoB64: photo,
-                             isMe: isMe)
+                             isMe: isMe, phoneKeys: phoneKeys)
     }
 }

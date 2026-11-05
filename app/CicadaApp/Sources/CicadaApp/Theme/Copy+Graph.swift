@@ -5,6 +5,10 @@ import Foundation
 /// `extension Copy.Graph` block below. Plain words for a person who has never heard "node" or "claim".
 extension Copy {
     enum Graph {
+        // A person's numbers (proposed ruling 55)
+        static let phone = "Phone"
+        static let aNumber = "a number"
+        static let startNewNumberFile = "Start a new one"
         // The floating group (R-DG3)
         static let controlsLabel = "Graph controls"
         static let all = "All"

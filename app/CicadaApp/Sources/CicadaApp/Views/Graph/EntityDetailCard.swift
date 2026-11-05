@@ -290,6 +290,10 @@ struct EntityDetailCard: View {
                 } else {
                     PageInShort(relevance: blocks?.relevance ?? entity.relevance)
                 }
+                // Proposed ruling 55: a page with no number draws nothing and asks nothing (DR-81).
+                if entity.type == .person, entity.rawMarkdown.contains("[number:") {
+                    PersonNumbersRow(entityId: entity.id)
+                }
                 if showsWhereToCheck {
                     WhereToCheckBox(entityId: entity.id, isPerson: entity.type == .person, sources: blocks?.sources,
                                     adding: $addingLink, onChanged: reloadPage,
@@ -977,7 +981,8 @@ struct EntityDetailCard: View {
         let read = Task { @MainActor in
             // Include superseded so the timeline tab can detect contested keys.
             let fetched = try? await APIClient.shared.fetchClaims(subject: id, includeSuperseded: true)
-            let loaded = fetched ?? []
+            // Proposed ruling 55: a number is shown by its own row, never as a belief holding a token.
+            let loaded = (fetched ?? []).filter { !NumberTokens.isNumber($0) }
             let derived = await Task.detached(priority: .userInitiated) { ClaimDigest(loaded) }.value
             // DS-3a — an answer for a page the card has left must not land under the new one.
             guard id == entity.id else { return }

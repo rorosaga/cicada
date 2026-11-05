@@ -51,7 +51,7 @@ from typing import Callable
 
 from loguru import logger
 
-from api.services import episode_revision, markdown_parser, owner_identity, pending_store, telemetry
+from api.services import episode_revision, markdown_parser, owner_identity, pending_store, phone_numbers, telemetry
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, is_event, parse_claims, write_claims
 from api.services.entity_extractor import entities_to_claims
@@ -341,6 +341,38 @@ def _settle_store(
     return counts
 
 
+def _ask_shared_numbers(memory_path: Path, reconciled: dict[str, list[Claim]], incoming: list[Claim],
+                        owner_id: str | None) -> None:
+    """One "is <a> the same as <b>?" per pair of person pages holding one current number (`phone_numbers.shared_pairs`)
+    — the record raising it, as `role_people` does (no conversation names both, and a household shares a line). The
+    answer is the person's: nothing is merged here. Never costs the cycle."""
+    touched = {c.object for c in incoming if phone_numbers.is_number_claim(c)}
+    if not touched:
+        return
+    try:
+        from api.services.clarification_manager import ClarificationManager
+
+        entities_dir = memory_path / "entities"
+        for a, b in phone_numbers.shared_pairs(reconciled, touched, owner_id=owner_id):
+            paths = bank_file(entities_dir, a), bank_file(entities_dir, b)
+            if not all(p is not None and p.is_file() for p in paths):
+                continue
+            names = [str(markdown_parser.parse(p).frontmatter.get("name") or "") for p in paths]
+            item = ClarificationManager(memory_path).create(
+                entity_name=names[0] or a, source_episode="", uncertainty_type=f"Possible duplicate of {names[1] or b}",
+                suggested_classification="person", suggested_confidence=0.6,
+                source_context=f"You gave the same number for {names[0] or a} and {names[1] or b}.")
+            if not item:
+                continue
+            item_path = memory_path / "inbox" / f"{item}.md"
+            parsed = markdown_parser.parse(item_path)
+            parsed.frontmatter["entity_id"] = a
+            parsed.frontmatter["merge_target_hint"] = b
+            markdown_parser.write(item_path, parsed.frontmatter, parsed.body)
+    except Exception as e:  # noqa: BLE001 - a question is never worth the claims
+        logger.warning(f"Shared-number question skipped: {type(e).__name__}")
+
+
 def _load_existing_claims_by_subject(memory_path: Path) -> dict[str, list[Claim]]:
     """Parse every entity page's ```claims block into ``{subject_id: [Claim]}``.
 
@@ -499,6 +531,8 @@ def run_claim_pipeline(
     emitted_ids = stage1_ids | {c.id for c in released}
     if extra_claims:
         incoming = incoming + list(extra_claims)
+    # Proposed ruling 55: what the person's line says of each number, and whether its page may take it (held ones too).
+    incoming, number_audit = phone_numbers.annotate(incoming, memory_path, owner_id)
 
     # ---- G104: an edited conversation's spans re-anchored, what only its removed text said marked ----
     revision_plan = episode_revision.reanchor(existing_by_subject, revisions or {})
@@ -512,6 +546,7 @@ def run_claim_pipeline(
         **({} if decay else {"decay": False}),
         **({"revised": revision_plan.revised_out} if revision_plan.revised_out else {}),
     )
+    audit.extend(number_audit)
     withdrawn = episode_revision.settle(reconciled, revision_plan, revisions or {}, today, audit)
     if revisions:
         superseded = sum(1 for a in audit if a.get("action") == "revised")
@@ -601,6 +636,9 @@ def run_claim_pipeline(
             logger.warning(
                 f"claim write-back skipped for {subject}: {type(e).__name__}: {e}"
             )
+
+    # Proposed ruling 55: two people holding one current number is a duplicate-people signal (G209): a question.
+    _ask_shared_numbers(memory_path, reconciled, incoming, owner_id)
 
     for slug, claims in held_offers.items():
         page_less_offers.setdefault(slug, []).extend(claims)

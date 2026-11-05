@@ -23,6 +23,8 @@ struct QuoteBlock: View {
     let caption: String?
     let style: Style
     var lineLimit: Int? = 8
+    /// Proposed ruling 55: what this quote's tokens read as, asked when it is drawn and held by this view alone.
+    @State private var numbers: [String: String] = [:]
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
@@ -32,7 +34,9 @@ struct QuoteBlock: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 // R-DL2 — the one door: a quote reads without markup or role labels, the span kept exact.
                 let clean = ExcerptText.quoteParts(before: before, span: span, after: after)
-                Text(Self.attributed(before: clean.before, span: clean.span, after: clean.after, style: style))
+                Text(Self.attributed(before: NumberTokens.shown(clean.before, numbers),
+                                     span: NumberTokens.shown(clean.span, numbers),
+                                     after: NumberTokens.shown(clean.after, numbers), style: style))
                     .font(CicadaTheme.metaFont)
                     .lineLimit(lineLimit)
                     .fixedSize(horizontal: false, vertical: true)
@@ -45,6 +49,11 @@ struct QuoteBlock: View {
             }
         }
         .accessibilityElement(children: .combine)
+        .task(id: before + span + after) {
+            let tokens = NumberTokens.ids(in: before + span + after)
+            guard !tokens.isEmpty, let answer = await APIClient.shared.revealNumbers(tokens) else { return }
+            numbers = answer.numbers
+        }
     }
 
     /// The span in `quoteFont`; the neighbourhood in `textTertiary`. The tint

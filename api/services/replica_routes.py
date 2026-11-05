@@ -184,6 +184,10 @@ ROUTES: dict[str, str] = {
     "POST /sources/github/connect/installation": REFUSE,  # G230: the home's sign-ins
     "DELETE /sources/github/connect": REFUSE,             # G230: the home's sign-ins
     "DELETE /sources/contacts-local/waiting": FORWARD,
+    # Proposed ruling 55: the vault is the home's, on the home's Mac. Never FORWARD: its body would be journalled.
+    "POST /people/numbers/reveal": REFUSE,
+    "PUT /people/numbers/switch": REFUSE,
+    "POST /people/numbers/new-vault": REFUSE,
     # G154: the Contacts page's faces are this computer's own, kept where the reader is, never sent to the home.
     "PUT /sources/contacts-local/book": LOCAL,
     "DELETE /sources/contacts-local/book": LOCAL,
