@@ -771,8 +771,11 @@ def retract_claim(
             "path": f"entities/{page.name}", "evidence": [e.to_dict() for e in spans]}
 
 
-def list_unprocessed_episodes(memory_path: Path, limit: int = 50) -> list[dict]:
-    """Return ``[{id, title, content, revision}]`` for episodes with ``processed: false``.
+def list_unprocessed_episodes(memory_path: Path, limit: int = 50, *, newest_first: bool = False,
+                              only: list[str] | None = None) -> list[dict]:
+    """Return ``[{id, title, content, revision}]`` for episodes with ``processed: false``, oldest first (the newest
+    first with ``newest_first``). ``only`` (G207): just these ids, in the order given — a bare save, which no model
+    reads (ruling 62), is left out of such a list.
 
     Missing ``processed`` key defaults to unprocessed (matches the episode
     schema's documented default). Never raises: a single malformed episode
@@ -791,8 +794,14 @@ def list_unprocessed_episodes(memory_path: Path, limit: int = 50) -> list[dict]:
         limit = 50
 
     out: list[dict] = []
-    for filepath in sorted(episodes_dir.glob("*.md")):
+    if only is not None:
+        paths = [episodes_dir / f"{ep}.md" for ep in only if ep and "/" not in ep and ".." not in ep]
+    else:
+        paths = sorted(episodes_dir.glob("*.md"), reverse=newest_first)
+    for filepath in paths:
         try:
+            if not filepath.is_file():
+                continue
             parsed = markdown_parser.parse(filepath)
         except Exception as exc:
             logger.warning(f"skipping unreadable episode {filepath.name}: {exc}")
@@ -800,6 +809,11 @@ def list_unprocessed_episodes(memory_path: Path, limit: int = 50) -> list[dict]:
         fm = parsed.frontmatter or {}
         if fm.get("processed", False):
             continue
+        if only is not None:
+            from api.services import history_index
+
+            if history_index.is_index_only(fm):
+                continue
         out.append({
             "id": fm.get("id", filepath.stem),
             "title": fm.get("title", filepath.stem),
@@ -881,16 +895,26 @@ def mark_episodes_processed(memory_path: Path, revisions: Mapping[str, str], *, 
 
 # --- the agent's own consolidation loop, as text (one body for the stdio server and the tool door) -----------------
 
-def pending_text(memory_path: Path, limit, listed: dict[str, str]) -> str:
-    """``cicada_pending``: unprocessed episodes, each with the revision its mark must match. ``listed`` is the
-    caller's session memory of what it was shown (the stdio process's own dict; the tool door's round-tripped state,
-    G181 phase 2), updated in place."""
+def pending_text(memory_path: Path, limit, listed: dict[str, str], query=None) -> str:
+    """``cicada_pending``: unprocessed episodes, each with the revision its mark must match, the newest first.
+    ``query`` (G207): only the ones that match it, best first, by the word and vector legs recall's conversation
+    excerpts use (``mcp_tools.unread_matches``); never logged. ``listed`` is the caller's session memory of what it
+    was shown (the stdio process's own dict; the tool door's round-tripped state, G181 phase 2), updated in place."""
     try:
         limit = int(limit) if limit is not None else 50
     except (TypeError, ValueError):
         limit = 50
 
-    episodes = list_unprocessed_episodes(memory_path, limit=limit)
+    query = query.strip() if isinstance(query, str) else ""
+    if query:
+        from api.services import mcp_tools
+
+        episodes = list_unprocessed_episodes(memory_path, limit=limit,
+                                             only=mcp_tools.unread_matches(memory_path, query, limit))[:limit]
+        if not episodes:
+            return "No unprocessed episodes match that query."
+    else:
+        episodes = list_unprocessed_episodes(memory_path, limit=limit, newest_first=True)
     if not episodes:
         return "No unprocessed episodes pending."
 
