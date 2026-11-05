@@ -2779,6 +2779,18 @@ actor APIClient {
                                                     body: ["claimId": claimId])
     }
 
+    /// `POST /capture/isbn` — the phone's contract: a book the person added by number, with the status they chose or none.
+    func captureISBN(_ isbn: String, status: String?) async throws -> BookScanSent {
+        var body: [String: Any] = ["isbn": isbn]
+        if let status { body["status"] = status }
+        return try await post("/capture/isbn", body: body)
+    }
+
+    /// `GET /sources/books/scans/{id}` — what a scan became: waiting for its lookup, or the page it landed on.
+    func bookScanResult(episodeId: String) async throws -> BookScanResult {
+        try await get("/sources/books/scans/\(encodedID(episodeId))")
+    }
+
     /// `GET /sources/books` — book pages by status and the scans waiting for their lookup. Not a Store domain.
     func booksSummary() async throws -> BooksSummary { try await get("/sources/books") }
 

@@ -88,7 +88,7 @@ enum SourceBlurb {
         // G39, G233.
         "apple-books": "Your Apple Books library: what you're reading and finished, your highlights and notes.",
         "goodreads": "Your Goodreads shelves, ratings and reviews, from the export you chose.",
-        "book-scan": "Books you scanned with your phone, with what you said you're doing with each.",
+        "book-scan": "Books you added by number or scanned, with what you said you're doing with each.",
         "notion": "Pages and database rows from a Notion export.",
         // Ruling 47 tier 2.
         "notion-api": "The Notion pages you shared with your own connection, kept current.",

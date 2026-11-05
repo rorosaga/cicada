@@ -7,7 +7,23 @@ extension Copy {
     static let appleBooksTitle = "Apple Books"
     static let goodreadsTitle = "Goodreads"
     static let bookScansTitle = "Book scans"
-    static let bookScansLine = "Scan a book with Cicada on your phone."
+    // ROR-115: adding a book on the Mac. Typed or pasted, or read from the camera; the status is the person's to choose.
+    static let bookAddPrompt = "ISBN"
+    static let bookAdd = "Add"
+    static let bookAddScan = "Scan"
+    static let bookAddScanHelp = "Hold the barcode to your Mac's camera. Nothing is saved or sent but the number."
+    static let bookAddStopScan = "Stop"
+    static let bookAddNotABook = "That is not a book's number."
+    static let bookAddWaiting = "Added. Looking it up…"
+    static let bookAddFailed = "Couldn't add it. Try again."
+    static let bookAddOpen = "Open"
+    static let bookAddNoCamera = "No camera on this Mac."
+    static let bookAddCameraDenied = "Turn on Cicada in System Settings → Privacy & Security → Camera, then Scan."
+    static func bookAddAdded(_ name: String) -> String { "Added · \(name)" }
+    static func bookAddAlready(_ name: String) -> String { "Already in your books · \(name)" }
+    /// `books.STATUS_WORDS` for the three a person can say about a book they add (the phone's three).
+    static let bookAddStatuses: [(key: String, label: String)] = [("reading", "Reading"), ("finished", "Finished"),
+                                                                   ("want", "Want to read")]
     // Ruling 61: the same words a status record is written in (`books.STATUS_WORDS`).
     static let bookStatusWords = ["reading": "Reading now", "finished": "Finished", "want": "Want to read",
                                   "not_started": "Not started"]

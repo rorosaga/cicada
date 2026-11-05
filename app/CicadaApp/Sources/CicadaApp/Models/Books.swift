@@ -10,6 +10,38 @@ struct BookStatusRecord: Decodable, Equatable, Sendable {
     let day: String?
     let claimId: String
     let fromChat: Bool
+    /// Where the book came in from ("Apple Books", "Scanned"), in a fixed order; empty from an older backend.
+    var ways: [String] = []
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = try c.decode(String.self, forKey: .status)
+        day = try c.decodeIfPresent(String.self, forKey: .day)
+        claimId = try c.decode(String.self, forKey: .claimId)
+        fromChat = try c.decode(Bool.self, forKey: .fromChat)
+        ways = try c.decodeIfPresent([String].self, forKey: .ways) ?? []
+    }
+
+    init(status: String, day: String?, claimId: String, fromChat: Bool, ways: [String] = []) {
+        self.status = status; self.day = day; self.claimId = claimId; self.fromChat = fromChat; self.ways = ways
+    }
+
+    private enum CodingKeys: String, CodingKey { case status, day, claimId, fromChat, ways }
+}
+
+/// `POST /capture/isbn`'s answer: the scan's episode, whose result `GET /sources/books/scans/{id}` tells.
+struct BookScanSent: Decodable, Equatable, Sendable {
+    let episodeId: String?
+    let isbn: String
+}
+
+/// `GET /sources/books/scans/{id}`: `waiting` until the number resolves at the home, then the page it landed on —
+/// `existing` when that book was already in the bank (another edition, Apple Books, Goodreads).
+struct BookScanResult: Decodable, Equatable, Sendable {
+    let state: String
+    let entityId: String?
+    let name: String?
+    let existing: Bool?
 }
 
 struct BookStatusUndoReply: Decodable, Sendable { let status: String? }
@@ -53,7 +85,9 @@ enum BooksRowText {
     static func status(_ record: BookStatusRecord, locale: Locale = .autoupdatingCurrent) -> String {
         let word = Copy.bookStatusWords[record.status] ?? record.status
         let day = EntityDates.day(record.day, locale: locale)
-        return ([word, day, record.fromChat ? Copy.bookStatusFromChat : nil] as [String?]).compactMap { $0 }
+        // Where it came from is said only when there is more than one way in (ROR-115).
+        let ways = record.ways.count > 1 ? record.ways.joined(separator: " · ") : nil
+        return ([word, day, record.fromChat ? Copy.bookStatusFromChat : nil, ways] as [String?]).compactMap { $0 }
             .joined(separator: " · ")
     }
 
