@@ -15,6 +15,8 @@ struct WhatsAppChat: Identifiable, Equatable, Sendable {
     /// chats-ux-v2 — where WhatsApp keeps this chat's profile picture, relative to its container (app-side only, never
     /// posted); nil when WhatsApp holds none.
     var picturePath: String? = nil
+    /// ROR-110 — for a phone-number chat, the path WhatsApp keeps under its `@lid` id (`lidAccounts`); same rules.
+    var lidPicturePath: String? = nil
     /// ROR-110 — WhatsApp's own Archived flag. App-side only (never posted): it only places the row in the picker.
     var archived = false
 
@@ -161,15 +163,13 @@ struct WhatsAppReader: Sendable {
 
     // MARK: The list
 
-    func chats(ids: Set<String>? = nil) throws -> [WhatsAppChat] {
+    /// `lids` is `lidAccounts`: the caller holds it, read once per list load.
+    func chats(ids: Set<String>? = nil, lids: [String: String] = [:]) throws -> [WhatsAppChat] {
         let own = ownAccounts()
         return try withCopy { db in
             let have = try Self.columns("ZWACHATSESSION", db)
             guard have.contains("ZCONTACTJID") else { throw WhatsAppReadError.unreadable }
-            // chats-ux-v2 — each chat's profile picture, where WhatsApp keeps one (`ZWAPROFILEPICTUREITEM`: the JID and
-            // the file's path in the container), read only where this Mac's copy has the table.
-            let pics = try Self.columns("ZWAPROFILEPICTUREITEM", db)
-            let joinPics = pics.contains("ZJID") && pics.contains("ZPATH")
+            let pictures = try Self.pictureRows(db)
             // 2026-11-03 (owner's picker: "29 Oct 9026", "3 Nov 8026" beside "3 Nov") — the session's
             // `ZLASTMESSAGEDATE` is the list's sort key, not always a date: some chats carry a value thousands of years
             // ahead (the day and month kept, the year not) while the others read true. The chat's newest message is
@@ -182,9 +182,7 @@ struct WhatsAppReader: Sendable {
                 SELECT s.Z_PK AS pk, s.ZCONTACTJID AS jid, \(Self.pick("ZPARTNERNAME", from: "s", in: have, as: "name")),
                        \(Self.pick("ZLASTMESSAGEDATE", from: "s", in: have, as: "last")),
                        \(Self.pick("ZARCHIVED", from: "s", in: have, as: "archived")),
-                       \(newest) AS newest,
-                       \(joinPics ? "(SELECT MAX(p.ZPATH) FROM ZWAPROFILEPICTUREITEM p WHERE p.ZJID = s.ZCONTACTJID)"
-                                  : "NULL") AS picture
+                       \(newest) AS newest
                 FROM ZWACHATSESSION s ORDER BY COALESCE(newest, last) DESC
                 """
             let now = self.now()
@@ -194,18 +192,36 @@ struct WhatsAppReader: Sendable {
                 let id = Self.chatId(jid: jid)
                 if let ids, !ids.contains(id) { continue }
                 let group = jid.hasSuffix("@g.us")
-                out.append(WhatsAppChat(id: id, sessionPk: pk, jid: jid, partnerName: (row["name"] as? String) ?? "",
+                var chat = WhatsAppChat(id: id, sessionPk: pk, jid: jid, partnerName: (row["name"] as? String) ?? "",
                                         group: group,
                                         lastActivity: ChatDates.whatsAppLastActivity(
                                             session: (row["last"] as? NSNumber)?.doubleValue,
                                             newest: (row["newest"] as? NSNumber)?.doubleValue, now: now),
                                         isSelf: !group && own.contains(Self.account(jid: jid)),
-                                        picturePath: (row["picture"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                                        archived: (Self.int(row["archived"]) ?? 0) != 0))
+                                        picturePath: pictures[jid],
+                                        archived: (Self.int(row["archived"]) ?? 0) != 0)
+                if chat.phoneHandle != nil, let lid = lids[Self.account(jid: jid)] {
+                    chat.lidPicturePath = pictures[lid + "@lid"]
+                }
+                out.append(chat)
                 if ids == nil && out.count >= listLimit { break }
             }
             return out
         }
+    }
+
+    /// `ZWAPROFILEPICTUREITEM`, which names each picture's owner exactly: the JID to the file's path in the container
+    /// (ROR-110). A file's name never says whose it is, since `<creator>-<time>` can be a legacy group's. Empty where
+    /// this Mac's copy has no such table or column.
+    static func pictureRows(_ db: SQLiteReadOnly) throws -> [String: String] {
+        let table = "ZWAPROFILEPICTUREITEM"
+        guard try columns(table, db).isSuperset(of: ["ZJID", "ZPATH"]) else { return [:] }
+        var out: [String: String] = [:]
+        for row in try db.query("SELECT ZJID AS jid, MAX(ZPATH) AS path FROM \(table) "
+                                + "WHERE ZJID IS NOT NULL AND ZPATH <> '' GROUP BY ZJID", binds: []) {
+            if let jid = row["jid"] as? String, let path = row["path"] as? String { out[jid] = path }
+        }
+        return out
     }
 
     // MARK: The person's own chat and the chats' pictures (chats-ux-v2)
@@ -239,33 +255,6 @@ struct WhatsAppReader: Sendable {
             if account.count >= 6, account.allSatisfy(\.isNumber) { out.insert(account) }
         }
         return out
-    }
-
-    /// `Media/Profile`'s files by the account each may belong to (ROR-110). WhatsApp names them `<account>` or
-    /// `<account>-<digits>` plus `.thumb`/`.jpg` (the layout open-source exporters read), so a store whose picture table
-    /// has no row, or a stale one, still finds its file. A name that is itself another listed chat's account belongs to
-    /// that chat only: `<creator>-<time>` is a group's, never its creator's. Names only; per account the newest picture
-    /// first and, of its two files, the small one (enough at ≤ 128 px).
-    func profileFiles(listed: [WhatsAppChat]) -> [String: [String]] {
-        let folder = containerFolder.appendingPathComponent("Media/Profile", isDirectory: true)
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return [:] }
-        let accounts = Set(listed.map { Self.account(jid: $0.jid) })
-        func stem(_ name: String) -> String { String(name.split(separator: ".", maxSplits: 1).first ?? "").lowercased() }
-        var out: [String: [String]] = [:]
-        for name in names where !name.hasPrefix(".") {
-            let whole = stem(name)
-            out[whole, default: []].append(name)
-            guard !accounts.contains(whole), let dash = whole.lastIndex(of: "-") else { continue }
-            let tail = whole[whole.index(after: dash)...]
-            if !tail.isEmpty, tail.allSatisfy(\.isNumber) { out[String(whole[..<dash]), default: []].append(name) }
-        }
-        return out.mapValues { files in
-            files.sorted { a, b in
-                let (x, y) = (stem(a), stem(b))
-                return x == y ? a.hasSuffix(".thumb") && !b.hasSuffix(".thumb")
-                              : x.compare(y, options: .numeric) == .orderedDescending
-            }
-        }
     }
 
     /// A phone number's `@lid` account, by the number's account (ROR-110): WhatsApp files profile pictures under the
@@ -308,26 +297,21 @@ struct WhatsAppReader: Sendable {
     }
 
     /// A chat's profile picture as WhatsApp keeps it on this Mac, made at most 128 px (PNG) — only a regular file inside
-    /// the container, under 8 MB; nil otherwise. The path the store names and its sibling files first, then the file
-    /// named for the chat's account (`profileFiles`); the person's own chat wears their own photo; last, a phone chat
-    /// the file named for its `@lid` account (`lidAccounts`). ROR-110: the bytes are
-    /// read once into memory and nothing is written, so WhatsApp's file is never held open and no picture reaches a disk.
-    func picture(_ chat: WhatsAppChat, profile: [String: [String]]? = nil, lids: [String: String] = [:]) -> Data? {
+    /// the container, under 8 MB; nil otherwise. The path its own row names and that path's sibling files; the person's
+    /// own chat wears their own photo; last, a phone chat the row of its `@lid` id. ROR-110: the bytes are read once
+    /// into memory and nothing is written, so WhatsApp's file is never held open and no picture reaches a disk.
+    func picture(_ chat: WhatsAppChat) -> Data? {
         let root = containerFolder.resolvingSymlinksInPath().standardizedFileURL
-        var candidates: [URL] = []
-        if let path = chat.picturePath, !path.contains("..") {
+        func files(_ path: String?) -> [URL] {
+            guard let path, !path.contains("..") else { return [] }
             let base = path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path)
             let stem = base.deletingPathExtension()
-            candidates += [base, stem.appendingPathExtension("thumb"), stem.appendingPathExtension("jpg"),
-                           base.appendingPathExtension("thumb"), base.appendingPathExtension("jpg")]
+            return [base, stem.appendingPathExtension("thumb"), stem.appendingPathExtension("jpg"),
+                    base.appendingPathExtension("thumb"), base.appendingPathExtension("jpg")]
         }
-        let folder = root.appendingPathComponent("Media/Profile", isDirectory: true)
-        let files = profile ?? profileFiles(listed: [chat])
-        candidates += (files[Self.account(jid: chat.jid)] ?? []).map { folder.appendingPathComponent($0) }
-        if chat.isSelf { candidates.append(folder.appendingPathComponent("Photo.jpg")) }
-        if chat.phoneHandle != nil, let lid = lids[Self.account(jid: chat.jid)] {
-            candidates += (files[lid] ?? []).map { folder.appendingPathComponent($0) }
-        }
+        var candidates = files(chat.picturePath)
+        if chat.isSelf { candidates.append(root.appendingPathComponent("Media/Profile/Photo.jpg")) }
+        candidates += files(chat.lidPicturePath)
         for candidate in candidates {
             let file = candidate.resolvingSymlinksInPath().standardizedFileURL
             guard file.path.hasPrefix(root.path + "/"),

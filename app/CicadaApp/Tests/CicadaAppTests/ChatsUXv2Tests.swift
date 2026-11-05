@@ -219,18 +219,37 @@ final class ChatsUXv2Tests: XCTestCase {
         XCTAssertTrue(WhatsAppWatcher.sections(w.chats).archived.isEmpty)
     }
 
-    func testAPictureIsFoundByItsAccountWithNoRowOrAStaleOne() async throws {
+    private func row(_ jid: String, _ path: String) {
+        store.exec("INSERT INTO ZWAPROFILEPICTUREITEM (ZJID, ZPATH) VALUES (?, ?)", [jid, path])
+    }
+
+    func testAPictureIsTheOneItsOwnRowNamesForEveryKindOfChat() async throws {
+        let linked = "200000000000002@lid"
         let stale = "15550000003@s.whatsapp.net"
-        store.session(friendJid, name: "Bob Example", last: 30)
-        store.session(groupJid, name: "Weekend crew", last: 20)
+        store.session(friendJid, name: "Bob Example", last: 40)
+        store.session(groupJid, name: "Weekend crew", last: 30)
+        store.session(linked, name: "Dan Example", last: 20)
         store.session(stale, name: "Carol Example", last: 10)
-        store.exec("INSERT INTO ZWAPROFILEPICTUREITEM (ZJID, ZPATH) VALUES (?, ?)", [stale, "Media/Profile/gone.jpg"])
-        try writePicture("Media/Profile/15550000002-1700000000.thumb", side: 96)
-        try writePicture("Media/Profile/120363000000000000-1700000000.jpg", side: 96)
-        try writePicture("Media/Profile/15550000003-1700000001.thumb", side: 96)
+        for (jid, name) in [(friendJid, "a"), (groupJid, "b"), (linked, "c")] {
+            row(jid, "Media/Profile/\(name)-1700000000.thumb")
+            try writePicture("Media/Profile/\(name)-1700000000.thumb", side: 96)
+        }
+        row(stale, "Media/Profile/gone.jpg")
         let w = try watcher(FakeChatSourcesAPI())
         await w.loadList()
-        for chat in w.chats { XCTAssertNotNil(w.thumbnail(of: chat), chat.partnerName) }
+        for chat in w.chats where chat.jid != stale { XCTAssertNotNil(w.thumbnail(of: chat), chat.partnerName) }
+        XCTAssertNil(w.thumbnail(of: try XCTUnwrap(w.chats.first { $0.jid == stale })), "a row with no file draws none")
+    }
+
+    func testAFileNoRowNamesIsNobodysPicture() async throws {
+        store.session(friendJid, name: "Bob Example", last: 30)
+        store.session(groupJid, name: "Weekend crew", last: 20)
+        try writePicture("Media/Profile/15550000002.jpg", side: 96)
+        try writePicture("Media/Profile/15550000002-1700000000.thumb", side: 96)
+        try writePicture("Media/Profile/120363000000000000-1700000000.jpg", side: 96)
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        for chat in w.chats { XCTAssertNil(w.thumbnail(of: chat), chat.partnerName) }
     }
 
     func testARowNamingOneExtensionFindsItsSiblingFile() async throws {
@@ -245,12 +264,17 @@ final class ChatsUXv2Tests: XCTestCase {
     func testAGroupsFileIsNeverItsCreatorsPicture() async throws {
         let legacyGroup = "15550000002-1600000000@g.us"
         store.session(friendJid, name: "Bob Example", last: 30)
+        row(legacyGroup, "Media/Profile/15550000002-1600000000.thumb")
+        try writePicture("Media/Profile/15550000002-1600000000.thumb", side: 96)
+        let unlisted = try watcher(FakeChatSourcesAPI())
+        await unlisted.loadList()
+        XCTAssertEqual(unlisted.chats.map(\.jid), [friendJid], "the group is not among the listed chats")
+        XCTAssertNil(unlisted.thumbnail(of: try XCTUnwrap(unlisted.chats.first)), "the creator's chat never wears it")
         store.session(legacyGroup, name: "Weekend crew", last: 20)
-        try writePicture("Media/Profile/15550000002-1600000000.jpg", side: 96)
-        let w = try watcher(FakeChatSourcesAPI())
-        await w.loadList()
-        XCTAssertNil(w.thumbnail(of: try XCTUnwrap(w.chats.first { $0.jid == friendJid })))
-        XCTAssertNotNil(w.thumbnail(of: try XCTUnwrap(w.chats.first { $0.jid == legacyGroup })))
+        let listed = try watcher(FakeChatSourcesAPI())
+        await listed.loadList()
+        XCTAssertNil(listed.thumbnail(of: try XCTUnwrap(listed.chats.first { $0.jid == friendJid })))
+        XCTAssertNotNil(listed.thumbnail(of: try XCTUnwrap(listed.chats.first { $0.jid == legacyGroup })))
     }
 
     func testTheChatWithYourselfWearsYourOwnPhoto() async throws {
@@ -268,6 +292,7 @@ final class ChatsUXv2Tests: XCTestCase {
         store.session(friendJid, name: "Bob Example", last: 30)
         store.exec("UPDATE ZWACHATSESSION SET ZARCHIVED = 1")
         store.exec("DROP TABLE ZWAMESSAGE")
+        row(friendJid, "Media/Profile/15550000002-1700000000.thumb")
         try writePicture("Media/Profile/15550000002-1700000000.thumb", side: 96)
         let scratch = store.dir.appendingPathComponent("reader-scratch", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
@@ -297,8 +322,10 @@ final class ChatsUXv2Tests: XCTestCase {
                            (unbridged, "200000000000005"),
                            (torn, "200000000000008@lid"), (torn, "200000000000009@lid")])
         for lid in ["2", "3", "4", "5", "7", "8", "9"] {
+            row("20000000000000\(lid)@lid", "Media/Profile/20000000000000\(lid)-1700000000.thumb")
             try writePicture("Media/Profile/20000000000000\(lid)-1700000000.thumb", side: 64)
         }
+        row(owned, "Media/Profile/15550000004-1700000000.thumb")
         try writePicture("Media/Profile/15550000004-1700000000.thumb", side: 96)
         let scratch = store.dir.appendingPathComponent("reader-scratch", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
@@ -328,6 +355,7 @@ final class ChatsUXv2Tests: XCTestCase {
 
     func testNoAddressBookTableOrColumnMeansNoBridgeAndNoError() async throws {
         store.session(friendJid, name: "Bob Example", last: 30)
+        row("200000000000002@lid", "Media/Profile/200000000000002-1700000000.thumb")
         try writePicture("Media/Profile/200000000000002-1700000000.thumb", side: 64)
         let file = store.dir.appendingPathComponent("ContactsV2.sqlite")
         func check(_ note: String) async throws {

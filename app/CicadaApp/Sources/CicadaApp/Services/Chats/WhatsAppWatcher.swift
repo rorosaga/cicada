@@ -179,7 +179,13 @@ final class WhatsAppWatcher {
         defer { listing = false }
         let reader = self.reader
         do {
-            chats = try await Task.detached(priority: .userInitiated) { try reader.chats() }.value
+            let (lids, listed) = try await Task.detached(priority: .userInitiated) {
+                try reader.checkAccess()   // the store first: no read of the bridge without access
+                let lids = reader.lidAccounts()
+                return (lids, try reader.chats(lids: lids))
+            }.value
+            lidAccounts = lids
+            chats = listed
             if status == .missing || isNeedsAccess { status = tickedIds.isEmpty ? .idle : .watching }
         } catch let error as BrowserFileError {
             status = Self.status(for: error)
@@ -200,14 +206,9 @@ final class WhatsAppWatcher {
         }
         // chats-ux-v2 — pictures last: the rows and their ticks never wait on them (≈80 ms for 300, measured).
         let listed = chats
-        let (lids, drawn) = await Task.detached(priority: .userInitiated) {
-            let profile = reader.profileFiles(listed: listed)
-            let lids = reader.lidAccounts()
-            return (lids, Dictionary(uniqueKeysWithValues: listed.compactMap { chat in
-                reader.picture(chat, profile: profile, lids: lids).map { (chat.id, $0) } }))
+        pictures = await Task.detached(priority: .userInitiated) {
+            Dictionary(uniqueKeysWithValues: listed.compactMap { chat in reader.picture(chat).map { (chat.id, $0) } })
         }.value
-        lidAccounts = lids
-        pictures = drawn
     }
 
     private var isNeedsAccess: Bool { if case .needsAccess = status { true } else { false } }
@@ -296,7 +297,13 @@ final class WhatsAppWatcher {
         let reader = self.reader
         readSignature = reader.signature()   // before the clone: a write after this moment still runs the next pass
         let ticked = tickedIds
-        let found = try await Task.detached(priority: .utility) { try reader.chats(ids: ticked) }.value
+        let known = lidAccounts
+        let (lids, found) = try await Task.detached(priority: .utility) {
+            try reader.checkAccess()
+            let lids = known ?? reader.lidAccounts()
+            return (lids, try reader.chats(ids: ticked, lids: lids))
+        }.value
+        lidAccounts = lids
         passNewest = found.compactMap(\.lastActivity).max()
         var posted = 0
         for chat in found {
@@ -352,14 +359,9 @@ final class WhatsAppWatcher {
     /// own chat draws the owner's page first when it has a picture (`channel_items._chat_pictures`).
     private func postPhotos(_ ticked: [WhatsAppChat]) async {
         let reader = self.reader
-        let listed = chats + ticked
-        let known = lidAccounts
-        let (lids, pairs) = await Task.detached(priority: .utility) {
-            let profile = reader.profileFiles(listed: listed)
-            let lids = known ?? reader.lidAccounts()
-            return (lids, ticked.map { chat in (chat.id, reader.picture(chat, profile: profile, lids: lids)) })
+        let pairs = await Task.detached(priority: .utility) {
+            ticked.map { chat in (chat.id, reader.picture(chat)) }
         }.value
-        lidAccounts = lids
         let changed = pairs.filter { id, data in postedPhotos[id] != data?.hashValue ?? 0 }
         guard !changed.isEmpty else { return }
         if (try? await api.putChatPhotos(changed.map { MessagesPhotoPayload(conversation: $0.0, photo: $0.1) })) != nil {
