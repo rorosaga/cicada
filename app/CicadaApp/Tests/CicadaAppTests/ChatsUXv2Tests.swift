@@ -194,6 +194,107 @@ final class ChatsUXv2Tests: XCTestCase {
         XCTAssertLessThan(with, 1000)
     }
 
+    // MARK: ROR-110 — the picker's Archived group and pictures
+
+    func testArchivedChatsSitBelowTheRestAndCanStillBeTicked() async throws {
+        store.exec("ALTER TABLE ZWACHATSESSION ADD COLUMN ZARCHIVED INTEGER")
+        let old = store.session(friendJid, name: "Bob Example", last: 30)
+        store.session(groupJid, name: "Weekend crew", last: 10)
+        store.exec("UPDATE ZWACHATSESSION SET ZARCHIVED = 1 WHERE Z_PK = ?", [old])
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        let sections = WhatsAppWatcher.sections(w.chats)
+        XCTAssertEqual(sections.chats.map(\.jid), [groupJid], "newer activity never lifts an archived chat")
+        XCTAssertEqual(sections.archived.map(\.jid), [friendJid])
+        let archived = try XCTUnwrap(sections.archived.first)
+        try await w.setTicked(archived, true)
+        XCTAssertTrue(w.tickedIds.contains(archived.id))
+    }
+
+    func testAStoreWithNoArchivedColumnListsEveryChatAsUnarchived() async throws {
+        store.session(friendJid, name: "Bob Example", last: 30)
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        XCTAssertEqual(WhatsAppWatcher.sections(w.chats).chats.count, 1)
+        XCTAssertTrue(WhatsAppWatcher.sections(w.chats).archived.isEmpty)
+    }
+
+    func testAPictureIsFoundByItsAccountWithNoRowOrAStaleOne() async throws {
+        let stale = "15550000003@s.whatsapp.net"
+        store.session(friendJid, name: "Bob Example", last: 30)
+        store.session(groupJid, name: "Weekend crew", last: 20)
+        store.session(stale, name: "Carol Example", last: 10)
+        store.exec("INSERT INTO ZWAPROFILEPICTUREITEM (ZJID, ZPATH) VALUES (?, ?)", [stale, "Media/Profile/gone.jpg"])
+        try writePicture("Media/Profile/15550000002-1700000000.thumb", side: 96)
+        try writePicture("Media/Profile/120363000000000000-1700000000.jpg", side: 96)
+        try writePicture("Media/Profile/15550000003-1700000001.thumb", side: 96)
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        for chat in w.chats { XCTAssertNotNil(w.thumbnail(of: chat), chat.partnerName) }
+    }
+
+    func testARowNamingOneExtensionFindsItsSiblingFile() async throws {
+        store.session(friendJid, name: "Bob Example", last: 30)
+        store.exec("INSERT INTO ZWAPROFILEPICTUREITEM (ZJID, ZPATH) VALUES (?, ?)", [friendJid, "Media/Profile/x-1.jpg"])
+        try writePicture("Media/Profile/x-1.thumb", side: 96)
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        XCTAssertNotNil(w.thumbnail(of: try XCTUnwrap(w.chats.first)))
+    }
+
+    func testAGroupsFileIsNeverItsCreatorsPicture() async throws {
+        let legacyGroup = "15550000002-1600000000@g.us"
+        store.session(friendJid, name: "Bob Example", last: 30)
+        store.session(legacyGroup, name: "Weekend crew", last: 20)
+        try writePicture("Media/Profile/15550000002-1600000000.jpg", side: 96)
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        XCTAssertNil(w.thumbnail(of: try XCTUnwrap(w.chats.first { $0.jid == friendJid })))
+        XCTAssertNotNil(w.thumbnail(of: try XCTUnwrap(w.chats.first { $0.jid == legacyGroup })))
+    }
+
+    func testTheChatWithYourselfWearsYourOwnPhoto() async throws {
+        try writeOwnAccount(ownJid)
+        store.session(ownJid, name: "You", last: 30)
+        try writePicture("Media/Profile/Photo.jpg", side: 96)
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        XCTAssertNotNil(w.thumbnail(of: try XCTUnwrap(w.chats.first)))
+    }
+
+    /// The rail: before a tick the picture and the flag stay in this app's memory, and neither needs a message row.
+    func testAnUntickedChatsPictureNeverLeavesTheAppOrReachesADisk() async throws {
+        store.exec("ALTER TABLE ZWACHATSESSION ADD COLUMN ZARCHIVED INTEGER")
+        store.session(friendJid, name: "Bob Example", last: 30)
+        store.exec("UPDATE ZWACHATSESSION SET ZARCHIVED = 1")
+        store.exec("DROP TABLE ZWAMESSAGE")
+        try writePicture("Media/Profile/15550000002-1700000000.thumb", side: 96)
+        let scratch = store.dir.appendingPathComponent("reader-scratch", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let before = try XCTUnwrap(FileManager.default.subpathsOfDirectory(atPath: store.dir.path).sorted() as [String]?)
+        let api = FakeChatSourcesAPI()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "chats-ux-v2-\(UUID().uuidString)"))
+        let w = WhatsAppWatcher(api: api, reader: WhatsAppReader(store: store.url, scratchRoot: scratch),
+                                defaults: defaults, folder: store.dir, makeWatch: { _, _ in nil },
+                                lookUpCards: { _ in [:] })
+        await w.loadList()
+        let chat = try XCTUnwrap(w.chats.first)
+        XCTAssertTrue(chat.archived)
+        XCTAssertNotNil(w.thumbnail(of: chat))
+        XCTAssertTrue(api.photoPosts.isEmpty, "nothing posted before a tick")
+        XCTAssertEqual(try FileManager.default.subpathsOfDirectory(atPath: store.dir.path).sorted(), before,
+                       "no file written, the reader's own scratch included")
+    }
+
+    func testAMissingPermissionReadsAsNeedsAccessNotAnEmptyPicker() async throws {
+        store.session(friendJid, name: "Bob Example", last: 30)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: store.url.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: store.url.path) }
+        let w = try watcher(FakeChatSourcesAPI())
+        await w.loadList()
+        guard case .needsAccess = w.status else { return XCTFail("\(w.status)") }
+    }
+
     func testTheQRStepWaitsOnTheStatusVersionInsteadOfPolling() async throws {
         let api = FakeChatSourcesAPI()
         api.qrVersion = "aaaaaaaaaaaa"

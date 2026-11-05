@@ -165,6 +165,11 @@ final class WhatsAppWatcher {
         ChatSearch.filter(chats, query: query, name: { self.name(of: $0) }, digits: \.searchDigits)
     }
 
+    /// ROR-110 (owner 2026-11-05) — the picker's two groups, as WhatsApp keeps them: the chats, then the archived ones.
+    static func sections(_ chats: [WhatsAppChat]) -> (chats: [WhatsAppChat], archived: [WhatsAppChat]) {
+        (chats.filter { !$0.archived }, chats.filter(\.archived))
+    }
+
     // MARK: The list
 
     func loadList() async {
@@ -194,7 +199,9 @@ final class WhatsAppWatcher {
         // chats-ux-v2 — pictures last: the rows and their ticks never wait on them (≈80 ms for 300, measured).
         let listed = chats
         pictures = await Task.detached(priority: .userInitiated) {
-            Dictionary(uniqueKeysWithValues: listed.compactMap { chat in reader.picture(chat).map { (chat.id, $0) } })
+            let profile = reader.profileFiles(listed: listed)
+            return Dictionary(uniqueKeysWithValues: listed.compactMap { chat in
+                reader.picture(chat, profile: profile).map { (chat.id, $0) } })
         }.value
     }
 
@@ -340,8 +347,10 @@ final class WhatsAppWatcher {
     /// own chat draws the owner's page first when it has a picture (`channel_items._chat_pictures`).
     private func postPhotos(_ ticked: [WhatsAppChat]) async {
         let reader = self.reader
+        let listed = chats + ticked
         let pairs = await Task.detached(priority: .utility) {
-            ticked.map { chat in (chat.id, reader.picture(chat)) }
+            let profile = reader.profileFiles(listed: listed)
+            return ticked.map { chat in (chat.id, reader.picture(chat, profile: profile)) }
         }.value
         let changed = pairs.filter { id, data in postedPhotos[id] != data?.hashValue ?? 0 }
         guard !changed.isEmpty else { return }

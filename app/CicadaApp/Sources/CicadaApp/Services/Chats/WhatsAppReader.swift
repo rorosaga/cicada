@@ -15,6 +15,8 @@ struct WhatsAppChat: Identifiable, Equatable, Sendable {
     /// chats-ux-v2 — where WhatsApp keeps this chat's profile picture, relative to its container (app-side only, never
     /// posted); nil when WhatsApp holds none.
     var picturePath: String? = nil
+    /// ROR-110 — WhatsApp's own Archived flag. App-side only (never posted): it only places the row in the picker.
+    var archived = false
 
     /// What the picker's search matches beyond the name: the digits of a one-to-one chat's number (app-side only).
     var searchDigits: String { phoneHandle.map { $0.filter(\.isNumber) } ?? "" }
@@ -179,6 +181,7 @@ struct WhatsAppReader: Sendable {
             let sql = """
                 SELECT s.Z_PK AS pk, s.ZCONTACTJID AS jid, \(Self.pick("ZPARTNERNAME", from: "s", in: have, as: "name")),
                        \(Self.pick("ZLASTMESSAGEDATE", from: "s", in: have, as: "last")),
+                       \(Self.pick("ZARCHIVED", from: "s", in: have, as: "archived")),
                        \(newest) AS newest,
                        \(joinPics ? "(SELECT MAX(p.ZPATH) FROM ZWAPROFILEPICTUREITEM p WHERE p.ZJID = s.ZCONTACTJID)"
                                   : "NULL") AS picture
@@ -197,7 +200,8 @@ struct WhatsAppReader: Sendable {
                                             session: (row["last"] as? NSNumber)?.doubleValue,
                                             newest: (row["newest"] as? NSNumber)?.doubleValue, now: now),
                                         isSelf: !group && own.contains(Self.account(jid: jid)),
-                                        picturePath: (row["picture"] as? String).flatMap { $0.isEmpty ? nil : $0 }))
+                                        picturePath: (row["picture"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                                        archived: (Self.int(row["archived"]) ?? 0) != 0))
                 if ids == nil && out.count >= listLimit { break }
             }
             return out
@@ -237,19 +241,58 @@ struct WhatsAppReader: Sendable {
         return out
     }
 
+    /// `Media/Profile`'s files by the account each may belong to (ROR-110). WhatsApp names them `<account>` or
+    /// `<account>-<digits>` plus `.thumb`/`.jpg` (the layout open-source exporters read), so a store whose picture table
+    /// has no row, or a stale one, still finds its file. A name that is itself another listed chat's account belongs to
+    /// that chat only: `<creator>-<time>` is a group's, never its creator's. Names only; per account the newest picture
+    /// first and, of its two files, the small one (enough at ≤ 128 px).
+    func profileFiles(listed: [WhatsAppChat]) -> [String: [String]] {
+        let folder = containerFolder.appendingPathComponent("Media/Profile", isDirectory: true)
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return [:] }
+        let accounts = Set(listed.map { Self.account(jid: $0.jid) })
+        func stem(_ name: String) -> String { String(name.split(separator: ".", maxSplits: 1).first ?? "").lowercased() }
+        var out: [String: [String]] = [:]
+        for name in names where !name.hasPrefix(".") {
+            let whole = stem(name)
+            out[whole, default: []].append(name)
+            guard !accounts.contains(whole), let dash = whole.lastIndex(of: "-") else { continue }
+            let tail = whole[whole.index(after: dash)...]
+            if !tail.isEmpty, tail.allSatisfy(\.isNumber) { out[String(whole[..<dash]), default: []].append(name) }
+        }
+        return out.mapValues { files in
+            files.sorted { a, b in
+                let (x, y) = (stem(a), stem(b))
+                return x == y ? a.hasSuffix(".thumb") && !b.hasSuffix(".thumb")
+                              : x.compare(y, options: .numeric) == .orderedDescending
+            }
+        }
+    }
+
     /// A chat's profile picture as WhatsApp keeps it on this Mac, made at most 128 px (PNG) — only a regular file inside
-    /// the container, under 8 MB; nil otherwise. Read from WhatsApp's own file (no copy needed: a whole small file).
-    func picture(_ chat: WhatsAppChat) -> Data? {
-        guard let path = chat.picturePath, !path.contains("..") else { return nil }
+    /// the container, under 8 MB; nil otherwise. The path the store names and its sibling files first, then the file
+    /// named for the chat's account (`profileFiles`); the person's own chat wears their own photo. ROR-110: the bytes are
+    /// read once into memory and nothing is written, so WhatsApp's file is never held open and no picture reaches a disk.
+    func picture(_ chat: WhatsAppChat, profile: [String: [String]]? = nil) -> Data? {
         let root = containerFolder.resolvingSymlinksInPath().standardizedFileURL
-        let base = path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path)
-        for candidate in [base, base.appendingPathExtension("thumb"), base.appendingPathExtension("jpg")] {
+        var candidates: [URL] = []
+        if let path = chat.picturePath, !path.contains("..") {
+            let base = path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path)
+            let stem = base.deletingPathExtension()
+            candidates += [base, stem.appendingPathExtension("thumb"), stem.appendingPathExtension("jpg"),
+                           base.appendingPathExtension("thumb"), base.appendingPathExtension("jpg")]
+        }
+        let folder = root.appendingPathComponent("Media/Profile", isDirectory: true)
+        let files = profile ?? profileFiles(listed: [chat])
+        candidates += (files[Self.account(jid: chat.jid)] ?? []).map { folder.appendingPathComponent($0) }
+        if chat.isSelf { candidates.append(folder.appendingPathComponent("Photo.jpg")) }
+        for candidate in candidates {
             let file = candidate.resolvingSymlinksInPath().standardizedFileURL
             guard file.path.hasPrefix(root.path + "/"),
                   let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
                   values.isRegularFile == true, (values.fileSize ?? 0) > 0,
-                  (values.fileSize ?? 0) < MessagesSharedPhotos.maxFileBytes else { continue }
-            if let small = MessagesSharedPhotos.downsized(file) { return small }
+                  (values.fileSize ?? 0) < MessagesSharedPhotos.maxFileBytes,
+                  let bytes = try? Data(contentsOf: file) else { continue }
+            if let small = MessagesSharedPhotos.downsized(bytes) { return small }
         }
         return nil
     }
