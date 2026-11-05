@@ -695,18 +695,25 @@ struct MediaBlock: Codable, Equatable {
     /// **The one thing a url cannot tell you**, which is why it is stored at
     /// all. Absent means absent — nothing renders, never an estimate (R17).
     var durationS: Int?
+    /// ROR-117 — an added recording, video or photo (`kind == "file"`): the backend store's id for it, which the page
+    /// plays or shows and draws its words by, and the item's own date. nil for every other media page.
+    var fileId: String?
+    var recordedAt: String?
 
     enum CodingKeys: String, CodingKey {
         case url, mediaType, site, channel, thumbnail, preview, savedAt, urlHash
-        case provider, durationS, kind
+        case provider, durationS, kind, fileId, recordedAt
     }
 
     init(
         url: String, mediaType: String, site: String? = nil,
         channel: String? = nil, thumbnail: String? = nil,
         savedAt: String? = nil, urlHash: String? = nil,
-        provider: String? = nil, durationS: Int? = nil, kind: String? = nil, preview: String? = nil
+        provider: String? = nil, durationS: Int? = nil, kind: String? = nil, preview: String? = nil,
+        fileId: String? = nil, recordedAt: String? = nil
     ) {
+        self.fileId = fileId
+        self.recordedAt = recordedAt
         self.preview = preview
         self.url = url
         self.mediaType = mediaType
@@ -737,9 +744,14 @@ struct MediaBlock: Codable, Equatable {
         provider = try c.decodeIfPresent(String.self, forKey: .provider)
         durationS = try c.decodeIfPresent(Int.self, forKey: .durationS)
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        fileId = try? c.decodeIfPresent(String.self, forKey: .fileId)
+        recordedAt = try? c.decodeIfPresent(String.self, forKey: .recordedAt)
     }
 
     var isPaper: Bool { kind == "paper" }
+    /// ROR-117 — an added recording, video or photo (`media_pages.KIND`): played or shown from this Mac, never
+    /// fetched, and it has no link.
+    var isFile: Bool { kind == "file" && fileId != nil }
     /// G39/G233 — a book page (`books.KIND`): its link is a catalogue entry, never fetched for a preview card.
     var isBook: Bool { kind == "book" }
     /// G230 — a repository page (`github_repos.KIND`).
@@ -922,7 +934,7 @@ struct Entity: Identifiable, Codable {
         // Prefer the backend-surfaced `media` block; if absent (older backend
         // that drops the nested block), reconstruct it from the `media:` YAML
         // in `rawMarkdown` so previews still work. Skip for non-media entities.
-        if let decoded = try c.decodeIfPresent(MediaBlock.self, forKey: .media), decoded.hasURL {
+        if let decoded = try c.decodeIfPresent(MediaBlock.self, forKey: .media), decoded.hasURL || decoded.isFile {
             media = decoded
         } else if type == .media {
             media = Entity.parseMediaFrontmatter(rawMarkdown)

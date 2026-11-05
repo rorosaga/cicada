@@ -223,6 +223,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   folder of transcripts) is an episode Sleep consolidates — one per meeting, its own date, through the folder stager;
   unlike a `media_files` recording. Only a line the recorder labels `You`/`Me` is the person's (52a); every other is
   its speaker's (`speaker:<label>`), the summary the recorder's model's (`capture-and-sleep.md`).
+- **An added recording, video, memo or photo is a quiet `media` page** (`media_pages`, ruling 68); its words stay outside every bank (`storage.md`).
 - **Capture never writes into a demo bank** (`demo_guard`, by `_bank.yaml`, never by name): every capture/sources
   POST/PUT answers 409; the Stop hook redirects to the real bank left most recently.
 - **The Contacts page's faces (G154, owner 2026-11-04):** every card's names and thumbnail, outside every bank, per
@@ -503,13 +504,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   the person made never is; `CICADA_ALLOW_FEED_FETCH` (opt-in) gates RSS/ICS; `CICADA_ALLOW_LOGO_FETCH=off` disables
   logos and media previews.
   Every server-side fetch of someone else's URL goes through `net_guard`.
-- **Update check (G182):** release builds only, behind Settings → General's *Install updates automatically* (on by
-  default; off = only Check for Updates… asks); a download installs only after its sha256 and Ed25519 signature verify.
+- **Update check (G182):** release builds only, behind *Install updates automatically* (on by default); a download installs only after its sha256 and Ed25519 signature verify.
 - **Search model download (2026-10-09):** EmbeddingGemma 2 is fetched only on the person's click or command — one pinned
   revision, every file sha256-checked, into `~/.cicada/models`, never bundled; its image encoder is a second click
-  (`network.md`). A model change re-embeds in
-  the background, never during Sleep, and recall keeps the old table until the new one commits (`storage.md`).
-- **Study room weather (G176):** its own opt-out app gate reads only public city weather while the room is visible and Settings is closed, at 4 s / ≤ 64 KB / no cookies or identifiers; see `docs/architecture/network.md`.
+  (`network.md`). A model change re-embeds in the background, never during Sleep; recall keeps the old table until the
+  new one commits (`storage.md`).
+- **Study room weather (G176):** its own opt-out app gate reads only public city weather while the room is visible (`network.md`).
 - **The ToS rail — not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never behind auth. Consent
   interstitials and login walls are classified and retired **without a byte fetched**. **A block is never retried with
   different headers.** No scraping behind authentication, ever. **One dated exception (owner, 2026-10-09):** a person's

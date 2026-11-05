@@ -2327,6 +2327,28 @@ request is made only inside the person's own drop, and a denial keeps the file w
 every writer, `frames/<ms>.jpg` + `frames.json`); a demo bank refuses (409). `DELETE /files/<id>` removes it; its
 vectors leave at the next refresh, which the delete starts at once.
 
+**A page for each (ROR-117, ruling 68; `api/services/media_pages.py`, its one writer).** Every stored item has a `media`
+page, `file-<title>` (`-<file id>` on a clash): `media: {kind: file, media_type: recording|video|photo, file_id,
+recorded_at, duration_s, language, transcribed_by}`, `source_episodes: []`, evergreen, then `## Summary` and
+`## Why it matters` empty for the next PR (the app draws neither empty). Frontmatter holds only what the store knows
+and changes rarely, so a re-post that changes nothing commits nothing; `recorded_at` is the item's own date (ruling 39:
+a memo's recording date, else the day it was added). **The transcript is never in the bank or git.** `media:` with no
+episode is import evidence and no conversation, so `quiet_pages` dims the page until a conversation names it, and the
+title is the page's name (the file name is an alias), so Stage 2's name match lands on it. `meta.json` remembers the
+page (`page`); a bank whose store lost it is read back by `media.file_id`. A page the person removed or merged away is
+never made again; a renamed page keeps their name. **When:** `POST /files/media` and `/files/voice-memos` ask
+`media_pages.start_sync` (3 s debounce, never waited for), the backend asks it at start, and a run that Sleep held asks
+again when it ends (`sync` raises `SleepHolding`; admission is taken per batch, so Sleep is never kept waiting).
+Pages are written under admission and the page lock and committed 250 at a time alone as `cicada` (trigger
+`sync/media_files`); measured at 1,000 items: 1.7 s and 4 commits on a scratch bank (the second pass 0.27 s, no commit).
+**Taking it out:** `delete` and `retire_source` first note the page in `files/<bank>/_retire.json` (page ids and who
+asked, nothing else), and `sync` removes the page in one commit — `user` for `DELETE /files/{id}`, `cicada` for a store
+tombstone — so a busy bank loses nothing. Git history keeps every earlier version of the page (title, kind, date, file
+id, length, who transcribed it, anything the person or an agent wrote on it); it never held the words. The
+transcriber is a contributor in `GET /entities/{id}/provenance` (`role: transcribed`, no counts), derived from
+`media.transcribed_by`. `cicada_recall_detail` adds one line (segment count and length) and never a word of the
+transcript; a remote reader without `sources` gets not even the line.
+
 **Whose words.** A transcript is **the recording's words** (`words_by: the recording`): never an episode, never the
 person's own for promotion, never read by Sleep (G195), and every hit says so ("the recording's words, at 12:34"). A
 file becomes memory only when the person or an agent uses it in a conversation; then that conversation is the evidence.

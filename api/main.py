@@ -235,6 +235,11 @@ async def lifespan(app: FastAPI):
     from api.services import image_index
 
     image_index.start_refresh(settings.memory_path, delay_s=image_index.SETTLE_S)
+    # Added recordings, videos and photos that have no page yet (items added before pages existed, or while Sleep ran):
+    # made once, in batches, in the background (ROR-117, `media_pages`).
+    from api.services import media_pages
+
+    media_pages.start_sync(settings.memory_path, delay_s=media_pages.SETTLE_S)
 
     logger.info(f"Memory path: {settings.memory_path}")
     logger.info(f"LLM model: {settings.litellm_model}")

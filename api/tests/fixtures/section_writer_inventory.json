@@ -871,6 +871,26 @@
       "disposition": "preserve_frontmatter_guarded"
     }
   ],
+  "services/media_pages.py": [
+    {
+      "function": "_write_chunk",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_write_chunk",
+      "method": "write_new",
+      "frontmatter": "_frontmatter(meta, _title(meta), today)",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_write_chunk",
+      "method": "write_new",
+      "frontmatter": "_frontmatter(meta, _title(meta), today)",
+      "disposition": "fresh_frontmatter_untracked"
+    }
+  ],
   "services/owner_identity.py": [
     {
       "function": "ensure_owner_entity",

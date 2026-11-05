@@ -77,6 +77,8 @@ struct EntityDetailCard: View {
     /// G230 — a repository page's card (or a linked project's), fetched once per open, on its own task: its README may
     /// be read from GitHub first.
     @State private var repositoryDetail: RepositoryDetail?
+    /// ROR-117 — a recording's page: where its file is and the player, shared by the head and the words below.
+    @State private var mediaPage = MediaPageSession()
     /// A picture held over the page (owner 2026-10-20: dropping one adds it to the page's looks).
     @State private var lookDropTargeted = false
     /// Ruling 48 (17), DR-81 — nothing on the page folds. Adding a link or a look starts from the page's menu
@@ -287,7 +289,8 @@ struct EntityDetailCard: View {
                 // served why-it-matters line in the same slot.
                 if let summary = blocks?.summary {
                     InShortBlock(summary: summary)
-                } else {
+                } else if entity.media?.isFile != true {
+                    // ROR-117: an added file has its own Why it matters section, or none; "no relation" isn't news.
                     PageInShort(relevance: blocks?.relevance ?? entity.relevance)
                 }
                 // Proposed ruling 55: a page with no number draws nothing and asks nothing (DR-81).
@@ -499,6 +502,9 @@ struct EntityDetailCard: View {
                     loadRepository(entity.id)
                     reloadPage()
                 })
+            } else if entity.type == .media, let media = entity.media, media.isFile {
+                // ROR-117: the file itself leads (the viewer's own player or photo), then the article, then its words.
+                MediaPageHead(media: media, session: mediaPage)
             } else if entity.type == .media, let media = entity.media, media.isBook {
                 // Ruling 61: where the person stands with the book, and the way back from a word Cicada misread.
                 BookStatusLine(entityId: entity.id, changed: reloadPage)
@@ -513,6 +519,9 @@ struct EntityDetailCard: View {
                 }
             }
             if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
+            if !showRawMarkdown, entity.type == .media, let id = entity.media?.fileId, entity.media?.isFile == true {
+                MediaPageTranscript(fileId: id, session: mediaPage)
+            }
         }
     }
 
@@ -741,6 +750,7 @@ struct EntityDetailCard: View {
     private var pageBlockIsEmpty: Bool {
         guard !showRawMarkdown, !isStub, paperDetail == nil else { return false }
         if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper, !media.isBook { return false }
+        if entity.type == .media, entity.media?.isFile == true { return false }
         if HeroPreview.hasPreviewableAsset(for: entity) { return false }
         return WikiArticleCache.shared.article(articleKey).isEmpty
     }

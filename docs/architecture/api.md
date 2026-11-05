@@ -933,7 +933,7 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
 - **`/files`** (meaning index 2, `routers/files.py`): `POST /files/media` (an added recording's description and its
   transcribed segments; the same sha256 again replaces its words; 422 for anything out of shape, nothing written; 409
   in a demo bank), `POST /files/{id}/frames` (≤ 64 base64 JPEGs a call, ≤ 640 × 400 and ≤ 200 KB each, ≤ 1,200 a file),
-  `GET /files` (descriptions, never the words or the sha256), `GET /files/{id}/frames/{ms}` (only a frame the file's own
+  `GET /files` (descriptions with the file's `page`, never the words or the sha256), `GET /files/{id}/transcript` (ROR-117: the scrubbed segments with their times, the recording's words, for its page; the app's token only, no remote door), `GET /files/{id}/frames/{ms}` (only a frame the file's own
   list names), `DELETE /files/{id}`. No route embeds: each starts the background refresher (30 s later; a delete at
   once). The app posts derivatives only — never a path or a file's bytes. Its query string (and
   `/conversations/recent`'s) is stripped from uvicorn's access log; a new query-bearing GET joins

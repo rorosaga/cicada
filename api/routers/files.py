@@ -17,7 +17,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import CamelModel
-from api.services import demo_guard, image_index, media_files
+from api.services import demo_guard, git_service, image_index, media_files, media_pages
 
 router = APIRouter()
 
@@ -86,6 +86,7 @@ async def post_media(body: MediaIn, settings: Settings = Depends(get_settings)) 
     except media_files.FileRefused as exc:
         raise HTTPException(422, str(exc)) from None
     image_index.start_refresh(settings.memory_path, delay_s=image_index.SETTLE_S)
+    media_pages.start_sync(settings.memory_path, delay_s=media_pages.SETTLE_S)    # its page, moments later
     return out
 
 
@@ -110,6 +111,7 @@ async def post_voice_memos(body: VoiceMemosIn, settings: Settings = Depends(get_
             media_files.retire_source, settings.memory_path, "voice_memos", set(body.present))
     if any(out.values()):
         image_index.start_refresh(settings.memory_path, delay_s=image_index.SETTLE_S)
+        media_pages.start_sync(settings.memory_path, delay_s=media_pages.SETTLE_S)
     return out
 
 
@@ -141,6 +143,16 @@ async def get_files(settings: Settings = Depends(get_settings)) -> dict:
     return {"files": [{k: v for k, v in f.items() if k != "sha256"} for f in files]}
 
 
+@router.get("/files/{file_id}/transcript")
+async def get_transcript(file_id: str, settings: Settings = Depends(get_settings)) -> dict:
+    """A file's words with their times, drawn on its page at view time. They live outside every bank and are never
+    kept in git or indexed as page text; the app's token reaches this, no agent door does. 404 for a file that is gone."""
+    out = await run_in_threadpool(media_files.transcript, settings.memory_path, file_id)
+    if out is None:
+        raise HTTPException(404, "no such file")
+    return out
+
+
 @router.get("/files/{file_id}/frames/{ms}")
 async def get_frame(file_id: str, ms: int, settings: Settings = Depends(get_settings)):
     """A kept frame (the thumbnail a frame hit names). 404 for one the file's own list doesn't name."""
@@ -152,8 +164,11 @@ async def get_frame(file_id: str, ms: int, settings: Settings = Depends(get_sett
 
 @router.delete("/files/{file_id}")
 async def delete_file(file_id: str, settings: Settings = Depends(get_settings)) -> dict:
-    """Take a file out of search: its words and frames go now, its vectors at the next refresh (moments later)."""
-    if not await run_in_threadpool(media_files.delete, settings.memory_path, file_id):
+    """Take a file out of search: its words and frames go now, its vectors at the next refresh (moments later), and
+    its page in one commit under the person's name (while Sleep holds the pages, as soon as it lets go)."""
+    if not await run_in_threadpool(media_files.delete, settings.memory_path, file_id, by=git_service.USER_AUTHOR):
         raise HTTPException(404, "no such file")
     image_index.start_refresh(settings.memory_path, even_empty=True)
+    if not demo_guard.is_demo(settings.memory_path):
+        await run_in_threadpool(media_pages.sync_or_later, settings.memory_path)
     return {"deleted": file_id}

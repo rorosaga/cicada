@@ -98,7 +98,7 @@ enum FindRowText {
         case .entity: row.badge ?? "Entity"
         case .conversation: "Conversation"
         case .belief: row.history == nil ? "Belief" : "Earlier belief"
-        case .media: "Saved item"
+        case .media: "Media"
         case .source: "Source"
         case .inbox: "Question"
         case .backlog: "Backlog item"

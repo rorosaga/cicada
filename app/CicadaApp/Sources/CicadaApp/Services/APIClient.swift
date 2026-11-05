@@ -4863,6 +4863,12 @@ extension APIClient {
         let out: AddedFilesResponse = try await get("/files")
         return out.files
     }
+
+    /// ROR-117 — a recording's words with their times, for its page (`GET /files/{id}/transcript`). Kept outside every
+    /// bank; read when the page opens, held in the page's state only.
+    func fileTranscript(id: String) async throws -> FileTranscript {
+        try await get("/files/\(encodedID(id))/transcript", timeout: 20)
+    }
 }
 
 // MARK: - Design taste (2026-10-14) — looks, on the pages of the things they show (2026-10-20)

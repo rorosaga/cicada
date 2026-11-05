@@ -510,6 +510,10 @@ class EntityMedia(CamelModel):
     # G133 — `paper` for a paper page (`papers.KIND`); absent for every other
     # media page.
     kind: Optional[str] = None
+    # ROR-117 — an added recording, video or photo (`kind: file`, `media_pages`): the store's id for it (the app plays it
+    # and draws its words by this) and the item's own date. It has no link, so `url` is empty.
+    file_id: Optional[str] = None
+    recorded_at: Optional[str] = None
 
 
 class EntityDecay(CamelModel):
@@ -1656,6 +1660,9 @@ class ProvenanceContributor(CamelModel):
     # Round 4 C4: a `harness` contributor's joined turn models; empty when the
     # app did not share them (no capture hook, or a Codex MCP session).
     models: list[ProvenanceModel] = []
+    # ROR-117: why a contributor with no beliefs and no edits is listed — "transcribed", the model that made the
+    # words of the recording the page is about. Absent for every other contributor.
+    role: Optional[str] = None
 
 
 class ProvenanceConversation(CamelModel):

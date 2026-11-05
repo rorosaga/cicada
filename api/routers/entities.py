@@ -592,7 +592,8 @@ def _build_media_block(frontmatter: dict, body: str, *, entity_id: str | None = 
         return None
     url = media.get("url")
     media_type = media.get("media_type")
-    if not url or not media_type:
+    is_file = media.get("kind") == "file"      # an added recording, video or photo has no link (`media_pages`)
+    if not media_type or not (url or is_file):
         return None
 
     description = None
@@ -605,7 +606,7 @@ def _build_media_block(frontmatter: dict, body: str, *, entity_id: str | None = 
             description = text
 
     return EntityMedia(
-        url=str(url),
+        url=str(url or ""),
         media_type=str(media_type),
         site=media.get("site") or None,
         channel=media.get("channel") or None,
@@ -625,6 +626,8 @@ def _build_media_block(frontmatter: dict, body: str, *, entity_id: str | None = 
         # G133 — `paper` on a paper page (R-LS14); absent on every other. Type-checked like
         # `duration_s`: a hand-edited `kind: [paper]` must not 500 the whole page (T4 review r1).
         kind=media.get("kind") if isinstance(media.get("kind"), str) and media.get("kind") else None,
+        file_id=media.get("file_id") if is_file and isinstance(media.get("file_id"), str) else None,
+        recorded_at=media.get("recorded_at") if is_file and isinstance(media.get("recorded_at"), str) else None,
     )
 
 

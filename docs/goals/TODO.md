@@ -21,11 +21,10 @@
   kind to a 10; later: play and show everything in the app, each item an entity with a markdown body (summary, why it matters,
   the transcription, the transcribing model as contributor). [`multimodal-scorecard.md`](multimodal-scorecard.md) scores YouTube,
   screen recording, video file, image, audio file and Voice Memos on what exists (today the added-file kinds open in the default
-  app, have no page and no lexical leg). Built: Voice Memos through the `media_files` store (`storage.md`); ROR-117 feature 1, play and see it in the app (`MediaSheet`: a hit plays at its second, a photo is an added-file kind with a viewer, File → Added Files…; `app.md`). Run `--filter MediaViewerTests` too. **Pick up here:**
+  app, have no page and no lexical leg). Built: Voice Memos through the `media_files` store (`storage.md`); ROR-117 feature 1, play and see it in the app (`MediaSheet`: a hit plays at its second, a photo is an added-file kind with a viewer, File → Added Files…; `app.md`). Run `--filter MediaViewerTests` too. **ROR-117 3a (ruling 68, branch `ror117-page`):** every added item has its own `media` page (`media_pages`), the words outside the bank, the transcriber a contributor; run `--filter MediaPageModelTests --filter WikiArticleTests --filter ProvenanceSummaryTests`; next: the model's summary and why-it-matters, Sleep reading the words. **Pick up here:**
   run the Swift filter below; open the tile once against a scratch `HOME` holding a synthetic store; check the real
   `CloudRecordings.db` columns by hand (never in development). **Owner decisions, undecided:** may Sleep read memos and as
-  whose words; a page per added file (rulings 56, 62 and the files-outside-the-bank rail); naming the transcriber as a
-  contributor (copy rail). YouTube extraction stays out (G162).
+  whose words (a page per added file and naming the transcriber are decided: ruling 68). YouTube extraction stays out (G162).
 - **2026-11-05 — no source asks for a secret (ROR-113, G219, G232; branch `notion-oauth-no-token-forms`).** The owner: "Any one that you ask for a token fucking find a way to sync it properly, either direct integration, syncing some other type of way, or browser as last resort." Notion signs in through its hosted MCP (OAuth + PKCE, read-only tool allow-list) with a Connect button; the Reddit, X and Pinterest forms, GitHub's token field and the Telegram bot tile (unless a bot is already set up) are gone from every app surface; a connector already connected keeps its row and Disconnect; a Swift lint fails on a secret field in a source surface. Notion's page says in one line that the sign-in acts as the person. Binding until the owner rules otherwise.
 - **2026-11-05 — Linear is a source, and none of its text is the person's own words (ROR-115, G242; branch `ror115-linear-source`).** Signed in by browser (hosted MCP, read-only endpoint, three read tools), issues and comments as episodes through the normal capture path. Agents write Linear under the owner's own account and Linear's read API cannot tell that from the owner typing, so a comment under his account is `assistant:` (claims `external:linear`), never `user:`; another user's is `speaker:<label>`. Revisit only on the DECIDE in G242 (a switch, or a positive signal). Not verified against a real workspace: the sign-in and the real response shapes.
 - **2026-11-05 — agents can look into what Sleep has not read (ROR-29, G207; branch `ror29-ask-unread`).** Ask reads an
@@ -3597,6 +3596,23 @@ A whole row moves to DONE only after its remaining implementation and required a
     while waiting costs a late update. The record is the drain's own progress; CPU was rejected because a drain waiting
     on a model looks idle. The person's click may go past Sleep on one line naming the cost; an automatic install never
     does. **Revisit** if a batch is measured past two hours, or a hung backend is seen holding an update.
+68. **An item the person added is a page; its words stay outside every bank (owner, 2026-11-05; G43, ROR-117).**
+   The owner: "being able to play videos, audios, see photos, etc all possible in the app, which all as entities have a
+   markdown attached to it which can have the summary, why its relevant, if there is a transcription available anywhere
+   (which we have to put the model that transcribed it as the contributor)." (a) Amends ruling 62 and "never read by
+   Sleep": a file the person added, or a recording from a source they turned on, is not a save with no reason, so it has
+   a `media` page (`media.kind: file`, `media_pages` its one writer) made by file and git work alone, never at capture and
+   never by Stage 1, quiet until a conversation names it, evergreen, never a project (ruling 56). (b) The page holds title,
+   kind, its own date (`recorded_at`, ruling 39), the file id, length, language, who transcribed it, and two empty sections
+   a later change fills. **The transcript is not in the bank or git** — an hour of speech committed could never be
+   forgotten and would break the delete promise; the page draws it at view time from the store
+   (`GET /files/{id}/transcript`), and it stays the recording's words, never the person's own. (c) Naming the transcriber
+   as a contributor is provenance, the owner's exception to the provider-neutral copy rail, said only when a transcript
+   and a name exist. (d) Delete and a store's tombstone retire the page in one commit (the person's name for their delete,
+   Cicada's otherwise); git history keeps the page's earlier versions, never the words. (e) Sleep reading the words, the
+   summary and the why-it-matters text are the next PR. **Trigger to revisit (b):** the owner asks for the words in the
+   page's markdown, knowing a committed transcript cannot be forgotten.
+
 67. **One book is one page whichever door it came in by; the Mac adds books by number or camera (owner, 2026-11-05; G233, ROR-116).**
    The owner: "yes ofc i want books on the mac and it has to have some overlap with potential books from ibooks." (a) Amends
    review-of-#600 B1: after an identifier (ISBN, work id, a source's id) fails, **exactly the same** title (or title +

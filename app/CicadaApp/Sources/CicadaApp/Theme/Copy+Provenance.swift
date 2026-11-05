@@ -224,6 +224,10 @@ extension Copy.Provenance {
     static func contributorHelp(_ name: String) -> String {
         "Beliefs on this page written by \(name), and edits \(name) made to it."
     }
+    /// ROR-117 (owner 2026-11-05): the model that made a recording's words is named where a page shows who contributed;
+    /// the one place a model is named as the one doing a job, because the owner asked for its name.
+    static let transcribedTheWords = "transcript"
+    static func transcribedHelp(_ name: String) -> String { "\(name) made the words of this recording." }
     static let beforeProvenanceHelp = "Edits made before Cicada recorded who made them."
 
     static func beliefs(_ n: Int) -> String { n == 1 ? "1 belief" : "\(UsageFormat.count(n)) beliefs" }
