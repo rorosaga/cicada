@@ -119,6 +119,8 @@ class Excerpt:
     title: str = ""
     #: The turn's own stamp (else the episode's), as stored: :func:`local_day` reads the day it was said, locally.
     stamp: str = ""
+    #: Its conversation is still ``processed: false`` — Sleep has not read it (G207): the line says so.
+    unread: bool = False
 
 
 def local_day(raw):
@@ -254,9 +256,11 @@ def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name
 
 def _take(candidates: list[tuple], docs: dict[str, tuple], terms: set[str], owner_name: str | None, *,
           max_excerpts: int, total_chars: int, taken: set[tuple[str, int]] | None = None,
-          excerpt_chars: int = EXCERPT_CHARS, context: bool = True) -> list[Excerpt]:
+          excerpt_chars: int = EXCERPT_CHARS, context: bool = True, deep: dict | None = None) -> list[Excerpt]:
     """The excerpts for ``candidates`` (``(score, rank, turn index, episode, turn, span)``, best first) within the
-    budget, oldest first. ``taken``: ``(episode, turn index)`` already shown elsewhere in the prompt — never twice."""
+    budget, oldest first. ``taken``: ``(episode, turn index)`` already shown elsewhere in the prompt — never twice.
+    ``deep`` (``{"left": characters}``, G207): a turn of a conversation Sleep has not read is read past
+    ``excerpt_chars`` — whole when short, else its matching passages — drawing on that budget (:func:`_read_more`)."""
     chosen: list[Excerpt] = []
     taken = set(taken or ())
     used = 0
@@ -272,12 +276,16 @@ def _take(candidates: list[tuple], docs: dict[str, tuple], terms: set[str], owne
         clipped = _clip(body, at, min(excerpt_chars, total_chars - used))
         if len(clipped) < 20 and len(body.strip()) >= 20:
             break
+        unread = not fm.get("processed", False)
+        text_shown = clipped
+        if unread and deep is not None:
+            text_shown = _read_more(body, terms, clipped, deep) or clipped
         # Ruling 34: the day the turn was said in the person's zone, never a UTC stamp's first ten characters.
         said = local_day(turn.ts or fm.get("timestamp"))
         day = said.isoformat() if said is not None else episode_day(ep)
-        excerpt = Excerpt(episode=ep, day=day, who=_who(turn, fm, owner_name), text=clipped,
+        excerpt = Excerpt(episode=ep, day=day, who=_who(turn, fm, owner_name), text=text_shown,
                           order=(day, ep, i), title=str(fm.get("title") or "").strip(),
-                          stamp=str(turn.ts or fm.get("timestamp") or "") or day)
+                          stamp=str(turn.ts or fm.get("timestamp") or "") or day, unread=unread)
         taken.add((ep, i))
         used += len(clipped)
 
@@ -301,6 +309,57 @@ def _take(candidates: list[tuple], docs: dict[str, tuple], terms: set[str], owne
         chosen.append(excerpt)
     chosen.sort(key=lambda e: e.order)
     return chosen
+
+
+#: G207: what Ask may read past its usual excerpt of a conversation Sleep has not read, in all, beyond
+#: :data:`SEARCH_CHARS` (≈ 1,000 tokens): a turn this short is shown whole; a longer one by up to
+#: :data:`UNREAD_PASSAGES` windows of :data:`UNREAD_PASSAGE_CHARS` around where its words are. No page holds such a
+#: conversation yet, so its excerpt is the only way its detail (a list, a number) reaches the model.
+UNREAD_EXTRA_CHARS = 4000
+UNREAD_WHOLE_CHARS = 2400
+UNREAD_PASSAGES = 3
+UNREAD_PASSAGE_CHARS = 500
+
+
+def _match_starts(text: str, terms: set[str]) -> list[int]:
+    """Where every word holding one of ``terms`` starts (:func:`_first_match`'s rule), in order."""
+    out: list[int] = []
+    for m in re.finditer(r"\w+", text):
+        word = text_fold.fold(m.group(0))
+        if text_fold.stem(word) in terms or any(len(t) >= 4 and word.startswith(t) for t in terms):
+            out.append(m.start())
+    return out
+
+
+def _read_more(body: str, terms: set[str], clipped: str, deep: dict) -> str | None:
+    """More of one turn of an unread conversation than ``clipped``, or ``None``: the whole turn when it is at most
+    :data:`UNREAD_WHOLE_CHARS`, else its matching passages (non-overlapping windows, in order, ``…`` where text was
+    left out). What it adds beyond ``clipped`` is taken from ``deep["left"]``; with that spent, ``None``."""
+    whole = " ".join(body.split())
+    if len(clipped) >= len(whole):
+        return None
+    room = deep["left"] + len(clipped)
+    if len(whole) <= UNREAD_WHOLE_CHARS and len(whole) <= room:
+        text = whole
+    else:
+        starts: list[int] = []
+        for at in _match_starts(whole, terms):
+            if not starts or at - starts[-1] >= UNREAD_PASSAGE_CHARS:
+                starts.append(at)
+        if not starts:
+            return None
+        pieces = [_clip(whole, at, UNREAD_PASSAGE_CHARS) for at in starts[:UNREAD_PASSAGES]]
+        text = " ".join(pieces)
+        while len(text) > room and len(pieces) > 1:
+            pieces.pop()
+            text = " ".join(pieces)
+        if len(text) > room:
+            return None
+    extra = len(text) - len(clipped)
+    if extra <= 0:
+        return None
+    deep["left"] -= extra
+    return text
 
 
 def shown_turns(excerpts: list[Excerpt]) -> set[tuple[str, int]]:
@@ -1659,8 +1718,9 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         asked = asked_about(question, owner_name)
         candidates = _about_first(candidates, docs, asked, weights, owner_name)
     led = {id(c) for c in lead}
+    deep = {"left": UNREAD_EXTRA_CHARS}   # G207: one budget for everything read past the usual excerpt
     chosen = _take(lead + [c for c in candidates if id(c) not in led], docs, terms, owner_name,
-                   max_excerpts=max_excerpts, total_chars=total_chars, taken=taken)
+                   max_excerpts=max_excerpts, total_chars=total_chars, taken=taken, deep=deep)
     if enumerate_:
         taken |= shown_turns(chosen)
         # The window's conversations the budget left without a line, then the further ones on the subject.
@@ -1687,7 +1747,7 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
             firsts.setdefault(c[3], c)
         extra = sorted(firsts.values(), key=lambda c: (c[3] in shown_eps, c[1]))
         chosen += _take(extra, near_docs, terms, owner_name, max_excerpts=MEANING_EXTRA_EXCERPTS,
-                        total_chars=MEANING_EXTRA_CHARS, taken=shown)
+                        total_chars=MEANING_EXTRA_CHARS, taken=shown, deep=deep)
         chosen.sort(key=lambda e: e.order)
     return chosen
 
@@ -1877,6 +1937,8 @@ def render(excerpts: list[Excerpt], *, with_episode: bool = False) -> str:
     lines: list[str] = []
     for e in excerpts:
         at = f"{e.day} [{e.episode}]" if with_episode else e.day
+        if with_episode and e.unread:
+            at += ", not yet read by Sleep"
         if e.before:
             lines.append(f"- {at}, {e.before[0]} (the turn before): \"{e.before[1]}\"")
         lines.append(f"- {at}, {e.who}: \"{e.text}\"")
