@@ -1487,11 +1487,8 @@ Round 4 (C2–C4):
   `source_deleted_at`, and a section's `content_sha` — see the Awake rails; on a conversation, `turn_extras` and
   `unsent_turns` (2026-10-20, above).
 
-### Phone numbers (G81, PROPOSED ruling 55, off until the owner rules)
+#### Book pages (G39, G233, 2026-11-04)
 
-`$CICADA_HOME/numbers_switch.json` is the one switch every process reads (`phone_numbers.enabled`; `cicada numbers switch`,
-`PUT /people/numbers/switch`), never an environment variable. Off, every path is byte for byte what it was. `phone_numbers`
-is the one module.
 A book is a `media` page with `media.kind: book` (the paper's shape: no new entity type in the closed set) and a
 `book:` block — `title`, `subtitle`, `authors`, `isbns`, `work_id` (Open Library's), `published`, `pages`,
 `apple_books` (asset ids), `goodreads` (book ids) and `title_from` (`openlibrary`, `googlebooks`, `apple-books`,
@@ -1513,59 +1510,8 @@ pages, B1) and would send the person's reading list out where nothing else needs
 computer (a bank moved) falls back to (2) and (3). What was fetched is stored and served like every preview
 (`$CICADA_HOME/previews/<bank>/`, outside every bank; `network.md`).
 
-**A token in the bank, the digits in a vault.** In the person's own new lines of a ticked chat a number becomes
-`[number:<ten letters>]`, an HMAC of its last nine digits under a key held only in
-`$CICADA_HOME/people/<bank>/numbers.json` (0600, outside every bank and git, renamed with the people directory). The vault
-keeps every written form. Two numbers sharing their last nine digits get two tokens. A number under nine digits is
-compared as written, so with and without its country code it reads as two, and Sleep asks. A bare digit run counts only
-with a positive signal it is a phone (`_spans`): a phone word, a number word somebody owns, a call to reach them.
-`POST /people/numbers/reveal` is the one door to the digits: it refuses a device token and is on no remote listener.
+Claims, all written by `books.py` (the event-readers gate names it) except happenings:
 
-**The claim.** Predicate `phone`, `object_kind: literal`, the object the token, a located span on the person's own line.
-`claim_reconciler._place_number` is the table, read from the person's own clause (`phone_numbers.read_line`): the same
-token reinforces; a different one closes ("her new number"), sits beside ("her work number"), is history ("her old
-number was"), or asks. An unclear line asks, it never closes. An asked number waits closed on the page with `context:
-number_asked` (`number_refused` once the person said no), through the two-claim answer path (`kind: divergence`), in words
-with no number, recommending nothing. An edited conversation's reworded line keeps its number and its corrected number
-supersedes in place (G104). An agent may add a page's first number and is refused a different one. A page that is no
-person takes none. A one-word name asks unless its card holds the number; a relation's page does not ask. Two person pages
-holding one current number raise one question (G209), never a merge, never the owner's page.
-
-**A page's prose.** `markdown_parser.write` runs every entity page through `phone_numbers.clean_page`: no token and, while
-on, no number outside the claims fence; each kept in the vault and said as "a number".
-
-**A vault that can't be used** (damaged, unreadable, or gone while the bank holds tokens) is never overwritten and gets no
-new key: `VaultUnavailable`, `problem` in words, new numbers redacted. `POST /people/numbers/new-vault` is the person's way
-out and sets the old file aside whole. A trashed bank's vault waits beside it, `.trash/<bank>-<stamp>.numbers.json`: back
-when the bank is restored by hand, gone when the trash is emptied.
-
-**Contacts.** `GET /people/numbers/match-key` gives the app the key; the app posts each card's hashes (`phone_keys`,
-`PhoneNumberKeys.swift`), kept in `contact_numbers.json` beside the vault, rewritten whole by a sync that holds any, wiped
-when Contacts stops. No digit crosses the wire (R-SR8 holds); a value not shaped like a hash is refused; nothing is kept
-while off. Used to settle a name or flag another card, never for a claim.
-
-**The doors**, each with its proof:
-
-| Door | What it can give | State | How it is shown |
-|---|---|---|---|
-| A ticked chat's episode body | the token; a redaction on anyone else's line | closed for what the rule calls a number; see the last rows | digit scan of every bank file and `git log -p` after real Sleeps; `test_no_digit_of_a_chats_number…` |
-| A claim, the pending store, an inbox question, `_state.md`, a commit message | the token; a question carries no token | closed | same scan; `test_the_question_carries_no_number…`, `test_item_7_an_agents_phone_claim…` |
-| Page prose | nothing: `markdown_parser.write` cleans every page, whoever wrote it, the claims fence untouched | closed | `test_item_7_a_pages_prose…`; no token in any page after the real runs. `write_document` (G148's byte-exact recovery) does not pass through it |
-| Model prompts (Stage 1, `cicada_ask`, every later stage) | the token | closed for chat bodies; a harness session's body still holds what it holds | `test_the_engine_is_given_the_token…`; `cicada_ask` on the scratch run |
-| Handshake, `cicada_recall`, `cicada_recall_detail`, `cicada_sources`, timeline, perspective, the CLI, `GET /entities`, `GET /inbox`, `GET /graph` | the token at most | closed | each called on the scratch run, digit-scanned; `test_the_handshake…`, `test_the_agent_tools…` |
-| Remote connector, `/v1` | the same tool bodies, so the token; the `sources` scope still gates the words | closed | they serve what the bank holds; the reveal route is not on the listener (`test_the_reveal_is_on_the_mac_only…`) |
-| Bank export, hand-over, replicas, the sync log, a home move | the token; **the vault does not travel** | closed, at a cost | outside the bank by construction; the replica refuses the routes (`test_item_12_the_vault_routes…`). The cost is question (d) |
-| Derived indexes, telemetry, logs, web lookups | no digit from a chat's number | closed | digit scan of `$CICADA_HOME` and the logs found only the vault; `test_a_writer_never_logs_a_number` |
-| `POST /people/numbers/reveal` | **the digits** | the one door, this Mac: refuses every device token, on no remote listener. **Anything holding this Mac's API token can call it, an agent's shell included** | `test_the_reveal_route…` |
-| `GET /people/numbers/match-key` | the vault's key, for the app to hash cards | same refusal; nothing while off or with no usable vault | `test_the_match_key…` |
-| The vault, `$CICADA_HOME/people/<bank>/numbers.json` | the digits and the key | 0600, outside the bank and git. **Any process running as this user can read it; a Time Machine backup of the home folder holds it.** It is private to the user, not locked to the app | `test_the_vault_is_private…` |
-| The trash | the vault waits beside the trashed bank, `.trash/<bank>-<stamp>.numbers.json` | gone when the trash is emptied, back if the bank is restored by hand | `test_item_8_the_trash…` |
-| The app | digits on the person's page, in the Reader and in a quote, from memory, never stored; a token it can't answer reads "a number" | Ask's answer and search snippets still show the token | `NumberTokensTests`, scratch app |
-| A harness session's or a note's body | **digits, exactly as today** | not closed, not widened; its claim holds the token | sub-question (c) |
-| A bare number in a chat with no positive signal ("Bob 2025550143") | **digits, exactly as today**, in the body and the prompt | not closed: false negatives over lost words (#502); a model's `phone` value for it still becomes a token | `test_these_are_not` |
-| The 5 `phone` claims already in clear | **digits, in git for good** | not touched; a page's clear value becomes the token when the person restates it | `same_number` |
-
-The reasoning and the owner's question are ruling 55's.
 - `reading-status` (literal `reading` · `finished` · `want` · `not_started`): one per record, dated `valid_from` the
   record's day; the newest by day (on one day, the later record; for a conversation's word, the one further along,
   ruling 61) is open, every earlier one closed on the next one's day with `superseded_by` — never deleted. `GET
@@ -1585,6 +1531,70 @@ page; an Apple Books or Goodreads record is `page`, and a want-to-read or not-st
 `media_entity_id` (a save, ruling 30; its `book` record keeps it out of ruling 62's lean pass, whose `saved` kind is for
 what has no such record) — so an imported library and a shelf stay quiet (`quiet_pages`) until the person
 writes or talks about the book (a note, a review, a chat).
+
+### Phone numbers (G81, PROPOSED ruling 55, off until the owner rules)
+
+`$CICADA_HOME/numbers_switch.json` is the one switch every process reads (`phone_numbers.enabled`; `cicada numbers switch`,
+`PUT /people/numbers/switch`), never an environment variable. Off, every path is byte for byte what it was. `phone_numbers`
+is the one module.
+
+**A token in the bank, the digits in a vault.** In the person's own new lines of a ticked chat a number becomes
+`[number:<ten letters>]`, an HMAC of its last nine digits under a key held only in
+`$CICADA_HOME/people/<bank>/numbers.json` (0600, outside every bank and git, renamed with the people directory). The vault
+keeps every written form. Two numbers sharing their last nine digits get two tokens. A number under nine digits is
+compared as written, so with and without its country code it reads as two, and Sleep asks. Only the person's own lines; anyone else's words get a redaction by the same rule, never the vault.
+`POST /people/numbers/reveal` is the one door to the digits: it refuses a device token and is on no remote listener.
+
+**What counts as a number.** A token replaces the digits in the stored words, so a bare digit run needs a positive signal, never the mere absence of a negative one (`_spans`, `_named`, `_plausible`). It counts after a phone word ("phone:", "su celular es"), a number word somebody owns ("her number is", "Ana's new number is"), a call to reach them ("call Ana at"), a pronoun ("she's on N"), the next in a list that began with one, or "the old one was N" on a line that already holds a number or a number word. **Beside a name (2026-11-05, owner's typed form):** 7 to 15 digits standing alone that end the clause, right after a word: at 9 or more digits a capitalised word or an add/save verb within three words; at 7 or 8 an add/save verb plus a capital, or a word of a person page's name or alias. Never after a word that says the digits are something else (`_NOT_A_PHONE`: order, invoice, a weekday, three words back), and never a date with a real year, an IP address, a year list, a time range or a price shape. **A run the vault already holds is that number wherever it stands** (`_known_runs`): the person gave it as a number, so an agent's "Updated Ana to N." needs no signal (found by a real Sleep; a person's own line gets the same token, anyone else's a redaction, and the person's lines of a post are read first). A pinned false positive: "Tesla 2025550143" tokenises; the vault keeps it and the model sees the token. **Stays in clear, on purpose, as today:** a line that is only digits; a lowercase unknown name with no verb; anyone's line with no signal holding a run the vault does not hold; a body stored before the switch; a harness session's or a note's body.
+
+**The claim.** Predicate `phone`, `object_kind: literal`, the object the token, a located span on the person's own line.
+`claim_reconciler._place_number` is the table, read from the person's own clause (`phone_numbers.read_line`): the same
+token reinforces; a different one closes ("her new number"), sits beside ("her work number"), is history ("her old
+number was"), or asks. An unclear line asks, it never closes. An asked number waits closed on the page with `context:
+number_asked` (`number_refused` once the person said no), through the two-claim answer path (`kind: divergence`), in words
+with no number, recommending nothing. An edited conversation's reworded line keeps its number and its corrected number
+supersedes in place (G104). An agent may add a page's first number and is refused a different one. A page that is no
+person takes none. A one-word name asks unless its card holds the number; a relation's page does not ask. Two person pages
+holding one current number raise one question (G209), never a merge, never the owner's page.
+
+**A page's prose.** `markdown_parser.write` runs a person's page, while on, through `phone_numbers.clean_page`: a token this vault
+minted and a number outside the claims fence and a link's target are kept in the vault and said as "a number". Any other page,
+and every page while off, is not touched by one byte.
+
+**A vault that can't be used** (damaged, unreadable, or gone while the bank holds tokens) is never overwritten and gets no
+new key: `VaultUnavailable`, `problem` in words, new numbers redacted. `POST /people/numbers/new-vault` (`cicada numbers new-vault`, the button on the person's Phone row) is the way
+out and sets the old file aside whole; on a healthy file it answers 409 and changes nothing. Only real tokens count as the bank holding some (`bank_token_ids`: a `phone` claim, a person's line in a ticked chat, a held claim), never a page or session quoting the shape. A trashed bank's vault waits beside it, `.trash/<bank>-<stamp>.numbers.json`: back
+when the bank is restored by hand (`_restore_parked`: stamped for exactly this name and holding tokens this bank holds, so a new bank reusing a trashed name inherits nothing), gone when the trash is emptied.
+
+**Contacts.** `GET /people/numbers/match-key` gives the app the key; the app posts each card's hashes (`phone_keys`,
+`PhoneNumberKeys.swift`), kept in `contact_numbers.json` beside the vault, rewritten whole by a sync that holds any, wiped
+when Contacts stops. No digit crosses the wire (R-SR8 holds); a value not shaped like a hash is refused; nothing is kept
+while off. Used to settle a name or flag another card, never for a claim.
+
+**The doors**, each with its proof:
+
+| Door | What it can give | State | How it is shown |
+|---|---|---|---|
+| A ticked chat's episode body | the token; a redaction on anyone else's line | closed for what the rule calls a number; see the last rows | digit scan of every bank file and `git log -p` after real Sleeps; `test_no_digit_of_a_chats_number…` |
+| A claim, the pending store, an inbox question, `_state.md`, a commit message | the token; a question carries no token | closed | same scan; `test_the_question_carries_no_number…`, `test_item_7_an_agents_phone_claim…` |
+| Page prose | nothing on a person's page, while on: `markdown_parser._person_page_body` runs `clean_page`, whoever wrote it, the claims fence and a link's target untouched; only a token this vault minted is rewritten, so a page quoting the shape keeps it. Any other page (a company's public phone) and every page while off is not touched | closed for person pages | `test_item_7_a_pages_prose…`, `test_round_3_…`; no token in any page after the real runs. `write_document` (G148's byte-exact recovery) does not pass through it |
+| Model prompts (Stage 1, `cicada_ask`, every later stage) | the token | closed for chat bodies; a harness session's body still holds what it holds | `test_the_engine_is_given_the_token…`; `cicada_ask` on the scratch run |
+| Handshake, `cicada_recall`, `cicada_recall_detail`, `cicada_sources`, timeline, perspective, the CLI, `GET /entities`, `GET /inbox`, `GET /graph` | the token at most | closed | each called on the scratch run, digit-scanned; `test_the_handshake…`, `test_the_agent_tools…` |
+| Remote connector, `/v1` | the same tool bodies, so the token; the `sources` scope still gates the words | closed | they serve what the bank holds; the reveal route is not on the listener (`test_the_reveal_is_on_the_mac_only…`) |
+| Bank export, hand-over, replicas, the sync log, a home move | the token; **the vault does not travel** | closed, at a cost | outside the bank by construction; the replica refuses the routes (`test_item_12_the_vault_routes…`). The cost is question (d) |
+| Derived indexes, telemetry, logs, web lookups | no digit from a chat's number | closed | digit scan of `$CICADA_HOME` and the logs found only the vault; `test_a_writer_never_logs_a_number` |
+| `POST /people/numbers/reveal` | **the digits** | the one door, this Mac: refuses every device token, on no remote listener. **Anything holding this Mac's API token can call it, an agent's shell included** | `test_the_reveal_route…` |
+| `PUT /people/numbers/switch`, `POST /people/numbers/new-vault` | turns the feature on or off; starts a new vault | same refusal. **Anything holding this Mac's API token can call them.** `set_enabled` records `by: api-token`, never "person", because the route can't tell. The CLI (`cicada numbers switch`, `cicada numbers new-vault`) refuses from an agent's shell; a process calling the route is not stopped. `new-vault` on a healthy file answers 409 and changes nothing | `test_round_3_…`, scratch run 2026-11-05 |
+| `GET /people/numbers/match-key` | the vault's key, for the app to hash cards | same refusal; nothing while off or with no usable vault | `test_the_match_key…` |
+| The vault, `$CICADA_HOME/people/<bank>/numbers.json` | the digits and the key | 0600, outside the bank and git. **Any process running as this user can read it; a Time Machine backup of the home folder holds it.** It is private to the user, not locked to the app | `test_the_vault_is_private…` |
+| The trash | the vault waits beside the trashed bank, `.trash/<bank>-<stamp>.numbers.json` | gone when the trash is emptied, back if the bank is restored by hand | `test_item_8_the_trash…` |
+| The app | digits on the person's page, in the Reader and in a quote, from memory, never stored; a token it can't answer reads "a number". The page's row is drawn, and `/claims` fetched, only when `rawMarkdown` holds `[number:` | Ask's answer and search snippets still show the token. **A page whose raw is omitted (`raw_omitted`: past 256 KB, a ledger, or a fence past 16k characters, like the owner's) shows no row, on or off; the claim is kept** | `NumberTokensTests`, scratch app, both states screenshotted 2026-11-05 |
+| A harness session's or a note's body | **digits, exactly as today** | not closed, not widened; its claim holds the token | sub-question (c) |
+| A bare number in a chat with no positive signal: a line that is only digits, a lowercase unknown name with no verb, somebody else's line the vault's numbers don't match | **digits, exactly as today**, in the body and the prompt | not closed: false negatives over lost words (#502); a model's `phone` value for it still becomes a token | `test_these_are_not`, `test_round_4_a_run_the_vault_does_not_hold…`; on the last scratch Sleep the digit-only line was the only digit run left |
+| A body stored before the switch | **digits, exactly as today** | never moved: a stored line is not re-read, on, off, or with the vault lost | `test_round_3_old_bare_lines…` |
+| The 5 `phone` claims already in clear | **digits, in git for good** | not touched; a page's clear value becomes the token when the person restates it | `same_number` |
+
+The reasoning and the owner's question are ruling 55's.
 
 ### Backlogs (G150)
 

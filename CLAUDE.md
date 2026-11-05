@@ -381,7 +381,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   fetched to draw a card, and the app loads no picture a page names from the web (`storage.md`, `app.md`).
 - **Numbers (G81, PROPOSED ruling 55, off until the owner rules; `storage.md`):** a number the person gave is a token in
   the bank, the digits in a vault outside it, one switch file every process reads; only `POST /people/numbers/reveal`
-  turns one back, on this Mac alone; an unclear line asks, it never closes a number.
+  turns one back, on this Mac alone, to anything holding its API token; an unclear line asks, it never closes a number; what
+  stays in clear is listed at the ruling.
 - **Backlogs (G150):** one markdown file per item, one writer behind every door, never an entity page.
 - **Site captures (G166, ruling 25):** one append-only dated record per visit, a ≤ 640×400 thumbnail in the bank only
   when the look changed, full images and page text outside every bank (`$CICADA_HOME/captures`); one writer (`site_captures`).

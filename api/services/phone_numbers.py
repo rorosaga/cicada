@@ -25,7 +25,8 @@ not "my order number is"), a call to reach them ("call Ana at"), a pronoun ("she
 it with the run ending the clause ("Ana 2025550143", "add Ana, 2025550143", "Bob Example 2025550177"): how a number is
 really typed to a texted agent. A capitalised word is a name only at nine digits or more, or when it names a person
 already in this memory, or follows "add" or "save"; a word that says the digits are something else ("Order", "Invoice",
-"Monday") is never one. Absence of a negative is not a signal. A bare run with none of these stays in the words, exactly
+"Monday") is never one. A run the vault already holds counts wherever it stands (:func:`_known_runs`). Absence of a
+negative is not a signal. A bare run with none of these stays in the words, exactly
 as today: false negatives over lost words (#502).
 
 **Why old chats are not re-read.** A stored sitting is rebuilt from its own body, so a stored line never passes through
