@@ -208,7 +208,7 @@ struct CatchupView: View {
     private var answers: some View {
         if !session.waiting, !session.finished {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                // Agent proposes, the person disposes: a reading from their words waits for this tap.
+                // Only their raw words with no model to read them wait for a tap; a clear reading has already applied.
                 if let pending = session.confirmation {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Text(pending.label)

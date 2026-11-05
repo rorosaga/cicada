@@ -9,9 +9,10 @@ import Observation
 /// own order), one at a time, in plain words with their reason. The person answers with a tap — the inbox's own
 /// resolution, held for the same Undo window (DR-42, `InboxViewModel.answer`) — or in their own words. Their words go
 /// to `POST /inbox/catchup/turn`, one turn on their chosen engine (Ask's path), which answers like a person would: a
-/// follow-up, the question in other words, or a move to a related question it was offered. A reading grounded in their
-/// words is applied through the same hold; a question about who someone is is never applied from a reading, only
-/// offered as a one-tap confirmation (ruling 41). With no engine to answer, the chat takes taps (and the person's own
+/// follow-up, the question in other words, or a move to a related question it was offered. What their words clearly
+/// settled is applied at once through the same hold, every part of it under one Undo, and said in one line (owner
+/// 2026-11-05: "if the agent is going to ask for confirmation on everything eventhough i just told him then thats bad
+/// user experience"); a misread is one Undo away, and what stayed unclear is the reply. With no engine to answer, the chat takes taps (and the person's own
 /// words as a free answer, where the question takes one), and says so.
 ///
 /// The chat itself is kept as one episode per session (`POST /inbox/catchup/record`, after each thing the person
@@ -26,16 +27,13 @@ final class CatchupSession {
         -> CatchupTurnReply
     typealias Record = (_ sessionId: String, _ lines: [CatchupLine]) async throws -> Void
 
-    /// An answer Cicada read from the person's words, waiting for their tap — "agent proposes, user disposes"
-    /// (coordinator's ruling on #509 after a live misread): a reading from typed words is never applied on its own.
+    /// The person's raw words as a free answer, waiting for their tap: only where no model read them (no engine, or
+    /// no usable reply), so nothing judged they answered the question.
     struct Confirmation: Equatable {
         let itemId: String
         let resolution: QuestionResolution
-        /// The proposal in words: "Note it as “Paused”?", or for a chain's pair "Join A and B as one?"
+        /// The proposal in words: "Note it as “Paused”?"
         let label: String
-        /// A chain's typed answer covers its other pairs too: after this one, each remaining pair is proposed in turn
-        /// ("And C and B?"), still one tap each (#536 review).
-        var cascades = false
     }
 
     let sessionId = "catchup-" + UUID().uuidString.lowercased()
@@ -55,6 +53,7 @@ final class CatchupSession {
     private var queue: [String]
     private let items: () -> [InboxItem]
     private let hold: (InboxItem, QuestionResolution) -> Bool
+    private let holdAll: (([(item: InboxItem, resolution: QuestionResolution)]) -> Bool)?
     private let heldId: () -> String?
     private let release: () -> InboxItem?
     private let turn: Turn
@@ -66,12 +65,14 @@ final class CatchupSession {
 
     init(queue: [String], bank: String = "", items: @escaping () -> [InboxItem],
          hold: @escaping (InboxItem, QuestionResolution) -> Bool, heldId: @escaping () -> String?,
-         release: @escaping () -> InboxItem?, turn: @escaping Turn, record: @escaping Record) {
+         release: @escaping () -> InboxItem?, turn: @escaping Turn, record: @escaping Record,
+         holdAll: (([(item: InboxItem, resolution: QuestionResolution)]) -> Bool)? = nil) {
         self.queue = queue
         self.bank = bank
         self.total = queue.count
         self.items = items
         self.hold = hold
+        self.holdAll = holdAll
         self.heldId = heldId
         self.release = release
         self.turn = turn
@@ -86,7 +87,8 @@ final class CatchupSession {
             heldId: { inbox.held?.id },
             release: { inbox.undo(reopen: false) },
             turn: { try await APIClient.shared.catchupTurn(itemId: $0, message: $1, history: $2, upcoming: $3) },
-            record: { try await APIClient.shared.catchupRecord(sessionId: $0, lines: $1) })
+            record: { try await APIClient.shared.catchupRecord(sessionId: $0, lines: $1) },
+            holdAll: { inbox.answerAll($0) })
     }
 
     var mood: Mood {
@@ -177,7 +179,7 @@ final class CatchupSession {
         keep()
     }
 
-    /// *Yes* on a proposal: the reading is applied through the inbox's hold, with the person's located words attached.
+    /// *Yes* on a proposal: the person's raw words go through the inbox's hold.
     func confirm() {
         guard let pending = confirmation, let item = items().first(where: { $0.id == pending.itemId }) else {
             confirmation = nil
@@ -185,22 +187,7 @@ final class CatchupSession {
         }
         confirmation = nil
         apply(item, pending.resolution)
-        if currentChain != nil, let next = current {
-            // A chain stays until each pair is answered (#536 review): a typed "all the same" proposes the next pair,
-            // named, for its own tap; otherwise its chips wait.
-            if pending.cascades,
-               let resolution = CatchupAnswers.merge(next, same: pending.resolution.action == "merge") {
-                var carried = resolution
-                carried.quote = pending.resolution.quote
-                carried.sessionId = pending.resolution.sessionId
-                confirmation = Confirmation(itemId: next.id, resolution: carried,
-                                            label: CatchupAnswers.proposal(next, carried, also: true), cascades: true)
-            }
-            stored = .asking
-        } else if item.id == currentId || currentChain != nil {
-            currentChain = nil
-            advance(preferred: nil, alreadyAsked: false)
-        }
+        moveOn(words: nil, nextId: nil)
         keep()
     }
 
@@ -213,10 +200,33 @@ final class CatchupSession {
 
     @discardableResult
     private func apply(_ item: InboxItem, _ resolution: QuestionResolution) -> Bool {
-        guard hold(item, resolution) else { return false }
-        lines.append(CatchupLine(.noted(CatchupAnswers.noted(item, resolution), heldId: item.id)))
+        apply([CatchupAnswers.Part(item: item, resolution: resolution)])
+    }
+
+    /// One answer, however many parts: one hold, one line, one Undo.
+    @discardableResult
+    private func apply(_ parts: [CatchupAnswers.Part]) -> Bool {
+        let ordered = CatchupAnswers.sendOrder(parts)
+        guard let first = ordered.first else { return false }
+        let held = holdAll?(ordered.map { ($0.item, $0.resolution) })
+            ?? ordered.reduce(true) { $0 && hold($1.item, $1.resolution) }
+        guard held else { return false }
+        lines.append(CatchupLine(.noted(CatchupAnswers.noted(ordered), heldId: first.item.id)))
         stored = .pleased
         return true
+    }
+
+    /// After an answer: while the question being asked (or a pair of its chain) is still open the talk stays on it,
+    /// else it moves on, to the question the reply asked if it asked one.
+    private func moveOn(words: String?, nextId: String?) {
+        if let next = current {
+            if let words { say(words, itemId: next.id) }
+            stored = .asking
+            return
+        }
+        currentChain = nil
+        if let words { say(words, itemId: nextId) }
+        advance(preferred: nextId, alreadyAsked: nextId != nil && words != nil)
     }
 
     /// Undo on a noted line: the held answer is dropped unsent and its question is asked again.
@@ -235,6 +245,7 @@ final class CatchupSession {
         }
         currentId = item.id
         currentChain = item.isChain ? item.chain : nil
+        finished = false   // the last answer's Undo: the question is open again, and so is the chat
         stored = .asking
         ask(item)
         keep()
@@ -273,35 +284,46 @@ final class CatchupSession {
         keep()
     }
 
-    /// What a turn's answer does to the chat: the reply said, a reading applied or offered, and where the talk goes.
+    /// What a turn's answer does to the chat: what their words settled applied at once, the reply said, and where the
+    /// talk goes. "Ask me another day" is an answer too.
     func take(_ reply: CatchupTurnReply, item: InboxItem, text: String) {
         guard reply.engine else {
             tapsOnly = true
             offerOwnWords(item, text, aside: Copy.Catchup.tapsOnly(reply.why))
             return
         }
-        guard let words = reply.reply, !words.isEmpty else {
+        let words = reply.reply.flatMap { $0.isEmpty ? nil : $0 }
+        var parts: [CatchupAnswers.Part] = reply.readings.compactMap { reading in
+            let target = reading.itemId.flatMap { id in items().first { $0.id == id } } ?? item
+            return CatchupAnswers.resolution(target, reading, sessionId: sessionId)
+                .map { CatchupAnswers.Part(item: target, resolution: $0, targetName: reading.targetName) }
+        }
+        if parts.isEmpty, reply.move == "later" {
+            let open = items()
+            let asked = currentChain.map { chain in open.filter { chain.contains($0.id) } } ?? [item]
+            parts = asked.map {
+                CatchupAnswers.Part(item: $0, resolution: QuestionResolution(action: "defer", remindDays: 7))
+            }
+        }
+        guard !parts.isEmpty || words != nil else {
             offerOwnWords(item, text, aside: Copy.Catchup.didNotCatch)
             return
         }
-        // A reading from typed words is only ever a proposal (the coordinator's ruling on #509): the person's tap
-        // applies it. So is "ask me another day" — deferring is an answer too. Until they tap, the talk stays here.
-        if let reading = reply.reading,
-           let resolution = CatchupAnswers.resolution(item, reading, sessionId: sessionId) {
-            confirmation = Confirmation(itemId: item.id, resolution: resolution,
-                                        label: CatchupAnswers.proposal(item, resolution),
-                                        cascades: item.isChain && ["merge", "reject"].contains(resolution.action))
-        } else if reply.move == "later" {
-            let later = QuestionResolution(action: "defer", remindDays: 7)
-            confirmation = Confirmation(itemId: item.id, resolution: later, label: CatchupAnswers.proposal(item, later))
-        }
-        if confirmation != nil {
-            say(words, itemId: currentId)
-            if reply.move == "stop" { stop() } else { stored = .asking }
+        if !parts.isEmpty, apply(parts) {
+            for missing in reply.unjoined {
+                lines.append(CatchupLine(.aside(Copy.Catchup.cannotJoin(missing.a, missing.b))))
+            }
+            if reply.move == "stop" {
+                if let words { say(words, itemId: nil) }
+                stop()
+            } else {
+                moveOn(words: words, nextId: reply.nextId)
+            }
             return
         }
+        // Nothing applied (a bank switch refused the hold, or there was nothing to apply): the reply is all there is.
         let moving = ["next", "pass"].contains(reply.move)
-        say(words, itemId: moving ? reply.nextId : (reply.nextId ?? currentId))
+        say(words ?? Copy.Catchup.didNotCatch, itemId: moving ? reply.nextId : (reply.nextId ?? currentId))
         switch reply.move {
         case "stop":
             stop()

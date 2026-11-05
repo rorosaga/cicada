@@ -149,33 +149,41 @@ struct CatchupLine: Identifiable, Equatable {
 /// `POST /inbox/catchup/turn`'s answer.
 struct CatchupTurnReply: Decodable, Equatable {
     struct Reading: Decodable, Equatable {
+        /// The question this part answers: the one asked, one of its chain's pairs, or an upcoming one.
+        var itemId: String?
         var optionKey: String?
         var answer: String?
         var quote: String
-        /// A question about who someone is: offered as a one-tap confirmation, never applied (ruling 41).
-        var confirm: Bool
+        /// "A is C" on a pair (A, B) the same message parted: A joins C (`catchup_chat._join`).
+        var mergeTarget: String?
+        var targetName: String?
     }
+    /// Two names the person said are one, with no question that could carry it.
+    struct Unjoined: Decodable, Equatable { var a: String; var b: String }
 
     var reply: String?
-    var reading: Reading?
+    /// Everything their words settled, each part resting on its own located quote.
+    var readings: [Reading]
+    var unjoined: [Unjoined]
     var move: String
     var nextId: String?
     var engine: Bool
     var why: String?
     var error: Bool?
 
-    enum CodingKeys: String, CodingKey { case reply, reading, move, nextId, engine, why, error }
+    enum CodingKeys: String, CodingKey { case reply, readings, unjoined, move, nextId, engine, why, error }
 
-    init(reply: String?, reading: Reading? = nil, move: String = "stay", nextId: String? = nil, engine: Bool = true,
+    init(reply: String?, readings: [Reading] = [], unjoined: [Unjoined] = [], move: String = "stay", nextId: String? = nil, engine: Bool = true,
          why: String? = nil, error: Bool? = nil) {
-        self.reply = reply; self.reading = reading; self.move = move; self.nextId = nextId; self.engine = engine
+        self.reply = reply; self.readings = readings; self.unjoined = unjoined; self.move = move; self.nextId = nextId; self.engine = engine
         self.why = why; self.error = error
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         reply = try c.decodeIfPresent(String.self, forKey: .reply)
-        reading = (try? c.decodeIfPresent(Reading.self, forKey: .reading)) ?? nil
+        readings = (try? c.decodeIfPresent([Reading].self, forKey: .readings)) ?? []
+        unjoined = (try? c.decodeIfPresent([Unjoined].self, forKey: .unjoined)) ?? []
         move = try c.decodeIfPresent(String.self, forKey: .move) ?? "stay"
         nextId = try c.decodeIfPresent(String.self, forKey: .nextId)
         engine = try c.decodeIfPresent(Bool.self, forKey: .engine) ?? true
@@ -271,8 +279,8 @@ enum CatchupAnswers {
     /// the question (an unknown key, a free answer to a closed question).
     static func resolution(_ item: InboxItem, _ reading: CatchupTurnReply.Reading,
                            sessionId: String? = nil) -> QuestionResolution? {
-        // The coordinator's call on #509: a reading applies under Undo, carrying the person's located words as the
-        // answer's evidence (the resolve's `quote`, kept by the backend as a small relay episode).
+        // Owner 2026-11-05: a reading applies at once under Undo, carrying the person's located words as the answer's
+        // evidence (the resolve's `quote`, kept by the backend as a small relay episode).
         guard var resolution = bare(item, reading) else { return nil }
         resolution.quote = reading.quote
         resolution.sessionId = sessionId
@@ -286,7 +294,11 @@ enum CatchupAnswers {
         // G227: a name several pages share is answered by its options (one page each, or "none"), below.
         if item.kind == .mergeSuggestion && item.options.isEmpty {
             switch reading.optionKey {
-            case "same": return merge(item, same: true)
+            case "same":
+                if let target = reading.mergeTarget, !target.isEmpty {
+                    return QuestionResolution(action: "merge", mergeTarget: target, mergeSurvivor: target)
+                }
+                return merge(item, same: true)
             case "different": return merge(item, same: false)
             default: return nil
             }
@@ -299,29 +311,52 @@ enum CatchupAnswers {
         return ownWords(item, answer)
     }
 
-    /// A reading as a question for the person's tap ("Note it as “Paused”?"); never a claim that it was noted.
-    /// `also`: the next pair of a chain the person's words already covered ("And B and C?").
-    static func proposal(_ item: InboxItem, _ resolution: QuestionResolution, also: Bool = false) -> String {
-        // A chain's pair is always named: a Yes joins (or parts) exactly these two, never "them" (#536 review).
-        if item.isChain, let pair = item.chainPairs?.first(where: { $0.id == item.id }),
-           ["merge", "reject"].contains(resolution.action) {
-            let same = resolution.action == "merge"
-            if also { return same ? Copy.Catchup.proposeAlsoSame(pair.a, pair.b)
-                                  : Copy.Catchup.proposeAlsoDifferent(pair.a, pair.b) }
-            return same ? Copy.Catchup.proposePairSame(pair.a, pair.b)
-                        : Copy.Catchup.proposePairDifferent(pair.a, pair.b)
-        }
-        switch resolution.action {
-        case "merge": return Copy.Catchup.proposeSame
-        case "reject": return Copy.Catchup.proposeDifferent
-        case "defer": return Copy.Catchup.proposeLater
-        default: break
-        }
+    /// The person's raw words as a question for their tap, when no model read them ("Note it as “Paused”?").
+    static func proposal(_ item: InboxItem, _ resolution: QuestionResolution) -> String {
         if let answer = resolution.answer, !answer.isEmpty { return Copy.Catchup.propose(answer) }
         if let key = resolution.optionKey, let option = item.options.first(where: { $0.key == key }) {
             return Copy.Catchup.propose(option.label)
         }
         return Copy.Catchup.propose(resolution.action)
+    }
+
+    /// One part of an answer the chat applies: the question, its resolution, and who a join goes to when the question
+    /// itself never named them.
+    struct Part {
+        let item: InboxItem
+        let resolution: QuestionResolution
+        var targetName: String? = nil
+    }
+
+    /// Several parts, in the order they can be sent: every "apart" before any join, since a join retires the page the
+    /// other questions are about.
+    static func sendOrder(_ parts: [Part]) -> [Part] {
+        parts.filter { $0.resolution.action != "merge" } + parts.filter { $0.resolution.action == "merge" }
+    }
+
+    /// The one line a whole answer gets ("Noted: A is B, C isn't B").
+    static func noted(_ parts: [Part]) -> String {
+        guard parts.count > 1 else {
+            guard let part = parts.first else { return Copy.Catchup.noted("") }
+            if let pair = pairWords(part) { return Copy.Catchup.noted(pair) }
+            return noted(part.item, part.resolution)
+        }
+        let words = parts.map { part in
+            pairWords(part) ?? String(noted(part.item, part.resolution).drop { $0 != " " }.dropFirst())
+        }
+        return Copy.Catchup.noted(words.joined(separator: ", "))
+    }
+
+    /// A chain's pair in its names: exactly who was joined or parted.
+    private static func pairWords(_ part: Part) -> String? {
+        guard part.item.isChain, let pair = part.item.chainPairs?.first(where: { $0.id == part.item.id }) else {
+            return nil
+        }
+        switch part.resolution.action {
+        case "merge": return Copy.Catchup.pairSame(pair.a, part.targetName ?? pair.b)
+        case "reject": return Copy.Catchup.pairDifferent(pair.a, pair.b)
+        default: return nil
+        }
     }
 
     /// How the chat says what it noted, in a few words ("Noted: Org Gamma").
