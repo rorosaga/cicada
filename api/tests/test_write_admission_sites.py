@@ -551,6 +551,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # Meaning index 2: an added recording's words and frames, in $CICADA_HOME/files only — Sleep never reads them
     # (G195), and their vectors are written later by the background refresher, never by the route.
     "POST /files/media": (OUTSIDE, None),
+    "POST /files/voice-memos": (OUTSIDE, None),       # G43: the same store, keyed by the recording's own id
     "POST /files/{file_id}/frames": (OUTSIDE, None),
     "DELETE /files/{file_id}": (OUTSIDE, None),
     # 2026-10-28 "Remove from memory": closes the claims whose only evidence is a traces-day digest (and Undo reopens

@@ -60,6 +60,11 @@ PASSAGE_CHARS = 1_600               # vector_index.EPISODE_CHUNK_CHARS: what the
 #: model (``benchmarks.perf.media_index_build``): a topic said lifts its best passage ≥ 0.18, a topic never said ≤ 0.04.
 TEXT_LIFT_MIN = 0.12
 SCRUB_WRITER = "media-files"
+#: A store that names its own recordings (G43): an item is keyed by the store's id for it, never by its bytes, so an
+#: edit re-stages the same item and a deletion retires it. Only these sources may key themselves.
+SOURCES = ("voice_memos",)
+SOURCE_KEY_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+MAX_MODEL = 80
 
 
 class FileRefused(ValueError):
@@ -115,10 +120,30 @@ def _seconds(value, field: str) -> float:
     return round(out, 3)
 
 
-def record_media(memory_path, *, name: str, kind: str, sha256: str, size: int = 0, duration_s=None,
-                 language: str | None = None, segments: list | None = None) -> dict:
+def source_file_id(source: str, key: str) -> str:
+    """The id of an item a store names itself (``voice_memos`` + the store's id for the recording)."""
+    return hashlib.sha256(f"{source}:{key}".encode()).hexdigest()[:16]
+
+
+def _recorded_at(value) -> str:
+    """The item's own date as aware UTC ISO (ruling 39); refused when it isn't a date."""
+    try:
+        when = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    except ValueError:
+        raise FileRefused("recorded_at isn't a date") from None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def record_media(memory_path, *, name: str, kind: str, sha256: str | None = None, size: int = 0, duration_s=None,
+                 language: str | None = None, segments: list | None = None, source: str | None = None,
+                 source_key: str | None = None, recorded_at=None, transcribed_by: str | None = None) -> dict:
     """Keep one added file's description and its words. The same file (by sha256) posted again replaces its words
-    and keeps its frames. ``{"action": "added" | "updated", "id"}``; raises :class:`FileRefused` and writes nothing for
+    and keeps its frames. With a ``source`` (G43) the item is keyed by the store's id and dated by ``recorded_at``;
+    the same bytes posted again are ``unchanged`` and a changed recording re-stages (``updated``).
+    ``transcribed_by`` names the model that made the words (the contributor a page will show).
+    ``{"action": "added" | "updated" | "unchanged", "id"}``; raises :class:`FileRefused` and writes nothing for
     anything out of shape."""
     from api.services import episode_scrub
 
@@ -126,7 +151,16 @@ def record_media(memory_path, *, name: str, kind: str, sha256: str, size: int = 
     if kind not in KINDS:
         raise FileRefused("only audio and video files are kept here")
     sha = str(sha256 or "").strip().lower()
-    if not SHA_RE.match(sha):
+    when = None
+    if source is not None:
+        if source not in SOURCES or kind != "audio":
+            raise FileRefused("that store isn't one this keeps")
+        if not SOURCE_KEY_RE.match(str(source_key or "")):
+            raise FileRefused("the recording's id is missing")
+        if sha and not SHA_RE.match(sha):
+            raise FileRefused("the file's sha256 is malformed")
+        when = _recorded_at(recorded_at) if recorded_at else None
+    elif not SHA_RE.match(sha):
         raise FileRefused("the file's sha256 is missing")
     clean_name = " ".join(str(name or "").replace("/", " ").split())[:MAX_NAME] or f"A {kind} file"
     segs = list(segments or [])
@@ -148,9 +182,11 @@ def record_media(memory_path, *, name: str, kind: str, sha256: str, size: int = 
             raise FileRefused("the transcript is too long")
         kept.append({"start": start, "end": end, "text": text})
     kept.sort(key=lambda s: s["start"])
-    fid = file_id_for(sha)
+    fid = source_file_id(source, source_key) if source else file_id_for(sha)
     folder = _folder(memory_path, fid)
     old = _json(folder / "meta.json") if folder.is_dir() else None
+    if source and old and not old.get("deleted_at") and sha and old.get("sha256") == sha:
+        return {"action": "unchanged", "id": fid}
     meta = {
         "id": fid, "sha256": sha, "name": clean_name, "kind": kind,
         "size": max(0, int(size or 0)),
@@ -160,11 +196,38 @@ def record_media(memory_path, *, name: str, kind: str, sha256: str, size: int = 
         "updated_at": _now(),
         "segments": len(kept),
         "words_by": "the recording",   # attribution: never the person's own words
+        "transcribed_by": " ".join(str(transcribed_by or "").split())[:MAX_MODEL] or None,
     }
+    if source:
+        # A tombstoned item that comes back is a fresh one (``deleted_at`` is not carried over).
+        meta.update({"sha256": sha or None, "source": source, "source_key": source_key, "recorded_at": when})
     _write_atomic(folder / "transcript.json", json.dumps(kept, ensure_ascii=False).encode())
     _write_atomic(folder / "meta.json", (json.dumps(meta, indent=2, ensure_ascii=False) + "\n").encode())
     episode_scrub.record(SCRUB_WRITER, scrubbed)
-    return {"action": "updated" if old else "added", "id": fid}
+    return {"action": "updated" if old and not old.get("deleted_at") else "added", "id": fid}
+
+
+def retire_source(memory_path, source: str, present: set[str]) -> int:
+    """Tombstone every kept item of ``source`` whose store id is not in ``present`` (the store's complete list): its
+    words and frames go, its description stays with ``deleted_at`` (never unlinked), and its vectors leave at the next
+    refresh. Returns how many were retired."""
+    base = root(memory_path)
+    if source not in SOURCES or not base.is_dir():
+        return 0
+    n = 0
+    for folder in base.iterdir():
+        meta = _json(folder / "meta.json") if FILE_ID_RE.match(folder.name) else None
+        if not isinstance(meta, dict) or meta.get("source") != source or meta.get("deleted_at"):
+            continue
+        if meta.get("source_key") in present:
+            continue
+        for name in ("transcript.json", "frames.json"):
+            (folder / name).unlink(missing_ok=True)
+        shutil.rmtree(folder / "frames", ignore_errors=True)
+        meta.update({"deleted_at": _now(), "segments": 0})
+        _write_atomic(folder / "meta.json", (json.dumps(meta, indent=2, ensure_ascii=False) + "\n").encode())
+        n += 1
+    return n
 
 
 def record_frames(memory_path, file_id: str, frames: list[tuple[float, bytes]]) -> dict:
@@ -208,7 +271,7 @@ def list_files(memory_path) -> list[dict]:
     out = []
     for folder in base.iterdir():
         meta = _json(folder / "meta.json") if FILE_ID_RE.match(folder.name) else None
-        if isinstance(meta, dict):
+        if isinstance(meta, dict) and not meta.get("deleted_at"):
             frames = _json(folder / "frames.json") or []
             out.append({**meta, "frames": len(frames) if isinstance(frames, list) else 0})
     return sorted(out, key=lambda m: str(m.get("added_at") or ""), reverse=True)
@@ -268,7 +331,8 @@ def passages(meta: dict, segments: list[dict]) -> list[tuple[str, str, dict]]:
             i = len(out)
             out.append((f"{fid}#{i}", " ".join(buf),
                         {"file_id": fid, "name": meta.get("name"), "kind": meta.get("kind"), "start": start,
-                         "end": end, "words_by": "the recording"}))
+                         "end": end, "words_by": "the recording",
+                         "recorded_at": meta.get("recorded_at")}))
         buf, start = [], None
 
     size = 0
@@ -321,7 +385,7 @@ def pictures(memory_path) -> list:
             out.append(image_index.Picture(
                 f"frame:{folder.name}@{int(row['ms'])}", "frame", path,
                 title=f"{meta.get('name') or 'A video'} at {clock(at)}", file_id=folder.name, at=at,
-                day=str(meta.get("added_at") or "")[:10] or None,
+                day=str(meta.get("recorded_at") or meta.get("added_at") or "")[:10] or None,
                 thumb=f"/files/{folder.name}/frames/{int(row['ms'])}", sha=str(row.get("sha256") or "") or None))
     return out
 

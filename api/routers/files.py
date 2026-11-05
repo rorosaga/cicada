@@ -35,7 +35,26 @@ class MediaIn(CamelModel):
     size: int = 0
     duration_s: float | None = None
     language: str | None = None
+    transcribed_by: str | None = Field(None, max_length=200)
     segments: list[Segment] = Field(default_factory=list, max_length=media_files.MAX_SEGMENTS)
+
+
+class VoiceMemoIn(CamelModel):
+    key: str
+    name: str = Field("", max_length=1000)
+    recorded_at: str
+    sha256: str | None = None
+    size: int = 0
+    duration_s: float | None = None
+    language: str | None = None
+    transcribed_by: str | None = Field(None, max_length=200)
+    segments: list[Segment] = Field(default_factory=list, max_length=media_files.MAX_SEGMENTS)
+
+
+class VoiceMemosIn(CamelModel):
+    memos: list[VoiceMemoIn] = Field(default_factory=list, max_length=20)
+    #: Every recording the store holds now, sent only after a complete read: what it no longer lists is retired.
+    present: list[str] | None = Field(None, max_length=50_000)
 
 
 class FrameIn(CamelModel):
@@ -59,11 +78,35 @@ async def post_media(body: MediaIn, settings: Settings = Depends(get_settings)) 
     try:
         out = await run_in_threadpool(
             media_files.record_media, settings.memory_path, name=body.name, kind=body.kind, sha256=body.sha256,
-            size=body.size, duration_s=body.duration_s, language=body.language,
+            size=body.size, duration_s=body.duration_s, language=body.language, transcribed_by=body.transcribed_by,
             segments=[s.model_dump() for s in body.segments])
     except media_files.FileRefused as exc:
         raise HTTPException(422, str(exc)) from None
     image_index.start_refresh(settings.memory_path, delay_s=image_index.SETTLE_S)
+    return out
+
+
+@router.post("/files/voice-memos", dependencies=[Depends(_not_demo)])
+async def post_voice_memos(body: VoiceMemosIn, settings: Settings = Depends(get_settings)) -> dict:
+    """G43 — Voice Memos, read by the app: each recording's words with its id and its own date, then (after a complete
+    read) the ids the store still lists. One item per recording; an edit re-stages it, a deletion is tombstoned.
+    422 for anything out of shape."""
+    out = {"added": 0, "updated": 0, "unchanged": 0, "retired": 0}
+    for memo in body.memos:
+        try:
+            got = await run_in_threadpool(
+                media_files.record_media, settings.memory_path, name=memo.name, kind="audio", sha256=memo.sha256,
+                size=memo.size, duration_s=memo.duration_s, language=memo.language, source="voice_memos",
+                source_key=memo.key, recorded_at=memo.recorded_at, transcribed_by=memo.transcribed_by,
+                segments=[s.model_dump() for s in memo.segments])
+        except media_files.FileRefused as exc:
+            raise HTTPException(422, str(exc)) from None
+        out[got["action"]] += 1
+    if body.present is not None:
+        out["retired"] = await run_in_threadpool(
+            media_files.retire_source, settings.memory_path, "voice_memos", set(body.present))
+    if any(out.values()):
+        image_index.start_refresh(settings.memory_path, delay_s=image_index.SETTLE_S)
     return out
 
 
