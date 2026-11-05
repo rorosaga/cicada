@@ -356,6 +356,29 @@ def _usable(text: str, limit: int, most: int) -> bool:
         and "[[" not in text and "```" not in text and 1 <= _sentences(text) <= most
 
 
+#: Consecutive words a note may share with the recording. Ruling 68 keeps the words outside every bank, and a note is
+#: committed: a short memo "summarised" by repeating it would put the memo in git history.
+ECHO_WORDS = 8
+#: A page's name shorter than this says nothing as a match: "Go" or "Ed" would tie a recording to a page by chance.
+MIN_NAME_CHARS = 3
+
+
+def _echoes(note: str, words: str) -> bool:
+    """True when ``note`` repeats :data:`ECHO_WORDS` or more consecutive words of the recording, ignoring case and marks."""
+    said = re.findall(r"\w+", (words or "").casefold())
+    runs = {tuple(said[i:i + ECHO_WORDS]) for i in range(len(said) - ECHO_WORDS + 1)}
+    wrote = re.findall(r"\w+", note.casefold())
+    return any(tuple(wrote[i:i + ECHO_WORDS]) in runs for i in range(len(wrote) - ECHO_WORDS + 1))
+
+
+def _names(note: str, name: str) -> bool:
+    """True when ``note`` holds the page's name as whole words: "Ana" never matches inside "analysis"."""
+    name = (name or "").strip()
+    if len(name) < MIN_NAME_CHARS:
+        return False
+    return re.search(rf"(?<!\w){re.escape(name)}(?!\w)", note, re.I) is not None
+
+
 def decide(c: Candidate, answer: dict | None) -> tuple[str | None, str | None, bool]:
     """``(summary, why, answered)``: what code keeps of the model's answer. ``why`` is kept only when it names a page the
     memory view showed; a summary the writable section needs but did not get makes the answer unusable
@@ -364,12 +387,11 @@ def decide(c: Candidate, answer: dict | None) -> tuple[str | None, str | None, b
         return None, None, False
     summary = _plain(answer.get("summary")) if SUMMARY in c.writable else ""
     why = _plain(answer.get("why")) if WHY in c.writable else ""
-    if SUMMARY in c.writable and not _usable(summary, MAX_SUMMARY_CHARS, 4):
+    if SUMMARY in c.writable and (not _usable(summary, MAX_SUMMARY_CHARS, 4) or _echoes(summary, c.text)):
         return None, None, False
-    if why:
-        names = [name.casefold() for name, _ in c.memory]
-        if not _usable(why, MAX_WHY_CHARS, 2) or not any(n and n in why.casefold() for n in names):
-            why = ""
+    if why and (not _usable(why, MAX_WHY_CHARS, 2) or _echoes(why, c.text)
+                or not any(_names(why, name) for name, _ in c.memory)):
+        why = ""
     if summary and (note := coverage_sentence(c.covered_s)):
         summary = f"{summary} {note}"
     return summary or None, why or None, True

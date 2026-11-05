@@ -481,7 +481,8 @@ def test_the_section_writer_keeps_the_other_section_and_the_heading_shape():
 
 
 def test_an_answer_with_a_link_a_heading_or_the_held_mark_is_refused():
-    c = SimpleNamespace(writable={"Summary", "Why it matters"}, memory=[("Crossing Redesign", "x")], covered_s=None)
+    c = SimpleNamespace(writable={"Summary", "Why it matters"}, memory=[("Crossing Redesign", "x")], covered_s=None,
+                        text="")
     for bad in ("See [[Crossing Redesign]] for more.", "# Heading", "- a list"):
         assert media_read.decide(c, {"summary": bad, "why": ""})[2] is False
     assert media_read.decide(c, {"summary": "A fine summary [held back: password] here.", "why": ""})[0] \
@@ -525,3 +526,23 @@ def test_the_route_answers_the_usual_refusals_and_reads_through_the_click(bank, 
         assert done.status_code == 200 and seen["id"] == fid and done.json()["summary"] is True
         monkeypatch.setattr(demo_guard, "is_demo", lambda _p: True)
         assert c.post(f"/files/{fid}/read").status_code == 409
+
+
+def test_why_it_matters_must_name_a_page_as_whole_words():
+    c = SimpleNamespace(writable={"Why it matters"}, memory=[("Ana", "x"), ("Go", "x"), ("Crossing Redesign", "x")],
+                        covered_s=None, text="")
+    assert media_read.decide(c, {"why": "This relates to the analysis of the harvest, and going further."})[1] is None
+    assert media_read.decide(c, {"why": "It is about Go and nothing else."})[1] is None
+    assert media_read.decide(c, {"why": "It ties to the crossing redesign plan."})[1]
+    named = SimpleNamespace(writable={"Why it matters"}, memory=[("Ana", "x")], covered_s=None, text="")
+    assert media_read.decide(named, {"why": "It is a call with Ana about the plan."})[1]
+
+
+def test_a_note_that_repeats_the_recording_is_refused():
+    said = "We will meet at the harbour on the first calm morning and carry every lantern down to the ferry together."
+    c = SimpleNamespace(writable={"Summary", "Why it matters"}, memory=[("Harbour Plan", "x")], covered_s=None, text=said)
+    echo = "The recording says: we will meet at the harbour on the first calm morning, then more."
+    assert media_read.decide(c, {"summary": echo, "why": ""})[2] is False
+    kept = media_read.decide(c, {"summary": "A plan to carry lanterns to the ferry.", "why": f"Harbour Plan: {echo}"})
+    assert kept[0] and kept[1] is None and kept[2] is True
+
