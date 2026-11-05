@@ -61,7 +61,9 @@ enum LocalReaders {
 
     /// ROR-7 — the readers on this Mac that macOS stopped, by entry id, each with its reason: the page's *Needs you*. A
     /// reader the person never turned on is not waiting on them, so Contacts, Reminders and Apple Books count only while
-    /// their switch is on; Calendar reaches `.denied` only from a Connect or a switch left on.
+    /// their switch is on; Calendar reaches `.denied` only from a Connect or a switch left on. Messages and WhatsApp
+    /// carry no such switch, and `.needsAccess` does not mean never turned on: it can follow macOS refusing the person's
+    /// own attempt, so it always waits on them.
     static func waitingOnAccess(calendar: CalendarReader?, contacts: ContactsReader?, reminders: RemindersReader?,
                                 books: AppleBooksReader?, messages: MessagesWatcher?,
                                 whatsApp: WhatsAppWatcher?) -> [String: String] {

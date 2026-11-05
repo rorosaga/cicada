@@ -69,7 +69,7 @@ extension SourceCatalogRow {
         return .category(entry.category)
     }
 
-    /// The word and dot for a row or a tile. A permission taken away reads Needs access over Off.
+    /// The word and dot for a row or a tile. A permission taken away reads Needs access over Off or Connected.
     var word: String {
         if waitingOn == Copy.sourceNeedsAccess { return Copy.Catalog.needsAccess }
         if waitingOn != nil { return Copy.SourcePage.needsYou }

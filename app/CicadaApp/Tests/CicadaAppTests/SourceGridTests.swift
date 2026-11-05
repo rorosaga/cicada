@@ -120,6 +120,19 @@ final class SourceGridTests: XCTestCase {
         XCTAssertEqual(SourcePageStatus.of(row: .off, run: .idle, latest: nil), .off(lastItem: nil))
     }
 
+    func testAConnectedReaderMacOSRefusedReadsTheSameOnTheTileAndThePage() {
+        let id = AppleBooksReader.channel
+        let row = rows(localReaders: [id: true], waitingOn: [id: Copy.sourceNeedsAccess]).first { $0.id == id }!
+        XCTAssertEqual(row.status, .connected, "the switch stays on while macOS refuses the read")
+        XCTAssertEqual(row.word, Copy.Catalog.needsAccess)
+        let page = SourcePageStatus.of(row: row.status, run: .idle, latest: "Oct 28", waitingOn: row.waitingOn)
+        XCTAssertEqual(page, .needsYou(Copy.SourcePage.allowAccess))
+        XCTAssertEqual(SourcePageStatus.of(row: .connected, run: .idle, latest: "Oct 28", waitingOn: "Sign in again"),
+                       .needsYou("Sign in again"), "any reason, in its own words")
+        XCTAssertEqual(SourcePageStatus.of(row: .connected, run: .idle, latest: "Oct 28"),
+                       .connected(lastItem: "Oct 28"), "nothing waiting: still Connected")
+    }
+
     func testAnAppThatIsGoneNeverWaitsOnThePerson() {
         let id = WhatsAppWatcher.channel
         let all = rows(waitingOn: [id: Copy.sourceNeedsAccess], suggested: [id], notInstalled: [id])
