@@ -2016,12 +2016,30 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   disconnect. *Book scans* (ROR-116, `BookAddSlot`): add a book on the Mac. A field for an ISBN (typed or pasted; the Add enables
   on a valid number, `BookISBN.parse`, the backend's check), the phone's three statuses as chips (Reading · Finished · Want
   to read; none chosen says nothing about reading), **Add** (DR-5's one primary) through `POST /capture/isbn`, and **Scan**:
-  the Mac's camera (built-in, else an iPhone as a Continuity Camera) shows a live preview and takes the first EAN-13 that
-  is a valid ISBN as soon as it is read, with no shutter, then stops (`BookBarcodeCamera`, the one file that opens a camera,
-  on `AVImportLintTests`' list). The number lands in the field and the person confirms the status and presses Add. The
-  camera opens only on the click (macOS asks then, `NSCameraUsageDescription`; the release entitlement
-  `device.camera`), stops on a read, on Stop and when the page closes; frames are read in memory by Vision and dropped,
-  never stored, never sent. Denied or none: one line with the fix. The result is one line after the lookup (read from
+  a window over the app (`BookScanSheet`, a sheet; Esc or its close button ends it), the way the iPhone scans a document.
+  The Mac's camera (built-in, else an iPhone as a Continuity Camera) fills it, mirrored on the built-in one (holding a
+  book up to a laptop feels right mirrored; the highlight maps with the same flag). **It shows it sees:** a book-shaped
+  rectangle (`VNDetectRectanglesRequest`, short/long side 0.5-0.9, at least a quarter of the frame, every 3rd analysed
+  frame) gets a white outline with the rest dimmed; a barcode gets a tighter white mark on the observation's own four
+  corners (`ScanQuad.viewPoints`: Vision's normalised bottom-left corners, aspect-fill, mirrored); nothing detected, nothing
+  drawn, no text. The highlight is white, not the accent (not one of its six uses). `QuadHold` follows a move 60% of the
+  way and holds a vanished shape 0.3 s so it does not flicker. **It takes the scan by itself** (`BookScanStabilizer`): the
+  same valid ISBN in **3 analysed frames in a row** (analysis runs at most 20 a second, so about 0.15 s once the code is
+  readable; two frames with no code at all are forgiven, a different number resets). One misread frame cannot fire: an
+  EAN-13 failing its check digit is not an ISBN. The mark then grows and fills with a check for 0.7 s (`CicadaMotion.scanLock*`;
+  Reduce Motion drops the scale, keeps a short fade) and it goes back to looking: **the window stays open for the next
+  book**. A number already taken this session never fires again, so a book held in view is not added twice and does not
+  flash again (a failed capture is let go, `forget`). A code that is not a book's number (a price code, a QR) says so once
+  in one short line and captures nothing. Each taken number goes through `BookAddFlow.submit`, the one "a number was
+  read" call, without waiting on the last lookup; the last three show as cards (cover, title, authors; "Looking it up" until
+  the home answers) that open the book's page. **Performance:** the preview layer reads the session alone; the analysis
+  is its own queue with `alwaysDiscardsLateVideoFrames` and a 50 ms floor between analyses, 1280x720, so a slow frame is
+  dropped, never queued, and the feed never waits (median 5 ms for barcodes and 3 ms for the rectangle on a drawn frame on
+  an M-series Mac, `BookScanMathTests`). The camera (`BookBarcodeCamera`, the one file that opens one, on
+  `AVImportLintTests`' list) opens only on the Scan click (macOS asks then, `NSCameraUsageDescription`; the release entitlement
+  `device.camera`) and stops when the window closes, when the app has been in the background 3 s, and when the view goes away;
+  frames are read in memory by Vision and dropped, never stored, never sent: only the number leaves. Denied or none: one
+  line with the fix, in the window. The page behind still has the field and the Add. The result is one line after the lookup (read from
   `GET /sources/books/scans/{id}`): "Added · <title>" or "Already in your books · <title>", with *Open* for the page. The
   list below is what was scanned. A book's status line adds where it came in from ("Reading now · Apple Books · Scanned")
   only when there is more than one way (`BookStatusRecord.ways`).
