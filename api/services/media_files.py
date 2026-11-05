@@ -190,7 +190,13 @@ def record_media(memory_path, *, name: str, kind: str, sha256: str | None = None
     folder = _folder(memory_path, fid)
     old = _json(folder / "meta.json") if folder.is_dir() else None
     if source and old and not old.get("deleted_at") and sha and old.get("sha256") == sha:
-        return {"action": "unchanged", "id": fid}
+        if old.get("name") == clean_name:
+            return {"action": "unchanged", "id": fid}
+        # ROR-122: the store renamed the recording and nothing else moved: its name alone is kept, never its words.
+        _write_atomic(folder / "meta.json",
+                      (json.dumps({**old, "name": clean_name, "updated_at": _now()}, indent=2,
+                                  ensure_ascii=False) + "\n").encode())
+        return {"action": "updated", "id": fid}
     meta = {
         "id": fid, "sha256": sha, "name": clean_name, "kind": kind,
         "size": max(0, int(size or 0)),

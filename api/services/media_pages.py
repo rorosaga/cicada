@@ -47,7 +47,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import bank_index, decay_policy, demo_guard, git_service, markdown_parser, media_files, page_lock
-from api.services import write_admission
+from api.services import source_names, write_admission
 from api.services.id_utils import sanitize_id
 
 KIND = "file"
@@ -151,7 +151,7 @@ def _block(meta: dict, old: dict | None = None) -> dict:
 def _frontmatter(meta: dict, title: str, today: str) -> dict:
     kind = MEDIA_TYPES.get(str(meta.get("kind")), "recording")
     name = str(meta.get("name") or "").strip()
-    return {
+    fm = {
         "name": title, "type": "media", "status": "active", "confidence": 0.8,
         "created": today, "last_referenced": today,
         **decay_policy.frontmatter_fields(decay_policy.default_class_for("media", source="media")),
@@ -162,6 +162,13 @@ def _frontmatter(meta: dict, title: str, today: str) -> dict:
         "enrichment_attempted": True,
         "media": _block(meta),
     }
+    source_names.wrote(fm, _door(meta), title, today)
+    return fm
+
+
+def _door(meta: dict) -> str:
+    """Where the name came from: the store (``voice_memos``) or a file the person picked."""
+    return str(meta.get("source") or "file")
 
 
 def _page_id(entities: Path, title: str, file_id: str, taken: set[str], former: set[str]) -> str:
@@ -354,7 +361,11 @@ def _write_chunk(memory_path: Path, chunk: list[dict], by_file: dict[str, str], 
             if not is_file_page(fm):
                 continue                    # the id now names another kind of page: left as it is
             block = _block(meta, fm.get("media") if isinstance(fm.get("media"), dict) else None)
-            if block != fm.get("media"):
+            # ROR-122: the store's newest name for the item is the page's, the old one an alias; the person's own
+            # stands. A page with no record of what the store called it takes its present name as that.
+            named = source_names.apply(fm, _door(meta), _title(meta), day=today, was=fm.get("name"),
+                                       door_was=fm.get("name")) in (source_names.RENAME, source_names.KEPT)
+            if block != fm.get("media") or named:
                 fm["media"] = block
                 markdown_parser.write(path, fm, parsed.body)
                 rows.append((f"entities/{page}.md", "updated"))

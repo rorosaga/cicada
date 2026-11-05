@@ -172,6 +172,9 @@ final class VoiceMemosReader {
     nonisolated static let channel = "voice-memos"
     nonisolated static let enabledKey = "cicada.voiceMemos.enabled"
     nonisolated static let sentKey = "cicada.voiceMemos.sent"
+    /// The title each recording had when it was last posted (ROR-122): a rename in Voice Memos moves no byte, so the
+    /// fingerprint cannot see it.
+    nonisolated static let namesKey = "cicada.voiceMemos.names"
     static let shared = VoiceMemosReader()
 
     private(set) var status: Status = .off
@@ -247,6 +250,23 @@ final class VoiceMemosReader {
     }
 
     private func sentKey() -> String { Self.sentKey + "." + bank() }
+    private func namesKey() -> String { Self.namesKey + "." + bank() }
+
+    /// A recording already posted whose title changed since: the name alone goes, with its bytes' hash (the backend
+    /// keeps the words when the bytes are the same). One never posted under a title is only noted, never renamed.
+    static func renamed(_ records: [VoiceMemoRecord], sent: [String: String], names: [String: String])
+        -> (rows: [VoiceMemoRecord], names: [String: String]) {
+        var next = names
+        var rows: [VoiceMemoRecord] = []
+        for record in records where sent[record.key] == VoiceMemosStore.fingerprint(record) {
+            if let was = names[record.key] {
+                if was != record.title { rows.append(record) }
+            } else {
+                next[record.key] = record.title
+            }
+        }
+        return (rows, next)
+    }
 
     private func sync() async {
         guard !inFlight, enabled else { return }
@@ -279,6 +299,7 @@ final class VoiceMemosReader {
         }
         for record in records { places.remember(VoiceMemosPaths.fileId(key: record.key), record.file) }
         var sent = (defaults.dictionary(forKey: sentKey()) as? [String: String]) ?? [:]
+        var names = (defaults.dictionary(forKey: namesKey()) as? [String: String]) ?? [:]
         var withoutWords = 0
         do {
             for record in records where sent[record.key] != VoiceMemosStore.fingerprint(record) {
@@ -306,7 +327,21 @@ final class VoiceMemosReader {
                 guard gen == generation else { return }
                 sent[record.key] = stamp
                 defaults.set(sent, forKey: sentKey())
+                names[record.key] = record.title
+                defaults.set(names, forKey: namesKey())
             }
+            let renames = Self.renamed(records, sent: sent, names: names)
+            names = renames.names
+            for record in renames.rows {
+                guard gen == generation, enabled else { return }
+                guard let sha = MediaFileIndexer.sha256(of: record.file) else { continue }
+                var body: [String: Any] = ["key": record.key, "name": record.title, "sha256": sha,
+                                           "recordedAt": VoiceMemosStore.iso(record.recordedAt), "segments": []]
+                if let size = try? record.file.resourceValues(forKeys: [.fileSizeKey]).fileSize { body["size"] = size }
+                try await api.postVoiceMemos(["memos": [body]])
+                names[record.key] = record.title
+            }
+            defaults.set(names, forKey: namesKey())
             // A complete, successful read: what Voice Memos no longer lists leaves search (tombstoned).
             try await api.postVoiceMemos(["memos": [] as [[String: Any]], "present": listed])
         } catch {
@@ -316,6 +351,7 @@ final class VoiceMemosReader {
         }
         sent = sent.filter { key, _ in listed.contains(key) }
         defaults.set(sent, forKey: sentKey())
+        defaults.set(names.filter { key, _ in listed.contains(key) }, forKey: namesKey())
         status = .synced(at: now(), memos: records.count - withoutWords, withoutWords: withoutWords)
     }
 
