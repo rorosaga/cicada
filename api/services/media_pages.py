@@ -362,9 +362,17 @@ def _write_chunk(memory_path: Path, chunk: list[dict], by_file: dict[str, str], 
                 continue                    # the id now names another kind of page: left as it is
             block = _block(meta, fm.get("media") if isinstance(fm.get("media"), dict) else None)
             # ROR-122: the store's newest name for the item is the page's, the old one an alias; the person's own
-            # stands. A page with no record of what the store called it takes its present name as that.
-            named = source_names.apply(fm, _door(meta), _title(meta), day=today, was=fm.get("name"),
-                                       door_was=fm.get("name")) in (source_names.RENAME, source_names.KEPT)
+            # stands. A page made before this rule has no record of what the store called it: its name is the store's
+            # only when it IS the store's title right now (a baseline, written with the page's next write or in this
+            # chunk's one commit); any other name is the person's and is left alone, never renamed over.
+            door, title = _door(meta), _title(meta)
+            if source_names.unrecorded(fm, door):
+                named = False
+                if source_names.clean(fm.get("name")) == source_names.clean(title):
+                    source_names.wrote(fm, door, title, today)
+                    named = True
+            else:
+                named = source_names.apply(fm, door, title, day=today) in (source_names.RENAME, source_names.KEPT)
             if block != fm.get("media") or named:
                 fm["media"] = block
                 markdown_parser.write(path, fm, parsed.body)

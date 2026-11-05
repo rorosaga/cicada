@@ -252,20 +252,15 @@ final class VoiceMemosReader {
     private func sentKey() -> String { Self.sentKey + "." + bank() }
     private func namesKey() -> String { Self.namesKey + "." + bank() }
 
-    /// A recording already posted whose title changed since: the name alone goes, with its bytes' hash (the backend
-    /// keeps the words when the bytes are the same). One never posted under a title is only noted, never renamed.
+    /// A recording already posted whose title changed since: the name alone goes (`nameOnly`, so the backend takes the
+    /// name and never touches the words). `names` holds a title only for a recording that was actually posted, so one
+    /// listened to and found silent, or never posted, is never renamed on the backend.
     nonisolated static func renamed(_ records: [VoiceMemoRecord], sent: [String: String], names: [String: String])
-        -> (rows: [VoiceMemoRecord], names: [String: String]) {
-        var next = names
-        var rows: [VoiceMemoRecord] = []
-        for record in records where sent[record.key] == VoiceMemosStore.fingerprint(record) {
-            if let was = names[record.key] {
-                if was != record.title { rows.append(record) }
-            } else {
-                next[record.key] = record.title
-            }
+        -> [VoiceMemoRecord] {
+        records.filter { record in
+            guard sent[record.key] == VoiceMemosStore.fingerprint(record), let was = names[record.key] else { return false }
+            return was != record.title
         }
-        return (rows, next)
     }
 
     private func sync() async {
@@ -330,14 +325,10 @@ final class VoiceMemosReader {
                 names[record.key] = record.title
                 defaults.set(names, forKey: namesKey())
             }
-            let renames = Self.renamed(records, sent: sent, names: names)
-            names = renames.names
-            for record in renames.rows {
+            for record in Self.renamed(records, sent: sent, names: names) {
                 guard gen == generation, enabled else { return }
-                guard let sha = MediaFileIndexer.sha256(of: record.file) else { continue }
-                var body: [String: Any] = ["key": record.key, "name": record.title, "sha256": sha,
+                let body: [String: Any] = ["key": record.key, "name": record.title, "nameOnly": true,
                                            "recordedAt": VoiceMemosStore.iso(record.recordedAt), "segments": []]
-                if let size = try? record.file.resourceValues(forKeys: [.fileSizeKey]).fileSize { body["size"] = size }
                 try await api.postVoiceMemos(["memos": [body]])
                 names[record.key] = record.title
             }

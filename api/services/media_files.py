@@ -142,11 +142,14 @@ def _recorded_at(value) -> str:
 
 def record_media(memory_path, *, name: str, kind: str, sha256: str | None = None, size: int = 0, duration_s=None,
                  language: str | None = None, segments: list | None = None, source: str | None = None,
-                 source_key: str | None = None, recorded_at=None, transcribed_by: str | None = None) -> dict:
+                 source_key: str | None = None, recorded_at=None, transcribed_by: str | None = None,
+                 name_only: bool = False) -> dict:
     """Keep one added file's description and its words. The same file (by sha256) posted again replaces its words
     and keeps its frames. With a ``source`` (G43) the item is keyed by the store's id and dated by ``recorded_at``;
     the same bytes posted again are ``unchanged`` and a changed recording re-stages (``updated``).
     ``transcribed_by`` names the model that made the words (the contributor a page will show).
+    ``name_only`` (a store's rename, ROR-122): sets the kept item's name and nothing else — never its words, frames or
+    hash, whatever the post carries; an item never kept (a silent recording, a deleted one) is not made: ``unchanged``.
     ``{"action": "added" | "updated" | "unchanged", "id"}``; raises :class:`FileRefused` and writes nothing for
     anything out of shape."""
     from api.services import episode_scrub
@@ -189,6 +192,13 @@ def record_media(memory_path, *, name: str, kind: str, sha256: str | None = None
     fid = source_file_id(source, source_key) if source else file_id_for(sha)
     folder = _folder(memory_path, fid)
     old = _json(folder / "meta.json") if folder.is_dir() else None
+    if name_only:
+        if not source or not old or old.get("deleted_at") or old.get("name") == clean_name:
+            return {"action": "unchanged", "id": fid}
+        _write_atomic(folder / "meta.json",
+                      (json.dumps({**old, "name": clean_name, "updated_at": _now()}, indent=2,
+                                  ensure_ascii=False) + "\n").encode())
+        return {"action": "updated", "id": fid}
     if source and old and not old.get("deleted_at") and sha and old.get("sha256") == sha:
         if old.get("name") == clean_name:
             return {"action": "unchanged", "id": fid}

@@ -52,6 +52,12 @@ def person_named(fm: dict, *, was: str | None = None) -> bool:
     return bool(wrote) and clean(fm.get("name")) != wrote
 
 
+def unrecorded(fm: dict, door: str) -> bool:
+    """A page made before this rule: it records neither what a source wrote (``name_source``) nor what ``door`` last
+    called it (``names_seen``), so its present name cannot be told from a person's hand edit of it."""
+    return not isinstance(fm.get(NAME_SOURCE), dict) and _seen(fm).get(door) is None
+
+
 def decide(fm: dict, door: str, name, *, was: str | None = None, door_was: str | None = None) -> str:
     """What reporting ``name`` from ``door`` would do, without changing anything. ``door_was``: what this door gave
     for the page before this rule existed (a page whose only door is this one: its first real title)."""

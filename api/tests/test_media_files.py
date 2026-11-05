@@ -381,6 +381,27 @@ def test_a_voice_memo_out_of_shape_is_refused_and_nothing_is_written(bank, bad):
     assert media_files.list_files(bank) == []
 
 
+def test_a_name_only_post_takes_the_name_and_never_the_words_or_frames_whatever_its_hash(bank):
+    fid = _memo(bank, sha=None)["id"]                  # the first post carried no hash
+    words = media_files.transcript(bank, fid)
+    assert words
+    for sha in (None, "ee" * 32, "cd" * 32):
+        out = _memo(bank, sha=sha, segs=[], name_only=True, name=f"Renamed {sha or 'none'}.m4a")
+        assert out["action"] == "updated" and out["id"] == fid
+        assert media_files.transcript(bank, fid) == words
+    assert [f["name"] for f in media_files.list_files(bank)] == ["Renamed " + "cd" * 32 + ".m4a"]
+    assert _memo(bank, sha=None, segs=[], name_only=True, name="Renamed " + "cd" * 32 + ".m4a")["action"] == "unchanged"
+
+
+def test_a_name_only_post_for_a_recording_never_kept_writes_nothing(bank):
+    out = _memo(bank, segs=[], name_only=True)
+    assert out["action"] == "unchanged" and media_files.list_files(bank) == []
+    fid = _memo(bank)["id"]
+    media_files.retire_source(bank, "voice_memos", set())
+    assert _memo(bank, segs=[], name_only=True, name="Back again")["action"] == "unchanged"
+    assert media_files.list_files(bank) == [] and not media_files.transcript(bank, fid)
+
+
 def test_the_voice_memo_route_adds_updates_retires_and_a_demo_bank_refuses(client, bank, monkeypatch):
     from api.services import demo_guard
 
@@ -390,9 +411,16 @@ def test_the_voice_memo_route_adds_updates_retires_and_a_demo_bank_refuses(clien
     r = client.post("/files/voice-memos", json={"memos": [memo], "present": [MEMO["key"]]})
     assert r.status_code == 200 and r.json() == {"added": 1, "updated": 0, "unchanged": 0, "retired": 0}
     assert client.post("/files/voice-memos", json={"memos": [memo]}).json()["unchanged"] == 1
+    named = client.post("/files/voice-memos", json={"memos": [{**memo, "name": "Memo two", "nameOnly": True,
+                                                                "segments": []}]}).json()
+    assert named["updated"] == 1 and client.get("/files").json()["files"][0]["name"] == "Memo two"
+    stranger = {**memo, "key": "BBBB1111-2222-3333-4444-555566667777", "nameOnly": True, "segments": []}
+    assert client.post("/files/voice-memos", json={"memos": [stranger]}).json()["unchanged"] == 1
+    assert len(client.get("/files").json()["files"]) == 1
     assert client.post("/files/voice-memos", json={"memos": [], "present": []}).json()["retired"] == 1
     assert client.get("/files").json()["files"] == []
     assert client.post("/files/voice-memos", json={"memos": [{**memo, "recordedAt": "soon"}]}).status_code == 422
     assert all(kw.get("delay_s") for kw in client.started)
     monkeypatch.setattr(demo_guard, "is_demo", lambda p: True)
     assert client.post("/files/voice-memos", json={"memos": [memo]}).status_code == 409
+    assert client.post("/files/voice-memos", json={"memos": [{**memo, "nameOnly": True}]}).status_code == 409

@@ -217,6 +217,40 @@ def test_a_file_page_the_person_renamed_keeps_their_name(bank):
     assert fm["name"] == "Weekly sync" and "Budget review" in fm["aliases"]
 
 
+def _pre_ship(path, **fm_changes):
+    """The page as it was before this rule: no name_source, no names_seen."""
+    parsed = markdown_parser.parse(path)
+    fm = {k: v for k, v in parsed.frontmatter.items() if k not in ("name_source", "names_seen", "name_by")}
+    markdown_parser.write(path, {**fm, **fm_changes}, parsed.body)
+
+
+def test_a_pre_ship_page_the_person_renamed_keeps_their_name_across_syncs(bank):
+    fid = _memo(bank, "Standup 1.m4a")["id"]
+    media_pages.sync(bank)
+    path = bank / "entities" / f"{media_pages.page_for(bank, fid)}.md"
+    _pre_ship(path, name="Weekly sync")
+    for _ in range(2):                                             # the store unchanged: the title never comes back
+        media_pages.sync(bank)
+        assert markdown_parser.parse(path).frontmatter["name"] == "Weekly sync"
+    _memo(bank, "Budget review.m4a", words="")                     # and a later rename at the source does not take it
+    media_pages.sync(bank)
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["name"] == "Weekly sync" and "Standup 1" not in (fm.get("aliases") or [])
+
+
+def test_a_pre_ship_page_named_as_the_store_names_it_follows_a_later_rename(bank):
+    fid = _memo(bank, "Standup 1.m4a")["id"]
+    media_pages.sync(bank)
+    path = bank / "entities" / f"{media_pages.page_for(bank, fid)}.md"
+    _pre_ship(path)
+    assert media_pages.sync(bank)["updated"] == 1                  # the baseline, once
+    assert media_pages.sync(bank)["updated"] == 0
+    _memo(bank, "Budget review.m4a", words="")
+    media_pages.sync(bank)
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["name"] == "Budget review" and "Standup 1" in fm["aliases"]
+
+
 # --------------------------------------------------------------------------- feeds and episodes
 
 

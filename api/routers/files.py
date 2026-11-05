@@ -49,6 +49,8 @@ class VoiceMemoIn(CamelModel):
     language: str | None = None
     transcribed_by: str | None = Field(None, max_length=200)
     segments: list[Segment] = Field(default_factory=list, max_length=media_files.MAX_SEGMENTS)
+    #: The store renamed a recording already sent (ROR-122): only its name is taken, and only for one already kept.
+    name_only: bool = False
 
 
 class VoiceMemosIn(CamelModel):
@@ -102,7 +104,7 @@ async def post_voice_memos(body: VoiceMemosIn, settings: Settings = Depends(get_
                 media_files.record_media, settings.memory_path, name=memo.name, kind="audio", sha256=memo.sha256,
                 size=memo.size, duration_s=memo.duration_s, language=memo.language, source="voice_memos",
                 source_key=memo.key, recorded_at=memo.recorded_at, transcribed_by=memo.transcribed_by,
-                segments=[s.model_dump() for s in memo.segments])
+                segments=[s.model_dump() for s in memo.segments], name_only=memo.name_only)
         except media_files.FileRefused as exc:
             raise HTTPException(422, str(exc)) from None
         out[got["action"]] += 1

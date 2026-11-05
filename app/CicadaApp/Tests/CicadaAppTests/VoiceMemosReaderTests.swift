@@ -233,8 +233,8 @@ final class VoiceMemosReaderTests: XCTestCase {
     }
 }
 
-/// ROR-122: a rename in Voice Memos moves no byte; the reader posts the name alone, and never for a recording it has
-/// no earlier title for (a first pass after an upgrade only notes titles).
+/// ROR-122: a rename in Voice Memos moves no byte; the reader posts the name alone, and only for a recording it
+/// actually posted (a silent one, or one never posted, is never renamed on the backend).
 final class VoiceMemosRenameTests: XCTestCase {
     private func record(_ key: String, _ title: String, in dir: URL) throws -> VoiceMemoRecord {
         let file = dir.appendingPathComponent("\(key).m4a")
@@ -247,13 +247,12 @@ final class VoiceMemosRenameTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let a = try record("key-a", "New title", in: dir), b = try record("key-b", "Same", in: dir)
-        let c = try record("key-c", "Never noted", in: dir), d = try record("key-d", "Not posted", in: dir)
+        let silent = try record("key-c", "Renamed but silent", in: dir), d = try record("key-d", "Not posted", in: dir)
+        // key-c was listened to (sent) and found silent: it has no posted title.
         let sent = ["key-a": VoiceMemosStore.fingerprint(a), "key-b": VoiceMemosStore.fingerprint(b),
-                    "key-c": VoiceMemosStore.fingerprint(c)]
-        let out = VoiceMemosReader.renamed([a, b, c, d], sent: sent, names: ["key-a": "Old title", "key-b": "Same"])
-        XCTAssertEqual(out.rows.map(\.key), ["key-a"])
-        XCTAssertEqual(out.names["key-c"], "Never noted")   // noted, not posted
-        XCTAssertNil(out.names["key-d"])                    // not posted at all: the main loop's
+                    "key-c": VoiceMemosStore.fingerprint(silent)]
+        let out = VoiceMemosReader.renamed([a, b, silent, d], sent: sent, names: ["key-a": "Old title", "key-b": "Same"])
+        XCTAssertEqual(out.map(\.key), ["key-a"])
     }
 }
 
