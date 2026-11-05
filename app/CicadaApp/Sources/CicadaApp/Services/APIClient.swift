@@ -4869,6 +4869,12 @@ extension APIClient {
     func fileTranscript(id: String) async throws -> FileTranscript {
         try await get("/files/\(encodedID(id))/transcript", timeout: 20)
     }
+
+    /// ROR-117 / ruling 68 — `Read it now`: the page's summary from the file's words (`POST /files/{id}/read`). The
+    /// server answers in words when Sleep holds the pages or nothing is chosen to read with; the caller shows one line.
+    func readFile(id: String) async throws {
+        _ = try await post("/files/\(encodedID(id))/read")
+    }
 }
 
 // MARK: - Design taste (2026-10-14) — looks, on the pages of the things they show (2026-10-20)

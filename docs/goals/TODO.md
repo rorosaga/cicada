@@ -21,7 +21,7 @@
   kind to a 10; later: play and show everything in the app, each item an entity with a markdown body (summary, why it matters,
   the transcription, the transcribing model as contributor). [`multimodal-scorecard.md`](multimodal-scorecard.md) scores YouTube,
   screen recording, video file, image, audio file and Voice Memos on what exists (today the added-file kinds open in the default
-  app, have no page and no lexical leg). Built: Voice Memos through the `media_files` store (`storage.md`); ROR-117 feature 1, play and see it in the app (`MediaSheet`: a hit plays at its second, a photo is an added-file kind with a viewer, File → Added Files…; `app.md`). Run `--filter MediaViewerTests` too. **ROR-117 3a (ruling 68, branch `ror117-page`):** every added item has its own `media` page (`media_pages`), the words outside the bank, the transcriber a contributor; run `--filter MediaPageModelTests --filter WikiArticleTests --filter ProvenanceSummaryTests`; next: the model's summary and why-it-matters, Sleep reading the words. **Pick up here:**
+  app, have no page and no lexical leg). Built: Voice Memos through the `media_files` store (`storage.md`); ROR-117 feature 1, play and see it in the app (`MediaSheet`: a hit plays at its second, a photo is an added-file kind with a viewer, File → Added Files…; `app.md`). Run `--filter MediaViewerTests` too. **ROR-117 3a (ruling 68, branch `ror117-page`):** every added item has its own `media` page (`media_pages`), the words outside the bank, the transcriber a contributor; run `--filter MediaPageModelTests --filter WikiArticleTests --filter ProvenanceSummaryTests`; **ROR-117 3b (ruling 68 (e), branch `ror117-read`):** Sleep's tail and `Read it now` write the Summary and Why it matters (`media_read`); run `--filter MediaPageModelTests`. **Pick up here:**
   run the Swift filter below; open the tile once against a scratch `HOME` holding a synthetic store; check the real
   `CloudRecordings.db` columns by hand (never in development). **Owner decisions, undecided:** may Sleep read memos and as
   whose words (a page per added file and naming the transcriber are decided: ruling 68). YouTube extraction stays out (G162).
@@ -3609,8 +3609,14 @@ A whole row moves to DONE only after its remaining implementation and required a
    (`GET /files/{id}/transcript`), and it stays the recording's words, never the person's own. (c) Naming the transcriber
    as a contributor is provenance, the owner's exception to the provider-neutral copy rail, said only when a transcript
    and a name exist. (d) Delete and a store's tombstone retire the page in one commit (the person's name for their delete,
-   Cicada's otherwise); git history keeps the page's earlier versions, never the words. (e) Sleep reading the words, the
-   summary and the why-it-matters text are the next PR. **Trigger to revisit (b):** the owner asks for the words in the
+   Cicada's otherwise); git history keeps the page's earlier versions, never the words. (e) **Amended (ROR-117 3b, branch `ror117-read`):** Sleep, or the
+   person's `Read it now`, reads an added item's words once per version of them, in one bounded call (the first 30,000
+   characters, the Summary saying "Read from the first N minutes" when it did not reach the end), for prose only: the
+   Summary and a Why it matters that code keeps only if it names a page the words found. No claim, question, page, link,
+   mention or episode; a section the person or an agent wrote or pinned is never overwritten and, when both are theirs,
+   no read runs; a failed read is retried at most 3 times, 12 hours apart; an item with no words gets no action
+   (describing a picture needs an engine that takes images, undecided; so does whether a voice memo counts as the
+   person's own words). **Trigger to revisit (b):** the owner asks for the words in the
    page's markdown, knowing a committed transcript cannot be forgotten.
 
 67. **One book is one page whichever door it came in by; the Mac adds books by number or camera (owner, 2026-11-05; G233, ROR-116).**

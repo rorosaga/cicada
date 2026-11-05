@@ -15,7 +15,7 @@ page in the bank (``page``, ``media_pages``), which holds everything but the wor
 
 **What the words are — attribution.** A transcript is **the recording's words**, not the person's own: whoever
 spoke in a podcast, a meeting or a voice memo is unknown to Cicada. So the words never become an episode, never count
-as the person's words for promotion, are never read by Sleep (G195: "Sleep never reads the index"), and every hit
+as the person's words for promotion, are read by Sleep only for one bounded prose note (``media_read``, ruling 68; never an episode, claim or question), and every hit
 says where it came from ("the recording's words, at 12:34"). A file becomes memory only when the person or an agent
 uses it in a conversation (G195's "promoted on use"), and then the conversation is the evidence.
 
@@ -492,6 +492,39 @@ def staged(memory_path) -> list[tuple[str, str, dict]]:
         if isinstance(meta, dict):
             rows += [(p["key"], p["text"], p["md"]) for p in _packed(folder, meta)]
     return rows
+
+
+# --------------------------------------------------------------------------- the one prose read (ROR-117, ruling 68)
+
+READ_FILE = "read.json"
+
+
+def read_passages(memory_path, file_id: str) -> tuple[dict | None, list[dict], str | None]:
+    """``(meta, passages, stamp)`` for ``media_read``: the item's words and picture text in time order, each
+    ``{"text", "start", "end", "from"}`` (``from`` is ``"picture"`` for text read off a frame). ``(None, [], None)`` for
+    an item that is gone. Nothing here reaches a bank or an index."""
+    folder = _folder(memory_path, file_id)
+    meta = _json(folder / "meta.json") if folder is not None else None
+    if folder is None or not isinstance(meta, dict) or meta.get("deleted_at"):
+        return None, [], None
+    rows = [{"text": p["text"], "start": float(p["md"].get("start") or 0), "end": float(p["md"].get("end") or 0),
+             "from": p["md"].get("from") or ""} for p in _packed(folder, meta) if str(p["text"]).strip()]
+    rows.sort(key=lambda r: (r["start"], r["from"]))
+    return meta, rows, _stamp(folder)
+
+
+def read_state(memory_path, file_id: str) -> dict:
+    """What the prose read remembers about one item, outside every bank: ``stamp`` (the store as last read),
+    ``words`` (which version of the words), ``fails`` and ``failed_at`` (bounded retries)."""
+    folder = _folder(memory_path, file_id)
+    state = _json(folder / READ_FILE) if folder is not None else None
+    return state if isinstance(state, dict) else {}
+
+
+def write_read_state(memory_path, file_id: str, state: dict) -> None:
+    folder = _folder(memory_path, file_id)
+    if folder is not None and folder.is_dir():
+        _write_atomic(folder / READ_FILE, json.dumps(state, sort_keys=True).encode("utf-8"))
 
 
 # --------------------------------------------------------------------------- into the lexical index (file_words)

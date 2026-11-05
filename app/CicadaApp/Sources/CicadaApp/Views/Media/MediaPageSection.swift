@@ -68,6 +68,28 @@ enum MediaPageModel {
     static func hasWords(_ transcript: FileTranscript?) -> Bool {
         !(transcript?.segments.isEmpty ?? true)
     }
+
+    /// ROR-117 / ruling 68: the page has words and its `## Summary` is empty, so the one quiet action is offered.
+    /// A page with no such heading (the person took it out) is theirs, and a filled summary needs no action.
+    static func canRead(_ transcript: FileTranscript?, markdown: String) -> Bool {
+        hasWords(transcript) && summaryIsEmpty(markdown)
+    }
+
+    static func summaryIsEmpty(_ markdown: String) -> Bool {
+        var inSummary = false
+        var found = false
+        for line in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+            let text = line.trimmingCharacters(in: .whitespaces)
+            if text.hasPrefix("## ") {
+                if inSummary { break }
+                inSummary = text.dropFirst(3).trimmingCharacters(in: .whitespaces).lowercased() == "summary"
+                found = found || inSummary
+            } else if inSummary, !text.isEmpty {
+                return false
+            }
+        }
+        return found
+    }
 }
 
 /// What the head and the words share on one page: where the file is, and the player that plays it.
@@ -130,8 +152,14 @@ struct MediaPageHead: View {
 struct MediaPageTranscript: View {
     let fileId: String
     let session: MediaPageSession
+    /// The page's markdown, so the one action shows only while its summary is empty.
+    var markdown: String = ""
+    /// The page again, after a read wrote it.
+    var changed: () -> Void = {}
 
     @State private var transcript: FileTranscript?
+    @State private var reading = false
+    @State private var failed = false
 
     var body: some View {
         // Not a `Group`: it passes modifiers to its children, and with no words yet it has none, so the task never ran.
@@ -139,6 +167,7 @@ struct MediaPageTranscript: View {
             if MediaPageModel.hasWords(transcript), let transcript {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     SectionLabel(Copy.mediaWordsTitle)
+                    if MediaPageModel.canRead(transcript, markdown: markdown) { readAction }
                     if let line = MediaPageModel.transcribedLine(transcript) {
                         Text(line).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                     }
@@ -151,6 +180,33 @@ struct MediaPageTranscript: View {
             }
         }
         .task(id: fileId) { transcript = try? await APIClient.shared.fileTranscript(id: fileId) }
+    }
+
+    private var readAction: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            Button(reading ? Copy.mediaReading : Copy.mediaReadNow) { read() }
+                .buttonStyle(.cicadaPlain)
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .disabled(reading)
+            if failed {
+                Text(Copy.mediaReadFailed).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+            }
+        }
+    }
+
+    private func read() {
+        reading = true
+        failed = false
+        Task {
+            do {
+                try await APIClient.shared.readFile(id: fileId)
+                changed()
+            } catch {
+                failed = true
+            }
+            reading = false
+        }
     }
 
     private func row(_ segment: FileTranscript.Segment) -> some View {

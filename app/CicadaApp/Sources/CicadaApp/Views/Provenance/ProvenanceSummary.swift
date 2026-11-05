@@ -87,6 +87,7 @@ enum ProvenanceSummary {
     static func chipCount(_ c: ProvenanceContributor) -> String {
         var parts: [String] = []
         if c.transcribedTheWords { parts.append(Copy.Provenance.transcribedTheWords) }
+        if c.summarizedTheWords { parts.append(Copy.Provenance.summarizedTheWords) }
         if c.claims > 0 { parts.append(Copy.Provenance.beliefs(c.claims)) }
         if c.commits > 0 { parts.append(Copy.Provenance.edits(c.commits)) }
         return parts.joined(separator: " · ")

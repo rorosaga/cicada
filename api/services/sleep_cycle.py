@@ -1512,6 +1512,52 @@ async def _in_short_safely(memory_path: Path, settings: Settings, *, user_trigge
         await asyncio.to_thread(web_lookup.restore, memory_path, report)
 
 
+async def _media_read_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """ROR-117 / ruling 68: the Summary and Why it matters of an added recording or file whose words were not read
+    (`media_read`) — prose only, one bounded call each, at most `media_read_per_run` pages, on the person's engine's
+    small tier (a scheduled run on a plan only through ruling 4b's switch). One commit (`Recording notes <date>`,
+    trigger `sleep/media-read`) under the model that wrote them; pages dirty before it ran are left alone; a failed
+    commit puts every page back. Never raises."""
+    from api.services import agent_engine, media_read, web_lookup, web_settle
+
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Recording notes skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    cycle_id = _state.cycle_id
+    drain = _state.drain
+    batch_id = f"{cycle_id}-media" if (cycle_id and drain is not None) else cycle_id
+    report = media_read.Report()
+    try:
+        if drain is not None and batch_id:
+            sleep_drain.register_batch(batch_id, drain)
+        with agent_engine.use_scope(web_lookup.scope_name(batch_id)):
+            await media_read.run_tail(memory_path, settings, user_triggered=user_triggered, skip=skip, report=report)
+    except Exception as exc:
+        logger.warning(f"Recording notes failed — undoing {report.written} page(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
+        return
+    finally:
+        if drain is not None and batch_id:
+            sleep_drain.unregister_batch(batch_id)
+    # Counts and enums only — never a name or a line.
+    logger.info(f"Recording notes: {report.looked} read, {report.written} written, skipped {report.skipped}"
+                + (f" ({report.reason})" if report.reason else ""))
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    message = web_settle.commit_message("Recording notes", report.lines,
+                                        authors=report.models or [report.engine or "agent"], engine=report.engine)
+    try:
+        async with _lock:
+            await asyncio.to_thread(web_settle.commit_sync, memory_path, message, report.paths)
+    except Exception as exc:
+        logger.warning(f"Recording notes commit failed — undoing {report.written} page(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
+
+
 async def _tend_inbox_safely(memory_path: Path, settings: Settings, episodes: list[dict], *, run_policy: bool,
                              engine: str | None) -> None:
     """Ruling 29 — Sleep tends the inbox (`inbox_tend`): what this batch's conversations answered in the person's own
@@ -1653,6 +1699,8 @@ async def _run_engine_independent_tail(
             logger.info("In short skipped: the run stopped at its limit")
         else:
             await _in_short_safely(memory_path, settings, user_triggered=user_triggered)
+            # ROR-117 / ruling 68: an added recording's words read once for its page's Summary and Why it matters.
+            await _media_read_safely(memory_path, settings, user_triggered=user_triggered)
         from api.services import demo_guard
 
         if demo_guard.is_demo(memory_path):

@@ -26,11 +26,11 @@ values never go in this file. Related: G43, G195 (meaning index 2), G162 (no dow
 | Kind | Plays or shows in the app | A page with a markdown body | Summary and why it matters | Transcription shown | Transcriber named |
 |---|---|---|---|---|---|
 | YouTube video | 6 | 2 | 3 | 0 | 0 |
-| Screen recording | 8 | 8 | 0 | 7 | 8 |
-| Any video file | 9 | 8 | 0 | 8 | 8 |
-| Image | 9 | 8 | 0 | n/a | n/a |
-| Audio file | 9 | 8 | 0 | 8 | 8 |
-| Voice Memos | 6 | 7 | 0 | 7 | 8 |
+| Screen recording | 8 | 9 | 7 | 7 | 8 |
+| Any video file | 9 | 9 | 8 | 8 | 8 |
+| Image | 9 | 8 | 2 | n/a | n/a |
+| Audio file | 9 | 9 | 8 | 8 | 8 |
+| Voice Memos | 6 | 8 | 7 | 7 | 8 |
 
 "Transcriber named" is 1 where the name is now *recorded* (`meta.json` `transcribed_by`, from the app) and shown nowhere.
 
@@ -121,6 +121,21 @@ its player data, and the transcript was never fetched. Both are fixed; the numbe
   recogniser gives one fixed name, with no version.
 - **Summary and why it matters 0.** Next PR.
 - **YouTube is unchanged:** none of these three PRs touched it.
+
+## Re-score after the summaries (ROR-117, PR 650, coordinator, 2026-11-05)
+
+Checked in the real app on a scratch home, the plan at haiku: "Read it now" on a synthetic recording wrote its summary as one commit
+by the model, and the page drew it. The worker's run through Sleep gave a recording tied to a known project a why-it-matters naming
+it, and left an unrelated one empty. The review then tightened two checks: a name must match as whole words, and a note
+may not repeat the recording.
+
+- **Summary and why it matters, video and audio 8, screen recording and Voice Memos 7.** Read once per version of the words, by
+  Sleep or a click. Not 10: no recording over about a minute has been read, no real recording at all, so how good a summary is on
+  real speech is not measured, and a recording past 30,000 characters is read from its start only (the page says so).
+- **Image 2.** A photo with text read from it can be summarised from those words alone. Nothing describes a picture itself: that
+  needs an engine that takes images, not decided.
+- **A page 9 (8 for image and Voice Memos).** Its body now holds what it should, apart from the image case above. Not 10: the
+  page opens from a row that says only "Media", in the graph's side panel.
 
 ## What is missing for a 10, per column (the follow-up's list)
 
