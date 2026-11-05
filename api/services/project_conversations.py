@@ -5,11 +5,13 @@ appears in the project — that would pull in every conversation with a frequent
 
 ==========  =======================================================================================================
 ``repo``    the hook observed the session in a checkout of the project's repository (``project_birth.repo_match``,
-            or the birth's own repository family) — a fact the harness recorded (G110 D2)
+            the birth's own repository family, or a repository the project lists whose origin the checkout points at
+            now, ruling 56) — a fact the harness recorded (G110 D2)
 ``named``   the person's own turn names the project (its name or an alias, a whole word), located exactly, never
-            fuzzy (G118) — only the person's turns, never an agent's reply
+            fuzzy (G118) — only the person's turns, never an agent's reply. A one-word name is also an ordinary word
+            ("Garden"), so it needs :data:`ONE_WORD_MENTIONS` (ruling 56: a mere mention ties nothing)
 ``claims``  Sleep wrote a claim on the project (or a sub-project) citing the conversation
-``added``   the person or an agent tied it by hand (``conversations_added``)
+``added``   the person or a trusted agent tied it by hand (``conversations_added``); another agent's waits as a proposal
 ``provider``  the conversation carries its provider's project id, which the page records (a ChatGPT ``g-p-`` id, a
             Claude project's): "In your <provider> project"
 ``relay``   a connected app's agent said which project the relayed conversation belongs to (its word, ``evidence_kind:
@@ -34,6 +36,9 @@ from api.services import authorship, evidence, project_birth, project_ownership,
 from api.services.project_timeline import ACTIVITY_DAYS, _Bank, _claim_episodes, _conv_key, _conversation, _ep_day, _sort_ts, _tree
 
 SIGNALS = ("repo", "named", "claims", "added", "provider", "relay")
+#: How many times the person must say a one-word name in one conversation for it to be about the project. Never by case:
+#: the person may type in lowercase. Decided on the rails with no real list to measure (ruling 56: 0 of 711 listed).
+ONE_WORD_MENTIONS = 2
 MAX_RAW_SCAN = 400
 MAX_FTS_HITS = 2000
 PAGE_SIZE = 50
@@ -69,16 +74,26 @@ def _fts_candidates(memory_path: Path, names: list[str]) -> set[str] | None:
     return out
 
 
-def person_named(text: str, pattern: re.Pattern, fm: dict) -> bool:
-    """The person's own turn holds the name as a whole word (exact, any case; never fuzzy, never an agent's turn)."""
+def person_named(text: str, pattern: re.Pattern, fm: dict, *, times: int = 1) -> bool:
+    """The person's own turns hold the name as a whole word, ``times`` times or more (exact, any case; never fuzzy, never
+    an agent's turn)."""
     gaps = evidence.gap_ranges(fm, text)
+    seen = 0
     for turn in evidence.turns(text, override=authorship.of(fm), gaps=gaps):
         if turn.role not in promotion.person_kinds(fm):   # a group member's line is not the person's
             continue
         for m in pattern.finditer(text, turn.content_start, turn.end):
             if not evidence.touches_gap(m.start(), m.end(), gaps):
-                return True
+                seen += 1
+                if seen >= times:
+                    return True
     return False
+
+
+def _several_words(names: list[str]) -> re.Pattern | None:
+    """The names of more than one word: said once, they are about the project."""
+    several = [n for n in names if len(re.findall(r"\w+", n)) > 1]
+    return project_birth._name_pattern({"name": several[0], "aliases": several[1:]}) if several else None
 
 
 def _provider_ids(fm: dict) -> set[tuple[str, str]]:
@@ -115,7 +130,9 @@ def tie_reasons(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Ban
     born = fm.get("born") if isinstance(fm.get("born"), dict) else {}
     family = str(((born or {}).get("repo") or {}).get("family") or "")
     # G110 D2a: a shared hashed remote ties nothing by itself (`_Bank.page_repo_families`): a renamed checkout judged
-    # the same carries the page's alias, and the name rule below ties it.
+    # the same carries the page's alias, and the name rule below ties it. Ruling 56: a repository the project LISTS does.
+    listed = bank.listed_remotes(fm)
+    current = bank.current_remotes() if listed else {}
     for ep, f in bank.episodes.items():
         efm = f.frontmatter or {}
         if "workspace_identity" not in efm:
@@ -123,7 +140,8 @@ def tie_reasons(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Ban
         repo = project_birth.observed_repo(efm)
         if repo is None:
             continue
-        if (family and str(repo["family"]) == family) or project_birth.repo_match(entity, efm) is not None:
+        if (family and str(repo["family"]) == family) or project_birth.repo_match(entity, efm) is not None \
+                or current.get(str(repo["family"])) in listed:
             add(ep, "repo")
     # claims: what Sleep (or an agent) wrote about the project, citing the conversation.
     for page in tree:
@@ -146,6 +164,7 @@ def tie_reasons(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Ban
     partial = False
     names = _names(fm, stem)
     pattern = project_birth._name_pattern(entity)
+    several = _several_words(names)
     if pattern is not None and names:
         candidates = _fts_candidates(bank.path, names)
         if candidates is None:
@@ -158,7 +177,9 @@ def tie_reasons(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Ban
             if f is None:
                 continue
             text = bank.episode_text(ep)
-            if text and pattern.search(text) and person_named(text, pattern, f.frontmatter or {}):
+            if text and pattern.search(text) and (
+                    (several is not None and person_named(text, several, f.frontmatter or {}))
+                    or person_named(text, pattern, f.frontmatter or {}, times=ONE_WORD_MENTIONS)):
                 add(ep, "named")
     for ep in project_ownership.tied(fm, project_ownership.REMOVED_KEY):
         reasons.pop(ep, None)
@@ -173,6 +194,7 @@ def build(memory_path: Path, stem: str, *, tz_name: str | None, offset: int = 0,
     from api.models.schemas import ProjectConversationRow, ProjectConversations
 
     bank = _Bank(memory_path, tz_name, transcript_exists)
+    fm = bank.fm(stem)
     reasons, partial = tie_reasons(memory_path, stem, tz_name=tz_name, bank=bank)
     groups: dict[str, str] = {}
     why: dict[str, set[str]] = {}
@@ -196,13 +218,26 @@ def build(memory_path: Path, stem: str, *, tz_name: str | None, offset: int = 0,
             continue
         efm = bank.episodes[ep].frontmatter or {}
         provider = ep_provider(efm)
+        tied_row = project_ownership.tie_row(fm, ep) or {}
         rows.append(ProjectConversationRow(
             **conv.model_dump(), day=_ep_day(bank, ep), why=[s for s in SIGNALS if s in why[key]],
             relayed=isinstance(efm.get("relay"), dict),
             provider_label=PROVIDER_LABELS.get(provider[0], provider[0]) if provider else None,
-            manual=ep in project_ownership.tied(bank.fm(stem), project_ownership.ADDED_KEY)))
-    return ProjectConversations(project=stem, total=len(ordered), counts=counts, conversations=rows,
-                                offset=offset, partial=partial or bank.partial)
+            manual=ep in project_ownership.tied(fm, project_ownership.ADDED_KEY),
+            by=tied_row.get("by"), reason=tied_row.get("reason")))
+    # Ruling 56: what an agent off the trust list proposed: one row per conversation, apart from the ties, never counted.
+    proposed, seen = [], set()
+    for row in project_ownership.proposed_ties(fm):
+        ep = str(row.get("episode") or "")
+        conv = _conversation(bank, ep) if ep in bank.episodes else None
+        key = _conv_key(bank, ep) if conv is not None else None
+        if conv is None or key in seen or key in groups:
+            continue
+        seen.add(key)
+        proposed.append(ProjectConversationRow(**conv.model_dump(), day=_ep_day(bank, ep), by=row.get("by"),
+                                               reason=row.get("reason")))
+    return ProjectConversations(project=stem, total=len(ordered), counts=counts, conversations=rows, offset=offset,
+                                partial=partial or bank.partial, proposed=proposed)
 
 
 def count(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Bank | None = None,

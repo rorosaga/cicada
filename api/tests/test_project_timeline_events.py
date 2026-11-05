@@ -95,8 +95,8 @@ def test_the_project_reply_prints_now_quiet_and_the_closing_clause(bank, clock):
     assert f"Now: {CAMERA}" not in out
     assert "- yesterday (2026-09-22) · done · Bob got the lab cluster onboarding guide from Hana Example" in out
     assert "<https://example.com/guides/lab-cluster-onboarding.pdf>" in out
-    assert out.rstrip().endswith("; record progress with cicada_note_progress "
-                                 "(settles=<claim id> to finish a thread above).")
+    assert out.segments[0][1].rstrip().endswith("; record progress with cicada_note_progress "
+                                                "(settles=<claim id> to finish a thread above).")
     remote = mcp_tools.project(_ctx(bank, remote_scopes={"search", "read"}), "rover-arm-project")
     assert "cicada_note_progress" not in remote and f"Now: {ONGOING}" in remote
 

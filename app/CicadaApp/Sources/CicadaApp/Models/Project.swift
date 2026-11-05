@@ -475,7 +475,7 @@ struct ProjectRow: Decodable, Equatable, Identifiable, Sendable {
     var progress: ProjectProgress
     var activity: [ProjectActivityDay]
     var followups: Int
-    /// g141-7 (ruling 45): the list draws only the person's own; the rest is Suggested.
+    /// g141-7 (ruling 45): in the person's list. Since g141-10 (ruling 56) the list carries only those.
     var mine: Bool
     var description: String?
 
@@ -511,19 +511,14 @@ struct ProjectsResponse: Decodable, Equatable, Sendable {
     var projects: [ProjectRow]
     var tzName: String
     var partial: Bool
-    /// g141-7 (ruling 45): what Cicada noticed and the person has not claimed, strongest first, dismissed last.
-    var suggested: [SuggestedProject]
-    var dismissed: Int
 
-    enum CodingKeys: String, CodingKey { case projects, tzName, partial, suggested, dismissed }
+    enum CodingKeys: String, CodingKey { case projects, tzName, partial }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         projects = c.lenient(.projects, [])
         tzName = c.lenient(.tzName, "UTC")
         partial = c.lenient(.partial, false)
-        suggested = c.lenient(.suggested, [])
-        dismissed = c.lenient(.dismissed, 0)
     }
 }
 

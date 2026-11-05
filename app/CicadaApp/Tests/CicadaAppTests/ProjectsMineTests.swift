@@ -1,8 +1,8 @@
 import XCTest
 @testable import CicadaApp
 
-/// Projects v2 (ruling 45, wire g141-7): the list is the person's own, everything detected is suggested, the header is
-/// theirs, and the knowledge panel says why each conversation is tied. Synthetic demo fiction only.
+/// Projects v2 (ruling 45, wire g141-7; ruling 56, g141-10): the list is the person's own, nothing is suggested, the
+/// header is theirs, and the knowledge panel says why each conversation is tied. Synthetic demo fiction only.
 @MainActor
 final class ProjectsMineTests: XCTestCase {
     private func listCache(_ wire: ProjectFixtures.Wire) async -> (ProjectsCache, FakeProjectsAPI) {
@@ -13,17 +13,14 @@ final class ProjectsMineTests: XCTestCase {
         return (cache, reads)
     }
 
-    /// The demo wire: Bob's own projects are listed, the repository-born one waits under Suggested with its reason.
-    func testTheFixtureSplitsMineFromSuggested() throws {
+    /// The demo wire: only Bob's own projects are listed, each saying how it is his.
+    func testTheFixtureListsOnlyThePersonsOwn() throws {
         let wire = try ProjectFixtures.load()
-        let mine = wire.projects.projects.filter(\.mine).map(\.id)
+        XCTAssertTrue(wire.projects.projects.allSatisfy(\.mine))
+        let mine = wire.projects.projects.map(\.id)
         XCTAssertTrue(mine.contains("pick-and-place-demo"))
         XCTAssertTrue(mine.contains("rover-arm-project"), "progress logged in the app counts on day one (Q2)")
-        XCTAssertFalse(mine.contains("garden-sensor-project"))
-        let garden = try XCTUnwrap(wire.projects.suggested.first { $0.id == "garden-sensor-project" })
-        XCTAssertEqual(garden.whyKind, "repo")
-        XCTAssertTrue(garden.why.contains("garden-sensor"))
-        XCTAssertEqual(wire.projects.suggested.first?.whyKind, "repo", "strongest reason first")
+        XCTAssertEqual(try ProjectFixtures.timeline("garden-sensor-project").project.mineVia, "accepted")
         let pick = try XCTUnwrap(wire.timelines["pick-and-place-demo"])
         XCTAssertEqual(pick.project.description, "Get the rover arm to pick a part off the bench and place it in a tray.")
         XCTAssertEqual(pick.project.descriptionBy?.isPerson, true)
@@ -35,26 +32,39 @@ final class ProjectsMineTests: XCTestCase {
         let json = #"{"projects":[{"id":"alpha","name":"Alpha"}],"tzName":"UTC"}"#
         let list = try JSONDecoder().decode(ProjectsResponse.self, from: Data(json.utf8))
         XCTAssertEqual(list.projects.first?.mine, true)
-        XCTAssertTrue(list.suggested.isEmpty)
     }
 
-    func testAcceptAndDismissPaintTheListAndRollBack() async throws {
+    func testRemoveAndAddPaintTheListAndRollBack() async throws {
         let (cache, _) = await listCache(try ProjectFixtures.load())
-        let accept = UUID()
-        cache.paint(.accept(id: "garden-sensor-project", name: nil), id: accept)
-        XCTAssertEqual(cache.displayList?.projects.first { $0.id == "garden-sensor-project" }?.mine, true)
-        XCTAssertFalse(cache.displayList?.suggested.contains { $0.id == "garden-sensor-project" } ?? true)
-        cache.unpaint(accept)
-        XCTAssertEqual(cache.displayList?.projects.first { $0.id == "garden-sensor-project" }?.mine, false)
-        let dismiss = UUID()
-        cache.paint(.dismiss(id: "garden-sensor-project"), id: dismiss)
-        XCTAssertEqual(cache.displayList?.suggested.first { $0.id == "garden-sensor-project" }?.dismissed, true)
-        XCTAssertEqual(cache.displayList?.dismissed, (cache.list?.dismissed ?? 0) + 1)
+        let remove = UUID()
+        cache.paint(.dismiss(id: "pick-and-place-demo"), id: remove)
+        XCTAssertEqual(cache.displayList?.projects.first { $0.id == "pick-and-place-demo" }?.mine, false)
+        cache.unpaint(remove)
+        XCTAssertEqual(cache.displayList?.projects.first { $0.id == "pick-and-place-demo" }?.mine, true)
+    }
+
+    /// Ruling 56: an older server's `suggested` is ignored, not drawn.
+    func testAnOlderServersSuggestionsAreIgnored() throws {
+        let json = #"{"projects":[],"tzName":"UTC","suggested":[{"id":"a","name":"A"}],"dismissed":3}"#
+        XCTAssertTrue(try JSONDecoder().decode(ProjectsResponse.self, from: Data(json.utf8)).projects.isEmpty)
+    }
+
+    /// Ruling 56: either answer takes an agent's proposal off the page at once; a removal never touches the count of
+    /// what was not counted.
+    func testAProposedConversationLeavesThePageOnEitherAnswer() {
+        let row = ProjectConversationRow(episodeId: "ep_1", title: "One")
+        let page = ProjectConversationsPage(project: "p", total: 0, proposed: [row])
+        for remove in [true, false] {
+            let paint = ProjectPaint(id: UUID(), change: .tie(id: "p", episode: "ep_1", remove: remove))
+            let out = ProjectPaint.apply([paint], to: page, project: "p")
+            XCTAssertTrue(out.proposed.isEmpty)
+            XCTAssertEqual(out.total, 0)
+        }
     }
 
     func testEveryChangeGoesToItsRoute() {
         XCTAssertEqual(ProjectChange.create(name: "A", description: "B").route.path, "/projects")
-        XCTAssertEqual(ProjectChange.accept(id: "g-p-abc123", name: "Garden").route.path, "/projects/g-p-abc123/accept")
+        XCTAssertEqual(ProjectChange.accept(id: "alpha", name: nil).route.path, "/projects/alpha/accept")
         XCTAssertEqual(ProjectChange.accept(id: "x", name: "Garden").route.body["name"] as? String, "Garden")
         XCTAssertEqual(ProjectChange.header(id: "a b", name: nil, description: "").route.method, "PATCH")
         XCTAssertEqual(ProjectChange.header(id: "a b", name: nil, description: "").route.path, "/projects/a%20b")
@@ -100,9 +110,7 @@ final class ProjectsMineTests: XCTestCase {
         XCTAssertFalse(ProjectKnowledgeLayout.sideBySide(available: 700))
     }
 
-    func testAListWithNoneOfMineButSuggestionsSaysSo() {
-        XCTAssertEqual(ProjectsListState.of(phase: .loaded, hasList: true, rows: 0, suggestions: 3, lines: 0,
-                                            finding: false), .emptyMine)
+    func testAListWithNoneOfMineIsEmpty() {
         XCTAssertEqual(ProjectsListState.of(phase: .loaded, hasList: true, rows: 0, lines: 0, finding: false), .empty)
     }
 

@@ -25,69 +25,6 @@ struct ProjectDescriptionBy: Decodable, Equatable, Sendable {
     var isPerson: Bool { by == "user" }
 }
 
-/// One suggestion under the list's Suggested fold: a project page or a fallback page (`kind == "page"`), or a
-/// provider's project with no page yet (`kind == "group"`, named on accept). `whyKind` orders and words it.
-struct SuggestedProject: Decodable, Equatable, Identifiable, Sendable {
-    var id: String
-    var kind: String
-    var name: String
-    var pageType: String?
-    var whyKind: String
-    var why: String
-    var quote: String?
-    var episode: String?
-    var day: String?
-    var repoName: String?
-    var sessions: Int
-    var by: String?
-    var provider: String?
-    var dismissed: Bool
-
-    init(id: String, kind: String = "page", name: String, whyKind: String = "none", why: String = "",
-         quote: String? = nil, day: String? = nil, repoName: String? = nil, sessions: Int = 0, by: String? = nil,
-         provider: String? = nil, dismissed: Bool = false) {
-        self.id = id
-        self.kind = kind
-        self.name = name
-        self.pageType = nil
-        self.whyKind = whyKind
-        self.why = why
-        self.quote = quote
-        self.episode = nil
-        self.day = day
-        self.repoName = repoName
-        self.sessions = sessions
-        self.by = by
-        self.provider = provider
-        self.dismissed = dismissed
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, kind, name, pageType, whyKind, why, quote, episode, day, repoName, sessions, by, provider, dismissed
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = c.lenient(.id, "")
-        kind = c.lenient(.kind, "page")
-        name = c.lenient(.name, "")
-        pageType = c.lenient(.pageType)
-        whyKind = c.lenient(.whyKind, "none")
-        why = c.lenient(.why, "")
-        quote = c.lenient(.quote)
-        episode = c.lenient(.episode)
-        day = c.lenient(.day)
-        repoName = c.lenient(.repoName)
-        sessions = c.lenient(.sessions, 0)
-        by = c.lenient(.by)
-        provider = c.lenient(.provider)
-        dismissed = c.lenient(.dismissed, false)
-    }
-
-    /// A provider grouping has no page and no name of its own: accepting it asks for one.
-    var needsName: Bool { kind == "group" }
-}
-
 /// One source or influence on a project (proposal §2.6): a link (`source == "link"`) or a claim whose object is a page
 /// (`entity`) or plain text. `tag` is the side panel's group; `by` is `user`, a harness label or `sleep`.
 struct ProjectInfluence: Decodable, Equatable, Identifiable, Sendable {
@@ -191,6 +128,9 @@ struct ProjectConversationRow: Decodable, Equatable, Identifiable, Sendable {
     var relayed: Bool
     var providerLabel: String?
     var manual: Bool
+    /// Ruling 56 (g141-10) — the agent that tied or proposed it, and its one sentence why.
+    var by: String? = nil
+    var reason: String? = nil
 
     var id: String { episodeId }
 
@@ -211,7 +151,7 @@ struct ProjectConversationRow: Decodable, Equatable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case episodeId, conversationId = "id", title, origin, harness, resumable, day, why, relayed, providerLabel
-        case manual
+        case manual, by, reason
     }
 
     init(from decoder: Decoder) throws {
@@ -227,6 +167,8 @@ struct ProjectConversationRow: Decodable, Equatable, Identifiable, Sendable {
         relayed = c.lenient(.relayed, false)
         providerLabel = c.lenient(.providerLabel)
         manual = c.lenient(.manual, false)
+        by = c.lenient(.by)
+        reason = c.lenient(.reason)
     }
 }
 
@@ -237,18 +179,21 @@ struct ProjectConversationsPage: Decodable, Equatable, Sendable {
     var conversations: [ProjectConversationRow]
     var offset: Int
     var partial: Bool
+    /// Ruling 56 — what an agent off the trust list proposed: never counted until the person adds one.
+    var proposed: [ProjectConversationRow]
 
     init(project: String, total: Int = 0, counts: [String: Int] = [:], conversations: [ProjectConversationRow] = [],
-         partial: Bool = false) {
+         partial: Bool = false, proposed: [ProjectConversationRow] = []) {
         self.project = project
         self.total = total
         self.counts = counts
         self.conversations = conversations
         self.offset = 0
         self.partial = partial
+        self.proposed = proposed
     }
 
-    enum CodingKeys: String, CodingKey { case project, total, counts, conversations, offset, partial }
+    enum CodingKeys: String, CodingKey { case project, total, counts, conversations, offset, partial, proposed }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -256,6 +201,7 @@ struct ProjectConversationsPage: Decodable, Equatable, Sendable {
         total = c.lenient(.total, 0)
         counts = c.lenient(.counts, [:])
         conversations = c.lenient(.conversations, [])
+        proposed = c.lenient(.proposed, [])
         offset = c.lenient(.offset, 0)
         partial = c.lenient(.partial, false)
     }
@@ -268,6 +214,8 @@ struct ProjectOwnershipResponse: Decodable, Equatable, Sendable {
     var mine: Bool
     var claimId: String?
     var page: String?
+    /// Ruling 56 — Remove gave the page back as what it was: it has no project view any more.
+    var retyped = false
 
     init(id: String, action: String, mine: Bool = true, claimId: String? = nil, page: String? = nil) {
         self.id = id
@@ -277,13 +225,14 @@ struct ProjectOwnershipResponse: Decodable, Equatable, Sendable {
         self.page = page
     }
 
-    enum CodingKeys: String, CodingKey { case id, action, mine, claimId, page }
+    enum CodingKeys: String, CodingKey { case id, action, mine, claimId, page, retyped }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = c.lenient(.id, "")
         action = c.lenient(.action, "")
         mine = c.lenient(.mine, false)
+        retyped = c.lenient(.retyped, false)
         claimId = c.lenient(.claimId)
         page = c.lenient(.page)
     }
@@ -302,6 +251,8 @@ struct ProjectPageRow: Decodable, Equatable, Identifiable, Sendable {
     var lastSeen: String?
     var tie: String
     var by: String?
+    /// Ruling 56 (g141-10) — an agent's one sentence on why it tied or proposed this page.
+    var reason: String? = nil
     /// G227 (g141-9) — the name to show when another page shares this title.
     var displayName: String? = nil
     /// G227 — its qualifier alone, drawn as a `Tag` beside the plain name.
@@ -322,7 +273,7 @@ struct ProjectPageRow: Decodable, Equatable, Identifiable, Sendable {
         self.by = by
     }
 
-    enum CodingKeys: String, CodingKey { case id, name, type, rolePhrase, fact, count, lastSeen, tie, by, displayName, qualifier }
+    enum CodingKeys: String, CodingKey { case id, name, type, rolePhrase, fact, count, lastSeen, tie, by, reason, displayName, qualifier }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -337,6 +288,7 @@ struct ProjectPageRow: Decodable, Equatable, Identifiable, Sendable {
         by = c.lenient(.by)
         displayName = c.lenient(.displayName)
         qualifier = c.lenient(.qualifier)
+        reason = c.lenient(.reason)
     }
 
     var isProposed: Bool { tie == "proposed" }

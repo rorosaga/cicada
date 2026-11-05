@@ -2,17 +2,16 @@ import SwiftUI
 
 /// What the list column says before it has rows to draw, in precedence order (DR-43, DR-50).
 enum ProjectsListState: Equatable {
-    case loading, failed(String), empty, emptyMine, tabEmpty, noMatch, list
+    case loading, failed(String), empty, tabEmpty, noMatch, list
 
-    /// `suggestions` (ruling 45): none of the person's own yet, but Cicada suggests some. Neither empty state draws
-    /// words (owner 2026-11-04): only the quiet suggestions line, when there is one.
-    static func of(phase: ProjectsCache.Phase, hasList: Bool, rows: Int, suggestions: Int = 0, lines: Int,
+    /// None of the person's own yet draws no words (owner 2026-11-04); New project in the eyebrow is the way in.
+    static func of(phase: ProjectsCache.Phase, hasList: Bool, rows: Int, lines: Int,
                    finding: Bool) -> ProjectsListState {
         if !hasList {
             if case .failed(let message) = phase { return .failed(message) }
             return .loading
         }
-        if rows == 0 { return suggestions > 0 ? .emptyMine : .empty }
+        if rows == 0 { return .empty }
         if lines == 0 { return finding ? .noMatch : .tabEmpty }
         return .list
     }
@@ -41,7 +40,6 @@ struct ProjectsListColumn: View {
     let retry: () -> Void
     /// Ruling 45 / decision 9 — Suggested as one line, drawn after the rows (and after the empty words when none are
     /// the person's).
-    var suggestedFold: () -> AnyView = { AnyView(EmptyView()) }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -64,20 +62,18 @@ struct ProjectsListColumn: View {
                             ListSkeleton(message: Copy.Projects.gathering)
                         case .failed(let message):
                             ListErrorCard(title: Copy.Projects.loadFailedTitle, message: message, retry: retry)
-                        case .empty, .emptyMine:
+                        case .empty:
                             // Owner 2026-11-04: no projects is an empty, calm column — no sentence; the eyebrow's
-                            // New project is the way in, and Cicada's suggestions stay one quiet line.
-                            suggestedFold()
+                            // New project is the way in.
+                            EmptyView()
                         case .tabEmpty:
                             note(tab == .past ? Copy.Projects.nonePast : Copy.Projects.noneCurrent)
-                            suggestedFold()
                         case .noMatch:
                             note(Copy.Projects.noMatch(query.trimmingCharacters(in: .whitespaces)))
                         case .list:
                             ForEach(entries) { entry in
                                 self.entry(entry).id(entry.id)
                             }
-                            suggestedFold()
                         }
                     }
                     .padding(ListInsets.of(style))

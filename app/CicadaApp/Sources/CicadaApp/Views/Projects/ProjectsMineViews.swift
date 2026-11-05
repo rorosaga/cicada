@@ -1,146 +1,9 @@
 import SwiftUI
 
-// Projects v2 (TODO ruling 45) — the person's own list and what Cicada suggests, the editable header, and the
-// "project knowledge" side panel (Q7, DESIGN_RULES §9 2026-10-27). Direction D: SF only, depth is a ring (DR-9),
-// grouped blocks on `bgOption`, both suggestion buttons neutral (DR-40), one text field (DR-76), one labelled add
-// button (DR-75), one primary action per sheet (DR-40). Projects v3 (2026-10-28): no folds — Suggested is one line
-// and a column, the panel's blocks are open and capped with "All N" (decision 17).
-
-// MARK: - Suggested
-
-/// One suggestion: its name, the reason with its glyph (a repository, the person's located sentence, an agent's
-/// proposal, a provider's project, a fallback page), and the two neutral buttons.
-struct SuggestedProjectRow: View {
-    let suggestion: SuggestedProject
-    let blocked: Bool
-    let accept: () -> Void
-    let dismiss: (() -> Void)?
-    /// Always the stacked layout (the narrow column); otherwise beside when it fits.
-    var compact = false
-
-    private var glyph: some View {
-        Image(systemName: Copy.ProjectsMine.reasonGlyph(suggestion.whyKind))
-            .font(CicadaTheme.icon(.inline))
-            .foregroundStyle(CicadaTheme.textTertiary)
-            .frame(width: CicadaTheme.scaled(16))
-            .padding(.top, CicadaTheme.scaled(2))
-    }
-
-    private var words: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
-            Text(suggestion.name)
-                .font(CicadaTheme.rowFont)
-                .foregroundStyle(suggestion.dismissed ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
-                .lineLimit(1)
-            Text(suggestion.why)
-                .font(CicadaTheme.metaFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let quote = suggestion.quote, !quote.isEmpty {
-                Text("“\(quote)”")   // count-lint:ok — the person's sentence, no number
-                    .font(CicadaTheme.metaFont.italic())
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .lineLimit(2)
-            }
-        }
-    }
-
-    /// The words over the buttons; the reason wraps, a label never truncates.
-    private var stacked: some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-            glyph
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                words
-                buttons.fixedSize()
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var buttons: some View {
-        HStack(spacing: CicadaTheme.spacingXS) {
-            NeutralButton(title: Copy.ProjectsMine.addToMine, size: .compact, isDisabled: blocked,
-                          disabledHelp: Copy.Projects.sleepBusy, action: accept)
-            if let dismiss {
-                NeutralButton(title: Copy.ProjectsMine.notMine, size: .compact, isDisabled: blocked,
-                              help: Copy.ProjectsMine.notMineHelp, disabledHelp: Copy.Projects.sleepBusy,
-                              action: dismiss)
-            }
-        }
-    }
-
-    var body: some View {
-        // A row wide enough holds the buttons beside the words; the narrow triage column puts them under the words,
-        // never truncated.
-        Group {
-            if compact {
-                stacked
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-                        glyph
-                        words.fixedSize(horizontal: true, vertical: false)
-                        Spacer(minLength: CicadaTheme.spacingSM)
-                        buttons.fixedSize()
-                    }
-                    stacked
-                }
-            }
-        }
-        .padding(CicadaTheme.scaled(10))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgOption))
-        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-        .accessibilityElement(children: .contain)
-    }
-}
-
-// MARK: - Name it
-
-/// A provider grouping's accept asks for a name (one `cicadaField`, DR-76; one primary, DR-40). New project is a page
-/// of its own since 2026-11-04 (`ProjectNewColumn`).
-struct ProjectNameSheet: View {
-    let title: String
-    var message: String? = nil
-    var confirm = Copy.ProjectsMine.create
-    let submit: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @FocusState private var focused: Bool
-
-    private var ready: Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Text(title).font(CicadaTheme.displayFont(size: 22))
-                .tracking(CicadaTheme.displayTracking(size: 22)).foregroundStyle(CicadaTheme.textPrimary)
-            if let message {
-                Text(message).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary)
-            }
-            TextField("", text: $name)
-                .focused($focused)
-                .cicadaField(isFocused: focused, prompt: Copy.ProjectsMine.namePlaceholder, isEmpty: name.isEmpty)
-                .accessibilityLabel(Copy.ProjectsMine.nameField)
-                .onSubmit { send() }
-            HStack {
-                Spacer()
-                NeutralButton(title: Copy.ProjectsMine.cancel, shortcut: .cancelAction) { dismiss() }
-                PrimaryActionButton(title: confirm) { send() }
-                    .disabled(!ready)
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(CicadaTheme.spacingXL)
-        .frame(width: CicadaTheme.scaled(440))
-        .background(CicadaTheme.bgBase)
-        .onAppear { focused = true }
-    }
-
-    private func send() {
-        guard ready else { return }
-        submit(name.trimmingCharacters(in: .whitespacesAndNewlines))
-        dismiss()
-    }
-}
+// Projects v2 (TODO ruling 45) — the editable header and the "project knowledge" side panel (Q7, DESIGN_RULES §9
+// 2026-10-27). Direction D: SF only, depth is a ring (DR-9), grouped blocks on `bgOption`, one text field (DR-76), one
+// labelled add button (DR-75), one primary action per sheet (DR-40). Projects v3 (2026-10-28): no folds, the panel's
+// blocks are open and capped with "All N" (decision 17). Ruling 56: nothing is suggested.
 
 // MARK: - The header
 
@@ -266,6 +129,8 @@ struct ProjectKnowledgePanel: View {
     let blocked: Bool
     let openConversation: (ProjectConversationRow) -> Void
     let untie: (ProjectConversationRow) -> Void
+    /// Ruling 56 — the person takes an agent's proposed conversation.
+    var take: (ProjectConversationRow) -> Void = { _ in }
     let openEntity: (String) -> Void
     let addInfluence: () -> Void
     let undoInfluence: (ProjectInfluence) -> Void
@@ -303,6 +168,7 @@ struct ProjectKnowledgePanel: View {
         let total = conversations?.total ?? timeline.conversationCount
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
             if limit != nil { header(Copy.ProjectsMine.conversations(total)) }
+            ForEach(conversations?.proposed ?? []) { row in proposedRow(row) }
             if let page = conversations, !page.conversations.isEmpty {
                 let rows = limit.map { Array(page.conversations.prefix($0)) } ?? page.conversations
                 ForEach(rows) { row in conversationRow(row) }
@@ -317,7 +183,7 @@ struct ProjectKnowledgePanel: View {
                         }
                     }
                 }
-            } else {
+            } else if conversations?.proposed.isEmpty ?? true {
                 Text(Copy.ProjectsMine.noConversations)
                     .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
             }
@@ -380,6 +246,22 @@ struct ProjectKnowledgePanel: View {
         Text(text).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
     }
 
+    /// Ruling 56 — an agent's proposal: the same row, whose it is, and the person's two answers (DR-40: neutral text
+    /// buttons), the way Pages in this project draws one. Its why rides in `.help`.
+    private func proposedRow(_ row: ProjectConversationRow) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+            conversationRow(row)
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Text(Copy.ProjectsOpen.suggestedBy(row.by ?? "agent"))
+                    .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
+                Spacer(minLength: CicadaTheme.spacingXS)
+                TextButton(title: Copy.ProjectsOpen.takeIt, inline: true) { take(row) }.disabled(blocked)
+                TextButton(title: Copy.ProjectsMine.notAboutThis, inline: true) { untie(row) }.disabled(blocked)
+            }
+            .help(row.reason ?? "")
+        }
+    }
+
     private func conversationRow(_ row: ProjectConversationRow) -> some View {
         Button { openConversation(row) } label: {
             HStack(spacing: CicadaTheme.spacingSM) {
@@ -394,7 +276,8 @@ struct ProjectKnowledgePanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .help(row.why.map { Copy.ProjectsMine.why($0, provider: row.providerLabel) }.joined(separator: " · "))
+        .help((row.why.map { Copy.ProjectsMine.why($0, provider: row.providerLabel) } + [row.reason].compactMap { $0 })
+            .joined(separator: " · "))
         .contextMenu {
             Button(Copy.ProjectsMine.notAboutThis) { untie(row) }.disabled(blocked)
         }

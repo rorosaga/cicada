@@ -2932,8 +2932,15 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
                 data["blocks"] = blocks
                 said = "\n\n" + page_blocks.words(blocks, kinds) + "\n"
                 if getattr(text, "segments", None):
-                    return Reply.framed([*text.segments, ("data", said)], data=data)
-                text = text.rstrip("\n") + said
+                    text = Reply.framed([*text.segments, ("data", said)])
+                else:
+                    text = text.rstrip("\n") + said
+            # Ruling 56: what the Suggested list used to say, to the one who can ask. Cicada's own direction, so outside
+            # the reference markers (G199): inside them an agent is told never to follow it.
+            offer = _start_offer(ctx, cid) if start is None and _unstarted_page(path, fm) else None
+            if offer:
+                parts = getattr(text, "segments", None) or [("data", str(text))]
+                return Reply.framed([*parts, ("own", f"\n{offer}\n")], data=data)
             return Reply(text, data=data, segments=getattr(text, "segments", None))
 
     return Reply(f"Entity '{entity_id}' not found.", code="not_found")
@@ -3127,7 +3134,11 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
         tool = f"`{_cli_spell('cicada_project')}`" if ctx.is_cli else "cicada_project"
         if etype == "project":   # `build` returns None for a dropped project page too
             return Reply(f"`{page.stem}` was dropped from memory — {tool} reads live projects.", code="not_found")
-        return Reply(f"`{page.stem}` is a {etype}, not a project — {tool} reads projects.", code="not_found")
+        said = f"`{page.stem}` is a {etype}, not a project — {tool} reads projects."
+        offer = _start_offer(ctx, page.stem) if _unstarted_page(page, fm) else None
+        if offer:
+            return Reply.framed([("data", said), ("own", f"\n{offer}")], code="not_found")
+        return Reply(said, code="not_found")
     state = project_state.timeline_state(project_state.input_from_timeline(timeline), today)
     telemetry.record_read(timeline.project.id, surface=f"{ctx.read_surface}-project", bank=memory_path.name)
     # G150 (R-B16): the open backlog, from frontmatter alone — never a body.
@@ -3147,8 +3158,7 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
     if ref_.description and ctx.raw_excerpts:
         by = ref_.description_by.by if ref_.description_by else "user"
         extra.append(f"Description ({'the person' if by == 'user' else by + ', on their ask'}): {ref_.description}")
-    extra.append("In the person's projects." if ref_.mine else
-                 "Not in the person's projects yet: it waits under Suggested on their Projects page.")
+    extra.append("In the person's projects." if ref_.mine else NOT_STARTED)
     extra.append(f"Conversations tied: {timeline.conversation_count} · sources and influences: "
                  f"{len(timeline.influences)}.")
     # Decisions 9 and 10 (2026-10-28): the pulse the person sees, counted at the caller's today, and the pages in it.
@@ -3176,7 +3186,11 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
             + (f", and {len(repositories) - 10} more." if len(repositories) > 10 else "."))
     head, _, rest = text.partition("\n")
     text = "\n".join([head, *extra, *([rest] if rest else [])])
-    return Reply(text, data={"project_id": timeline.project.id, "name": timeline.project.name,
+    offer = None if ref_.mine or not _unstarted_page(memory_path / "entities" / f"{ref_.id}.md", {"type": "project"}) \
+        else _start_offer(ctx, ref_.id, standing=False)   # its reply already says NOT_STARTED, as data
+    return Reply(text + (f"\n{offer}" if offer else ""),
+                 segments=[("data", text), ("own", f"\n{offer}")] if offer else None,
+                 data={"project_id": timeline.project.id, "name": timeline.project.name,
                              "open_backlog": [getattr(i, "id", None) for i in open_items],
                              "mine": ref_.mine, "description": ref_.description if ctx.raw_excerpts else None,
                              "conversations": timeline.conversation_count, "influences": len(timeline.influences),
@@ -4439,53 +4453,142 @@ def _project_page(memory_path: Path, project: str):
     return page.stem, None
 
 
+def _unstarted_page(path: Path, flat_fm: dict) -> bool:
+    """``project_ownership.unstarted`` for a page already read: the flat reader's scalars decide cheaply whether it is a
+    project at all, and only then is the page parsed for the nested marks that reader cannot see."""
+    from api.services import markdown_parser, project_birth, project_ownership
+
+    if str(flat_fm.get("type") or "") != "project" and flat_fm.get(project_birth.PROPOSED_KEY) != "project":
+        return False
+    try:
+        return project_ownership.unstarted(markdown_parser.parse(path, ledger=False).frontmatter or {}, path)
+    except Exception:  # noqa: BLE001 — a line of advice is never worth a failed read
+        return False
+
+
+#: Ruling 56, as data: a page's standing, stated once wherever an agent reads it.
+NOT_STARTED = "Not in the person's projects: they have not started it."
+
+
+def _start_offer(ctx: ToolContext, stem: str, *, standing: bool = True) -> str | None:
+    """Ruling 56, in place of the Suggested list: one line where an agent reads a page the person never started. It is
+    the agent's to offer, once and in its own words, never a list and never an inbox question. Named only where the tool
+    exists (R12): the command line does not expose it, so a shell reads the page with no offer. Always a reply's ``own``
+    segment, outside the reference markers, so the id goes in only when it can carry nothing but an id: `sanitize_id` keeps
+    a backtick or a newline, and a hostile page id must not write Cicada's own direction."""
+    if not ctx.can("cicada_create_project") or not re.fullmatch(r"[\w-]+", stem):
+        return None
+    call = f"`cicada_create_project(project=\"{stem}\", reason=<what they said>)`"
+    offer = f"If they are plainly working on it, offer once, in your own words; only on their yes, {call} makes this page the project."
+    return f"{NOT_STARTED} {offer}" if standing else offer
+
+
+def _session_checkout(memory_path: Path, session: str | None, repo: str | None) -> dict | None:
+    """``born.repo`` for a project the agent says IS this repository: the hook's observation of this session's checkout,
+    only when ``repo`` names that checkout. A project asked for in a session elsewhere never takes that repository."""
+    from api.services import bank_index, project_birth
+
+    want = project_birth.fold(str(repo or ""))
+    if not want or not session:
+        return None
+    files = {f.stem: f.frontmatter or {} for f in bank_index.files(memory_path, "episodes")}
+    for ep in sorted(_session_episodes(memory_path, session), reverse=True):
+        seen = project_birth.observed_repo(files.get(ep) or {})
+        hit = next((n for n in (seen or {}).get("names", ()) if project_birth.fold(n) == want), None)
+        if hit:
+            return {"name": hit, "family": seen["family"], **({"remote": seen["remote"]} if seen.get("remote") else {})}
+    return None
+
+
 @_holding_pages
 def create_project(ctx: ToolContext, name: str, description: str | None = None, evidence: list | None = None,
-                   repo: str | None = None) -> str:
-    """``cicada_create_project`` (ruling 45, Q3): the person asked for a project to be started. A harness on the person's
-    trust list (G198, ``page_editors``) puts it in their list at once; any other client — a remote app included — leaves
-    it under Suggested, labelled as its proposal, for the person to add. Refuses a name that is already a page (the
-    reply names it, so the agent links that page instead). The person's ask, cited in ``evidence``, is kept as a span."""
+                   repo: str | None = None, reason: str | None = None) -> str:
+    """``cicada_create_project`` (ruling 45 Q3, ruling 56): the person asked for a project to be started. Refused when
+    nothing says they asked: a one-sentence ``reason`` or their words in ``evidence``. A name a page already answers to
+    starts that page, its id, words and history kept; nothing is minted beside it. A harness on the person's trust list
+    (G198, ``page_editors``) starts it at once; any other client — a remote app included — asks in the person's inbox,
+    and only their yes starts it. A page the person took out of their projects stays out until they add it back."""
     from api.services import evidence as evidence_mod
-    from api.services import page_editors, project_ownership
+    from api.services import markdown_parser, page_editors, page_edits, project_ownership
 
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
     if ctx.sleep_running():
         return Reply(PROJECT_SLEEPING, code="sleep_writing")
+    why = project_ownership.clean_reason(reason, bank=memory_path.name) or ""
+    if not why and not evidence:
+        return Reply("A project starts only when the person asks. Say what they said in `reason`, or cite their words "
+                     "in `evidence`. Nothing changed.", code="invalid_arguments")
     spans = evidence_mod.verify_many(memory_path, evidence)
     persons = [s for s in spans or [] if getattr(s, "kind", None) == "user" and getattr(s, "start", -1) >= 0]
     first = persons[0] if persons else None
+    span = {"start": first.start, "end": first.end, "hash": first.hash, "kind": first.kind} if first else None
     listed = page_editors.is_trusted(ctx.author, remote=ctx.is_remote)
+    subject = ctx.commit_subject
     try:
-        eid, paths = project_ownership.create(
-            memory_path, name, description or "", via=project_ownership.VIA_AGENT, by=ctx.author, listed=listed,
-            session=ctx.session_id or None, episode=first.episode if first else None,
-            span={"start": first.start, "end": first.end, "hash": first.hash, "kind": first.kind} if first else None,
-            repo=(repo or "").strip() or None)
+        clean = project_ownership.clean_name(name)
+        eid = project_ownership.start_target(memory_path, clean)
+        said = project_ownership.clean_description(description or "", bank=memory_path.name)
+        made_now = eid is None
+        fm = {}
+        if not made_now:
+            fm = markdown_parser.parse(memory_path / "entities" / f"{eid}.md", ledger=False).frontmatter or {}
+            if project_ownership.listed(fm, memory_path / "entities" / f"{eid}.md"):
+                return Reply(f"{fm.get('name') or clean} ({eid}) is already in the person's projects.",
+                             data={"project_id": eid, "listed": True})
+            if project_ownership.dismissed(fm):
+                return Reply(f"The person took {fm.get('name') or clean} ({eid}) out of their projects; they can add it "
+                             "back from its page in the app.", code="refused")
+        seen = _session_checkout(memory_path, ctx.session_id, repo) if listed else None
+        if made_now:
+            eid, paths = project_ownership.create(
+                memory_path, clean, said, via=project_ownership.VIA_AGENT, by=ctx.author, listed=listed,
+                session=ctx.session_id or None, episode=first.episode if first else None, span=span,
+                repo=(repo or "").strip() or None, repo_seen=seen)
+        elif listed:
+            paths = project_ownership.start(
+                memory_path, eid, said, via=project_ownership.VIA_AGENT, by=ctx.author,
+                session=ctx.session_id or None, episode=first.episode if first else None, span=span, repo_seen=seen)
+        else:
+            paths = []
     except project_ownership.OwnershipError as exc:
         return Reply(f"Not created — {exc}", code="refused")
+    shown = fm.get("name") or clean
+    if not listed:
+        if not page_edits.start_waiting(memory_path, eid):
+            try:
+                paths.append(page_edits.write_proposal(
+                    memory_path, entity_id=eid, name=str(shown),
+                    request=page_edits.Request(start_project=True, description=said or None),
+                    reason=why or "The person asked for it.", author=ctx.author, session=ctx.session_id or None,
+                    spans=spans))
+            except page_edits.EditError as exc:
+                return Reply(f"Not created — {exc}", code="refused")
+        subject = page_edits.PROPOSAL_SUBJECT
     _source_event(ctx, memory_path, eid, "project_created" if listed else "project_proposed")
-    agent_commits.commit_write(memory_path, subject=ctx.commit_subject,
-                               lines=[f"{p}: created (trigger: {ctx.trigger})" for p in paths], paths=paths,
-                               author=ctx.author, session=ctx.session_id)
-    if listed:
-        return Reply(f"Created the project {project_ownership.clean_name(name)} ({eid}) in the person's projects. "
-                     "Record what happens on it with cicada_note_progress." if ctx.can("cicada_note_progress") else
-                     f"Created the project {project_ownership.clean_name(name)} ({eid}) in the person's projects.",
-                     data={"project_id": eid, "listed": True})
-    return Reply(f"Proposed the project {project_ownership.clean_name(name)} ({eid}): it waits under Suggested on the "
-                 "person's Projects page, as your proposal, until they add it.",
-                 data={"project_id": eid, "listed": False})
+    if paths:
+        agent_commits.commit_write(memory_path, subject=subject,
+                                   lines=[f"{p}: {'created' if p.startswith('inbox/') or made_now else 'updated'} "
+                                          f"(trigger: {ctx.trigger})" for p in paths]
+                                   + ([f"", f"Reason: {why}"] if why else []),
+                                   paths=paths, author=ctx.author, session=ctx.session_id)
+    if not listed:
+        return Reply(f"Asked the person to start {shown} ({eid}) as a project: it waits in their Cicada inbox, and only "
+                     "their yes starts it.", data={"project_id": eid, "listed": False})
+    head = (f"Created the project {shown} ({eid}) in the person's projects." if made_now else
+            f"Started {shown} ({eid}) from the page already in memory, its history kept, in the person's projects.")
+    return Reply(head + (" Record what happens on it with cicada_note_progress." if ctx.can("cicada_note_progress")
+                         else ""), data={"project_id": eid, "listed": True})
 
 
 @_holding_pages
 def link_conversation(ctx: ToolContext, project: str, episode: str | None = None, session: str | None = None,
                       remove: bool = False, reason: str | None = None) -> str:
-    """``cicada_link_conversation`` (ruling 45): tie a conversation to a project, or untie one this agent tied. The
-    person's own untie (in the app) is final: no agent re-ties it."""
-    from api.services import project_ownership
+    """``cicada_link_conversation`` (ruling 45, ruling 56): tie a conversation to a project, or untie one this agent
+    tied. A harness on the person's trust list ties at once; any other — a remote app included — proposes, and the person
+    takes or leaves it on the project's page. The person's own untie (in the app) is final: no agent re-ties it."""
+    from api.services import page_editors, project_ownership
 
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
@@ -4497,6 +4600,8 @@ def link_conversation(ctx: ToolContext, project: str, episode: str | None = None
     stem, miss = _project_page(memory_path, project)
     if miss is not None:
         return miss
+    if (unstarted := _not_a_project_yet(memory_path, stem)) is not None:
+        return unstarted
     episodes: list[str] = []
     if episode:
         episodes = [str(episode).strip()]
@@ -4508,26 +4613,32 @@ def link_conversation(ctx: ToolContext, project: str, episode: str | None = None
         sid = (ctx.session_id or "").strip()
         episodes = _session_episodes(memory_path, sid) if sid else []
         if not episodes:
-            return Reply("Name the conversation: `episode` (its ep_… id) or `session`.", code="invalid_arguments")
+            return Reply("This conversation isn't captured yet; try after this turn, or name one: `episode` (its ep_… "
+                         "id) or `session`.", code="invalid_arguments")
     # One conversation, one page write (`project_ownership.tie` takes every episode of it and checks them all before it
     # writes): a refusal leaves nothing behind, never a half-tied conversation under this agent's name.
+    trusted = page_editors.is_trusted(ctx.author, remote=ctx.is_remote)
+    clean = project_ownership.clean_reason(reason, bank=memory_path.name)
     try:
         paths = project_ownership.tie(memory_path, stem, episodes[0], remove=bool(remove), by=ctx.author,
-                                      session=ctx.session_id or None)
+                                      session=ctx.session_id or None, trusted=trusted, reason=clean)
     except project_ownership.OwnershipError as exc:
         return Reply(f"Nothing changed — {exc}", code="refused")
     episodes = project_ownership.conversation_episodes(memory_path, episodes[0])
     if not paths:
         return f"Nothing to change: {'untied' if remove else 'already tied'}."
-    _source_event(ctx, memory_path, stem, "conversation_untied" if remove else "conversation_tied")
-    clean = " ".join(str(reason).split())[:300]
+    _source_event(ctx, memory_path, stem, "conversation_untied" if remove else
+                  ("conversation_tied" if trusted else "conversation_proposed"))
     agent_commits.commit_write(memory_path, subject=ctx.commit_subject,
                                lines=[f"{p}: updated (trigger: {ctx.trigger})" for p in paths] + ["", f"Reason: {clean}"],
                                paths=paths, author=ctx.author, session=ctx.session_id)
     n = len(episodes)
     what = "the conversation" + (f" ({n} episodes)" if n > 1 else "")
-    return (f"Untied {what} you had tied from {stem}." if remove else
-            f"Tied {what} to {stem}; the person sees it on the project's page as added by you.")
+    if remove:
+        return f"Untied {what} you had tied from {stem}."
+    if trusted:
+        return f"Tied {what} to {stem}; the person sees it on the project's page as added by you, with your reason."
+    return f"Proposed {what} for {stem}: it waits on the project's page, as your proposal, until the person adds it."
 
 
 @_holding_pages
@@ -4550,7 +4661,10 @@ def link_entity(ctx: ToolContext, project: str, entity: str, remove: bool = Fals
     stem, miss = _project_page(memory_path, project)
     if miss is not None:
         return miss
+    if (unstarted := _not_a_project_yet(memory_path, stem)) is not None:
+        return unstarted
     trusted = page_editors.is_trusted(ctx.author, remote=ctx.is_remote)
+    clean = project_ownership.clean_reason(reason, bank=memory_path.name)
     # G230: a repository page tied by a trusted agent is one of the project's repositories (a project may span
     # several); any other agent's stays a proposal on the project's page, like every page.
     if trusted and (repo_page := _repository_stem(memory_path, str(entity))) is not None:
@@ -4558,12 +4672,11 @@ def link_entity(ctx: ToolContext, project: str, entity: str, remove: bool = Fals
 
         try:
             paths = github_repos.link(memory_path, stem, repo_page, by=ctx.author, how=github_repos.HOW_AGENT,
-                                      session=ctx.session_id or None, remove=bool(remove))
+                                      session=ctx.session_id or None, remove=bool(remove), reason=clean)
         except (LookupError, github_repos.LinkRefused) as exc:
             return Reply(f"Nothing changed — {exc}", code="refused")
         if not paths:
             return f"Nothing to change: {'not linked by you' if remove else 'already one of its repositories'}."
-        clean = " ".join(str(reason).split())[:300]
         agent_commits.commit_write(memory_path, subject=ctx.commit_subject,
                                    lines=[f"{p}: updated (trigger: {ctx.trigger})" for p in paths]
                                    + ["", f"Reason: {clean}"], paths=paths, author=ctx.author, session=ctx.session_id)
@@ -4572,13 +4685,12 @@ def link_entity(ctx: ToolContext, project: str, entity: str, remove: bool = Fals
                 "by you.")
     try:
         paths = project_ownership.tie_page(memory_path, stem, str(entity), remove=bool(remove), by=ctx.author,
-                                           session=ctx.session_id or None, trusted=trusted)
+                                           session=ctx.session_id or None, trusted=trusted, reason=clean)
     except project_ownership.OwnershipError as exc:
         return Reply(f"Nothing changed — {exc}", code="refused")
     if not paths:
         return f"Nothing to change: {'not tied by you' if remove else 'already tied'}."
     _source_event(ctx, memory_path, stem, "page_untied" if remove else ("page_tied" if trusted else "page_proposed"))
-    clean = " ".join(str(reason).split())[:300]
     agent_commits.commit_write(memory_path, subject=ctx.commit_subject,
                                lines=[f"{p}: updated (trigger: {ctx.trigger})" for p in paths] + ["", f"Reason: {clean}"],
                                paths=paths, author=ctx.author, session=ctx.session_id)
@@ -4600,6 +4712,15 @@ def _repository_stem(memory_path: Path, entity: str) -> str | None:
         return None
     fm = markdown_parser.parse(page, ledger=False).frontmatter or {}
     return page.stem if github_repos.is_repository_page(fm) and github_repos.page_repo(fm) else None
+
+
+def _not_a_project_yet(memory_path: Path, stem: str) -> Reply | None:
+    """Ruling 56: a concept the person never started has no project page to show a link on, so a link there would be
+    written where nobody can see or undo it. Refused, with nothing written; the page says how it may start."""
+    fm = parse_frontmatter((memory_path / "entities" / f"{stem}.md").read_text(encoding="utf-8"))[0]
+    if str(fm.get("type") or "") == "project":
+        return None
+    return Reply(f"`{stem}` is not a project yet: the person has not started it. Nothing changed.", code="refused")
 
 
 def _session_episodes(memory_path: Path, sid: str) -> list[str]:

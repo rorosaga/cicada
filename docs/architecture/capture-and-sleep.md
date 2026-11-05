@@ -2539,9 +2539,12 @@ Entities are NOT extracted from every mention — that pollutes the graph. First
 vector index only; promotion needs **2+ separate conversations**, OR substantive discussion (>3
 exchanges) in one, OR an explicit link to an existing high-confidence entity.
 
-**A project is born from a repository or the person's words, never from this rule (ruling 36 D4, G141,
-2026-10-22; `api/services/project_birth.py`).** For a `project` mention the rungs below do not apply. Stage 1 computes,
-on the conversation it read (no model), a `project_birth` record and drops any the model's JSON carried:
+**Sleep never makes a project (ruling 56, 2026-11-04, amends ruling 36 D4; `api/services/project_birth.py`).** A project
+starts only from the person or an agent on their ask (`project_ownership`). A `project` mention with no page takes the
+fallback path below, and Stage 5 turns any `project` create into the concept, whatever a merged payload says. What Stage 1
+reads is a **signal**, recorded as `born` and never acted on: it computes, on the conversation it read (no model), a
+`project_birth` record and drops any the model's JSON carried. The person's own words clear the promotion bar, a
+repository alone never does:
 - **repo** — the episode is a harness session the hook observed in a git checkout (`workspace_identity` with a
   `family_hash`, bound to the stored `project_dir` by its `cwd_hash`; G110 D2), and the mention's name or an alias,
   folded (case, accents, punctuation), is the checkout's folder name: the last component of `project_dir`, or the one
@@ -2559,7 +2562,9 @@ on the conversation it read (no model), a `project_birth` record and drops any t
   for a new project, even after the old checkout went quiet — or a remote the page only once had brings the page to
   the judge as a candidate (the W2 precedent) with a note that both share an origin, and its "different" stands
   (`entity_resolver._same_repository_candidate`; two pages on one remote join neither; a pair the person said were
-  different is never joined). Project activity and conversation ties never follow a shared remote by itself
+  different is never joined). Project activity and conversation ties never follow a shared remote by itself, Cicada's own `how: origin` link
+  included; only a repository the person or a trusted agent named on the project ties by its remote (ruling 56,
+  `github_repos.named_urls`)
   (`_Bank.page_repo_families`): they follow the page's judged identity — its born family and a checkout whose folder
   name folds to one of the page's names or aliases. A rename the judge called the same is merged with the new name
   as an alias, so its sessions count; a reused template judged different lends the page nothing. A page born before ruling 22 D2a whose repository was renamed before any later session
@@ -2585,14 +2590,13 @@ organisation, place, tool, skill or folder — and marked `proposed_type: projec
 name on its own line, as before. "Unsure" against a page holds the name (never a second page beside it) and asks the
 person only when the two share a word or a conversation — the first newuser run asked "Is Epoxy & fiberglass workshop
 the same as Cedar-strip canoe?", a pair with no lead, which is no question for a stranger. A later mention judged the
-same as a fallback page lands on it (`_candidate_types` lets a project mention meet the page at the judge); one that
-carries a birth rides to Stage 5, which makes **the same page** the project — `type: project`, `born:` written once, the
-marker gone (`project_birth.retype_on_birth`, only on a `concept` carrying the marker and no `born`; a project page or a
-page born with another type is never retyped). A mention with a birth that the loop matched to nothing is weighed
-against every fallback page the same way (`_fallback_match`: aliases count, no shared word needed, the judge decides,
-a rejected pair never brought), so "Canoe restoration" retypes a page named "Hull build project" that lists "Canoe"
-instead of minting a project beside it (review of #441). A birth inside the batch that creates a fallback page makes it
-a project from the start.
+same as a fallback page lands on it (`_candidate_types` lets a project mention meet the page at the judge) and stays a
+concept; one that carries a signal rides to Stage 5, which records it as `born` once (`project_birth.note_signal`). Only
+the person or an agent on their ask makes **the same page** the project (`project_birth.start_page`, which keeps that
+`born`, so the page's repository still ties its sessions). Every project mention with no match is weighed against every
+project and fallback page (`_settle_unborn`: aliases count, no shared word needed, the judge decides, a rejected pair
+never brought), so "Canoe restoration" lands on a page named "Hull build project" that lists "Canoe" instead of minting
+one beside it (review of #441).
 "A project" is the type the create will write (`_written_type`: a sibling's `project` overrides a `concept` when the
 payloads merge), never only the chosen mention's (W4). A project mention with no match whose recorded alias names
 exactly one project page — on disk, else born this batch — brings that page to the judge (W2): "same" makes it the

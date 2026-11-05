@@ -1404,11 +1404,16 @@ Round 4 (C2–C4):
   evidence text and is read back only while `evidence.span_status` says current or grown (`project_birth.quote`).
   A page without it (older than the rule) is classified on read (`project_birth.classify`: a declared `repos:` →
   repo, `paths:`/`folder` → words, then the cited conversations) and never rewritten for it (`capture-and-sleep.md`).
-  A fallback page that a later birth retypes gets its `born:` then, the one time (`project_birth.retype_on_birth`).
-- `proposed_type: project` (owner 2026-10-23, amends D4) — on a `concept` page Sleep wrote for a thing Stage 1 called a
-  project that has no birth yet but cleared the promotion bar (the fallback page, `capture-and-sleep.md`). Read by the
-  judge (a later project mention meets the page) and by Stage 5, which removes it when a birth makes the page the
-  project; nothing else writes it.
+  Since ruling 56 a fallback page may carry `born:` as a signal Sleep read (`project_birth.note_signal`), once, and a
+  start keeps it (`project_birth.start_page`); `{origin: created, via, day}` is written only on a page with none.
+- `proposed_type: project` (owner 2026-10-23; ruling 56) — on a `concept` page for a thing Stage 1 called a project that
+  cleared the promotion bar (the fallback page, `capture-and-sleep.md`), or another client's proposed project. Read by the
+  judge (a later project mention meets the page); removed when the person or an agent on their ask starts the page.
+- `started_from: {type, proposed?, wrote_born?}` (ruling 56) — what a start changed on a page that was not a project, so
+  Remove gives it back; a start also revives a faded or archived page, as a mention would.
+- `conversations_added` / `entities_added` rows (ruling 56) — an agent's row is `{episode|entity, by, session?, reason?,
+  proposed?}`: `reason` is its one sentence (scrubbed, ≤ 300), shown to the person; `proposed` is an agent off the trust
+  list, never counted or drawn as part of the project until the person takes it. `repositories:` rows carry `reason` too.
 - **Ruling 45 (2026-10-27): whose project it is** — keys on a `project` page (or a fallback page), written only by the
   person's doors (the app's routes, `cicada projects new`, a trusted agent on their ask) through `project_ownership`, the
   one writer of `mine` / `not_mine` and the two conversation lists; never by Sleep, which carries them through every
@@ -1912,6 +1917,10 @@ short wikilinked body, ≤ 6 KB, zero LLM, deterministic. Written only by
 `state_dictionary.refresh`. A digest of the `entities`/`inbox`/`episodes`/`bank`/`backlog` sync components is
 stored as `inputs_version`; unchanged inputs mean no write. **Never `git_head`** — its own
 `State snapshot` commit would self-invalidate.
+
+Starting, accepting or removing a project in the app, or linking a repository, refreshes it right after the route's own
+commit (`refresh_held`, ruling 56), so the next agent's primer has it; a trusted agent's `cicada_create_project` runs in
+the MCP process, which never writes the projection (R4), and shows from the next refresh.
 
 Every regeneration that touches disk goes through `state_dictionary.refresh_and_commit`, which
 commits `_state.md` ALONE (`commit_paths`, never `git add -A`) as `State snapshot <date>` /

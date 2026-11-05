@@ -392,7 +392,7 @@ struct ProjectPagesBlock: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isButton)
-        .help(p.fact.isEmpty ? p.name : Eyebrow.text(p.name, p.fact))
+        .help(p.reason ?? (p.fact.isEmpty ? p.name : Eyebrow.text(p.name, p.fact)))   // ruling 56: why an agent tied it
     }
 }
 
@@ -449,77 +449,5 @@ enum ProjectPagesPaint {
         }
         t.pageCounts["user", default: 0] += 1
         return t
-    }
-}
-
-// MARK: - Suggested, as one line and as a column
-
-/// Decision 9 — the list's Suggested is one line, "N suggested by Cicada · Review", which opens the suggestions as the
-/// detail column. Never a fold (DR-81).
-struct ProjectsSuggestedLine: View {
-    let count: Int
-    let selected: Bool
-    let review: () -> Void
-
-    var body: some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            // Quiet (owner 2026-11-04): the count in tertiary ink, never a sentence above it.
-            Text(Copy.ProjectsOpen.suggestedLine(count))
-                .font(CicadaTheme.metaFont)
-                .monospacedDigit()
-                .foregroundStyle(selected ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
-            Spacer(minLength: CicadaTheme.spacingSM)
-            TextButton(title: Copy.ProjectsOpen.review, help: Copy.ProjectsOpen.reviewHelp, inline: true, action: review)
-        }
-        .padding(.horizontal, CicadaTheme.scaled(10))
-    }
-}
-
-/// The suggestions as the detail column (DR-74's head): text tabs Suggested · Not mine (DR-45), each suggestion with
-/// where it came from and its two neutral buttons (DR-40). Nothing here deletes anything.
-struct ProjectsSuggestedColumn: View {
-    let suggested: [SuggestedProject]
-    let blocked: Bool
-    let gutter: CGFloat
-    let hiddenListCount: Int?
-    let onShowList: () -> Void
-    let onClose: () -> Void
-    let accept: (SuggestedProject) -> Void
-    let dismiss: (SuggestedProject) -> Void
-
-    enum Tab: Hashable { case live, dismissed }
-    @State private var tab: Tab? = .live
-
-    var body: some View {
-        let live = suggested.filter { !$0.dismissed }
-        let gone = suggested.filter(\.dismissed)
-        let rows = tab == .dismissed ? gone : live
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            DetailHeader(title: Copy.ProjectsOpen.suggestedTitle, blurb: Copy.ProjectsOpen.suggestedBlurb,
-                         backLabel: hiddenListCount.map { Copy.Projects.projectsBack($0) }, onShowList: onShowList,
-                         closeHelp: Copy.ProjectsOpen.closeSuggested, onClose: onClose)
-            if !gone.isEmpty {
-                TextTabs(tabs: [TextTab(id: Tab.live, label: Copy.ProjectsOpen.suggestedTab, count: live.count),
-                                TextTab(id: Tab.dismissed, label: Copy.ProjectsOpen.dismissedTab, count: gone.count)],
-                         selection: Binding(get: { tab }, set: { tab = $0 ?? .live }))
-            }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    if rows.isEmpty {
-                        Text(Copy.ProjectsOpen.noneSuggested)
-                            .font(CicadaTheme.bodyFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                    }
-                    ForEach(rows) { s in
-                        SuggestedProjectRow(suggestion: s, blocked: blocked, accept: { accept(s) },
-                                            dismiss: s.dismissed ? nil : { dismiss(s) })
-                    }
-                }
-                .padding(.bottom, CicadaTheme.spacingLG)
-            }
-        }
-        .frame(maxWidth: CicadaTheme.scaled(ProjectLayout.textMaxWidth), maxHeight: .infinity, alignment: .topLeading)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.horizontal, gutter)
     }
 }

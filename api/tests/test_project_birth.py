@@ -1,5 +1,5 @@
-"""A project page is born from a repository or the person's own words, never from consolidation alone (G141, TODO
-ruling 36 D4; `project_birth`, `project_sections`)."""
+"""Sleep never makes a project: a repository or the person's own words are signals it records on a concept page (G141,
+TODO ruling 36 D4, amended by ruling 56; `project_birth`, `project_sections`)."""
 from __future__ import annotations
 
 import asyncio
@@ -118,16 +118,33 @@ def test_a_concept_on_the_same_evidence_still_gets_its_page(tmp_path, monkeypatc
     {"origin": "repo", "day": "2026-10-20", "episode": EP_A, "repo": {"name": "delta-plan", "family": "a" * 16}},
     {"origin": "words", "day": "2026-10-20", "episode": EP_A, "span": {"start": 6, "end": 40, "hash": "x", "kind": "user"}},
 ])
-def test_a_birth_record_mints_the_page_and_stage_5_writes_it_once(tmp_path, monkeypatch, born):
+def test_a_signal_never_makes_a_project(tmp_path, monkeypatch, born):
+    """Ruling 56. The person's own words clear the bar and give a concept page that records them; a repository alone,
+    on one plain mention, stays held."""
     memory = _bank(tmp_path)
-    entity = _entity("Delta Plan", "project", EP_A, TS_A)   # one plain mention: the origin alone is enough
+    entity = _entity("Delta Plan", "project", EP_A, TS_A)   # one plain mention
     entity["project_birth"] = born
     out = _resolve(memory, [{"episode_id": EP_A, "entities": [entity], "relationships": []}], monkeypatch)
+    if born["origin"] == "repo":
+        assert not out["changes"]
+        return
     (change,) = out["changes"]
     assert (change["action"], change["id"], change["project_birth"]) == ("create", "delta-plan", born)
+    assert change["entity"]["type"] == "concept"
     conflict_resolver.apply_changes([change], memory)
     fm = markdown_parser.parse(memory / "entities" / "delta-plan.md").frontmatter
-    assert fm["born"] == born
+    assert (fm["born"], fm["type"], fm[project_birth.PROPOSED_KEY]) == (born, "concept", "project")
+    assert project_birth.said_by_person(fm)
+
+
+def test_stage_5_never_writes_a_project_whatever_a_merged_payload_says(tmp_path):
+    """Ruling 56: the last gate. A sibling's type can reach a create through a payload merge."""
+    memory = _bank(tmp_path)
+    entity = _entity("Delta Plan", "project", EP_A, TS_A)
+    conflict_resolver.apply_changes([{"action": "create", "id": "delta-plan", "entity": entity,
+                                      "source_episodes": [EP_A]}], memory)
+    fm = markdown_parser.parse(memory / "entities" / "delta-plan.md").frontmatter
+    assert (fm["type"], fm[project_birth.PROPOSED_KEY]) == ("concept", "project")
 
 
 def test_a_folder_the_person_named_is_born_from_their_words(tmp_path):
@@ -348,8 +365,8 @@ def test_w4_a_page_written_as_a_project_needs_a_birth_whatever_type_the_chosen_m
 
 
 def test_w4_a_birth_on_the_project_sibling_reaches_the_page_the_concept_mention_starts(tmp_path, monkeypatch):
-    """The chosen mention is a concept, its project-typed sibling carries the birth: the page is written as a
-    project and must carry that `born` (review of #436: the birth was attached only when the chosen mention was)."""
+    """The chosen mention is a concept, its project-typed sibling carries the signal: the page is a concept (ruling 56)
+    and must carry that `born` (review of #436: it was attached only when the chosen mention was)."""
     memory = _bank(tmp_path)
     concept = _project("Delta Plan", EP_A, TS_A)
     concept["type"] = "concept"
@@ -359,7 +376,7 @@ def test_w4_a_birth_on_the_project_sibling_reaches_the_page_the_concept_mention_
     out = _resolve_with(memory, [{"episode_id": EP_A, "entities": [concept], "relationships": []},
                                  {"episode_id": EP_B, "entities": [project], "relationships": []}], [], monkeypatch)
     [change] = [c for c in out["changes"] if c["action"] == "create"]
-    assert change["entity"]["type"] == "project"
+    assert change["entity"]["type"] == "concept"
     assert change["project_birth"]["episode"] == EP_B
 
 
@@ -496,10 +513,11 @@ def test_a_later_mention_lands_on_the_fallback_page_never_a_second_one(canoe_pag
     out = _resolve_canoe(memory, [{"episode_id": EP_D, "relationships": [], "entities": [
         _mention("Boat hull", EP_D, TS_D, "Glassed the outside of the hull.")]}], [page], monkeypatch)
     assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", page["id"])]
-    assert out["changes"][0]["entity"]["type"] == "concept"   # the page keeps its type: no birth yet
+    assert out["changes"][0]["entity"]["type"] == "concept"   # the page keeps its type
 
 
-def test_my_canoe_project_turns_the_fallback_page_into_the_project_with_born(canoe_page, monkeypatch):
+def test_my_canoe_project_records_the_words_on_the_fallback_page_and_it_stays_a_concept(canoe_page, monkeypatch):
+    """Ruling 56 (it was a retype): the person's words are what an agent may offer on, not a start."""
     memory, page = canoe_page
     born = {**_BORN, "episode": EP_D, "day": "2026-10-23"}
     mention = _mention("Canoe", EP_D, TS_D, "My canoe project: glassing the inside next.", project_birth=born)
@@ -507,14 +525,15 @@ def test_my_canoe_project_turns_the_fallback_page_into_the_project_with_born(can
                          monkeypatch)
     assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", page["id"])]   # never duplicated
     (change,) = out["changes"]
-    assert change["project_birth"] == born and change["entity"]["type"] == "project"
+    assert change["project_birth"] == born and change["entity"]["type"] == "concept"
     conflict_resolver.apply_changes([change], memory)
     fm = markdown_parser.parse(memory / "entities" / f"{page['id']}.md").frontmatter
-    assert fm["type"] == "project" and fm["born"] == born and project_birth.PROPOSED_KEY not in fm
+    assert fm["type"] == "concept" and fm["born"] == born and fm[project_birth.PROPOSED_KEY] == "project"
+    assert project_birth.said_by_person(fm)
     assert sorted(p.stem for p in (memory / "entities").glob("*.md")) == [page["id"]]
 
 
-def test_the_exact_name_with_a_birth_retypes_the_page_too(canoe_page, monkeypatch):
+def test_the_exact_name_with_a_signal_lands_on_the_page_too(canoe_page, monkeypatch):
     memory, page = canoe_page
     born = {**_BORN, "episode": EP_D, "day": "2026-10-23"}
     name = page["frontmatter"]["name"]
@@ -525,31 +544,54 @@ def test_the_exact_name_with_a_birth_retypes_the_page_too(canoe_page, monkeypatc
     assert (change["action"], change["id"], change["project_birth"]) == ("update", page["id"], born)
 
 
-def test_a_birth_in_the_same_batch_makes_the_page_a_project_from_the_start(tmp_path, monkeypatch):
-    """One canoe spelling carries the person's words: its page is the project with `born` — one page, no fallback."""
+def test_a_signal_in_the_same_batch_rides_to_the_one_page(tmp_path, monkeypatch):
+    """One canoe spelling carries the person's words: one concept page with that `born`, every spelling on it."""
     memory = _bank(tmp_path)
     batch = _canoe_batch()
     born = {**_BORN, "episode": EP_C, "day": "2026-10-22"}
     batch[2]["entities"][0]["project_birth"] = born
     out = _resolve_canoe(memory, batch, [], monkeypatch)
-    projects = [c for c in out["changes"] if c["action"] == "create" and c["entity"]["type"] == "project"]
-    assert [c["project_birth"] for c in projects] == [born]
-    assert not any(c.get(project_birth.PROPOSED_KEY) for c in out["changes"])
-    assert {out["name_to_id"][n] for n in CANOE_NAMES} == {projects[0]["id"]}   # one page, every spelling on it
+    pages = [c for c in out["changes"] if c["action"] == "create"]
+    assert [(c["entity"]["type"], c["project_birth"], c[project_birth.PROPOSED_KEY]) for c in pages] == [
+        ("concept", born, "project")]
+    assert {out["name_to_id"][n] for n in CANOE_NAMES} == {pages[0]["id"]}   # one page, every spelling on it
 
 
-def test_retype_on_birth_touches_only_a_fallback_page():
+def test_a_signal_is_recorded_once_and_only_on_a_fallback_page():
     born = {**_BORN}
     project = {"type": "project", "born": {"origin": "repo"}, project_birth.PROPOSED_KEY: "project"}
     concept = {"type": "concept"}
-    tool = {"type": "tool", project_birth.PROPOSED_KEY: "project"}
-    for fm in (project, concept, tool):
+    for fm in (project, concept):
         before = dict(fm)
-        assert project_birth.retype_on_birth(fm, born) is False and fm == before
+        assert project_birth.note_signal(fm, born) is False and fm == before
     fallback = {"type": "concept", project_birth.PROPOSED_KEY: "project"}
-    assert project_birth.retype_on_birth(fallback, None) is False
-    assert project_birth.retype_on_birth(fallback, born) is True
-    assert fallback == {"type": "project", "born": born}
+    assert project_birth.note_signal(fallback, None) is False
+    assert project_birth.note_signal(fallback, born) is True
+    assert fallback == {"type": "concept", project_birth.PROPOSED_KEY: "project", "born": born}
+    assert project_birth.note_signal(fallback, {"origin": "repo"}) is False and fallback["born"] == born
+
+
+def test_a_start_keeps_the_signal_and_writes_a_birth_only_on_a_page_with_none():
+    born = {**_BORN}
+    fallback = {"type": "concept", project_birth.PROPOSED_KEY: "project", "born": born}
+    assert project_birth.start_page(fallback, {"origin": "created"}) is True
+    assert (fallback["type"], fallback["born"]) == ("project", born) and project_birth.PROPOSED_KEY not in fallback
+    bare = {"type": "concept"}
+    assert project_birth.start_page(bare, {"origin": "created"}) is True
+    assert (bare["type"], bare["born"]) == ("project", {"origin": "created"})
+    assert project_birth.start_page(fallback, {"origin": "created"}) is False
+
+
+def test_undoing_a_start_gives_the_page_back_as_it_was():
+    born = {**_BORN}
+    for before in ({"type": "concept", project_birth.PROPOSED_KEY: "project", "born": born},
+                   {"type": "concept", project_birth.PROPOSED_KEY: "project"}, {"type": "tool"}):
+        fm = dict(before)
+        project_birth.start_page(fm, {"origin": "created"})
+        assert project_birth.undo_start(fm) is True and fm == before
+    always = {"type": "project", "born": born}
+    assert project_birth.start_page(always, {"origin": "created"}) is False
+    assert project_birth.undo_start(always) is False and always == {"type": "project", "born": born}
 
 
 def test_an_existing_project_page_is_never_retyped_or_archived_by_the_fallback(tmp_path, monkeypatch):
@@ -562,8 +604,8 @@ def test_an_existing_project_page_is_never_retyped_or_archived_by_the_fallback(t
     assert (fm["type"], fm["status"], fm["born"]) == ("project", "active", _BORN)
 
 
-def test_a_held_birth_still_mints_the_project_as_today(tmp_path, monkeypatch):
-    """A name parked with no birth, then said in the person's words: the project page, folded with the line."""
+def test_a_held_name_said_in_the_persons_words_gets_its_concept_page(tmp_path, monkeypatch):
+    """A name parked with no signal, then said in the person's words: one concept page, folded with the line."""
     memory = _bank(tmp_path)
     _resolve_canoe(memory, [{"episode_id": EP_A, "relationships": [], "entities": [
         _mention("Delta Plan", EP_A, TS_A, "A plan.")]}], [], monkeypatch)
@@ -571,7 +613,7 @@ def test_a_held_birth_still_mints_the_project_as_today(tmp_path, monkeypatch):
     out = _resolve_canoe(memory, [{"episode_id": EP_B, "relationships": [], "entities": [
         _mention("Delta Plan", EP_B, TS_B, "My Delta Plan project.", project_birth=born)]}], [], monkeypatch)
     (change,) = out["changes"]
-    assert (change["action"], change["entity"]["type"], change["project_birth"]) == ("create", "project", born)
+    assert (change["action"], change["entity"]["type"], change["project_birth"]) == ("create", "concept", born)
     assert set(change["source_episodes"]) == {EP_A, EP_B} and out["promoted_pending"] == ["Delta Plan"]
 
 
@@ -621,11 +663,11 @@ def restoration_is_the_canoe():
     CANOE_NAMES.discard("canoe restoration")
 
 
-def test_a_birth_spelling_sharing_a_word_only_with_an_alias_retypes_the_page(canoe_page, monkeypatch,
+def test_a_signal_spelling_sharing_a_word_only_with_an_alias_lands_on_the_page(canoe_page, monkeypatch,
                                                                              restoration_is_the_canoe):
     """Review of #441: the page is named "Hull build project" with "Canoe" among its aliases; "Canoe restoration"
     carries the person's words. It shares no word with the page's name, so the loop's judge never saw the page and a
-    second, project page was minted beside it. It is weighed against the fallback pages too: the same page, retyped."""
+    second page was minted beside it. It is weighed against the fallback pages too: the same page, its `born` recorded."""
     memory, page = canoe_page
     assert "canoe" not in page["frontmatter"]["name"].lower()
     assert any("canoe" in a.lower() for a in page["frontmatter"]["aliases"])
@@ -634,15 +676,15 @@ def test_a_birth_spelling_sharing_a_word_only_with_an_alias_retypes_the_page(can
     assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", page["id"])]
     conflict_resolver.apply_changes(out["changes"], memory)
     fm = markdown_parser.parse(memory / "entities" / f"{page['id']}.md").frontmatter
-    assert fm["type"] == "project" and fm["born"]["episode"] == EP_D
+    assert fm["type"] == "concept" and fm["born"]["episode"] == EP_D
     assert sorted(p.stem for p in (memory / "entities").glob("*.md")) == [page["id"]]
 
 
-def test_a_birth_spelling_the_judge_calls_different_is_its_own_project(canoe_page, monkeypatch):
+def test_a_signal_spelling_the_judge_calls_different_is_its_own_page(canoe_page, monkeypatch):
     memory, page = canoe_page
     out = _resolve_canoe(memory, [{"episode_id": EP_D, "relationships": [],
                                    "entities": [_birth_mention("Garden shed")]}], [page], monkeypatch)
-    assert [(c["action"], c["entity"]["type"]) for c in out["changes"]] == [("create", "project")]
+    assert [(c["action"], c["entity"]["type"]) for c in out["changes"]] == [("create", "concept")]
 
 
 def test_a_birth_spelling_the_person_said_is_different_is_not_brought(canoe_page, monkeypatch,

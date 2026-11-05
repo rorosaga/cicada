@@ -605,23 +605,24 @@ the detail keeps the series (`PROJECT_SHAPE` g141-4, 2026-10-19: 40 % of the lis
 while Sleep runs and each commits alone over its own pages as `Cicada-Author: user`,
 `user/companion_app`.
 **g141-7 (2026-10-27, ruling 45).** A row and the detail's `project` carry `mine`, `mineVia`, `description` and
-`descriptionBy` {by, day, session?}, and `oneLiner` is the person's description when there is one. `GET /projects` keeps
-its `projects` array (every live project page, each saying `mine` — the CLI and `followups` read it, Hyrum) and adds
-`suggested` [{id, kind: page|group, name, pageType, whyKind: repo|words|agent|provider|export|none|fallback, why, quote,
-episode, day, repoName, sessions, by, provider, dismissed}] (strongest first, dismissed last) and `dismissed` (a count).
+`descriptionBy` {by, day, session?}, and `oneLiner` is the person's description when there is one. `GET /projects` (g141-10, ruling 56) sends
+only the person's own rows; `project_timeline.list_projects`, which `followups` reads, still holds every page. `suggested`
+and `dismissed` are always empty, kept one release for a client built against g141-7..9 (remove after 0.9). A page not
+started answers on `GET /projects/{id}/timeline` as before, `mine: false`.
 The detail adds `influences` [{id, source, label, url, entity, entityType, tag, how, by, day, claimId, predicate, ref,
 page, reversed}], `conversationCount` and `knowledge` [{provider, projectId, name, episode, instructions, start, end,
 docs}]. The client mapping ships with the bump: the app's `ProjectsCache` keys both reads on the server's ETag, so the
 new shape refetches once. New routes, each **admitted** (409 while Sleep holds the pages), committing alone as
-`Cicada-Author: user`: `POST /projects` {name, description, via?: cli, pages?: [id or name, ≤ 100]} (refuses a name
-already a page with **409** naming it; since 2026-11-04 `description` keeps its paragraphs, ≤ 4,000 characters, and
+`Cicada-Author: user`: `POST /projects` {name, description, via?: cli, pages?: [id or name, ≤ 100]} (a name a project, concept or tool page
+holds starts that page, `action: "started"`, its id, words and history kept; a name only another kind of page holds, or two
+pages could answer to, is **409** naming them; since 2026-11-04 `description` keeps its paragraphs, ≤ 4,000 characters, and
 `pages` attaches pages of any kind in the same write — each checked first, a 400 naming an unknown, dropped or owner
 page writes nothing; a GitHub repository page joins `repositories:` through `github_repos.link`, any other page
 `entities_added`; one commit, the new page `created`, each repository page's back-link `updated`; all or nothing —
 a refusal that can only be checked once the page exists, such as a `part-of` claim naming the new project, or any other
 failure while attaching removes the new page and restores each back-link, `project_ownership.create_with_pages`; the
-description is scrubbed on every door, `clean_description`, its count ledgered as `project`), `POST /projects/{id}/accept` {name?} (a fallback page is retyped in place; a `g-p-` grouping id needs a name
-and becomes a new page), `POST /projects/{id}/dismiss`, `PATCH /projects/{id}` {name?, description?},
+description is scrubbed on every door, `clean_description`, its count ledgered as `project`), `POST /projects/{id}/accept` {name?} ("Add to my projects": a fallback page is retyped in place; a `g-p-` id is a 404
+since ruling 56), `POST /projects/{id}/dismiss` ("Remove from my projects"), `PATCH /projects/{id}` {name?, description?},
 `POST /projects/{id}/pages` {entity, remove?} (Pages in this project; a repository page is one of its repositories,
 ruling 53, and its removal unlinks it — remembered — and says "Not part of it"; `project_ownership.attach`),
 `POST /projects/{id}/conversations` {episode, remove?} (the whole conversation — every episode of its session or source

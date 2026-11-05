@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from api.services import bank_index, history_index, markdown_parser, sleep_cycle, source_refresh, sync_state
-from api.services import github_repos
+from api.services import github_repos, handshake, project_ownership, state_dictionary
 from api.services.connections import secrets
 from api.services.connectors import ADAPTERS, github, github_auth, tier2
 
@@ -144,6 +144,9 @@ def _salted():
 
     cicada_home().mkdir(parents=True, exist_ok=True)
     (cicada_home() / workspace_identity.SALT_FILE).write_text(SALT)
+
+
+MINE = {"via": "app", "day": "2026-10-01", "by": "user"}
 
 
 def _project(memory, eid, **fm):
@@ -423,7 +426,7 @@ def test_a_project_links_its_own_checkouts_repository_by_the_hooks_salted_origin
     hashed = github_repos.remote_hash("https://github.com/bob-example/alpha-project", SALT)
     assert hashed == workspace_identity.remote_hash(
         workspace_identity.normalise_remote(b"git@github.com:bob-example/alpha-project.git"), SALT)
-    _project(bank, "renamed-thing", name="Renamed thing", born={"origin": "repo", "repo": {"remote": hashed}})
+    _project(bank, "renamed-thing", name="Renamed thing", born={"origin": "repo", "repo": {"remote": hashed}}, mine=MINE)
     _project(bank, "side-notes")
     _connect()
     assert _sync(bank, FakeGitHub())["status"] == "ok"
@@ -524,7 +527,7 @@ def test_a_project_lists_two_repositories_by_the_persons_link_and_each_links_bac
 def test_the_persons_unlink_is_remembered_and_no_automatic_link_puts_it_back(api, bank):
     _salted()
     hashed = github_repos.remote_hash("https://github.com/bob-example/alpha-project", SALT)
-    _project(bank, "renamed-thing", born={"origin": "repo", "repo": {"remote": hashed}})
+    _project(bank, "renamed-thing", born={"origin": "repo", "repo": {"remote": hashed}}, mine=MINE)
     _synced(api)
     assert markdown_parser.parse(bank / "entities" / "renamed-thing.md").frontmatter["repositories"]
     gone = api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project",
@@ -555,6 +558,68 @@ def test_a_new_project_from_a_repository_lists_it(api, bank):
     assert missing.status_code == 404 and "Repositories come in with a GitHub sync" in missing.json()["detail"]
     assert api.post("/sources/github/repos/project",
                     json={"fullName": "bob-example/side-notes", "project": "nope"}).status_code == 404
+
+
+def test_the_persons_link_starts_a_page_they_never_started_and_revives_it(api, bank):
+    """Ruling 56: linking their own repository is the person's act, and a start is a mention."""
+    _project(bank, "alpha-project", status="archived", confidence=0.15, last_referenced="2026-01-01")
+    _synced(api)
+    page = bank / "entities" / "alpha-project.md"
+    assert not project_ownership.listed(markdown_parser.parse(page).frontmatter, page)
+
+    linked = api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project",
+                                                             "project": "alpha-project"})
+    assert linked.status_code == 200 and linked.json() == {"project": "alpha-project", "created": False,
+                                                           "linked": True}, linked.text
+    fm = markdown_parser.parse(page).frontmatter
+    assert project_ownership.listed(fm, page) and fm["mine"]["via"] == project_ownership.VIA_ACCEPTED
+    assert fm["mine"]["by"] == "user" and fm["status"] == "active" and fm["confidence"] > 0.15
+    assert [r["how"] for r in fm["repositories"]] == [github_repos.HOW_USER]
+    # One commit, the start and the link together: nothing is left behind in the tree.
+    assert _git(bank, "show", "--name-only", "--format=", "HEAD").split() == ["_state.md"]   # the primer, on its own
+    assert "entities/alpha-project.md" in _git(bank, "show", "--name-only", "--format=", "HEAD~1")
+    assert "alpha-project.md" not in _git(bank, "status", "--porcelain")
+
+    # Taking the repository off again is no start and no removal from the list.
+    assert api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project",
+                                                           "project": "alpha-project", "remove": True}).json()["linked"] is False
+    assert project_ownership.listed(markdown_parser.parse(page).frontmatter, page)
+
+
+def test_only_the_persons_link_starts_a_page_and_never_one_they_took_out(api, bank):
+    _project(bank, "started-one", mine=MINE)
+    _project(bank, "taken-out")
+    _project(bank, "never-started")
+    project_ownership.dismiss(bank, "taken-out")
+    _synced(api)
+    started_before = markdown_parser.parse(bank / "entities" / "started-one.md").frontmatter["mine"]
+    full = "bob-example/alpha-project"
+
+    # Already theirs: the mark they made stays as it was.
+    assert api.post("/sources/github/repos/project", json={"fullName": full, "project": "started-one"}).status_code == 200
+    assert markdown_parser.parse(bank / "entities" / "started-one.md").frontmatter["mine"] == started_before
+
+    # Taken out: the link holds and the page stays out; adding it back is its own act.
+    assert api.post("/sources/github/repos/project", json={"fullName": full, "project": "taken-out"}).status_code == 200
+    out = bank / "entities" / "taken-out.md"
+    assert markdown_parser.parse(out).frontmatter["repositories"] and not project_ownership.listed(
+        markdown_parser.parse(out).frontmatter, out)
+
+    # An agent's link, or an unlink, on a page never started starts nothing.
+    never = bank / "entities" / "never-started.md"
+    eid = _pages(bank)[full]["id"]
+    github_repos.link(bank, "never-started", eid, by="claude-code", how="agent")
+    assert not project_ownership.listed(markdown_parser.parse(never).frontmatter, never)
+    assert api.post("/sources/github/repos/project", json={"fullName": full, "project": "never-started",
+                                                           "remove": True}).status_code == 200
+    assert not project_ownership.listed(markdown_parser.parse(never).frontmatter, never)
+
+    # A page Sleep only proposed is no project to link to: refused in words, nothing written.
+    _project(bank, "proposed-one", type="concept", proposed_type="project")
+    head = _git(bank, "rev-parse", "HEAD")
+    refused = api.post("/sources/github/repos/project", json={"fullName": full, "project": "proposed-one"})
+    assert refused.status_code == 404 and _git(bank, "rev-parse", "HEAD") == head
+    assert "repositories" not in markdown_parser.parse(bank / "entities" / "proposed-one.md").frontmatter
 
 
 def test_a_trusted_agent_links_a_repository_page_and_any_other_only_proposes(api, bank):
@@ -761,7 +826,7 @@ def test_a_project_merge_keeps_its_repositories_and_the_persons_unlink_wins(bank
 
     _salted()
     hashed = github_repos.remote_hash("https://github.com/bob-example/alpha-project", SALT)
-    _project(bank, "alpha", born={"origin": "repo", "repo": {"remote": hashed}})
+    _project(bank, "alpha", born={"origin": "repo", "repo": {"remote": hashed}}, mine=MINE)
     _project(bank, "alpha-two")
     _connect()
     _sync(bank, FakeGitHub())
@@ -1027,3 +1092,31 @@ def test_the_first_sync_runs_once_in_the_background_and_says_so(bank, monkeypatc
     asyncio.run(scenario())
     assert runs == [(bank, True)]                                   # the person's act: never gated
 
+
+def test_a_project_started_from_a_repository_reaches_the_next_primer(api, bank, monkeypatch):
+    """Ruling 56: both doors of this route refresh the note in their own commit, and a failure there fails neither."""
+    monkeypatch.setattr(handshake, "local_timezone", lambda: "UTC")
+
+    def primer():
+        bank_index.invalidate()
+        return handshake.build(state_dictionary.read_state(bank), variant="claude-code", bank="memory", tz="UTC")
+
+    _project(bank, "never-started")
+    _synced(api)
+    assert api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project",
+                                                           "project": "never-started"}).status_code == 200
+    text = primer()
+    assert text.index("- Current projects:") < text.index("`never-started`")
+    assert "_state.md" in subprocess.run(["git", "show", "--name-only", "--format=", "HEAD"], cwd=bank,
+                                         capture_output=True, text=True, check=True).stdout.split()
+
+    made = api.post("/sources/github/repos/project", json={"fullName": "bob-example/side-notes"})
+    assert made.status_code == 200 and f"`{made.json()['project']}`" in primer()
+
+    def broken(*_a, **_k):
+        raise RuntimeError("the projection broke")
+
+    monkeypatch.setattr(state_dictionary, "refresh", broken)
+    gone = api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project",
+                                                           "project": "never-started", "remove": True})
+    assert gone.status_code == 200

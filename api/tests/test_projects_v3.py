@@ -125,7 +125,7 @@ def test_a_trusted_harness_ties_at_once_with_its_name_and_trailers(bank):
     reply = str(mcp_tools.link_entity(_ctx(bank), "alpha-project", "delta-tool", reason="Alpha runs on it."))
     assert "Tied delta-tool" in reply
     assert _fm(bank, "alpha-project")["entities_added"] == [
-        {"entity": "delta-tool", "by": "claude-code", "session": "ses_test"}]
+        {"entity": "delta-tool", "by": "claude-code", "session": "ses_test", "reason": "Alpha runs on it."}]
     row = _pages(bank)["delta-tool"]
     assert row.tie == "agent" and row.by == "claude-code"
     log = _git(bank, "log", "-1", "--format=%B")
@@ -233,8 +233,10 @@ def test_new_project_attaches_pages_of_every_kind_in_one_person_commit(client, b
                                        "pages": ["delta-tool", "talk-video", "alpha-repo", "Carol Example"]})
     assert r.status_code == 200, r.text
     eid = r.json()["id"]
-    assert int(_git(bank, "rev-list", "--count", "HEAD")) == int(before) + 1      # one commit for all of it
-    message = _git(bank, "log", "-1", "--format=%B")
+    # One commit for all of it, then the primer's own, alone.
+    assert int(_git(bank, "rev-list", "--count", "HEAD")) == int(before) + 2
+    assert _git(bank, "show", "--name-only", "--format=", "HEAD").split() == ["_state.md"]
+    message = _git(bank, "log", "-1", "--skip=1", "--format=%B")
     assert "Cicada-Author: user" in message and "trigger: user/companion_app" in message
     assert f"entities/{eid}.md: created" in message and "entities/alpha-repo.md: updated" in message
     fm = _fm(bank, eid)

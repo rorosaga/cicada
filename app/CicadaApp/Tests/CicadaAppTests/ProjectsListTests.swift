@@ -21,11 +21,22 @@ final class ProjectsListTests: XCTestCase {
         return try JSONDecoder().decode(ProjectsResponse.self, from: data).projects
     }
 
+    /// `count` projects never heard from, the rows that sit under "Nothing heard yet"; synthetic, because the demo's wire
+    /// carries only Bob's own since ruling 56 and all three are in motion.
+    private func unheardRows(_ count: Int) throws -> [ProjectRow] {
+        let objects: [[String: Any]] = (0..<count).map { i in
+            ["id": i == 0 ? "delta-project" : "unheard-\(i)", "name": "Unheard Example \(i)", "status": "active",
+             "oneLiner": "A synthetic project."]
+        }
+        let data = try JSONSerialization.data(withJSONObject: ["projects": objects])
+        return try JSONDecoder().decode(ProjectsResponse.self, from: data).projects
+    }
+
     func testTwoTabsCurrentAndPast() throws {
-        let rows = try rows()
+        let rows = try rows() + unheardRows(9)
         let tabs = ProjectsModel.tabs(ProjectsModel.counts(rows, today: today))
         XCTAssertEqual(tabs.map(\.label), ["Current", "Past"])
-        XCTAssertEqual(tabs.map(\.count), [6, 9], "nine demo projects were never heard from: they are past")
+        XCTAssertEqual(tabs.map(\.count), [3, 9], "nine projects never heard from: they are past")
         XCTAssertEqual(ProjectsModel.defaultTab(ProjectsModel.counts(rows, today: today)), .current)
         XCTAssertEqual(ProjectsModel.defaultTab(ProjectsModel.counts(rows, today: today.adding(400))), .past,
                        "nothing current: the page opens on Past")
@@ -39,13 +50,12 @@ final class ProjectsListTests: XCTestCase {
     func testPartsAreAlwaysShownUnderTheirParent() throws {
         let rows = try rows()
         let entries = ProjectsModel.entries(rows, tab: .current, query: "", today: today)
-        XCTAssertEqual(ids(entries), ["rover-arm-project", "pick-and-place-demo", "alpha-project", "beta-project",
-                                      "gamma-project", "garden-sensor-project"])
-        XCTAssertEqual(entries.compactMap(\.line).map(\.depth), [0, 1, 0, 1, 0, 0])
-        XCTAssertEqual(entries.compactMap(\.line).map(\.children), [1, 0, 1, 0, 0, 0])
+        XCTAssertEqual(ids(entries), ["rover-arm-project", "pick-and-place-demo", "garden-sensor-project"])
+        XCTAssertEqual(entries.compactMap(\.line).map(\.depth), [0, 1, 0])
+        XCTAssertEqual(entries.compactMap(\.line).map(\.children), [1, 0, 0])
 
-        let found = ProjectsModel.entries(rows, tab: .current, query: "Beta", today: today)
-        XCTAssertEqual(ids(found), ["beta-project"])
+        let found = ProjectsModel.entries(rows, tab: .current, query: "And Place", today: today)
+        XCTAssertEqual(ids(found), ["pick-and-place-demo"])
         XCTAssertEqual(found.first?.line?.depth, 0, "a part whose parent is not shown sits flat")
     }
 
@@ -81,7 +91,7 @@ final class ProjectsListTests: XCTestCase {
         XCTAssertEqual(found.compactMap(\.line).map(\.id), ["past-117"], "find reaches past the page")
         XCTAssertEqual(Copy.Projects.showMore(50, left: 70), "Show 50 more · 70 not shown")
 
-        let demo = ProjectsModel.entries(try self.rows(), tab: .past, query: "", today: today)
+        let demo = ProjectsModel.entries(try self.rows() + unheardRows(9), tab: .past, query: "", today: today)
         XCTAssertEqual(demo.first, .year("Nothing heard yet"))
         XCTAssertEqual(demo.compactMap(\.line).count, 9)
         XCTAssertFalse(demo.contains { if case .more = $0 { true } else { false } })
@@ -103,7 +113,7 @@ final class ProjectsListTests: XCTestCase {
         XCTAssertEqual(ProjectsModel.accessibilityLabel(garden, today: today, locale: us),
                        "Garden Sensor Project, Heard 9 days ago")
 
-        let past = ProjectsModel.entries(try rows(), tab: .past, query: "", today: today).compactMap(\.line)
+        let past = ProjectsModel.entries(try unheardRows(1), tab: .past, query: "", today: today).compactMap(\.line)
         XCTAssertEqual(ProjectsModel.standing(try XCTUnwrap(past.first), today: today, locale: us), "",
                        "under the Nothing heard yet label a row says nothing more")
         let old = try pastRows(1, from: ISODay(year: 2025, month: 3, day: 3))
@@ -118,7 +128,7 @@ final class ProjectsListTests: XCTestCase {
 
     /// A ⌘K landing on a project the list hides draws its row first: its tab, Fading, its parents, enough of Past.
     func testRevealDrawsAHiddenProject() throws {
-        let rows = try rows()
+        let rows = try rows() + unheardRows(1)
         XCTAssertEqual(ProjectsModel.reveal("pick-and-place-demo", rows: rows, today: today, pastLimit: 50),
                        .init(tab: .current, pastLimit: nil))
         XCTAssertEqual(ProjectsModel.reveal("delta-project", rows: rows, today: today, pastLimit: 50),

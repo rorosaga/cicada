@@ -226,7 +226,7 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_add_backlog_note": lambda c, a: mcp_tools.add_backlog_note(
         c, str(a.get("item") or ""), str(a.get("note") or ""), a.get("status")),
     "cicada_create_project": lambda c, a: mcp_tools.create_project(
-        c, str(a.get("project") or ""), a.get("description"), a.get("evidence"), a.get("repo")),
+        c, str(a.get("project") or ""), a.get("description"), a.get("evidence"), a.get("repo"), a.get("reason")),
     "cicada_link_conversation": lambda c, a: mcp_tools.link_conversation(
         c, str(a.get("project") or ""), a.get("episode"), a.get("session"), bool(a.get("remove", False)),
         a.get("reason")),
