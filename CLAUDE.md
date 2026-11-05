@@ -309,10 +309,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **Ruling 42 (owner 2026-10-27):** one conversation is enough for a specific event, program or application the person
   — or a harness agent, for them — acted on (applied, registered, filled its form), measured on the conversation; the
   application lives on that page, the owner's keeps only the link (`application_page`, `capture-and-sleep.md`).
-  A Stage-4 skill needs 2+ conversations too; one is held in its own store, `skill_hold` (G112, owner 2026-10-09).
+  A skill needs 2+ conversations too (two notes count, ruling 65); one is held in its own store, `skill_hold` (G112, owner 2026-10-09).
   A speaker's self-reference ("the user", "me", "yo"…) is the owner's page, never a page of its own (G169).
   **"Same person?" (owner 2026-11-04):** never the owner's page without the person's own words naming themselves so;
-  two people only on a conversation naming both, its evidence; the guess ≤ 0.8 (`pair_evidence`, `capture-and-sleep.md`).
+  two people only on a conversation naming both, its evidence, and names sharing nothing only on a line that suggests one person (ruling 65); the guess ≤ 0.8 (`pair_evidence`, `capture-and-sleep.md`).
   A person known only by a relation to the owner is titled by the relation, never the owner's name, and asked their
   name; it is merged only on the person's answer or evidence on the record (`role_people`, `capture-and-sleep.md`).
 - **Temporal decay is a signal; age counts from when it was said** (owner 2026-10-09/13, amends G170): what the

@@ -2662,9 +2662,8 @@ else stays a mention in the index (`pending_store`), never lost, and comes back 
   the organic close (`check_organic_resolution`), since a confident later mention says nothing about the stake. The person's
   answer closes it, or their own located words (`inbox_tend`, ruling 29). A stake said on a question already open is added to
   that card (`ClarificationManager.create`).
-- **Open for the owner (proposed ruling 65):** a public thing with `ask_person` is never looked up, a narrow exception to
-  ruling 27; and `ask_person` on a name that matches an existing page raises no question, only `ask` in the hold and create
-  branches does.
+- **Ruling 65 (owner 2026-11-05):** a question rests on the model's stake, and a thing still in motion that will matter later is one (an ongoing project whose owner or status is left unclear); a list of names with nothing depending on them is not. A stake on an existing page raises its question under the page's name, never on the owner's page; `ClarificationManager.create` keeps one open per name. An answered question leaves no record, so a later stake on that page can ask again. A public thing with `ask_person` is never looked up, a narrow exception to ruling 27.
+- **Two people with nothing tying their names (ruling 65 c):** being named together is evidence they are two. The judge's UNSURE (no lead of its own) on names sharing no spelling, word or close spelling, on no alias, asks only on a line naming both, and the judge is told to say UNSURE only when what is said suggests one person (`pair_evidence.names_tied`, `lines_naming_both`, reason `names_unrelated`). Older questions are not retired by this.
 - **"Is A the same as B?" takes a reason on the record.** The judge's UNSURE (`_UNSURE_GUIDELINE`, both prompts) is told it
   puts a question in front of the person, and that names which look alike or little to go on are DIFFERENT: two entries,
   nothing lost, a later conversation can join them. It used to be told "if you are hesitating, return UNSURE", on leads that
@@ -2684,7 +2683,7 @@ Entities are NOT extracted from every mention — that pollutes the graph. First
 vector index only; promotion needs **2+ separate conversations**, OR substantive discussion (>3
 exchanges) in one, OR an explicit link to an existing high-confidence entity.
 
-**A skill takes two conversations by either door (G239, proposed ruling 65).** A note's lines are all the person's own, so a
+**A skill takes two conversations by either door (G239, ruling 65).** A note's lines are all the person's own, so a
 phrase Stage 1 typed `skill` and linked to any page got one from a single note. A Stage-1 skill now waits in the index until
 a second conversation names it; the one-conversation rungs do not apply to it. Stage 4 keeps `skill_hold`, and its prompt
 now asks for what an agent could follow to work the way this person does: "relationship patterns" (what comes up together)

@@ -16,11 +16,9 @@
   conversations and raised 25 questions; the causes were proxies standing in for the model's judgement. Stage 1 now says what
   rests on a question, the judge is told what UNSURE costs and reads the lines naming both, Stage 4 asks for how the person
   works. Two real Sleeps a side on invented notes: questions 7, 6 to 4, 3, noise 5, 4 to 1, 1, phrase `skill` pages 3, 2 to 0, 0,
-  the question that matters 0 of 2 to 2 of 2. Nothing has run on the real bank. **The owner decides (proposed ruling 65):** questions on the model's stake rather
-  than a low confidence, and a Stage-1 skill on 2+ conversations. On yes, CLAUDE.md's "A Stage-4 skill" line says "A skill".
-  **Within it, for him to rule on:** a public thing that gets `ask_person` stays with the person and is never looked up (`web_settle.py`, `person_context`), a narrow exception to ruling 27; and `ask_person` on a name matching an existing page raises no question. A question asked on purpose is closed only by the person's answer or their own located words (ruling 29), never by a later confident mention.
-  **Also his:** whether two notes should ground a Stage-4 skill, and whether the existing person questions should be tidied by a new rule; `passing_rule` and `_merge_rule` keep
-  them, by design. `POST /inbox/tidy?dryRun=true` on a copy counts what the rules already close.
+  the question that matters 0 of 2 to 2 of 2. Nothing has run on the real bank. **Decided (ruling 65, owner 2026-11-05):** questions on the model's stake, a thing in motion counting; any skill on 2+ conversations.
+  **Within it, for him to rule on:** a public thing that gets `ask_person` stays with the person and is never looked up (`web_settle.py`, `person_context`), a narrow exception to ruling 27. A question asked on purpose is closed only by the person's answer or their own located words (ruling 29), never by a later confident mention.
+  Two notes ground a skill; no new tidy rule for existing person questions (`passing_rule`, `_merge_rule` keep them; a new bank is planned).
 - **2026-11-05 — the Stage 2 stall (G238, PR #620).** A scheduled Sleep held the event loop about 7 minutes at 8,500
   pages: a parse of the whole pending store per project page per project name with no page. Fixed and moved off the
   loop. **For the owner:** the auto-updater reads a timed-out `/sleep/status` as nothing running, so a stall past 2 s lets
@@ -3532,6 +3530,17 @@ A whole row moves to DONE only after its remaining implementation and required a
     while waiting costs a late update. The record is the drain's own progress; CPU was rejected because a drain waiting
     on a model looks idle. The person's click may go past Sleep on one line naming the cost; an automatic install never
     does. **Revisit** if a batch is measured past two hours, or a hung backend is seen holding an update.
+65. **A question rests on the model's stated stake; any skill takes 2+ conversations (owner, 2026-11-05; G239, PR #623).**
+   The owner: "I don't think that with stuff like this there is any benefit of answering when nothing really depends on it.
+   Tho there are some questions like an ongoing project that may not be relevant right now, but will be in the future, maybe
+   these are important to resolve." (a) Stage 1 says what rests on a question (`ask_person`); a low confidence asks nothing;
+   a thing still in motion that will matter later is a stake, a list of names with nothing depending on them is not. A stake
+   on an existing page raises its question there, one open per name. (b) Any skill needs 2+ conversations, and two notes count
+   as two. (c) Naming two people together is evidence they are two: the judge's UNSURE on names sharing nothing asks only on
+   a line naming both that the judge reads as one person (`pair_evidence.names_tied`). A one-way alias with no such line asks
+   nothing and goes on by the usual rule. (d) No new tidy rule for older person questions: the owner plans a new consolidation
+   bank. Trigger to revisit: a real run where a stake that mattered went unasked, measured.
+
 64. **What the person marked in a book is their own record: kept word for word, read for what it shares, and it lights the
     page (owner, 2026-11-04; G39, G233, ROR-95; amends the quiet rule of 2026-10-20).** The owner tested Apple Books on their
     real library and said yes to three changes. **(a) Word for word, no model.** Each highlight and note is a claim on the
