@@ -991,7 +991,7 @@
    "replaces_bundled": [],
    "license": "CC0 for the vector as published by simple-icons; the mark stays its owner's, nominative use only",
    "trademark": "Trademark of Substack Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "Substack's own site serves this shape only inside a wide empty margin (substack.com/img/substack.png), too small in a tile; the same shape as a vector, in the orange that file uses."
+   "note": "Substack's own site serves this shape only inside a wide empty margin (substack.com/img/substack.png), too small in a tile; the same shape as a vector, with the fill #FF6719 added: the colour that file uses."
   },
   {
    "slug": "goodreads",

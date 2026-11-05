@@ -3,7 +3,7 @@
 50 marks, one per provider umbrella (45 on 2026-10-22; Substack, Goodreads, Vivaldi and Dia added 2026-11-05, ROR-107), each from the highest source on this ladder that had a
 faithful SVG or a PNG of at least 256 px: the brand's own site icon or app icon → its official
 GitHub assets → lobehub/lobe-icons (`@lobehub/icons-static-svg@1.97.0`) → svgl (pheralb/svgl @
-`f9b726c`) → simple-icons (16.35.0, mono). simple-icons was never needed. Two marks come from
+`f9b726c`) → simple-icons (16.35.0, mono). simple-icons was never needed in that set; Substack (2026-11-05) is its vector with the fill `#FF6719` added, the colour of Substack's own PNG, whose wide margin is too small in a tile. Two marks come from
 Wikimedia Commons (Scholar, RSS); in both cases there is no better official file, and they match
 what the owner's site serves.
 
