@@ -50,7 +50,7 @@ final class AppleNotesReaderTests: XCTestCase {
 
     /// The owner's "never requested": no event may name a note's `plaintext` (or anything else about it) except through
     /// the filter Notes evaluates itself. Filtering a bulk read afterwards would already have asked for the body.
-    func testTheScriptNeverRequestsAnythingButAnIdOfALockedNote() {
+    func testTheScriptNeverRequestsAnythingButAnIdAndANameOfALockedNote() {
         let script = AppleNotesReader.script
         XCTAssertFalse(script.contains("of every note of fld"), "an unfiltered bulk read asks for locked notes too")
         for property in ["id", "name", "plaintext", "creation date", "modification date"] {

@@ -441,8 +441,28 @@ def test_the_vectors_are_dropped_at_the_retirement_not_at_the_next_sleep(memory,
     assert asked == [((), (stem,))]
 
 
+def test_what_sleep_already_derived_stays_until_the_person_decides(read_then_locked):
+    """The limit, pinned: a retirement touches no page. A claim's own text is the bank's words (`capture-and-sleep.md`)."""
+    _memory, _ep, page = read_then_locked
+    assert "a safe summary" in page.read_text(encoding="utf-8")
+
+
+def test_the_retirement_commit_carries_the_kept_file_and_names_nothing(memory):
+    subprocess.run(["git", "init", "-q"], cwd=memory, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@e", "commit", "-q", "--allow-empty", "-m", "0"],
+                   cwd=memory, check=True)
+    run(notes_sync.sync_notes(memory, dump=_record("id-before", SECRET, name=TITLE)))
+    run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"], locked_keys=[notes_sync.locked_key(TITLE)]))
+    stem = _episodes(memory)[0].stem
+    log = subprocess.run(["git", "log", "-1", "--format=%B", "--name-only"], cwd=memory, capture_output=True, text=True).stdout
+    assert f"sources/{notes_sync.KEPT_DIRNAME}/{stem}{notes_sync.KEPT_SUFFIX}" in log and f"episodes/{stem}.md" in log
+    assert TITLE not in log and SECRET not in log
+    assert subprocess.run(["git", "status", "--short"], cwd=memory, capture_output=True, text=True).stdout == ""
+
+
 def test_mcp_sources_says_locked(read_then_locked):
     memory, ep, _page = read_then_locked
     ctx = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="ses_l", harness="claude-code")
     _clean(str(mcp_tools.sources(ctx, ep)))
     _clean(str(mcp_tools.recall_detail(ctx, "alpha-project")))
+    assert "No entities found" in str(mcp_tools.recall(ctx, SECRET))   # the reply repeats only the query

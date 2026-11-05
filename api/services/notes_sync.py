@@ -436,7 +436,8 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
     "excluded": int, "locked": int, "retired": int}``.
 
     G234: a record whose id is in ``locked_ids`` is dropped whatever it carries, and every episode of that note is
-    retired. A record with no text is never staged either. An older app sends no ``locked_ids``, so its blank records
+    retired; ``locked_keys`` (`locked_key`) find what was kept under an id the note had before its lock. A record with no
+    text is never staged either. An older app sends no ``locked_ids``, so its blank records
     are taken as locked (that is what Notes returned for a locked note); what it cannot be protected from is a body it
     reads while a locked note is open, which looks like any other note.
 
