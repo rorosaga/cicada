@@ -38,6 +38,42 @@ FEEDS_FILENAME = "feeds.yaml"
 
 FetchFn = Callable[[str], "str | Awaitable[str]"]
 
+#: ROR-108 — what a feed's last poll came to when it failed, kept on its record as ``last_problem`` (a code, never a
+#: fetch error's text) and said on the feed's row in these words.
+POLL_PROBLEMS = {
+    "rate_limited": "too many requests",
+    "refused": "the site refused",
+    "gone": "not found",
+    "server": "site error",
+    "unreachable": "couldn't reach it",
+    "not_a_feed": "not a feed",
+}
+
+
+def feed_id(url: str) -> str:
+    """A followed feed's id on the wire and on its items' ``url_index`` rows: its normalized URL's hash."""
+    return media_ingestor.url_hash(url)
+
+
+def poll_problem(error: Exception) -> str:
+    """The ``POLL_PROBLEMS`` code of a failed poll, read from the exception's type and HTTP status alone."""
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    if status == 429:
+        return "rate_limited"
+    if status in (401, 402, 403, 407, 451):
+        return "refused"
+    if status in (404, 410):
+        return "gone"
+    if isinstance(status, int) and status >= 500:
+        return "server"
+    return "unreachable"
+
+
+def problem_words(record: dict) -> str | None:
+    """What the row says about a feed whose last poll failed; ``None`` when it did not."""
+    words = POLL_PROBLEMS.get(str(record.get("last_problem") or ""))
+    return f"Last check failed: {words}" if words else None
+
 
 # --- Registry file I/O -------------------------------------------------
 
@@ -266,6 +302,7 @@ async def poll_feeds(
     per_feed: list[dict] = []
     polled = 0
     total_new = 0
+    stamped = False
     today = datetime.now().strftime("%Y-%m-%d")
 
     for feed in feeds:
@@ -275,14 +312,25 @@ async def poll_feeds(
             created, duplicates = await media_ingestor.ingest_feed(
                 xml, memory_path, commit=False
             )
+            # ROR-108: which feed each listed item came from, and the feed's own name while its record has none.
+            listed = media_ingestor.parse_rss(xml)
+            stamped = media_ingestor.stamp_feed(memory_path, listed, feed_id(url)) or stamped
+            if not feed.get("title") and listed and listed[0].channel:
+                feed["title"] = listed[0].channel
         except Exception as e:
             logger.warning(f"Feed poll failed for {url}: {type(e).__name__}: {e}")
             per_feed.append({"url": url, "status": "error", "error": str(e)})
             feed["last_polled"] = today
+            feed["last_problem"] = poll_problem(e)
             polled += 1
             continue
 
         feed["last_polled"] = today
+        # A body that is no feed polled "ok" with nothing new (the poll's answer stays that); its row says so.
+        if media_ingestor.is_feed_document(xml):
+            feed.pop("last_problem", None)
+        else:
+            feed["last_problem"] = "not_a_feed"
         polled += 1
         total_new += created
         per_feed.append(
@@ -297,7 +345,7 @@ async def poll_feeds(
     # (``git add -A``) then swept the registry into a model-authored commit
     # (G114 final review). The H1 clean-tree guard in the Sleep tail is what
     # makes this ``git add -A`` safe: it only ever runs on a committed tree.
-    if total_new or registry_changed:
+    if total_new or registry_changed or stamped:
         try:
             await _commit_poll(memory_path, total_new, polled)
         except Exception as e:
