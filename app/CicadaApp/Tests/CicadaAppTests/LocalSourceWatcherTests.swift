@@ -101,6 +101,7 @@ final class LocalSourceWatcherTests: XCTestCase {
 
     private func make(_ api: FakeLocalSourcesAPI, lights: BrowserWatcher,
                       retryDelay: Duration = .seconds(2),
+                      wisprOffered: Bool = SourceCatalog.wisprOffered,
                       makeWatch: FolderWatchFactory? = nil) -> LocalSourceWatcher {
         let root = self.root!
         // Manifests live beside the watched folder, not in it: a mode-000 root
@@ -109,9 +110,37 @@ final class LocalSourceWatcherTests: XCTestCase {
             lights: lights, api: api, defaults: defaults,
             manifests: FolderManifestStore(directory: root.deletingLastPathComponent()
                 .appendingPathComponent(root.lastPathComponent + "-manifests")),
-            wisprRoot: root.appendingPathComponent("no-wispr"),
+            wisprRoot: root.appendingPathComponent("no-wispr"), wisprOffered: wisprOffered,
             debounce: .seconds(60), minimumInterval: .zero, retryDelay: retryDelay, resolveRoot: { _ in root },
             makeWatch: makeWatch)
+    }
+
+    /// Owner 2026-11-04 ("remove wisprflow also from sources for now"): off the offer, someone already connected is read
+    /// no more — no pass, no light, and Refresh never says Synced — and their setting stays, so the flag brings it back.
+    func testATurnedOnWisprFlowIsReadOnlyWhileItIsOnOffer() async throws {
+        let api = FakeLocalSourcesAPI(folders: [])
+        _ = try await api.saveWisprSettings(WisprFlowSettings(enabled: true))
+
+        let hiddenLights = BrowserWatcher(defaults: defaults, channels: [])
+        let hidden = make(api, lights: hiddenLights, wisprOffered: false)
+        await hidden.reload(bank: "default")
+        XCTAssertTrue(hidden.wisprSettings.enabled, "the person's setting is kept")
+        XCTAssertNil(hidden.wisprError, "the reader never ran")
+        XCTAssertNil(hiddenLights.state(for: LocalSourceWatcher.wisprChannel))
+        await hidden.syncWispr()
+        XCTAssertNil(hidden.wisprError)
+        do {
+            _ = try await hidden.syncWisprNowReporting()
+            XCTFail("a reader that does not run must not report a sync")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, LocalSourceCopy.wisprTurnedOff)
+        }
+
+        let offeredLights = BrowserWatcher(defaults: defaults, channels: [])
+        let offered = make(api, lights: offeredLights, wisprOffered: true)
+        await offered.reload(bank: "default")
+        XCTAssertNotNil(offered.wisprError, "on offer, the same setting reads, and finds no database here")
+        XCTAssertNotNil(offeredLights.state(for: LocalSourceWatcher.wisprChannel))
     }
 
     private var alpha: FolderRegistration {

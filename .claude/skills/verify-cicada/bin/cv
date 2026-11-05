@@ -303,12 +303,18 @@ def stop_role(run: dict, role: str) -> None:
 
 #: What `launch --env` may set: a feature's own switches, never a credential, a path or an engine.
 LAUNCH_ENV_PREFIXES = ("CICADA_AWAKE_",)
+#: The one network switch a run may open, for a proof of what Sleep itself fetches (the settling step, ruling 54): only to
+#: "on", and only for what is in the scratch bank. The other gates stay off.
+LAUNCH_ENV_EXACT = {"CICADA_ALLOW_CONNECTOR_FETCH": "on"}
 
 
 def launch_env(pairs: list[str] | None) -> dict:
     out = {}
     for pair in pairs or []:
         key, sep, value = pair.partition("=")
+        if sep and LAUNCH_ENV_EXACT.get(key) == value:
+            out[key] = value
+            continue
         if not sep or not key.startswith(LAUNCH_ENV_PREFIXES) or forbidden(value):
             die(f"--env {pair!r}: only KEY=VALUE with a key starting {' or '.join(LAUNCH_ENV_PREFIXES)}")
         out[key] = value
@@ -665,9 +671,16 @@ def cmd_sleep(args) -> None:
         die("Sleep did not complete cleanly: " + "; ".join(problems))
 
 
-def mcp_session(run: dict, requests: list[dict], *, transcript: Path, timeout: float) -> list[dict]:
-    """The real stdio path: spawn mcp/server.py, `initialize`, `notifications/initialized`, then each request."""
-    env = env_for(run, extra={"CICADA_SESSION_ID": f"verify-{run['run_id']}", "CICADA_SESSION_HARNESS": "verify"})
+def mcp_session(run: dict, requests: list[dict], *, transcript: Path, timeout: float, client: str | None = None,
+                claude_code_session: str | None = None) -> list[dict]:
+    """The real stdio path: spawn mcp/server.py, `initialize`, `notifications/initialized`, then each request. ``client``
+    names itself as that app does, with no session in the environment, as an app that names none (ruling 57);
+    ``claude_code_session`` adds what Claude Code injects whatever it calls itself."""
+    if client is None:
+        extra = {"CICADA_SESSION_ID": f"verify-{run['run_id']}", "CICADA_SESSION_HARNESS": "verify"}
+    else:
+        extra = {"CLAUDE_CODE_SESSION_ID": claude_code_session} if claude_code_session else {}
+    env = env_for(run, extra=extra)
     stderr_path = transcript.with_suffix(".stderr.txt")
     with open(stderr_path, "w") as err:
         proc = subprocess.Popen([run["python"], str(Path(run["worktree"]) / "mcp/server.py")], cwd=run["run_dir"],
@@ -714,7 +727,7 @@ def mcp_session(run: dict, requests: list[dict], *, transcript: Path, timeout: f
     try:
         answers.append(send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
                              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
-                                        "clientInfo": {"name": "verify-cicada", "version": "1"}}}, True))
+                                        "clientInfo": {"name": client or "verify-cicada", "version": "1"}}}, True))
         send({"jsonrpc": "2.0", "method": "notifications/initialized"}, False)
         for i, req in enumerate(requests, start=2):
             answers.append(send({"jsonrpc": "2.0", "id": i, **req}, True))
@@ -747,7 +760,8 @@ def cmd_mcp(args) -> None:
     else:
         reqs = []
     name = args.save or f"mcp/{now_id()}-{args.tool or args.verb}.jsonl"
-    answers = mcp_session(run, reqs, transcript=evidence(run, name), timeout=args.timeout)
+    answers = mcp_session(run, reqs, transcript=evidence(run, name), timeout=args.timeout, client=args.client,
+                          claude_code_session=args.claude_code_session)
     last = answers[-1]
     if args.verb == "list":
         print("\n".join(t["name"] for t in last["result"]["tools"]))
@@ -1248,7 +1262,7 @@ def main() -> None:
     s.add_argument("--no-owner", action="store_true",
                    help=f"leave the owner unnamed (default: named {PLACEHOLDER_OWNER!r})")
     s.add_argument("--env", action="append", metavar="KEY=VALUE",
-                   help="a feature switch for the backend (CICADA_AWAKE_* only), e.g. CICADA_AWAKE_READ=on")
+                   help="a feature switch for the backend (CICADA_AWAKE_*, or CICADA_ALLOW_CONNECTOR_FETCH=on)")
     s.set_defaults(fn=cmd_launch)
 
     s = sub.add_parser("doctor", parents=[run_opt], help="read-only: is this run worth driving?")
@@ -1297,6 +1311,8 @@ def main() -> None:
     s.add_argument("arguments", nargs="?")
     s.add_argument("--save")
     s.add_argument("--timeout", type=float, default=120, help="seconds to wait for each answer")
+    s.add_argument("--client", help="the clientInfo name to connect as, with no session in the environment")
+    s.add_argument("--claude-code-session", help="with --client: the session id Claude Code injects")
     s.set_defaults(fn=cmd_mcp)
 
     s = sub.add_parser("cli", parents=[run_opt],

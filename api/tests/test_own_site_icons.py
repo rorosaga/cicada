@@ -687,7 +687,8 @@ def test_rows_carry_the_site_key_their_mark_is_drawn_under(episodes, monkeypatch
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(episodes))
     config.get_settings.cache_clear()
     try:
-        rows = {r["id"]: r for r in TestClient(main.app).get("/sleep/episodes?processed=false").json()}
+        # Every row, read or not: a bare save waits for nothing (ruling 62), so it is no longer a `processed=false` row.
+        rows = {r["id"]: r for r in TestClient(main.app).get("/sleep/episodes").json()}
         assert rows["ep_2026-10-01_1"]["site"] == "paperfold.io"
         assert rows["ep_2026-10-01_5"]["site"] == "linkedin", "a walled family keys its bundled mark"
         assert rows["ep_2026-10-01_2"]["site"] is None, "a conversation's row keeps its harness mark"

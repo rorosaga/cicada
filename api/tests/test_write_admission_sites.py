@@ -373,6 +373,7 @@ REMOTE = "remote: runs one remote tool through RemoteRuntime.call, which takes a
 ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /ask": (NONE, None),
     "POST /inbox/{item_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
+    "POST /sensitive/remove": (ADMITTED, None),   # G235: the person's Remove, run_admitted in the route itself
     # Ruling 48 (8): the catch-up chat's turn reads and calls the engine, writing nothing (its answer is applied
     # through /resolve above); its record is one source-keyed episode per session (capture-shaped, never a page).
     "POST /inbox/catchup/turn": (NONE, None),
@@ -494,6 +495,9 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # the app sends it once and a 409 would keep a disconnected address book's cards. It stamps a forget marker that
     # every Sleep read of the waiting set honours (Stage 2's index, Stage 5's seed, the rematch and its save back).
     "DELETE /sources/contacts-local/waiting": (MARKED, None),
+    # G154: the Contacts page's faces, outside every bank and read by no match; its forget is the same forget.
+    "PUT /sources/contacts-local/book": (OUTSIDE, None),
+    "DELETE /sources/contacts-local/book": (MARKED, None),
     # The LinkedIn forget is the person's click in a panel that shows a refusal in words: admitted, 409 while Sleep's
     # tail may be reading the kept export.
     "DELETE /sources/linkedin-connections": (ADMITTED, None),
@@ -523,6 +527,9 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/apple-books/sync": (HELD, "api.services.book_jobs.apply_admitted"),
     "POST /sources/goodreads/import": (HELD, "api.services.book_jobs.apply_admitted"),
     "PUT /sources/apple-books/settings": (REGISTRY, None),
+    # Ruling 61: covers kept outside every bank, each page's stamp by the same apply; a take-back inside admission.
+    "POST /sources/apple-books/covers": (HELD, "api.services.book_jobs.apply_admitted"),
+    "POST /entities/{entity_id}/book-status/undo": (HELD, "api.services.write_admission.run_admitted"),
     "POST /sources/goodreads/preview": (NONE, None),
     "POST /capture/note": (CAPTURE, None),   # G212: a note a device sent, staged like every source-keyed capture
     # G91 (ruling 38): a device's shared photo or file — its episode staged like a note, its bytes outside every bank.
@@ -561,6 +568,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /pair": (OUTSIDE, None),
     "POST /devices/me/key": (OUTSIDE, None),   # 2026-10-29: a device binds its own key, in $CICADA_HOME
     "POST /devices/reach/serve": (OUTSIDE, None),   # 2026-10-29: the person's click runs one tailnet serve, no bank
+    "POST /remote/funnel": (OUTSIDE, None),         # ruling 59: the person's click runs one funnel of the connector, no bank
     "POST /devices": (OUTSIDE, None),
     "DELETE /devices/{device_id}": (OUTSIDE, None),
     # G132 phase 1: the publishing switch ($CICADA_HOME/sync/settings.json) and "publish from here" (the log's sidecar).
@@ -672,6 +680,7 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_save_url": (ADMITTED, "save_url"),                  # backend up: POST /sources/save admits itself
     "cicada_resolve_inbox": (ADMITTED, None),                   # posts to /inbox/{id}/resolve, which admits
     "cicada_save_episode": (CAPTURE, None),
+    "cicada_capture_turns": (CAPTURE, None),                    # ruling 57: the hook's writer, no commit, no Sleep gate
     "cicada_mark_processed": (CAPTURE, None),                   # an episode's cursor, revision-checked (A01)
     "cicada_video_claim": (OUTSIDE, None),
     # G166 exploring: the claim and the start touch only the queue file outside the bank; the record writes the

@@ -199,7 +199,8 @@ def test_get_carries_prices_only_in_usage_fields_and_never_a_token_count(client)
 
     paths = list(walk(body))
     priced = [p for p in paths if "price" in p.lower() or "cost" in p.lower() or "usd" in p.lower()]
-    assert all(".usage" in p or ".modelPrices" in p for p in priced), priced
+    # The person's own spending limit is a figure for the engine menu, ruling 12's home, and never a price (ROR-102).
+    assert all(".usage" in p or ".modelPrices" in p or p == ".spend.limitUsd" for p in priced), priced
 
 
 # --- R-AG12 / R-AG13: the OpenRouter card, the key-provider list, the selected card ---
@@ -246,7 +247,7 @@ def test_openrouter_is_never_a_mode(client):
 def test_a_provider_pick_writes_its_default_and_its_own_judge(client):
     body = client.put("/sleep/engine", json={"mode": "byok", "model": "anthropic/claude-haiku-4-5"}).json()
     assert (body["selected"], body["provider"], body["disambiguationModel"]) == \
-        ("byok", "anthropic", "anthropic/claude-haiku-4-5")
+        ("byok", "anthropic", "anthropic/claude-haiku-5-5")   # G237: a Claude key's judge is the small tier
 
 
 def test_a_malformed_key_model_is_refused(client):
@@ -260,7 +261,7 @@ def test_from_openrouter_the_api_key_card_writes_a_key_model(client):
     assert next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "byok")["models"] == []
     client.put("/sleep/engine", json={"mode": "byok", "model": "openrouter/openai/gpt-oss-120b"})
     key = next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "byok")
-    assert key["models"] == ["anthropic/claude-haiku-4-5"]      # no key stored: the picker's first provider
+    assert key["models"] == ["anthropic/claude-haiku-5-5"]      # no key stored: the picker's first provider
     assert client.put("/sleep/engine", json={"mode": "byok", "model": key["models"][0]}).json()["selected"] == "byok"
 
 
@@ -366,7 +367,7 @@ def test_key_cards_carry_a_list_price_and_the_last_cycles_charge(client, monkeyp
     assert usage["kind"] == "list-price" and usage["inputPerMillionUsd"] == 0.4
     assert usage["outputPerMillionUsd"] == 1.6 and usage["lastCycleCostUsd"] == 0.42
     assert cards["openrouter"]["modelPrices"] == {
-        "openrouter/openai/gpt-oss-120b": {"inputPerMillionUsd": 0.4, "outputPerMillionUsd": 1.6}}
+        "openrouter/openai/gpt-oss-120b": {"inputPerMillionUsd": 0.4, "outputPerMillionUsd": 1.6, "basis": None}}
     assert cards["byok"]["usage"]["lastCycleCostUsd"] is None
     assert cards["local"]["usage"] is None and cards["auto"]["usage"] is None
 

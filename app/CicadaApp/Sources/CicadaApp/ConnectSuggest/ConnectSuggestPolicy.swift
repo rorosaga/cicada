@@ -40,9 +40,14 @@ enum ConnectSuggestApps {
         "notion.id": Target(entryId: "notion", kind: .notion),
     ]
 
+    /// False only for a source that left the offer (`SourceCatalog.wisprOffered`): no suggestion, nothing to undo.
+    static func offered(_ entryId: String) -> Bool {
+        SourceCatalog.wisprOffered || entryId != SourceCatalog.wisprChannel
+    }
+
     static func target(bundleId: String?) -> Target? {
         guard let bundleId else { return nil }
-        if let target = fixed[bundleId] { return target }
+        if let target = fixed[bundleId] { return offered(target.entryId) ? target : nil }
         if let spec = browser(bundleId: bundleId) {
             return Target(entryId: SourceCatalog.browserPrefix + spec.id, kind: .browser)
         }
@@ -79,13 +84,14 @@ enum ConnectSuggestApps {
     }
 
     /// The source's status in the active memory — the Sources catalogue's own (`SourceCatalog.status`), so the notch
-    /// and the source's row never disagree. Every supported browser and Wispr Flow are offered as entries: the app in
-    /// front is running, so it is here — Hex too (`hexPresent`), whose status is its meeting folders' (#579), so a Hex
+    /// and the source's row never disagree. Every supported browser and Wispr Flow (while on offer) are entries: the app
+    /// in front is running, so it is here — Hex too (`hexPresent`), whose status is its meeting folders' (#579), so a Hex
     /// already set up never reads Off. Nil when the catalogue has no such entry.
     static func status(of entryId: String, channels: [SourceChannel], overview: [SourceOverview],
                        localReaders: [String: Bool],
                        meetingFolders: [FolderRegistration] = []) -> SourceCatalogStatus? {
-        let entries = SourceCatalog.entries(browsers: BrowserInventory.catalog.filter(\.supported), wisprPresent: true,
+        let entries = SourceCatalog.entries(browsers: BrowserInventory.catalog.filter(\.supported),
+                                            wisprPresent: SourceCatalog.wisprOffered,
                                             hexPresent: true, meetingFolders: meetingFolders, overview: overview)
         guard let entry = entries.first(where: { $0.id == entryId }) else { return nil }
         return SourceCatalog.status(for: entry, channels: channels, overview: overview, readableSites: [],

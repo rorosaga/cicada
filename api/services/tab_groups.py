@@ -11,7 +11,8 @@ Each group is ONE snapshot episode through the G20 stager, keyed
 folded title and colour, else (an unnamed group) its session token. A changed title, colour or tab list rewrites the
 episode in place and re-queues it; a group no longer open is tombstoned — only for the browser and profile the
 request named — and un-tombstoned if it comes back (R-SR5). `collapsed` never reaches the body, so folding a group
-never re-queues it. Everything is scrubbed before it is hashed (R-N3), the frontmatter title too.
+never re-queues it. Ruling 62 (2026-11-04): a group is written read (`history_index` `saved`), so no change to it spends
+a model call; it is found by its words, and read once when the person mentions it (`saved_mentions`). Everything is scrubbed before it is hashed (R-N3), the frontmatter title too.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ import re
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from api.services import episode_scrub, episode_staging, text_fold
+from api.services import episode_scrub, episode_staging, history_index, text_fold
 
 #: The browsers whose session files the app reads (R-SR3). Brave, Comet and Dia likely share Chrome's session code
 #: and Vivaldi's stacks are its own — each waits for G160's check on a real install.
@@ -124,6 +125,8 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
             title=heading, source_id=sid, source="tab-group", origin=origin_for(browser),
             body=body_for(title, color, browser, tabs[:MAX_TABS], total=len(tabs)),
             extra={"browser": browser, "profile": profile, "tab_group_color": color},
+            # Ruling 62: a group's title and links are a save with no reason: indexed, read by no model.
+            queue_for_sleep=False, processed_by=history_index.INDEXED_BY,
             writer=SCRUB_WRITER))
         posted.add(sid)
         tabs_total += len(tabs)

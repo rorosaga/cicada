@@ -344,6 +344,8 @@ PERSON_ARGV = {
     "connector connect": ["connector", "connect", "notion-api"],
     "connector disconnect": ["connector", "disconnect", "notion-api"],
     "connector sync": ["connector", "sync", "notion-api"],
+    "funnel on": ["funnel", "on"],
+    "funnel off": ["funnel", "off"],
     "github connect": ["github", "connect"],
     "github project": ["github", "project", "bob-example/alpha-project"],
     "maintenance move-watched-rows": ["maintenance", "move-watched-rows", "--apply"],

@@ -42,11 +42,24 @@ def parse_json_object(raw: str | None) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Otherwise carve out the first balanced {...} object (skips reasoning
-    # prose before it and any trailing text after it).
+    # Otherwise the first balanced {...} that parses (skips reasoning prose before it, a stray brace in that prose
+    # included, and any trailing text after it).
     start = text.find("{")
     if start == -1:
         raise ValueError("no JSON object found in response")
+    while start != -1:
+        end = _balanced_end(text, start)
+        if end is not None:
+            try:
+                return json.loads(text[start:end])
+            except json.JSONDecodeError:
+                pass
+        start = text.find("{", start + 1)
+    raise ValueError("no parseable JSON object in response")
+
+
+def _balanced_end(text: str, start: int) -> int | None:
+    """Where the object opening at ``start`` closes, reading strings as strings; ``None`` when it never does."""
     depth = 0
     in_str = False
     esc = False
@@ -66,8 +79,8 @@ def parse_json_object(raw: str | None) -> dict:
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                return json.loads(text[start : i + 1])  # JSONDecodeError -> ValueError
-    raise ValueError("unbalanced JSON object in response")
+                return i + 1
+    return None
 
 
 def parse_json_object_or(raw: str | None, default: dict) -> dict:

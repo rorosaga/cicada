@@ -39,8 +39,8 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (
-    bank_registry, continuity, continuity_sessions, episode_ids, handshake, mcp_tools, recall_text, search_index,
-    state_dictionary, telemetry, text_fold,
+    bank_registry, continuity, continuity_sessions, episode_ids, handshake, mcp_tools, recall_text, saved_lookup,
+    search_index, state_dictionary, telemetry, text_fold,
 )
 from api.services.claims import is_current, is_record, parse_claims
 
@@ -81,7 +81,7 @@ SEMANTIC_K = 30
 SEMANTIC_CHARS = 2_000
 
 REASONS = ("injected", "primer", "no_terms", "no_match", "recently_shown", "index_not_ready", "no_bank",
-           "timeout", "error", "reading", "topic")
+           "timeout", "error", "reading", "topic", "saved")
 # The topic leg (2026-10-29): a message that names no page gets at most TOPIC_LINES current claims its words find.
 TOPIC_LINES = 3
 TOPIC_PER_PAGE = 2
@@ -713,6 +713,35 @@ def _topic_injection(reader, memory_path: Path, prompt: str, *, recent: frozense
 
 #: The least of the route's budget the topic leg starts with (one FTS pass per word plus at most three page reads).
 TOPIC_RESERVE_S = 0.08
+#: Ruling 62: the saved leg's lines, how long each may be, and the least of the budget it starts with.
+SAVED_LINES = 2
+SAVED_LINE_CHARS = 280
+SAVED_RESERVE_S = 0.04
+
+
+def _with_saved(reader, memory_path: Path, prompt: str, note: Injection, *, recent: frozenset[str],
+                deadline: float | None, clock) -> Injection:
+    """Ruling 62: at most :data:`SAVED_LINES` saved links the message's words find, below whatever else the note says,
+    inside the same token cap: the note's own lines are never dropped for one. A miss changes nothing, and a hit wakes
+    nothing (``saved_mentions``). Ids join the session's window, so the same link is not shown turn after turn."""
+    if deadline is not None and deadline - clock() < SAVED_RESERVE_S:
+        return note
+    try:
+        hits = saved_lookup.find(memory_path, prompt_window(prompt), k=SAVED_LINES, min_shared=TOPIC_MIN_SHARED,
+                                 exclude=recent | frozenset(note.injected), episodes=True, reader=reader)
+    except Exception as exc:  # noqa: BLE001 — K9: the class, never the message
+        logger.warning(f"hook-context: saved leg failed ({type(exc).__name__})")
+        return note
+    while hits:
+        lines = [clip(saved_lookup.line(h), SAVED_LINE_CHARS) for h in hits]
+        block = "\n".join([recall_text.SAVED_HEADER, *lines, recall_text.SAVED_FOOTER])
+        text = f"{note.text}\n\n{block}" if note.text else block
+        if len(text) // 4 <= MAX_TOKENS:
+            ids = tuple(h.page or h.episode or h.id for h in hits)
+            return replace(note, text=text, injected=(*note.injected, *ids),
+                           reason=note.reason if note.text else "saved")
+        hits.pop()
+    return note
 
 
 def prompt_context(memory_path: Path, prompt: str, *, recent: frozenset[str] = frozenset(),
@@ -747,11 +776,14 @@ def prompt_context(memory_path: Path, prompt: str, *, recent: frozenset[str] = f
                 ranked.append((_rank_key(doc.meta, strength, bm25), strength, doc))
         if not ranked:
             # Nothing named: the topic leg — a few current claims the message's words find (2026-10-29).
-            return _topic_injection(reader, memory_path, prompt, recent=recent, deadline=deadline, clock=clock)
+            return _with_saved(reader, memory_path, prompt, _topic_injection(
+                reader, memory_path, prompt, recent=recent, deadline=deadline, clock=clock),
+                recent=recent, deadline=deadline, clock=clock)
         ranked.sort(key=lambda r: r[0])
         fresh = [(strength, doc) for _key, strength, doc in ranked if doc.ref not in recent]
         if not fresh:
-            return Injection.none("recently_shown")
+            return _with_saved(reader, memory_path, prompt, Injection.none("recently_shown"),
+                               recent=recent, deadline=deadline, clock=clock)
         if len(fresh) > MAX_PAGES and deadline is not None and deadline - clock() >= HYBRID_RESERVE_S:
             ranks = _semantic_ranks(memory_path, prompt)
             if ranks:
@@ -771,13 +803,17 @@ def prompt_context(memory_path: Path, prompt: str, *, recent: frozenset[str] = f
             if len(notes) == MAX_PAGES:
                 break
         if not notes:
-            return Injection.none("no_match")
+            return _with_saved(reader, memory_path, prompt, Injection.none("no_match"),
+                               recent=recent, deadline=deadline, clock=clock)
         question, inbox_id = _open_question(reader, notes, date.today().isoformat(), memory_path=memory_path,
                                             prompt=prompt_window(prompt))
-    text, shown, kept = fit(notes, question)
-    if not text:
-        return Injection.none("no_match")
-    return Injection(text, tuple(p.id for p in shown), "injected", inbox_id if kept else None)
+        text, shown, kept = fit(notes, question)
+        if not text:
+            return _with_saved(reader, memory_path, prompt, Injection.none("no_match"),
+                               recent=recent, deadline=deadline, clock=clock)
+        return _with_saved(reader, memory_path, prompt,
+                           Injection(text, tuple(p.id for p in shown), "injected", inbox_id if kept else None),
+                           recent=recent, deadline=deadline, clock=clock)
 
 
 def session_primer(memory_path: Path, harness: str) -> Injection:

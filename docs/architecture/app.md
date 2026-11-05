@@ -80,6 +80,15 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   (`stopCommand`) before it runs (`POST /devices/reach/serve`, the action only; `DeviceReachText.action`). A refusal or
   failure is one danger caption under it; the state and check refresh from the answer. The unfunnel step stays copy-only.
   *Memory on* and the folded *Apps outside this machine* (the remote connector, `page:remote`) follow.
+  **One click to the internet (ruling 59; DR-19, DR-40, DR-41):** *How apps reach this Mac* shows one line ("This makes
+  the connector reachable from the internet."), the exact command in a `CommandBox`, the certificate-log warning and a
+  compact `NeutralButton` *Turn on*; open, *Reachable at <address>* only when a probe just answered (`RemoteReach.of`,
+  `.funnelOpen`), and a `TextButton` *Turn off* with a confirmation naming the off, the serve's pattern. A refusal is one
+  danger caption with *Open Tailscale settings* when there is a place to fix it. The connectors card offers an opened
+  address only once it answered. The switch closes the address as it turns the connector off, with one caption saying so.
+  If a mapping still outlives it, one card says so and keeps the off, and another program on the port comes first, in
+  danger. Other public mappings are listed with their off in a `CommandBox`, to copy. An
+  older backend (404) or no Tailscale keeps the page as it was: the command to copy, ngrok, the download.
 - **Privacy & data** gains Search & memory's one row (*Search runs on this Mac* and the sharper-model download); the
   fade card shows only while it holds a suggestion or a chosen pace. Watched folders are sources (`WatchedFoldersGroup`
   is kept whole for the Sources page). Under *Agent conversations*, *Your agents' notes* (ruling 43, `.agentNotes`) is
@@ -505,59 +514,13 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**The awaited export, picked up from Downloads, and a weekly nudge (G197 layer c, 2026-11-04).** claude.ai, the Claude
-desktop app's chats and ChatGPT keep their history on the vendor's servers and run no hook, so the person's own export
-is the one way in that needs no model's cooperation (G105; `capture-and-sleep.md`, "Hookless chat apps"). Two steps
-make it a habit rather than a seed, with no new setting.
-
-**(1) The pickup** (`Support/ExportArrivals.swift`). `ExportArrivalWatcher` keeps one FSEvents watch on the top of
-`~/Downloads`. It is open only while a wait the person opened **in this run** of the app (*Remind me* or the weekly
-nudge's tap; `ExportWaitStore.armedVendors` / `armedUntil`) is unexpired in the open memory. A wait left by an earlier
-launch therefore never lists Downloads, or raises macOS's Files and Folders prompt, at launch. The watch closes:
-
-- when the last wait clears;
-- at its 14-day expiry, by its own timer, with no folder event needed;
-- at any look that finds nothing awaited, before anything is read;
-- on a memory switch (`sync`).
-
-A look that awaited across a close never reopens it (an epoch guard). The watcher lists names, sizes and dates only.
-The baseline is taken when the watch opens, so an export already there is never offered. A new `.zip` that keeps its
-size for one 1.5 s look (`ArrivalTracker`) has its **central directory** read (`ZipMembers`: member names only, never
-a member's bytes, zip64 included, ≤ 32 MB of directory). Every bound in `ZipMembers` is checked by subtraction, so a
-crafted offset near `UInt64.max` answers nil rather than trapping. `ExportArrivals.vendor(members:)` names the vendor
-by the files each export carries:
-
-- Claude: `conversations.json` + `users.json`;
-- ChatGPT: `conversations.json` + `user.json`, `chat.html` or `message_feedback.json`;
-- Takeout's Gemini Apps activity;
-- both account files at once is nobody's.
-
-Only a vendor being waited on is offered, through `IntakeRouter.offerArrival`. That is the drop's door
-(`accept(urls:from: .reminder(vendor))`, so the preview, *Into* and Import are the drop's own, and the sniff clears
-the wait) with two differences, because nobody dropped it:
-
-- it is silent while the router is busy: no "finish the import" toast;
-- it never takes the panel from a sniff, preview or import the person has open.
-
-Either way it answers `.wait`, and the file is offered again at the next look. Every other file is offered once.
-When Cicada is not in front, one notification says the export arrived. It is posted only after it `.opened` (never
-after a refusal), only when notifications were already allowed, and its tap brings the window. If macOS refuses
-Downloads, one line says so ("Cicada can't see Downloads, so drop the export on Cicada when it comes."), nothing is
-read, and the drop and picker work as before.
-
-**(2) Every week** is the last item of every *Remind me* menu (`WeeklyReminderItems`, the same three hosts). It is
-saved only when notifications are allowed, because a weekly reminder that cannot fire is not on. A refusal saves
-nothing and says so in one line ("A weekly reminder needs Cicada's notifications, which are off."), never the
-one-off delays' "waits here". On a grant it records an `ExportHabit` (defaults `cicada.exportHabits`, per bank ×
-vendor, the weekday it was turned on, at 9:00) and one repeating local notification ("Time for a fresh Claude
-export."). At launch, the saved habits are scheduled again (`refreshWeekly`). If notifications are no longer allowed,
-they are dropped instead, and launch never asks for the permission. The nudge carries its memory: tapping it opens
-that vendor's export page in the person's own browser (Cicada clicks nothing there) and opens a wait in the memory it
-was set in (*Tomorrow at 9:00*), which arms the pickup. Once on, the same menu reads *Stop the weekly reminder*.
-
-Taps carry a kind (`ReminderTapKind`: `due` · `weekly` · `arrived`); a reminder from before this change carries none
-and is `due`. Because staging is idempotent per conversation, a weekly full export re-imports only what is new or
-grew, and a relayed conversation is upgraded in place (ruling 32).
+**An export is one-time (ruling 58, owner 2026-11-04).** It starts a new memory or brings in what an AI provider holds; a
+drop or the file panel is the door, and *Remind me* is the one-off for an export that comes by email. Nothing nudges a
+person to ask for another or looks in Downloads for one. #592 did both for a day and never reached a release; a build
+that had them left `cicada.exportHabits` in defaults and a repeating local notification, which `ExportWaitStore` removes
+once at launch (`removeRetiredNudges`, identifiers `cicada.exportWeekly.*` and `cicada.exportArrived.*`), leaving every
+one-off wait and everything imported alone. An old notification's tap opens the intake idle, as a due reminder's does. A
+Files and Folders grant macOS recorded stays listed in System Settings; the app no longer uses it.
 
 **Recordings and videos (meaning index 2, 2026-10-28).** **File → Add Recording or Video…** (2026-10-29) is the
 keyboard and VoiceOver twin: the intake's own open panel (`IntakePicker.chooseMedia`, audio and video types, no folders)
@@ -925,7 +888,7 @@ behind the `+` on the Sleep page's tab row (the Feed's, until 2026-10-16). Both 
 two surfaces. Round 3 added **Notes & files** (Apple Notes and, when Obsidian is installed, *Obsidian vault*; the
 watched folders and *Add a folder* moved to Settings → Privacy & data on 2026-10-14, and Notes & files keeps one
 pointer, "Folders are in Search & files ›") and **Voice & meetings** (Wispr Flow once it is on this
-Mac) — both standing connections, so both live here; their marks are the installed apps' own icons.
+Mac, while on offer) — both standing connections, so both live here; their marks are the installed apps' own icons.
 Harness rows wear their app's real mark ("Other agents" a neutral glyph); a folder's Manage, Wispr
 Flow and a connector's Connect/Manage open as sheets (`SettingsSheet`), never popovers; the
 add-folder sheet labels its fields and asks which subfolders an agent wrote as a checklist
@@ -952,7 +915,7 @@ Contacts (G154), both app-owned rows.
 **Meeting recorders (G95, ruling 52, 2026-11-03).** Sources gains a **Meeting recorders** group after This Mac
 (`SourceCatalogGroup.meetings`): **Hex** (`SourceCatalog.hexId`, shown once Hex is on this Mac — `LocalSourceWatcher.
 hexInstalled`, a LaunchServices lookup made on each reload, never per body — or a Hex folder exists; its mark is the
-installed app's icon, `anomaly.hex`), **Wispr Flow** (moved here from This Mac, its row unchanged) and **Transcripts**
+installed app's icon, `anomaly.hex`), **Wispr Flow** (moved here from This Mac, its row unchanged; off the offer since 2026-11-04, below) and **Transcripts**
 (`meetingFoldersId`, always: any folder of transcripts; the shorter name fits the list column). `SourceCatalog.entries(hexPresent:meetingFolders:)` takes the watcher's
 folders: a meeting folder (`FolderRegistration.isMeetings`, `kind: meetings`) syncs as `meetings:<id>`, so it never
 counts for Folders; Hex's own (`recorder: hex`) speak for Hex, the rest for the folder of transcripts. The detail lists
@@ -1463,7 +1426,7 @@ is not set up in the active memory, the notch offers it once. *Trigger:* `NSWork
 that passes through is not entering it). *Apps* (`ConnectSuggestApps`, bundle id → Sources catalogue entry): WhatsApp
 (`net.whatsapp.WhatsApp` → `whatsapp`), Telegram (`ru.keepcoder.Telegram`, `org.telegram.desktop` → `telegram-chats`),
 Messages, Notes, Calendar, Reminders, Contacts, every browser Cicada reads bookmarks from (`BrowserInventory.catalog`,
-`supported` only — Arc, Firefox, Edge and Opera never), Wispr Flow (`com.electron.wispr-flow`), Notion (`notion.id`) and
+`supported` only — Arc, Firefox, Edge and Opera never), Wispr Flow (`com.electron.wispr-flow`, only while `SourceCatalog.wisprOffered`), Notion (`notion.id`) and
 Hex (`anomaly.hex` → `hex`, the meeting recorders' entry, read with the app's meeting folders so a Hex whose own
 folder is connected never reads Off). Readwise is gone. **A website
 in the front tab is not a trigger:** the only permission-free tab read is the star-click prefill (owner ruling
@@ -1768,9 +1731,19 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   (Track L). **Why Calendar showed a Google account:** the Calendar app holds every account in Internet Accounts, and the
   old page said so in a standing line with an *Add a Google account* button (`CalendarRow.google` and the layout's
   way row, both removed); the account list now names each account the Mac holds, Google only when there is one.
-- **Contacts** (`ContactsGrid`): the people in memory a card matched, as a grid of faces (`ContactCell`, 48 pt
-  `EntityPicture` by the one picture precedence — the Contacts photo when the card has one, else the person's monogram)
-  with the name under each, under the page's search; a face opens the person's page. Never a card's other facts (G154).
+- **Contacts** (`ContactsGrid`, G154, owner 2026-11-04): every card on this Mac as a grid of 48 pt faces with the name
+  under each, read from `GET /sources/contacts-local/book` (`capture-and-sleep.md`) into `ChannelItemsCache`: not a
+  Store domain, no ETag, in memory, read when the page opens and when the channels move. Nearly every card has no photo,
+  so the page is drawn as monograms. A card with a page comes first and is a control (`ContactPageCell`: `EntityPicture`
+  by the one picture precedence, its hue ring when there is no picture; hover a fill, a click opens the page). A card
+  with none is not (`ContactCardCell`: its thumbnail through `SourcePictureStore`, else a neutral disc in secondary ink;
+  no hover, no press, no click target, static text to VoiceOver). A nameless card reads *No name*, never its
+  organisation. One line beside the search: *376 contacts · 6 in memory*. `ContactsGridPhase` decides what is drawn: an
+  empty answer while the reader is still posting (`bookPending`) is the skeleton, never nothing; it stays until the
+  read after the post answers (`onBookPosted`, an older answer dropped for it), and if that read fails with an empty
+  book held the page says so in words. A run a newer one replaced says nothing about any of this. The search is in memory, folded once when the
+  book is read, and its words never leave the app (0.015 s over 20,000 cards, debug build). `LazyVGrid`: about 85 of
+  800 cells exist at once. Contacts stopping (`ContactsReader.onForget`) drops the names and thumbnails the app holds.
 - **Meeting recorders** (`MeetingsBrowser`): recorder → folder → meetings; one folder lists its meetings directly
   (`MeetingRow`: a waveform glyph, the title, then *Tue, Nov 3 · 32 min* in meta ink, the full date on hover —
   `MeetingRowText`, `duration_s` from the episode's `meeting` record). **Hex in one click** (`FolderSlot`'s connect
@@ -1789,12 +1762,23 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   Flow reads Off with *Not installed* on its row and *Off · not installed* on its page (`SourcePageStatus.notInstalled`).
   Its database stays in `~/Library` after the app is removed, so `wisprInstalled` (the database) could not tell. Its
   mark is the vendor's bundled one (`OriginIconography.logoName("wispr-flow") == "wispr"`), so it shows with the app gone.
+- **Wispr Flow is off the offer for now (owner 2026-11-04: "remove wisprflow also from sources for now").**
+  `SourceCatalog.wisprOffered = false` is the one line; `true` brings all of this back. No row on Sources, no onboarding
+  row or tile, no driver (`AppSourceDrivers.live`), no notch offer (`ConnectSuggestApps.target`, `.status`), nothing in
+  Settings' list of Noes (`ConnectSuggestApps.offered`), and a checklist that ticked it drops the row
+  (`GettingStartedProgress.rows`). **The reader stops for everyone, connected or not**
+  (`LocalSourceWatcher.wisprReads`): a row that is gone cannot explain a reader still running. Its `enabled` setting
+  and read cursor are left as they are, so it resumes where it stopped. What came in stays: the overview row is drawn
+  from evidence, so someone with Wispr episodes still finds the source in ⌘K and from Sleep (`SourceDetailView`, what came
+  in by name, no Refresh), and search and the Feed are untouched. A fresh memory has no such row. No wire change: the
+  `/capture/local-source/wispr-flow` routes, the `wispr-flow` channel row and `source_overview.CATALOG` stay, the last
+  because it names old episodes' origin, and an older app keeps working. `ThisMacSourcesTests`, `LocalSourceWatcherTests`.
 `ThisMacSourcesTests`, `test_source_collections.py`.
 
 **The redesign, Sources · Inbox · entity card · Sleep (G217, G205, G212, G61, G206; ruling 36 D5/D6, 2026-10-22).**
 - **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off, grouped
   *Accounts and browser* (X, YouTube, Instagram, LinkedIn, Reddit, Pinterest, TikTok) · *This Mac* (Calendar, Contacts,
-  Messages, each browser on this Mac, Apple Notes, Folders, Wispr Flow once present) · *Exports* (Files and links; Chat
+  Messages, each browser on this Mac, Apple Notes, Folders; Wispr Flow once present, while on offer) · *Exports* (Files and links; Chat
   exports, which point at their agent — `AppRouter.routeToAgents`, the Agents page) ·
   *Feeds* (RSS, Calendar feeds, Telegram), then *Agents' conversations* for an overview harness row no entry speaks for.
   A row is a `LogoTile` (through the `SourceLogoTile` adapter: an origin key or an umbrella logo slug in), the name, the
@@ -1929,9 +1913,23 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   and what a book's cap left out, or the failure. The footer's Disconnect (asked first) stops it and deletes nothing.
   *Goodreads* (`GoodreadsSlot`): one *Import a file* way, the source's mark on a file, where the export comes from on
   its hover (a file importer); then the preview's counts as the line beside *Import*. No footer: nothing to refresh or
-  disconnect. Book scans have no control on the Mac and no catalogue entry (the phone scans; its overview row stays).
+  disconnect. *Book scans* (catalogue entry, 2026-11-04) has no control on the Mac: one line says the phone scans, and its
+  list is what the phone brought in.
   A book page shows no link preview (`MediaBlock.isBook`, the paper rule). The Mac camera scanner was made optional by the owner
   (2026-11-04) and is not built; the phone app scans (`cicada-app`, "Scan a book").
+  **Covers and status (ruling 61; DR-9, DR-12, DR-31, DR-38, DR-59).** After a sync the reader reads the covers Apple Books
+  keeps (`AppleBooksCovers`: `Library/Caches/BCCoverCache-1/BICDiskDataStore/<asset id>/` beside the same container's
+  `Documents`, read on macOS 27.2; the largest `jpg`/`heic` its file name states, never the `.astc` textures, drawn down to
+  a JPEG ≤ 600 pt and 512 KB through ImageIO; an asset id is only ever one path component; a PDF or an audiobook,
+  `ZCONTENTTYPE` 3 or 5, has none sent) and posts those not yet accepted,
+  25 a request, 200 a sync, by a fingerprint per memory (`cicada.appleBooks.covers.<bank>`). It is best-effort and says
+  nothing: a book with none draws nothing. A cover draws wherever a media page's picture does (`EntityPicture`: a tall
+  thumbnail is drawn whole at the well's height, `EntityPictureLayout.drawnFrame`, never cropped to the 3:2 well; the ring
+  follows the picture and the slot keeps its width) and in a door's list (`BookCoverThumb`, asked only when its row is
+  drawn, an empty slot for a book with none). A book's page opens on `BookStatusLine`: "Finished · 20 Oct 2026 · you said
+  so" and *Not right* when a conversation set it (no *Not right* on a door's record; one line, no explanation). Not a
+  Store domain: the card reads it on open and holds it in memory. The phone's scanner shows no cover: a capture-only device
+  reads nothing from the home.
 - **Reminders and Notion (G219, ruling 38: one way in, never written back; 2026-10-23).** *This Mac* gains
   **Reminders** after Contacts (`SourceCatalog.fixed`, id `reminders-local`, the installed Reminders app's icon,
   `com.apple.reminders`). Its detail is `RemindersRow`: `CalendarRow`'s line and buttons (Connect · Refresh ·
@@ -2014,6 +2012,13 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   checkouts, `GET /entities/{id}/repositories` — each repository it lists with *Open* (its page; *Unlink* in the row's
   context menu) and *Link a repository* (the person's own first, one with the project's name before the rest). Drawn
   only when there is one to show or to link.
+- **What may be sensitive (G235, ruling 60):** `InboxKind.sensitive` is a top card (`SensitiveReviewCard`, DR-37, DR-9,
+  DR-40, DR-54): the server's title, one line of what Remove does and what it cannot, then a row per conversation, its title
+  opening the Reader, "A password held back from <their engine> · Nov 4" under it, *Remove* (neutral, asks once in one line) and *Leave it* (text),
+  answered optimistically; past three rows *All N* opens a sheet. A last line says how many conversations had what looked
+  like a key or code replaced. A run's card says "N conversations may hold…" with *Review* outside its own button, and a
+  run's detail says how many had something replaced. Naming the engine here is the person's own choice shown back, the one
+  exception this feature exists for.
 - **Inbox top cards (G205, G61):** `agent_request` (`InboxKind.agentRequest`) and the grouped *Confirm N links* review
   (`asks: sources`, `review: true`) are cards above the questions, out of the list, its tabs and the quick review
   (`InboxViewModel.questions`). A request: the agent's tile, *Sign in to <site>*, whose and why, **I signed in**
@@ -2205,7 +2210,8 @@ pending from that category, as a small notification."*
   (`SourceBlurb`, now with Messages, Apple Calendar and "Other agents"), then one state line with only what the row
   beside it can't say — when it last synced, the whole error in `warning`, or "Syncing now" with its × — never the
   row's own "Watching" / "Syncs when you ask" (`SourceDetailText.state`; no line at all when there is nothing), with
-  Sync now / Poll now inline, and **"Consolidate now · N waiting"** as a compact `NeutralButton` only while
+  Sync now / Poll now inline, one line for saves kept for lookup when there are any (ruling 62, `Copy.keptForLookup`,
+  the same words under the Sleep page's Waiting; DR-38, DR-51), and **"Consolidate now · N waiting"** as a compact `NeutralButton` only while
   `waiting > 0` (or a read runs); when other sources wait too it says "N here, M in all" (a read takes everything).
   The run state follows the Store's status and re-reads Sleep's status when it moves, so the button is never enabled
   during a run. The eyebrow stays the page's ("Sources · n connected") whatever is open — v3's position and group
@@ -2798,7 +2804,7 @@ point, drop a batch that has not begun filing), so its caption and tooltip say w
 row (only when it took more than one batch or something waits), a "Paused at your plan's limit" row carrying the vendor's whole
 sentence, a drain-aware cancel text, and no "Episode cap reached" row for a drain. Home's Getting started says "Keep reading"
 after an early stop (`FirstReadAction.keepReading`) and "Your memory has N pages now." after a full drain. Since ruling 16 the lamp's popover and the engine menu's Scheduled row say a scheduled run reads everything waiting too
-(`Copy.scheduledReadsAll`), with how it spends in words from `preview.scheduled.billing` ("charged per use; Cicada sets no limit", "on this
+(`Copy.scheduledReadsAll`), with how it spends in words from `preview.scheduled.billing` ("charged per use; the spending limit is in the engine menu", "on this
 Mac") — never a provider's name.
 **The study room's scenery (G176, owner 2026-10-02).** `Scenery.resolve(mode:clock:forecast:mood:manual:)` is pure:
 base weather · `SkyPhase` · optional overlay · effective source. The worm still means Sleep at any hour/in any weather.
@@ -2943,7 +2949,7 @@ and Saved hide at a count of zero (`SleepTab.visible(waitingHasRows:saved:export
 parked conversation, a run's block or an unreadable queue, never for the "your own page" note alone; Saved stays while
 an export is being waited on, because `ExportWaitStrip` heads it, R-IB22), so a fresh page opens on Past reads. *Options…* (`ReadingOptionsSheet`, 720 pt) sets batch size
 10/25/50 and *Continue by itself when my plan resets* (off) on change; it has no Read faster row, no engine advice and no site list. The engine
-menu's *Keep plan free* (Off or 5–30 % of the window, plan engines only, a line not a guarantee, an unreported window said so) is one of ruling
+menu's *Stop a run at* (ROR-102: one line for a run charged per use, Off or a dollar figure, suggested $5; its help says how far past a run can go and what the limit does not cover; DR-81, ruling 12's home for the figure) and *Keep plan free* (Off or 5–30 % of the window, plan engines only, a line not a guarantee, an unreported window said so) is one of ruling
 12's two homes; the page's lists are the other (Past reads and Waiting, Details until 2026-10-16): Last cycle's run rows (`LastCycleRow.runRows`, merged over the pre-v5 drain rows), per-source counts and
 per-conversation rows from `GET /sleep/queue` (refetched when the run's counts move, never per tick) with Retry for a parked one — offered only while no run reads or waits paused, since the
 server refuses it then (`LastCycleRow.canRetryParked`) — a scheduled run's spend note billed from the run's own usage, never today's preview, and Past nights
@@ -3452,7 +3458,8 @@ other party's left in a `chatBubbleOtherFill` bubble with the resting ring (owne
 bubble hugs its words and leaves 48 pt on its far side; a long message's pieces read as one bubble, its ring drawn open
 where they meet) — the side read from each turn's written marker, not its role, because a relayed
 conversation (ruling 32) forces every role to `assistant`: `/episodes/{id}/text` carries `relay: {app, label}` until an
-export upgrades the episode, and then the person's side reads "Relayed by ChatGPT" (never "You") and the capture line
+export upgrades the episode, and then the person's side reads "Relayed by ChatGPT" (never "You"; so does each later turn of a chat
+that went on after its import, by its own `relayed [ChatGPT]` marker, ruling 58) and the capture line
 says the words came through the app's model; a run (one side and speaker, turns under 15 minutes apart) shows the face — the
 Messages chat's own picture by `MessageBubbles.face`, the chat parsed from the sitting's `imessage:<chat>:…` source id
 (`ReaderChat.messagesChat`), a monogram for a meeting speaker — or the agent's mark, the name only when it differs from

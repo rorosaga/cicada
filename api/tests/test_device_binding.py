@@ -232,7 +232,7 @@ def test_a_funnel_beside_a_tailnet_serve_is_never_hidden():
     kw, _ = _fake_tailscale({"BackendState": "Running", "Self": {"DNSName": "mac.example.ts.net."}}, both)
     answer = reach.guide(8000, **kw)
     assert answer["step"] == "unfunnel" and answer["url"] is None
-    assert answer["command"] == "tailscale funnel --https=443 off"
+    assert answer["command"] == "tailscale funnel --https=443 --set-path=/ off"
 
 
 def test_a_funnelled_backend_puts_no_address_in_a_qr_even_beside_a_serve(server, monkeypatch):
@@ -403,7 +403,7 @@ def _serve(port: int, *, funnel: bool = False, hostport="mac.example.ts.net:8443
      "tailscale serve --bg --https=8443 8000"),
     ({"BackendState": "Running", "Self": {"DNSName": "mac.example.ts.net."}}, _serve(8000, funnel=True,
                                                                                      hostport="mac.example.ts.net:443"),
-     "unfunnel", "tailscale funnel --https=443 off"),
+     "unfunnel", "tailscale funnel --https=443 --set-path=/ off"),
     ({"BackendState": "Running", "Self": {"DNSName": "mac.example.ts.net."}}, _serve(8000), "ready", None),
 ])
 def test_the_guide_names_the_one_next_step_from_reads_alone(status, serve, step, command):

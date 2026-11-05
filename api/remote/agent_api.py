@@ -50,9 +50,6 @@ EXCLUDED: dict[str, str] = {
     "cicada_handshake": "GET /v1/me says what the token may do and /v1/llms.txt is the contract; a relayed "
                         "conversation's handle is minted by capture_turns itself (`NEW_CONVERSATION`).",
 }
-#: Remote tools with no `cli_map` row, named here: a stdio harness is captured by its own hook (G105), so the CLI
-#: never relays a turn (ruling 32).
-REMOTE_ONLY_OPS: dict[str, str] = {"cicada_capture_turns": "capture_turns"}
 #: What `capture_turns`' `conversation` says to start a new relayed conversation (ruling 32, G104: one episode per
 #: conversation). The reply's `data.conversation` is the handle Cicada minted (`runtime.mint_handle`); every later turn
 #: of that conversation passes it back. With no `conversation`, a turn goes to the token's day bucket — the documented
@@ -73,7 +70,7 @@ def _generate() -> dict[str, str]:
     for tool in remote_tools.REMOTE_TOOLS:
         if tool in EXCLUDED:
             continue
-        op = REMOTE_ONLY_OPS.get(tool) or rows[tool].operation
+        op = rows[tool].operation
         if op in named:
             raise RuntimeError(f"two remote tools are both /v1/{op}")
         named[op] = tool

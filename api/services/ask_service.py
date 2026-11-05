@@ -1178,6 +1178,23 @@ def _watch_history_lines(memory_path: Path, query: str) -> list[str]:
         return []
 
 
+def _saved_lines(memory_path: Path, query: str, *, episodes: bool) -> tuple[list[str], list[str]]:
+    """Ruling 62: saved links the question's words find, and those only its meaning does. Engine-free, and context only:
+    never a reason an answer fails. A short question takes one rare word; a long one must share two. ``episodes``: also
+    tab groups, only for a caller with the source scope, as recall (G135)."""
+    from api.services import saved_lookup
+
+    try:
+        need = 1 if len(saved_lookup.subject_stems(query)) <= 2 else 2
+        by_words = saved_lookup.find(memory_path, query, k=_SAVED_SHOWN, min_shared=need, episodes=episodes)
+        by_meaning = saved_lookup.by_meaning(memory_path, query, k=_SAVED_SHOWN - len(by_words),
+                                             exclude=frozenset(h.id for h in by_words))
+        return [saved_lookup.line(h) for h in by_words], [saved_lookup.line(h) for h in by_meaning]
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"ask saved leg skipped ({type(exc).__name__})")
+        return [], []
+
+
 def _gap_response(query: str) -> dict:
     """The honest-ignorance answer when nothing relevant was retrieved."""
     return {
@@ -1228,6 +1245,8 @@ def _default_llm_fn(settings: Settings | None = None, *, extra_body: dict | None
 
 #: The most pages the question's own names add to Ask's retrieval.
 _NAMED_PAGES = 3
+#: Ruling 62: the most saved links an answer sees.
+_SAVED_SHOWN = 4
 #: The most subject words of a question the name leg looks up (each one lexical query, ~ms on a warm index).
 _NAME_PROBES = 8
 
@@ -1511,6 +1530,9 @@ def answer_query(
     # engine-free (`watch_history.lookup`) — the lines are what the platform recorded, never the person's words,
     # and go to the model only for a caller that may see the record's own text (`source_words`).
     watched = _watch_history_lines(memory_path, query) if source_words else []
+    # Ruling 62: a save no model has read holds no claim, so no leg above can reach it. A page's title and link are the
+    # page's, not the person's words: no scope gates them. A tab group's is the same record recall gates (G135).
+    saved, saved_near = _saved_lines(memory_path, query, episodes=source_words)
 
     # 2026-10-19: the conversations the question's own words find. Ask is page-first, and a conversation's words
     # reached the model only through a shown page's evidence or provenance — when Sleep left the detail off the page,
@@ -1526,7 +1548,7 @@ def answer_query(
 
     # Honest-gap fast path: nothing to ground on => do NOT call the LLM, do NOT
     # hallucinate. This is the key auditable-synthesis behaviour.
-    if not entities and not watched and not (searched and searched.episodes):
+    if not entities and not watched and not saved and not (searched and searched.episodes):
         return _gap_response(query)
 
     if entities:
@@ -1541,9 +1563,15 @@ def answer_query(
                            owner_name=_owner_name(memory_path, entities, people) if source_words else None,
                            searched=searched, shown=shown)
     conversations: dict[str, dict] = shown.get("conversations") or {}
-    if not entities and not watched and not conversations:
+    if not entities and not watched and not saved and not conversations:
         # The words found nothing a turn holds: still nothing to ground on.
         return _gap_response(query)
+    # A line only the vectors found never earns a model call by itself (the honest gap above), and is judged by it here.
+    if saved or saved_near:
+        prompt += ("\n\nSAVED LINKS (links the person saved, found by the question's words or meaning: a line is about "
+                   "the question only when it means what the question asks. Each is a title and a link with no reason "
+                   "given; nobody has read them, so they say what exists, never what the person thinks or did. Name "
+                   "the link when it answers the question):\n" + "\n".join([*saved, *saved_near]))
     if watched:
         from datetime import datetime
 
@@ -1578,7 +1606,7 @@ def answer_query(
     if no_engine:
         # Owner decision 2 (2026-10-16): with no engine here, say so — never a keyless call that fails into "could
         # not synthesize". The pages it found are still named.
-        names = _found_names(entities, watched, conversations)
+        names = _found_names(entities, watched, conversations, saved)
         return {
             "answer": f"{engine_readiness.ASK_NO_ENGINE} Relevant pages: {names}.",
             "confidence": 0.0,
@@ -1682,10 +1710,13 @@ def answer_query(
     }
 
 
-def _found_names(entities: list[dict], watched: list[str], conversations: dict[str, dict]) -> str:
+def _found_names(entities: list[dict], watched: list[str], conversations: dict[str, dict],
+                 saved: list[str] | None = None) -> str:
     names = [e["entity_name"] for e in entities]
     if conversations:
         names.append(f"{len(conversations)} conversation(s)")
+    if saved:
+        names.append(f"{len(saved)} saved link(s)")
     return ", ".join(names) or ("the watch history" if watched else "nothing")
 
 

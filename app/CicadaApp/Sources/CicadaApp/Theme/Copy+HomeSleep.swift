@@ -86,6 +86,11 @@ extension Copy {
             "Claude reports a window only after a call, so the first figure is the reading after the cycle's first call."
         static let windowReset = "Window has reset since it was read"
         static let perMillionNote = "Prices are per million tokens: input / output."
+        /// Ruling 12: a price Cicada keeps itself says where it read it (G237).
+        static func perMillionNote(basis: String?) -> String {
+            guard let basis, !basis.isEmpty else { return perMillionNote }
+            return "\(perMillionNote) From \(basis)."
+        }
 
         static func source(connection: String?, engine: String?) -> String? {
             switch connection {
@@ -100,7 +105,7 @@ extension Copy {
             case "claude-cli": return "Claude plan"
             case "codex-cli": return "ChatGPT plan"
             case "ollama": return "Ollama"
-            case "litellm": return "API key"
+            case "litellm", "anthropic-api": return "API key"
             default: return nil
             }
         }

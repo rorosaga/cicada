@@ -276,6 +276,9 @@ struct SavedItemRow: View {
     private var mark: some View {
         if let still = SavedItemText.stillPath(item) {
             VideoStill(path: still)
+        } else if item.book == true {
+            // Ruling 61: a book's cover, or nothing (owner 2026-10-28: no glyph or monogram stands in).
+            BookCoverThumb(path: item.cover)
         } else {
             SavedLinkMark(mark: SavedItemText.mark(item))
         }

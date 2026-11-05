@@ -79,7 +79,7 @@ struct EngineModelListModel: Equatable {
             return Section(id: key, label: labels[key] ?? "", total: all.count, rows: rows,
                            hidden: matching.count - shown.count)
         }
-        let own = catalogue.map { ["harness", "claude --help"].contains($0.source) || $0.source.hasSuffix(" models")
+        let own = catalogue.map { ["harness", "claude --help", "your key"].contains($0.source) || $0.source.hasSuffix(" models")
             || $0.source == "model/list" || $0.source == "ollama tags" } ?? true
         let age = catalogue?.asOf.flatMap(Self.date(iso:)).map { Copy.EngineMenu.age(seconds: max(0, now.timeIntervalSince($0))) }
         return EngineModelListModel(

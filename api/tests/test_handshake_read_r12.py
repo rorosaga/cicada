@@ -30,7 +30,7 @@ def _home(tmp_path, monkeypatch):
 
 
 def test_the_contract_versions_moved():
-    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (24, 16)  # 24 / 16: ruling 56; 23: G227 follow-up — item 4 names split / merge / undo of pages; 22 / 15: lean reads (2026-10-27) — a factual question goes straight to cicada_ask, cicada_sources reads an ep_ id; 21: the codex prelude names its AGENTS.md block; 20 / 14: G61 "Where to check" (ruling 36 D5) defines it and names inferred/evidence; 19: G200 A7 (no HTTP route, a desktop variant); 18 / 13: ruling 34, the video hand-back names its lease_token; remote 12: ruling 32 capture; 17: G198 cicada_edit_page merged past 16 (questions come up naturally)
+    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (25, 16)  # 25 / 16: ruling 56; 24: ruling 57; 23: G227 follow-up — item 4 names split / merge / undo of pages; 22 / 15: lean reads (2026-10-27) — a factual question goes straight to cicada_ask, cicada_sources reads an ep_ id; 21: the codex prelude names its AGENTS.md block; 20 / 14: G61 "Where to check" (ruling 36 D5) defines it and names inferred/evidence; 19: G200 A7 (no HTTP route, a desktop variant); 18 / 13: ruling 34, the video hand-back names its lease_token; remote 12: ruling 32 capture; 17: G198 cicada_edit_page merged past 16 (questions come up naturally)
 
 
 def test_the_parser_reads_the_reading_calls():

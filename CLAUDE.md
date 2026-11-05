@@ -55,7 +55,7 @@ turns it into a stream an agent can inhabit.** Four correspondences, each a desi
 1. **Streams, not sessions.** A conversation is a snippet; a life is a stream. Awake capture is the
    stream's intake, Sleep is what makes it more than a transcript pile, and decay is the stream's
    own clock — silence is data. Anything that fragments the stream (a resumed conversation
-   consolidated twice, G104; capture that depends on a model choosing to call a tool, G105) is a
+   consolidated twice, G104; capture that depends on a model choosing to call a tool where a hook could do it, G105) is a
    defect against this, not a nicety.
 2. **Observations *and* actions.** Every capture channel is an observation. Every agent write with
    provenance — a claim, a `Cicada-Author:` trailer, an inbox resolution — is an action on the
@@ -168,19 +168,24 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   drops — never on the capture path, on by default only if measured better, no setting (G207).
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk Access and never opens
   those paths, never stats a path a request names, never runs git in a declared repo; the app reads (browsers, Notes via
-  its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders, Wispr Flow) and posts bytes. A browser is
+  its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders; Wispr Flow's reader is off for now, `app.md`) and posts bytes. A browser is
   read only after the person turned it on. An unreadable file shows the exact fix in the app. Chrome's history is read
   from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`);
-  it and saves from a platform's saved list are indexed, never read by a model (ruling 30).
+  it and saves from a platform's saved list are indexed, never read by a model (ruling 30). **Ruling 62 (owner
+  2026-11-04):** so is every other save with no reason (a bookmark, tab group, saved link, feed item): no model, claim, page
+  or question, found by recall, Ask and the hook; read once when the person's own words name it, a conversation lights its
+  page or they give a reason, never for a retrieval hit; one already read keeps what it made (`capture-and-sleep.md`).
 - **Books (G39, G233):** a scanned ISBN (`/capture/isbn`, the phone's contract) resolves at the home behind the connector
   gate, cached outside every bank; Apple Books is read by the app after the person turns it on; Goodreads only by its
   export; one `media` page per work, status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
+  **Ruling 61:** the person's own located words in a conversation change a status too, judged by Stage 1 in context, never
+  by keywords: one clear title or held on the episode, dated as said, undoable, through the same writers (`book_said`).
 - **Two ways in for what the person consumes (ruling 47, owner 2026-10-28):** by default their own browser and Mac,
   through the browser and macOS harnesses (G166, G206, G218 rails unchanged); an official API only for a specific source
   where it gives what the harness cannot (history, metadata, reliability) — the person connects each one (off by default,
   said in words, one-click revoke), read-only, the normal capture path, no private name sent. 47a: Telegram (`network.md`);
   ruling 49: never from the Mac's own store, connected by a QR the phone scans.
-- **Capture never depends on a model calling a tool (G105).** Claude Code and Codex sessions are captured by the
+- **Capture never depends on a model calling a tool where a hook exists (G105; ruling 57 for the apps with none).** Claude Code and Codex sessions are captured by the
   harness's own Stop hook; the backend reads a transcript only when it resolves under the harness root as
   `<session_id>.jsonl` within the size cap. Only the person's turns and the agent's final reply are kept, plus each agent
   turn's model and effort. After scrubbing, the first person message keeps up to 16k characters; later person turns
@@ -192,9 +197,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   around one marker line (G110 gate B2; its G104 costs in `capture-and-sleep.md`). Recall is the same move (G149): the
   SessionStart/UserPromptSubmit hooks inject Cicada's note; a note the harness records as a separate non-person record
   is never captured, and one that arrives inside the person's own text is kept, counted and disclosed (G110 gate C).
-  **Apps with no hook** (claude.ai, ChatGPT, their phone apps) relay each turn through the remote connector's
-  `cicada_capture_turns` (ruling 32): one episode per conversation, stored as relayed (`evidence_kind: assistant`),
-  never the person's own words until that app's export upgrades it in place (`capture-and-sleep.md`).
+  **Apps with no hook** relay each turn through `cicada_capture_turns`, by default (rulings 32, 57): claude.ai, ChatGPT
+  and their phone apps on the remote connector, the Claude desktop app on its local connection — offered by exact client
+  name to no session a harness named, so a hook-captured harness never is. One episode per conversation, stored as
+  relayed (`evidence_kind: assistant`), never the person's own words until that app's export upgrades it in place
+  (`capture-and-sleep.md`). **Exports are one-time (ruling 58):** a new memory's start or an import from an AI provider;
+  nothing reminds a person to repeat one or watches for one. Turns after an import stay in that episode, each marked as relayed.
 - **Transcripts under `~/.claude/` are never read anywhere else** — the MCP seam and resume only `isfile()` them.
   A client of a server elsewhere reads its session there with Cicada's own extractor and posts the capped turns (ruling 28).
   **Agent memory notes (ruling 43):** Claude Code's `projects/*/memory/*.md` are read by its own hook, never the backend
@@ -215,6 +223,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   its speaker's (`speaker:<label>`), the summary the recorder's model's (`capture-and-sleep.md`).
 - **Capture never writes into a demo bank** (`demo_guard`, by `_bank.yaml`, never by name): every capture/sources
   POST/PUT answers 409; the Stop hook redirects to the real bank left most recently.
+- **The Contacts page's faces (G154, owner 2026-11-04):** every card's names and thumbnail, outside every bank, per
+  device, for the app's grid alone; no match reads them, no agent door reaches them, every forget wipes them
+  (`contacts_book`, `capture-and-sleep.md`).
 - **A ticked chat's attachments show at view time (G179, 2026-11-04):** the app opens the file the chat app holds on
   this Mac (Telegram's through the person's own session); the bank keeps names only; thumbnails outside every bank,
   gone on untick (`app.md`).
@@ -233,11 +244,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 - **Five stages** (extract → resolve/dedup → conflicts/decay → patterns/skills → nudges + commit) plus an
   **engine-independent tail** on every exit path, in a clean-tree-guarded slot, each step committing only its own paths.
-- **Consolidate reads everything** (rulings 13, 16): every run — the person's and a scheduled one — is a drain over the
-  ids frozen at its start, in committed batches (default 25), so a stop loses at most the batch in progress. Decay and the
+- **Consolidate reads everything** (rulings 13, 16; a lean read counts, ruling 62): every run — the person's and a
+  scheduled one — is a drain over the ids frozen at its start, in committed batches (default 25, and at most 60,000 bytes,
+  ruling 62), so a stop loses at most the batch in progress. Decay and the
   page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
   through the person's "Scheduled runs may use my plan" switch, on unless they turned it off** (4b 2026-10-16, 4c
-  2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends with no limit Cicada sets, said in words.
+  2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends up to the person's spending limit, suggested $5 a run, then pauses in words (ROR-102, ruling 63 (g), `sleep_spend`); a model with no known price stops the run.
   **Plan-first engines (ruling 31, 2026-10-19):** the default is Auto — Claude plan, ChatGPT plan — and never
   a metered key nobody chose: no engine is said in words, and a key (OpenRouter included) reads only when chosen.
   **Ruling 36 D1 (owner, 2026-10-22):** with nothing chosen, Auto uses a signed-in plan (Claude Code, then Codex) and
@@ -246,6 +258,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   only), headless with no tools or MCP context, on their own sign-in; a key-billed path is refused or stops the run (`cli_engines`).
   **Ruling 46 (owner, 2026-10-28):** Auto is Claude plan → ChatGPT plan → Cursor → OpenCode (subscription model only), each
   read from cached status, an unknown or hung tool skipped in words, never a stall; Grok never on Auto (`capture-and-sleep.md`).
+  **Ruling 63 (owner 2026-11-04):** a key whose provider has an official SDK row (`direct_engines`: Claude today) is served by that
+  SDK behind the plan's own seam, every other key by LiteLLM; a Claude key's list, tiers and prices keep current without a release,
+  a retired id moves forward in words, a key's limit is a pause that never says the person's plan (`capture-and-sleep.md`, "A Claude key").
   **46a (owner 2026-10-28):** Auto and schedules run Cursor only on Cursor's own models; a third-party one there is labelled "billed separately at list price", never auto-picked. Continue-after-reset is opt-in,
   off (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
   run — never over a pause or a running cycle (`sleep_catch_up`, owner 2026-10-19, `features.md`).
@@ -262,6 +277,14 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   another conversation's word stays an update or a conflict (`episode_revision`, `capture-and-sleep.md`). **Slice 2:** the
   passages that said the removed words are rewritten or removed, one call a page at most, never History (it gains the
   change, dated) and never a passage the person or an agent wrote or pinned — that is one inbox question a page (`revision_prose`).
+- **What may be sensitive (G235, ruling 60):** found with no model before an engine reads it (`sensitive_text`: offsets and a
+  kind, never a value nor a hash of one); a confident hit is held back as a typed mark, the stored body untouched, an unsure
+  one reported; a page never repeats either. **One door:** by value, inside `providers.resolve_llm_fn`, so no engine Cicada
+  runs reads it, on any job (`sensitive_hold`, a test fails on any other way to a model); an agent the person talks to reads
+  the record as stored until they remove it. One review, one row per conversation, the person's alone. Remove commits the
+  older version first, edits by structure (`sensitive_purge`), the body last; git history is never rewritten, and the copy
+  says so. **A wrong alarm never rewrites something unrelated:** only a confident, distinctive value rare in the bank
+  travels; a token more than three other conversations hold is not masked by value either (`capture-and-sleep.md`).
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
   own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
   never guessed (`promotion`) — or the person's own words naming in full exactly one waiting Contacts card, never the "me"
@@ -326,9 +349,11 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   world facts on plan runs (never a metered key), re-checked by use and volatility, never over the person's own words
   about their own life; a private
   person's name never reaches any service; every page says why it matters to the person, derived on read (`web_context`,
-  `page_relevance`, `storage.md`). PROPOSED ruling 54 (owner direction 2026-11-04; off until the owner rules): a public handle
-  vs a named public person, neither in a chat or contacts, may be settled by two pinned searches and a cited claim; the
-  person's own agent on their ask meanwhile (`public_handle`, `features.md`). **A tracked source's
+  `page_relevance`, `storage.md`). **Ruling 54 (owner 2026-11-04):** a handle vs a named person is worked like an
+  agent on the Claude plan only, on by default: a tool-less model reads anything in memory, every query and link it asks for
+  passes `name_guard` in code (a name known only from the person's record never leaves; a tie always blocks), ≤ 6 searches through
+  a hand holding only cleared queries; the model judges (one site is enough), its quote checked on the page; cited, undoable, never a merge (`settling_agent`, `features.md`). **54a:** a page's tracked
+  sources come first, opened directly, never a search for a private person; a walled one only by the person's agent. **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
   **Where to check (ruling 36 D5, 2026-10-22):** an agent (`inferred`) or Sleep's engine-free step may PROPOSE a link
@@ -341,7 +366,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked chat holds (Messages, WhatsApp, Telegram) → a
   person's public-profile photo → a brand's logo → a media thumbnail → a person's monogram; any other page with none draws
   nothing, never a type glyph — owner 2026-10-28). **A logo comes only from a trusted
-  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a private person's name (G146/G159).** Owner 2026-10-28 (C, E): a public figure ruling 44's full test matched gets that item's encyclopedia portrait, asked by item, never with the name as a query; a project its trusted site's mark or, only when an organisation owns its repository, that organisation's avatar (`storage.md`). Ruling 40's homepage-confirmed find is trusted, and a public place with one draws its mark. A saved link's own site may show its own icon, asked of that site only (or the icon host its homepage declares, 2026-10-20; an SVG icon only sanitised and drawn to a PNG out of process, never served as SVG, 2026-10-20), on the person's view (owner 2026-10-19; `storage.md`); a watched or saved YouTube video its still, from YouTube's own host for that id only, on the same terms (2026-10-19). A person's photo is asked only
+  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a private person's name (G146/G159).** Owner 2026-10-28 (C, E): a public figure ruling 44's full test matched gets that item's encyclopedia portrait, asked by item, never with the name as a query; a project its trusted site's mark or, only when an organisation owns its repository, that organisation's avatar (`storage.md`). Ruling 40's homepage-confirmed find is trusted, and a public place with one draws its mark. A saved link's own site may show its own icon, asked of that site only (or the icon host its homepage declares, 2026-10-20; an SVG icon only sanitised and drawn to a PNG out of process, never served as SVG, 2026-10-20), on the person's view (owner 2026-10-19; `storage.md`); a watched or saved YouTube video its still, from YouTube's own host for that id only, on the same terms (2026-10-19); a book its own copy's cover from Apple Books' cache, else Open Library's by cover id or ISBN, never a title (ruling 61). A person's photo is asked only
   with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
   X, Instagram or LinkedIn profile link (owner, 2026-10-09; Instagram, D5), never a proposal the person has not taken (`network.md`); a LinkedIn link from the person's connections counts as given
   on a confident match, never an alias-only one (owner 2026-10-17). The photo a chat shares in Messages is its page's
@@ -487,9 +512,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Credentials** live in `~/.cicada/secrets.env` (0600), or the keychain where the app holds them (a connection's
   session too, ruling 47) — never in a bank, a log or the repo.
 - **Headless (G181):** the bank's **home** (a server or any computer; ruling 51 (1), phase 2) is its one writer and binds its API to 127.0.0.1 only; reach from another machine is an
-  overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32), and no installer creates or copies a credential (`headless.md`).
+  overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32, 59), and no installer creates or copies a credential (`headless.md`).
   **One click (owner 2026-10-29, amends G132 (c)):** Settings → Devices may run exactly the shown `tailscale serve --bg
-  --https=8443 <port>` (tailnet only) or that one mapping's off — argv built by the backend, 10 s, never `funnel` or `up` (`network.md`).
+  --https=8443 <port>` (tailnet only) or that one mapping's off (`--https=<its port> --set-path=/ off`) — argv built by the backend, 10 s, never `funnel` or `up` (`network.md`).
+  **Ruling 59 (owner 2026-11-04):** the person's click, or their shell, may run exactly the shown `tailscale funnel --bg --https=<443|10000> <the
+  connector's port>` or that one mapping's off (`--set-path=/`): no port or argv from a request, never over a held port, never 8443, never `up`; nothing stored, every answer read back (`network.md`).
+  The mapping outlives the listener: the connector's switch closes it too, a down listener's port is asked and another program on it said first, other public mappings shown with their off to copy, never run.
   Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling 28) with its own revocable device
   token and no bank of its own; what it posts records `device` (`headless.md`).
   **Ruling 51 (owner 2026-10-29, G132; decided, not built — amends this rail as each phase ships):** one movable home

@@ -2210,8 +2210,9 @@ def write_media_episode(
         if item.project_dir:
             frontmatter["project_dir"] = item.project_dir
     # Owner ruling 2026-10-18: a save from a platform's saved list (an export archive, the agent's Watch later read)
-    # stays in Saved with its metadata and is indexed, never read by a model. The person's own note or reason on a
-    # save is always read — no list door carries one, and one that did is marked and queued like any save.
+    # stays in Saved with its metadata and is indexed, never read by a model. Ruling 62 (2026-11-04): so does every
+    # other bare save (a bookmark, a saved link, a feed item). A save's note or reason is always read: it is marked and
+    # queued like any conversation.
     if history_index.is_index_only(frontmatter):
         if item.note or item.reason:
             frontmatter[history_index.NOTE_KEY] = True
@@ -2471,6 +2472,8 @@ def write_note_episode(memory_path: Path, item: RawItem, existing: IngestResult)
         "content_hash": content_hash,
         "url": item.url,
         "media_entity_id": existing.media_entity_id,
+        # Ruling 62: a note says why the link matters, so this episode is read like any save with a reason.
+        history_index.NOTE_KEY: True,
     }
     if item.origin:
         frontmatter["origin"] = item.origin

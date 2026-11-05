@@ -23,7 +23,9 @@ CAUSES = ("spending_limit", "auth", "model_not_found", "rate_limited")
 _SPENDING = re.compile(
     r"key limit exceeded|total limit|spend(?:ing)? limit|budget (?:has been )?exceeded|exceeded (?:your|the) budget"
     r"|insufficient[ _](?:credits?|funds|quota|balance)|credit balance|out of credits?|not enough credits?"
-    r"|requires more credits|exceeded your current quota|billing|payment required|\b402\b",
+    r"|requires more credits|exceeded your current quota|billing|payment required|\b402\b"
+    # G237: Anthropic's own cap (a 429, `enforced_spend_limit_reached`) and a limit the person set (a 400).
+    r"|reached your (?:specified )?(?:workspace )?api usage limits|enforced_spend_limit",
     re.I)
 _AUTH = re.compile(
     r"invalid[ _-]?(?:x-)?api[ _-]?key|incorrect api key|api key not valid|no api key|missing api key"

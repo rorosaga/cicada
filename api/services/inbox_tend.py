@@ -131,7 +131,7 @@ MAX_EVIDENCE_LINES = 2
 #: Kinds the person's words in a conversation may answer (decay is answered by the mention itself; a fold and a
 #: proposed edit are the app's; a follow-up is progress, written only by `progress.py`).
 CONVERSATION_KINDS = frozenset({"conflict", "clarification", "merge_suggestion"})
-NEVER = frozenset({"page_edit"})
+NEVER = frozenset({"page_edit", "sensitive"})
 #: The page types a decay question may be assumed for ("pages nobody would miss").
 ONE_OFF_TYPES = frozenset({"concept", "tool", "media", "company"})
 JUDGE_THRESHOLD = 0.9
