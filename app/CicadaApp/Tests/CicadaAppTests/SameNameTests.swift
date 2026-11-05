@@ -118,8 +118,7 @@ final class SameNameTests: XCTestCase {
         XCTAssertEqual(item.options.map(\.pageName), ["Alpha", "Alpha", nil])
         XCTAssertEqual(item.options.map(\.qualifier), ["IDE", "program", nil])
         XCTAssertEqual(FocusCardVariant.of(item), .options, "one tap per page, never same/different")
-        let reading = CatchupTurnReply.Reading(optionKey: "page:alpha-program", answer: nil, quote: "the program one",
-                                               confirm: false)
+        let reading = CatchupTurnReply.Reading(optionKey: "page:alpha-program", answer: nil, quote: "the program one")
         let resolution = try XCTUnwrap(CatchupAnswers.resolution(item, reading))
         XCTAssertEqual(resolution.action, "resolve")
         XCTAssertEqual(resolution.optionKey, "page:alpha-program")

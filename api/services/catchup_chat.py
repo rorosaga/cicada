@@ -7,13 +7,17 @@ path's seam, ``engine_select.resolve_settings(user_triggered=True)``: rulings 4/
 present, and never a metered key nobody chose) that answers like a person would — a follow-up, the same question in
 other words, or a move to a related question — and says how it read their words.
 
-Nothing here writes an answer. A reading is a PROPOSAL the app applies through ``POST /inbox/{id}/resolve`` (the same
-resolver and Undo window as a tap), and only when it rests on the person's own words: its ``quote`` must be found in
-what they typed (exact, whitespace, case — ``evidence.locate``, never fuzzy), and a free-text ``answer`` too. Even a
-grounded reading is never applied from typed words alone: the app shows it as a one-tap proposal ("Note it as
-“Paused”? Yes / Not quite") and applies it only on *Yes*, with the located quote attached (agent proposes, user
-disposes — the coordinator's ruling on #509; for who someone is, ruling 41 too). Anything the model cannot ground is
-dropped and the reply stands alone; the question stays open.
+Nothing here writes an answer: the app applies each reading through ``POST /inbox/{id}/resolve``, the same resolver
+and Undo window as a tap. **When the person's own words clearly answer, it applies at once and says so in one line with
+Undo; there is no Yes button (owner 2026-11-05: "if the agent is going to ask for confirmation on everything eventhough
+i just told him then thats bad user experience", replacing a coordinator's call on #509).** The model judges clarity in
+context, and a hedge from the person about their own life is still their answer; a misread costs one Undo. One message
+may answer several things: every grounded part is returned, each on its own question (a chain's pair, or an upcoming
+question), and the app holds them as one answer under one Undo. Each part must rest on the person's words: its
+``quote`` is found in what they typed (exact, whitespace, case: ``evidence.locate``, never fuzzy), and a free-text
+``answer`` too. What cannot be grounded is dropped and its question stays open; so is a question given two answers it
+cannot hold together, since the resolver closes a question with one. Who someone is stays on the person's own words
+(rulings 29, 41), which is what the quote proves, and a join stays undoable through the same hold.
 
 :func:`record` keeps the chat as ONE episode per catch-up session (``episode_staging``, source-keyed, so each post
 updates it in place and re-queues it): the person's turns as their own words, Cicada's as its own. Sleep reads it like
@@ -51,21 +55,30 @@ MOVES = ("stay", "next", "later", "pass", "stop")
 
 SYSTEM_PROMPT = (
     "You are Cicada, the person's own memory, catching up with them in a short, warm chat — a conversation, never an "
-    "interrogation. You are asking about ONE open question (CURRENT). Read what they just said and answer like a "
-    "person would: if it seems to answer the question, return your reading and ASK them to confirm it in a few words "
-    "(\"Sounds like it's paused for now — shall I note that?\"); you propose, they decide with a tap, so never say "
-    "you noted or changed anything. If it is unclear, ask a short follow-up or say the question again in other words; "
-    "if their answer touches another open question (UPCOMING) and does not answer CURRENT, you may move to it "
-    "naturally. Never invent facts, never guess who someone is, never push — 'not now' is fine. One or two short "
-    "sentences. Never mention inboxes, options, keys or tools.\n"
-    "Reply with JSON only: {\"reply\": str, \"reading\": {\"option_key\": str|null, \"answer\": str|null, "
-    "\"quote\": str} | null, \"move\": \"stay\"|\"next\"|\"later\"|\"pass\"|\"stop\", \"next_id\": str|null}.\n"
-    "- reading: only when their words answer CURRENT. option_key is one of CURRENT's answer keys; answer is a short "
-    "value copied word for word from their message when none of the keys fits (or a name they gave); quote is the "
-    "exact words of their message you relied on, copied character for character.\n"
-    "- move: stay = keep talking about CURRENT (a follow-up, or a reading waiting for their yes); next = they moved "
-    "on without answering CURRENT; later = they "
-    "want it another day; pass = they let it go; stop = they want to stop.\n"
+    "interrogation. You are asking about ONE open question (CURRENT). Read what they just said in context. When their "
+    "words clearly answer, return the readings: they are applied at once and the app says what was noted, so never "
+    "ask them to confirm what they just told you, and never say yourself that you noted anything. A hedge such as \"I "
+    "believe\" or \"I think\" from the person about their own life is still their answer. One message may settle "
+    "several things: return EVERY part it settles, on CURRENT, on each of its pairs and on any UPCOMING question it "
+    "answers, never just one. When their words leave something unclear (a mixed status such as one thing working and "
+    "another paused is not a clean answer), return no reading for that part and say in plain words what is unclear; "
+    "if it does not answer CURRENT but touches an UPCOMING question, you may move to it naturally. Never invent facts, "
+    "never guess who someone is, never push — 'not now' is fine. One or two short sentences at most. Never mention "
+    "inboxes, options, keys or tools.\n"
+    "Reply with JSON only: {\"reply\": str, \"readings\": [{\"item_id\": str|null, \"option_key\": str|null, "
+    "\"answer\": str|null, \"quote\": str} | {\"join\": [str, str], \"quote\": str}], "
+    "\"move\": \"stay\"|\"next\"|\"later\"|\"pass\"|\"stop\", \"next_id\": str|null}.\n"
+    "- reply: empty when everything they raised is settled and you have nothing to add; else what is unclear, or the "
+    "next question in your own words.\n"
+    "- readings: one per thing their words answer, [] when none. item_id is the id it answers (CURRENT's, one of "
+    "CURRENT's pairs, or an UPCOMING id); option_key is one of that question's answer keys; answer is a short value "
+    "copied word for word from their message when no key fits (or a name they gave), and a key plus an answer may go "
+    "together in one reading; quote is the exact words of their message you relied on, copied character for "
+    "character. A pair is answered \"same\" or \"different\".\n"
+    "- join: when they say two of CURRENT's names are one person and no pair holds exactly those two, give the two "
+    "names as written, with the quote. Answer the other pairs as usual.\n"
+    "- move: stay = keep talking about CURRENT; next = they moved on without answering CURRENT; later = they want it "
+    "another day; pass = they let it go; stop = they want to stop.\n"
     "- next_id: when moving, the UPCOMING id you ask next (pick a related one if their answer touched it), and your "
     "reply asks it in your own words with its reason."
 )
@@ -73,13 +86,17 @@ SYSTEM_PROMPT = (
 
 @dataclass
 class Reading:
+    item_id: str
     option_key: str | None
     answer: str | None
     quote: str
-    confirm: bool
+    #: "A is C" answered on a pair (A, B) the person also parted: A joins C, the page that pair's question never named.
+    merge_target: str | None = None
+    target_name: str | None = None
 
     def to_wire(self) -> dict:
-        return {"optionKey": self.option_key, "answer": self.answer, "quote": self.quote, "confirm": self.confirm}
+        return {"itemId": self.item_id, "optionKey": self.option_key, "answer": self.answer, "quote": self.quote,
+                "mergeTarget": self.merge_target, "targetName": self.target_name}
 
 
 # --------------------------------------------------------------------------- the question and its context
@@ -159,15 +176,38 @@ def _history(history: list) -> list[dict]:
     return out
 
 
-def _prompt(item, ctx, memory_path: Path, message: str, history: list[dict], upcoming: list[dict]) -> str:
+def _chains(memory_path: Path, items: list) -> dict:
+    """``{item id: served item}`` for the same-person questions among ``items``, carrying #501's chain and its pairs
+    (marked only on the served list). A read that fails costs the pairs, never the turn."""
+    from api.services import inbox_service
+
+    if not any(i.kind.value == "merge_suggestion" for i in items):
+        return {}
+    try:
+        return {i.id: i for i in inbox_service.load_inbox(memory_path) if i.chain}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"catch-up: chains unreadable: {type(exc).__name__}")
+        return {}
+
+
+def _pairs(item, chains: dict) -> list[dict]:
+    served = chains.get(item.id)
+    return [{k: p[k] for k in ("id", "a", "b")} for p in (served.chain_pairs or [])] if served else []
+
+
+def _prompt(item, ctx, memory_path: Path, message: str, history: list[dict], upcoming: list[dict],
+            chains: dict | None = None) -> str:
+    served = (chains or {}).get(item.id)
     current = {
         "id": item.id,
-        "ask": item.spoken_question or item.question or item.title,
+        "ask": (served.chain_question if served else None) or item.spoken_question or item.question or item.title,
         "why": item.spoken_reason or "",
         "answers": answer_keys(item),
         "free_answer": bool(item.allow_other or item.asks == "name" or not item.options),
         "what_i_have": context_lines(memory_path, item.entity_id, ctx),
     }
+    if served:
+        current["pairs"] = _pairs(item, chains)
     lines = ["CURRENT: " + json.dumps(current, ensure_ascii=False)]
     if upcoming:
         lines.append("UPCOMING: " + json.dumps(upcoming, ensure_ascii=False))
@@ -204,9 +244,8 @@ def _located(message: str, words) -> str | None:
     return message[hit[0]:hit[1]] if hit else None
 
 
-def ground(item, message: str, data: dict) -> Reading | None:
-    """The model's reading, kept only where it rests on the person's words; None otherwise. Never fuzzy."""
-    raw = data.get("reading")
+def ground(item, message: str, raw) -> Reading | None:
+    """One reading on ``item``, kept only where it rests on the person's words; None otherwise. Never fuzzy."""
     if not isinstance(raw, dict):
         return None
     quote = _located(message, raw.get("quote"))
@@ -222,16 +261,78 @@ def ground(item, message: str, data: dict) -> Reading | None:
         return None
     if answer is not None and key is None and not (item.allow_other or item.asks == "name" or not item.options):
         return None   # a closed question answered only in free words: the person picks, Cicada does not
-    # Every reading is a proposal (the coordinator's ruling on #509, after a live misread applied "but the arm is
-    # paused" as Done): the app shows it for the person's tap and applies it only then. `confirm` stays on the wire,
-    # always true, so an older reader of it still asks.
-    return Reading(option_key=key, answer=answer, quote=quote, confirm=True)
+    return Reading(item_id=item.id, option_key=key, answer=answer, quote=quote)
+
+
+def _join(raw: dict, message: str, pairs: list, readings: dict[str, Reading]) -> tuple[Reading | None, dict | None]:
+    """A person's "A is C" over a chain, as ``(reading, None)``, or ``(None, {a, b})`` when no question can carry it.
+
+    A pair holding exactly those two answers it. Otherwise the resolver can still do it through a pair the same
+    message parted, (A, B) with A its subject: resolving that question merges A into C, and B stays apart from both.
+    A question the person did not answer is never closed to carry someone else's join."""
+    names = raw.get("join")
+    quote = _located(message, raw.get("quote"))
+    if not (isinstance(names, list) and len(names) == 2 and quote):
+        return None, None
+    wanted = [" ".join(str(n).split()).casefold() for n in names]
+    if wanted[0] == wanted[1]:
+        return None, None
+    ids: dict[str, tuple[str, str]] = {}
+    for pair in pairs:
+        ids[pair["a"].casefold()] = (pair["subject"], pair["a"])
+        ids[pair["b"].casefold()] = (pair["hint"], pair["b"])
+    if not all(w in ids for w in wanted):
+        return None, None
+    for pair in pairs:
+        if {pair["a"].casefold(), pair["b"].casefold()} == set(wanted):
+            return Reading(item_id=pair["id"], option_key="same", answer=None, quote=quote), None
+    for pair in pairs:
+        parted = readings.get(pair["id"])
+        subject = pair["a"].casefold()
+        if parted is None or parted.option_key != "different" or subject not in wanted:
+            continue
+        target_id, target_name = ids[wanted[1] if subject == wanted[0] else wanted[0]]
+        return Reading(item_id=pair["id"], option_key="same", answer=None, quote=quote, merge_target=target_id,
+                       target_name=target_name), None
+    return None, {"a": ids[wanted[0]][1], "b": ids[wanted[1]][1]}
+
+
+def ground_all(message: str, data: dict, current, answerable: dict, pairs: list) -> tuple[list[Reading], list[dict]]:
+    """Every part of the answer that rests on the person's words, at most one per question, and the joins no question
+    could carry. A question given two different answers holds neither: its one resolve could not keep both."""
+    raws = data.get("readings")
+    raws = [r for r in raws if isinstance(r, dict)] if isinstance(raws, list) else []
+    found: dict[str, Reading] = {}
+    torn: set[str] = set()
+    for raw in raws:
+        if "join" in raw:
+            continue
+        target = answerable.get(str(raw.get("item_id") or current.id))
+        reading = ground(target, message, raw) if target is not None else None
+        if reading is None:
+            continue
+        held = found.get(reading.item_id)
+        if held is not None and (held.option_key, held.answer) != (reading.option_key, reading.answer):
+            torn.add(reading.item_id)
+        found.setdefault(reading.item_id, reading)
+    for item_id in torn:
+        del found[item_id]
+    unjoined: list[dict] = []
+    for raw in raws:
+        if "join" not in raw:
+            continue
+        reading, missing = _join(raw, message, pairs, found)
+        if missing:
+            unjoined.append(missing)
+        if reading is not None and reading.item_id not in torn:
+            found[reading.item_id] = reading
+    return list(found.values()), unjoined
 
 
 def turn(memory_path: Path, item_id: str, message: str, history: list, upcoming: list[str], llm_fn,
          *, today: str | None = None) -> dict:
-    """One turn: ``{reply, reading, move, nextId, engine: True}``. ``llm_fn(system, prompt) -> str``. Raises
-    ``LookupError`` for an item that is not open, ``ValueError`` for an empty message."""
+    """One turn: ``{reply, readings, unjoined, move, nextId, engine: True}``. ``llm_fn(system, prompt) -> str``.
+    Raises ``LookupError`` for an item that is not open, ``ValueError`` for an empty message."""
     today = today or date.today().isoformat()
     message = str(message or "").strip()[:MAX_MESSAGE]
     if not message:
@@ -242,13 +343,33 @@ def turn(memory_path: Path, item_id: str, message: str, history: list, upcoming:
     item, ctx = found
     if item.status != "pending":
         raise LookupError(item_id)
-    nexts: list[dict] = []
+    others: list = []
     for uid in [u for u in (upcoming or []) if isinstance(u, str) and u != item_id][:MAX_UPCOMING]:
         other = _item(memory_path, uid, today)
         if other is not None and other[0].status == "pending":
-            nexts.append({"id": uid, "ask": other[0].spoken_question or other[0].question or other[0].title,
-                          "why": other[0].spoken_reason or ""})
-    raw = llm_fn(SYSTEM_PROMPT, _prompt(item, ctx, memory_path, message, _history(history), nexts))
+            others.append(other[0])
+    chains = _chains(memory_path, [item, *others])
+    nexts = []
+    for other in others:
+        entry = {"id": other.id, "ask": other.spoken_question or other.question or other.title,
+                 "why": other.spoken_reason or "", "answers": answer_keys(other)}
+        if other_pairs := _pairs(other, chains):
+            entry["pairs"] = other_pairs
+        nexts.append(entry)
+    answerable = {i.id: i for i in [item, *others]}
+    # A chain's pairs are questions of their own. Ids and pages from the served list, so a join can name a page.
+    pairs: list[dict] = []
+    for pair in _pairs(item, chains):
+        member = chains.get(pair["id"])
+        if member is None:
+            continue
+        answerable[pair["id"]] = member
+        pairs.append({**pair, "subject": member.entity_id, "hint": member.merge_target_hint})
+    for other in others:
+        for pair in _pairs(other, chains):
+            if pair["id"] in chains:
+                answerable.setdefault(pair["id"], chains[pair["id"]])
+    raw = llm_fn(SYSTEM_PROMPT, _prompt(item, ctx, memory_path, message, _history(history), nexts, chains))
     data = _json(raw) or {}
     reply = _clip(data.get("reply"), MAX_REPLY)
     move = str(data.get("move") or "stay").strip().lower()
@@ -257,12 +378,12 @@ def turn(memory_path: Path, item_id: str, message: str, history: list, upcoming:
     next_id = str(data.get("next_id") or "").strip() or None
     if next_id not in {n["id"] for n in nexts}:
         next_id = None
-    reading = ground(item, message, data)
-    if not reply:
+    readings, unjoined = ground_all(message, data, item, answerable, pairs)
+    if not reply and not readings and move != "later":
         # The model said nothing usable: the app keeps the question open and offers the person's own words.
-        return {"reply": None, "reading": None, "move": "stay", "nextId": None, "engine": True}
-    return {"reply": reply, "reading": reading.to_wire() if reading else None, "move": move, "nextId": next_id,
-            "engine": True}
+        return {"reply": None, "readings": [], "unjoined": [], "move": "stay", "nextId": None, "engine": True}
+    return {"reply": reply or None, "readings": [r.to_wire() for r in readings], "unjoined": unjoined, "move": move,
+            "nextId": next_id, "engine": True}
 
 
 # --------------------------------------------------------------------------- the record

@@ -49,16 +49,11 @@ extension Copy {
         static let notedDifferent = "Noted: kept apart"
         static let notedLater = "I'll ask another day"
         static func propose(_ what: String) -> String { "Note it as “\(what)”?" }
-        static let proposeSame = "Join them as one?"
-        static func proposePairSame(_ a: String, _ b: String) -> String { "Join \(a) and \(b) as one?" }
-        static func proposePairDifferent(_ a: String, _ b: String) -> String { "Keep \(a) and \(b) apart?" }
-        static func proposeAlsoSame(_ a: String, _ b: String) -> String { "And \(a) and \(b), one too?" }
-        static func proposeAlsoDifferent(_ a: String, _ b: String) -> String { "And \(a) and \(b), apart too?" }
-        static let proposeDifferent = "Keep them apart?"
-        static let proposeLater = "Ask again another day?"
         static let yes = "Yes"
         static let notQuite = "Not quite"
         static let notQuiteHelp = "Nothing is noted; say it again in your own words"
+        /// Two names the person joined with no question to carry it: said, never dropped in silence.
+        static func cannotJoin(_ a: String, _ b: String) -> String { "I couldn't join \(a) and \(b) from here." }
         static let opening = "A few quick ones, the things you use most first."
         static let skipped = "Let's leave that one."
         static let done = "That's everything for now. Thanks for catching me up."

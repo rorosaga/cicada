@@ -76,9 +76,44 @@ final class HomeChainsTests: XCTestCase {
         XCTAssertEqual(s.current?.id, "d1", "then the talk moves on")
     }
 
-    /// #536 review — typed "yes, all the same": each pair is proposed by name and joined only on its own Yes; the chat
-    /// never leaves the chain with a pair unasked.
-    func testTypedAllTheSameProposesEachPairByNameOneYesEach() async throws {
+    /// The owner's case, 2026-11-05 (placeholders): one message, two answers. Both go in one hold under one Undo, the
+    /// parting before the join, and neither the proposal nor the chain's taps stay.
+    func testTwoAnswersInOneMessageResolveBothPairsAtOnce() async throws {
+        var open = try items()
+        var held: [[(String, QuestionResolution)]] = []
+        let s = CatchupSession(
+            queue: HomeQuestions.figures(open, now: .now).catchUp, items: { open },
+            hold: { _, _ in XCTFail("one hold for the whole answer"); return false },
+            heldId: { held.last?.first?.0 }, release: { nil },
+            turn: { _, _, _, _ in
+                CatchupTurnReply(reply: nil, readings: [
+                    .init(itemId: "m1", optionKey: "same", answer: nil, quote: "she is Samantha"),
+                    .init(itemId: "m2", optionKey: "different", answer: nil, quote: "nothing to do with her")
+                ], move: "next")
+            }, record: { _, _ in },
+            holdAll: { parts in
+                held.append(parts.map { ($0.item.id, $0.resolution) })
+                open.removeAll { o in parts.contains { $0.item.id == o.id } }
+                return true
+            })
+        s.start()
+        s.draft = "she is Samantha, I'm nothing to do with her"
+        await s.send()
+        XCTAssertEqual(held.count, 1)
+        XCTAssertEqual(held[0].map(\.0), ["m2", "m1"], "apart first, the join last")
+        XCTAssertEqual(held[0].map(\.1.quote), ["nothing to do with her", "she is Samantha"], "each on its own words")
+        XCTAssertNil(s.confirmation)
+        XCTAssertEqual(s.current?.id, "d1", "the chain is settled and its tap row gone")
+        XCTAssertTrue(s.lines.contains {
+            if case .noted(let text, "m2") = $0.kind {
+                text == "Noted: Sammy Example isn't Samantha Example, Sam Example is Samantha Example"
+            } else { false }
+        })
+        XCTAssertEqual(s.undoableId, "m2", "one Undo for the whole answer")
+    }
+
+    /// A part-answer stays on the chain with only the open pair's taps, and a join carried on a parted pair names who.
+    func testAPartAnswerKeepsOnlyTheOpenPairAndAJoinSaysWho() async throws {
         var open = try items()
         var held: [(String, QuestionResolution)] = []
         let s = CatchupSession(
@@ -86,24 +121,22 @@ final class HomeChainsTests: XCTestCase {
             hold: { item, r in held.append((item.id, r)); open.removeAll { $0.id == item.id }; return true },
             heldId: { held.last?.0 }, release: { nil },
             turn: { _, _, _, _ in
-                CatchupTurnReply(reply: "Sounds like they're one person — shall I join them?",
-                                 reading: .init(optionKey: "same", answer: nil, quote: "all the same", confirm: true),
-                                 move: "stay")
+                CatchupTurnReply(reply: "And the other two?", readings: [
+                    .init(itemId: "m1", optionKey: "same", answer: nil, quote: "is Other", mergeTarget: "other-page",
+                          targetName: "Other Example")], unjoined: [.init(a: "X Example", b: "Y Example")], move: "stay")
             }, record: { _, _ in })
         s.start()
-        s.draft = "yes, all the same"
+        s.draft = "Sam is Other"
         await s.send()
-        XCTAssertTrue(held.isEmpty, "typed words alone join no one")
-        XCTAssertEqual(s.confirmation?.label, "Join Sam Example and Samantha Example as one?")
-        s.confirm()
-        XCTAssertEqual(held.map(\.0), ["m1"], "Yes joins exactly the pair it named")
-        XCTAssertEqual(held.first?.1.quote, "all the same")
-        XCTAssertEqual(s.current?.id, "m2", "the chain stays: its other pair is still open")
-        XCTAssertEqual(s.confirmation?.label, "And Sammy Example and Samantha Example, one too?")
-        XCTAssertEqual(s.confirmation?.itemId, "m2")
-        s.notQuite()
-        XCTAssertEqual(held.map(\.0), ["m1"], "Not quite on the next pair joins nothing")
-        XCTAssertEqual(s.current?.id, "m2")
-        XCTAssertEqual(s.chips.filter { $0.role == .answer }.map(\.itemId), ["m2", "m2"], "its own chips wait")
+        XCTAssertEqual(held.first?.1.mergeTarget, "other-page")
+        XCTAssertEqual(held.first?.1.mergeSurvivor, "other-page")
+        XCTAssertEqual(s.current?.id, "m2", "the other pair is still open")
+        XCTAssertEqual(s.chips.filter { $0.role == .answer }.map(\.itemId), ["m2", "m2"])
+        XCTAssertTrue(s.lines.contains {
+            if case .noted("Noted: Sam Example is Other Example", "m1") = $0.kind { true } else { false }
+        })
+        XCTAssertTrue(s.lines.contains {
+            if case .aside("I couldn't join X Example and Y Example from here.") = $0.kind { true } else { false }
+        }, "a join no question can carry is said, never dropped in silence")
     }
 }

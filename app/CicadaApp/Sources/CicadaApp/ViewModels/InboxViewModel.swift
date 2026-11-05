@@ -237,18 +237,31 @@ final class InboxViewModel {
     /// once; the POST waits for the Undo window (R-DI2). Nothing to await: there is no request yet.
     @discardableResult
     func answer(_ item: InboxItem, _ resolution: QuestionResolution) -> Bool {
+        answerAll([(item, resolution)])
+    }
+
+    /// One answer in several parts (the catch-up, owner 2026-11-05): every question leaves at once, and one Undo
+    /// takes back the lot. The first part names the Undo row.
+    @discardableResult
+    func answerAll(_ parts: [(item: InboxItem, resolution: QuestionResolution)]) -> Bool {
+        guard let (item, resolution) = parts.first else { return false }
         let words = UndoLabel.of(resolution, item: item, names: store.entityNames)
-        let held = store.hold(InboxResolve(id: item.id, action: resolution.action, answer: resolution.answer,
-                                optionKey: resolution.optionKey, remindDays: resolution.remindDays,
-                                mergeTarget: resolution.mergeTarget, mergeSurvivor: resolution.mergeSurvivor,
-                                quote: resolution.quote, relayedBy: resolution.quote == nil ? nil : CatchupAnswers.relayedBy,
-                                sessionId: resolution.sessionId),
-                   label: words.full, shortLabel: words.short, question: item.questionText,
-                   kind: item.kind, channel: item.channel)
+        let held = store.hold(Self.inboxResolve(item, resolution),
+                              also: parts.dropFirst().map { Self.inboxResolve($0.item, $0.resolution) },
+                              label: words.full, shortLabel: words.short, question: item.questionText,
+                              kind: item.kind, channel: item.channel)
         guard held else { return false }   // a bank switch is in flight: the question stays open (G183(d))
         // DR-29 — the next row opens at once (`visible` already leaves the held one out).
-        columns.afterAnswer(item.id, remaining: visible)
+        for part in parts { columns.afterAnswer(part.item.id, remaining: visible) }
         return true
+    }
+
+    private static func inboxResolve(_ item: InboxItem, _ resolution: QuestionResolution) -> InboxResolve {
+        InboxResolve(id: item.id, action: resolution.action, answer: resolution.answer,
+                     optionKey: resolution.optionKey, remindDays: resolution.remindDays,
+                     mergeTarget: resolution.mergeTarget, mergeSurvivor: resolution.mergeSurvivor,
+                     quote: resolution.quote, relayedBy: resolution.quote == nil ? nil : CatchupAnswers.relayedBy,
+                     sessionId: resolution.sessionId)
     }
 
     /// DR-42 — Undo: the held answer is dropped unsent. Returns the question so the page can reopen
