@@ -220,6 +220,7 @@ def episode_document(
         correspondent_kind=_opt(_correspondent(fm).get("kind")) if is_episode else None,
         device=_opt(fm.get("device")) if is_episode else None,
         site=_saved_site(fm) if is_episode else None,
+        note_id=_opt(fm.get("note_id")) if is_episode and fm.get("source") == "apple-notes" else None,
         turns=turn_models,
         focus=focus_model,
         agent=agent,

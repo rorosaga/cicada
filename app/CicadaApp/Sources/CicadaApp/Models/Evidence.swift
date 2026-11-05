@@ -479,6 +479,8 @@ struct EpisodeText: Codable, Hashable {
     /// date); nil when the two are the same day or two, for a page, for an episode from before the ruling and from an
     /// older backend.
     var receivedAt: String? = nil
+    /// ROR-15 — Notes' own id for an Apple Note, so the note on screen can be drawn as Notes draws it; nil otherwise.
+    var noteId: String? = nil
 
     var isPage: Bool { kind == "page" }
     var isPageRead: Bool { source == EvidenceSpeaker.pageReadSource }

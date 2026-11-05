@@ -253,6 +253,49 @@ enum AppleNotesReader {
                                                                                    : Copy.Place.noteFailed
     }
 
+    // MARK: Reading one note as Notes draws it (ROR-15)
+
+    /// One note's HTML, for the note on screen. The id is an argument, never part of the script. The locked filter sits
+    /// in the same event as `body`, so Notes evaluates it and a locked note's body is never asked for (G234). A closed
+    /// Notes stays closed: asking would launch it just because a source was opened.
+    static let formattedScript = """
+    on run argv
+        if application "Notes" is not running then return ""
+        set wanted to item 1 of argv
+        tell application "Notes"
+            set bodies to body of (every note whose password protected is false and id is wanted)
+        end tell
+        if (count of bodies) is 0 then return ""
+        return item 1 of bodies
+    end run
+    """
+    /// A slower answer than this leaves the note in plain text.
+    static let formattedTimeout: TimeInterval = 5
+
+    static func formattedArguments(_ noteId: String) -> [String] { ["-e", formattedScript, noteId] }
+
+    static let runFormatted: ShowRunner = { noteId, timeout in
+        let out = await ChildProcess.run(URL(fileURLWithPath: "/usr/bin/osascript"),
+                                         arguments: formattedArguments(noteId), timeout: timeout)
+        return Output(status: out.status, stdout: out.stdout, stderr: out.stderr, timedOut: out.timedOut)
+    }
+
+    /// The note on screen, formatted, or nil for every reason it cannot be: never an error, never a prompt. `granted`
+    /// asks macOS without asking the person, and answers false while Notes is closed.
+    static func formatted(noteId rawId: String, stored: String,
+                          granted: @escaping @Sendable () -> Bool = {
+                              LiveMacPermissionProbe.automationStatus(MacPermission.notesBundleId, ask: false) == 0
+                          },
+                          run: ShowRunner = runFormatted) async -> NoteDocument? {
+        guard let noteId = ItemPlaceOpen.noteID(rawId) else { return nil }
+        guard await Task.detached(priority: .userInitiated, operation: { granted() }).value else { return nil }
+        let output = await run(noteId, formattedTimeout)
+        guard !output.timedOut, output.status == 0, !output.stdout.isEmpty else { return nil }
+        return await Task.detached(priority: .userInitiated) {
+            NoteDocument.build(html: output.stdout, stored: stored)
+        }.value
+    }
+
     /// `/usr/bin/osascript -e <script>` as a child `Process` (never a shell), through `ChildProcess`: both pipes
     /// drain while it runs — a library's dump is far larger than a pipe's buffer, so reading only at exit would
     /// deadlock. A launch failure reads as status 127, as it always did.

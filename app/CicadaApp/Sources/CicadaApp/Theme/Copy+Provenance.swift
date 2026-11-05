@@ -78,6 +78,8 @@ extension Copy {
         /// The quiet marker beside a chat message that holds a cited passage (2026-10-20): one word on screen, the
         /// whole thought for VoiceOver — the span landed on, or another this conversation's citations name.
         static let citedMarker = "Cited"
+        static let noteChecked = "Done"
+        static let noteUnchecked = "Not done"
         static let citedHere = "Cited here"
         static let alsoCitedHere = "Also cited here"
         static let citedMarkerHelp = "Words from this message are cited by what Cicada noted"

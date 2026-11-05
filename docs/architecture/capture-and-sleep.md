@@ -31,7 +31,8 @@ Seven rails hold across all of them:
   `notes_sync` dates the episode when the note was last written (read on time); the human `modified` string stays the
   dedup key, and a 6-field record from an older app still parses and is dated now.
   **Locked notes (G234, 2026-11-04).** Every property the script reads is asked through `whose password protected is
-  false`, evaluated inside Notes, so no event names a locked note's body; a locked note gives its id and its name, its
+  false`, evaluated inside Notes, so no event names a locked note's body (the view-time `body` of the note on screen too,
+  ROR-15, held in memory and never posted, `app.md`); a locked note gives its id and its name, its
   own event and `try`, and neither enters the dump: the ids go in `lockedNoteIds`, the names only as hashes in
   `lockedNoteKeys` (`AppleNotesReader.split`; an older backend ignores the key and never sees those notes).
   The bulk lists are separate events, so the ids are read again last and a folder that changed in between waits for the
