@@ -1454,6 +1454,18 @@ async def get_saved_episode_site_icon(episode_id: str, request: Request, setting
     return await _serve_own_site_icon(request, memory_path, site)
 
 
+@router.get("/sources/feeds/{feed_id}/site-icon")
+async def get_followed_feed_site_icon(feed_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """A followed feed's own site icon (ROR-108), for its row on the RSS page the person opened. A feed's items are
+    captured, not saved, so the saved-link routes refuse them; a feed is a site the person chose, so this stands on the
+    same footing: the site is read from THAT feed's record (`channel_items.feed_site`), with the same gate, per-site
+    cache and fetch. A feed wearing a bundled mark asks nothing. 404 means "draw the monogram". Nothing calls this but
+    the app's row; neither a poll nor Sleep does."""
+    memory_path = settings.memory_path
+    site = await run_in_threadpool(channel_items.feed_site, memory_path, feed_id)
+    return await _serve_own_site_icon(request, memory_path, site)
+
+
 async def _serve_own_site_icon(request: Request, memory_path, site: str | None):
     """Serve `site`'s own icon from the cache, asking the site at most once (`ensure_own_site_icon`, ≤ 4 at a time)."""
     import hashlib

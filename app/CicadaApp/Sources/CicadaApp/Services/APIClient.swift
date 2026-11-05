@@ -3760,6 +3760,10 @@ actor APIClient {
         try await fetchOwnSiteIcon(path: "/sources/saved/episodes/\(encodedID(episodeId))/site-icon")
     }
 
+    func fetchFeedSiteIcon(feedId: String) async throws -> Data? {
+        try await fetchOwnSiteIcon(path: "/sources/feeds/\(encodedID(feedId))/site-icon")
+    }
+
     private func fetchOwnSiteIcon(path: String) async throws -> Data? {
         var request = makeRequest(path, method: "GET", json: false)
         request.timeoutInterval = Self.refreshTimeout

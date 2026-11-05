@@ -86,14 +86,18 @@ struct SourceCollection: Decodable, Equatable, Hashable, Sendable, Identifiable 
     var url: String?
     var polled: String?
     var problem: String?
+    /// ROR-108, a followed feed only: the bundled mark it wears, else the key of its own site.
+    var mark: String?
+    var site: String?
 
     init(id: String, name: String, count: Int, latest: String? = nil, url: String? = nil, polled: String? = nil,
-         problem: String? = nil) {
+         problem: String? = nil, mark: String? = nil, site: String? = nil) {
         self.id = id; self.name = name; self.count = count; self.latest = latest
         self.url = url; self.polled = polled; self.problem = problem
+        self.mark = mark; self.site = site
     }
 
-    enum CodingKeys: String, CodingKey { case id, name, count, latest, url, polled, problem }
+    enum CodingKeys: String, CodingKey { case id, name, count, latest, url, polled, problem, mark, site }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -104,6 +108,8 @@ struct SourceCollection: Decodable, Equatable, Hashable, Sendable, Identifiable 
         url = try? c.decodeIfPresent(String.self, forKey: .url)
         polled = try? c.decodeIfPresent(String.self, forKey: .polled)
         problem = try? c.decodeIfPresent(String.self, forKey: .problem)
+        mark = try? c.decodeIfPresent(String.self, forKey: .mark)
+        site = try? c.decodeIfPresent(String.self, forKey: .site)
     }
 }
 

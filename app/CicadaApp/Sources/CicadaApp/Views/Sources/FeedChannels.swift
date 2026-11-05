@@ -4,7 +4,8 @@ import SwiftUI
 // getting") — the RSS page's content: every feed followed, each opening in place to what it brought in, newest first, a
 // page at a time (DESIGN_RULES §9 2026-11-05, DR-34, DR-48, DR-60). The backend files the items and says how each feed's
 // last check went (`GET /sources/channels/rss/collections`, `ChannelItemsCache`, never a Store domain); nothing here
-// fetches a feed, and a row names no picture.
+// fetches a feed, and a row names no picture from the web: its mark is a bundled one the backend names, or its own site's
+// icon asked of the backend (`FeedChannelMark`, DR-12, DR-52).
 
 enum FeedChannelText {
     static let channel = "rss"
@@ -26,6 +27,35 @@ enum FeedChannelText {
     /// The feeds to draw; empty when the backend names none, and the page keeps its plain list.
     static func feeds(_ tree: ChannelCollections?) -> [SourceCollection] {
         tree?.accounts.flatMap(\.collections) ?? []
+    }
+}
+
+/// A feed's mark, decided once for both forms of its row: the bundled mark the backend names, else its site's own icon
+/// and then that site's monogram (the saved link's rule), else, with no site (*Other*), a monogram of its name.
+enum FeedChannelMarkModel: Equatable {
+    case bundled(String)
+    case link(SavedLinkMarkModel.Mark)
+
+    static func of(_ feed: SourceCollection, markExists: (String) -> Bool = LogoImage.exists(name:)) -> Self {
+        if let mark = feed.mark, markExists(mark) { return .bundled(mark) }
+        return .link(SavedLinkMarkModel.mark(site: feed.site, host: feed.site, title: feed.name, door: .feed(feed.id)))
+    }
+}
+
+/// The mark before a feed's name: always the same square, so rows stay aligned before and after an icon arrives.
+struct FeedChannelMark: View {
+    let feed: SourceCollection
+
+    var body: some View {
+        let side = CicadaTheme.scaled(SiteIconLayout.Size.inline.points)
+        Group {
+            switch FeedChannelMarkModel.of(feed) {
+            case .bundled(let name): LogoImage(name: name, size: side)
+            case .link(let mark): SavedLinkMark(mark: mark, size: .inline)
+            }
+        }
+        .frame(width: side, height: side)
+        .accessibilityHidden(true)
     }
 }
 
@@ -71,7 +101,7 @@ struct FeedChannelRow: View {
     var body: some View {
         if feed.count > 0 {
             InPlaceDisclosureRow(title: feed.name, help: FeedChannelText.help(feed),
-                                 count: FeedChannelText.meta(feed), open: $open) { EmptyView() } content: {
+                                 count: FeedChannelText.meta(feed), open: $open) { FeedChannelMark(feed: feed) } content: {
                 SourceItemsSection(channel: SourceListKey.make(FeedChannelText.channel, collection: feed.id),
                                    saved: saved, query: "", cap: nil, onDrill: onDrill)
                     .padding(.leading, CicadaTheme.scaled(22))
@@ -79,6 +109,7 @@ struct FeedChannelRow: View {
         } else {
             HStack(spacing: CicadaTheme.spacingSM) {
                 DisclosureChevron(isOpen: false).hidden()
+                FeedChannelMark(feed: feed)
                 Text(feed.name)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
