@@ -150,7 +150,8 @@ def test_a_subscribed_feed_is_not_connected_while_this_backend_fetches_no_feeds(
         assert chans[cid]["connected"] is False
         assert chans[cid]["count"] == 1, "the subscription is kept"
         assert chans[cid]["last_error"] == channel_registry.FEED_FETCH_OFF
-        assert chans[cid]["detail"] == "Not fetched"
+        assert chans[cid]["detail"] == "Not checked"
+        assert "CICADA_" not in chans[cid]["last_error"], "words the person can act on, never a variable's name"
     assert _channels(tmp_path, feed_fetch_allowed=True)["rss"]["connected"] is True
     # Nothing subscribed says nothing either way.
     assert _channels(tmp_path / "empty", feed_fetch_allowed=False)["rss"]["last_error"] is None

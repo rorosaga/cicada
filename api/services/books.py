@@ -33,15 +33,18 @@ opened; owner 2026-11-04):
 **Whose act it is** is read from the episode's own record, never set here (``authorship``): a scan is the person's own
 act (its lines are ``user``); an Apple Books or Goodreads episode is a saved record (``page``), except the person's
 notes and review, under ``## User note``. So a scanned "reading now" lights its page at once, while a library or a
-shelf someone imported stays quiet (``quiet_pages``) until the person writes or talks about the book — a want-to-read
+shelf someone imported stays quiet (``quiet_pages``) until the person marks, writes or talks about the book — a want-to-read
 or not-started scan, a save by another name, is stamped ``media_entity_id`` and stays quiet too (ruling 30's indexed
 save, owner 2026-11-04).
 
+**What the person marked is kept word for word, with no model** (ruling 64, ``book_marks``): each highlight and note is
+a claim on the page with a span of the episode, and a book with one is no longer quiet.
+
 **Sleep reads the highlights** (owner 2026-11-04: "be able to consolidate highlights and such is important"): an Apple
-Books episode with a highlight or a note, and a Goodreads row with a review, is queued like any conversation; a re-sync
-that adds highlights edits it in place and Sleep reads only what changed (``episode_revision``, #581). Everything else
-— a library entry, a shelf, a scan — lands already read (``processed_by: index`` / ``parser``): there is nothing in it
-for a model.
+Books episode with a highlight or a note, and a Goodreads row with a review, is queued like any conversation, read for
+what its marks share in one bounded chunk (ruling 64); a re-sync that adds highlights edits it in place and Sleep reads
+only what changed (``episode_revision``, #581). Everything else — a library entry, a shelf, a scan — lands already read
+(``processed_by: index`` / ``parser``): there is nothing in it for a model.
 
 Rails: no model, no network (``book_lookup`` fetches; this module reads its cache), every page write under
 ``page_lock`` and, from a route, the bank's write admission (the caller's; Sleep's tail calls it inside its own
@@ -73,6 +76,9 @@ DOORS = (SCAN_ORIGIN, APPLE_ORIGIN, GOODREADS_ORIGIN)
 #: (the ``content_hash`` it applied) so a re-sync that changed nothing is not applied twice.
 EPISODE_KEY = "book"
 APPLIED_KEY = "book_applied"
+#: The ``content_hash`` whose highlights and notes ``book_marks`` wrote: a separate stamp, so a record applied before
+#: ruling 64 gets its marks without its status being applied twice.
+MARKS_KEY = "book_marks"
 #: ``media_entity_id`` — the save stamp ``quiet_pages`` and ``authorship`` read.
 SAVE_KEY = "media_entity_id"
 
@@ -273,16 +279,35 @@ def _merge_list(old, new) -> list:
     return out
 
 
+def _applied_page(memory_path: Path, was) -> str | None:
+    """The page a record was last applied to, or the one it became: a merge carries no book identities, so the index
+    can miss a page that holds this record's marks. A dropped page is no answer, as in :class:`BookIndex`."""
+    from api.services import page_redirects
+
+    was = str(was or "").strip()
+    if not was or "/" in was:
+        return None
+    entity_id = page_redirects.resolve(memory_path, was) or was
+    path = Path(memory_path) / "entities" / f"{entity_id}.md"
+    if not path.is_file() or str(markdown_parser.parse(path).frontmatter.get("status") or "active") == "dropped":
+        return None
+    return entity_id
+
+
 def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_id: str,
-                today: str) -> tuple[str, bool, bool]:
+                today: str, *, was=None) -> tuple[str, bool, bool]:
     """``(entity_id, created, changed)``: the work's page, made or upgraded in place with what ``facts`` adds. A
     placeholder title gives way to a real one; a title from Open Library or a source is never replaced by another
-    source's spelling (the first real title stays, the person may rename it)."""
-    entity_id = index.find(facts)
+    source's spelling (the first real title stays, the person may rename it). ``was``: the page this record was last
+    applied to, followed when no book holds its identities. A page that is no book holds what the record says and is
+    never turned into one."""
+    entity_id = index.find(facts) or _applied_page(memory_path, was)
     path = Path(memory_path) / "entities" / f"{entity_id}.md" if entity_id else None
     if path is not None and path.exists():
         parsed = markdown_parser.parse(path)
         fm = dict(parsed.frontmatter)
+        if not is_book(fm):
+            return entity_id, False, False
         before = repr(sorted(fm.items(), key=lambda kv: kv[0]))
         book = dict(fm.get("book") or {})
         book["isbns"] = _merge_list(book.get("isbns"), facts.isbns)
@@ -355,6 +380,14 @@ def _claim_id(*parts: str) -> str:
     return "clm_book_" + hashlib.sha1("\x00".join(parts).encode()).hexdigest()[:10]
 
 
+def _claim_ids(memory_path: Path, entity_id: str, *parts: str) -> list[str]:
+    """The id a claim gets on this page, then the ids it holds if a page merged or renamed into this one wrote it: an id
+    is derived from the page's, and a claim keeps its id through a merge."""
+    from api.services import page_redirects
+
+    return [_claim_id(eid, *parts) for eid in (entity_id, *page_redirects.former_ids(memory_path, entity_id))]
+
+
 def _span(memory_path: Path, episode_id: str, quote: str):
     """A span over ``quote`` in the episode, its kind the episode's own (``authorship``, through ``evidence.verify``)
     — or ``reasoning``. Never raises (provenance never blocks memory)."""
@@ -422,7 +455,8 @@ def happening_stands(memory_path: Path, entity_id: str, status: str, day: str) -
         return False
     claims = parse_claims(markdown_parser.parse(Path(memory_path) / "entities" / f"{entity_id}.md").body)
     mine = live_status_claims(claims)
-    if _claim_id(entity_id, STATUS_PREDICATE, status, day) in {c.id for c in mine} or not _said_again(mine, status, day):
+    if {c.id for c in mine}.intersection(_claim_ids(memory_path, entity_id, STATUS_PREDICATE, status, day)) \
+            or not _said_again(mine, status, day):
         return False
     from api.services.claims import HAPPENED
 
@@ -449,14 +483,15 @@ def set_status(memory_path: Path, entity_id: str, *, status: str, day: str, epis
     except MalformedClaimsBlockError:
         logger.warning("book page has an unreadable claims block; its status was not written")
         return False
-    cid = _claim_id(entity_id, STATUS_PREDICATE, status, day)
+    ids = _claim_ids(memory_path, entity_id, STATUS_PREDICATE, status, day)
+    cid = ids[0]
     gone = _withdrawn(claims)
-    if cid in gone or (ranked and any(c.id in gone and c.object == status and episode_id in c.source_episodes
+    if gone.intersection(ids) or (ranked and any(c.id in gone and c.object == status and episode_id in c.source_episodes
                                       for c in _status_claims(claims))):
         return False
     mine = {c.id: c for c in live_status_claims(claims)}
     changed = False
-    old = mine.get(cid) or (_said_again(list(mine.values()), status, day) if ranked else None)
+    old = next((mine[i] for i in ids if i in mine), None) or (_said_again(list(mine.values()), status, day) if ranked else None)
     if old is not None:
         if episode_id not in old.source_episodes:
             old.source_episodes.append(episode_id)
@@ -554,8 +589,9 @@ def set_rating(memory_path: Path, entity_id: str, *, rating: int, day: str, epis
         claims = parse_claims(parsed.body, strict=True)
     except MalformedClaimsBlockError:
         return False
-    cid = _claim_id(entity_id, RATING_PREDICATE, str(rating), episode_id)
-    if any(c.id == cid for c in claims):
+    ids = _claim_ids(memory_path, entity_id, RATING_PREDICATE, str(rating), episode_id)
+    cid = ids[0]
+    if any(c.id in ids for c in claims):
         return False
     for c in claims:
         if c.predicate == RATING_PREDICATE and c.origin == PAGE_ORIGIN and not c.valid_to:
@@ -637,12 +673,19 @@ def pending(memory_path: Path, *, limit: int = MAX_APPLY) -> list:
             continue
         if str(fm.get("origin") or "") not in DOORS:
             continue
-        if fm.get(APPLIED_KEY) and fm.get(APPLIED_KEY) == fm.get("content_hash"):
+        if fm.get(APPLIED_KEY) and fm.get(APPLIED_KEY) == fm.get("content_hash") and not _marks_due(fm):
             continue
         out.append(f)
         if len(out) >= limit:
             break
     return out
+
+
+def _marks_due(fm: dict) -> bool:
+    """A record that says it holds marks, or last wrote some, whose marks are not those of this body."""
+    rec = fm.get(EPISODE_KEY) or {}
+    has = rec.get("highlights") or rec.get("notes") or rec.get("reviewed") or fm.get(MARKS_KEY)
+    return bool(has) and fm.get(MARKS_KEY) != fm.get("content_hash")
 
 
 def waiting_isbns(memory_path: Path) -> list[str]:
@@ -727,6 +770,13 @@ def _stamp_local_covers(memory_path: Path) -> list[str]:
     return paths
 
 
+def _stamp_marks(path: Path, digest: str) -> None:
+    with episode_ids.episode_lock(path.parent):
+        parsed = markdown_parser.parse(path)
+        if parsed.frontmatter.get("content_hash") == digest:
+            markdown_parser.write(path, {**parsed.frontmatter, MARKS_KEY: digest}, parsed.body)
+
+
 def _stamp_episode(path: Path, *, digest: str, entity_id: str, save: bool) -> bool:
     """Mark the episode applied (and, for a save, whose page it is) — under the episode lock, re-read first: a re-sync
     that landed meanwhile keeps its new body, and its new hash keeps it pending."""
@@ -772,10 +822,26 @@ def _facts_from_episode(fm: dict) -> BookFacts | None:
                      title_from=origin if title else "placeholder")
 
 
+def _apply_marks(memory_path: Path, entity_id: str, episode_id: str, ep_path: Path, digest: str, *, observer: str,
+                 today: str) -> list[str]:
+    """What the person marked, word for word (``book_marks``, ruling 64), then its stamp. A page's marks are written
+    before the stamp, so a stop re-does them, and the writer is idempotent."""
+    from api.services import book_marks, page_redirects
+
+    rel = [f"episodes/{ep_path.name}"]
+    # The page may have been merged away since the record was applied: its marks follow the page it became. One with no
+    # page at all has nowhere to go until a re-sync makes one, so it is stamped, not retried on every apply.
+    entity_id = page_redirects.resolve(memory_path, entity_id) or entity_id
+    if book_marks.apply(memory_path, entity_id, episode_id, observer=observer, today=today):
+        rel.append(f"entities/{entity_id}.md")
+    _stamp_marks(ep_path, digest)
+    return rel
+
+
 def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = MAX_APPLY) -> dict:
-    """Make every pending book episode's page, status and rating, with no model and no network. Returns ``{applied,
-    waiting, pages_created, paths}`` (memory-relative, for the caller's own commit). The caller holds the bank's write
-    admission (a route) or Sleep's window (the tail); this holds the page lock."""
+    """Make every pending book episode's page, status, rating and marks (``book_marks``), with no model and no network.
+    Returns ``{applied, waiting, pages_created, paths}`` (memory-relative, for the caller's own commit). The caller holds
+    the bank's write admission (a route) or Sleep's window (the tail); this holds the page lock."""
     memory_path = Path(memory_path)
     today_s = (today or date.today()).isoformat()
     out = {"applied": 0, "waiting": 0, "pages_created": 0, "paths": []}
@@ -792,9 +858,15 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
                     out["waiting"] += 1
                     continue
                 episode_id = str(fm.get("id") or Path(entry.path).stem)
+                digest = str(fm.get("content_hash") or "")
+                if fm.get(APPLIED_KEY) == digest and fm.get("book_entity_id"):   # only its marks are due
+                    paths += _apply_marks(memory_path, str(fm["book_entity_id"]), episode_id, Path(entry.path), digest,
+                                          observer=observer, today=today_s)
+                    continue
                 rec = fm.get(EPISODE_KEY) or {}
                 status = rec.get("status") if rec.get("status") in STATUSES else None
-                entity_id, created, changed = ensure_page(memory_path, index, facts, episode_id, today_s)
+                entity_id, created, changed = ensure_page(memory_path, index, facts, episode_id, today_s,
+                                                          was=fm.get("book_entity_id"))
                 out["pages_created"] += int(created)
                 if changed:
                     paths.append(f"entities/{entity_id}.md")
@@ -828,6 +900,9 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
                     if set_rating(memory_path, entity_id, rating=rating, day=day, episode_id=episode_id,
                                   quote=f"{rating} of 5", observer=observer, today=today_s):
                         paths.append(f"entities/{entity_id}.md")
+                if _marks_due(fm):
+                    paths += _apply_marks(memory_path, entity_id, episode_id, ep_path, digest, observer=observer,
+                                          today=today_s)
                 out["applied"] += 1
             except Exception as exc:  # noqa: BLE001 — one bad record never stops the rest
                 from api.services import tool_contract

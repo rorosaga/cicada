@@ -32,6 +32,9 @@ from pathlib import Path
 import numpy as np
 
 BUNDLED_MODELS_ENV = "CICADA_BUNDLED_MODELS"
+#: At most this many cores for an on-device embed (the owner's rule). onnxruntime sizes its own pool from the session
+#: alone, whatever the environment says, and by default takes every performance core.
+THREADS = 4
 MANIFEST = "cicada-model.json"
 #: The id a release app's fresh bank is built with where nothing better runs: the floor, always bundled.
 DEFAULT_ID = "intfloat/multilingual-e5-small"
@@ -212,6 +215,9 @@ class OnnxEmbedder:
             tokenizer.enable_padding()
             options = ort.SessionOptions()
             options.log_severity_level = 3
+            options.intra_op_num_threads = THREADS
+            # A pool thread between two operators sleeps rather than spins: spinning is CPU with no work done.
+            options.add_session_config_entry("session.intra_op.allow_spinning", "0")
             session = ort.InferenceSession(str(self.spec.path / "model.onnx"), sess_options=options,
                                            providers=["CPUExecutionProvider"])
             self._inputs = {i.name for i in session.get_inputs()}

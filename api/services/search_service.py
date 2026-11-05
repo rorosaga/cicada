@@ -799,6 +799,8 @@ def _search_fallback(ctx: _Ctx) -> tuple[dict[str, list[SearchHit]], dict[str, i
     index and come back empty; ``index_state`` says why."""
     out: dict[str, list[SearchHit]] = {k: [] for k in ctx.kinds}
     totals: dict[str, int] = {}
+    if not {"entity", "media"} & set(ctx.kinds):
+        return out, totals   # conversations only: every page's frontmatter walked for nothing, 25 ms a search at 4,700 pages
     docs: dict[str, search_index.Doc] = {}
     lexical: dict[str, list[_Page]] = {"entity": [], "media": []}
     for f in bank_index.files(ctx.memory_path, "entities"):

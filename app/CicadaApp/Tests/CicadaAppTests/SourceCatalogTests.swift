@@ -247,6 +247,38 @@ final class SourceCatalogTests: XCTestCase {
     }
 
     /// A browser's row is Connected while any of its readers is on: bookmarks off, YouTube history on.
+    /// ROR-41 ("Sources · 2 connected" with one switch on): Chrome's YouTube history is one reader on two rows.
+    func testOneReaderOnTwoRowsCountsOnce() {
+        let chrome = BrowserInventory.spec(id: "chrome")!
+        let entries = SourceCatalog.entries(browsers: [chrome], wisprPresent: false, overview: [])
+        let watched = [SourceChannel(id: WatchHistoryWatcher.channel, label: "YouTube", connected: true)]
+        let history = SourceOverview(id: "youtube-history", label: "YouTube history", kind: .social, episodes: 12)
+        let one = SourceCatalog.rows(entries: entries, channels: watched, overview: [history], readableSites: [],
+                                     localReaders: [WatchHistoryWatcher.channel: true])
+        XCTAssertEqual(row("browser:chrome", in: one)?.status, .connected)
+        XCTAssertEqual(row("youtube", in: one)?.status, .connected)
+        XCTAssertEqual(SourceCatalog.connectedCount(one), 1)
+
+        // Its own import is a second source, and so is a second switch on Chrome's page once YouTube has its own.
+        let playlists = SourceOverview(id: "youtube", label: "YouTube", kind: .social, episodes: 4)
+        let imported = SourceCatalog.rows(entries: entries, channels: watched, overview: [history, playlists],
+                                          readableSites: [], localReaders: [WatchHistoryWatcher.channel: true])
+        XCTAssertEqual(SourceCatalog.connectedCount(imported), 2)
+    }
+
+    /// The class: every channel two entries speak for names the one that holds its switch.
+    func testEveryChannelTwoEntriesShareHasAHome() {
+        let chrome = BrowserInventory.spec(id: "chrome")!
+        let entries = SourceCatalog.entries(browsers: [chrome], wisprPresent: false, overview: [])
+        var claims: [String: [String]] = [:]
+        for entry in entries { for channel in entry.channels { claims[channel, default: []].append(entry.id) } }
+        for (channel, holders) in claims where holders.count > 1 {
+            let home = SourceCatalog.readerHome[channel]
+            XCTAssertNotNil(home, "\(channel) is on \(holders) with no home")
+            XCTAssertTrue(holders.contains(home ?? ""), "\(channel)'s home is not one of \(holders)")
+        }
+    }
+
     func testABrowserStaysConnectedWhileAnyOfItsReadersIsOn() {
         let chrome = BrowserInventory.spec(id: "chrome")!
         let channels = [SourceChannel(id: "chrome-bookmarks", label: "Chrome", connected: true),

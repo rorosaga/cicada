@@ -88,6 +88,21 @@ def resolve(memory_path, entity_id: str) -> str | None:
     return None
 
 
+def former_ids(memory_path, entity_id: str) -> list[str]:
+    """The ids that became ``entity_id``, through any chain, for a writer whose claim ids are derived from the page's id:
+    a claim keeps its id through a merge or a rename."""
+    table = load(memory_path)
+    out: list[str] = []
+    frontier = [str(entity_id or "")]
+    while frontier:
+        into = frontier.pop()
+        for old, new in table.items():
+            if new == into and old != entity_id and old not in out:
+                out.append(old)
+                frontier.append(old)
+    return out
+
+
 def _is_page(ents: Path, eid: str) -> bool:
     try:
         return (ents / f"{eid}.md").is_file()

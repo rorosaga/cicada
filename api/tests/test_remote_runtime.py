@@ -425,3 +425,103 @@ def test_ask_top_k_that_is_not_an_integer_is_refused_at_the_door(runtime, monkey
     monkeypatch.setattr(ask_service, "answer_query", lambda *a, **k: seen.append(1))
     text, status = runtime.call(_connector(scopes={"ask"}, cid="as12cd34"), "cicada_ask", {"query": "q", "top_k": raw})
     assert status == "invalid" and text.startswith("Invalid arguments: `top_k` must be an integer") and seen == []
+
+
+# ---- ruling 64, R-R22: a caller without `sources` reads no word of the person's, through any tool ----------------------
+
+
+#: Each tool's call aimed at a page holding the person's words. A new tool in the remote table fails below until it is
+#: named here: with the arguments that would make it say what it knows of a page, or ``{}`` if it takes no page.
+_AIMED = {
+    "cicada_handshake": {},
+    "cicada_recall": {"query": "lanterns"},
+    "cicada_open_hub": {"hub": "media"},
+    "cicada_recall_detail": {"entity_id": "the-book", "include": ["blocks"]},
+    "cicada_get_perspective": {"subject": "the-book", "history": True},
+    "cicada_check_nudges": {"topic": "lanterns", "entity_ids": ["the-book"], "mode": "list"},
+    "cicada_timeline": {"since": "2020-01-01"},
+    "cicada_project": {"project": "the-book"},
+    "cicada_split_page": {"page": "the-book", "preview": True, "claims": ["{mark}", "{log}"]},
+    "cicada_merge_pages": {"page": "the-book", "into": "alpha-project", "reason": "the same thing"},
+    "cicada_undo_join": {"page": "the-book", "reason": "undo that"},
+    "cicada_retract_claim": {"subject": "the-book", "claim_id": "{mark}", "reason": "wrong"},
+    "cicada_write_claim": {"subject": "the-book", "predicate": "highlighted", "object": "something else"},
+    "cicada_ask": {"query": "what did I mark about lanterns?"},
+    # These name no page's claims; the call shows they do not start to.
+    "cicada_save_episode": {"content": "a note"},
+    "cicada_capture_turns": {"message": "a turn"},
+    "cicada_add_source": {"subject": "the-book", "ref": "https://example.com/a"},
+    "cicada_change_source": {"subject": "the-book", "ref": "https://example.com/a", "action": "remove"},
+    "cicada_save_url": {"url": "https://example.com/b"},
+    "cicada_note_progress": {"project": "alpha-project", "kind": "did", "summary": "x", "status": "done"},
+    "cicada_backlog": {"project": "alpha-project"},
+    "cicada_add_backlog_item": {"project": "alpha-project", "title": "t", "description": "d"},
+    "cicada_add_backlog_note": {"item": "t", "note": "n"},
+    "cicada_create_project": {"project": "a-new-one"},
+    "cicada_link_conversation": {"project": "alpha-project", "episode": "ep_2026-09-01_001"},
+    "cicada_link_entity": {"project": "alpha-project", "entity": "the-book"},
+    "cicada_add_influence": {"project": "alpha-project", "what": "the-book"},
+    "cicada_record_watch": {"url": "https://example.com/c", "summary": "s"},
+    "cicada_video_queue": {},
+    "cicada_video_claim": {},
+    "cicada_reading_queue": {},
+    "cicada_record_read": {"url": "https://example.com/d", "outcome": "read"},
+    "cicada_record_check": {"item_id": "x", "source": "https://example.com/e", "outcome": "nothing"},
+    "cicada_resolve_inbox": {"id": "x", "skip": True},
+    # The one tool whose whole job is the person's words: it needs the scope this caller does not hold.
+    "cicada_sources": {"entity_id": "the-book"},
+}
+
+
+def _page_with_their_words(memory):
+    from api.services.claims import Claim, Evidence, write_claims
+
+    body = "## Summary\nA book.\n"
+    marked = Claim(id="clm_book_aaaaaaaaaa", text="Highlighted: The lanterns were lit before dusk.", subject="the-book",
+                   predicate="highlighted", object="The lanterns were lit before dusk.", object_kind="literal",
+                   observer="user", context="general", epistemic="explicit", source_trust="user_stated", confidence=0.9,
+                   valid_from="2026-05-01", recorded_at="2026-05-01", source_episodes=["ep_2026-09-01_001"],
+                   origin="book", authored_by="user",
+                   evidence=[Evidence(episode="ep_2026-09-01_001", start=0, end=1, hash="x", kind="page")])
+    logged = Claim(id="clm_2026-05-01_001", text="Said the slow walk back was the point.", subject="the-book",
+                   predicate="said", object="the slow walk back", object_kind="literal", observer="user",
+                   context="general", epistemic="explicit", source_trust="user_stated", confidence=0.9,
+                   valid_from="2026-05-01", recorded_at="2026-05-01", source_episodes=["ep_2026-09-01_001"],
+                   origin="companion_app", authored_by="user")
+    _entity(memory, "the-book", type="media", confidence=0.9, name="The Book",
+            body=write_claims(body, [marked, logged]))
+    return marked.id, logged.id
+
+
+def test_a_caller_without_sources_reads_none_of_their_words_through_any_remote_tool(runtime, memory, monkeypatch):
+    from api.remote.tools import REMOTE_TOOLS
+    from api.services import bank_index, search_index
+
+    assert set(REMOTE_TOOLS) <= set(_AIMED), "a new remote tool: aim it at a page with the person's words in it"
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
+    told: list[bool] = []
+
+    def answer(mp, q, top_k=6, source_words=True, **_kw):
+        told.append(source_words)
+        return {"answer": "x", "confidence": 0.8, "citations": [], "gaps": [], "used_entities": []}
+
+    monkeypatch.setattr(ask_service, "answer_query", answer)
+    mark, log = _page_with_their_words(memory)
+    bank_index.invalidate(memory)
+    search_index.ensure_fresh(memory, wait=True)
+    caller = _connector(scopes=set(catalog.SCOPES) - {"sources"}, cid="no50urce")
+    handle = _handle(runtime, caller)
+    fill = {"{mark}": mark, "{log}": log}
+    for tool in [*REMOTE_TOOLS, "cicada_check_nudges", "cicada_recall"]:   # the reads again: a write may have filed a proposal
+        args = {k: [fill.get(i, i) for i in v] if isinstance(v, list) else fill.get(v, v)
+                for k, v in _AIMED[tool].items()}
+        text, _status = runtime.call(caller, tool, {**args, "conversation": handle})
+        for word in ("lanterns were lit", "slow walk back"):
+            assert word not in text, f"{tool} said {word!r}"
+    assert told == [False], "Ask is told, so it reads the page without them (`_HIDE_MARKS`)"
+
+    # A caller who holds the scope still reads them: this test proves the gate, not an empty page.
+    holder = _connector(scopes=catalog.SCOPES, cid="ha50urce")
+    text, _ = runtime.call(holder, "cicada_split_page", {"page": "the-book", "preview": True,
+                                                        "conversation": _handle(runtime, holder)})
+    assert "lanterns were lit" in text and "slow walk back" in text

@@ -1,7 +1,7 @@
 {
   "_comment": "Shared by test_page_blocks.py and PageBlocksTests.swift: the `blocks` of GET /entities/{id} (page_blocks.build). Regenerate with CICADA_REGEN_FIXTURES=1.",
   "blocks": {
-    "shape": "blocks-3",
+    "shape": "blocks-4",
     "order": [
       "relevance",
       "summary",
@@ -47,6 +47,7 @@
       }
     ],
     "ongoingTotal": 2,
+    "marks": null,
     "coordinates": {
       "lat": 40.4168,
       "lon": -3.7038,

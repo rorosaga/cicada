@@ -28,7 +28,7 @@ extension Copy {
             return parts.isEmpty ? nothingRecorded : parts.joined(separator: " · ")
         }
         static let nothingNew = "nothing new"
-        static let nothingRecorded = "What it read was not recorded"
+        static let nothingRecorded = "Not recorded"
 
         // MARK: Who started it
 
@@ -52,13 +52,13 @@ extension Copy {
         static let pagesUpdated = "Updated pages"
         static let questionsRaised = "Questions raised"
         static let questionsSettled = "Questions settled"
-        static let loading = "Reading what it consolidated…"
-        static let unavailable = "What this run consolidated is not recorded."
+        static let loading = "Loading…"
+        static let unavailable = "Not recorded"
         static let untitled = "Untitled conversation"
-        static let moreNotListed = "More than the list shows — the counts are whole."
+        static let moreNotListed = "Not all listed"
         static func showAll(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String { "Show all \(count(n, locale))" }
         static let showFewer = "Show fewer"
-        static let goneHelp = "This page is no longer in your memory (merged or removed since)."
+        static let goneHelp = "No longer in your memory"
         static let detailsTitle = "Models and batches"
         static func openConversation(_ title: String) -> String { "Open \(title)" }
         static func openPage(_ name: String) -> String { "Open \(name)" }

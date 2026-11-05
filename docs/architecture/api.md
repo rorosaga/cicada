@@ -115,7 +115,8 @@ bank (8,027 pages, 1,563 commits; 60 pages, 3 warm passes, baseline and branch a
 (`plusClaims`, `endedClaims`, `removedClaims`, `changedClaims`, `fields`, `proseAdded`, `proseRemoved`, up to four
 `lines`); `X-History-More: 1|0` says whether older rows exist. Pinned both sides by `fixtures/page_history.json`.
 *`blocks.summary`* is In short (`{text, writtenAt, by: "sleep", model, conversations}`, `in_short`; `SHAPE`
-`blocks-3`, after part A's `blocks-2`) and *`blocks.coordinates`* gains `by` (`geocoder|person`). *Places:* `GET /entities/{id}/place` — the
+`blocks-3`, after part A's `blocks-2`; `blocks-4`, ruling 64, adds `marks: {items: [{claimId, day, text, note}], total}`, the
+words null for a caller without `sources`) and *`blocks.coordinates`* gains `by` (`geocoder|person`). *Places:* `GET /entities/{id}/place` — the
 stored coordinates with the places within 5 km (`nearby`), or with none stored `geocode: {allowed, reason, query}` (the query adds the containing place only when it passes the same public test);
 read when the map draws, never on open. `PUT /entities/{id}/coordinates {lat, lon, by}` stores what the app's own
 geocoder found (`by: geocoder`, 409 for a private place or one taken back) or the person's click (`by: person`, any

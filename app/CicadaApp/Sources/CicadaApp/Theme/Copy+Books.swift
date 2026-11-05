@@ -28,7 +28,9 @@ extension Copy {
         (n == 1 ? "1 highlight" : "\(UsageFormat.count(n, locale: locale)) highlights") + " past a book's limit not kept"
     }
     static let appleBooksMissing = "No library here yet. Open Apple Books once, then Refresh."
-    static let appleBooksUnreadable = "Couldn't read the library. If macOS asked, allow it, then Refresh."
+    static let appleBooksUnreadable = "Couldn't read this Apple Books library."
+    /// macOS refused the read: the exact fix, in one line (the capture rail).
+    static let appleBooksDenied = "Turn on Cicada in System Settings → Privacy & Security → Full Disk Access, then Refresh."
     static let appleBooksSyncFailed = "Couldn't sync Apple Books. Cicada will try again."
     static let appleBooksNeedsUpdate = "This version of Cicada's background service can't read books yet — update "
         + "Cicada."

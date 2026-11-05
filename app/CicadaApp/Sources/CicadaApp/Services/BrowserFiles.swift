@@ -29,6 +29,9 @@ enum BrowserFile: CaseIterable {
     /// G179 (2026-10-28): WhatsApp Desktop's `ChatStorage.sqlite` — copied, never opened in place, and only the chats the
     /// person ticked read (`WhatsAppReader`).
     case whatsAppStore
+    /// G39 (ROR-41): Apple Books' sandbox — its stores are listed and copied, never opened in place (`AppleBooksStore`),
+    /// after the person turned it on.
+    case appleBooksLibrary
 
     /// Round 4 (C9): a browser's bookmarks file by its `BrowserInventory` id.
     static func bookmarks(forBrowser id: String) -> BrowserFile? {
@@ -81,6 +84,8 @@ enum BrowserFile: CaseIterable {
             return [ChromeWatchHistoryReader.standardHistory]
         case .whatsAppStore:
             return [WhatsAppReader.standardStore]
+        case .appleBooksLibrary:
+            return [AppleBooksPaths.documents()]
         }
     }
 
@@ -98,6 +103,7 @@ enum BrowserFile: CaseIterable {
         case .messagesDatabase: "Messages"
         case .chromeHistory: "Chrome's history"
         case .whatsAppStore: "WhatsApp"
+        case .appleBooksLibrary: "Apple Books"
         }
     }
 
@@ -145,7 +151,9 @@ enum BrowserFileError: Error, Equatable, LocalizedError {
     /// `.notReadable`.
     static func classify(_ error: Error, file: BrowserFile, path: String) -> BrowserFileError {
         let ns = error as NSError
-        if ns.domain == NSCocoaErrorDomain && ns.code == NSFileReadNoSuchFileError { return .missing(file, [path]) }
+        if ns.domain == NSCocoaErrorDomain && (ns.code == NSFileReadNoSuchFileError || ns.code == NSFileNoSuchFileError) {
+            return .missing(file, [path])
+        }
         if ns.domain == NSPOSIXErrorDomain && ns.code == Int(ENOENT) { return .missing(file, [path]) }
         return .notReadable(file, path)
     }
@@ -174,6 +182,8 @@ enum BrowserFileError: Error, Equatable, LocalizedError {
                 return "Chrome isn't installed, or has no history in its main profile yet."
             case .whatsAppStore:
                 return "WhatsApp for Mac isn't installed, or hasn't kept any chats on this Mac yet."
+            case .appleBooksLibrary:
+                return Copy.appleBooksMissing
             }
         }
     }

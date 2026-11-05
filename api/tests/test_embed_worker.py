@@ -219,3 +219,56 @@ def test_the_downloads_warm_up_loads_the_model_in_a_child(mac15, worker_on):
     assert _FakeModel.loads == [], "no function was loaded in the backend's own process"
     with pytest.raises(RuntimeError):
         embed_worker.warm_in_child(mac15 / "not-a-model")
+
+
+@pytest.mark.parametrize("factory", [embed_worker.FACTORY, embed_worker.VISION_FACTORY])
+def test_every_child_runs_niced_and_held_to_the_core_cap(monkeypatch, factory):
+    seen = {}
+
+    class Started:
+        pid = 1
+
+    def popen(argv, **kwargs):
+        seen.update(argv=argv, env=kwargs["env"])
+        return Started()
+
+    monkeypatch.setattr(embed_worker.subprocess, "Popen", popen)
+    embed_worker._Worker("some/model", factory)._start()
+    assert seen["argv"][seen["argv"].index("--nice") + 1] == str(embed_worker.NICE)
+    assert all(seen["env"][name] == "4" for name in embed_worker.THREAD_ENV)
+    assert ("--ceiling-mb" in seen["argv"]) == (factory == embed_worker.VISION_FACTORY)
+
+
+def test_the_onnx_session_sizes_its_own_pool_to_the_core_cap(tmp_path, monkeypatch):
+    """onnxruntime reads no environment for its pool: the cap has to be on the session, in every process."""
+    import sys
+    import types
+
+    from api.services import onnx_embedder
+
+    made = {}
+
+    class Options:
+        def add_session_config_entry(self, key, value):
+            made[key] = value
+
+    class Session:
+        def __init__(self, path, sess_options, providers):
+            made["threads"] = sess_options.intra_op_num_threads
+
+        def get_inputs(self):
+            return []
+
+    class Tokenizer:
+        @staticmethod
+        def from_file(path):
+            return types.SimpleNamespace(enable_truncation=lambda **k: None, enable_padding=lambda: None)
+
+    monkeypatch.setitem(sys.modules, "onnxruntime", types.SimpleNamespace(SessionOptions=Options, InferenceSession=Session))
+    monkeypatch.setitem(sys.modules, "tokenizers", types.SimpleNamespace(Tokenizer=Tokenizer))
+    spec = types.SimpleNamespace(path=tmp_path, max_tokens=8)
+    embedder = onnx_embedder.OnnxEmbedder.__new__(onnx_embedder.OnnxEmbedder)
+    embedder.spec, embedder._lock, embedder._session = spec, threading.Lock(), None
+    embedder._load()
+    assert made["threads"] == 4
+    assert made["session.intra_op.allow_spinning"] == "0"

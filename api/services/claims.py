@@ -483,6 +483,16 @@ def is_event(claim) -> bool:
 
 
 PERSONS_WORDS_ORIGINS = frozenset({"companion_app", "clarification"})
+#: ROR-95, ruling 64: what the person marked in a book, word for word, written only by `book_marks`. Its text is a
+#: passage or the person's note, so it is gated like their own words and is never a belief, a citation or a conflict.
+HIGHLIGHTED, NOTED = "highlighted", "noted"
+MARK_ORIGIN = "book"
+
+
+def is_mark(claim) -> bool:
+    """A highlight or note `book_marks` wrote, by predicate AND origin: a model writing the same predicate is not one."""
+    return (getattr(claim, "predicate", "") in (HIGHLIGHTED, NOTED)
+            and (getattr(claim, "origin", None) or "") == MARK_ORIGIN)
 
 
 def is_persons_words(claim) -> bool:
@@ -491,7 +501,7 @@ def is_persons_words(claim) -> bool:
     (`clarification`) both are, so a remote reader without `sources` is shown
     neither (G141 final review — the inbox note path had leaked). Over-hiding
     a "Still going" that restated an extractor's sentence is the safe side."""
-    return (getattr(claim, "origin", None) or "") in PERSONS_WORDS_ORIGINS
+    return (getattr(claim, "origin", None) or "") in PERSONS_WORDS_ORIGINS or is_mark(claim)
 
 
 def event_cardinality(predicate: str) -> str | None:

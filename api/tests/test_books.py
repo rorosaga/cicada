@@ -298,8 +298,9 @@ def test_apple_books_library_status_highlights_and_notes(client):
     assert status == {"the-lantern-orchard": ["finished"], "quiet-engines": ["reading"],
                       "unopened-atlas": ["not_started"]}
     assert not _claims(pages["unopened-atlas"], HAPPENED)            # never opened is not a happening
-    # Imports are quiet until the person writes or talks about the book.
-    assert all(quiet_pages.page_is_quiet(memory, eid) for eid in pages)
+    # A library entry is quiet until the person writes or talks about the book; one they highlighted is not (ruling 64).
+    assert {eid: quiet_pages.page_is_quiet(memory, eid) for eid in pages} == {
+        "the-lantern-orchard": False, "quiet-engines": True, "unopened-atlas": True}
     # The book with a highlight is queued for Sleep; the others landed read.
     eps = {markdown_parser.parse(p).frontmatter.get("source_id"): p for p in (memory / "episodes").glob("*.md")}
     hl = markdown_parser.parse(eps["apple-books:A1"])

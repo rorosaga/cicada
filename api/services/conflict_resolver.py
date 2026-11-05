@@ -1869,6 +1869,8 @@ A contradiction is unresolvable when newer information alone does not make it ob
 
 "Newer" means said on a later date (below), not read later: a description from an earlier conversation does not replace a later one, and two statements made months apart can both have been true at their own dates.
 
+A measured quantity that naturally changes over time (a metric, a count, a score, a balance) is never a contradiction, even when two values carry the same date: it is an update, and the page's history keeps the earlier value.
+
 Respond with JSON only:
 {
   "has_unresolvable_contradiction": true | false,
@@ -1949,6 +1951,8 @@ _CONTRADICTIONS_RULES = """You are checking, for each entity below, whether its 
 A contradiction is unresolvable when newer information alone does not make it obvious which statement is currently true. For example: two different stacks mentioned across two conversations with no date cue, or two different roles for the same person.
 
 "Newer" means said on a later date (below), not read later: a description from an earlier conversation does not replace a later one, and two statements made months apart can both have been true at their own dates.
+
+A measured quantity that naturally changes over time (a metric, a count, a score, a balance) is never a contradiction, even when two values carry the same date: it is an update, and the page's history keeps the earlier value.
 
 Respond with JSON only, one result for every entity, in the order given:
 {

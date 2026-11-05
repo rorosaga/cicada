@@ -124,8 +124,8 @@ def _latest(values: list[str | None]) -> str | None:
 
 #: What a subscribed feed row says while this backend does not fetch feeds (the opt-in gate, `network.md`): nothing
 #: will arrive, so the row is not connected and the person reads why — never "Connected" over a poll that never runs.
-FEED_FETCH_OFF = ("Feeds aren't fetched on this backend: it runs without CICADA_ALLOW_FEED_FETCH=1. The background "
-                  "service sets it; a backend started another way needs it added and a restart.")
+#: The one action: that switch installs the background service, whose plist sets the gate (ROR-41).
+FEED_FETCH_OFF = "Feeds and calendar links aren't being checked: turn on Keep memory working in Settings → General."
 
 
 def _subscription_channel(
@@ -139,7 +139,7 @@ def _subscription_channel(
         detail = f"polled {_short_date(last)}" if last else "not polled yet"
         if not fetch_allowed:
             error = FEED_FETCH_OFF
-            detail = "Not fetched"
+            detail = "Not checked"
     return {
         "id": channel_id,
         "label": label,

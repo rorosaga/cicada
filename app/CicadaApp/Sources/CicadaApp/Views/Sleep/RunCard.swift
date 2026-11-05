@@ -294,7 +294,8 @@ struct RunCardView: View {
                                 .foregroundStyle(CicadaTheme.textTertiary)
                         }
                         Spacer(minLength: CicadaTheme.spacingSM)
-                        outcome
+                        // DR-38: a card with a summary has finished; only another ending is worth a word.
+                        if card.outcome != .finished { outcome }
                     }
                     if let catchUp = card.catchUp {
                         Text(catchUp)
