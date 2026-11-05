@@ -633,20 +633,23 @@ def search_text(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> li
     return out
 
 
-def _at_ms(row: dict, tokens: list[str]) -> int:
-    """The second a word hit lands on: the start of the segment (or picture) holding the first matched word."""
+def _at_ms(body: str, marks: list, tokens: list[str], default: int) -> int:
+    """The second a hit lands on: the start of the segment (or picture) of the passage that holds the most of the
+    query's words (a word-start each, the subject words when the query has some), the earliest on a tie; the
+    passage's own start (``default``) when no segment holds any."""
     from api.services import text_fold
 
-    spans = text_fold.match_offsets(row.get("body") or "", tokens)
-    marks = row.get("marks") or []
-    if not spans or not marks:
-        return int(row["s"])
-    at = int(row["s"])
-    for offset, ms in marks:
-        if offset > spans[0][0]:
-            break
-        at = int(ms)
-    return at
+    subject = [t for t in tokens if text_fold.subject_terms(t)] or tokens
+    if not marks or not subject:
+        return default
+    best, best_n = default, 0
+    for i, (offset, ms) in enumerate(marks):
+        end = marks[i + 1][0] - 1 if i + 1 < len(marks) else len(body)
+        words = text_fold.words(body[offset:end])
+        n = sum(1 for t in subject if any(w.startswith(t) for w in words))
+        if n > best_n:
+            best, best_n = int(ms), n
+    return best
 
 
 def find(memory_path, query: str, *, top_k: int = 8, embed_fn=None, semantic: bool = True,
@@ -686,11 +689,14 @@ def find(memory_path, query: str, *, top_k: int = 8, embed_fn=None, semantic: bo
                   "end": lx["e"] / 1000.0, "words_by": "the recording"}
             if lx["src"]:
                 md["from"] = lx["src"]
-            at = _at_ms(lx, tokens) / 1000.0
+            at = _at_ms(lx["body"], lx["marks"], tokens, lx["s"]) / 1000.0
             text = lx["body"]
         else:
             md = dict(sm.get("metadata") or {})
-            at, text = float(md.get("start") or 0), sm.get("text") or ""
+            text = sm.get("text") or ""
+            start_ms = int(round(float(md.get("start") or 0) * 1000))
+            held = file_words.passage(memory_path, md.get("file_id", ""), start_ms, md.get("from") or "")
+            at = (_at_ms(held["body"], held["marks"], tokens, start_ms) if held else start_ms) / 1000.0
         out.append({"key": md.get("file_id", ""), "score": round(scores[k], 4), "text": text, "metadata": md,
                     "at": at, "via": "both" if lx is not None and sm is not None else "words" if lx is not None
                     else "meaning"})

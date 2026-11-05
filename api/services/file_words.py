@@ -38,12 +38,18 @@ COLUMNS = "body, fid UNINDEXED, s UNINDEXED, e UNINDEXED, src UNINDEXED, marks U
 #: Bumped when how a passage is cut or stored changes: every bank's table rebuilds once, from the store.
 SCHEMA_VERSION = "1"
 CHECK_TTL_S = 2.0
+#: A file owns the rowids ``slot << SLOT_BITS`` + its passage number, so taking it out is a range delete, never a scan.
+SLOT_BITS = 14
+MAX_ROWS_PER_FILE = (1 << SLOT_BITS) - 1
+#: More files than this out of step is a rebuild: done in the background while the search serves what is there.
+INLINE_FILES = 40
 #: A word is rare enough to carry a plain-words question when this few passages hold it (the larger of the two).
 RARE_MIN_PASSAGES = 3
 RARE_SHARE = 20     # ... or one in this many passages
 
 _LOCK = threading.RLock()
 _CHECKED: dict[str, float] = {}
+_WORKERS: dict[str, threading.Thread] = {}
 
 
 def _tag() -> str:
@@ -92,8 +98,8 @@ def _ensure_schema(conn: sqlite3.Connection) -> bool:
         conn.execute(f"DROP TABLE IF EXISTS {STATE}")
         conn.execute(f"CREATE VIRTUAL TABLE {TABLE} USING fts5({COLUMNS}, tokenize='{search_index.TOKENIZER}', "
                      f"prefix='{search_index.PREFIX}')")
-        conn.execute(f"CREATE TABLE {STATE} (fid TEXT PRIMARY KEY, stamp TEXT NOT NULL)")
-        conn.execute(f"INSERT INTO {STATE}(fid, stamp) VALUES ('_schema', ?)", (_tag(),))
+        conn.execute(f"CREATE TABLE {STATE} (fid TEXT PRIMARY KEY, stamp TEXT NOT NULL, slot INTEGER NOT NULL DEFAULT 0)")
+        conn.execute(f"INSERT INTO {STATE}(fid, stamp, slot) VALUES ('_schema', ?, 0)", (_tag(),))
         conn.execute("COMMIT")
     except BaseException:
         conn.execute("ROLLBACK")
@@ -103,15 +109,22 @@ def _ensure_schema(conn: sqlite3.Connection) -> bool:
 
 def _put(conn: sqlite3.Connection, fid: str, stamp: str | None, rows: list[dict]) -> None:
     """Replace one file's rows (inside the caller's transaction)."""
-    conn.execute(f"DELETE FROM {TABLE} WHERE fid = ?", (fid,))
-    conn.execute(f"DELETE FROM {STATE} WHERE fid = ?", (fid,))
+    row = conn.execute(f"SELECT slot FROM {STATE} WHERE fid = ?", (fid,)).fetchone()
+    slot = int(row[0]) if row else 0
+    if slot:
+        conn.execute(f"DELETE FROM {TABLE} WHERE rowid BETWEEN ? AND ?",
+                     (slot << SLOT_BITS, (slot << SLOT_BITS) | MAX_ROWS_PER_FILE))
+        conn.execute(f"DELETE FROM {STATE} WHERE fid = ?", (fid,))
     if stamp is None:
         return
+    if not slot:
+        slot = int(conn.execute(f"SELECT COALESCE(MAX(slot), 0) + 1 FROM {STATE}").fetchone()[0])
+    base = slot << SLOT_BITS
     conn.executemany(
-        f"INSERT INTO {TABLE}(body, fid, s, e, src, marks, name, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [(r["body"], fid, int(r["s"]), int(r["e"]), r["src"], json.dumps(r["marks"]), r["name"], r["kind"])
-         for r in rows])
-    conn.execute(f"INSERT INTO {STATE}(fid, stamp) VALUES (?, ?)", (fid, stamp))
+        f"INSERT INTO {TABLE}(rowid, body, fid, s, e, src, marks, name, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [(base + i, r["body"], fid, int(r["s"]), int(r["e"]), r["src"], json.dumps(r["marks"]), r["name"], r["kind"])
+         for i, r in enumerate(rows[:MAX_ROWS_PER_FILE])])
+    conn.execute(f"INSERT INTO {STATE}(fid, stamp, slot) VALUES (?, ?, ?)", (fid, stamp, slot))
 
 
 def _txn(conn: sqlite3.Connection, fn) -> None:
@@ -166,7 +179,9 @@ def drop(memory_path, file_id: str) -> None:
 
 def ensure(memory_path, *, force: bool = False) -> bool:
     """Bring the table level with the store: new or changed files indexed, removed ones dropped. At most one diff
-    every ``CHECK_TTL_S`` unless ``force``. True when the table exists and is level. Never raises."""
+    every ``CHECK_TTL_S`` unless ``force``. More than ``INLINE_FILES`` out of step (a first build, a layout change)
+    is done by a background thread while the search serves what is there; ``force`` always does it inline. True when
+    the table exists. Never raises."""
     from api.services import media_files
 
     memory_path = Path(memory_path)
@@ -188,6 +203,10 @@ def ensure(memory_path, *, force: bool = False) -> bool:
                 state = {} if fresh else dict(conn.execute(f"SELECT fid, stamp FROM {STATE} WHERE fid != '_schema'"))
                 changed = [fid for fid, stamp in disk.items() if state.get(fid) != stamp]
                 gone = [fid for fid in state if fid not in disk]
+                if not force and len(changed) + len(gone) > INLINE_FILES:
+                    _spawn(memory_path)
+                    _CHECKED[key] = time.monotonic()
+                    return True
                 if changed or gone:
                     def apply():
                         for fid in gone:
@@ -203,6 +222,25 @@ def ensure(memory_path, *, force: bool = False) -> bool:
     except Exception as exc:  # noqa: BLE001
         logger.debug(f"file_words: index not level ({type(exc).__name__})")
         return False
+
+
+def _spawn(memory_path: Path) -> None:
+    key = str(memory_path)
+    worker = _WORKERS.get(key)
+    if worker is not None and worker.is_alive():
+        return
+    _WORKERS[key] = threading.Thread(target=ensure, args=(memory_path,), kwargs={"force": True},
+                                     name="file-words-sync", daemon=True)
+    _WORKERS[key].start()
+
+
+def wait_idle(memory_path, timeout: float = 60.0) -> bool:
+    """Wait for a background sync of this bank (tests and the benchmark)."""
+    worker = _WORKERS.get(str(Path(memory_path)))
+    if worker is not None:
+        worker.join(timeout)
+        return not worker.is_alive()
+    return True
 
 
 def rebuild(memory_path) -> int:
@@ -263,6 +301,22 @@ def _row(r: tuple) -> dict:
         marks = []
     return {"fid": fid, "body": body, "s": int(s), "e": int(e), "src": src or "", "marks": marks,
             "name": name, "kind": kind}
+
+
+def passage(memory_path, file_id: str, start_ms: int, src: str = "") -> dict | None:
+    """The one indexed passage of a file that starts at ``start_ms`` (a meaning hit's passage, to find its segments);
+    ``None`` when there is none. Never raises."""
+    conn = _reader(Path(memory_path))
+    if conn is None:
+        return None
+    try:
+        row = conn.execute(f"SELECT body, fid, s, e, src, marks, name, kind FROM {TABLE} "
+                           f"WHERE fid = ? AND s = ? AND src = ? LIMIT 1", (file_id, int(start_ms), src or "")).fetchone()
+        return _row(row) if row else None
+    except sqlite3.DatabaseError:
+        return None
+    finally:
+        conn.close()
 
 
 def search(memory_path, query: str, *, limit: int = 8, plain_words: bool = False) -> list[dict]:

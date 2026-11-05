@@ -343,3 +343,42 @@ def test_a_demo_bank_refuses_picture_text(client, bank, monkeypatch):
                                                               "text": "Pelicanwick"}]})
     assert r.status_code == 409
     assert hits(bank, "pelicanwick") == []
+
+
+# --------------------------------------------------------------------------- landing on the second it is said
+
+
+def short_talk(n: int = 12) -> list[dict]:
+    """Twelve short segments: one passage of several segments, each ten seconds long."""
+    segs = talk(*[f"Segment {i} is about the weather and the plan." for i in range(n)])
+    segs[7]["text"] = "Then the supplier Quillfeather confirmed the delivery date."
+    return segs
+
+
+def test_a_word_in_a_later_segment_of_a_multi_segment_passage_lands_on_that_segment(bank):
+    add(bank, segments=short_talk())
+    assert len(media_files.staged(bank)) == 1, "one passage holds every segment"
+    h = hits(bank, "quillfeather")[0]
+    assert h.at_seconds == 70.0 and h.id == f"{FID}@70"
+    assert media_files.find(bank, "quillfeather", semantic=False)[0]["metadata"]["start"] == 0.0, \
+        "the passage still starts at 0; the hit lands on the segment"
+
+
+def test_a_meaning_hit_lands_on_the_segment_that_best_matches_the_query_words(bank, monkeypatch):
+    add(bank, segments=short_talk())
+    row = {"key": FID, "score": 0.3, "cosine": 0.8, "text": "x",
+           "metadata": {"file_id": FID, "name": "sync.m4a", "kind": "audio", "start": 0.0, "end": 119.5}}
+    monkeypatch.setattr(media_files, "search_text", lambda *a, **k: [row])
+    monkeypatch.setattr(file_words, "search", lambda *a, **k: [])
+    got = media_files.find(bank, "when did the supplier confirm the delivery", embed_fn=never_embeds)
+    assert [(r["via"], r["at"]) for r in got] == [("meaning", 70.0)]
+    # nothing in the passage holds a query word: the passage's own start
+    got = media_files.find(bank, "something about holidays abroad", embed_fn=never_embeds)
+    assert [(r["via"], r["at"]) for r in got] == [("meaning", 0.0)]
+
+
+def test_a_small_library_finds_the_exact_word_a_meaning_search_would_not(bank):
+    add(bank, segments=talk("The quarterly figures looked fine.", "Quillfeather will send the contract on Friday."))
+    assert media_files.search_text(bank, "who is mailing the paperwork", embed_fn=text_embed) == [], \
+        "no meaning index built and a lone passage never clears the floor"
+    assert [r["at"] for r in media_files.find(bank, "Quillfeather", embed_fn=text_embed)] == [10.0]
