@@ -278,24 +278,28 @@ def _pages_naming(memory_path: Path, keys: set[str]) -> set[str] | None:
     return out
 
 
-def split_plan(memory_path, page_id: str, moves=()) -> dict:
+def split_plan(memory_path, page_id: str, moves=(), *, own_words: str | None = None) -> dict:
     """What the split sheet shows: the page's numbered sentences (``moves`` from ``same_name_split`` pre-tick theirs,
     with the judge's reason), its claims, sources, conversations and the pages that link to it — each link with what
     its evidence says (``episodes``; the sheet applies :func:`reference_choice` as conversations are ticked). Reads
     only; the new page's proposed id and title come with it."""
     from api.services import bank_index, fact_sources, same_name_split
-    from api.services.claims import is_event, is_record, parse_claims
+    from api.services.claims import is_event, is_persons_words, is_record, parse_claims
 
     memory_path = Path(memory_path)
     page = _page(memory_path, page_id)
     parsed = markdown_parser.parse(page)
     fm = parsed.frontmatter or {}
     name = str(fm.get("name") or page.stem)
+    # A caller that may not read the person's own words (R-R22, ruling 64) still sees the row, to pick it by id: `own_words`
+    # stands in for the sentence and the object.
+    hidden = (lambda c: own_words is not None and is_persons_words(c))
     suggested = {int(m.n): str(m.reason or "") for m in moves or () if getattr(m, "page_id", page.stem) == page.stem}
     sentences = [{"n": s.n, "section": s.section, "text": s.text, "suggested": s.n in suggested,
                   "reason": suggested.get(s.n) or None}
                  for s in same_name_split.sentences(parsed.body)]
-    claims = [{"id": c.id, "text": c.text, "predicate": c.predicate, "object": c.object,
+    claims = [{"id": c.id, "text": own_words if hidden(c) else c.text, "predicate": c.predicate,
+               "object": "" if hidden(c) else c.object,
                "episodes": list(c.source_episodes or []),
                # R-PJ3: a done happening is born closed — a dated event, never a belief "no longer current".
                "event": is_event(c), "record": is_record(c),

@@ -21,7 +21,10 @@ The rule. A page is quiet when
    neither: it never lights a page and never makes one quiet. An episode id that no longer resolves says nothing
    either way.
 
-The owner's page is never quiet. A page with no recorded episode at all (written by the person, an agent or a seed) has
+**A book the person marked is never quiet (owner 2026-11-04, ruling 64):** a book's record that holds a highlight or a
+note (:func:`marked_record`) is their own act, whatever the words' kind, so it counts as a conversation: it lights the
+book's page, and a theme page Sleep drew from it. A library entry with nothing marked stays quiet, and a record whose
+marks were all removed goes back to being one. The owner's page is never quiet. A page with no recorded episode at all (written by the person, an agent or a seed) has
 no import evidence, so it is never quiet either: the rule dims what an import made, not what nobody wrote down.
 
 Decay is untouched (decay classes, rulings 1 and 30): quiet is a presentation and an inbox gate, not a confidence.
@@ -47,11 +50,19 @@ CHECK = "check"
 CONVERSATION = "conversation"
 
 
+def marked_record(fm: dict) -> bool:
+    """A book's record (``books.EPISODE_KEY``) that says it holds a highlight, a note or a review (ruling 64)."""
+    book = fm.get("book")
+    return isinstance(book, dict) and bool(book.get("highlights") or book.get("notes") or book.get("reviewed"))
+
+
 def episode_kind(fm: dict | None) -> str | None:
     """``import`` (a save or a watch), ``check`` (Cicada's or an agent's reading) or ``conversation`` (anything else
     the person or their agents said) — or None for an episode that does not resolve."""
     if fm is None:
         return None
+    if marked_record(fm):
+        return CONVERSATION
     if fm.get(SAVE_KEY):
         return IMPORT
     source = str(fm.get("source") or "")

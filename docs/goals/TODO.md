@@ -48,6 +48,10 @@
   value.** **Pick up here:** the owner's "remove any sensitive data" is applied with `scripts/sensitive_removal.py`:
   read its dry run, then `--apply --plan <its stamp>`. It commits the older version first, then removes from memory only: a password stays in the Notes app or chat that holds it,
   and any real one among these should be changed, because what an engine read cannot be unread.
+- **2026-11-05 — what the person marked in a book: word for word, read for its themes, lights the page (ruling 64, ROR-95,
+  G39; branch `ror95-book-highlights`).** `book_marks` is the one writer; `marks` is a new page block (`blocks-4`, the app's
+  `PageMarks`). Private-use characters stripped from what Apple Books posts. Not exercised: the app's reader against the real
+  stores, and `PageMarks` on screen. Pages already made keep a private-use character in their author until that book changes.
 - **2026-11-04 — a save with no reason gets a lean pass; a batch is bounded by what it holds (ruling 62, G236; branch
   `feat/g236-lean-pass`).** Owner: "a leaner initial pass … on those things who have no reason/user intent attached, but
   enough info so that it can come up in a relevant conversation and an agent can look further into it." A bare save is
@@ -3260,6 +3264,35 @@ A whole row moves to DONE only after its remaining implementation and required a
     **Revisit** when the person has listed 3 or more projects (measure the `named` rows they untie, and whether the guard
     misses what they re-tie); if they turn down most of a harness's links (the trust list is wrong for links); or if they
     ask to mark pages in bulk, which needs per-item answers first.
+64. **What the person marked in a book is their own record: kept word for word, read for what it shares, and it lights the
+    page (owner, 2026-11-04; G39, G233, ROR-95; amends the quiet rule of 2026-10-20).** The owner tested Apple Books on their
+    real library and said yes to three changes. **(a) Word for word, no model.** Each highlight and note is a claim on the
+    book's page (`highlighted`, `noted`; `book_marks`, the one writer, at the door in `books.apply_pending`) with a span of
+    the episode: `page` for a passage, `user` for a note. A removed highlight closes (`valid_to`), never deleted, and comes
+    back if marked again; one the person took back is never rewritten. The words are gated like the person's own
+    (`is_persons_words`): a remote caller without `sources` is told how many, never what, on every tool. What the sensitive
+    detector flags is its typed mark; the person's own section of a saved record is now read by it (it skipped them, a hole
+    in ruling 60 for any save with a reason). The page draws them as a `marks` block from the claims, derived on read: no
+    prose section, so no merge copies them, and no model reads them when it rewrites a page, in code at each reader (the
+    article's inputs and its material, the orientation, a revision's removed passage). **(b) What they share.** Stage 1
+    reads a marked book's record for its themes, told so in a source note: a passage is the book's words and never a fact
+    about the person, a concept of one to three words per theme, an `explores-theme` link with a passage as evidence. A theme
+    page comes from the existing 2+ rule, two books naming it. The status lines are blanked before it reads (offsets kept);
+    a read keeps no entry for the book itself and none for the owner, and what reaches the owner's page is only a link or a
+    value located in a `user` span of the person's own note, in code, because haiku ignored the same words in the note. Any
+    name that could be theirs counts as the owner outside a note, a first name included (owner, 2026-11-05); in a note only
+    the full name or an alias lands on their page, a bare first name or surname stays as written, since it may be a friend. Books are read one at a time, each told the themes so far: read at
+    once, five themes across three books never met. **(c) Cost.** One Stage 1 call per marked book, one chunk (12,000
+    characters of notes first, then passages spread across the book); an unmarked entry costs none. **(d) Quiet.** A record
+    holding a highlight or a note counts as a conversation (`quiet_pages.marked_record`), so the book and a theme page drawn
+    from it are lit; an unmarked entry stays quiet; a record whose marks were all removed goes back. **Why it does not
+    contradict ruling 62:** 62 makes a save *with no reason* index-only, and names "a book's record" among what is read as
+    before. A highlight is the reason: the person chose those words, and a library entry with nothing marked stays
+    index-only exactly as 62 says. "Consolidate reads everything" holds: every marked record is read in its run, past the
+    chunk as a spread, because its words are already kept verbatim. **Measured** on the G39 row. **Revisit** if a theme page's
+    fading at birth bothers the owner (below), if a real library's themes do not converge, or if the sequential read is too
+    slow on a large first run. **Open for the owner:** a theme drawn from highlights months old is born `decaying` at 0.39
+    (the age rule, unchanged: 2+ dated conversations floor there, only live silence archives it, no question asked).
 62. **A save with no reason gets a lean pass: indexed, findable, read once when the person talks about it (owner, 2026-11-04;
     G236; amends rulings 13, 16 and 30 and G102).** Owner: "For chrome bookmarks, and the rest of things I told you we can do a
     leaner initial pass for consolidation on those things who have no reason/user intent attached, but enough info so that it

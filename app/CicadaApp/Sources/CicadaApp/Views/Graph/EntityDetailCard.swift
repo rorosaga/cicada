@@ -310,6 +310,7 @@ struct EntityDetailCard: View {
             }
             if !isStub, !showRawMarkdown, let blocks {
                 PageOngoing(items: blocks.ongoing, total: blocks.ongoingTotal)
+                if let marks = blocks.marks { PageMarks(marks: marks) }
             }
             if !pageBlockIsEmpty { pageBlock }
             if !isStub, !showRawMarkdown, let cites = blocks?.citations, !cites.beliefs.isEmpty {

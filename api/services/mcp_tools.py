@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, episode_time
-from api.services import entity_relations, episode_actor, page_blocks
+from api.services import book_marks, entity_relations, episode_actor, page_blocks
 from api.services import history_index, saved_lookup, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import (bank_index, entity_bands, link_views, markdown_parser, page_lock, same_name, search_index,
@@ -2902,6 +2902,8 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             page_text = path.read_text(encoding="utf-8")
             fm = parse_frontmatter(page_text)[0]
             text = _with_ledger(path, _without_plumbing(page_text))
+            if not ctx.raw_excerpts:   # ruling 64: what the person marked in a book is gated like their own words
+                text = book_marks.masked_page(text)
             shared = _same_name_note(memory_path, cid, fm)
             if shared:
                 text = text.rstrip("\n") + "\n\n" + shared + "\n"
@@ -4329,13 +4331,14 @@ def merge_pages(ctx: ToolContext, page: str, into: str, reason: str) -> str:
     return _join_locked(ctx, "merge", loser, {"into": winner}, clean)
 
 
-def _split_dry_run(memory_path: Path, entity_id: str, sentences, claims, episodes, references, name) -> str:
+def _split_dry_run(ctx: ToolContext, memory_path: Path, entity_id: str, sentences, claims, episodes, references,
+                   name) -> str:
     """The proposal an agent shows the person in chat before it splits anything (owner 2026-10-29: "the separation of
     entities should mainly happen by talking to an agent"): which sentences and beliefs would move, to which page, and
     which links would follow — plain text, nothing written."""
     from api.services import page_join
 
-    plan = page_join.split_plan(memory_path, entity_id)
+    plan = page_join.split_plan(memory_path, entity_id, own_words=None if ctx.raw_excerpts else PERSONS_WORDS)
     picked = {int(n) for n in sentences or () if str(n).isdigit()}
     chosen_claims = {str(c) for c in claims or ()}
     moving = [s for s in plan["sentences"] if s["n"] in picked]
@@ -4402,9 +4405,9 @@ def split_page(ctx: ToolContext, page: str, reason: str = "", sentences=None, cl
     if entity_id is None:
         return Reply(f"No page named '{page}' — nothing changed. Use the page's id.", code="not_found")
     if preview and (sentences or claims):
-        return _split_dry_run(memory_path, entity_id, sentences, claims, episodes, references, name)
+        return _split_dry_run(ctx, memory_path, entity_id, sentences, claims, episodes, references, name)
     if preview:
-        plan = page_join.split_plan(memory_path, entity_id)
+        plan = page_join.split_plan(memory_path, entity_id, own_words=None if ctx.raw_excerpts else PERSONS_WORDS)
         lines = [f"Split plan for {entity_id} ({plan['name']}). The new page would be `{plan['new_id']}`. Read the "
                  "sentences, pick the ones about the OTHER thing, then call again with `preview: true` and your picks "
                  "for a plain-text proposal to show the person.",
@@ -4797,8 +4800,8 @@ def get_perspective(
         _log_failure("cicada_get_perspective", e)
         return Reply(f"Could not read '{subject}' ({type(e).__name__}).", code="error")
 
-    page_claims = parse_claims(parsed.body)
-    from api.services.claims import is_current, read_valid_to
+    from api.services.claims import is_current, is_persons_words, read_valid_to
+    page_claims = [c for c in parse_claims(parsed.body) if ctx.raw_excerpts or not is_persons_words(c)]
     claims = [c for c in page_claims if is_current(c)]
     if observer:
         claims = [c for c in claims if c.observer == observer]

@@ -48,7 +48,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import evidence, markdown_parser
-from api.services.claims import Claim, Evidence, is_event, is_record
+from api.services.claims import Claim, Evidence, is_event, is_mark, is_record
 
 #: The episode dict key the cycle attaches a :class:`Revision` under.
 KEY = "prior_read"
@@ -90,6 +90,8 @@ class Revision:
     closes: bool = True
     override: str | None = None
     gaps: tuple = ()
+    #: A book's record (ruling 64): a highlight taken out of it is no removed fact and never goes to a page's writer.
+    book: bool = False
     _hashes: dict = field(default_factory=dict, repr=False)
 
     @property
@@ -172,7 +174,7 @@ def build(episode: dict, prior: str) -> Revision | None:
     noop = not changed and not removed and _norm(prior) == _norm(body)
     if not changed and not removed and not noop:
         return None   # only line breaks moved inside words: read it whole, as before
-    from api.services import authorship, sensitive_flags
+    from api.services import authorship, book_marks, sensitive_flags
 
     # G235: the person took flagged text out. A transcript's revision closes nothing because its cap slides turns out;
     # this one is the person's act. And when that is ALL that changed, nothing needs reading.
@@ -182,7 +184,8 @@ def build(episode: dict, prior: str) -> Revision | None:
         episode_id=str(episode["id"]), prior=prior, body=body, noop=noop, changed=changed, removed=removed,
         windows=() if noop or only_removal else _windows(body, changed), blocks=blocks,
         closes=removal or str(episode.get("capture_kind") or "") != "transcript",
-        override=authorship.of_episode(episode), gaps=tuple(episode.get("gaps") or ()))
+        override=authorship.of_episode(episode), gaps=tuple(episode.get("gaps") or ()),
+        book=book_marks.is_book_record(episode))
 
 
 # --------------------------------------------------------------------------- #
@@ -427,7 +430,9 @@ class Plan:
 def _closable(c: Claim) -> bool:
     from api.services.claim_reconciler import is_human
 
-    return (c.valid_to is None and not is_human(c) and not c.recorded_ts and not is_event(c) and not is_record(c))
+    # A book's mark has its own writer, which reads the record itself (`book_marks.apply`).
+    return (c.valid_to is None and not is_human(c) and not c.recorded_ts and not is_event(c) and not is_record(c)
+            and not is_mark(c))
 
 
 def reanchor(claims_by_subject: dict[str, list[Claim]], revisions: dict[str, Revision]) -> Plan:
