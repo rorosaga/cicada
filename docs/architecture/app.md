@@ -1995,9 +1995,9 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   Refresh and Disconnect. A refusal by macOS shows *Needs access* on the grid and the Full Disk Access button. The mark is
   Apple's, drawn from `com.apple.VoiceMemos` (`OriginIconography.appBundleId`; `SourceMarkCoverageTests` passes it by the
   `com.apple.` rule). Reads and rails: `storage.md`, "Voice Memos". A palette hit plays the recording in the app at its second (below, ROR-117).
-- **A book's page (G233, 2026-11-05).** `BookPageHead` leads the article: the cover at 168 pt (none, no empty box), subtitle, authors, one
+- **A book's page (G233, 2026-11-05).** `BookPageHead` leads the article: the cover at 168 pt (none, or not yet drawn: no slot, no indent, no empty box; the header draws no second tile), subtitle, authors, one
   line of year, pages and publisher, the ways in as small labels ("Scanned 5 Nov", "Apple Books"), the status line, subjects; the
-  title is the card's header. The Add (`BookAddSlot`, `BookAddFlow.shared.submit(_:status:)` is the one "a number was read" call)
+  title is the card's header. The description is the article's first paragraph under the head with its "From <source>, saved <day>" line, never in the header above the tabs; no globe box, and no "no personal relation" line (a real relation still shows). The Add (`BookAddSlot`, `BookAddFlow.shared.submit(_:status:)` is the one "a number was read" call)
   shows the book it found (cover, title, authors) and a click opens its page; it is also on the Apple Books page. DR-9, DR-38, DR-48, DR-59.
 - **Reading: Apple Books and Goodreads (G39, G233; 2026-11-04).** A Sources group of its own, *Reading*, between
   Meeting recorders and Exports (`SourceCatalogGroup.reading`; the backend's `reading` kind sits before `import`).

@@ -1633,12 +1633,12 @@ its `content_hash`, so the queue is derived from the bank — a move or a restor
   an author, description, publisher, page count or year (**merged**: Open Library's value kept, Google Books fills the rest;
   alone when Open Library has no edition). **A page is worth opening (G233, 2026-11-05):** the answer carries `description`
   (the source's own words, capped at 700 characters at a sentence end — a blurb, not the publisher's page — never a model's),
-  `description_source`/`description_url`, `publisher` and ≤ 5 `subjects`; a cached answer carries `v: 2` and an older hit is
+  `description_source`/`description_url`, `publisher` and ≤ 4 `subjects` (a machine tag, anything with `_`, `:` or `=`, is dropped in `book_lookup`, and again on a cached answer); a cached answer carries `v: 2` and an older hit is
   asked again **once** (`book_lookup.stale`, via `books.waiting_isbns`, same pacing, cache and gate; a failure backs off and
   keeps the old answer, a miss never erases it). The page's article is the description under its source and the day saved
   (`## Summary`, then "From [Open Library](link), saved <day>", ruling 44's shape); with none the article is empty — the
   `<Title> — a book.` line is gone from every writer (`books._book_prose`, which also clears it from older pages and never
-  touches words a person or agent wrote). `book.publisher`/`subjects` fill once; a person's title is never replaced.
+  touches words a person or agent wrote). The pages it enriches from the cache and the cover stamps are **Cicada's own rewrites**: `apply_pending` returns them as `cicada_paths`, committed alone under `cicada` (`books/enrich`), never in the commit of a scan, sync or import; the Sleep tail commits them with the rest. `book.publisher`/`subjects` fill once; a person's title is never replaced.
   `GET /entities/{id}/book` serves the head's facts and the ways in (`ways`: Apple Books, Goodreads, Scanned with the scan's
   day, from `book.doors` and the episode); `GET /sources/books/scans/{id}` adds `authors` and `cover`. A scan episode is in
   no search index and its list row, while the number waits, reads "Looking it up…" and opens nothing: the book is the item.

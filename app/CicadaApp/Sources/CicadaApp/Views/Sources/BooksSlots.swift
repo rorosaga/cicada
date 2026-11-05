@@ -64,12 +64,17 @@ struct BookCoverThumb: View {
     let path: String?
     /// 40 pt in a row; the page's head and the Add's result draw it larger.
     var points: CGFloat = 40
+    /// A row keeps its slot so titles align; the page's head takes none until the picture has loaded (no empty box).
+    var reservesSlot = true
+    /// Space after the picture, only once it is drawn.
+    var trailing: CGFloat = 0
 
     @Environment(Store.self) private var store: Store?
     @State private var image: NSImage?
 
     var body: some View {
         let height = CicadaTheme.scaled(points)
+        let drawn = image != nil || reservesSlot
         let shape = CicadaTheme.shape(CicadaTheme.scaled(3))
         Group {
             if let image {
@@ -80,7 +85,8 @@ struct BookCoverThumb: View {
                 Color.clear
             }
         }
-        .frame(width: height * 2 / 3, height: height)
+        .frame(width: drawn ? height * 2 / 3 : 0, height: drawn ? height : 0)
+        .padding(.trailing, image != nil ? trailing : 0)
         .accessibilityHidden(true)
         .task(id: "\(store?.bank ?? "")|\(path ?? "")") {
             guard let path else { image = nil; return }
@@ -101,8 +107,8 @@ struct BookPageHead: View {
     @State private var card: BookCard?
 
     var body: some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingLG) {
-            if cover != nil { BookCoverThumb(path: cover, points: 168) }
+        HStack(alignment: .top, spacing: 0) {
+            if cover != nil { BookCoverThumb(path: cover, points: 168, reservesSlot: false, trailing: CicadaTheme.spacingLG) }
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 if let subtitle = card?.subtitle {
                     Text(subtitle).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary)

@@ -98,9 +98,20 @@ enum EntityHeaderWords {
         return status == .decaying ? base + Copy.Graph.fadingReason : base
     }
 
+    /// G233, ruling 48 (DR-38): a book page keeps its description in the article, so the `## Summary` heading line goes and the
+    /// paragraph with its source line stays.
+    static func articleMarkdown(_ markdown: String, isBook: Bool) -> String {
+        guard isBook else { return markdown }
+        return markdown.replacingOccurrences(of: "## Summary\n", with: "")
+    }
+
     /// R-DG15 — the page's `## Summary` (never the agentic-write placeholder, R-FX11). A graph-node stub's
     /// markdown IS its server preview, so it stands in until the page lands; a full page with no Summary has none.
-    static func summary(markdown: String, isStub: Bool) -> String? {
+    ///
+    /// A book page (G233; ruling 48, DR-38): its description is the article's first paragraph under the head, with its
+    /// source line, never lifted above the tabs.
+    static func summary(markdown: String, isStub: Bool, isBook: Bool = false) -> String? {
+        if isBook { return nil }
         if let text = EntityProse.section(named: "## Summary", in: markdown), !EntityProse.isPlaceholderSummary(text) {
             return text
         }

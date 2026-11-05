@@ -174,7 +174,8 @@ struct EntityDetailCard: View {
         VStack(alignment: .leading, spacing: 0) {
             EntityCardHeader(
                 entity: entity,
-                summary: EntityHeaderWords.summary(markdown: entity.markdownContent, isStub: isStub),
+                summary: EntityHeaderWords.summary(markdown: entity.markdownContent, isStub: isStub,
+                                                   isBook: entity.media?.isBook == true),
                 isStub: isStub,
                 canGoBack: canGoBack, backTargetName: backTargetName, onBack: goBack,
                 showsClose: showsCloseButton, onClose: close,
@@ -289,8 +290,9 @@ struct EntityDetailCard: View {
                 // served why-it-matters line in the same slot.
                 if let summary = blocks?.summary {
                     InShortBlock(summary: summary)
-                } else if entity.media?.isFile != true {
+                } else if PageInShort.isDrawn(relevance: blocks?.relevance ?? entity.relevance, media: entity.media) {
                     // ROR-117: an added file has its own Why it matters section, or none; "no relation" isn't news.
+                    // G233 (DR-38): nor on a book, which says how it came in in its head.
                     PageInShort(relevance: blocks?.relevance ?? entity.relevance)
                 }
                 // Proposed ruling 55: a page with no number draws nothing and asks nothing (DR-81).
@@ -742,7 +744,9 @@ struct EntityDetailCard: View {
     /// (`## Summary` → the header, R-DG15; `## Description` → the media card) or the claims fence (R-FX8). A stub's
     /// markdown IS the preview the header already shows, so it has none.
     private var articleKey: WikiArticleCache.Key {
-        WikiArticleCache.Key(markdown: isStub ? "" : entity.markdownContent, dropping: WikiArticle.ownSurfaces)
+        WikiArticleCache.Key(markdown: isStub ? "" : EntityHeaderWords.articleMarkdown(entity.markdownContent,
+                                                                                       isBook: entity.media?.isBook == true),
+                             dropping: WikiArticle.ownSurfaces)
     }
 
     /// Whether `pageBlock` would draw nothing: the rendered view of a loaded page with no paper or media card, no hero

@@ -303,9 +303,10 @@ def stop_role(run: dict, role: str) -> None:
 
 #: What `launch --env` may set: a feature's own switches, never a credential, a path or an engine.
 LAUNCH_ENV_PREFIXES = ("CICADA_AWAKE_",)
-#: The one network switch a run may open, for a proof of what Sleep itself fetches (the settling step, ruling 54): only to
-#: "on", and only for what is in the scratch bank. The other gates stay off.
-LAUNCH_ENV_EXACT = {"CICADA_ALLOW_CONNECTOR_FETCH": "on"}
+#: The network switches a run may open, each only to "on", only for what is in the scratch bank: the connector gate for a
+#: proof of what Sleep itself fetches (the settling step, ruling 54), the logo gate to see a book's cover (it is a media
+#: preview). The feed gate stays off.
+LAUNCH_ENV_EXACT = {"CICADA_ALLOW_CONNECTOR_FETCH": "on", "CICADA_ALLOW_LOGO_FETCH": "on"}
 
 
 def launch_env(pairs: list[str] | None) -> dict:
@@ -1262,7 +1263,7 @@ def main() -> None:
     s.add_argument("--no-owner", action="store_true",
                    help=f"leave the owner unnamed (default: named {PLACEHOLDER_OWNER!r})")
     s.add_argument("--env", action="append", metavar="KEY=VALUE",
-                   help="a feature switch for the backend (CICADA_AWAKE_*, or CICADA_ALLOW_CONNECTOR_FETCH=on)")
+                   help="a feature switch for the backend (CICADA_AWAKE_*, CICADA_ALLOW_CONNECTOR_FETCH=on or CICADA_ALLOW_LOGO_FETCH=on)")
     s.set_defaults(fn=cmd_launch)
 
     s = sub.add_parser("doctor", parents=[run_opt], help="read-only: is this run worth driving?")

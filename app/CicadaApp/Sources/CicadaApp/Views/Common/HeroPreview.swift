@@ -55,6 +55,8 @@ struct HeroPreview: View {
     static func hasPreviewableAsset(for entity: Entity) -> Bool {
         if entity.type == .location { return true }
         guard let media = entity.media, media.hasURL else { return false }
+        // G233 (DR-38): a book's head draws its cover; its link is the source link, never a globe box.
+        if media.isBook { return false }
         let model = MediaPreviewModel(block: media, title: entity.name)
         switch model.kind {
         case .embedVideo, .fileVideo:
@@ -72,7 +74,7 @@ struct HeroPreview: View {
     var body: some View {
         if entity.type == .location {
             LocationHero(entity: entity)
-        } else if let media = entity.media, media.hasURL {
+        } else if let media = entity.media, media.hasURL, !media.isBook {
             content(for: MediaPreviewModel(block: media, title: entity.name))
         }
     }
