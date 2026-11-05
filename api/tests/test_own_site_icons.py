@@ -846,3 +846,47 @@ def test_a_block_on_a_declared_svg_stops_discovery():
                         "https://site-v.example/b.svg": (200, ICON_SVG, "image/svg+xml")})
     assert run(logo_service.fetch_own_site_icon("site-v.example", fetcher=fetcher)) is None
     assert "https://site-v.example/b.svg" not in fetcher.urls
+
+
+# --- a followed feed's row (ROR-108) ------------------------------------------------------------------------------
+
+
+def test_a_feeds_icon_is_asked_of_its_own_site_only_when_no_bundled_mark_draws_it(tmp_path, monkeypatch):
+    from api.services import feed_registry
+
+    bank = tmp_path / "memory"
+    (bank / "sources").mkdir(parents=True)
+    plain = "https://feeds.paperfold.io/rss"
+    on_host = "https://alpha.substack.com/feed"
+    tagged = "https://letters.example.org/feed"
+    private = "https://intranet.local/rss"
+    for url, tags in ((plain, []), (on_host, []), (tagged, ["substack"]), (private, [])):
+        feed_registry.subscribe_feed(bank, url, tags)
+    fid = feed_registry.feed_id
+    assert channel_items.feed_site(bank, fid(plain)) == "paperfold.io"
+    for refused in (on_host, tagged, private, "https://never-followed.example/rss"):
+        assert channel_items.feed_site(bank, fid(refused)) is None
+    assert channel_items.feed_site(bank, "paperfold.io") is None, "never a name the caller supplies"
+
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(bank))
+    config.get_settings.cache_clear()
+    asked: list[str] = []
+    real = logo_service.ensure_own_site_icon
+
+    async def injected(memory_path, site, *, fetcher=None):
+        asked.append(site)
+        return await real(memory_path, site, fetcher=Recorder(
+            {"https://paperfold.io/apple-touch-icon.png": (200, png(), "image/png")}))
+    monkeypatch.setattr(logo_service, "ensure_own_site_icon", injected)
+    try:
+        client = TestClient(main.app)
+        first = client.get(f"/sources/feeds/{fid(plain)}/site-icon")
+        assert first.status_code == 200 and first.headers["content-type"] == "image/png"
+        assert client.get(f"/sources/feeds/{fid(plain)}/site-icon",
+                          headers={"If-None-Match": first.headers["etag"]}).status_code == 304
+        assert asked == ["paperfold.io"], "the second read came from the store"
+        for other in (fid(on_host), fid(tagged), "nope"):
+            assert client.get(f"/sources/feeds/{other}/site-icon").status_code == 404
+        assert asked == ["paperfold.io"], "a bundled mark or an unknown feed asks nothing"
+    finally:
+        config.get_settings.cache_clear()

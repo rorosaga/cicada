@@ -742,3 +742,20 @@ def test_a_demo_bank_lists_and_answers_like_any_other(bank):
     _note_with_id(bank)
     assert channel_items.items(bank, "notes")["total"] >= 1
     assert channel_items.place(bank, "notes", "ep_2026-09-06_001")["kind"] == "notes"
+
+
+def test_a_feed_row_names_its_mark_with_no_network(tmp_path, monkeypatch):
+    """ROR-108: a Substack publication wears the bundled mark on its own domain too (the tag says so); any other feed
+    names its own site. Listing asks nobody."""
+    bank = tmp_path / "memory"
+    (bank / "sources").mkdir(parents=True)
+    on_host = "https://alpha.substack.com/feed"
+    own_domain = "https://www.gamma.example.org/feed"
+    plain = "https://blog.delta.example.net/rss"
+    for url, tags in ((on_host, []), (own_domain, ["substack"]), (plain, ["news"])):
+        feed_registry.subscribe_feed(bank, url, tags)
+    monkeypatch.setattr(feed_registry, "_default_fetch", lambda *_: pytest.fail("no feed is fetched"))
+    rows = {c["url"]: c for c in _tree(bank)}
+    assert (rows[on_host].get("mark"), rows[on_host].get("site")) == ("substack", None)
+    assert (rows[own_domain].get("mark"), rows[own_domain].get("site")) == ("substack", None)
+    assert (rows[plain].get("mark"), rows[plain].get("site")) == (None, "example.net")

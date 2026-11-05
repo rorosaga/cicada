@@ -1678,6 +1678,11 @@ records its result:** `feeds.yaml`'s `last_problem`, a code (`feed_registry.POLL
 a good poll clears it, and a body that is no feed counts as `not_a_feed` though the poll's own answer stays `ok`. Reading
 any of this fetches nothing; the feed gate and the polling schedule are unchanged. No item row names a picture from the
 web.
+**Each feed wears a mark before its name (ROR-108; DR-12, DR-52):** the row carries `mark` (the bundled Substack mark, for
+`*.substack.com` or the feed list's `substack` tag, nothing asked) or `site` (its own site's key; shape `g161-19`). A
+`site` row draws `SavedLinkMark` by the feed's id, `GET /sources/feeds/{id}/site-icon`, else that site's monogram; *Other*
+draws a monogram of its name. The mark is one 16 pt square in both forms of the row, so a late icon moves nothing. A
+feed's XML `<image>` is not used.
 
 **The standard source page (owner 2026-11-04; `Views/Sources/SourcePageLayout.swift`, `Copy.SourceLayout`;
 DESIGN_RULES §9 2026-11-04).** Owner: *"we should standardize the layout for all the sources pages"*, *"so much text"*.

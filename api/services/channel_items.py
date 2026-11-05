@@ -132,7 +132,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: Notes folder (`collections`).
 #: `g161-17`: G161 (ROR-111) — a row whose item records where it lives carries `place`, the kind of that place.
 #: `g161-18`: ROR-108 — `collection` narrows RSS to one followed feed; `collections` lists the feeds.
-SHAPE = "g161-18"
+#: `g161-19`: ROR-108 — a followed feed's row carries the mark it wears: `mark` (a bundled one) or `site`.
+SHAPE = "g161-19"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -491,6 +492,34 @@ def _followed(memory_path: Path) -> dict[str, dict]:
     return out
 
 
+def _feed_mark(record: dict) -> str | None:
+    """The bundled mark a followed feed wears, nothing asked of anyone: a Substack publication's, on ``*.substack.com``
+    or on its own domain, where the feed list's ``substack`` tag says so."""
+    host = _bare_host(record.get("url"))
+    tags = {str(t).strip().casefold() for t in (record.get("tags") or [])}
+    return "substack" if "substack" in tags or host == "substack.com" or host.endswith(".substack.com") else None
+
+
+def _feed_mark_fields(record: dict) -> dict:
+    """What a feed's row draws before its name: its bundled mark, else the key of its own site."""
+    if mark := _feed_mark(record):
+        return {"mark": mark}
+    site = reading_hosts.mark_key(str(record.get("url") or ""))
+    return {"site": site} if site else {}
+
+
+def feed_site(memory_path: Path, feed: str) -> str | None:
+    """The one site a followed feed's own icon may be asked of: the registrable domain of THAT feed's own URL
+    (`logo_service.own_site_domain`), only for a feed the person follows and only when no bundled mark draws it — else
+    None, and the route answers 404 with nothing asked. Never a name the caller supplies."""
+    from api.services import logo_service
+
+    record = _followed(Path(memory_path)).get(feed)
+    if record is None or _feed_mark(record):
+        return None
+    return logo_service.own_site_domain(str(record["url"]))
+
+
 def _feed_rows(memory_path: Path, media: "_Media") -> list[dict]:
     """The RSS rows, each filed under its feed (``_collection``). The host is asked only of a row with no usable stamp:
     a host two feeds share names neither."""
@@ -522,7 +551,7 @@ def _feed_tree(memory_path: Path) -> dict:
         name = record.get("title") or newest.get("_publication") or _bare_host(record["url"]) or record["url"]
         feeds.append({"id": fid, "name": _title(name), "count": len(mine), "latest": _latest(mine),
                       "url": str(record["url"]), "polled": record.get("last_polled"),
-                      "problem": feed_registry.problem_words(record)})
+                      "problem": feed_registry.problem_words(record), **_feed_mark_fields(record)})
     feeds.sort(key=lambda c: (str(c["name"]).casefold(), c["id"]))
     other = [row for rows in held.values() for row in rows]
     if other:

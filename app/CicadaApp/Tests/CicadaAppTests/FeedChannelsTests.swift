@@ -1,6 +1,11 @@
 import XCTest
 @testable import CicadaApp
 
+private actor AskedFeeds {
+    var ids: [String] = []
+    func add(_ id: String) { ids.append(id) }
+}
+
 /// ROR-108 — the RSS page's feeds: the words each row says, and the wire shape they are read from.
 final class FeedChannelsTests: XCTestCase {
     private let us = Locale(identifier: "en_US")
@@ -24,6 +29,41 @@ final class FeedChannelsTests: XCTestCase {
         XCTAssertTrue(help.hasPrefix("Alpha, https://a.example.com/rss, checked "), help)
         XCTAssertFalse(FeedChannelText.meta(feed, locale: us).contains("example.com"))
         XCTAssertEqual(FeedChannelText.help(SourceCollection(id: "other", name: "Other", count: 2), locale: us), "Other")
+    }
+
+    func testAFeedWearsTheBackendsBundledMarkItsSitesIconOrAMonogram() {
+        let substack = SourceCollection(id: "a", name: "Alpha", count: 1, mark: "substack")
+        XCTAssertEqual(FeedChannelMarkModel.of(substack, markExists: { _ in true }), .bundled("substack"))
+        let site = SourceCollection(id: "b", name: "Beta", count: 0, site: "b.example.com")
+        XCTAssertEqual(FeedChannelMarkModel.of(site, markExists: { _ in true }),
+                       .link(.site(key: "b.example.com", label: "b.example.com", door: .feed("b"))),
+                       "the site's monogram when no icon comes, not the feed's name")
+        let other = SourceCollection(id: "other", name: "Other", count: 2)
+        XCTAssertEqual(FeedChannelMarkModel.of(other, markExists: { _ in true }), .link(.monogram("O")))
+        XCTAssertEqual(FeedChannelMarkModel.of(substack, markExists: { _ in false }), .link(.monogram("A")),
+                       "a mark file that does not ship still draws a mark")
+        XCTAssertTrue(LogoImage.exists(name: "substack"), "the bundled mark ships")
+    }
+
+    func testAFeedsIconIsAskedByItsIdAlone() async {
+        let asked = AskedFeeds()
+        let store = SiteIconStore(fetch: { _ in XCTFail("never the icon-service route"); return nil },
+                                  fetchForSaved: { _ in XCTFail("never the saved link's route"); return nil },
+                                  fetchForFeed: { await asked.add($0); return nil })
+        _ = await store.image(site: "b.example.com", bank: "bank", saved: .feed("feed-1"))
+        let seen = await asked.ids
+        XCTAssertEqual(seen, ["feed-1"])
+    }
+
+    func testAMarkDecodes() throws {
+        let json = #"""
+        {"channel": "rss", "accounts": [{"name": null, "provider": null, "count": 0, "collections": [
+          {"id": "f1", "name": "Alpha", "count": 0, "mark": "substack"},
+          {"id": "f2", "name": "Beta", "count": 0, "site": "b.example.com"}]}]}
+        """#
+        let feeds = FeedChannelText.feeds(try JSONDecoder().decode(ChannelCollections.self, from: Data(json.utf8)))
+        XCTAssertEqual(feeds.map(\.mark), ["substack", nil])
+        XCTAssertEqual(feeds.map(\.site), [nil, "b.example.com"])
     }
 
     func testTheFeedsDecodeLenientlyAndAnEmptyTreeLeavesThePlainList() throws {
