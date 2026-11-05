@@ -12,6 +12,14 @@
 
 ## Current state and evidence
 
+- **2026-11-05 — integration-test defects (ROR-41; branch `ror41-integration-defects`).** The embedding children are
+  all capped (ONNX text child 677 % to 344 % CPU, synthetic bank); Apple Books' refusal names its fix; a gated feed's
+  line names the switch that turns it on; a reader counts once in the Sources eyebrow; `install_app.sh` signals by path;
+  Grok's install line is the command; OpenCode's Electron path is found; a number that moves is no contradiction (G98).
+  **Owner's call, left alone:** a backend the app spawns runs with `CICADA_ALLOW_FEED_FETCH` off (`network.md`).
+  **Pick up here:** two rows still read Connected for one reader, the count is the only thing that dedupes; same-day
+  value claims still ask (`claim_reconciler.trust_decision`).
+
 - **2026-11-04 — waiting on Reddit, not the owner.** Reddit API access was requested 2026-11-04. When Reddit approves,
   register the installed app per `network.md` ("Registering Cicada's Reddit app") and set `reddit.CLIENT_ID`.
 - **2026-11-04 — hookless apps relay as they talk; exports are one-time (rulings 57, 58, below; G105, G197; branch

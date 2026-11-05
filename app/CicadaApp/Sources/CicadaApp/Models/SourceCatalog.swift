@@ -366,7 +366,7 @@ enum SourceCatalog {
             }
             // What this row would read with every reader it only borrows switched off.
             let borrowed = entry.channels.filter { readerHome[$0].map { $0 != entry.id } ?? false }
-            let own = borrowed.isEmpty ? nil
+            let own: SourceCatalogStatus? = borrowed.isEmpty ? nil
                 : read(localReaders.merging(borrowed.map { ($0, false) }) { _, off in off })
             return SourceCatalogRow(entry: entry, status: read(localReaders),
                                     lastSync: [synced, checked[entry.id]].compactMap { $0 }.max(),
