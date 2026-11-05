@@ -133,7 +133,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-17`: G161 (ROR-111) — a row whose item records where it lives carries `place`, the kind of that place.
 #: `g161-18`: ROR-108 — `collection` narrows RSS to one followed feed; `collections` lists the feeds.
 #: `g161-19`: ROR-108 — a followed feed's row carries the mark it wears: `mark` (a bundled one) or `site`.
-SHAPE = "g161-19"
+#: `g161-20`: G89 — a followed Substack publication lists on `substack-feeds`; `rss` lists only the other feeds.
+SHAPE = "g161-20"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -476,6 +477,9 @@ def _site(url) -> dict:
 
 #: ROR-108 — the RSS channel, and the collection holding what no followed feed accounts for.
 FEED_CHANNEL = "rss"
+#: G89 (owner 2026-11-05): the followed Substack publications, on the Substack page; how their posts arrive is RSS's.
+SUBSTACK_FEEDS = "substack-feeds"
+FEED_CHANNELS = (FEED_CHANNEL, SUBSTACK_FEEDS)
 FEED_OTHER = "other"
 
 
@@ -493,11 +497,8 @@ def _followed(memory_path: Path) -> dict[str, dict]:
 
 
 def _feed_mark(record: dict) -> str | None:
-    """The bundled mark a followed feed wears, nothing asked of anyone: a Substack publication's, on ``*.substack.com``
-    or on its own domain, where the feed list's ``substack`` tag says so."""
-    host = _bare_host(record.get("url"))
-    tags = {str(t).strip().casefold() for t in (record.get("tags") or [])}
-    return "substack" if "substack" in tags or host == "substack.com" or host.endswith(".substack.com") else None
+    """The bundled mark a followed feed wears, nothing asked of anyone."""
+    return "substack" if feed_registry.is_substack(record) else None
 
 
 def _feed_mark_fields(record: dict) -> dict:
@@ -520,32 +521,67 @@ def feed_site(memory_path: Path, feed: str) -> str | None:
     return logo_service.own_site_domain(str(record["url"]))
 
 
-def _feed_rows(memory_path: Path, media: "_Media") -> list[dict]:
-    """The RSS rows, each filed under its feed (``_collection``). The host is asked only of a row with no usable stamp:
-    a host two feeds share names neither."""
-    rows = media.by_origins(_catalog_origins(FEED_CHANNEL))
-    followed = _followed(memory_path)
+def _feed_filer(followed: dict[str, dict]):
+    """Which followed feed an item belongs to, by its stamp and URL. The host is asked only of an item with no usable
+    stamp: a host two feeds share names neither."""
     hosts: dict[str, list[str]] = {}
     for fid, record in followed.items():
         hosts.setdefault(_bare_host(record["url"]), []).append(fid)
-    for row in rows:
-        fid = row.get("_feed")
-        if fid not in followed:
-            owners = hosts.get(_bare_host(row.get("_url")), [])
-            fid = owners[0] if len(owners) == 1 else FEED_OTHER
-        row["_collection"] = fid
+
+    def file(stamp, url) -> str:
+        if stamp in followed:
+            return stamp
+        owners = hosts.get(_bare_host(url), [])
+        return owners[0] if len(owners) == 1 else FEED_OTHER
+
+    return file
+
+
+def _substack_feeds(followed: dict[str, dict]) -> set[str]:
+    return {fid for fid, record in followed.items() if feed_registry.is_substack(record)}
+
+
+def _feed_rows(memory_path: Path, media: "_Media", channel_id: str = FEED_CHANNEL) -> list[dict]:
+    """One feed channel's rows, each filed under its feed (``_collection``): a Substack publication's on
+    ``substack-feeds``, every other's, and what no followed feed claims, on RSS (G89, owner 2026-11-05)."""
+    followed = _followed(memory_path)
+    substack, file = _substack_feeds(followed), _feed_filer(followed)
+    rows = []
+    for row in media.by_origins(_catalog_origins(FEED_CHANNEL)):
+        row["_collection"] = file(row.get("_feed"), row.get("_url"))
+        if (row["_collection"] in substack) == (channel_id == SUBSTACK_FEEDS):
+            rows.append(row)
     return rows
 
 
-def _feed_tree(memory_path: Path) -> dict:
-    """Every followed feed, one collection each with nothing in it included, then *Other* when anything is there. A
-    feed's name: its record's title, else the publication its newest item names, else its host. ``problem`` says a
-    failed last poll in words, ``polled`` is that poll's day; neither is asked of the network."""
+def substack_feed_pages(memory_path: Path) -> set[str]:
+    """The media pages a followed Substack publication brought in, hidden ones too: an episode's row follows its page
+    wherever the page is listed (`source_overview`), so the two rows partition the feeds' episodes."""
+    followed = _followed(Path(memory_path))
+    substack = _substack_feeds(followed)
+    if not substack:
+        return set()
+    media, file = _Media(Path(memory_path)), _feed_filer(followed)
+    out: set[str] = set()
+    for entity_id in media._pages.by_origin.get(FEED_CHANNEL, []):
+        entry = media.by_entity.get(entity_id) or {}
+        url = entry.get("url") or (media.pages.get(entity_id) or {}).get("url")
+        if file(entry.get("feed"), url) in substack:
+            out.add(entity_id)
+    return out
+
+
+def _feed_tree(memory_path: Path, channel_id: str = FEED_CHANNEL) -> dict:
+    """Every feed this channel lists, one collection each with nothing in it included, then *Other* when anything is
+    there. A feed's name: its record's title, else the publication its newest item names, else its host. ``problem``
+    says a failed last poll in words, ``polled`` is that poll's day; neither is asked of the network."""
     held: dict[str, list[dict]] = {}
-    for row in _collect(memory_path, FEED_CHANNEL):
+    for row in _collect(memory_path, channel_id):
         held.setdefault(row["_collection"], []).append(row)
     feeds = []
     for fid, record in _followed(memory_path).items():
+        if feed_registry.is_substack(record) != (channel_id == SUBSTACK_FEEDS):
+            continue
         mine = held.pop(fid, [])
         newest = max(mine, key=lambda r: r["_sort"], default={})
         name = record.get("title") or newest.get("_publication") or _bare_host(record["url"]) or record["url"]
@@ -558,7 +594,7 @@ def _feed_tree(memory_path: Path) -> dict:
         feeds.append({"id": FEED_OTHER, "name": "Other", "count": len(other), "latest": _latest(other)})
     count = sum(c["count"] for c in feeds)
     accounts = [{"name": None, "provider": None, "count": count, "collections": feeds}] if feeds else []
-    return {"channel": FEED_CHANNEL, "accounts": accounts}
+    return {"channel": channel_id, "accounts": accounts}
 
 
 def _live(fm: dict) -> bool:
@@ -697,8 +733,8 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
     if channel_id in {bookmark_sync.channel_for(b) for b in bookmark_sync.CHROMIUM_BROWSERS} \
             or channel_id == "safari-bookmarks":
         return _bookmarks(memory_path, channel_id, media)
-    if channel_id == FEED_CHANNEL:
-        return _feed_rows(memory_path, media)
+    if channel_id in FEED_CHANNELS:
+        return _feed_rows(memory_path, media, channel_id)
     if channel_id in _MEDIA_CHANNELS:
         return media.by_origins(_catalog_origins(channel_id), unstamped=channel_id == "files")
     if channel_id in books.DOORS:
@@ -1272,8 +1308,8 @@ def collections(memory_path: Path, channel_id: str) -> dict | None:
     memory_path = Path(memory_path)
     if not known(memory_path, channel_id):
         return None
-    if channel_id == FEED_CHANNEL:
-        return _feed_tree(memory_path)
+    if channel_id in FEED_CHANNELS:
+        return _feed_tree(memory_path, channel_id)
     if channel_id not in COLLECTION_CHANNELS:
         return {"channel": channel_id, "accounts": []}
     rows = _collect(memory_path, channel_id)

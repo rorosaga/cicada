@@ -576,7 +576,7 @@ struct SourceCatalogDetail: View {
 
     /// "Following N publications" — the area's one line, only when the person follows any.
     private var substackFollowing: String? {
-        let following = SubstackFollowing.count(store.feeds.value ?? [])
+        let following = SubstackFollowing.count(channels)
         return following > 0 ? Copy.Reading.substackFollowing(following) : nil
     }
 
@@ -795,10 +795,16 @@ struct SourceCatalogDetail: View {
                 ForEach(listChannels, id: \.id) { list in
                     // 2026-11-03 — a chat source's chats are the page: all of them, paged, never "All N" (the apps
                     // list every chat; a person keeps a few dozen, where a feed keeps thousands).
-                    SourceItemsSection(channel: list.id, saved: savedStyle, query: query,
-                                       cap: ChatSourcePage.isChatSource(list.id) ? nil : SourceItemsRules.cap,
-                                       label: list.label) {
-                        drill = $0
+                    if list.id == FeedChannelText.substackChannel, SourceSearch.normalized(query).isEmpty {
+                        // G89 — the publications followed: a feed's items are never saves, whatever the page's others are.
+                        FeedChannelsList(channel: list.id, label: list.label) { drill = $0 }
+                    } else {
+                        SourceItemsSection(channel: list.id, saved: savedStyle && list.id != FeedChannelText.substackChannel,
+                                           query: query,
+                                           cap: ChatSourcePage.isChatSource(list.id) ? nil : SourceItemsRules.cap,
+                                           label: list.label) {
+                            drill = $0
+                        }
                     }
                 }
             }

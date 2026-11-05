@@ -134,7 +134,7 @@ enum SourceCatalog {
         // G89 (2026-11-04): Substack gives readers no API or export — the person's own agent reads Saved, History and
         // Subscriptions in their browser (the overview's own ids: saves, then reading days).
         SourceCatalogEntry(id: substackId, group: .accounts, category: .reading, title: "Substack",
-                           origin: "substack-saved", channels: ["substack", "substack-history"],
+                           origin: "substack-saved", channels: ["substack", "substack-history", FeedChannelText.substackChannel],
                            verb: .connect(Copy.Catalog.turnOn)),
         SourceCatalogEntry(id: "calendar-local", group: .thisMac, category: .calendars, title: "Calendar",
                            origin: "calendar-local", channels: ["calendar-local"],

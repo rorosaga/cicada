@@ -1416,7 +1416,7 @@ async def list_channel_collections(
     digest = hashlib.sha256(json.dumps(named, sort_keys=True).encode()).hexdigest()[:16]
     with sync_ticker.request_scans(memory_path):
         # RSS counts media pages; `sources` holds `feeds.yaml` (the polls' results) and the url index (the stamps).
-        pages = ("entities",) if channel_id == channel_items.FEED_CHANNEL else ()
+        pages = ("entities",) if channel_id in channel_items.FEED_CHANNELS else ()
         etag = sync_service.etag_for(memory_path, "sources", "episodes", *pages,
                                      extra=f"{channel_items.SHAPE}|collections|{channel_id}|{digest}")
         if (early := sync_service.conditional(request, response, etag)) is not None:

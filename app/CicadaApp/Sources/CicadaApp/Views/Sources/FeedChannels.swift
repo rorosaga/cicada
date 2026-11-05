@@ -5,10 +5,12 @@ import SwiftUI
 // page at a time (DESIGN_RULES §9 2026-11-05, DR-34, DR-48, DR-60). The backend files the items and says how each feed's
 // last check went (`GET /sources/channels/rss/collections`, `ChannelItemsCache`, never a Store domain); nothing here
 // fetches a feed, and a row names no picture from the web: its mark is a bundled one the backend names, or its own site's
-// icon asked of the backend (`FeedChannelMark`, DR-12, DR-52).
+// icon asked of the backend (`FeedChannelMark`, DR-12, DR-52). G89 (owner 2026-11-05): the Substack page lists the
+// publications followed the same way, from `substack-feeds`; which feed is which is the backend's one rule.
 
 enum FeedChannelText {
     static let channel = "rss"
+    static let substackChannel = "substack-feeds"
 
     /// A row's right edge: a failed last check first, in the backend's words, then how many items; a feed with nothing
     /// and no failure says that.
@@ -60,7 +62,9 @@ struct FeedChannelMark: View {
 }
 
 struct FeedChannelsList: View {
+    var channel = FeedChannelText.channel
     var saved = false
+    var label: String? = nil
     let onDrill: (SourceDrill) -> Void
 
     @Environment(ChannelItemsCache.self) private var cache: ChannelItemsCache?
@@ -72,20 +76,21 @@ struct FeedChannelsList: View {
     }
 
     var body: some View {
-        let feeds = FeedChannelText.feeds(cache?.collections(FeedChannelText.channel))
+        let feeds = FeedChannelText.feeds(cache?.collections(channel))
         Group {
             if feeds.isEmpty {
-                SourceItemsSection(channel: FeedChannelText.channel, saved: saved, query: "", onDrill: onDrill)
+                SourceItemsSection(channel: channel, saved: saved, query: "", label: label, onDrill: onDrill)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(feeds) { FeedChannelRow(feed: $0, saved: saved, onDrill: onDrill) }
+                VStack(alignment: .leading, spacing: 0) {
+                    if let label { SectionLabel(label).frame(minHeight: CicadaTheme.scaled(28), alignment: .leading) }
+                    ForEach(feeds) { FeedChannelRow(feed: $0, channel: channel, saved: saved, onDrill: onDrill) }
                 }
             }
         }
         .task(id: refreshKey) {
-            await cache?.refreshCollections(FeedChannelText.channel)
+            await cache?.refreshCollections(channel)
             // The page's status line and search prompt read the channel's whole list.
-            await cache?.refresh(FeedChannelText.channel)
+            await cache?.refresh(channel)
         }
     }
 }
@@ -93,6 +98,7 @@ struct FeedChannelsList: View {
 /// One feed: opens in place to its items when it has any; with none there is nothing to open, so no chevron acts.
 struct FeedChannelRow: View {
     let feed: SourceCollection
+    var channel = FeedChannelText.channel
     var saved = false
     let onDrill: (SourceDrill) -> Void
 
@@ -102,7 +108,7 @@ struct FeedChannelRow: View {
         if feed.count > 0 {
             InPlaceDisclosureRow(title: feed.name, help: FeedChannelText.help(feed),
                                  count: FeedChannelText.meta(feed), open: $open) { FeedChannelMark(feed: feed) } content: {
-                SourceItemsSection(channel: SourceListKey.make(FeedChannelText.channel, collection: feed.id),
+                SourceItemsSection(channel: SourceListKey.make(channel, collection: feed.id),
                                    saved: saved, query: "", cap: nil, onDrill: onDrill)
                     .padding(.leading, CicadaTheme.scaled(22))
             }

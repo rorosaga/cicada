@@ -1678,6 +1678,16 @@ records its result:** `feeds.yaml`'s `last_problem`, a code (`feed_registry.POLL
 a good poll clears it, and a body that is no feed counts as `not_a_feed` though the poll's own answer stays `ok`. Reading
 any of this fetches nothing; the feed gate and the polling schedule are unchanged. No item row names a picture from the
 web.
+**A followed Substack publication lists on the Substack page, not here (G89, owner 2026-11-05; DR-34, DR-48, DR-60, DR-81).**
+`feed_registry.is_substack` is the one rule (on `*.substack.com`, or the `substack` tag), read by the mark, the lists and the
+counts. The backend's `substack-feeds` channel (read-only, no actions) lists those feeds and their items with the same
+`collections` and `items` routes, and its overview row (`Publications`) takes their episodes out of `rss`'s by the page each
+episode names, so an item sits under one source; `rss` counts and lists only the other feeds and what no followed feed
+claims (*Other*). With no other feed RSS is Off, and its page shows its way to add a feed. On the Substack page
+`SourceCatalogViews.cameIn` draws `FeedChannelsList(channel: "substack-feeds")` after Saved and reading history; a search
+reads across all three. Polling, the feed gate and `feeds.yaml` do not change: RSS polls every feed, and adding one stays
+on RSS and its add sheet, which lists every feed.
+
 **Each feed wears a mark before its name (ROR-108; DR-12, DR-52):** the row carries `mark` (the bundled Substack mark, for
 `*.substack.com` or the feed list's `substack` tag, nothing asked) or `site` (its own site's key; shape `g161-19`). A
 `site` row draws `SavedLinkMark` by the feed's id, `GET /sources/feeds/{id}/site-icon`, else that site's monogram; *Other*

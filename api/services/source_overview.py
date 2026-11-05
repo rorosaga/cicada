@@ -115,6 +115,9 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("substack", "Substack", "social", "substack-saved", ("substack-saved",), None),
     SourceSpec("substack-history", "Substack reading", "social", "substack-history", ("substack-history",), None),
     SourceSpec("rss", "RSS feeds", "feed", "rss", ("rss",), "rss"),
+    # G89 (owner 2026-11-05): the publications followed. Their episodes carry `origin: rss`; `build_overview` moves them
+    # here by the feed that brought them, so no origin of its own.
+    SourceSpec("substack-feeds", "Publications", "feed", "substack-saved", (), "substack-feeds"),
     SourceSpec("calendar", "Calendars", "feed", "calendar", ("calendar",), "calendar"),
     # G142 (round 4): Apple Calendar through EventKit, so its episodes never read as a raw id.
     SourceSpec("calendar-local", "Apple Calendar", "feed", "calendar-local", ("calendar-local",), "calendar-local"),
@@ -167,8 +170,8 @@ INTENTS = ("saved", "captured")
 #: v11: Spotify's library and listening, G32; v12: Readwise removed by owner direction, 2026-11-03; v13: GitHub, G230;
 #: v14: Substack's saves and reading days, G89; v15: Telegram chats labelled "Telegram", the bot feed
 #: "Telegram bot", 2026-11-04; v16: Apple Books, Goodreads and book scans, the Reading kind, G39/G233; v17: `kept`,
-#: ruling 62).
-SHAPE = "overview-v17"
+#: ruling 62; v18: the publications followed, on their own row out of RSS's, G89).
+SHAPE = "overview-v18"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent
@@ -349,12 +352,17 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
 
     from api.services import history_index
 
+    from api.services import channel_items   # lazy: channel_items imports this module
+
     chats: dict[str, dict[str, tuple[float, str]]] = {}
+    substack_pages = channel_items.substack_feed_pages(memory_path)
     for f in bank_index.files(memory_path, "episodes"):
         fm = f.frontmatter
         key = row_key(fm)
         if key is None:
             continue
+        if key == "rss" and str(fm.get("media_entity_id") or "") in substack_pages:
+            key = channel_items.SUBSTACK_FEEDS
         episode_key[str(fm.get("id") or f.stem)] = key
         state = states.setdefault(key, _new_state(key, labels))
         state["episodes"] += 1
@@ -453,8 +461,6 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
             states[key]["faces_more"] = max(0, len(ordered) - MAX_FACES)
     # A saved row's faces come from the set its list lists, and only while its count says it holds something (review
     # of #358: "Nothing saved yet" beside three faces read as a contradiction) — never a bookmark that left the browser.
-    from api.services import channel_items   # lazy: channel_items imports this module
-
     for key, state in states.items():
         if state["intent"] == "saved" and state["items"] > 0:
             faces, more = channel_items.saved_faces(memory_path, state["channel_id"] or key, limit=MAX_FACES)
