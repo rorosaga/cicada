@@ -13,13 +13,15 @@ struct BrowserIdentityArea: View {
     var open: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
     private var signedOut: Bool { browser.state == .signedOut }
+    /// "Couldn't read" pauses the same week, so it can be tried again the same way.
+    private var retryable: Bool { signedOut || browser.state == .couldntRead }
     private var handle: String? { BrowserIdentity.display(browser.handle) }
     private var profile: URL? { BrowserIdentity.profileURL(browser.profileURL) }
 
     var body: some View {
-        if signedOut || handle != nil || profile != nil {
+        if retryable || handle != nil || profile != nil {
             SourceConnectArea(
-                primary: signedOut ? SourcePrimaryAction(title: Copy.Browser.tryAgain, action: tryAgain) : nil,
+                primary: retryable ? SourcePrimaryAction(title: Copy.Browser.tryAgain, action: tryAgain) : nil,
                 line: signedOut ? Copy.Browser.signIn(site) : nil, lineIsAttention: signedOut
             ) {
                 if handle != nil || profile != nil { identity }

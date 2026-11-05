@@ -155,9 +155,11 @@ def test_needs_login_pauses_only_that_list_writes_nothing_and_turning_it_on_agai
     before = porcelain(memory)
     out = _record(server, "x", "needs_login")
     assert "do not sign in" in out.lower()
+    assert saved_lists.status(memory)["lists"]["x"]["state"] == "signed_out"
     assert saved_lists.paused_until("x") is not None and saved_lists.paused_until("instagram") is None
     assert saved_lists.due(memory) == ["instagram"] and porcelain(memory) == before
     saved_lists.resume(["x"])          # the route calls this when the person turns the list on again
+    assert saved_lists.status(memory)["lists"]["x"]["state"] == "not_read", "Try again clears Signed out at once"
     assert saved_lists.due(memory) == ["x"]
     saved_lists.note(memory, "x", "needs_login")
     saved_lists.resume_site("www.x.com")   # "I signed in" on the agent request (G205)

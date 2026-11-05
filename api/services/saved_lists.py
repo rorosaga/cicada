@@ -226,7 +226,10 @@ def status(memory_path: Path, now: datetime | None = None) -> dict:
                       "pausedUntil": until.isoformat() if until else None,
                       # ROR-114: how it is read (the app draws a browser-read source in its own colour), where it
                       # stands (only a last read that succeeded is healthy), and whose list it is.
-                      "through": "browser", "state": state_of(entry.get("outcome")),
+                      "through": "browser",
+                      # A pausing outcome whose pause is lifted (Try again, or the week is up) waits for its next read.
+                      "state": "not_read" if entry.get("outcome") in PAUSING and until is None
+                      else state_of(entry.get("outcome")),
                       "handle": entry.get("handle") or None, "profileUrl": entry.get("profile_url") or None}
     return {"readsToday": reads_today(memory_path, now), "dailyReads": DAILY_READS, "lists": lists}
 
