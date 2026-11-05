@@ -234,6 +234,9 @@ enum NoteHTML {
     ]
     fileprivate static let tableTags: Set<String> = ["table", "tr", "td", "th"]
 
+    /// Past this a run's look stops growing: a body of nested tags would otherwise cost time on the whole stack per word.
+    static let maxInlineDepth = 64
+
     static func blocks(_ html: String) -> [NoteDocument.Block] {
         var builder = Builder()
         Tokens.walk(html) { builder.take($0) }
@@ -343,19 +346,19 @@ enum NoteHTML {
             } else if NoteHTML.blockTags.contains(name) {
                 openBlock(name, attrs)
             } else {
-                inline.append(Self.inline(name, attrs))
+                if inline.count < NoteHTML.maxInlineDepth { inline.append(Self.inline(name, attrs)) }
             }
         }
 
         private mutating func openBlock(_ name: String, _ attrs: [String: String]) {
             if tableDepth > 0, !NoteHTML.tableTags.contains(name) {
                 add(" ")
-                inline.append(Self.inline(name, attrs))
+                if inline.count < NoteHTML.maxInlineDepth { inline.append(Self.inline(name, attrs)) }
                 return
             }
             flush()
             // A block carries its own inline look, as `<div style="font-weight:bold">` does.
-            inline.append(Self.inline(name, attrs))
+            if inline.count < NoteHTML.maxInlineDepth { inline.append(Self.inline(name, attrs)) }
             switch name {
             case "h1", "h2", "h3", "h4", "h5", "h6": heading = min(Int(String(name.dropFirst())) ?? 3, 3)
             case "blockquote": quote += 1
