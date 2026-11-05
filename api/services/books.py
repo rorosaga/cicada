@@ -33,15 +33,18 @@ opened; owner 2026-11-04):
 **Whose act it is** is read from the episode's own record, never set here (``authorship``): a scan is the person's own
 act (its lines are ``user``); an Apple Books or Goodreads episode is a saved record (``page``), except the person's
 notes and review, under ``## User note``. So a scanned "reading now" lights its page at once, while a library or a
-shelf someone imported stays quiet (``quiet_pages``) until the person writes or talks about the book — a want-to-read
+shelf someone imported stays quiet (``quiet_pages``) until the person marks, writes or talks about the book — a want-to-read
 or not-started scan, a save by another name, is stamped ``media_entity_id`` and stays quiet too (ruling 30's indexed
 save, owner 2026-11-04).
 
+**What the person marked is kept word for word, with no model** (ruling 64, ``book_marks``): each highlight and note is
+a claim on the page with a span of the episode, and a book with one is no longer quiet.
+
 **Sleep reads the highlights** (owner 2026-11-04: "be able to consolidate highlights and such is important"): an Apple
-Books episode with a highlight or a note, and a Goodreads row with a review, is queued like any conversation; a re-sync
-that adds highlights edits it in place and Sleep reads only what changed (``episode_revision``, #581). Everything else
-— a library entry, a shelf, a scan — lands already read (``processed_by: index`` / ``parser``): there is nothing in it
-for a model.
+Books episode with a highlight or a note, and a Goodreads row with a review, is queued like any conversation, read for
+what its marks share in one bounded chunk (ruling 64); a re-sync that adds highlights edits it in place and Sleep reads
+only what changed (``episode_revision``, #581). Everything else — a library entry, a shelf, a scan — lands already read
+(``processed_by: index`` / ``parser``): there is nothing in it for a model.
 
 Rails: no model, no network (``book_lookup`` fetches; this module reads its cache), every page write under
 ``page_lock`` and, from a route, the bank's write admission (the caller's; Sleep's tail calls it inside its own
