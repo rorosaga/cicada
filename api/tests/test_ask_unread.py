@@ -272,3 +272,82 @@ def test_pending_schema_names_query_and_every_door_agrees():
     assert "newest first" in tool["description"] and "query" in tool["description"]
     row = next(r for r in cli_map.ROWS if r.tool == "cicada_pending")
     assert {a.prop for a in row.args} == {"limit", "query"}
+
+
+# --- ROR-29: a list question over an unread note ----------------------------------------------------------------
+
+SPREAD = ("Ideas for the garden project, the full list:\n"
+          + "\n".join(f"Idea {i}: build the {w} tool for the garden. " + "It helps the weekly work, and I want it soon. " * 5
+                      for i, w in enumerate("compost seed water prune trellis shed bench hose".split(), 1)))
+_LIST = dict(breadth=True, max_episodes=ask_sources.ENUM_EPISODES, max_excerpts=ask_sources.BREADTH_EXCERPTS,
+             total_chars=ask_sources.BREADTH_CHARS)
+
+
+def test_a_list_over_one_unread_note_of_two_thousand_characters_reaches_the_model_whole(bank):
+    assert 2200 < len(SPREAD) <= ask_sources.UNREAD_WHOLE_CHARS
+    _episode(bank, "ep_2026-11-01_001", [SPREAD], title="Garden ideas")
+    _reindex(bank)
+    _, model = _ask(bank, QUESTION)
+    other = _other(model.prompts[0])
+    assert "build the hose tool" in other, "the last item, near the end of the note"
+    assert "build the compost tool" in other
+
+
+def test_the_page_leg_of_a_list_reads_an_unread_note_past_its_line_too(bank):
+    _episode(bank, "ep_2026-11-01_001", [SPREAD], title="Garden ideas")
+    found = [ask_sources.Pointer(episode="ep_2026-11-01_001", weight=1, terms={"garden", "ideas"})]
+    shown = ask_sources.gather(bank, QUESTION, found, deep={"left": ask_sources.UNREAD_EXTRA_CHARS}, **_LIST)
+    assert "build the hose tool" in " ".join(e.text for e in shown)
+
+
+def test_the_page_leg_keeps_a_read_note_at_its_short_line(bank):
+    _episode(bank, "ep_2026-11-01_001", [SPREAD], title="Garden ideas", processed=True)
+    found = [ask_sources.Pointer(episode="ep_2026-11-01_001", weight=1, terms={"garden", "ideas"})]
+    shown = ask_sources.gather(bank, QUESTION, found, **_LIST)
+    assert all(len(e.text) <= ask_sources.BREADTH_EXCERPT_CHARS + 2 for e in shown)
+
+
+def test_both_legs_of_an_ask_draw_on_one_budget(bank, monkeypatch):
+    _episode(bank, "ep_2026-11-01_001", [SPREAD], title="Garden ideas")
+    _reindex(bank)
+    seen: dict[str, dict] = {}
+    for name in ("gather", "gather_search"):
+        real = getattr(ask_sources, name)
+
+        def spy(*a, _real=real, _name=name, **kw):
+            seen[_name] = kw.get("deep")
+            return _real(*a, **kw)
+
+        monkeypatch.setattr(ask_sources, name, spy)
+    _ask(bank, QUESTION)
+    assert seen.get("gather_search") is not None
+    assert seen.get("gather") is None or seen["gather"] is seen["gather_search"]
+
+
+def test_a_list_reads_an_unread_note_among_the_further_conversations_too(bank):
+    for n in range(1, 13):
+        _episode(bank, f"ep_2026-10-{n:02d}_001", [f"Garden ideas, number {n}: the garden project list needs a tool."],
+                 title=f"Garden {n}", processed=True)
+    _episode(bank, "ep_2026-11-01_001", [SPREAD], title="Garden ideas")
+    _reindex(bank)
+    found = ask_sources.search(bank, QUESTION)
+    assert "ep_2026-11-01_001" in found.more or "ep_2026-11-01_001" in found.episodes
+    shown = ask_sources.gather_search(bank, QUESTION, found)
+    text = " ".join(e.text for e in shown if e.episode == "ep_2026-11-01_001")
+    assert "build the hose tool" in text, "the last item, near the end of the note"
+
+
+def test_a_wide_list_still_gets_a_line_from_every_conversation_inside_one_budget(bank):
+    eps = [f"ep_2026-11-{n:02d}_001" for n in range(1, 9)]
+    for n, ep in enumerate(eps, 1):
+        _episode(bank, ep, [SPREAD.replace("Idea 1", f"Idea {n}x")], title=f"Garden {n}")
+    found = [ask_sources.Pointer(episode=ep, weight=1, terms={"garden", "ideas"}) for ep in eps]
+    deep = {"left": ask_sources.UNREAD_EXTRA_CHARS}
+    shown = ask_sources.gather(bank, QUESTION, found, deep=deep, **_LIST)
+    assert {e.episode for e in shown} == set(eps), "one line from every conversation"
+    assert all(e.unread for e in shown)
+    assert sum(len(e.text) for e in shown) <= len(eps) * (ask_sources.BREADTH_EXCERPT_CHARS + 2) \
+        + ask_sources.UNREAD_EXTRA_CHARS, "the short lines plus the one unread budget"
+    assert deep["left"] >= 0
+    assert "A line of WHAT WAS SAID carries the same mark" in ask_service.ASK_SYSTEM_PROMPT
+    assert "not yet read by Sleep" in ask_sources.render(shown)

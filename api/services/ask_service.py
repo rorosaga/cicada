@@ -142,7 +142,8 @@ words in another context, never replaces it or what the entities and WHAT WAS SA
 12. A line of OTHER CONVERSATIONS marked "not yet read by Sleep" is from a conversation or note that \
 Sleep has not consolidated: it is the person's record word for word, shown whole when short and by its \
 matching passages when long (``…`` marks where text was left out, not that memory is cut). Answer from it \
-as from any line; when the answer rests on such a line, say it is not yet confirmed by Sleep.
+as from any line; when the answer rests on such a line, say it is not yet confirmed by Sleep. A line of \
+WHAT WAS SAID carries the same mark and means the same.
 
 Return ONLY a JSON object with exactly these keys:
 {
@@ -919,10 +920,11 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
             "\n".join(_header_lines(p, 0.5) + [f"linked: {line}" for line in p.get("linked_lines", [])])
             for p in people)
     excerpts: list = []
+    unread_budget = {"left": ask_sources.UNREAD_EXTRA_CHARS}   # ROR-29: one budget for both legs
     if source_words and memory_path is not None and found:
         try:
             excerpts = ask_sources.gather(memory_path, query, found, owner_name=owner_name, terms=terms,
-                                          follow=meaning,
+                                          follow=meaning, deep=unread_budget,
                                           **({"breadth": True, "max_episodes": ask_sources.ENUM_EPISODES,
                                               "max_excerpts": ask_sources.BREADTH_EXCERPTS,
                                               "total_chars": ask_sources.BREADTH_CHARS} if enumerate_ else {}))
@@ -939,7 +941,7 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
     if source_words and memory_path is not None and searched is not None and searched.episodes:
         try:
             more = ask_sources.gather_search(memory_path, query, searched, owner_name=owner_name,
-                                             taken=ask_sources.shown_turns(excerpts))
+                                             taken=ask_sources.shown_turns(excerpts), deep=unread_budget)
         except Exception as exc:  # noqa: BLE001 — the words are context; their absence never fails an answer
             logger.debug(f"ask search leg skipped ({type(exc).__name__})")
             more = []
