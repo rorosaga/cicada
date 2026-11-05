@@ -3067,9 +3067,9 @@ listed as an alias. Four gaps caused it, each closed:
 
 - **A number in a chat (PROPOSED ruling 55, off; `storage.md`, "Phone numbers").** With its switch on, the person's own new
   lines hold a token instead of a redaction (`phone_numbers.tokenise_batch`, before the stager, in both chat ingests),
-  for what a positive signal calls a phone, a bare run beside a name included, or a run the vault already holds; an agent's
-  reply, another speaker's line and a forwarded message are redacted by the same rule, bare digits too, and a run in them with
-  no signal the vault does not hold stays, as does a line of only digits (`storage.md`). A stored line never moves: a stored sitting is rebuilt from its body, and a line posted again keeps its
+  for a phone word tied to the digits, an "add" or "save" with a capitalised name at 9+ digits, a change said with a phone word, or a run of 9+ the vault
+  already holds; an agent's reply, another speaker's line and a forwarded message are redacted only for a phone word somebody owns or a run of 9+ the
+  vault holds. Any other run stays, "Ana N" and a line of only digits included (`storage.md`). A stored line never moves: a stored sitting is rebuilt from its body, and a line posted again keeps its
   stored words, so turning it on re-reads no old chat. Stage 1 gets a note only when the conversation holds a token;
   `phone_numbers.take` keeps an entry only on the person's own located line and takes every token out of the prose.
 - **One person across sources (owner 2026-10-28, `contact_identity`).** Stage 1 marks a `person` entity of a chat
