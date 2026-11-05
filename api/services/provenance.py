@@ -339,6 +339,7 @@ class _Episodes:
         self._memory_path = memory_path
         self._index: dict[str, bank_index.IndexedFile] | None = None
         self._bodies: dict[str, str | None] = {}
+        self._held: dict[str, tuple] = {}
 
     def meta(self, ep_id: str) -> bank_index.IndexedFile | None:
         if self._index is None:
@@ -356,11 +357,13 @@ class _Episodes:
 
     def held(self, ep_id: str) -> tuple:
         """Where this document holds what may not be drawn (G235, ROR-16); `source_spans` keeps it per body."""
-        indexed = self.meta(ep_id)
-        text = self._bodies.get(ep_id)
-        if indexed is None or text is None:
-            return ()
-        return source_spans.Source.of(ep_id, indexed.frontmatter or {}, text).held
+        if ep_id not in self._held:
+            indexed = self.meta(ep_id)
+            text = self._bodies.get(ep_id)
+            if indexed is None or text is None:
+                return ()
+            self._held[ep_id] = source_spans.Source.of(ep_id, indexed.frontmatter or {}, text).held
+        return self._held[ep_id]
 
 
 def _said(timestamp: str, ep_id: str) -> str | None:

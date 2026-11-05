@@ -1,7 +1,7 @@
 {
   "_comment": "Shared by test_page_blocks.py and PageBlocksTests.swift: the `blocks` of GET /entities/{id} (page_blocks.build). Regenerate with CICADA_REGEN_FIXTURES=1.",
   "blocks": {
-    "shape": "blocks-4",
+    "shape": "blocks-5",
     "order": [
       "relevance",
       "summary",
@@ -153,7 +153,8 @@
           "first": "2026-10-01T09:00:00+00:00",
           "last": "2026-10-05T09:00:00+00:00",
           "episodeId": "ep_2026-10-05_001",
-          "conversationId": "sess-a"
+          "conversationId": "sess-a",
+          "sourceKind": "conversation"
         },
         {
           "n": 2,
@@ -165,7 +166,8 @@
           "first": "2026-10-02T18:00:00+00:00",
           "last": "2026-10-02T18:00:00+00:00",
           "episodeId": "ep_2026-10-02_001",
-          "conversationId": null
+          "conversationId": null,
+          "sourceKind": "conversation"
         },
         {
           "n": 3,
@@ -177,7 +179,8 @@
           "first": "2026-10-03T12:00:00+00:00",
           "last": "2026-10-03T12:00:00+00:00",
           "episodeId": "ep_2026-10-03_001",
-          "conversationId": null
+          "conversationId": null,
+          "sourceKind": "web"
         }
       ],
       "total": 3,

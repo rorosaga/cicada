@@ -222,6 +222,8 @@ final class SourceSpansState {
         citedEmphasis = 0
         unfolded = []
         topRow = nil
+        memoKey = nil
+        memo = nil
     }
 
     func landAgain() { landingToken &+= 1 }

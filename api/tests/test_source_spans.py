@@ -201,6 +201,28 @@ def test_a_locked_note_is_no_source(memory):
     assert source_spans.for_source(memory, NOTE_ID) is None
 
 
+def test_a_marks_place_rides_the_card_and_never_a_caller_without_sources(memory):
+    from api.services import book_marks
+    from api.services.claims import HIGHLIGHTED, MARK_ORIGIN
+
+    span = _span(NOTE, "Rover arm")
+    mark = Claim(id="c-mark", text="Highlighted: Rover arm", subject="b", predicate=HIGHLIGHTED, object="Rover arm",
+                 object_kind="literal", observer="user", context="general", epistemic="explicit",
+                 source_trust="user_stated", confidence=0.9, valid_from="2026-09-01", recorded_at="2026-09-01",
+                 source_episodes=[NOTE_ID], origin=MARK_ORIGIN, authored_by="user", evidence=[span])
+    block = book_marks.block([mark])
+    assert block["items"][0]["evidence"] == {"episode": NOTE_ID, "start": span.start, "end": span.end,
+                                             "hash": span.hash, "kind": "user"}
+    assert "evidence" not in book_marks.for_caller(block)["items"][0]
+
+
+def test_a_media_id_named_only_in_source_episodes_is_found(memory):
+    fm = {"name": "Mentions", "type": "concept", "status": "active", "confidence": 0.9, "source_episodes": ["media-a.b-c"]}
+    markdown_parser.write(memory / "entities" / "mentions.md", fm, "## Summary\nMentions.\n")
+    bank_index.invalidate()
+    assert source_spans.pages_citing(memory, "media-a.b-c") == ["mentions.md"]
+
+
 def test_a_bad_id_never_reaches_the_disk(memory):
     with TestClient(main.app) as client:
         assert client.get("/episodes/..%2Fsecrets/spans").status_code == 404

@@ -211,6 +211,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/demo_sources.py": [
+    {
+      "function": "write",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
   "services/demo_bank.py": [
     {
       "function": "_write_scenario_ownership",

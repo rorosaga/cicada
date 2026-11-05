@@ -196,7 +196,9 @@ class Source:
 
 # ---- which pages cite which source ------------------------------------------------------------------------------------
 
-_DOC_RE = re.compile(r'"episode":\s*"([^"]+)"|\b(ep_\d{4}-\d{2}-\d{2}_\d+)\b')
+#: A document a page names: an evidence entry's, or any episode or media id in its text (`source_episodes`, in the fence
+#: or the frontmatter). A false positive costs one parse; a miss would lose a citation.
+_DOC_RE = re.compile(r'"episode":\s*"([^"]+)"|\b(ep_\d{4}-\d{2}-\d{2}_\d+|media-[A-Za-z0-9][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*)')
 
 
 @dataclass(frozen=True)

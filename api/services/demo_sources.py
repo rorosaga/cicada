@@ -9,7 +9,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
-from api.services import (apple_books, books, episode_ids, episode_staging, git_service, markdown_parser,
+from api.services import (apple_books, books, episode_ids, episode_scrub, episode_staging, git_service, markdown_parser,
                           meeting_transcripts)
 from api.services.agentic_write import write_claim
 
@@ -62,7 +62,7 @@ _BOOK = {
 def _note(eps: Path, day: str, title: str, body: str) -> str:
     fm = {"id": episode_ids.next_episode_id(eps, day), "source": "apple-notes", "origin": "apple-notes", "title": title, "processed": True, "processed_by": "sleep",
           "timestamp": f"{day}T08:00:00+00:00", "folder": "Lab", "tags": ["Lab"]}
-    return episode_ids.create_episode(eps, fm, body)
+    return episode_ids.create_episode(eps, fm, episode_scrub.scrub_body(body, writer="demo", bank=eps.parent.name))
 
 
 def _meeting_draft(today: date):

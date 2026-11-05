@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -123,7 +124,17 @@ final class ProvenanceRouter {
     var current: ReaderTarget? { stack.last }
     var canGoBack: Bool { stack.count > 1 }
 
+    /// Every citation opens here, so here is where a key opens it in one frame (⏎ on a chip or a popover's link, DR-60);
+    /// a pointer's open plays the drawer (DR-61).
     func open(_ target: ReaderTarget) {
+        if LooksZoom.trigger(for: NSApplication.shared.currentEvent?.type) == .keyboard {
+            Instant.run { present(target) }
+        } else {
+            present(target)
+        }
+    }
+
+    private func present(_ target: ReaderTarget) {
         if !isPresented { stack = [] }
         if stack.last != target { stack.append(target) }
         if stack.count > Self.maxDepth { stack.removeFirst(stack.count - Self.maxDepth) }
