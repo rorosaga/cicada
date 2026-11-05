@@ -12,6 +12,10 @@
 
 ## Current state and evidence
 
+- **2026-11-05 — the Stage 2 stall (G238, PR #PRNUM).** A scheduled Sleep held the event loop about 7 minutes at 8,500
+  pages: a parse of the whole pending store per project page per project name with no page. Fixed and moved off the
+  loop. **For the owner:** the auto-updater reads a timed-out `/sleep/status` as nothing running, so a stall past 2 s lets
+  an install stop the backend during a run (G238, open item a). Left as it is, pinned by a test, pending a ruling.
 - **2026-11-04 — waiting on Reddit, not the owner.** Reddit API access was requested 2026-11-04. When Reddit approves,
   register the installed app per `network.md` ("Registering Cicada's Reddit app") and set `reddit.CLIENT_ID`.
 - **2026-11-04 — hookless apps relay as they talk; exports are one-time (rulings 57, 58, below; G105, G197; branch

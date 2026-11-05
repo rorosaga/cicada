@@ -269,7 +269,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal,
   read only through `write_admission` (G183): a writer holds it shared through its own commit (async: `run_admitted`),
   Sleep sets its flag then waits holders out — past the bound it pauses, never reads; order admission → page → git;
-  never held across a model call or a fetch.
+  never held across a model call or a fetch. Sleep's bank-wide work runs off the event loop; Stage 2's judge calls alone go back to it (G238).
 - **Sleep tends the inbox (ruling 29):** after each batch's commit it settles questions the person's own words answer
   (spans in their own turns, never a guess) and, per drain, the small stuff by rule, through the person's own resolvers
   as Sleep's commit (`inbox/<kind>/settled:`), each undoable; never a person's identity without their words (`features.md`).

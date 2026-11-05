@@ -1690,6 +1690,21 @@ naming that title applied it, dated as said, under the door's own commit. *Not r
    with the conversations it came from (see *A skill page carries its conversations*).
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
 
+**Off the event loop (G238, 2026-11-05).** Sleep runs on the backend's loop, so anything it does between two awaits
+holds up every request. A run's bank-wide reads go through `asyncio.to_thread`, and Stage 2 runs whole on a worker thread
+(`entity_resolver.resolve_off_loop`) on a loop of its own, because its lookups and its deferred writes are woven between
+its judge calls. Only those calls go back to the backend's loop (`_on_engine_loop`), where the engine's clients,
+subprocesses and plan-limit state live; the context travels with them. The batch awaits the thread, so the stages' order,
+the write window and the clean-tree slot do not change. A cancelled batch tells the thread through its `cancel_check`,
+and `resolve` then writes nothing. The pending store answers by name from one index per change of the file
+(`pending_store.held_line`, `apart_of`; `load` still parses every line, for a caller that wants them all). A new
+bank-wide read in a coroutine belongs on a thread: `test_sleep_stage5_off_loop.py` lists the steps, and `make test-bench`
+asks `/healthz` over a socket through a whole batch at 8,500 pages (`test_stage2_off_loop.py`).
+**What a stall costs (measured on a real socket, `test_capture_survives_a_stall.py`).** The listener still accepts, so a
+hook hears nothing rather than a refusal. A Stop gives up at 3 s and spools; a per-turn post from this machine does not
+spool. Both still land once, because the loop serves a request the client abandoned when it wakes, and the writers are
+idempotent. Only a backend that dies before it wakes loses an unspooled turn.
+
 **An edited conversation is read as a revision of itself (G104, owner 2026-11-03).** Many sources re-stage an episode
 Sleep already consolidated — an edited note or meeting transcript, a chat whose 48 h window is re-posted, a re-imported
 export upgrading in place, a resumed session — and `episode_staging` rewrites it in place with `processed: false`.
