@@ -554,6 +554,19 @@ def meeting_note(episode: dict) -> str | None:
             "words. What someone says about the person is that speaker's statement, not something the person said.]\n\n")
 
 
+def linear_note(episode: dict) -> str | None:
+    """ROR-115: a Linear issue thread (``origin: linear-api``). Nothing in it is marked as the person's own words:
+    ``assistant:`` lines were written under the person's account or by an agent (Linear does not say which), and
+    ``speaker:<label>:`` lines are other people in the workspace."""
+    if str(episode.get("origin") or "").strip().lower() != "linear-api":
+        return None
+    return ('[Source: a Linear issue and its comments, read from the person\'s workspace. Lines starting '
+            '"assistant:" were written under the person\'s own Linear account or by an AI agent; Linear does not say '
+            'which, so they are not marked as the person\'s own words: treat what they state as the account\'s '
+            'statement, and a plan or decision there as recorded, not as something the person said. Lines starting '
+            '"speaker:<label>:" are other people in the workspace: their words, never the person\'s.]\n\n')
+
+
 #: ROR-15 (owner 2026-11-05: a pinned note "normally has a reason and can have some influence for consolidation"): one
 #: line, told as a fact about the note. The model judges what it means; there is no score and no rule, and a pin alone
 #: makes no page and no claim.
@@ -1059,6 +1072,7 @@ async def extract(
         # A harness session says whose its assistant lines are, and that their acts are not the person's.
         source_note = (correspondent_note(episode.get("correspondent")) or agent_session_note(episode)
                        or agent_save_note(episode) or meeting_note(episode)
+                       or linear_note(episode)
                        or book_marks.note(episode, themes=book_themes() if book else (),
                                           shown=(book_plan[1], book_plan[2]) if book_plan else None))
         # Ruling 45 addendum: the provider's project grouping, or the relaying app's word on it, as context.

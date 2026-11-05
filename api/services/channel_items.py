@@ -153,6 +153,8 @@ _ORIGIN_CHANNELS = {
     "notion": ("notion-export",),
     # Ruling 47 tier 2: what the person's own connection brought in (a live Notion page).
     "notion-api": ("notion-api",),
+    # ROR-115: a Linear issue and its comments.
+    "linear-api": ("linear-api",),
     # G32: a Spotify download's listening days, one row each (index-only, opened in the Reader).
     "spotify-listening": ("spotify-history",),
 }

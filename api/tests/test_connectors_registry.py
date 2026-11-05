@@ -66,7 +66,8 @@ def test_every_connector_module_is_registered_in_adapters():
     }
     # tier2: the ruling-47 framework; github_auth: GitHub's sign-in by a code (G230), the github adapter's own.
     # notion_mcp: Notion's sign-in and MCP reader, the notion adapter's own.
-    non_adapter_modules = {"base", "tier2", "github_auth", "notion_mcp"}
+    # linear_mcp: Linear's sign-in and read-only MCP session, the linear adapter's own (ROR-115).
+    non_adapter_modules = {"base", "tier2", "github_auth", "notion_mcp", "linear_mcp"}
     expected_adapter_modules = module_names - non_adapter_modules
 
     registered_modules = {
@@ -89,7 +90,8 @@ def test_every_adapter_exposes_the_full_contract_surface(channel_id):
     assert isinstance(adapter.LABEL, str) and adapter.LABEL
     assert adapter.LOGIN_MODE in ("oauth", "credentials")
     assert isinstance(adapter.CHANNEL_NOUN, str) and adapter.CHANNEL_NOUN
-    assert isinstance(adapter.FIELDS, tuple) and adapter.FIELDS
+    # A sign-in-only adapter (Linear, ROR-115) has no field at all: nothing is ever pasted.
+    assert isinstance(adapter.FIELDS, tuple) and (adapter.FIELDS or adapter.app_available())
     assert isinstance(adapter.SECRET_NAMES, tuple) and adapter.SECRET_NAMES
     # Every FIELDS name must be covered by SECRET_NAMES — the whole point of
     # declaring SECRET_NAMES separately is that it's a superset (FIELDS plus

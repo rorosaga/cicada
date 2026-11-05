@@ -48,6 +48,7 @@ WRITERS = frozenset({
     "watch-history",  # G71 (2026-10-16): a watched video's title and channel, one day's episode
     "linkedin-connections",  # 2026-10-16: a connection's name, company and position; a profile read's quotes
     "reminders",  # G219: a reminder's title and notes, from the lists the person ticked
+    "linear",  # ROR-115: a Linear issue and its comments, every author's words
     "notion",  # G219: a Notion export's pages and database rows
     "agent-memory",  # ruling 43: an agent's own memory notes, posted by the harness's hook
     "readwise",  # ruling 47 tier 2: Readwise highlights, their notes and their documents

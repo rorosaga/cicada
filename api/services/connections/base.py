@@ -72,7 +72,9 @@ CONNECTOR_SECRET_ENV = ("PINTEREST_APP_ID", "PINTEREST_APP_SECRET", "PINTEREST_A
                         "CICADA_NOTION_TOKEN_EXPIRES", "CICADA_NOTION_CLIENT_ID", "CICADA_NOTION_AUTH", "CICADA_GITHUB_TOKEN",
                         "CICADA_GITHUB_REFRESH_TOKEN", "CICADA_GITHUB_TOKEN_EXPIRES", "CICADA_GITHUB_AUTH",
                         "CICADA_REDDIT_TOKEN", "CICADA_REDDIT_REFRESH_TOKEN", "CICADA_REDDIT_TOKEN_EXPIRES",
-                        "CICADA_REDDIT_ACCOUNT", "CICADA_REDDIT_AUTH")
+                        "CICADA_REDDIT_ACCOUNT", "CICADA_REDDIT_AUTH",
+                        "CICADA_LINEAR_TOKEN", "CICADA_LINEAR_REFRESH_TOKEN", "CICADA_LINEAR_TOKEN_EXPIRES",
+                        "CICADA_LINEAR_CLIENT_ID", "CICADA_LINEAR_AUTH")
 
 #: Cicada's own credentials: the backend's master API token (``auth``) and the Telegram bot's token and webhook
 #: secret (G29). No child — an engine, the embedding worker, the PDF reader — ever needs one.
