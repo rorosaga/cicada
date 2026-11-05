@@ -4,7 +4,9 @@ The address book holds the people a person knows; the graph holds the ones they 
 join: a contact is a third party's details, and hundreds of dormant cards would flood the graph — so Contacts
 **enriches a `person` page Cicada already has and never mints one**. The APP reads the address book after one
 standard prompt and posts, per contact, its names and *which* facts the card holds — never an email address or a
-phone number (R-SR8 settles G154's open question: no raw value crosses the wire, so none can land in a bank).
+phone number (R-SR8 settles G154's open question: no raw value crosses the wire, so none can land in a bank). Proposed
+ruling 55, off: a card's numbers may cross as a hash keyed on this Mac, kept beside the vault (`phone_numbers`), for
+identity only.
 
 A contact matches a page when its given and family name (either order), folded like search, equal the page's name or
 one of its aliases — exactly one page, and no other contact on that page. For each fact the card holds, the page
@@ -44,7 +46,7 @@ from pathlib import Path
 
 import yaml
 
-from api.services import bank_index, fact_sources, markdown_parser, people_directory
+from api.services import bank_index, fact_sources, markdown_parser, people_directory, phone_numbers
 from api.services.auth import cicada_home
 
 CHANNEL_ID = "contacts-local"
@@ -350,6 +352,16 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
         if _write_page(memory_path, eid, contact, photo, bank=bank, refused=refused, today=today, counts=counts):
             paths.append(f"entities/{eid}.md")
     kept = save_waiting(bank, waiting, read_at=read_at)
+    if phone_numbers.enabled():
+        cards: dict[str, list[str]] = {}
+        for contact in contacts:
+            for key in contact.get("phone_keys") or []:
+                cards.setdefault(str(key), []).append("me" if contact.get("is_me") else str(contact.get("id")))
+        # A sync with no key at all (a client Mac, refused the key) knows nothing of this file: it never empties it.
+        if cards:
+            with _WAITING_LOCK:
+                if not forgotten_since(read_at):      # a Contacts stop after this read wins, as for the waiting cards
+                    phone_numbers.save_cards(bank, cards)
     return {"contacts": len(contacts), "matched": len(matched), "people": len(matched), "ambiguous": ambiguous,
             "unmatched": unmatched, "waiting": kept, **counts, "paths": paths}
 
@@ -510,6 +522,7 @@ def forget_waiting(connection: str | None = None) -> int:
     with _WAITING_LOCK:
         if root.is_dir():
             forgotten = _forget_files(root)
+            phone_numbers.forget_cards(root)   # proposed ruling 55: a card's hashes go with the card; no reader keeps them
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
         ended = [c for c in (_marker_body().get("ended") or []) if isinstance(c, str)]
         if isinstance(connection, str) and _CONNECTION_ID.fullmatch(connection) and connection not in ended:

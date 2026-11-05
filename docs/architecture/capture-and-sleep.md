@@ -777,7 +777,7 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   chat writer's words (`episode_scrub.PHONE_WRITERS`: Messages, WhatsApp, Telegram) pass a phone rule — `+`-prefixed,
   `@`-mention, `tel:`/`wa.me/`, a bracketed area code and the North American dotted form. **False negatives over lost
   words** (#502 re-check): the scrub runs before storage, so an unbracketed grouped number ("555 010 1234") and a bare
-  digit run are left alone — the same shapes are timestamps, year lists, ranges, prices, SKUs, room lists and ids. FSEvents on the container, 3 s debounce,
+  digit run are left alone — the same shapes are timestamps, year lists, ranges, prices, SKUs, room lists and ids (proposed ruling 55, off: the person's own number kept as a token, `storage.md`). FSEvents on the container, 3 s debounce,
   15 s floor; every read is `Task.detached`. The backend (`whatsapp_source` → `chat_live`): type 6 is a group
   event (skipped), 14 a delete for everyone (its place kept in `unsent_turns`, its words never), 4 and 5 a contact card
   and a location (named only), a media row an attachment named and described; a quoted reply is `ZMETADATA`'s
@@ -3065,6 +3065,13 @@ listed as an alias. Four gaps caused it, each closed:
   `merge_rejections`, never a merge; the card says the conversation named the full name and the page carries only
   the given name.
 
+- **A number in a chat (PROPOSED ruling 55, off; `storage.md`, "Phone numbers").** With its switch on, the person's own new
+  lines hold a token instead of a redaction (`phone_numbers.tokenise_batch`, before the stager, in both chat ingests),
+  for a phone word tied to the digits, an "add" or "save" with a capitalised name at 9+ digits, a change said with a phone word, or a run of 9+ the vault
+  already holds; an agent's reply, another speaker's line and a forwarded message are redacted only for a phone word somebody owns or a run of 9+ the
+  vault holds. Any other run stays, "Ana N" and a line of only digits included (`storage.md`). A stored line never moves: a stored sitting is rebuilt from its body, and a line posted again keeps its
+  stored words, so turning it on re-reads no old chat. Stage 1 gets a note only when the conversation holds a token;
+  `phone_numbers.take` keeps an entry only on the person's own located line and takes every token out of the prose.
 - **One person across sources (owner 2026-10-28, `contact_identity`).** Stage 1 marks a `person` entity of a chat
   sitting whose name or alias folds to exactly one participant (a group member or a one-to-one chat's person) that
   carries an address-book card (`contact_card`, never the model's). Stage 2 reads it before any name: the one page

@@ -24,6 +24,7 @@ import SwiftUI
 /// not copies (§4.9).
 struct ReaderColumn: View {
     @Environment(ProjectsCache.self) private var projectsCache
+    @State private var revealed: [String: String] = [:]
     @Environment(ProvenanceRouter.self) private var router
     @Environment(ProvenanceCache.self) private var cache
     @Environment(Store.self) private var store
@@ -112,6 +113,7 @@ struct ReaderColumn: View {
         .onKeyPress(keys: [.upArrow, .downArrow, .pageUp, .pageDown, .home, .end]) { press in
             chatKey(press)
         }
+        .environment(\.revealedNumbers, revealed)
         .task(id: router.current) { await load() }
         .onAppear { DeviceDirectory.shared.ensureLoaded() }
     }
@@ -136,6 +138,15 @@ struct ReaderColumn: View {
         switch result {
         case let .loaded(doc):
             phase = .loaded(doc, ScalarText(doc.text))
+            revealed = [:]
+            // Proposed ruling 55: the document keeps its token (every offset points into it); only the drawing shows the
+            // digits, from memory, for this document.
+            let tokens = NumberTokens.ids(in: doc.text)
+            if !tokens.isEmpty, let answer = await APIClient.shared.revealNumbers(tokens),
+               !Task.isCancelled, router.current == target {
+                revealed = answer.numbers
+            }
+            guard !Task.isCancelled, router.current == target else { return }
             landingToken &+= 1
             let cited = await cache.citations(episode: target.episode).value
             guard !Task.isCancelled, router.current == target else { return }
@@ -721,6 +732,7 @@ struct ReaderTurnView: View {
     let block: ReaderBlock
     let isLanding: Bool
     let revealed: Bool
+    @Environment(\.revealedNumbers) private var numbers
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
@@ -743,12 +755,12 @@ struct ReaderTurnView: View {
                 }
             }
             // Selectable, and washed: a `CitedPassage`, because a selectable `Text` never reaches the span renderer.
-            CitedPassage(segments: ReaderText.segments(block),
+            CitedPassage(segments: NumberTokens.shown(ReaderText.segments(block), numbers),
                          color: isLanding ? CicadaTheme.textPrimary : CicadaTheme.textSecondary,
                          reveal: revealed ? 1 : 0)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Self.accessibilityWords(block))
+        .accessibilityLabel(NumberTokens.shown(Self.accessibilityWords(block), numbers))
     }
 
     /// What VoiceOver reads for a block of the document view: the chat's cited words first when it holds a cited span
@@ -820,6 +832,7 @@ private struct ReaderNotedRow: View {
     let onJump: (ReaderJumpAsk) -> Void
     let onShowOnGraph: () -> Void
 
+    @Environment(\.revealedNumbers) private var numbers
     @State private var hovering = false
 
     var body: some View {
@@ -828,7 +841,7 @@ private struct ReaderNotedRow: View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Button { onJump(.event) } label: {
                 VStack(alignment: .leading, spacing: RowMetrics.twoLineGap) {
-                    Text(renderWikilinks(row.text.isEmpty ? name : row.text))
+                    Text(renderWikilinks(row.text.isEmpty ? name : NumberTokens.shown(row.text, numbers)))
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .strikethrough(!row.current)

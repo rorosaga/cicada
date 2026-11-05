@@ -126,6 +126,7 @@ private struct ReaderChatRowView: View {
 }
 
 struct ReaderChatMessageView: View {
+    @Environment(\.revealedNumbers) private var numbers
     let message: ReaderChat.Message
     let ink: Color
     let revealed: Bool
@@ -163,7 +164,7 @@ struct ReaderChatMessageView: View {
         }
         .frame(maxWidth: .infinity, alignment: side == .person ? .trailing : .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(ReaderChat.accessibilityLabel(message))
+        .accessibilityLabel(NumberTokens.shown(ReaderChat.accessibilityLabel(message), numbers))
     }
     /// The reply's line (a text button to its target) and "Forwarded from …", above the words.
     @ViewBuilder
@@ -224,7 +225,7 @@ struct ReaderChatMessageView: View {
         let top = message.piece == .whole || message.piece == .first
         let bottom = message.piece == .whole || message.piece == .last
         let shape = CicadaTheme.chatBubble(roundTop: top, roundBottom: bottom)
-        let words = CitedPassage(segments: ReaderText.segments(message.block), color: ink, reveal: revealed ? 1 : 0,
+        let words = CitedPassage(segments: NumberTokens.shown(ReaderText.segments(message.block), numbers), color: ink, reveal: revealed ? 1 : 0,
                                  fillsWidth: false)
             .padding(.horizontal, CicadaTheme.scaled(Self.bubblePadding.leading))
             .padding(.top, top ? CicadaTheme.scaled(Self.bubblePadding.top) : 0)

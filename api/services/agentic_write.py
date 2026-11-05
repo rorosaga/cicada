@@ -36,7 +36,7 @@ from pathlib import Path
 from loguru import logger
 from thefuzz import fuzz
 
-from api.services import decay_policy, entity_body, episode_ids, git_service, markdown_parser, telemetry
+from api.services import decay_policy, entity_body, episode_ids, git_service, markdown_parser, phone_numbers, telemetry
 # Aliased on purpose: `write_claim` takes a keyword argument named `evidence`
 # (the MCP schema, the tests and the docs all use that name), and a bare
 # `from api.services import evidence` would be shadowed inside the function.
@@ -75,6 +75,14 @@ _TYPE_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
     )),
     ("deadline", ("due-by", "due by", "deadline")),
 ]
+
+
+def _person_subject(memory_path: Path, subject: str) -> bool:
+    """Whether a claim on ``subject`` lands on a person's page. With no page yet, yes: digits never wait in git on a guess."""
+    page = resolve_entity_file(memory_path, subject)
+    if page is None:
+        return True
+    return str(markdown_parser.parse(page).frontmatter.get("type") or "person") == "person"
 
 
 def _infer_entity_type(predicate: str) -> str:
@@ -356,6 +364,19 @@ def write_claim(
     predicate_raw = (predicate or "").strip()
     object_raw = (object or "").strip()
     observer = (observer or "agent").strip() or "agent"
+    # Proposed ruling 55: an agent's write on a person's page holds no digits either, whatever door it came through. Only a
+    # claim naming a phone there adds to the vault; its sentence never does, and any other page's digits are not this rule's.
+    person_page = phone_numbers.enabled() and _person_subject(Path(memory_path), subject_raw)
+    try:
+        number = phone_numbers.claim_value(Path(memory_path), predicate_raw, object_raw) if person_page else None
+    except phone_numbers.VaultUnavailable as exc:
+        # Never the digits as a claim: the sentence says why, and nothing is written.
+        return {"subject": subject_raw, "entity_id": None, "claim_id": None, "action": "error", "observer": observer,
+                "error": str(exc)}
+    if number is not None:
+        predicate_raw, object_raw, object_kind, text = phone_numbers.PREDICATE, number, "literal", None
+    elif text and person_page:
+        text = phone_numbers.clean_prose(text, Path(memory_path), keep=False)   # a claim's sentence holds no number either
     from api.config import get_settings
     from api.services import owner_identity
     # `get_settings()` (not `None`) so a `CICADA_OBSERVER_OWNER` power-user
@@ -513,6 +534,16 @@ def write_claim(
             }
 
         settings = _ReconcileSettings(memory_path=memory_path)
+        if phone_numbers.is_number_claim(new_claim) and any(
+                c.predicate == phone_numbers.PREDICATE and c.valid_to is None
+                and not phone_numbers.same_number(c.object, new_claim.object, settings) for c in existing_claims):
+            # Proposed ruling 55: asked here it would wait with no question (this door raises none), and an agent's word
+            # closes no number. Said to the person, their own words change it through Sleep.
+            phone_numbers.discard_unused(memory_path, phone_numbers.token_ids(new_claim.object)[0])
+            return {"subject": subject_raw, "entity_id": entity_id, "claim_id": None, "action": "error",
+                    "observer": observer,
+                    "error": "This page holds a different number. A number changes only on the person's own words, so "
+                             "nothing was written: tell them, and what they say will be read."}
         reconciled, nudges, audit = reconcile_stage3(
             [new_claim],
             {entity_id: existing_claims},

@@ -2789,6 +2789,31 @@ actor APIClient {
         try await uploadMultipart(path: "/sources/goodreads/import", fileData: data, filename: filename)
     }
 
+    /// Proposed ruling 55: `GET /people/numbers/match-key` — nothing while the feature is off, or from a client of a
+    /// server elsewhere (403): then no card carries keys.
+    func numberMatchKey() async -> String? {
+        struct Answer: Decodable { let key: String? }
+        let answer: Answer? = try? await get("/people/numbers/match-key")
+        return answer?.key
+    }
+
+    struct RevealedNumbers: Decodable {
+        let numbers: [String: String]
+        let problem: String?
+    }
+
+    /// Proposed ruling 55: `POST /people/numbers/reveal` — the digits for what is on screen, this Mac only (403 on a
+    /// device token, so `nil` on a client). Held in memory by the view that asked, never stored or cached.
+    func revealNumbers(_ tokens: [String]) async -> RevealedNumbers? {
+        try? await post("/people/numbers/reveal", body: ["tokens": tokens])
+    }
+
+    /// Proposed ruling 55: `POST /people/numbers/new-vault` — the person's own way out of a lost file; the old one is kept
+    /// aside, and it is refused while the file works.
+    func startNewNumberFile() async {
+        let _: Data? = try? await post("/people/numbers/new-vault")
+    }
+
     /// G154: the whole address book, as names and which facts each card holds (never a value).
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
         try await postData("/sources/contacts-local/sync", json: try JSONEncoder().encode(payload))

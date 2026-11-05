@@ -234,8 +234,10 @@ async def delete_bank(name: str, settings: Settings = Depends(get_settings)) -> 
         raise HTTPException(409, str(exc))
     # The bank's people directory (kept LinkedIn connections, Contacts' waiting cards — outside every bank) goes with
     # it: names never outlive their bank.
-    from api.services import people_directory
+    from api.services import people_directory, phone_numbers
 
+    # Proposed ruling 55: the numbers wait in the trash beside the bank, gone when the trash is emptied.
+    phone_numbers.park_for_trash(name, dst)
     people_directory.forget(name)
     logger.info(f"Moved bank '{name}' to the trash")
     data = bank_registry.list_banks(root)
