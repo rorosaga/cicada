@@ -121,6 +121,9 @@ SAME_BY_CONTENT = {
     "POST /sources/sync-safari-tabs", "POST /sources/tab-groups/sync", "POST /sources/traces/sync",
     "POST /sources/watch-history/sync", "POST /sources/whatsapp/sync", "POST /files/media",
     "POST /files/{file_id}/frames",
+    # G43 (#644): each recording is staged under an id made from its source and its own key, and the same bytes posted
+    # again answer `unchanged` (`media_files.record_media`) — a resend days later is the same write, whatever the key.
+    "POST /files/voice-memos",
 }
 
 
