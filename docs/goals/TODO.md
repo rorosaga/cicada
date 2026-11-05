@@ -20,7 +20,8 @@
   paid); 0.52 s with one. Now one query a card over one connection and no build: 0.23 s and 0.24 s (`features.md`).
   Test fixes: Stage 3's two
   calls run at once (order never pinned, each answer still on its own page), Ask's tree hash leaves out derived files,
-  a missing Pillow skips, real-git identity tests allow a loaded machine more than the hook's 0.1 s (unchanged). The
+  a missing Pillow skips, real-git identity tests allow a loaded machine more than the hook's 0.1 s (unchanged), and
+  `test_the_command` no longer asks this Mac's real backend for `/healthz` (its "flake" was that backend not answering). The
   stale proposed ruling 54 is gone; the decided row now carries the local agent's test it pointed at.
 - **2026-11-04 — waiting on Reddit, not the owner.** Reddit API access was requested 2026-11-04. When Reddit approves,
   register the installed app per `network.md` ("Registering Cicada's Reddit app") and set `reddit.CLIENT_ID`.
@@ -1513,7 +1514,8 @@ These are attached to permanent rows instead of becoming a second queue. Older d
 A test here is not fixed and not skipped: each line says what was seen and on what basis. Look here before chasing a
 failure; add to the counts when one comes back.
 
-- `test_entity_types.py::test_the_command`: failed once, under load.
+None known (2026-11-05).
+
 
 ## Maintaining this queue
 
