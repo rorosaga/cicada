@@ -2280,7 +2280,12 @@ pending from that category, as a small notification."*
   Check records (`web-check`, `source-check`) are left out of every row (`source_overview.CHECK_RECORD_SOURCES`), so
   an agent's check no longer makes an "Other agents" conversation either. **"Other agents"** (`harness:unknown`) stays
   for real conversations an agent saved without naming its app, with its own sentence, never folded into an app it may
-  not be. Tests: `SourcesV4Tests`; screenshots render offscreen in `SourcesV4RenderTests` (skipped without
+  not be. **A card and the list under it are one partition (ROR-109, 2026-11-05):** `/conversations/recent?harness=`
+  names an overview row (`source_overview.row_key`), not the episode's `harness` field. Before, `unknown` meant "the
+  field is empty", true of every source-keyed record, so a chat over Messages, a note and a feed item all listed under
+  "Other agents" while its card counted one. A texted agent's chat lists under Messages like any other chat; its turns
+  stay `assistant:` and its claims `external:<name>` (G179). A host's sessions list under the host that counts them
+  (G228). Tests: `SourcesV4Tests`; screenshots render offscreen in `SourcesV4RenderTests` (skipped without
   `SOURCES_V4_RENDER_DIR`).
 
 **Explore saved sites (G166 slice 1, owner 2026-10-14).** A neutral **Explore saved sites** button (on a browser's

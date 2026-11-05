@@ -81,6 +81,7 @@ async def recent_conversations(
 
     ``harness`` / ``origin`` (G124 R5) narrow the list to one source BEFORE the
     cap, so the Sources page's per-harness view is complete up to ``limit``.
+    ``harness`` names an overview row, the same partition its count uses (ROR-109).
     Both fold into the ETag: they change the body without moving any component.
 
     ``q`` (G136) is a title filter, also applied BEFORE the cap and folded

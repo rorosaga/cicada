@@ -23,7 +23,7 @@ import os
 import re
 from pathlib import Path
 
-from api.services import bank_index, text_fold
+from api.services import bank_index, source_overview, text_fold
 from api.services.claims import parse_claims
 
 # A Claude Code session id is a canonical UUID (`--session-id` requires one).
@@ -149,6 +149,7 @@ def _group(memory_path: Path) -> dict[str, dict]:
              for _ts, _id, fm in group["episodes"] if str(fm.get("harness") or "").strip()),
             "",
         )
+        group["source_keys"] = {source_overview.row_key(fm) for _ts, _id, fm in group["episodes"]}
         group["project_dir"] = next(
             (str(fm.get("project_dir") or "").strip()
              for _ts, _id, fm in group["episodes"] if str(fm.get("project_dir") or "").strip()),
@@ -212,8 +213,11 @@ def aggregate_conversations(
 
     ``harness`` / ``origin`` (G124 R5) filter BEFORE the cap: the Sources
     page's per-harness list must never lose an older conversation to a page
-    limit. ``harness="unknown"`` matches rows whose harness is empty — the
-    same value the overview reports for them.
+    limit. ``harness`` names the overview's row (`source_overview.source_key`,
+    the one partition), so a card's number and the list under it agree:
+    ``"unknown"`` is an agent session that named no app, never every record
+    with an empty harness field — a chat over Messages has its own row
+    (ROR-109) — and a host's sessions list under the host (G228).
 
     ``q`` (G136, design §3.7/§3.9 item 4) is a title filter applied BEFORE
     the cap for the same reason: the Harness-conversations field filters the
@@ -229,13 +233,13 @@ def aggregate_conversations(
         groups = {
             cid: g for cid, g in groups.items() if text_fold.contains_all(g["title"], q)
         }
+    if harness is not None:
+        wanted = "harness:" + (harness or source_overview.UNKNOWN)
+        groups = {cid: g for cid, g in groups.items() if wanted in g["source_keys"]}
     rows = [
         project_conversation(g, transcript_exists=transcript_exists)
         for g in groups.values()
     ]
-    if harness is not None:
-        wanted = "" if harness == "unknown" else harness
-        rows = [r for r in rows if r["harness"] == wanted]
     if origin is not None:
         rows = [r for r in rows if r["origin"] == origin]
     rows.sort(key=lambda r: (r["last_seen"], r["conversation_id"]), reverse=True)
