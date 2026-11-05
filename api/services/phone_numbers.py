@@ -594,7 +594,10 @@ _NOT_A_PHONE = frozenset(
     "monday tuesday wednesday thursday friday saturday sunday january february march april may june july august september "
     "october november december lunes martes miércoles jueves viernes sábado domingo enero febrero marzo abril mayo "
     "junio julio agosto septiembre octubre noviembre diciembre".split())
-_DATEISH = re.compile(r"^(?:\d{4}[-/. ]\d{1,2}[-/. ]\d{1,2}|\d{1,2}[-/. ]\d{1,2}[-/. ]\d{2,4})(?:\D|$)")
+#: A date, alone or with a time after it, only when it holds a real year: "12 03 2026 14 30" is a date, and "06 12 34 56 78"
+#: and "0612 34 56 78" are a number's usual spellings. A two-digit year counts only when it ends the run.
+_DATEISH = re.compile(r"^(?:(?:19|20)\d{2}[-/. ]\d{1,2}[-/. ]\d{1,2}(?:\D|$)"
+                      r"|\d{1,2}[-/. ]\d{1,2}[-/. ](?:(?:19|20)\d{2}(?:\D|$)|\d{2}$))")
 _YEAR_GROUP = re.compile(r"^(?:19|20)\d{2}$")
 
 

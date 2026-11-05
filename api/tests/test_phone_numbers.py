@@ -141,7 +141,7 @@ def test_a_written_form_with_a_plus_replaces_one_without(home):
     "call Ana at 202-555-0143", "mi móvil: 202 555 0143", "I was texting Ana on 2025550143",
     # The owner's own scenario: how a number is really typed to a texted agent.
     "Ana 2025550143", "add Ana, 2025550143", "Bob Example 2025550177", "she's on 2025550143", "Ana: 202 555 0143",
-    "Bob Example: 202 555 0143", "Ana at 2025550143", "add ana 2025550143", "Ana 612 345 678", "Ana 06 12 34 56 78",
+    "Bob Example: 202 555 0143", "Ana at 2025550143", "add ana 2025550143", "Ana 612 345 678", "Ana 06 12 34 56 78", "Ana 0612 34 56 78",
     "save my sister Ana 5550143", "Ana 2025550143 please", "he is on 2025550143",
 ])
 def test_these_are_numbers(home, line):
@@ -162,7 +162,7 @@ def test_these_are_numbers(home, line):
     "see example.com/x?phone=1234567890", "example.com/samsung-phone-1234567890", "tel-1234567890.pdf",
     "call him at 1030 1100",
     # A name's word is not enough: #502's lost words stay in both directions.
-    "Bob 1500000", "Tesla 1500000", "Sold 123456789", "Invoice 123456789", "Order 1234567890", "Monday 12 03 2026",
+    "Bob 1500000", "Tesla 1500000", "Sold 123456789", "Invoice 123456789", "Order 1234567890", "Monday 12 03 2026", "Ana 12 03 2026 14 30",
     "Room 101 102 103", "Years 2024 2025 2026", "Bob 1 299 000 000", "Bob 2025550143 dollars", "Grew by 1500000 users",
     "Ana 1999-2003-2010", "Ana 2026-10-28 10:30", "2025550143", "ping Ana 192.168.1.10", "Budget 1500000",
 ])
