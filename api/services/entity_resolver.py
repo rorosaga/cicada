@@ -15,7 +15,7 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import (agent_engine, alias_policy, application_page, authorship, contact_identity, contacts_local, correspondents, engine_errors,
+from api.services import (agent_engine, alias_policy, application_page, authorship, contact_identity, contacts_local, phone_numbers, correspondents, engine_errors,
                           entity_body, entity_relations, entity_types, fact_policy, json_parse, owner_identity, pair_evidence, people_directory, person_leads,
                           project_birth, promotion, quiet_pages, role_people, section_provenance, text_fold,
                           wrong_aliases)
@@ -689,6 +689,9 @@ async def resolve(
             )
             card = None if ambiguous_match else _card_for(entity, siblings, waiting_cards, person_keys, episode_kind,
                                                           memory_path=Path(settings.memory_path))
+            if card is None and not ambiguous_match:
+                # Ruling 55 (2026-11-05): the person gave this one waiting card's number, which names it.
+                card = _number_card(entity, siblings, settings)
             if card is None and card_id and should_promote and not ambiguous_match:
                 # A participant the usual rules promote is born under their own card (its name, photo and sources),
                 # found by id: a card is still never used below the bar (owner 2026-10-20).
@@ -1265,6 +1268,27 @@ def _card_for(entity: dict, siblings: list[dict], waiting: "contacts_local.Waiti
     if not any(_said_in_person_turn(memory_path, str(e.get("source_episode") or ""), card) for e in spoken):
         return None
     return card
+
+
+def _number_card(entity: dict, siblings: list[dict], settings: Settings) -> dict | None:
+    """The waiting card whose number this mention's conversation gave (`phone_numbers.take`), found by its id, a one-part
+    nickname's too, since a number is not a name two people can share. Never a person known by a relation, in the mention
+    or on the card ("Mom", read as a bare word here, where a wrong miss costs nothing: `role_people`): the number stays a
+    token. A card taken back since matches nothing; a demo bank has none."""
+    ids = {str(e.get(phone_numbers.CARD_KEY)) for e in (entity, *siblings) if e.get(phone_numbers.CARD_KEY)}
+    memory_path = getattr(settings, "memory_path", None)
+    if len(ids) != 1 or not memory_path or entity_types.in_set(entity.get("type")) != "person":
+        return None
+    if any(e.get(role_people.UNNAMED_KEY) for e in (entity, *siblings)):
+        return None
+    from api.services import demo_guard
+
+    if demo_guard.is_demo(Path(memory_path)):
+        return None
+    wanted = next(iter(ids))
+    return next((c for c in contacts_local.load_waiting(Path(memory_path).name)
+                 if str(c.get("id")) == wanted and contacts_local.card_live(c)
+                 and not role_people.parse(contacts_local.card_name(c), bare=True)), None)
 
 
 def _card_entity(entity: dict, card: dict) -> dict:

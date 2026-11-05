@@ -406,7 +406,7 @@ def _replica_check() -> None:
 
 
 def _person_page_body(filepath, frontmatter: dict, body: str) -> str:
-    """Proposed ruling 55: a person's page, while the feature is on, carries no number and no token in its prose, whoever
+    """Ruling 55: a person's page, while the feature is on, carries no number and no token in its prose, whoever
     wrote it (`phone_numbers.clean_page`). Any other page, and every page while off, is not touched."""
     path = Path(filepath)
     if path.parent.name != "entities" or (frontmatter or {}).get("type") != "person":

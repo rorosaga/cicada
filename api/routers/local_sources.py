@@ -424,7 +424,7 @@ class _RevealNumbers(CamelModel):
 
 
 def _this_mac_only(request: Request) -> None:
-    """Proposed ruling 55: a number is shown on the Mac that holds the vault. A device token, a client of this server by
+    """Ruling 55: a number is shown on the Mac that holds the vault. A device token, a client of this server by
     any route, is refused, and neither route is on the remote listener (it serves MCP and `/v1` alone)."""
     if request_device(request) is not None:
         raise HTTPException(status_code=403, detail="A number is shown only on the Mac that holds it.")
@@ -465,7 +465,7 @@ def numbers_switch(request: Request, settings: Settings = Depends(get_settings))
 
 @router.put("/people/numbers/switch")
 def set_numbers_switch(req: _NumbersSwitch, request: Request, settings: Settings = Depends(get_settings)):
-    """Proposed ruling 55's yes or no, on this Mac (`phone_numbers.set_enabled`): the file every process reads. Recorded
+    """Ruling 55's yes or no, on this Mac (`phone_numbers.set_enabled`): the file every process reads. Recorded
     as what this route knows: the API token asked, which anything holding it can do."""
     _this_mac_only(request)
     record = phone_numbers.set_enabled(req.on)

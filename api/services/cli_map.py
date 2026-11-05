@@ -360,7 +360,7 @@ ROWS: tuple[Row, ...] = (
                                 "nothing links it back automatically), or start a new project from it.",
          (_p("full_name"), _f("project"), _f("remove", "bool")), via="backend", mutates=True, person=True),
     # Settings and engines.
-    _app(("numbers", "switch"), "Whether Cicada keeps a number you give for someone (proposed ruling 55): --state on or "
+    _app(("numbers", "switch"), "Whether Cicada keeps a number you give for someone (ruling 55): --state on or "
                                 "off changes it, on this Mac; every process here reads the same answer.",
          (_f("state"),), via="backend", mutates=True, person=True),
     _app(("numbers", "new-vault"), "Start a new private number file when the one you have can't be used; the old one is "

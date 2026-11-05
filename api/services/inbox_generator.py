@@ -617,7 +617,7 @@ def write_claim_nudges(
             title = nudge.get("question") or f"Conflicting beliefs about {entity_name}"
         elif action == "divergence_nudge":
             kind, priority, required = "divergence", 0.5, "choice"
-            # Proposed ruling 55: a number's question says what it asks; the others keep their title.
+            # Ruling 55: a number's question says what it asks; the others keep their title.
             title = nudge.get("question") or f"I'm reading something different about {entity_name}"
         elif action == "normalization_audit":
             # G98/G115: one question per (raw -> canonical) pair per bank. A pair

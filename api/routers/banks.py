@@ -236,7 +236,7 @@ async def delete_bank(name: str, settings: Settings = Depends(get_settings)) -> 
     # it: names never outlive their bank.
     from api.services import people_directory, phone_numbers
 
-    # Proposed ruling 55: the numbers wait in the trash beside the bank, gone when the trash is emptied.
+    # Ruling 55: the numbers wait in the trash beside the bank, gone when the trash is emptied.
     phone_numbers.park_for_trash(name, dst)
     people_directory.forget(name)
     logger.info(f"Moved bank '{name}' to the trash")
