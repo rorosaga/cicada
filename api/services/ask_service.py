@@ -87,8 +87,9 @@ You are given ENTITIES with individually labeled claims and legacy body text.
 Rules:
 1. Ground every claim in the provided entities. If the context does not contain \
 the answer, say so plainly — never guess.
-2. List the entity ids you actually used in ``used_entities`` (only ids that appear \
-in the context).
+2. List in ``used_entities`` only the entity ids the answer rests on (ids that appear \
+in the context); an entity you read and did not use is not listed, and the list is empty when \
+the answer rests on none (a conversation line, or nothing).
 3. Populate ``gaps`` with explicit, honest statements of what you could NOT answer \
 or what is missing from memory (e.g. "No information about the database choice"). \
 If you are confident and the context fully answers the question, ``gaps`` may be empty.
@@ -138,6 +139,10 @@ earlier as history, never "the outcome is not recorded" when a later line states
 within one subject: a question about one past occasion (a day it names, the first time, one \
 conversation) is answered from that occasion, and a later line about something else, or the same \
 words in another context, never replaces it or what the entities and WHAT WAS SAID already show.
+12. A line of OTHER CONVERSATIONS marked "not yet read by Sleep" is from a conversation or note that \
+Sleep has not consolidated: it is the person's record word for word, shown whole when short and by its \
+matching passages when long (``…`` marks where text was left out, not that memory is cut). Answer from it \
+as from any line; when the answer rests on such a line, say it is not yet confirmed by Sleep.
 
 Return ONLY a JSON object with exactly these keys:
 {
@@ -1658,6 +1663,8 @@ def answer_query(
     # which must not be iterated character-by-character into the flagship fields.
     gaps = _coerce_str_list(parsed.get("gaps"))
     cited_raw = _coerce_str_list(parsed.get("used_entities"))
+    # The model returned its list (even an empty one: "no page rests this answer"): it is used as given.
+    listed = isinstance(parsed.get("used_entities"), list)
     # The OTHER CONVERSATIONS the model says it used — only ids that were shown. Omitted: every one shown (the same
     # fallback as entities); an id put in used_entities instead is moved here, never read as an invented entity.
     named = _coerce_str_list(parsed.get("used_conversations")) if "used_conversations" in parsed else None
@@ -1710,7 +1717,9 @@ def answer_query(
     # used_entities reflects the model's actual selection where it named valid
     # sources; only when it omitted the field do we fall back to the retrieved
     # set. citations and used_entities therefore agree.
-    cite_ids = used if used else retrieved_ids
+    # 2026-11-05 (G207): a page is cited because the answer rests on it, never because it was retrieved. The list the
+    # model returned is used as given; with none returned, the pages the answer itself names.
+    cite_ids = used if (used or listed) else _named_in(entities, answer)
     return {
         "answer": answer,
         "confidence": confidence,
@@ -1719,6 +1728,19 @@ def answer_query(
         "used_entities": cite_ids,
         "conversations": _conversation_list(conversations, used_conversations),
     }
+
+
+def _named_in(entities: list[dict], answer: str) -> list[str]:
+    """The retrieved pages whose title or alias the ``answer`` says, in retrieval order: the smallest honest
+    citation for a model that returned no list. A page is not cited for having been retrieved."""
+    text = text_fold.fold(answer)
+    out: list[str] = []
+    for ent in entities:
+        names = [ent.get("entity_name") or "", *(ent.get("aliases") or [])]
+        if any(len(n) >= 3 and re.search(r"(?<!\w)" + re.escape(text_fold.fold(n)) + r"(?!\w)", text)
+               for n in names if isinstance(n, str)):
+            out.append(ent["entity_id"])
+    return out
 
 
 def _found_names(entities: list[dict], watched: list[str], conversations: dict[str, dict],
