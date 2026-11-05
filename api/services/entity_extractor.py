@@ -188,13 +188,16 @@ the context of the conversation, says where THEY stand with it now:
   the film or series of the name, a book they are writing, and anything only the assistant said. This field is the
   only place for it: no value for it in values[]. Unsure? Omit it.
 
-ASK PERSON (optional, per entity) — a question goes to the person's inbox and costs their attention. They should only
-ever be asked what they alone can answer and what changes something when they do. Set ask_person when who or what this
-is stays open after reading the conversation, no public source could tell, and something the person is deciding, doing or
-owes in this conversation rests on the answer: say so in one short clause, in plain words ("the lease depends on him").
-Omit it otherwise, which is nearly always: what the conversation itself explains, a thing anyone could look up, and a
-name said in passing that nothing rests on. A name you do not ask about is not lost: it waits with what was said about
-it, and it comes back if it is named again.
+ASK PERSON (optional, per entity) — a question goes to the person's inbox and costs their attention, so it has to earn
+it. Set ask_person only when both of these hold, and say what rests on it in one short clause, in plain words ("the lease
+depends on him"):
+- Only they can answer: the conversation does not say who or what this is to them, and no public source could.
+- Something real rests on it: money, a deadline, a decision or a commitment in this conversation turns on this name, so
+  memory would act differently knowing the answer.
+Omit it otherwise, which is nearly always. What the conversation itself explains needs no question, nor does a thing anyone
+could look up. A name in a to-do or a remark ("call <name>", "<name> said no") has no stake memory could act on, however
+little is said about them: the person knows who they meant. A name you do not ask about is not lost: it waits with what
+was said about it, and it comes back if it is named again.
 
 TIME (every conversation is written up as of its own date):
 - A note before the conversation gives the date it took place and today's date. Write what it says as of the
@@ -231,7 +234,7 @@ EXTRACTION GUIDELINES:
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
 - An entity's name is a name: what the thing is called, something a person could say again in another conversation. What
   someone does, knows or is good at, said as a phrase ("maintains <x> checklists for <y>"), is a key_fact on whoever does
-  it or on the thing it is for, never an entity of its own.
+  it or on the thing it is for, never an entity of its own. Write a name as it was said, with nothing added to it.
 - A detail of the assistant's answer is not an entity: a function or variable in a code example, a
   command, a library, tool or place the assistant only suggested or listed. Extract it only when the
   user engaged with it — used it, asked about it by name, chose it, built it, went there.
