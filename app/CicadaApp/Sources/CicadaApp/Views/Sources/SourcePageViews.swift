@@ -130,6 +130,14 @@ struct SourceItemsSection: View {
                             ForEach(group.items, id: \.self) { item in row(item, today: today) }
                         }
                     }
+                } else if !saved, !chats, let split = SourceItemsRules.pinnedSplit(rows) {
+                    // DR-34 (the rows keep their height), DR-81 (a group with nothing in it is not drawn).
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        group(Copy.SourcePage.pinned, split.pinned, today: today, top: 0)
+                        if !split.rest.isEmpty {
+                            group(Copy.SourceBrowser.noun(channel).many.capitalized, split.rest, today: today, top: 14)
+                        }
+                    }
                 } else {
                     LazyVStack(spacing: saved || chats ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
                         ForEach(rows, id: \.self) { item in row(item, today: today) }
@@ -145,6 +153,15 @@ struct SourceItemsSection: View {
                 ListSkeleton(message: Copy.capturedLoading, rows: 3).padding(.vertical, CicadaTheme.spacingSM)
             }
         }
+    }
+
+    @ViewBuilder
+    private func group(_ title: String, _ items: [ChannelItem], today: ISODay, top: CGFloat) -> some View {
+        SectionLabel(title)
+            .frame(minHeight: CicadaTheme.scaled(28), alignment: .bottomLeading)
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .padding(.top, CicadaTheme.scaled(top))
+        ForEach(items, id: \.self) { item in row(item, today: today) }
     }
 
     @ViewBuilder

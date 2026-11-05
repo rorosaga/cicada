@@ -158,6 +158,14 @@ enum SourceDrill: Equatable {
 enum SourceItemsRules {
     static let cap = 12
 
+    /// ROR-15 (owner: "a good UI that imitates what is read from notes") — a page of notes lists the ones the person
+    /// pinned in Notes first, under "Pinned", the rest under the source's noun. Nil when nothing in the page is pinned
+    /// (no heading is drawn for one group, DR-81), so a source without pins is exactly what it was.
+    static func pinnedSplit(_ items: [ChannelItem]) -> (pinned: [ChannelItem], rest: [ChannelItem])? {
+        let pinned = items.filter { $0.pinned == true }
+        return pinned.isEmpty ? nil : (pinned, items.filter { $0.pinned != true })
+    }
+
     static func isGroup(_ item: ChannelItem) -> Bool { item.kind == .chat || item.videos != nil }
 
     /// A group row's right-hand words: how many it holds ("4 videos", "12 messages", else "3 conversations"). A chat

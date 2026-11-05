@@ -3548,6 +3548,12 @@ milestone with no span still opens its source. **ROR-15 is a thin use:** `cache.
 names as its margin labels. It draws no picture (`testTheComponentNeverAnimatesAKeyAndLoadsNoPicture`).
 
 
+**Pinned notes (ROR-15 part 2, G161; DR-34, DR-81).** The Apple Notes page lists the notes the person pinned in Notes first, under
+"Pinned" (`SourceItemsRules.pinnedSplit`), the rest under "Notes"; with nothing pinned no heading is drawn and the list is what
+it was. The pin is read by the app from a copy of Notes' store, only with Full Disk Access already held, and posted as
+`pinnedNoteIds` with the sync (`AppleNotesPins`, `capture-and-sleep.md`); without it, notes show no pin and nothing is
+asked. The row's `pinned` is the same field a chat's pin uses; `SHAPE` is `g161-21`.
+
 **Provenance viewer (G118 slice 2).** Every claim carries evidence chips (`Views/Provenance/`): the
 label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
 for a legacy claim's name match found at read; a feed item or a calendar entry is "From the feed" / "On your calendar"

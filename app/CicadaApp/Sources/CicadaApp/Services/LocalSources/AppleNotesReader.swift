@@ -146,13 +146,16 @@ enum AppleNotesReader {
     }
 
     /// Read here, then posted — every Sync now and onboarding's tick come through this one path.
-    static func syncNow(run: Runner = runOsascript) async throws -> NoteSyncResult {
+    /// ROR-15: `pins` answers which of the dump's notes are pinned, or nil when it could not tell (`AppleNotesPins`).
+    static func syncNow(run: Runner = runOsascript,
+                        pins: @Sendable ([String]) async -> [String]? = { await AppleNotesPins.read(ids: $0) }) async throws -> NoteSyncResult {
         let parts = split(try await read(run: run))
         // G234: every folder refused means the read itself failed (a Notes without the filter, say): an empty post
         // would say "no notes" while the row says it synced.
         if parts.foldersRead == 0, parts.foldersFailed > 0 { throw ReadError.failed }
+        let pinned = await pins(AppleNotesPins.ids(inDump: parts.dump))
         return try await APIClient.shared.syncNotes(dump: parts.dump, accounts: parts.accounts, locked: parts.locked,
-                                                    lockedKeys: parts.lockedKeys)
+                                                    lockedKeys: parts.lockedKeys, pinned: pinned)
     }
 
     /// 2026-11-04 — the script ends each record with the note's account; it travels BESIDE the dump (`noteAccounts`,

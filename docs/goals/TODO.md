@@ -31,6 +31,12 @@
   as native blocks tied to the stored offsets; any mismatch or failure stays plain with nothing said; Notes closed stays plain
   (never launched). Not yet seen on a real note: the HTML shapes come from Notes' dictionary and knowledge, not from reading
   the owner's notes. **Pick up here:** first open of a real note with Notes running, then part 2 (pinned notes).
+- **2026-11-05 — a pinned Apple Note (ROR-15 part 2, G161; branch `ror15b-notes-pin`).** The app reads `ZISPINNED` (pinned, unlocked,
+  `Z_PK` alone) from a copy of Notes' store only with Full Disk Access already held and posts `pinnedNoteIds`; the note's episode
+  carries `pinned: true` outside the hash and the queue, its row lists first under "Pinned", and Stage 1's source note says the
+  person pinned it — the model judges, no score. Not yet seen on a real store: the `p<Z_PK>` id mapping is Apple's documented
+  Core Data format, not measured on the owner's file. **Pick up here:** with Full Disk Access on, sync Notes and check that the
+  owner's nine pinned notes list under "Pinned"; checklist ticks stay the owner's decision.
 - **2026-11-05 — open a source's item where it lives (ROR-111, G161; PR #630, branch `ror-111-open-in-place`).** One control on the
   item row: Notes by its own id, GitHub, saved links, feed items, saved videos. A list says only the kind; the place is
   read on the click. Not yet seen in the real app: the first press against a real note is the person's. Which sources
