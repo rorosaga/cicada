@@ -134,7 +134,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-18`: ROR-108 — `collection` narrows RSS to one followed feed; `collections` lists the feeds.
 #: `g161-19`: ROR-108 — a followed feed's row carries the mark it wears: `mark` (a bundled one) or `site`.
 #: `g161-20`: G89 — a followed Substack publication lists on `substack-feeds`; `rss` lists only the other feeds.
-SHAPE = "g161-20"
+#: `g161-21`: ROR-15 — a Notes row the person pinned in Notes carries `pinned` (pinned rows list first, as a chat's do).
+SHAPE = "g161-21"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -627,6 +628,8 @@ def _notes(memory_path: Path) -> list[dict]:
         row["_account"], row["_folder"] = account, folder
         row["_collection"] = note_collection_id(account, folder)
         row["_note"] = entry.get("note_id") or fm.get("note_id")
+        if fm.get("pinned") is True:
+            row["pinned"] = True
         rows.append(row)
     return rows
 

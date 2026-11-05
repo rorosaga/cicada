@@ -63,6 +63,23 @@ Seven rails hold across all of them:
   cost is that an older episode stays live, said nowhere but here. Name and not name-plus-date: a note edited before its lock (the usual way
   a secret gets in) no longer has the date Cicada kept, and that date is a string in the locale and time zone of the old
   read.
+  **A pinned note (ROR-15 part 2, owner 2026-11-05: "having a note pinned is important, normally has a reason and can have
+  some influence for consolidation").** Notes' scripting dictionary has no pin, so the app reads it from Notes' own store
+  (`AppleNotesPins`): a copy of `NoteStore.sqlite` with its `-wal`, one query for `Z_PK` alone where `ZISPINNED = 1 AND
+  ZISPASSWORDPROTECTED = 0` — never `ZICNOTEDATA`, a title, a snippet or a word, and a locked note's pin is never read
+  (G234). A note's id is the Core Data URI `x-coredata://<store>/ICNote/p<Z_PK>` (Apple's `NSManagedObjectID`
+  format); an id that does not map is simply not pinned, and only ids already in the unlocked dump leave the app, as
+  `pinnedNoteIds` beside the dump. It runs only if Full Disk Access is already held (an `open(2)` probe, no prompt, no setup
+  step, no copy asking for it), under a 10 s bound, off the main actor; without it, or on any failure, the key is absent
+  and the backend leaves every pin as it was (`None` is "could not tell", `[]` is "none pinned"). `notes_sync` keeps the
+  pin as a frontmatter `pinned: true` on the note's latest episode and in its index entry, written through
+  `episode_staging.set_pinned` under the episode lock: **it is not in `content_hash`, never sets `processed` or `revised`,
+  and changes no body**, so a pin moving re-queues nothing and a pin that changes on a note Sleep already read does nothing
+  to memory (`test_notes_pinned.py`). It is not routed through the stager's body path because a Notes episode is
+  append-only per edit and a pin is no edit. Stage 1 gets one line in that note's source note
+  (`entity_extractor.pinned_note`: the person pinned this note in their Notes app) and the model judges what it means —
+  no score, no rule; a pin alone makes no page and no claim, and the note is read under its normal rules. The row carries
+  `pinned` (`SHAPE` `g161-21`) and lists first. Checklist ticks are out of scope: they would mean reading `ZICNOTEDATA`.
   **What a false match costs.** An episode of a note missing from a complete read (gone from Notes, or not there yet)
   is retired if its title equals a locked note's. A note gone from Notes never comes back: its episode stays an empty
   record and no route restores it; its words stay in the kept file and in git. A note that does return comes back as a

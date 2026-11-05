@@ -2653,10 +2653,13 @@ actor APIClient {
     /// 2026-11-04 — the same post with each note's account beside the dump (an older backend ignores the key).
     /// G234: `lockedNoteIds` always goes, an empty list included: it is how the backend knows this read asked Notes
     /// for unlocked notes only. A backend that predates it ignores the key.
+    /// ROR-15: `pinned` is the dump's notes the person pinned in Notes; nil (no key) is "could not tell", which leaves
+    /// every pin as it was, while an empty list says none is pinned.
     func syncNotes(dump: String, accounts: [String: String], locked: [String],
-                   lockedKeys: [String]) async throws -> NoteSyncResult {
+                   lockedKeys: [String], pinned: [String]? = nil) async throws -> NoteSyncResult {
         var body: [String: Any] = ["notesDump": dump, "lockedNoteIds": locked, "lockedNoteKeys": lockedKeys]
         if !accounts.isEmpty { body["noteAccounts"] = accounts }
+        if let pinned { body["pinnedNoteIds"] = pinned }
         return try await post("/sources/sync-notes", body: body)
     }
 

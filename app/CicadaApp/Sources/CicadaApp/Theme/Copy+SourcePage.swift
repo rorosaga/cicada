@@ -6,6 +6,8 @@ import Foundation
 extension Copy {
     enum SourcePage {
         static let connected = "Connected"
+        /// ROR-15 — Notes' own word for the notes the person pinned, above the rest.
+        static let pinned = "Pinned"
         static let syncing = "Syncing"
         static let needsYou = "Needs you"
         static let off = "Off"
