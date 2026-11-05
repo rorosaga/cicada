@@ -48,7 +48,7 @@ struct SourcesPageView: View {
             wisprPresent: SourceCatalog.wisprOffered
                 && (localSources.wisprInstalled || channels.contains { $0.id == LocalSourceWatcher.wisprChannel }),
             hexPresent: localSources.hexInstalled, meetingFolders: localSources.folders,
-            overview: overview)
+            overview: overview, channels: channels)
         return SourceCatalog.rows(entries: entries, channels: channels, overview: overview,
                                   readableSites: reading.readableSites, localReaders: localReaders,
                                   savedListsOn: reading.savedListsOn, localAgent: agents.connectedLocally,

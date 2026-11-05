@@ -10,8 +10,6 @@ extension Copy {
         static let connectHelp = "Shows a code to enter on GitHub. Nothing to make or paste."
         static let reads = "Read-only: your repositories, each with its README, and the ones you starred."
         static let notSetUp = "Connecting with GitHub isn't set up in this build yet."
-        static let useToken = "Use a token instead"
-        static let hideToken = "Hide the token field"
         static let enterCode = "Enter this code on GitHub"
         static let openGitHub = "Open GitHub"
         static let copyCode = "Copy"

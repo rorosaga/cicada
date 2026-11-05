@@ -336,7 +336,6 @@ struct GitHubSourcePage: View {
 
     @State private var connect: GitHubConnectModel
     @State private var repos: GitHubReposModel
-    @State private var vendor: WalkthroughVendor = .claude
 
     /// The models are injected only by tests and the offscreen renders; the app uses the live ones.
     init(row: SourceCatalogRow, backLabel: String? = nil, onShowList: @escaping () -> Void = {},
@@ -355,7 +354,7 @@ struct GitHubSourcePage: View {
     var body: some View {
         SourcePageLayout(title: row.entry.title, origin: row.entry.origin, status: status, backLabel: backLabel,
                          onShowList: onShowList, onClose: onClose) {
-            if drill == nil { GitHubConnectSlot(model: connect, vendor: $vendor) }
+            if drill == nil { GitHubConnectSlot(model: connect) }
         } content: {
             if let drill {
                 SourceDrillHead(source: row.entry.title, title: nil) { self.drill = nil }
@@ -409,8 +408,6 @@ struct GitHubSourcePage: View {
 /// GitHub's connect area, one state at a time (DR-5: one primary).
 struct GitHubConnectSlot: View {
     @Bindable var model: GitHubConnectModel
-    @Binding var vendor: WalkthroughVendor
-    @State private var showToken = false
 
     var body: some View {
         Group {
@@ -419,10 +416,8 @@ struct GitHubConnectSlot: View {
             } else {
                 switch model.step {
                 case .unavailable:
-                    // Until this build's app is registered there is no code to show: the token is the way in.
-                    SourceConnectArea(line: Copy.GitHub.notSetUp) {
-                        ConnectorSetupPanel(connectorId: "github", vendors: [], vendor: $vendor)
-                    }
+                    // Until this build's app is registered there is no code to show; no token is asked for instead.
+                    SourceConnectArea(line: Copy.GitHub.notSetUp)
                 case .disconnected:
                     SourceConnectArea(primary: SourcePrimaryAction(title: Copy.GitHub.connect, help: Copy.GitHub.connectHelp,
                                                                    isDisabled: model.busy) {
