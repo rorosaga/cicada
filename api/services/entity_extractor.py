@@ -867,9 +867,12 @@ async def extract(
     today = today or current_day()
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
     themes_read: list[list[str]] = []
+    #: Ruling 64: one book at a time, each told the themes the last ones named, so two books can land on one name and
+    #: the 2+ rule can count them. A read at once saw nothing, and five themes across three books never met.
+    book_turn = asyncio.Lock()
 
     def book_themes() -> list[str]:
-        """Ruling 64: theme names already on the record, read once per fan-out, only if it holds a book's record."""
+        """Theme names on the record plus this fan-out's so far, only if it holds a book's record."""
         if not themes_read:
             bank = getattr(settings, "memory_path", None)
             themes_read.append(book_marks.theme_hints(Path(bank)) if bank else [])
@@ -1268,7 +1271,12 @@ async def extract(
 
     async def process_one(i: int, episode: dict) -> None:
         try:
-            await _do_process(i, episode)
+            if book_marks.holds_marks(episode):
+                async with book_turn:
+                    await _do_process(i, episode)
+                    book_themes().extend(book_marks.new_themes(results[i], book_themes()))
+            else:
+                await _do_process(i, episode)
         finally:
             progress.update(1)
             if progress_callback is not None:

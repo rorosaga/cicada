@@ -47,7 +47,7 @@ READ_CHARS = 12_000
 #: A passage in a sampled read is cut here, so one long passage does not take the room of twenty.
 SAMPLED_PASSAGE_CHARS = 700
 #: Theme names told to Stage 1, so two books converge on one spelling and the 2+ rule can count them.
-MAX_THEMES = 40
+MAX_THEMES = 60
 THEME_PREDICATE = "explores-theme"
 
 _HEAD = re.compile(r"(?m)^## (?:Highlight, (?P<day>\d{4}-\d{2}-\d{2})|(?P<note>User note))[ \t]*$")
@@ -315,6 +315,14 @@ def theme_hints(memory_path: Path) -> list[str]:
     return list(dict.fromkeys(names))[:MAX_THEMES]
 
 
+def new_themes(result: dict | None, known: list[str]) -> list[str]:
+    """The concept names one book's read gave that the next book should hear, within :data:`MAX_THEMES`."""
+    fresh = [str(e.get("name")) for e in (result or {}).get("entities") or []
+             if isinstance(e, dict) and e.get("type") == "concept" and e.get("name")]
+    fresh = [n for n in dict.fromkeys(fresh) if n not in known]
+    return fresh[:max(0, MAX_THEMES - len(known))]
+
+
 NOTE_PREFIX = "[Source: what the person marked in a book"
 
 
@@ -322,16 +330,18 @@ def note(episode: dict, *, themes=(), shown: tuple[int, int] | None = None) -> s
     """Stage 1's note for a book's record with marks in it; ``None`` for every other episode."""
     if not holds_marks(episode):
         return None
-    held = f" Themes already on record, whose exact name to use when one fits: {'; '.join(themes)}." if themes else ""
+    held = (f" Themes other books already hold; when one of yours means the same, even in other words, use its exact "
+            f"name: {'; '.join(themes)}.") if themes else ""
     sample = f" This book holds {shown[1]} marked sections; {shown[0]} spread across it are shown." if shown else ""
     return (f'{NOTE_PREFIX}.{sample} Each line starting ">" is a passage from the book that the person chose to '
             'highlight: the book\'s words, never the person\'s, never what the person believes, and never a fact about '
             'their life. A "## User note" section is the person\'s own words; read it as anything they say. Every '
             "passage and note is already kept word for word on the book's page, and the book's reading status is "
-            "recorded elsewhere, so do not restate a passage as a fact, a summary or a history entry, and write no "
-            "reading status, no value of a status, and no relationship saying the person read or finished the book. "
-            "What this record is for: name the 1 to 3 themes these passages share, what the person keeps marking, each "
-            "as a `concept` entity with a short general name and decay_class durable, and a relationship from the book "
-            f'to it with predicate "{THEME_PREDICATE}" whose evidence_quote is a passage that shows it. Something only '
-            f"one passage touches is no theme unless the person's own note names it.{held} Link to any other page only "
-            "when a passage or a note names it.]\n\n")
+            "recorded elsewhere, so give the book no history_entries, key_facts or summary about what was highlighted "
+            "or when, and write no reading status, no value of a status, and no relationship saying the person read or "
+            "finished the book. What this record is for: name the 1 to 3 themes these passages share, what the person "
+            "keeps marking, each as a `concept` entity with decay_class durable and a general name of one to three "
+            'words, the way a book\'s index names a topic ("Focus", "Fear of failure", "Grief"), never a phrase '
+            f'particular to this book; and a relationship from the book to it with predicate "{THEME_PREDICATE}" whose '
+            "evidence_quote is a passage that shows it. Something only one passage touches is no theme unless the "
+            f"person's own note names it.{held} Link to any other page only when a passage or a note names it.]\n\n")
