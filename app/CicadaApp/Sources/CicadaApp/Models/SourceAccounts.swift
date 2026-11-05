@@ -82,12 +82,18 @@ struct SourceCollection: Decodable, Equatable, Hashable, Sendable, Identifiable 
     var count: Int
     /// The day (`YYYY-MM-DD`) its newest item came in.
     var latest: String?
+    /// ROR-108, a followed feed only: its address, its last check's day, and a failed check in words.
+    var url: String?
+    var polled: String?
+    var problem: String?
 
-    init(id: String, name: String, count: Int, latest: String? = nil) {
+    init(id: String, name: String, count: Int, latest: String? = nil, url: String? = nil, polled: String? = nil,
+         problem: String? = nil) {
         self.id = id; self.name = name; self.count = count; self.latest = latest
+        self.url = url; self.polled = polled; self.problem = problem
     }
 
-    enum CodingKeys: String, CodingKey { case id, name, count, latest }
+    enum CodingKeys: String, CodingKey { case id, name, count, latest, url, polled, problem }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -95,6 +101,9 @@ struct SourceCollection: Decodable, Equatable, Hashable, Sendable, Identifiable 
         name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
         count = (try? c.decodeIfPresent(Int.self, forKey: .count)) ?? 0
         latest = try? c.decodeIfPresent(String.self, forKey: .latest)
+        url = try? c.decodeIfPresent(String.self, forKey: .url)
+        polled = try? c.decodeIfPresent(String.self, forKey: .polled)
+        problem = try? c.decodeIfPresent(String.self, forKey: .problem)
     }
 }
 

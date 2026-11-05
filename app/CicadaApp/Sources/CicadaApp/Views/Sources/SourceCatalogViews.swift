@@ -779,6 +779,16 @@ struct SourceCatalogDetail: View {
                 HarnessConversationsView(source: overview, onSelectEntity: onSelectEntity, query: query,
                                          cap: SourceItemsRules.cap, onAll: { drill = .conversations })
             }
+        } else if row.entry.id == FeedChannelText.channel, !listChannels.isEmpty || (mine.first?.count ?? 0) > 0 {
+            // ROR-108 — the feeds followed, each opening to what it brought in; a search reads across them.
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                SourceSearchHeader(query: $query, prompt: searchPrompt)
+                if SourceSearch.normalized(query).isEmpty {
+                    FeedChannelsList(saved: savedStyle) { drill = $0 }
+                } else {
+                    SourceItemsSection(channel: FeedChannelText.channel, saved: savedStyle, query: query) { drill = $0 }
+                }
+            }
         } else if !listChannels.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 SourceSearchHeader(query: $query, prompt: searchPrompt)
