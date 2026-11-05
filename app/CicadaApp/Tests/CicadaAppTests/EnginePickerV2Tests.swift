@@ -114,7 +114,8 @@ final class EnginePickerV2Tests: XCTestCase {
         XCTAssertEqual(EngineQuickMenu.width(for: menu), EngineQuickMenu.width + EngineQuickMenu.listWidth)
         let source = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Views/Sleep/EngineQuickMenu.swift") })
         let text = try String(contentsOf: source, encoding: .utf8)
-        XCTAssertEqual(text.components(separatedBy: "Picker(").count - 1, 1, "only the reserve's menu remains (DR-81)")
+        XCTAssertEqual(text.components(separatedBy: "Picker(").count - 1, 2,
+                       "only the reserve's and the spending limit's menus remain (DR-81)")
     }
 
     func testRefreshAsksOnceAndKeepsTheListOnAFailure() async {

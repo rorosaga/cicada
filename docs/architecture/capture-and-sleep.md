@@ -1414,8 +1414,8 @@ Cowork's settings), so its stdio server now does what the remote connector does.
 - **What the person sees, and the switches.** The tool's description says what it does in the app's own tool list, and the
   app asks before a tool's first use unless they allowed it always. The first reply of each conversation asks the model to
   say so once, in a few words; connecting the app says it in one line (`agent_wiring`); the remote connector's Record scope
-  says it too. **No new setting.** To turn it off: in the app, set that tool to never run; or disconnect the app in
-  Settings → Agents; or `CICADA_CAPTURE=off` in the server's `env`, the switch every hook answers to, which also drops the
+  says it too. **No new setting.** To turn it off: in the app, set that tool to never run; or disconnect the app where it
+  was connected; or `CICADA_CAPTURE=off` in the server's `env`, the switch every hook answers to, which also drops the
   primer's line. On the remote connector: untick Record or revoke it. `capture_assistant_replies` still keeps the replies out.
 - **Why not the browser.** Anthropic's Consumer Terms §3 bar access "through automated or non-human means" except by API
   key or where explicitly permitted, so an agent paging claude.ai's list is what the ToS rail stops, unlike G166's reads.
