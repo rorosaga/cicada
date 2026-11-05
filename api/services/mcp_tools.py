@@ -2410,7 +2410,7 @@ def _is_bare_save(memory_path: Path, episode_id: str) -> bool:
 
 _PICTURE_FROM = {"look": "a look you saved", "capture": "a screenshot of the saved site",
                  "preview": "the saved link's own picture", "still": "the video's still",
-                 "frame": "a frame of a video you added"}
+                 "frame": "a frame of a video you added", "photo": "a photo you added"}
 
 
 def _picture_lines(memory_path: Path, query: str, more_call) -> list[str]:

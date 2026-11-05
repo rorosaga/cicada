@@ -21,9 +21,17 @@ import SwiftUI
 protocol VideoPlaybackController: AnyObject {
     var url: URL { get }
     var isPlaying: Bool { get }
+    /// Seconds into the file now (0 before it has loaded).
+    var currentTime: Double { get }
+    /// The file's length in seconds once the player knows it.
+    var length: Double? { get }
     func play()
     func pause()
     func toggle()
+    /// ROR-117 — jump to a second (a find hit's moment, a scrub); exact, not the nearest keyframe.
+    func seek(to seconds: Double)
+    /// Pause and let go of the file: nothing keeps playing or holding it after the surface closes (ROR-117).
+    func stop()
 }
 
 // MARK: - VideoPlayerModel

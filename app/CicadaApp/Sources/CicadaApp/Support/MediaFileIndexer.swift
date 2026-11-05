@@ -31,12 +31,15 @@ import UniformTypeIdentifiers
 /// person's own (the backend stores them as `words_by: the recording`, never an episode, never read by Sleep).
 enum MediaKind: String, Equatable {
     case audio, video
+    /// A photo (ROR-117): no words, one small derivative picture; the app's viewer opens the original.
+    case image
 
-    /// Audio or video by the file's type (its extension's UTType) — `nil` for anything else.
+    /// Audio, video or a raster picture by the file's type (its extension's UTType) — `nil` for anything else.
     static func of(_ url: URL) -> MediaKind? {
         guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return nil }
         if type.conforms(to: .movie) || type.conforms(to: .video) { return .video }
         if type.conforms(to: .audio) { return .audio }
+        if type.conforms(to: .image), !type.conforms(to: .svg) { return .image }
         return nil
     }
 }
@@ -176,6 +179,20 @@ enum MediaFrames {
             if let text = frame.text { row["text"] = text }
             return row
         }
+    }
+
+    /// A photo's one derivative: the file decoded on this Mac (orientation applied, never larger than needed) and kept
+    /// as a ≤ 640 × 400 JPEG at time 0, with the text the Mac reads in it (the same reader a video's frames use).
+    /// `nil` for a file ImageIO cannot decode.
+    static func photoFrame(_ url: URL, reader: any PictureTextReading = SystemPictureTextReader()) -> KeptFrame? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxWidth * 2,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+              let data = jpeg(image) else { return nil }
+        return KeptFrame(t: 0, jpeg: data, text: reader.read(image))
     }
 
     /// A ≤ 640 × 400 JPEG of `image` (aspect kept), ≤ 200 KB: lower quality until it fits.
@@ -325,9 +342,12 @@ final class MediaFileIndexer {
     func add(_ urls: [URL]) async -> [AddOutcome] {
         let files = Self.media(in: urls)
         guard !files.isEmpty else { return [] }
-        say(Copy.mediaAdding(files.count))
+        say(files.allSatisfy { MediaKind.of($0) == .image } ? Copy.mediaAddingPhotos(files.count) : Copy.mediaAdding(files.count))
         var access = speech.status()
-        if access == .notDetermined { access = await speech.request() }
+        // Speech is asked for only when a recording or video is among the files: a photo has no speech.
+        if access == .notDetermined, files.contains(where: { MediaKind.of($0) != .image }) {
+            access = await speech.request()
+        }
         var outcomes: [AddOutcome] = []
         for url in files {
             outcomes.append(await addOne(url, speechAllowed: access == .authorized))
@@ -336,10 +356,11 @@ final class MediaFileIndexer {
         return outcomes
     }
 
-    enum AddOutcome: Equatable { case added(words: Int, frames: Int), noWords(reason: String), failed }
+    enum AddOutcome: Equatable { case added(words: Int, frames: Int), addedPhoto, noWords(reason: String), failed }
 
     private func addOne(_ url: URL, speechAllowed: Bool) async -> AddOutcome {
         guard let kind = MediaKind.of(url), let sha = Self.sha256(of: url) else { return .failed }
+        if kind == .image { return await addPhoto(url, sha: sha) }
         var segments: [TranscriptSegment] = []
         var reason: String?
         if speechAllowed {
@@ -371,6 +392,24 @@ final class MediaFileIndexer {
         if segments.isEmpty, let reason { return kind == .video && !sampled.frames.isEmpty
             ? .added(words: 0, frames: sampled.frames.count) : .noWords(reason: reason) }
         return .added(words: segments.count, frames: sampled.frames.count)
+    }
+
+    /// ROR-117 — a photo: no words, one ≤ 640 × 400 derivative posted as the file's frame at 0. The original stays
+    /// where it is; the viewer opens it from `places`.
+    private func addPhoto(_ url: URL, sha: String) async -> AddOutcome {
+        // Off the main actor: the text read takes real time on a large photo.
+        guard let frame = await Task.detached(operation: { MediaFrames.photoFrame(url) }).value else { return .failed }
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        let body: [String: Any] = ["name": url.lastPathComponent, "kind": MediaKind.image.rawValue,
+                                   "sha256": sha, "size": size, "segments": [[String: Any]]()]
+        do {
+            let id = try await api.postMediaFile(body)
+            try await api.postMediaFrames(fileId: id, frames: [frame])
+            places.remember(id, url)
+        } catch {
+            return .failed
+        }
+        return .addedPhoto
     }
 
     /// The file's sha256, streamed in 1 MB reads (a long recording never sits in memory whole).

@@ -137,11 +137,14 @@ enum FindServerRows {
                                     mark: .symbol(hit.type == "video" ? "film" : "waveform"), score: hit.score,
                                     destination: .addedFile(id: fileId, at: hit.atSeconds),
                                     secondary: .revealAddedFile(id: fileId)))
-            case "image" where hit.imageSource == "frame":
-                // A video's kept frame: its own thumbnail or no mark at all (#512), its time in the title.
+            case "image" where hit.imageSource == "frame" || hit.imageSource == "photo":
+                // A video's kept frame: its own thumbnail or no mark at all (#512), its time in the title. A photo
+                // the person added (ROR-117) is the same row with its own words; it opens the viewer.
                 guard let fileId = hit.fileId else { continue }
+                let photo = hit.imageSource == "photo"
                 rows.append(FindRow(key: FindRowKey(kind: .file, id: hit.id), group: .files, title: hit.name,
-                                    titleRanges: bold(hit.name), detail: Copy.findFrameDetail, badge: "Video",
+                                    titleRanges: bold(hit.name), detail: photo ? Copy.findPhotoDetail : Copy.findFrameDetail,
+                                    badge: photo ? "Photo" : "Video",
                                     mark: hit.thumbnail.map { .still(path: $0) } ?? .blank, score: hit.score,
                                     destination: .addedFile(id: fileId, at: hit.atSeconds),
                                     secondary: .revealAddedFile(id: fileId)))

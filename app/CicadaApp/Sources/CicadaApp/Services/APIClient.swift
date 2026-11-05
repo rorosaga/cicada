@@ -4857,6 +4857,12 @@ extension APIClient {
     func deleteVideo(_ path: String) async throws {
         _ = try await delete(path)
     }
+
+    /// ROR-117 — the recordings, videos and photos added to search (`GET /files`): descriptions only.
+    func addedFiles() async throws -> [AddedFile] {
+        let out: AddedFilesResponse = try await get("/files")
+        return out.files
+    }
 }
 
 // MARK: - Design taste (2026-10-14) — looks, on the pages of the things they show (2026-10-20)

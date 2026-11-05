@@ -522,7 +522,7 @@ once at launch (`removeRetiredNudges`, identifiers `cicada.exportWeekly.*` and `
 one-off wait and everything imported alone. An old notification's tap opens the intake idle, as a due reminder's does. A
 Files and Folders grant macOS recorded stays listed in System Settings; the app no longer uses it.
 
-**Recordings and videos (meaning index 2, 2026-10-28).** **File → Add Recording or Video…** (2026-10-29) is the
+**Recordings and videos (meaning index 2, 2026-10-28).** **File → Add Recording, Video or Photo…** (2026-10-29; photos 2026-11-05) is the
 keyboard and VoiceOver twin: the intake's own open panel (`IntakePicker.chooseMedia`, audio and video types, no folders)
 hands what was chosen to `IntakeRouter.accept`, so the menu takes the drop's door and its rules. An audio or video file among a drop (by its type; a folder
 is never walked for them) leaves the import before the sniff and goes to `MediaFileIndexer` (`IntakeRouter.onMedia`,
@@ -534,6 +534,23 @@ no speech model for the language: the toast names Dictation's own setting; Cicad
 Speech Recognition request is inside the person's own drop; nothing on launch or in the background asks.
 `MediaFileIndexer.swift` is the one more file allowed to import AVFoundation (`AVImportLintTests`), every call behind
 `Transcribing` / `FrameSampling` seams its tests fake.
+
+**The viewer: play and see it inside the app (ROR-117, G43; DR-5, DR-9, DR-33, DR-59, DR-60).** One sheet, `MediaSheet`
+(`Views/Media/`, presented by `ContentView` from `AppRouter.mediaRoute`), two faces. *One file* (a palette hit's ⏎, a
+list row): `MediaViewerModel.target(id:at:places:)` decides before any player exists — a recording or video plays from
+the hit's second, a photo shows, a file that is not on this Mac is one sentence ("That file isn't on this Mac.") with
+*Choose it…* (a file chosen again must hash to the id, `isTheFile`; a Voice Memo, keyed by its store, offers no choice).
+Video is `AVPlayerSurface` (the existing seam; `VideoPlaybackController` gained `currentTime`, `length`, `seek(to:)`,
+`stop()`, so `AVImportLintTests`' allow-list did not widen); audio is `AudioSurface` — the time, a scrubber, play and
+pause, never an empty video box. Space toggles (R10). The header carries ‹ (back to the list), the name, *Open in default
+app* and ✕; Esc closes. Closing the sheet runs `MediaViewerModel.end` (pause, drop the item): nothing keeps playing.
+A photo is `PhotoViewer`: fit, pinch / double click / two buttons to zoom, scroll when zoomed, no animation (DR-60).
+*The list* (**File → Added Files…**): `GET /files` newest first — glyph, name, length — a row opens the same file; the
+context menu keeps *Open in default app* and *Show in Finder*. **A photo** joins File → Add (the picker and the drop take
+`.image` but not SVG): `MediaFrames.photoFrame` decodes it with ImageIO on this Mac, posts kind `image` with no words
+and one ≤ 640 × 400 JPEG at time 0 to `/files/<id>/frames` (the existing derivative path; it is a `photo` picture of the
+one index, shown in the palette as a Photo row, and the Speech prompt is never raised for it). The viewer reads the
+original from `MediaFilePlaces`; nothing is downloaded, no stream is derived (G162).
 
 **Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1. The painted band is gone (off since G189(a),
 2026-10-06; retired with every painting on 2026-10-16, owner: "Remove it from everywhere"), so the first content is
@@ -1967,8 +1984,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   Memos* is the one primary, its words on hover; on, the area's one line is the count (and "N without words"), the footer holds
   Refresh and Disconnect. A refusal by macOS shows *Needs access* on the grid and the Full Disk Access button. The mark is
   Apple's, drawn from `com.apple.VoiceMemos` (`OriginIconography.appBundleId`; `SourceMarkCoverageTests` passes it by the
-  `com.apple.` rule). Reads and rails: `storage.md`, "Voice Memos". A palette hit opens the recording in its default app
-  (`MediaFilePlaces`), no seek.
+  `com.apple.` rule). Reads and rails: `storage.md`, "Voice Memos". A palette hit plays the recording in the app at its second (below, ROR-117).
 - **Reading: Apple Books and Goodreads (G39, G233; 2026-11-04).** A Sources group of its own, *Reading*, between
   Meeting recorders and Exports (`SourceCatalogGroup.reading`; the backend's `reading` kind sits before `import`).
   Both are standard source pages (`Views/Sources/BooksSlots.swift`, in `SourceCatalogDetail`'s connect and footer
@@ -3189,9 +3205,8 @@ DR-44), "the recording's words, at m:ss" as the detail, the passage in the quote
 video's kept frames, each its own thumbnail (`FindStill`: the stored frame at the mark's height, 16:9, the Feed video
 frame's continuous corner, DR-12), or **no mark at all** while it isn't on this Mac, never a stand-in tile (the
 2026-10-28 "a page with no picture draws none" ruling, #512). No folds (DR-81): the group counts exactly what the server
-gave (it serves only what clears its floor), so it never offers a "More…" that fetches nothing. ⏎ opens the file where
-this Mac last saw it (`MediaFilePlaces`, the app's own record; the backend never has a path), ⌥⏎ shows it in Finder; a
-moved file says so in a toast. Other pictures (looks, previews, stills) are not in the palette yet. Ask is a mode (⌘⏎) hosting the `AskPanel` body — the one place the app draws an Ask answer (the palette
+gave (it serves only what clears its floor), so it never offers a "More…" that fetches nothing. ⏎ opens the file in the app's viewer (`MediaSheet`, ROR-117, below) from where
+this Mac last saw it (`MediaFilePlaces`, the app's own record; the backend never has a path), at the hit's second; ⌥⏎ shows it in Finder. Other pictures (looks, previews, stills) are not in the palette yet. Ask is a mode (⌘⏎) hosting the `AskPanel` body — the one place the app draws an Ask answer (the palette
 and Home's field both host it). Under the page sources (chips, then each page's evidence chips) it lists **From
 conversations**: `POST /ask` `conversations` (2026-10-19), the conversations the answer used that no page cites. A row
 is a conversation glyph, the title ("A conversation" without one) and the day; the episode id only in `.help` (DR-54,

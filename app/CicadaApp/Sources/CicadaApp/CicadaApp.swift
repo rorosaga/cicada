@@ -307,6 +307,8 @@ struct CicadaApp: App {
                     let urls = IntakePicker.chooseMedia()
                     if !urls.isEmpty { intakeRouter.accept(urls: urls, from: .fileMenu) }
                 }
+                // ROR-117 — what was added, to open in the app.
+                Button(Copy.mediaFilesMenuItem) { appRouter.openAddedFiles() }
             }
         }
     }
