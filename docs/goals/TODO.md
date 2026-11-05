@@ -3255,8 +3255,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     1500000" tokenise. The vault keeps the digits with no way to remove one entry from a healthy vault, and Stage 1 is
     told a token is a phone number, so the second could land as Ana's phone. On anyone else's line a wrong match is a
     redaction with no copy. **Stays in clear, on purpose, as today:** a line that is only digits; a lowercase name
-    with no verb, even one with a page; 7 or 8 digits beside any other word; two numbers with only a space between
-    them; anyone's line with no signal and no run of 9+ the vault holds; a body stored before the switch; a harness
+    with no verb, even one with a page; 7 or 8 digits beside any other word; two long numbers with only a space between them (a pair of 15 digits or fewer reads as one number, one token); anyone's line with no signal and no run of 9+ the vault holds; a body stored before the switch; a harness
     session's or a note's body.
 
     **One number, one fact, no loss.** The token is an HMAC of the last nine digits under the vault's key, so a number
@@ -3379,7 +3378,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     > **Where digits stay as they are today, in git and read by models:**
     > - a chat line that is only digits, or a lowercase name with no "add" or "save" ("bob 2025550143"), even if that person is in your memory;
     > - 7 or 8 digits beside any other word;
-    > - two numbers with only a space between them;
+    > - two long numbers with only a space between them;
     > - someone else's line or an agent's reply with nothing marking the digits as a phone, unless the file holds that number at 9 digits or more. So an agent repeating a 7 or 8 digit number you gave stays in digits;
     > - anything you type to Claude Code or put in a note (the fact on the page holds the code, the conversation keeps the digits);
     > - every chat already stored before you turn this on. Nothing old is read again, and turning this off puts nothing back;

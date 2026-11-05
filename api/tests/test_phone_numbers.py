@@ -1933,3 +1933,11 @@ def test_round_5_a_persons_line_still_files_a_models_digit_value(memory):
     relationships, values = [], [{"entity": "Ana Diaz", "attribute": "phone number", "value": "2025550999"}]
     kept = phone_numbers.take([], relationships, values, content, "ep_2026-08-20_001", bank=memory)
     assert kept == 1 and phone_numbers.known_id(memory, "2025550999") == values[0][phone_numbers.ITEM_KEY]
+
+
+def test_round_5_two_long_numbers_with_only_a_space_stay_and_a_short_pair_is_one_token(memory):
+    """Disclosed at ruling 55, not fixed."""
+    _maria(memory)
+    for line in ("Ana 2025550143 2025550144", "her number is 2025550143 2025550144"):
+        assert phone_numbers.tokenise(line, memory) == (line, 0)
+    assert phone_numbers.tokenise("Ana 5550143 5550144", memory)[1] == 1
