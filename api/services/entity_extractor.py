@@ -1101,8 +1101,11 @@ async def extract(
                     if left:
                         logger.info(f"  {ep_id}: revision — {left} item(s) from unchanged lines left as first read")
                 if book:
-                    all_entities = book_marks.without_restating(all_entities, episode,
-                                                                 is_owner=lambda e: _is_owner(e, owner))
+                    # What a read of a book's record may add is its themes and the person's own notes (ruling 64).
+                    is_them = lambda e: _is_owner(e, owner)   # noqa: E731
+                    all_entities = book_marks.without_restating(all_entities, episode, is_owner=is_them)
+                    all_relationships = book_marks.in_their_words_only(all_relationships, "source", is_owner=is_them)
+                    all_values = book_marks.in_their_words_only(all_values, "entity", is_owner=is_them)
                 # G235: a value is taken back out of what the model answered, whatever it was shown; a page never
                 # repeats it. After the spans above: a quote is consumed there and never stored.
                 all_entities, all_relationships, all_values = guard.clean(all_entities, all_relationships, all_values)

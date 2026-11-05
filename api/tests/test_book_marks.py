@@ -400,6 +400,14 @@ def test_a_read_of_a_record_never_writes_about_the_marks_on_the_books_own_page()
     assert book_marks.without_restating([book, owner], noted, is_owner=is_owner) == [owner], "a note's words are theirs"
 
 
+def test_nothing_a_passage_says_becomes_a_fact_about_the_owner():
+    is_owner = lambda e: e["name"] == "Owner"   # noqa: E731
+    page = {"source": "Owner", "label": "practices", "target": "Baking", "evidence": [{"kind": "page", "start": 5, "end": 9}]}
+    own = {"source": "Owner", "label": "decided", "target": "Walking", "evidence": [{"kind": "user", "start": 5, "end": 9}]}
+    theme = {"source": "The Book", "label": "explores-theme", "target": "Focus", "evidence": [{"kind": "page", "start": 5, "end": 9}]}
+    assert book_marks.in_their_words_only([page, own, theme], "source", is_owner=is_owner) == [own, theme]
+
+
 def test_the_page_says_why_it_matters_in_a_count_and_never_in_the_words(bank):
     from api.services import page_relevance
 

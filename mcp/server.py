@@ -177,7 +177,7 @@ TOOLS = [
                                    "(why it matters to the person), `summary` (the 2-3 sentence In short Sleep writes "
                                    "for a long page the person talks about often), `sources` (where to check, each with its state), "
                                    "`coordinates` (a place's stored position), `looks` (colours and type of a saved "
-                                   "design), `ongoing` (open happenings and planned milestones), `citations` (the "
+                                   "design), `ongoing` (open happenings and planned milestones), `marks` (the person's highlights and notes in a book, word for word), `citations` (the "
                                    "article's numbered sources — each conversation, looked-up page or page it cites — "
                                    "and, on a page whose prose cites nothing yet, its beliefs as sentences), `history` (who "
                                    "changed the page: each contributor and how many changes Sleep made), or "

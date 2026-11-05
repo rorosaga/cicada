@@ -178,6 +178,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Books (G39, G233):** a scanned ISBN (`/capture/isbn`, the phone's contract) resolves at the home behind the connector
   gate, cached outside every bank; Apple Books is read by the app after the person turns it on; Goodreads only by its
   export; one `media` page per work, status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
+  **Ruling 64:** each highlight and note is a claim word for word with no model (`book_marks`, gated like the person's own
+  words); Sleep reads a marked book in one bounded chunk for what its marks share; an unmarked entry is never read.
   **Ruling 61:** the person's own located words in a conversation change a status too, judged by Stage 1 in context, never
   by keywords: one clear title or held on the episode, dated as said, undoable, through the same writers (`book_said`).
 - **Two ways in for what the person consumes (ruling 47, owner 2026-10-28):** by default their own browser and Mac,
@@ -298,7 +300,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   a name (`github_repos`). GitHub connects by a code (device flow, read-only GitHub App; `network.md`). One never called a
   project gets, over this rule counted across the spellings the judge joins, one `concept` page a later birth retypes in
   place (owner 2026-10-23, `capture-and-sleep.md`). What is said about a
-  name with no page yet is held (`pending_store`), never lost. A page only an import made is quiet — dimmed, never
+  name with no page yet is held (`pending_store`), never lost. A page only an import made, a book with nothing marked included (ruling 64), is quiet — dimmed, never
   asked about — until the person mentions it, derived on read (`quiet_pages`).
   **Ruling 42 (owner 2026-10-27):** one conversation is enough for a specific event, program or application the person
   — or a harness agent, for them — acted on (applied, registered, filled its form), measured on the conversation; the

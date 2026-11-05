@@ -5,6 +5,15 @@ import XCTest
 /// `api/tests/fixtures/page_blocks.json` (`test_page_blocks.py` builds the same file), the card's "why it matters"
 /// line, and the card's ETag mapping (`EntityCardCache`).
 final class PageBlocksTests: XCTestCase {
+    /// Ruling 64: the marks block, a note under its passage, and a caller who may not read the words.
+    func testMarksDecode() throws {
+        let json = #"{"shape":"blocks-4","order":["marks"],"marks":{"total":2,"items":[{"claimId":"a","day":"2026-05-01","text":"Passage.","note":"Mine."},{"claimId":"b","day":"","text":null,"note":null}]}}"#
+        let b = try JSONDecoder().decode(PageBlocks.self, from: Data(json.utf8))
+        XCTAssertEqual(b.marks?.total, 2)
+        XCTAssertEqual(b.marks?.items.first?.note, "Mine.")
+        XCTAssertNil(b.marks?.items.last?.text)
+    }
+
     private static func fixtureData() throws -> Data {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // CicadaAppTests

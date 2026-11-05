@@ -84,7 +84,7 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
                                       "a long page the person talks about often), `sources` (where to check, each "
                                       "with its state), "
                                       "`coordinates` (a place's stored position), `looks` (colours and type of a "
-                                      "saved design), `ongoing` (open happenings and planned milestones), "
+                                      "saved design), `ongoing` (open happenings and planned milestones), `marks` (how many passages the person marked in a book), "
                                       "`citations` (the article's numbered sources), or "
                                       "`blocks` for all of them."}},
           ("entity_id",), read_only=True),

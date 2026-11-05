@@ -365,6 +365,15 @@ def without_restating(entities: list, episode: dict, *, is_owner) -> list:
     return [e for e in entities if not restates(e)]
 
 
+def in_their_words_only(rows: list, key: str, *, is_owner) -> list:
+    """Of what a read says of the owner (a relationship by its ``source``, a value by its ``entity``), only what rests on
+    their own words. A passage is the book's: "practices sourdough baking" from a highlight about bread is no fact about
+    them (haiku, 2026-11-05), whatever the note told the model."""
+    from api.services import promotion
+
+    return [r for r in rows if not is_owner({"name": r.get(key)}) or promotion.person_said(r)]
+
+
 def new_themes(result: dict | None, known: list[str]) -> list[str]:
     """The concept names one book's read gave that the next book should hear, within :data:`MAX_THEMES`."""
     fresh = [str(e.get("name")) for e in (result or {}).get("entities") or []
@@ -392,6 +401,6 @@ def note(episode: dict, *, themes=(), shown: tuple[int, int] | None = None) -> s
             "finished the book. What this record is for: name the 1 to 3 themes these passages share, what the person "
             "keeps marking, each as a `concept` entity with decay_class durable and a general name of one to three "
             'words, the way a book\'s index names a topic ("Focus", "Fear of failure", "Grief"), never a phrase '
-            f'particular to this book; and a relationship from the book to it with predicate "{THEME_PREDICATE}" whose '
+            f'particular to this book; and a relationship from the book to it with the label "{THEME_PREDICATE}" whose '
             "evidence_quote is a passage that shows it. Something only one passage touches is no theme unless the "
             f"person's own note names it.{held} Link to any other page only when a passage or a note names it.]\n\n")
