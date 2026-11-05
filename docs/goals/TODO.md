@@ -16,6 +16,7 @@
 
 ## Current state and evidence
 
+- **2026-11-05 — added files are found by the words inside them (ROR-117, G43; branch `ror117-words`).** `file_words`: an FTS5 table in the derived search index, fused per passage with the meaning leg; the palette's prefix pass asks `file` too; a hit lands on the segment that says the word; the Mac reads the text in kept frames (on-device) and posts it with the frame (`record_frame_text`, the function a photo item calls). Words leg p50 0.7 ms, +1.1 ms p95 on the palette at 25,000 passages (`storage.md`). **Pick up here:** run the Swift filters `MediaFileIndexerTests`, `FindPaletteFilesTests`, `FindServerTests`, `Lint` (not run in a worktree agent); a photo door should call `record_frame_text`. No ruling changed.
 - **2026-11-05 — multimodality scorecard and Voice Memos as a source (G43, G195; branch `multimodal-g43`).** Owner: rate every
   kind to a 10; later: play and show everything in the app, each item an entity with a markdown body (summary, why it matters,
   the transcription, the transcribing model as contributor). [`multimodal-scorecard.md`](multimodal-scorecard.md) scores YouTube,

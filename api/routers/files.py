@@ -60,6 +60,9 @@ class VoiceMemosIn(CamelModel):
 class FrameIn(CamelModel):
     t: float
     jpeg: str                         # base64 of a ≤ 640 × 400 JPEG
+    #: Text the app read from this frame on the Mac (ROR-117): the picture's words, scrubbed like a transcript. Absent
+    #: leaves what is kept; empty text removes it.
+    text: str | None = Field(None, max_length=20_000)
 
 
 class FramesIn(CamelModel):
@@ -112,7 +115,8 @@ async def post_voice_memos(body: VoiceMemosIn, settings: Settings = Depends(get_
 
 @router.post("/files/{file_id}/frames", dependencies=[Depends(_not_demo)])
 async def post_frames(file_id: str, body: FramesIn, settings: Settings = Depends(get_settings)) -> dict:
-    """A video's kept frames, at most 64 a call (each ≤ 640 × 400, ≤ 200 KB JPEG, with its time in seconds)."""
+    """A video's kept frames, at most 64 a call (each ≤ 640 × 400, ≤ 200 KB JPEG, with its time in seconds), and the
+    text the app read from them."""
     frames = []
     for f in body.frames:
         try:
@@ -121,6 +125,9 @@ async def post_frames(file_id: str, body: FramesIn, settings: Settings = Depends
             raise HTTPException(422, "a frame isn't base64") from None
     try:
         out = await run_in_threadpool(media_files.record_frames, settings.memory_path, file_id, frames)
+        texts = [(f.t, f.text) for f in body.frames if f.text is not None]
+        if texts:
+            await run_in_threadpool(media_files.record_frame_text, settings.memory_path, file_id, texts)
     except media_files.FileRefused as exc:
         raise HTTPException(422, str(exc)) from None
     image_index.start_refresh(settings.memory_path, delay_s=image_index.SETTLE_S)

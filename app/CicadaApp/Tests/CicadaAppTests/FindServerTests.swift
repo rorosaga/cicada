@@ -242,7 +242,7 @@ final class PaletteServerTierTests: XCTestCase {
         await m.serverTask?.value
         XCTAssertEqual(api.calls.map(\.query), ["alp", "alp"])
         XCTAssertEqual(api.calls.map(\.mode), ["prefix", "hybrid"])
-        XCTAssertEqual(api.calls.first?.kinds, FindServerRows.kinds)
+        XCTAssertEqual(api.calls.first?.kinds, FindServerRows.prefixKinds)
         XCTAssertEqual(api.calls.first?.perKind, SearchTiming.perKind)
     }
 
