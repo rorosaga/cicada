@@ -1577,7 +1577,9 @@ its `content_hash`, so the queue is derived from the bank — a move or a restor
   Google results) makes a placeholder page ("Book with ISBN …") and is asked again after 30 days, the page upgraded in
   place; no answer backs off 10 min → 1 h → 6 h → a day and makes no page. At most 30 numbers a run.
 - **Apple Books** (`apple_books`; the app's `AppleBooksReader`). Turned on by the person (Sources → Reading →
-  Apple Books; `PUT /sources/apple-books/settings`, a sync while off is 409). The APP copies the two stores with their
+  Apple Books; `PUT /sources/apple-books/settings`, a sync while off is 409). A folder or store macOS refuses is
+  `BrowserFileError.notReadable`, the Full Disk Access sentence with its button, never "Open Apple Books once"; only an
+  absent folder reads as not installed (ROR-41). The APP copies the two stores with their
   `-wal`/`-shm` into a temporary folder, folds the WAL into the copy and reads it read-only — paths and columns in
   `apple_books`' docstring, read on macOS 27.2: `~/Library/Containers/com.apple.iBooksX/Data/Documents/BKLibrary/
   BKLibrary-1-<version>.sqlite` (`ZBKLIBRARYASSET`) and `…/AEAnnotation/AEAnnotation_v<version>_local.sqlite`
@@ -1989,7 +1991,8 @@ item the model listed AND that shares two words, beyond the thing's own name, wi
 Summary or one Key Fact while adding no number, tense or status word or negation that item lacks
 (`entity_orientation._confirmed`, `fact_policy.compatible`); nothing already on the page is ever removed this way. This is the one
 place a restatement in other words is folded, at no extra call. Facts-only updates need one merge call; Summary/description
-updates also run the existing contradiction check. `entity_orientation` passes dated inputs and
+updates also run the existing contradiction check. A measured quantity that naturally changes over time (a metric, a count, a score, a
+balance) is an update, never a contradiction, even on the same date; a value that should hold still, such as an agreed price two people dispute, can still ask (ROR-41, G98). `entity_orientation` passes dated inputs and
 only structurally current claims (`claims.is_current`, excluding withdrawal records). Prose is
 labeled unverified background; old statements and intentions must name their own date, never a
 page-wide last-reference date. Input over 24,000 characters and invalid output take the deterministic
@@ -2464,7 +2467,7 @@ Copilot or OpenCode Go model listed — else skipped, never an error and never a
 out, only key-backed models, no answer) or an app here without the tool it needs is named in the no-engine sentence,
 with the line to run; an absent one is not. **Found where it is (ROR-52, 2026-11-04):** `base.resolve_binary` looks on
 PATH, then the usual folders (`~/.opencode/bin` added, where OpenCode's own installer puts it), then
-`base.APP_BUNDLED_TOOLS`: OpenCode.app carries its tool as `Contents/MacOS/opencode-cli`, and a tool on PATH outranks it.
+`base.APP_BUNDLED_TOOLS`: OpenCode.app carries its tool as `Contents/Resources/opencode-cli` (its Electron build's `process.resourcesPath`, ROR-41) or, in an older build, `Contents/MacOS/opencode-cli`, and a tool on PATH outranks either.
 The backend makes this read because it is what spawns the tool: two fixed folders (`/Applications`, `~/Applications`),
 fixed app names, never a path a request names and never `~/Library`, like `reach.py`'s Tailscale. A tool found in its app
 has its full path in the sign-in line, since the app does not put it on the person's PATH. **Three states, not two:**

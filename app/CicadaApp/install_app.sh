@@ -150,21 +150,36 @@ fi
 # own ⌘Q (`TerminateOnSignal`), so a held Inbox answer is still sent. The poll
 # loop decides when to move on; a build too old to have that handler just
 # exits on the signal.
-if pgrep -x CicadaApp >/dev/null 2>&1; then
+#
+# Only the app this install replaces, matched by its executable's own path: the
+# process name alone also matches a verify copy or a build run from elsewhere.
+INSTALLED_EXEC="$(cd "$APP_DIR" && pwd -P)/Cicada.app/Contents/MacOS/CicadaApp"
+installed_pids() {
+  local pid
+  for pid in $(pgrep -x CicadaApp 2>/dev/null); do
+    if [ "$(ps -o comm= -p "$pid" 2>/dev/null)" = "$INSTALLED_EXEC" ]; then echo "$pid"; fi
+  done
+  return 0
+}
+signal_installed() {
+  local pid
+  for pid in $(installed_pids); do kill "-$1" "$pid" 2>/dev/null || true; done
+}
+if [ -n "$(installed_pids)" ]; then
   step "Quitting the running Cicada instance…"
-  pkill -TERM -x CicadaApp 2>/dev/null || true
+  signal_installed TERM
   waited=0
-  while pgrep -x CicadaApp >/dev/null 2>&1; do
+  while [ -n "$(installed_pids)" ]; do
     if [ "$waited" -ge "$QUIT_TIMEOUT" ]; then
       warn "Cicada didn't quit within ${QUIT_TIMEOUT}s — sending SIGKILL"
-      pkill -KILL -x CicadaApp 2>/dev/null || true
+      signal_installed KILL
       sleep 1
       break
     fi
     sleep 1
     waited=$((waited + 1))
   done
-  if pgrep -x CicadaApp >/dev/null 2>&1; then
+  if [ -n "$(installed_pids)" ]; then
     err "Cicada is still running and would not quit — aborting before touching $DEST"
     err "(the verified staged build is left at $STAGING; nothing installed was changed)"
     err "Quit it manually (Cmd-Q, or Activity Monitor) and re-run."

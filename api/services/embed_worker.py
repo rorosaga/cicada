@@ -26,11 +26,16 @@ second death is an error the caller handles like any failed embed (the old table
 **Pictures too (vision item 3, 2026-10-28).** ``coremltools`` holds the GIL for an image predict exactly as for a text
 one, and the image encoder loads ~300 MB beside the text model, so every picture vector — the meaning index's
 background refresh (``image_index``) and the design board's (``design_index``) — is made in a child of its own
-(:func:`images`, ``VISION_FACTORY``), never in the backend. That child runs at a lower priority (``NICE``) with its
-math libraries held to ``THREADS`` cores, and has a **memory ceiling** (``VISION_MEMORY_MB``): after any request that
-leaves its peak resident size above it, it answers and exits, and the next request starts a fresh one. macOS
-enforces no address-space limit a process can set on itself, so the ceiling is the child's own check, not the
-kernel's. A picture that fails comes back as a row of NaN — one bad file never fails the batch.
+(:func:`images`, ``VISION_FACTORY``), never in the backend. That child has a **memory ceiling**
+(``VISION_MEMORY_MB``): after any request that leaves its peak resident size above it, it answers and exits, and the
+next request starts a fresh one. macOS enforces no address-space limit a process can set on itself, so the ceiling is
+the child's own check, not the kernel's. A picture that fails comes back as a row of NaN — one bad file never fails
+the batch.
+
+**Every child is a background child (2026-11-05, ROR-41).** Each runs at a lower priority (``NICE``) with its thread
+pools held to ``THREADS`` cores. The picture child alone had this, and the bundled ONNX model's text child ran at
+677 % CPU on a synthetic bank's re-embed; the environment here does not reach onnxruntime's own pool, so
+``onnx_embedder`` sets that one on its session.
 """
 from __future__ import annotations
 
@@ -44,6 +49,8 @@ from pathlib import Path
 
 import numpy as np
 from loguru import logger
+
+from api.services.onnx_embedder import THREADS
 
 ENV = "CICADA_EMBED_WORKER"
 #: Fewer texts than this embed in-process: a few predicts cost less than a round trip, and far less than a start.
@@ -61,9 +68,11 @@ VISION_FACTORY = "api.services.embed_worker:_resolve_vision"
 IMAGE_BATCH = 16
 #: A picture child that has peaked above this many MB answers and exits; the next request starts another.
 VISION_MEMORY_MB = 2048
-#: A picture child's priority and its math libraries' threads (the owner's ≤ 4 cores for background embedding).
+#: Every child's priority (the owner's ≤ 4 cores for background embedding; the core count is ``onnx_embedder.THREADS``).
 NICE = 10
-THREADS = 4
+#: The thread pools a child's environment can size: math libraries and the tokenizer's rayon pool.
+THREAD_ENV = ("OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+              "RAYON_NUM_THREADS")
 
 
 class WorkerStopped(RuntimeError):
@@ -151,11 +160,11 @@ class _Worker:
         # `api` resolves in the child exactly as here: this checkout (or the release's bundle) first.
         root = str(Path(__file__).resolve().parents[2])
         env["PYTHONPATH"] = os.pathsep.join(p for p in (root, env.get("PYTHONPATH", "")) if p)
-        argv = [sys.executable, "-m", "api.services.embed_worker", self.model_id, self.factory]
+        for name in THREAD_ENV:
+            env[name] = str(THREADS)
+        argv = [sys.executable, "-m", "api.services.embed_worker", self.model_id, self.factory, "--nice", str(NICE)]
         if self.factory == VISION_FACTORY:
-            for name in ("OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
-                env[name] = str(THREADS)
-            argv += ["--nice", str(NICE), "--ceiling-mb", str(VISION_MEMORY_MB)]
+            argv += ["--ceiling-mb", str(VISION_MEMORY_MB)]
         proc = subprocess.Popen(
             argv,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, close_fds=True)

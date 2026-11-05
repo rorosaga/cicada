@@ -12,6 +12,14 @@
 
 ## Current state and evidence
 
+- **2026-11-05 — integration-test defects (ROR-41; branch `ror41-integration-defects`, PR #619).** The embedding children are
+  all capped (ONNX text child 677 % to 344 % CPU, synthetic bank); Apple Books' refusal names its fix; a gated feed's
+  line names the switch that turns it on; a reader counts once in the Sources eyebrow; `install_app.sh` signals by path;
+  Grok's install line is the command; OpenCode's Electron path is found; a measured quantity that moves is no contradiction, an agreed price in dispute still can be (G98).
+  **Owner's call, left alone:** a backend the app spawns runs with `CICADA_ALLOW_FEED_FETCH` off (`network.md`).
+  **Pick up here:** two rows still read Connected for one reader, the count is the only thing that dedupes; same-day
+  value claims still ask (`claim_reconciler.trust_decision`).
+
 - **2026-11-05 — the Inbox's rebuild back under budget; five test-health fixes (G209; branch `devhealth-flakes`).** The
   bench failure written off as a flake was real: since 6a410524 (G209, a same-person question rests on a conversation
   naming both) each person question with no pairing conversation on hand ran four searches on every rebuild of the list.

@@ -26,18 +26,27 @@ enum AppleBooksPaths {
         home.appendingPathComponent("Library/Containers/com.apple.iBooksX/Data/Documents", isDirectory: true)
     }
 
-    static func store(in folder: URL, prefix: String) -> URL? {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+    /// An absent folder is nil (nothing here yet); a folder macOS refuses to list throws, so a denial is never read
+    /// as "Open Apple Books once" (the capture rail: an unreadable file shows the exact fix).
+    static func store(in folder: URL, prefix: String) throws -> URL? {
+        let names: [String]
+        do {
+            names = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        } catch {
+            let refusal = BrowserFileError.classify(error, file: .appleBooksLibrary, path: folder.path)
+            if case .missing = refusal { return nil }
+            throw refusal
+        }
         return names.filter { $0.hasPrefix(prefix) && $0.hasSuffix(".sqlite") }.sorted().last
             .map { folder.appendingPathComponent($0) }
     }
 
-    static func library(in documents: URL) -> URL? {
-        store(in: documents.appendingPathComponent("BKLibrary", isDirectory: true), prefix: "BKLibrary-")
+    static func library(in documents: URL) throws -> URL? {
+        try store(in: documents.appendingPathComponent("BKLibrary", isDirectory: true), prefix: "BKLibrary-")
     }
 
-    static func annotations(in documents: URL) -> URL? {
-        store(in: documents.appendingPathComponent("AEAnnotation", isDirectory: true), prefix: "AEAnnotation_")
+    static func annotations(in documents: URL) throws -> URL? {
+        try store(in: documents.appendingPathComponent("AEAnnotation", isDirectory: true), prefix: "AEAnnotation_")
     }
 }
 
@@ -181,14 +190,18 @@ enum AppleBooksReadError: Error, LocalizedError, Equatable {
 /// the copy. Core Data dates are seconds since 2001-01-01.
 enum AppleBooksStore {
     static func snapshot(documents: URL) throws -> [AppleBooksBookRecord] {
-        guard let library = AppleBooksPaths.library(in: documents) else { throw AppleBooksReadError.notInstalled }
+        guard let library = try AppleBooksPaths.library(in: documents) else { throw AppleBooksReadError.notInstalled }
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("cicada-apple-books-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: scratch) }
         func copy(_ url: URL) throws -> URL {
             let target = scratch.appendingPathComponent(url.lastPathComponent)
-            do { try FileManager.default.copyItem(at: url, to: target) } catch { throw AppleBooksReadError.unreadable }
+            do {
+                try FileManager.default.copyItem(at: url, to: target)
+            } catch {
+                throw BrowserFileError.classify(error, file: .appleBooksLibrary, path: url.path)
+            }
             for suffix in ["-wal", "-shm"] {
                 let side = URL(fileURLWithPath: url.path + suffix)
                 if FileManager.default.fileExists(atPath: side.path) {
@@ -333,7 +346,10 @@ final class AppleBooksReader {
         enabled = defaults.bool(forKey: Self.enabledKey)
     }
 
-    var isInstalled: Bool { AppleBooksPaths.library(in: documents) != nil || FileManager.default.fileExists(
+    /// The last read was refused by macOS: the page offers the Full Disk Access pane beside the sentence.
+    private(set) var deniedByMac = false
+
+    var isInstalled: Bool { (try? AppleBooksPaths.library(in: documents)) != nil || FileManager.default.fileExists(
         atPath: documents.path) }
 
     func start() {
@@ -394,11 +410,17 @@ final class AppleBooksReader {
             Result { try AppleBooksStore.snapshot(documents: documents) }
         }.value
         guard gen == generation, enabled else { return }
+        deniedByMac = false
         let books: [AppleBooksBookRecord]
         switch read {
         case .success(let all): books = all
         case .failure(let error):
-            status = .failed((error as? LocalizedError)?.errorDescription ?? Copy.appleBooksUnreadable)
+            if case BrowserFileError.notReadable = error {
+                deniedByMac = true
+                status = .failed(Copy.appleBooksDenied)
+            } else {
+                status = .failed((error as? LocalizedError)?.errorDescription ?? Copy.appleBooksUnreadable)
+            }
             return
         }
         var sent = (defaults.dictionary(forKey: sentKey()) as? [String: String]) ?? [:]

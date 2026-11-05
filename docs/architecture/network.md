@@ -46,7 +46,11 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
 - **`CICADA_ALLOW_FEED_FETCH`** gates RSS/ICS polling and is **opt-IN** (`=1`). A fresh install's
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an
   older plist needs the key added by hand. While it is off a subscribed feed's Sources row is not connected and says
-  why (`channel_registry.FEED_FETCH_OFF`, 2026-10-23) — it read Connected over a poll that never ran. The feed poll,
+  why (`channel_registry.FEED_FETCH_OFF`, 2026-10-23) — it read Connected over a poll that never ran. The sentence names
+  no variable since ROR-41 (2026-11-05): the one action is Settings → General → *Keep memory working when Cicada is
+  closed*, which installs the agent whose plist sets the gate, and the feed's page links to that row while `gates.feed_fetch`
+  is off. No setting flips the gate itself: Privacy's *Feeds and calendars* row only shows it. A backend the app spawns
+  (`BackendProcess`, no agent installed) runs with it off. The feed poll,
   the ICS poll and `POST /sources/rss`'s `feedUrl` fetch go through `net_guard` on every hop since 2026-10-23 (they
   used a bare client, so a subscribed URL or a redirect could reach loopback, the LAN or a tailnet peer).
 - **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely, and media previews with it (below). The test suite runs that way
