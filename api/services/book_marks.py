@@ -345,18 +345,24 @@ def theme_hints(memory_path: Path) -> list[str]:
     return list(dict.fromkeys(names))[:MAX_THEMES]
 
 
-def without_the_book(entities: list, episode: dict) -> list:
-    """The read's entities minus the book's own. Told not to, a small model still wrote "highlighted a passage saying …"
-    onto the book's page three times over (haiku, 2026-11-05), and every word of that is already held verbatim; the page
-    exists, so its links still land on it by name. An entry emptied instead was held as a new name beside its own page.
-    Other pages are left alone: a note's decision belongs on the person's."""
+def without_restating(entities: list, episode: dict, *, is_owner) -> list:
+    """The read's entities minus what only restates the marks. Told not to, a small model still wrote "highlighted a
+    passage saying …" onto the book's page three times over and onto the owner's (haiku, 2026-11-05), and every word of
+    that is held verbatim. The book's own entry goes: the page exists, so its links still land on it by name (an entry
+    emptied instead was held as a new name beside its page). The owner's goes unless the person wrote a note here, whose
+    decision belongs on their page."""
     title = " ".join(str((episode.get("book") or {}).get("title") or "").split()).casefold()
+    noted = any(m.group("note") for m in _HEAD.finditer(str(episode.get("content") or "")))
 
-    def is_book(entity) -> bool:
-        name = " ".join(str(entity.get("name") or "").split()).casefold() if isinstance(entity, dict) else ""
-        return bool(name) and (name == title or title.startswith(f"{name}:") or name.startswith(f"{title}:"))
+    def restates(entity) -> bool:
+        if not isinstance(entity, dict):
+            return False
+        name = " ".join(str(entity.get("name") or "").split()).casefold()
+        if title and name and (name == title or title.startswith(f"{name}:") or name.startswith(f"{title}:")):
+            return True
+        return not noted and is_owner(entity)
 
-    return [e for e in entities if not is_book(e)] if title else entities
+    return [e for e in entities if not restates(e)]
 
 
 def new_themes(result: dict | None, known: list[str]) -> list[str]:

@@ -392,8 +392,12 @@ def test_a_read_of_a_record_never_writes_about_the_marks_on_the_books_own_page()
     episode = _episode("x", book={"title": "The Lantern Orchard: A Novel"})
     book = {"name": "The Lantern Orchard", "type": "media", "summary": "s", "key_facts": ["k"]}
     theme = {"name": "Focus", "type": "concept", "summary": "kept", "key_facts": ["kept"]}
-    assert book_marks.without_the_book([book, theme], episode) == [theme]
-    assert book_marks.without_the_book([theme], _episode("x", book={})) == [theme]
+    owner = {"name": "Owner", "type": "person", "key_facts": ["highlighted a passage"]}
+    is_owner = lambda e: e["name"] == "Owner"   # noqa: E731
+    assert book_marks.without_restating([book, owner, theme], episode, is_owner=is_owner) == [theme]
+    assert book_marks.without_restating([theme], _episode("x", book={}), is_owner=is_owner) == [theme]
+    noted = _episode("## User note\nI decided to walk home.", book={"title": "The Lantern Orchard"})
+    assert book_marks.without_restating([book, owner], noted, is_owner=is_owner) == [owner], "a note's words are theirs"
 
 
 def test_the_page_says_why_it_matters_in_a_count_and_never_in_the_words(bank):

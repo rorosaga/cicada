@@ -1101,7 +1101,8 @@ async def extract(
                     if left:
                         logger.info(f"  {ep_id}: revision — {left} item(s) from unchanged lines left as first read")
                 if book:
-                    all_entities = book_marks.without_the_book(all_entities, episode)
+                    all_entities = book_marks.without_restating(all_entities, episode,
+                                                                 is_owner=lambda e: _is_owner(e, owner))
                 # G235: a value is taken back out of what the model answered, whatever it was shown; a page never
                 # repeats it. After the spans above: a quote is consumed there and never stored.
                 all_entities, all_relationships, all_values = guard.clean(all_entities, all_relationships, all_values)
