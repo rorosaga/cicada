@@ -3621,6 +3621,24 @@ A whole row moves to DONE only after its remaining implementation and required a
    person's own words). **Trigger to revisit (b):** the owner asks for the words in the
    page's markdown, knowing a committed transcript cannot be forgotten.
 
+69. **A rename at the source renames the thing in Cicada, for every source (owner, 2026-11-05; ROR-122).**
+   The owner: "I think these two-way updates should be in all sources. So if a voice memo changes the name and stuff,
+   like I think this stuff should be synced and they should change names, don't you think?" (a) The newest name a
+   source reports wins and the old name stays as an alias, so old mentions and searches still find it. (b) A name the
+   person set in Cicada wins and stays until they change it; the marks are `name_by` (the app's and the agent door's
+   rename) and a `name` that is no longer the one a source wrote (`name_source`: a hand edit). A page with no mark is the
+   source's. (c) Source into Cicada only: nothing is written back to any app. (d) Two doors for one thing: a door counts
+   only when its name CHANGES against what that door reported last (`names_seen`), so the door that last changed wins and
+   a door repeating itself never flips the page; a door's first word on a page is a baseline, not a rename. Amends "the
+   first real title stays" in `books.ensure_page`; ruling 67 stands (a rename neither splits nor joins pages). A rename is
+   no mention (no claim, no promotion, no decay reset, no question, dates unchanged); the id and file name never change;
+   a removed alias is never re-added. It applies on the source's next sync that reports a changed name, one commit per
+   sync at most, as `cicada`, never over a first pass of a whole bank. *Why:* a first real title stayed forever, and a
+   Voice Memos recording renamed in its app was never seen again. **Not built (listed in the PR):** Apple Notes, Calendar,
+   Reminders, Linear, Notion and chat names are episode titles, which now follow a title-only change
+   (`episode_staging`); the table is in `capture-and-sleep.md` ("A rename at the source").
+   **Trigger to revisit:** a person's name overwritten by a source (a mark missed), or a rename flip-flopping between doors.
+
 67. **One book is one page whichever door it came in by; the Mac adds books by number or camera (owner, 2026-11-05; G233, ROR-116).**
    The owner: "yes ofc i want books on the mac and it has to have some overlap with potential books from ibooks." (a) Amends
    review-of-#600 B1: after an identifier (ISBN, work id, a source's id) fails, **exactly the same** title (or title +

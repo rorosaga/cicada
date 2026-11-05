@@ -233,6 +233,29 @@ final class VoiceMemosReaderTests: XCTestCase {
     }
 }
 
+/// ROR-122: a rename in Voice Memos moves no byte; the reader posts the name alone, and only for a recording it
+/// actually posted (a silent one, or one never posted, is never renamed on the backend).
+final class VoiceMemosRenameTests: XCTestCase {
+    private func record(_ key: String, _ title: String, in dir: URL) throws -> VoiceMemoRecord {
+        let file = dir.appendingPathComponent("\(key).m4a")
+        try Data("x".utf8).write(to: file)
+        return VoiceMemoRecord(key: key, title: title, recordedAt: Date(timeIntervalSince1970: 0), duration: nil, file: file)
+    }
+
+    func testOnlyAChangedTitleOfAPostedRecordingIsPosted() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("vmr-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = try record("key-a", "New title", in: dir), b = try record("key-b", "Same", in: dir)
+        let silent = try record("key-c", "Renamed but silent", in: dir), d = try record("key-d", "Not posted", in: dir)
+        // key-c was listened to (sent) and found silent: it has no posted title.
+        let sent = ["key-a": VoiceMemosStore.fingerprint(a), "key-b": VoiceMemosStore.fingerprint(b),
+                    "key-c": VoiceMemosStore.fingerprint(silent)]
+        let out = VoiceMemosReader.renamed([a, b, silent, d], sent: sent, names: ["key-a": "Old title", "key-b": "Same"])
+        XCTAssertEqual(out.map(\.key), ["key-a"])
+    }
+}
+
 private extension VoiceMemosReader.Status {
     /// The time of a `.synced` status (tests compare the rest).
     var at: Date { if case .synced(let at, _, _) = self { return at }; return .distantPast }

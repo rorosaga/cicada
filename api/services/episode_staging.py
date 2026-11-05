@@ -1092,6 +1092,15 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     entry.fm["content_sha"] = draft.content_sha
                     result.restamped += 1
                     result.paths.append(_rel(entry.path, episodes_dir))
+                title = _title(draft)
+                if title and entry.fm.get("title") and entry.fm.get("title") != title:
+                    # ROR-122: the source renamed it and no word moved: the new title shows; nothing is re-queued (the
+                    # title is outside the hash), and what the old one said stays in git.
+                    if write:
+                        _set_meta(entry.path, {"title": title})
+                    entry.fm["title"] = title
+                    if (rel := _rel(entry.path, episodes_dir)) not in result.paths:
+                        result.paths.append(rel)
                 grouping = stored_meta({PROVIDER_PROJECT_KEY: draft.extra.get(PROVIDER_PROJECT_KEY)})[
                     PROVIDER_PROJECT_KEY]   # as stored, or a scrubbed name rewrites every sync
                 if grouping and entry.fm.get(PROVIDER_PROJECT_KEY) != grouping:

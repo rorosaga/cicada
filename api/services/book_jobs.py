@@ -33,7 +33,7 @@ async def apply_admitted(memory_path: Path, *, author: str, trigger: str) -> dic
     memory_path = Path(memory_path)
 
     async def body():
-        out = await asyncio.to_thread(books.apply_pending, memory_path)
+        out = await asyncio.to_thread(books.apply_pending, memory_path, defer_renames=True)
         if out["paths"]:
             await folder_source.commit_paths_for(memory_path, out["paths"], subject="Books", trigger=trigger,
                                                  author=author, channel=CHANNEL)
@@ -41,6 +41,12 @@ async def apply_admitted(memory_path: Path, *, author: str, trigger: str) -> dic
             # Cicada's own rewrites (placeholders, lookups, cover stamps) are never the person's scan or sync.
             await folder_source.commit_paths_for(memory_path, out["cicada_paths"], subject="Books", trigger="books/enrich",
                                                  author="cicada", channel=CHANNEL)
+        if out.get("renames"):
+            # ROR-122: after the person's own commit, so a source's new title is Cicada's own, alone.
+            moved = await asyncio.to_thread(books.apply_renames, memory_path, out["renames"])
+            if moved:
+                await folder_source.commit_paths_for(memory_path, moved, subject="Books", trigger="books/rename",
+                                                     author="cicada", channel=CHANNEL)
         return out
 
     try:

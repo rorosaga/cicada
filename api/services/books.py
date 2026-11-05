@@ -64,7 +64,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import bank_index, decay_policy, episode_ids, evidence, markdown_parser, page_lock
+from api.services import bank_index, decay_policy, episode_ids, evidence, markdown_parser, page_lock, source_names
 from api.services.claims import (RETRACT_PREDICATE, Claim, MalformedClaimsBlockError, is_recovered_history,
                                  parse_claims, preserve_claims_blocks, strip_claims_block, write_claims)
 from api.services.id_utils import sanitize_id
@@ -271,6 +271,9 @@ class BookIndex:
         self.subtitled: dict[str, bool] = {}
         #: A page :func:`ensure_page` just made → the pages it might be the same book as (never joined; asked).
         self.unsure: dict[str, list[str]] = {}
+        #: ROR-122: a door's changed title for a page it already named, ``(page, door, title, subtitle)`` — applied after
+        #: the person's own commit by :func:`apply_renames`, never inside :func:`ensure_page`.
+        self.renames: list[tuple[str, str, str, str | None]] = []
         for f in bank_index.files(memory_path, "entities"):
             fm = f.frontmatter or {}
             stem = Path(f.path).stem
@@ -423,6 +426,48 @@ def _applied_page(memory_path: Path, was) -> str | None:
     return entity_id
 
 
+def _name_basis(fm: dict, book: dict, door: str) -> tuple[str | None, str | None]:
+    """``(was, door_was)`` for a page made before ROR-122 marked names: the name its first real title gave, and what
+    this door gave when it is the page's only door."""
+    title = None if book.get("title_from") == "placeholder" else source_names.clean(book.get("title")) or None
+    return title, (title if title and list(book.get("doors") or []) == [door] else None)
+
+
+def apply_renames(memory_path: Path, renames, *, today: str | None = None) -> list[str]:
+    """Apply the queued title changes (``BookIndex.renames``): the page's name follows the door's newest title, the old
+    one stays an alias; a name the person set stands and the door's new one becomes an alias. Memory-relative paths
+    written. The caller holds the bank's write admission and commits them under ``cicada`` (ROR-122)."""
+    memory_path = Path(memory_path)
+    day = today or date.today().isoformat()
+    paths: list[str] = []
+    if not renames:
+        return paths
+    with page_lock.page_lock(memory_path):
+        for entity_id, door, title, subtitle in renames:
+            path = memory_path / "entities" / f"{entity_id}.md"
+            if not path.is_file():
+                continue
+            parsed = markdown_parser.parse(path)
+            fm = dict(parsed.frontmatter)
+            book = dict(fm.get("book") or {})
+            if not is_book(fm):
+                continue
+            was, door_was = _name_basis(fm, book, door)
+            verdict = source_names.apply(fm, door, title, day=day, was=was, door_was=door_was)
+            if verdict not in (source_names.RENAME, source_names.KEPT):
+                continue
+            if verdict == source_names.RENAME:
+                book["title"] = source_names.clean(title)
+                if subtitle:
+                    book["subtitle"] = subtitle
+                fm["book"] = book
+            markdown_parser.write(path, fm, parsed.body)
+            paths.append(f"entities/{entity_id}.md")
+    if paths:
+        bank_index.invalidate(memory_path)
+    return paths
+
+
 def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_id: str,
                 today: str, *, was=None) -> tuple[str, bool, bool]:
     """``(entity_id, created, changed)``: the work's page, made or upgraded in place with what ``facts`` adds. A
@@ -458,6 +503,16 @@ def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_i
         if upgrade:
             book["title"], book["title_from"] = facts.title, facts.title_from
             fm["name"] = display_title(facts)
+            if facts.door:
+                source_names.wrote(fm, facts.door, fm["name"], today)
+        elif facts.door and facts.title_from != "placeholder" and facts.title:
+            # ROR-122: a door that now calls the book something else renames it, after the person's own commit.
+            was, door_was = _name_basis(fm, book, facts.door)
+            verdict = source_names.decide(fm, facts.door, display_title(facts), was=was, door_was=door_was)
+            if verdict == source_names.BASELINE:
+                source_names.note(fm, facts.door, display_title(facts))
+            elif verdict in (source_names.RENAME, source_names.KEPT):
+                index.renames.append((entity_id, facts.door, display_title(facts), facts.subtitle))
         fm["book"] = book
         fm["aliases"] = _merge_list(fm.get("aliases"),
                                     aliases_for(book["isbns"]) + _spellings(facts, fm.get("name")))
@@ -501,6 +556,8 @@ def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_i
                   "saved_at": episode_ids.utc_now_iso()},
         "book": book,
     }
+    if facts.door and facts.title_from != "placeholder" and facts.title:
+        source_names.wrote(fm, facts.door, name, today)
     path = Path(memory_path) / "entities" / f"{entity_id}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     body, _ = _book_prose("", book, facts, today)
@@ -1069,14 +1126,15 @@ def _apply_marks(memory_path: Path, entity_id: str, episode_id: str, ep_path: Pa
     return rel
 
 
-def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = MAX_APPLY) -> dict:
+def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = MAX_APPLY,
+                  defer_renames: bool = False) -> dict:
     """Make every pending book episode's page, status, rating and marks (``book_marks``), with no model and no network.
     Returns ``{applied, waiting, pages_created, paths, cicada_paths}`` (memory-relative): ``paths`` for the caller's own
     commit, ``cicada_paths`` (enrichment from cached lookups, cover stamps) for a commit of their own under ``cicada``. The caller holds
     the bank's write admission (a route) or Sleep's window (the tail); this holds the page lock."""
     memory_path = Path(memory_path)
     today_s = (today or date.today()).isoformat()
-    out = {"applied": 0, "waiting": 0, "pages_created": 0, "paths": [], "cicada_paths": []}
+    out = {"applied": 0, "waiting": 0, "pages_created": 0, "paths": [], "cicada_paths": [], "renames": []}
     todo = pending(memory_path, limit=limit)
     own: list[str] = []  # Cicada's own rewrites (enrichment, cover stamps): never the person's act, committed apart
     paths: list[str] = []
@@ -1155,6 +1213,16 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
             from api.services import tool_contract
 
             logger.warning(f"book covers not stamped: {tool_contract.where(exc)}")
+    out["renames"] = list(index.renames)
+    if index.renames and not defer_renames:
+        # ROR-122: a door's changed title; a caller that commits the person's own paths first defers this (book_jobs).
+        try:
+            own += apply_renames(memory_path, index.renames, today=today_s)
+            out["renames"] = []
+        except Exception as exc:  # noqa: BLE001
+            from api.services import tool_contract
+
+            logger.warning(f"book renames not applied: {tool_contract.where(exc)}")
     bank_index.invalidate(memory_path)
     # Ruling 61: a page a door just made may be the one a conversation already named.
     from api.services import book_said

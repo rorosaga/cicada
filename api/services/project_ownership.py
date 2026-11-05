@@ -526,6 +526,7 @@ def apply_header(fm: dict, *, name: str | None = None, desc: str | None = None, 
     frontmatter dict. Returns the changes, in words. ``page_edits.plan`` and the app's PATCH both come through here."""
     changes: list[str] = []
     if name is not None and _rename(fm, clean_name(name)):
+        fm["name_by"] = {"by": by, "day": day}      # a source's later rename never overrides it (ROR-122, source_names)
         changes.append("renamed")
     if desc is not None:
         text = clean_description(desc, bank=bank)

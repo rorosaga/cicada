@@ -56,7 +56,7 @@ from urllib.parse import urlparse
 
 from loguru import logger
 
-from api.services import bank_index, markdown_parser, page_lock
+from api.services import bank_index, markdown_parser, page_lock, source_names
 
 KIND = "repository"
 GITHUB_KEY = "github"
@@ -400,7 +400,14 @@ def upsert(memory_path: Path, repo: Repo, idx: dict, *, origin: str, starred: bo
     media["media_type"] = KIND
     fm["media"] = media
     changed = before != media
+    was = (fm.get(GITHUB_KEY) or {}).get("full_name") if isinstance(fm.get(GITHUB_KEY), dict) else None
     changed |= _merge_block(fm, repo, starred=starred, starred_at=starred_at, added=added, owned=owned)
+    if status != "created":
+        # ROR-122: GitHub's id found the page across a rename; its name follows the repository's newest one.
+        changed |= source_names.apply(fm, "github", repo.full_name, day=date.today().isoformat(), was=was,
+                                      door_was=was) not in (source_names.SAME,)
+    else:
+        source_names.wrote(fm, "github", repo.full_name, date.today().isoformat())
     changed |= _source(fm, repo.url, WEBSITE, date.today().isoformat())
     if changed or status == "created":
         markdown_parser.write(page, fm, body if status == "created" and body else parsed.body)

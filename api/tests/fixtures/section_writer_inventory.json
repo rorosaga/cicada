@@ -1631,6 +1631,12 @@
   ],
   "services/books.py": [
     {
+      "function": "apply_renames",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
       "function": "ensure_page",
       "method": "write",
       "frontmatter": "fm",

@@ -209,6 +209,30 @@ def subscribe_feed(memory_path: Path, url: str, tags: list[str] | None = None, *
     return record
 
 
+def note_feed_title(feed: dict, channel: str) -> bool:
+    """ROR-122: the feed's own newest name. It fills a record with none; once a poll has reported one, a different
+    report renames the row and the old name stays in ``aka``. A feed row's title is always a source's (there is no
+    person's rename of one), and a first report only sets the baseline, so a name from a Substack list never flips
+    against the channel's. ``True`` when the record changed."""
+    channel = " ".join(str(channel or "").split())[:200]
+    if not channel:
+        return False
+    seen = feed.get("title_seen")
+    changed = False
+    if seen != channel:
+        feed["title_seen"] = channel
+        changed = True
+    if not feed.get("title"):
+        feed["title"] = channel
+    elif seen and seen != channel and feed["title"] != channel:
+        aka = [a for a in feed.get("aka") or [] if isinstance(a, str)]
+        if feed["title"] not in aka:
+            aka.append(feed["title"])
+        feed["aka"] = [a for a in aka if a != channel]
+        feed["title"] = channel
+    return changed
+
+
 def unsubscribe_feed(memory_path: Path, url: str) -> bool:
     """Remove a feed subscription by URL. Returns True iff a record was removed. The removal is remembered
     (``removed``), so no automatic writer subscribes it again (G61's rule for a source the person removed)."""
@@ -325,8 +349,8 @@ async def poll_feeds(
             # ROR-108: which feed each listed item came from, and the feed's own name while its record has none.
             listed = media_ingestor.parse_rss(xml)
             stamped = media_ingestor.stamp_feed(memory_path, listed, feed_id(url)) or stamped
-            if not feed.get("title") and listed and listed[0].channel:
-                feed["title"] = listed[0].channel
+            if listed and listed[0].channel:
+                note_feed_title(feed, listed[0].channel)
         except Exception as e:
             logger.warning(f"Feed poll failed for {url}: {type(e).__name__}: {e}")
             per_feed.append({"url": url, "status": "error", "error": str(e)})
