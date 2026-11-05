@@ -68,7 +68,11 @@ struct VoiceMemoRecord: Equatable, Sendable {
 /// (Voice Memos keeps writing; the Chrome-history rule), open the copy read-only, read the whitelisted columns, delete
 /// the copy. Core Data dates are seconds since 2001-01-01.
 enum VoiceMemosStore {
-    static func snapshot(folder: URL) throws -> [VoiceMemoRecord] {
+    static func snapshot(folder: URL) throws -> [VoiceMemoRecord] { try snapshotAll(folder: folder).records }
+
+    /// What can be read now, and every recording the store lists, whether or not its audio is on this Mac. An iCloud-only
+    /// memo has no file here and still exists, so only `listed` says what has left (review of #644).
+    static func snapshotAll(folder: URL) throws -> (records: [VoiceMemoRecord], listed: [String]) {
         guard let database = try VoiceMemosPaths.database(in: folder) else { throw VoiceMemosReadError.notInstalled }
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("cicada-voice-memos-\(UUID().uuidString)", isDirectory: true)
@@ -90,13 +94,18 @@ enum VoiceMemosStore {
         return try read(database: target, folder: folder)
     }
 
-    static func read(database: URL, folder: URL) throws -> [VoiceMemoRecord] {
+    static func read(database: URL, folder: URL) throws -> (records: [VoiceMemoRecord], listed: [String]) {
         let db = try SQLiteReadOnly(url: database)
         defer { db.close() }
         let cols = db.columns(of: VoiceMemosColumns.table, whitelist: VoiceMemosColumns.recordings)
         guard cols.contains("ZUNIQUEID"), cols.contains("ZPATH") else { throw VoiceMemosReadError.unreadable }
         let rows = try db.query("SELECT \(cols.joined(separator: ", ")) FROM \(VoiceMemosColumns.table)", binds: [])
-        return rows.compactMap { row in
+        let listed = rows.compactMap { row -> String? in
+            guard let key = row["ZUNIQUEID"] as? String, VoiceMemosPaths.keyIsValid(key),
+                  (row["ZTRASHEDDATE"] as? NSNumber) == nil else { return nil }
+            return key
+        }
+        let records: [VoiceMemoRecord] = rows.compactMap { row in
             guard let key = row["ZUNIQUEID"] as? String, VoiceMemosPaths.keyIsValid(key),
                   (row["ZTRASHEDDATE"] as? NSNumber) == nil,
                   let path = row["ZPATH"] as? String, let file = VoiceMemosPaths.audio(named: path, in: folder)
@@ -109,6 +118,7 @@ enum VoiceMemosStore {
             return VoiceMemoRecord(key: key, title: label.isEmpty ? file.deletingPathExtension().lastPathComponent : label,
                                    recordedAt: when, duration: (row["ZDURATION"] as? NSNumber)?.doubleValue, file: file)  // motion-lint:ok — a recording's length
         }.sorted { ($0.recordedAt, $0.key) < ($1.recordedAt, $1.key) }
+        return (records, listed)
     }
 
     /// What decides whether a recording is read again: its file's size and write time (an edit changes both). The
@@ -245,14 +255,15 @@ final class VoiceMemosReader {
         let gen = generation
         status = .syncing
         let folder = self.folder
-        let read = await Task.detached(priority: .utility) { () -> Result<[VoiceMemoRecord], Error> in
-            Result { try VoiceMemosStore.snapshot(folder: folder) }
+        let read = await Task.detached(priority: .utility) { () -> Result<(records: [VoiceMemoRecord], listed: [String]), Error> in
+            Result { try VoiceMemosStore.snapshotAll(folder: folder) }
         }.value
         guard gen == generation, enabled else { return }
         deniedByMac = false
         let records: [VoiceMemoRecord]
+        let listed: [String]
         switch read {
-        case .success(let all): records = all
+        case .success(let all): (records, listed) = all
         case .failure(let error):
             if case BrowserFileError.notReadable = error {
                 deniedByMac = true
@@ -273,9 +284,14 @@ final class VoiceMemosReader {
             for record in records where sent[record.key] != VoiceMemosStore.fingerprint(record) {
                 guard gen == generation, enabled else { return }
                 let stamp = VoiceMemosStore.fingerprint(record)
-                guard case .words(let segments) = await transcriber.transcribe(record.file, locale: locale),
-                      !segments.isEmpty else {
+                let outcome = await transcriber.transcribe(record.file, locale: locale)
+                guard case .words(let segments) = outcome, !segments.isEmpty else {
                     withoutWords += 1
+                    // Listened to and nothing said: not again until it changes. A missing speech model retries.
+                    if case .words = outcome {
+                        sent[record.key] = stamp
+                        defaults.set(sent, forKey: sentKey())
+                    }
                     continue
                 }
                 var body: [String: Any] = [
@@ -292,13 +308,13 @@ final class VoiceMemosReader {
                 defaults.set(sent, forKey: sentKey())
             }
             // A complete, successful read: what Voice Memos no longer lists leaves search (tombstoned).
-            try await api.postVoiceMemos(["memos": [] as [[String: Any]], "present": records.map(\.key)])
+            try await api.postVoiceMemos(["memos": [] as [[String: Any]], "present": listed])
         } catch {
             guard gen == generation else { return }
             status = .failed(Self.failureMessage(error))
             return
         }
-        sent = sent.filter { key, _ in records.contains { $0.key == key } }
+        sent = sent.filter { key, _ in listed.contains(key) }
         defaults.set(sent, forKey: sentKey())
         status = .synced(at: now(), memos: records.count - withoutWords, withoutWords: withoutWords)
     }

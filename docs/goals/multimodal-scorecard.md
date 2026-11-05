@@ -66,7 +66,7 @@ values never go in this file. Related: G43, G195 (meaning index 2), G162 (no dow
 - **Audio file.** The video path without frames. *In 7, by meaning 7:* the same tests and the same measured floors; no real
   podcast or meeting was run (n/m). *Opens 1, sees 3, plays 0:* as above, no waveform or time, no player.
 - **Voice Memos (this PR).** *In 5:* the reader, tile (Apple's own icon drawn from the installed app), route and store are
-  built and `test_media_files.py` passes (29, 14 of them for this source); the Swift tests compile (`swift build --build-tests`) and were not run by the author;
+  built and `test_media_files.py` passes (29, 14 of them for this source); the Swift tests compile (`swift build --build-tests`) and were run by the coordinator;
   the table and column names are Core Data's usual and were **not checked against a real store** (see below), so a live read
   is unproven. *By words 0, by meaning 7:* identical to an audio file, through the same `files` kind and the same tests
   (`test_media_files.py` adds: one item per recording by id, dated by its own date, an edit re-stages, a deletion is

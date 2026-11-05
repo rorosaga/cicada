@@ -118,11 +118,11 @@ final class VoiceMemosReaderTests: XCTestCase {
 
     @MainActor
     private func reader(_ api: Posts, speech: SpeechAccess = .authorized,
-                        outcome: TranscribeOutcome = .words([TranscriptSegment(start: 0, end: 2, text: "Hello there.")]))
+                        outcome: TranscribeOutcome = .words([TranscriptSegment(start: 0, end: 2, text: "Hello there.")]), transcriber: (any Transcribing)? = nil)
         -> VoiceMemosReader {
         let defaults = UserDefaults(suiteName: "vm-\(UUID().uuidString)")!
         return VoiceMemosReader(api: api, defaults: defaults, folder: dir, speech: Speech(access: speech),
-                                transcriber: Says(outcome: outcome),
+                                transcriber: transcriber ?? Says(outcome: outcome),
                                 places: MediaFilePlaces(defaults: defaults), locale: Locale(identifier: "en_US"),
                                 bank: { "test" })
     }
@@ -160,9 +160,14 @@ final class VoiceMemosReaderTests: XCTestCase {
         await reader.syncNow()
         XCTAssertEqual(api.memos.count, 3)
         XCTAssertEqual(api.memos.last?["key"] as? String, keyA)
+        // Only in iCloud now: its file is gone from this Mac and the store still lists it, so its words stay.
         try FileManager.default.removeItem(at: dir.appendingPathComponent("two.m4a"))
         await reader.syncNow()
-        XCTAssertEqual(api.lastPresent, [keyA], "the one no longer there is left off, so the backend retires it")
+        XCTAssertEqual(Set(api.lastPresent ?? []), [keyA, keyB], "a memo not downloaded has not left")
+        try FileManager.default.removeItem(at: dir.appendingPathComponent("CloudRecordings.db"))
+        try store(rows: ["'\(keyA)', 'one.m4a', 'First', 700000000, 5, NULL"])
+        await reader.syncNow()
+        XCTAssertEqual(api.lastPresent, [keyA], "the one the store no longer lists leaves")
     }
 
     @MainActor
@@ -185,6 +190,30 @@ final class VoiceMemosReaderTests: XCTestCase {
         await reader.turnOn()
         XCTAssertTrue(api.memos.isEmpty)
         XCTAssertEqual(reader.status, .synced(at: reader.status.at, memos: 0, withoutWords: 1))
+    }
+
+    private final class Counts: Transcribing, @unchecked Sendable {
+        var calls = 0
+        var outcome: TranscribeOutcome
+        init(_ outcome: TranscribeOutcome) { self.outcome = outcome }
+        func transcribe(_ url: URL, locale: Locale) async -> TranscribeOutcome { calls += 1; return outcome }
+    }
+
+    @MainActor
+    func testASilentMemoIsListenedToOnceAndAMissingModelRetries() async throws {
+        try audio("one.m4a")
+        try store(rows: ["'\(keyA)', 'one.m4a', 'First', 700000000, 5, NULL"])
+        let silent = Counts(.words([]))
+        let first = reader(Posts(), transcriber: silent)
+        await first.turnOn()
+        await first.syncNow()
+        XCTAssertEqual(silent.calls, 1, "nothing said: not listened to again until it changes")
+
+        let noModel = Counts(.noSpeechModel)
+        let again = reader(Posts(), transcriber: noModel)
+        await again.turnOn()
+        await again.syncNow()
+        XCTAssertEqual(noModel.calls, 2, "no model yet: it retries")
     }
 
     @MainActor
