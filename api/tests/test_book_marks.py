@@ -324,6 +324,39 @@ def test_stage_one_leaves_every_other_episode_alone(monkeypatch):
     assert "Reading now" in seen[0]["chunk"] and "source_note" not in seen[0]
 
 
+def test_books_are_read_one_at_a_time_and_each_hears_the_themes_of_the_last(monkeypatch):
+    calls: list[dict] = []
+    running = {"now": 0, "most": 0}
+
+    async def fake(ep_id, chunk, ci, total, settings, **kw):
+        running["now"] += 1
+        running["most"] = max(running["most"], running["now"])
+        await asyncio.sleep(0)
+        calls.append({"id": ep_id, "note": kw.get("source_note") or ""})
+        running["now"] -= 1
+        return {"entities": [{"name": f"Theme of {ep_id}", "type": "concept"}], "relationships": []}
+
+    monkeypatch.setattr(entity_extractor, "_extract_chunk", fake)
+    body = "**Book:** X\n\n## Highlight, 2026-05-01\n> One.\n"
+    episodes = [_episode(body, id=f"ep_{i}", timestamp="2026-05-01T10:00:00Z") for i in range(3)]
+    asyncio.run(entity_extractor.extract(episodes, SimpleNamespace(memory_path=None, litellm_model="m")))
+    assert running["most"] == 1 and len(calls) == 3
+    assert "Theme of" not in calls[0]["note"]
+    assert f"Theme of {calls[0]['id']}" in calls[1]["note"]
+    assert f"Theme of {calls[1]['id']}" in calls[2]["note"]
+
+
+def test_a_read_of_a_record_never_writes_about_the_marks_on_the_books_own_page():
+    episode = _episode("x", book={"title": "The Lantern Orchard: A Novel"})
+    book = {"name": "The Lantern Orchard", "type": "media", "summary": "s", "key_facts": ["k"], "history_entries": [{"a": 1}],
+            "item_inputs": [{"field": "summary"}], "tags": ["kept"]}
+    theme = {"name": "Focus", "type": "concept", "summary": "kept", "key_facts": ["kept"]}
+    book_marks.trim_book_entry([book, theme], episode)
+    assert book == {"name": "The Lantern Orchard", "type": "media", "summary": "", "key_facts": [], "history_entries": [],
+                    "tags": ["kept"]}
+    assert theme["summary"] == "kept" and theme["key_facts"] == ["kept"]
+
+
 def test_theme_hints_name_pages_books_link_to_and_names_held_from_a_book(bank):
     from api.services import pending_store
 

@@ -315,6 +315,26 @@ def theme_hints(memory_path: Path) -> list[str]:
     return list(dict.fromkeys(names))[:MAX_THEMES]
 
 
+#: What a read of a book's record may not add to the book's own page: every word of it is already held, verbatim.
+_RESTATED = {"summary": "", "description": "", "key_facts": [], "history_entries": [], "open_questions": []}
+
+
+def trim_book_entry(entities: list, episode: dict) -> None:
+    """Told not to, a small model still wrote "highlighted a passage saying …" onto the book's page three times over
+    (haiku, 2026-11-05). So the book's own entry keeps its name and links and nothing it wrote about the marks, whatever
+    the model does. The other pages it names are left alone: a note's decision belongs on the person's."""
+    title = " ".join(str((episode.get("book") or {}).get("title") or "").split()).casefold()
+    if not title:
+        return
+    for entity in entities:
+        name = " ".join(str(entity.get("name") or "").split()).casefold() if isinstance(entity, dict) else ""
+        if name and (name == title or title.startswith(f"{name}:") or name.startswith(f"{title}:")):
+            for key, empty in _RESTATED.items():
+                if key in entity:
+                    entity[key] = empty if isinstance(empty, str) else list(empty)
+            entity.pop("item_inputs", None)
+
+
 def new_themes(result: dict | None, known: list[str]) -> list[str]:
     """The concept names one book's read gave that the next book should hear, within :data:`MAX_THEMES`."""
     fresh = [str(e.get("name")) for e in (result or {}).get("entities") or []
