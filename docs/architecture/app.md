@@ -2037,7 +2037,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   person's rows drawing the link kind's glyph, never a site icon (G159); proposals one "N suggested links · Review" line
   whose popover takes or drops each; at most five rows, then *All N* in a popover; a right-click removes; *Add a link*),
   the type block (the brand block, `PageBrandBlock`, above the article when looks are what the page is about — two or
-  more, or no article — then the look tiles; a folder, a repository), *Ongoing* (`PageOngoing`, open happenings and
+  more, or no article — then the look tiles; a folder, a repository), *Marked* (`PageMarks`, ruling 64: a book's highlights word for word, each note under its passage, the day), *Ongoing* (`PageOngoing`, open happenings and
   planned milestones on the Projects band's hollow node, at most five), the article carrying its beliefs, and
   *References* (`PageReferences`, at most six numbered lines, then "N conversations and M web pages in all · who wrote
   each change is in History", with a History link). **The article carries the beliefs (DR-80):** every line the

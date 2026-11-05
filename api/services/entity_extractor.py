@@ -13,7 +13,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import (act_object, authorship, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
+from api.services import (act_object, authorship, book_marks, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
                           episode_revision, evidence, fact_policy, participation, project_birth, promotion, section_provenance,
                           sensitive_flags, source_dates)
 from api.services.json_parse import parse_json_object
@@ -868,6 +868,17 @@ async def extract(
 
     today = today or current_day()
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
+    themes_read: list[list[str]] = []
+    #: Ruling 64: one book at a time, each told the themes the last ones named, so two books can land on one name and
+    #: the 2+ rule can count them. A read at once saw nothing, and five themes across three books never met.
+    book_turn = asyncio.Lock()
+
+    def book_themes() -> list[str]:
+        """Theme names on the record plus this fan-out's so far, only if it holds a book's record."""
+        if not themes_read:
+            bank = getattr(settings, "memory_path", None)
+            themes_read.append(book_marks.theme_hints(Path(bank)) if bank else [])
+        return themes_read[0]
     results: list[dict | None] = [None] * len(episodes)
     success = 0
     failed = 0
@@ -888,6 +899,21 @@ async def extract(
         owner = owner_identity.owner_name(getattr(settings, "memory_path", None), settings)
     except Exception:  # noqa: BLE001 - a missing name costs the prompt line, never the read
         owner = None
+    owner_held: list[dict | None] = []
+
+    def owner_fm() -> dict | None:
+        """The owner page's frontmatter, read once and only for a book's record (ruling 64)."""
+        if not owner_held:
+            from api.services import role_people
+
+            bank = getattr(settings, "memory_path", None)
+            try:
+                owner_held.append(role_people.owner_frontmatter(Path(bank), settings) if bank else None)
+            except Exception:  # noqa: BLE001 - the read keeps less rather than fail: the name alone still decides
+                owner_held.append(None)
+            owner_held[0] = owner_held[0] or ({"name": owner} if owner else None)
+        return owner_held[0]
+
     # R-E22: the per-episode reasons name the engine that actually ran.
     from api.services import engine_select
 
@@ -968,13 +994,22 @@ async def extract(
 
         spans = _chunk_spans(content) if revision is None else [
             (lo + s, lo + e) for lo, hi in revision.windows for s, e in _chunk_spans(content[lo:hi])]
+        # Ruling 64: a book's record is read for what its marks share, in one chunk whatever its size (`book_marks`).
+        book = book_marks.holds_marks(episode)
+        book_plan = book_marks.plan_read(content, revision.windows if revision is not None else None) if book else None
+        if book_plan is not None:
+            spans = book_plan[0]
         # G110 gate B2: blank the episode's own gap range on the WHOLE body, then slice.
         gaps = tuple(episode.get("gaps") or ())
         masked = evidence.mask_gaps(content, gaps)
+        if book:
+            masked = book_marks.mask_status(masked)   # already records: Stage 1 never restates them
         # G235: what these windows hold that is likely sensitive, found with no model before any is sent. Ruling 60: the
         # engine reads a typed mark where a confident hit was; the stored body and every offset stay as they are.
         guard = sensitive_flags.Guard.of(episode, spans)
         chunks = [guard.chunk(masked, s, e) for s, e in spans]
+        if book_plan is not None:   # one chunk, located over the whole body
+            chunks, spans = ["\n\n".join(chunks)], [(0, len(content))]
         # G194 A1: every chunk is told when the conversation took place and what day it is now.
         ep_day = source_dates.episode_day(episode)
         # "Facts yes, activity no" (owner 2026-10-08): a memory export entry's date is the summary's, not a
@@ -991,7 +1026,9 @@ async def extract(
         # G179: a message conversation says who its other side is, before every chunk.
         # A harness session says whose its assistant lines are, and that their acts are not the person's.
         source_note = (correspondent_note(episode.get("correspondent")) or agent_session_note(episode)
-                       or agent_save_note(episode) or meeting_note(episode))
+                       or agent_save_note(episode) or meeting_note(episode)
+                       or book_marks.note(episode, themes=book_themes() if book else (),
+                                          shown=(book_plan[1], book_plan[2]) if book_plan else None))
         # Ruling 45 addendum: the provider's project grouping, or the relaying app's word on it, as context.
         if (went_on := relayed_note(episode)) is not None:
             source_note = (source_note or "") + went_on
@@ -1080,6 +1117,10 @@ async def extract(
                         revision, all_entities, all_relationships, all_values)
                     if left:
                         logger.info(f"  {ep_id}: revision — {left} item(s) from unchanged lines left as first read")
+                if book:
+                    # What a read of a book's record may add is its themes and the person's own notes (ruling 64).
+                    all_entities, all_relationships, all_values = book_marks.of_a_read(
+                        all_entities, all_relationships, all_values, episode, owner_fm=owner_fm())
                 # G235: a value is taken back out of what the model answered, whatever it was shown; a page never
                 # repeats it. After the spans above: a quote is consumed there and never stored.
                 all_entities, all_relationships, all_values = guard.clean(all_entities, all_relationships, all_values)
@@ -1251,7 +1292,12 @@ async def extract(
 
     async def process_one(i: int, episode: dict) -> None:
         try:
-            await _do_process(i, episode)
+            if book_marks.holds_marks(episode):
+                async with book_turn:
+                    await _do_process(i, episode)
+                    book_themes().extend(book_marks.new_themes(results[i], book_themes()))
+            else:
+                await _do_process(i, episode)
         finally:
             progress.update(1)
             if progress_callback is not None:

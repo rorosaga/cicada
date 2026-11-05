@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 
 import pytest
 
-from api.services import ask_service, bank_index, evidence, markdown_parser, mcp_tools, section_provenance
+from api.services import (ask_service, bank_index, bank_registry, evidence, markdown_parser, mcp_tools, search_index,
+                          section_provenance)
 from api.services.claims import Claim, Evidence, write_claims
 
 EPISODE = "ep_2023-06-27_001"
@@ -90,8 +92,10 @@ def _ask(bank, question: str, **kw) -> str:
 
 
 def _tree(memory) -> str:
+    """Everything the bank holds but its derived files: Ask's search leg may start the index build in the background
+    (`saved_lookup`, `search_index.ensure_fresh`), and that file is disposable, git-ignored and no copy of an answer."""
     digest = hashlib.sha256()
-    for path in sorted(p for p in memory.rglob("*") if p.is_file()):
+    for path in sorted(p for p in memory.rglob("*") if p.is_file() and p.name not in bank_registry.DERIVED_ARTIFACTS):
         digest.update(path.relative_to(memory).as_posix().encode() + path.read_bytes())
     return digest.hexdigest()
 
@@ -104,6 +108,17 @@ def test_the_cited_conversation_words_reach_the_model_with_who_said_them(bank):
     assert "2023-06-27, Alice Example (the person this memory belongs to)" in said
     assert "Bob Example (another person" in said, "the other side's words are labelled as theirs"
     assert _tree(bank) == before, "the words are read at answer time, never written anywhere"
+
+
+def test_asking_leaves_the_banks_git_tree_clean(bank):
+    """Ask's search leg may start the derived index's build in the background: the file is git-ignored from before it
+    exists (G136), so a read never leaves a tracked change."""
+    subprocess.run(["git", "init", "-q"], cwd=bank, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=bank, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "seed"], cwd=bank, check=True)
+    _ask(bank, "What does Alice's necklace symbolize?")
+    assert search_index.wait_idle(bank)
+    assert subprocess.run(["git", "status", "--porcelain"], cwd=bank, capture_output=True, text=True, check=True).stdout == ""
 
 
 def test_without_the_sources_scope_no_conversation_words_are_shown(bank):

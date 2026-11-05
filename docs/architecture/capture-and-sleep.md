@@ -1609,6 +1609,55 @@ its `content_hash`, so the queue is derived from the bank — a move or a restor
 - **A door's list** (`channel_items`): `GET /sources/channels/{apple-books|goodreads|book-scan}/items` is that door's
   books, one row each, a `page` row once it has its book page (a book has no saved link, so a click opens the page).
 
+**What the person marked is kept word for word (ruling 64, ROR-95, `book_marks`).** Each `## Highlight` and `## User note`
+section of a book's record is a claim on its page, written at the door by `apply` with no model: `highlighted` (the book's
+words, a `page` span) and `noted` (the person's, a `user` span), id from the page, predicate and words, `valid_from` the
+highlight's day, `origin: book`, `authored_by: user`. `claims.is_mark` is the one test (predicate and origin, so a model
+writing the word is not one). The writer makes the page match the body: a span follows when a status line or an earlier
+section moves it, a passage gone from the record closes (`valid_to`, unless another door's record holds it), comes back
+open if marked again, and one the person took back (`retracts`) is never rewritten. `episode_revision` never closes one.
+Its stamp is `book_marks:` beside `book_applied`, so a record applied before this gets its marks with no second status; a
+page merged away since sends them to the page it became (`page_redirects`), and a record with no page left is stamped, not
+retried. A changed record follows the page it was last applied to the same way when no book holds its identities
+(`books.ensure_page`, `was`), copying them onto a winner that is a book; any other page holds what the record says and is
+never turned into one. A claim keeps its id through a merge and the id came from the old page's, so mark, status and rating
+writers also look under the ids that became this page (`page_redirects.former_ids`): nothing is said twice, what was taken
+back stays taken back, and a passage both pages held becomes one open mark on the next apply of either record. A big book spills into its ledger. What the detector flags is written as `[held back: <kind>]`, the record untouched; a
+saved record's own sections (`evidence.PERSON_SECTIONS`) are now read by `sensitive_text.find`, a passage still not.
+- **Drawn from the claims, derived on read:** the `marks` block of `page_blocks` (`blocks-4`), each note under its passage,
+  at most 500 with the total, the card's `PageMarks`, an agent's `include=["marks"]`. Search and recall reach them through
+  the claim leg, so a passage's own words find its book. Never a belief sentence (`page_citations`), never quoted in the
+  "why it matters" line (a count: "you marked 3 passages in it").
+- **Gated like the person's own words** (`is_persons_words`). A caller without `sources` gets counts and days: the block
+  masked, the page text masked (`masked_page`), a split preview's rows masked (`split_plan(own_words=)`), perspective and
+  Ask without them (`_HIDE_MARKS`). The first three hold for every claim in the person's own words, a Log entry too;
+  `test_a_caller_without_sources_reads_none_of_their_words_through_any_remote_tool` calls every tool in the remote table,
+  and a new tool fails it until it is aimed at such a page.
+- **No model that writes a page reads one:** the article writer's inputs and `material` (`entity_article.build`), the
+  orientation's `current_claims` (`entity_orientation.context`), and a removed passage in a revision (`changes_of`, a note
+  still counts). Conflict checks, Stage 2 and the merge read prose with the fence stripped. The catch-up chat's belief lines
+  leave them out too, and the Beliefs list (`GET /claims`), since the page's block draws them. Read on purpose: Ask, for the
+  person, and the settling agent, whose only output is a quote checked on a fetched page (ruling 54).
+- **Lit:** a record holding a mark counts as a conversation (`quiet_pages.marked_record`).
+
+**Sleep reads a marked book for what its marks share (ruling 64).** A note before Stage 1's chunk (`book_marks.note`) says
+a passage is the book's words and never a fact about the person, a note is theirs, and every word is already kept; it asks
+for 1 to 3 themes as `concept` entities of one to three words (`decay_class: durable`) and an `explores-theme` link from the
+book with a passage as evidence. In code, because haiku ignored the same words: the status, finish and rating lines are
+blanked with offsets kept (`mask_status`); the book's own entity is dropped and its links land on the page by name; and the
+owner's entity is dropped too, note or no note, since a summary or key fact on it rests on no span (`of_a_read`). What
+reaches the owner's page from a book's read is a relationship or a value, on either end, located in a `user` span inside a
+`## User note` section, and nothing else. "The owner" is any name that could be theirs: a self-reference, a name
+made only of their page's words (`role_people.owner_names`), a close spelling (`fuzzy_same`), unless this read types it as
+no person. Only the full name or an alias is rewritten to the page's name; a bare first name or surname in a note stays as
+written, its entry with it, since it may be a friend (rail: never the owner's page without their own words naming themselves
+so), and Stage 2 holds it or asks. Outside a note such a row is dropped. **One call a book:** past 12,000 characters (`plan_read`) the chunk is the header, every note, then
+passages spread evenly and cut at 700, located over the whole body; a revision reads its window, or a spread of it past
+that. **Themes meet because books are read one at a time** (`process_one`), each told the names on record (concept pages book
+pages link to, names held from a book's record, at most 60, `theme_hints`) and the names of this fan-out so far, so the 2+
+rule can count two books. A theme named by one book waits in the pending store. A theme from old highlights is born
+`decaying` at 0.39 by the age rule.
+
 **Sleep reads the highlights** (owner 2026-11-04: "be able to consolidate highlights and such is important"). A
 re-sync that adds highlights edits the book's episode in place, and Sleep reads only what changed
 (`episode_revision`, #581). **Measured (2026-11-04, verify run, Claude plan at haiku, synthetic library):** a first

@@ -20,6 +20,17 @@
   **Pick up here:** two rows still read Connected for one reader, the count is the only thing that dedupes; same-day
   value claims still ask (`claim_reconciler.trust_decision`).
 
+- **2026-11-05 — the Inbox's rebuild back under budget; five test-health fixes (G209; branch `devhealth-flakes`).** The
+  bench failure written off as a flake was real: since 6a410524 (G209, a same-person question rests on a conversation
+  naming both) each person question with no pairing conversation on hand ran four searches on every rebuild of the list.
+  At 4,700 pages / 913 items, 221 of them such cards: 0.19 s CPU before; 10.6–15.9 s with no index yet (each search walked
+  every page's frontmatter though it asked only for conversations, and started the build, whose CPU the read also
+  paid); 0.52 s with one. Now one query a card over one connection and no build: 0.23 s and 0.24 s (`features.md`).
+  Test fixes: Stage 3's two
+  calls run at once (order never pinned, each answer still on its own page), Ask's tree hash leaves out derived files,
+  a missing Pillow skips, real-git identity tests allow a loaded machine more than the hook's 0.1 s (unchanged), and
+  `test_the_command` no longer asks this Mac's real backend for `/healthz` (its "flake" was that backend not answering). The
+  stale proposed ruling 54 is gone; the decided row now carries the local agent's test it pointed at.
 - **2026-11-04 — waiting on Reddit, not the owner.** Reddit API access was requested 2026-11-04. When Reddit approves,
   register the installed app per `network.md` ("Registering Cicada's Reddit app") and set `reddit.CLIENT_ID`.
 - **2026-11-04 — hookless apps relay as they talk; exports are one-time (rulings 57, 58, below; G105, G197; branch
@@ -45,6 +56,10 @@
   value.** **Pick up here:** the owner's "remove any sensitive data" is applied with `scripts/sensitive_removal.py`:
   read its dry run, then `--apply --plan <its stamp>`. It commits the older version first, then removes from memory only: a password stays in the Notes app or chat that holds it,
   and any real one among these should be changed, because what an engine read cannot be unread.
+- **2026-11-05 — what the person marked in a book: word for word, read for its themes, lights the page (ruling 64, ROR-95,
+  G39; branch `ror95-book-highlights`).** `book_marks` is the one writer; `marks` is a new page block (`blocks-4`, the app's
+  `PageMarks`). Private-use characters stripped from what Apple Books posts. Not exercised: the app's reader against the real
+  stores, and `PageMarks` on screen. Pages already made keep a private-use character in their author until that book changes.
 - **2026-11-04 — a save with no reason gets a lean pass; a batch is bounded by what it holds (ruling 62, G236; branch
   `feat/g236-lean-pass`).** Owner: "a leaner initial pass … on those things who have no reason/user intent attached, but
   enough info so that it can come up in a relevant conversation and an agent can look further into it." A bare save is
@@ -1511,9 +1526,8 @@ These are attached to permanent rows instead of becoming a second queue. Older d
 A test here is not fixed and not skipped: each line says what was seen and on what basis. Look here before chasing a
 failure; add to the counts when one comes back.
 
-- `test_project_remote_identity.py::test_a_worker_worktree_of_the_moved_repository_is_still_only_a_choice`: 1 of 15 runs
-  failed, on `dev` and on the ruling 56 branch alike; driven by `TIMEOUT_S` in `api/hooks/workspace_identity.py`.
-- `test_entity_types.py::test_the_command`: failed once, under load.
+None known (2026-11-05).
+
 
 ## Maintaining this queue
 
@@ -3183,35 +3197,6 @@ A whole row moves to DONE only after its remaining implementation and required a
     merged follows its redirect and one they removed is never made again. **Revisit** if a GitHub App user token stops
     needing an installation for the account's own repositories (the install step goes), or if the person unlinks most
     of what the origin rule links.
-54. **PROPOSED — not binding until the owner says yes (owner direction 2026-11-04; G209; amends ruling 44's public test
-    for this one question; branch `fix/person-dedup-evidence`).** The owner's words, on "is <handle> the same as
-    <person>?": "could've been resolved from a search, like how claude code would solve it if i ask it rn." **Proposed
-    text:** *A question whether a public handle is a named person may be settled by a web lookup on a plan run, with a
-    cited claim, undoable — only when: both sides are person pages, one a handle and the other a full name; neither is
-    the owner, a role-only page, on the person's address book or LinkedIn import, or known personally on the record
-    (ruling 44's local checks); no chat (Messages, WhatsApp, Telegram chats, e-mail, LinkedIn, a profile read on request)
-    says either name outside a link to public content, in its title or as its correspondent; and each name is said in
-    public content the person read or saved (a saved link or bookmark, a watched video, a read page, a paper, a
-    repository, a tab group). What is sent: to the plan's own web search, exactly two pinned queries, each alone — the
-    handle with the one platform word the record links it on (or "@handle"), and the full name; the prompt goes to the
-    engine that already read those conversations, with at most two scrubbed mention lines and nobody else's name. What
-    settles: only a quote, with the link of the public page it came from, that names both the handle and the person.
-    Cicada itself checks that the quote names both, never on the model's word; whether the quote is really on the cited
-    page rests on the lookup, as in ruling 27. It writes one cited "<Name> goes by <handle>" claim on the named page and
-    never merges the pages.
-    Never a metered key; a private person's name never reaches any service.* **Built behind it** (`public_handle`,
-    `web_lookup`'s handle prompt, `cicada_record_check` with `proposed_value="same"`). **Off until the owner rules**
-    (coordinator, 2026-11-04: a privacy-rail change is built switched off and decided by the owner): Sleep's own lookup
-    runs only with `CICADA_PUBLIC_HANDLE_LOOKUP=on`; meanwhile only the person's own local agent, asked by them, may
-    settle one through `cicada_record_check`. A "yes" flips the default; declining this text removes the path.
-    **Measured** on a copy of the owner's bank: of 20 open person pairs, 1 qualifies (the example above); 11 are not a
-    handle against a name, 1 is a held mention, 1 the owner's page. **Disclosed deviation (2026-11-04):** while building
-    this, the worker ran real lookups for that one pair on the bank copy, on the plan with haiku: four calls, each
-    searching the full name alone and the handle (`<handle> twitter` twice, `@<handle>`, `<handle> github`). Each
-    answered "not sure" and nothing was written. That sent a real person's full name to the plan's web
-    search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
-    No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
-    test called public turns out to be someone they know.
 56. **A project starts only from the person or an agent on their ask; things link to the projects that exist by context
     (owner, 2026-11-04; G141, G222; amends ruling 36 D4 and ruling 45; branch `ruling-56-projects-by-ask`).** The owner's
     words: "yes, hide the project suggestions. Ask an agent to start a project or manually though the app are the better
@@ -3287,6 +3272,35 @@ A whole row moves to DONE only after its remaining implementation and required a
     **Revisit** when the person has listed 3 or more projects (measure the `named` rows they untie, and whether the guard
     misses what they re-tie); if they turn down most of a harness's links (the trust list is wrong for links); or if they
     ask to mark pages in bulk, which needs per-item answers first.
+64. **What the person marked in a book is their own record: kept word for word, read for what it shares, and it lights the
+    page (owner, 2026-11-04; G39, G233, ROR-95; amends the quiet rule of 2026-10-20).** The owner tested Apple Books on their
+    real library and said yes to three changes. **(a) Word for word, no model.** Each highlight and note is a claim on the
+    book's page (`highlighted`, `noted`; `book_marks`, the one writer, at the door in `books.apply_pending`) with a span of
+    the episode: `page` for a passage, `user` for a note. A removed highlight closes (`valid_to`), never deleted, and comes
+    back if marked again; one the person took back is never rewritten. The words are gated like the person's own
+    (`is_persons_words`): a remote caller without `sources` is told how many, never what, on every tool. What the sensitive
+    detector flags is its typed mark; the person's own section of a saved record is now read by it (it skipped them, a hole
+    in ruling 60 for any save with a reason). The page draws them as a `marks` block from the claims, derived on read: no
+    prose section, so no merge copies them, and no model reads them when it rewrites a page, in code at each reader (the
+    article's inputs and its material, the orientation, a revision's removed passage). **(b) What they share.** Stage 1
+    reads a marked book's record for its themes, told so in a source note: a passage is the book's words and never a fact
+    about the person, a concept of one to three words per theme, an `explores-theme` link with a passage as evidence. A theme
+    page comes from the existing 2+ rule, two books naming it. The status lines are blanked before it reads (offsets kept);
+    a read keeps no entry for the book itself and none for the owner, and what reaches the owner's page is only a link or a
+    value located in a `user` span of the person's own note, in code, because haiku ignored the same words in the note. Any
+    name that could be theirs counts as the owner outside a note, a first name included (owner, 2026-11-05); in a note only
+    the full name or an alias lands on their page, a bare first name or surname stays as written, since it may be a friend. Books are read one at a time, each told the themes so far: read at
+    once, five themes across three books never met. **(c) Cost.** One Stage 1 call per marked book, one chunk (12,000
+    characters of notes first, then passages spread across the book); an unmarked entry costs none. **(d) Quiet.** A record
+    holding a highlight or a note counts as a conversation (`quiet_pages.marked_record`), so the book and a theme page drawn
+    from it are lit; an unmarked entry stays quiet; a record whose marks were all removed goes back. **Why it does not
+    contradict ruling 62:** 62 makes a save *with no reason* index-only, and names "a book's record" among what is read as
+    before. A highlight is the reason: the person chose those words, and a library entry with nothing marked stays
+    index-only exactly as 62 says. "Consolidate reads everything" holds: every marked record is read in its run, past the
+    chunk as a spread, because its words are already kept verbatim. **Measured** on the G39 row. **Revisit** if a theme page's
+    fading at birth bothers the owner (below), if a real library's themes do not converge, or if the sequential read is too
+    slow on a large first run. **Open for the owner:** a theme drawn from highlights months old is born `decaying` at 0.39
+    (the age rule, unchanged: 2+ dated conversations floor there, only live silence archives it, no question asked).
 62. **A save with no reason gets a lean pass: indexed, findable, read once when the person talks about it (owner, 2026-11-04;
     G236; amends rulings 13, 16 and 30 and G102).** Owner: "For chrome bookmarks, and the rest of things I told you we can do a
     leaner initial pass for consolidation on those things who have no reason/user intent attached, but enough info so that it
@@ -3386,8 +3400,16 @@ A whole row moves to DONE only after its remaining implementation and required a
     page's own text that is stored. A confidence of 0 or not a number is no answer. One that is not real is sent back at most
     twice. A signed-in page is never opened, so it cannot be cited. Parody, a namesake, a stale handle are the model's to judge;
     the person's undo is the floor under it.
-    **The person's own local agent** (`cicada_record_check`, on their ask) keeps the stricter proposed test and its two
-    searches: Cicada cannot see that agent's queries, so the limit there can only be who is offered.
+    **The person's own local agent** (`cicada_record_check`, on their ask, `proposed_value="same"`) keeps the stricter test
+    proposed that day and its two searches: Cicada cannot see that agent's queries, so the limit there can only be who is
+    offered. The test: both sides are person pages, one a handle and the other a full name; neither is the owner, a role-only
+    page, on the person's address book or LinkedIn import, or known personally on the record (ruling 44's local checks); no
+    chat (Messages, WhatsApp, Telegram chats, e-mail, LinkedIn, a profile read on request) says either name outside a link
+    to public content, in its title or as its correspondent; each name is said in public content the person read or saved.
+    The two searches are pinned, each alone: the handle with the one platform word the record links it on (or "@handle"),
+    and the full name. Only a quote with its link that names both settles it, and Cicada checks that the quote names both.
+    Measured that day on a copy of the owner's bank: of 20 open person pairs, 1 qualifies; 11 are not a handle against a
+    name, 1 is a held mention, 1 the owner's page.
     **Measured** on synthetic banks with one widely known public figure, on the plan with haiku; the shipped tier
     (`web_check_agent_model`) was not run. A real Sleep settled it on one site at the model's own confidence (0.95): 1 search, 2 pages opened, no
     query or link blocked, 6 reads, 5 turns, 34.7 s; undo put the question back. One question measured apart, with its plan usage

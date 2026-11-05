@@ -142,7 +142,8 @@ def _search(memory_path: Path, names: list[str], *, fresh: bool = True) -> list[
 def pair_episode(memory_path: Path | None, a_names: list[str], b_names: list[str], *, first: str = "",
                  also: tuple[str, ...] = (), fresh: bool = True) -> str | None:
     """The conversation that names both sides (a spelling of each, whole words): ``first`` when it does, then ``also``
-    (the pages' own conversations), then what the lexical index finds for either side. ``None`` when none does."""
+    (the pages' own conversations), then what the lexical index finds holding both. ``None`` when none does.
+    ``fresh=False`` (a person's read, Stage 2 inside Sleep's loop): the index as it is, never a build."""
     if memory_path is None or not a_names or not b_names:
         return None
     memory_path = Path(memory_path)
@@ -158,7 +159,12 @@ def pair_episode(memory_path: Path | None, a_names: list[str], b_names: list[str
     for eid in (first, *also):
         if both(eid):
             return eid
-    for eid in _search(memory_path, [*a_names[:2], *b_names[:2]], fresh=fresh):
+    from api.services import search_index
+
+    if fresh:
+        fresh_index(memory_path)
+    for eid in search_index.episodes_naming_each(memory_path, (a_names[:MAX_NAMES], b_names[:MAX_NAMES]),
+                                                 SEARCH_PER_NAME):
         if both(eid):
             return eid
     return None
@@ -315,6 +321,10 @@ def judge(memory_path: Path | None, *, a_id: str, a_name: str, b_id: str, b_name
     ``two_places``: a first name heard in one place against a full name heard in another (owner 2026-10-28, one person
     across sources) — its evidence is the two conversations, each naming its own side, said in the question's words
     (``heard_in``); exempt from the one-conversation rule, never from the owner rule."""
+    if memory_path is not None and not fresh:
+        from api.services import search_index
+
+        search_index.ensure_fresh(Path(memory_path))   # no wait, and it keeps Sleep's index moving; only the Inbox's read asks nothing of it
     owner = owner if owner is not None else owner_id(memory_path)
     a_names = side_names(memory_path, a_id, a_name)
     b_names = side_names(memory_path, b_id, b_name)
