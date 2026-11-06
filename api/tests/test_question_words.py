@@ -48,6 +48,12 @@ def test_a_bare_value_question_names_what_the_values_are_of():
     assert own.question == "Which is right for your team size: 6 or 10?"
 
 
+def test_a_name_ending_in_s_takes_the_apostrophe_alone():
+    fm = conflict([side("a", "6"), side("b", "10")], predicate="value-of-shelf-height",
+                  question="Which is true about Marker Adapters (value-of-shelf-height)?", entity_name="Marker Adapters")
+    assert inbox_wording.spoken(fm, TODAY).question == "Which is right for Marker Adapters' shelf height: 6 or 10?"
+
+
 def test_another_generic_predicate_keeps_the_old_question():
     fm = conflict([side("a", "red"), side("b", "blue")], predicate="likes",
                   question="Which is true about Alpha Project (likes)?")
@@ -77,6 +83,13 @@ def test_a_description_conflict_has_no_date_it_never_had():
     ("Newer summary: ships in May", "Ships in May"),
     ("Current claim, said twice: it is a CLI", "Said twice: it is a CLI"),
     ("Described on the page as of 2026-11-05", None),
+    ("Existing description from March says it is a draft", "From March says it is a draft"),
+    ("New undated record: shipped", "Shipped"),
+    ("From the existing description", None),
+    ("From the new description on May 3, 2026", "On May 3, 2026"),
+    ("Existing record stating attendance in May", "Stating attendance in May"),
+    ("Existing note recorded as of 2026-10-06, up from 70.", "Recorded as of 2026-10-06, up from 70."),
+    ("New ideas came up later", "New ideas came up later"),
     ("Just a plain clause", "Just a plain clause"),
 ])
 def test_the_checks_own_working_words_are_dropped_from_a_description(stored, expected):
@@ -189,6 +202,24 @@ def test_three_answers_are_counted_with_the_latest():
     assert said.reason == "I have 3 different answers, the latest about 8 weeks ago, and I can't tell which is current."
 
 
+def test_a_third_answer_with_no_date_stops_the_same_conversation_and_same_day_reasons():
+    claims = [claim("clm_a", "6", episodes=["ep_2026-09-10_001"]), claim("clm_b", "10", episodes=["ep_2026-09-10_001"])]
+    fm = conflict([side("a", "6", claim_id="clm_a"), side("b", "10", claim_id="clm_b"), side("c", "12"), BOTH],
+                  predicate="value-of-team-size")
+    said = inbox_wording.spoken(fm, TODAY, claims=claims)
+    assert "same conversation" not in said.reason and "same day" not in said.reason
+    other_day = [claim("clm_a", "6", episodes=["ep_2026-09-10_001"]), claim("clm_b", "10", episodes=["ep_2026-09-10_002"])]
+    said = inbox_wording.spoken(fm, TODAY, claims=other_day)
+    assert "same conversation" not in said.reason and "same day" not in said.reason
+
+
+def test_a_count_of_things_is_true_of_the_answers_offered():
+    two = conflict([side("a", "x"), side("b", "y"), BOTH])
+    assert inbox_wording.spoken(two, TODAY).reason.startswith("Two things I have")
+    three = conflict([side("a", "x"), side("b", "y"), side("c", "z"), BOTH])
+    assert inbox_wording.spoken(three, TODAY).reason.startswith("Several things I have")
+
+
 # --------------------------------------------------------------------------- idempotence
 
 def test_presenting_twice_is_presenting_once():
@@ -252,6 +283,25 @@ def test_a_first_person_question_is_said_to_the_person(stored, expected):
     assert inbox_wording.stored_in_your_voice(stored) == expected
 
 
+@pytest.mark.parametrize("stored", ["Did Phase I end in March?", "Is Series I the one you meant?", "Whose is the mine in Peru?",
+                                    "Is that mine or the team's?"])
+def test_a_numeral_or_the_word_mine_leaves_the_question_as_written(stored):
+    assert inbox_wording.stored_in_your_voice(stored) == stored
+
+
+def test_a_spanish_question_keeps_its_own_me():
+    assert inbox_wording.stored_in_your_voice("¿Se me olvidó pagar la matrícula?") == "¿Se me olvidó pagar la matrícula?"
+
+
+def test_a_contraction_after_a_name_is_never_a_numeral():
+    assert inbox_wording.stored_in_your_voice("Is the Mac I'm using a laptop?") == "Is the Mac you're using a laptop?"
+
+
+def test_a_capitalised_question_word_before_i_still_turns():
+    assert inbox_wording.stored_in_your_voice("When I moved, was it May?") == "When you moved, was it May?"
+    assert inbox_wording.stored_in_your_voice("My review was in May, right?") == "Your review was in May, right?"
+
+
 def test_a_question_that_already_says_you_is_left_alone():
     q = "Have I got it right that you moved?"
     assert inbox_wording.stored_in_your_voice(q) == q
@@ -276,6 +326,13 @@ def test_the_owner_named_in_a_safe_frame_is_you():
 def test_the_owner_named_anywhere_else_leaves_the_question_as_written():
     q = "Which of Owner Example and Bob Example works here?"
     assert inbox_wording.stored_in_your_voice(q, owner_names=["Owner Example"]) == q
+
+
+@pytest.mark.parametrize("stored", ["Did Owner already attend Beta Con, or is he applying again?",
+                                    "Did Owner save this, or is his link to it only a mention?",
+                                    "Did Owner see it before, or is this the first time she's seen it?"])
+def test_a_second_clause_still_about_them_leaves_the_question_as_written(stored):
+    assert inbox_wording.stored_in_your_voice(stored, owner_names=["Owner"]) == stored
 
 
 def test_a_stored_conflict_question_is_said_to_the_owner_about_their_own_page():
@@ -331,6 +388,12 @@ def test_a_relation_named_page_starts_the_sentence_with_a_capital():
                                  "suggested_classification": "person"}, TODAY,
                                 page_fm={"type": "person", "unnamed": True, "owner_roles": ["partner"]})
     assert said.reason == "Your partner came up, but not how you know them."
+
+
+def test_a_name_in_lower_case_keeps_its_own_capitals_after_came_up():
+    said = inbox_wording.spoken({"kind": "clarification", "entity_id": "p", "entity_name": "iPhone",
+                                 "source_episode_timestamp": "2026-09-10T10:00:00+00:00"}, TODAY, page_fm={"type": "tool"})
+    assert said.reason == "iPhone came up about 8 weeks ago, and I couldn't tell who or what it is."
 
 
 # --------------------------------------------------------------------------- D2: a decay answer answers the question

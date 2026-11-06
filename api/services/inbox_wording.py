@@ -93,7 +93,8 @@ _SYNTHETIC = ("neither", "both")
 _BOOKKEEPING = re.compile(
     r"^(?:from\s+(?:the\s+)?)?(?:existing|new|older|newer|current)(?:\s+undated)?\s+"
     r"(?:description|record|note|notes|article|claim|page|text|summary)\b"
-    r"(?:\s*[,:]\s*|\s+(?=(?:from|undated|dated|says?|saying|calls?|describes?)\b))", re.IGNORECASE)
+    r"(?:\s*[,:]\s*|\s*$|\s+(?=(?:from|undated|dated|says?|saying|stating|calls?|describes?|on|recorded)\b))",
+    re.IGNORECASE)
 _PAGE_ASOF = re.compile(r"^described on the page as of\b.*$", re.IGNORECASE)
 _EXTRACTED = re.compile(r"extracted from (ep_[\w-]+)")
 _PAGE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -521,10 +522,10 @@ def _still(fm: dict, today: str, name: str, page_fm: dict | None, *, own: bool) 
 # --------------------------------------------------------------------------- the voice of a stored question
 
 _YOU = re.compile(r"\b(?:you|your|yours|yourself|you're|you've|you'd|you'll)\b", re.IGNORECASE)
-_FIRST = re.compile(r"\b(?:I'm|I've|I'd|I'll|I|me|my|myself)\b")
+_FIRST = re.compile(r"\b(?:I'm|I've|I'd|I'll|I|me|[Mm]y|myself)\b")
 #: "Phase I", "Series I": a capitalised word before a bare "I" that no question opens with. The question stays as written.
 _NUMERAL_I = re.compile(r"\b(?!(?:Am|Was|Were|Have|Had|Did|Do|Should|Can|Could|Would|Will|Is|Has|When|Where|What|Why|How|"
-                        r"Which|Who|If|And|But|Or|So|Then|Now)\b)[A-Z][\w-]* I\b")
+                        r"Which|Who|If|And|But|Or|So|Then|Now)\b)[A-Z][\w-]* I\b(?!['’])")
 #: Ordered: the frames whose verb turns with the pronoun first, then the bare words.
 _TURNS = (
     (re.compile(r"\b(Am|am) I\b"), lambda m: ("Are" if m.group(1) == "Am" else "are") + " you"),
@@ -537,12 +538,15 @@ _TURNS = (
     (re.compile(r"\bI'll\b"), lambda m: "you'll"),
     (re.compile(r"\bI\b"), lambda m: "you"),
     (re.compile(r"\bmyself\b"), lambda m: "yourself"),
-    (re.compile(r"\bmy\b"), lambda m: "your"),
+    (re.compile(r"\b[Mm]y\b"), lambda m: "your"),
     (re.compile(r"\bme\b"), lambda m: "you"),
 )
 _QUOTES = "\"“”‘’"
 _OWNER_FRAMES = {"Did": "Did you", "Will": "Will you", "Can": "Can you", "Should": "Should you", "Would": "Would you",
                  "Could": "Could you", "Does": "Do you", "Is": "Are you", "Has": "Have you"}
+
+
+_STILL_THEM = re.compile(r"\b(?:he|she|him|her|hers|his|himself|herself)\b", re.IGNORECASE)
 
 
 def _open_capital(text: str) -> str:
@@ -557,7 +561,8 @@ def _second_person(text: str) -> str:
     if not _FIRST.search(text):
         return text
     # "mine" may be a noun, and turning the rest around it would leave half a sentence turned.
-    if any(q in text for q in _QUOTES) or _NUMERAL_I.search(text) or re.search(r"\bmine\b", text):
+    # So does a question in Spanish, where "me" is another word.
+    if any(q in text for q in _QUOTES) or _NUMERAL_I.search(text) or re.search(r"\bmine\b", text) or "¿" in text:
         return text
     for pattern, repl in _TURNS:
         text = pattern.sub(repl, text)
@@ -576,7 +581,8 @@ def _owner_voice(text: str, names: list[str]) -> str:
     bare = re.compile(rf"(?i:\b(?:{alt})\b)")
     turned = possessive.sub("your", text)
     turned = frame.sub(lambda m: _OWNER_FRAMES[m.group(1)], turned)
-    return text if bare.search(turned) else _open_capital(turned)
+    # "Did <name> attend, or is he applying": the second clause is still about them, and half a sentence turned is worse.
+    return text if bare.search(turned) or _STILL_THEM.search(turned) else _open_capital(turned)
 
 
 def stored_in_your_voice(question: str, *, owner_names: list[str] | None = None) -> str:
@@ -615,7 +621,7 @@ def _slug_noun(predicate: str) -> str:
 
 
 def _possessive(name: str) -> str:
-    return f"{name}'s"
+    return f"{name}'" if name.endswith("s") else f"{name}'s"
 
 
 def _conflict(fm: dict, today: str, name: str, *, own: bool, page_type: str = "", owner_name: str | None = None) -> Spoken:
