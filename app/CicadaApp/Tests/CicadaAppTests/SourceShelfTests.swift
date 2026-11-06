@@ -118,17 +118,36 @@ final class SourceShelfTests: XCTestCase {
         XCTAssertEqual(WebReadingScene.litNodes(atBeat: 4), 4)
     }
 
-    func testTheCardCarriesTheHonestLinesAndItsDurationsAreSpelledInCicadaMotion() throws {
-        let lines = [Copy.WebReading.whatIsRead(list: "your Bookmarks", app: "an app"), Copy.WebReading.whoseSession,
-                     Copy.WebReading.whoSees(app: "an app"), Copy.WebReading.oneClick]
-        XCTAssertTrue(lines[0].contains("On this Mac, in your browser, while you use an app"), "where and when")
-        XCTAssertTrue(lines[0].contains("about once a day"), "G206's 20-hour offer")
-        XCTAssertFalse(Copy.WebReading.hands.contains("as a link"), "the post's words are kept too (mcp.md)")
-        XCTAssertTrue(lines[1].contains("never sees a password"))
-        XCTAssertTrue(lines[2].contains("company sees what it reads"))
+    func testTheCardSaysItInPlainStepsWithNoWordThePersonHasToKnow() throws {
+        let entry = rows().first { $0.id == "x" }!.entry
+        let steps = WebReadingScene.steps(entry: entry, app: "Claude Code", browser: "Chrome")
+        XCTAssertEqual(steps.count, 4)
+        XCTAssertTrue(steps[1].contains("Next time you use Claude Code"), "when it happens")
+        XCTAssertTrue(steps[1].contains("At most once a day"), "G206's 20-hour offer")
+        XCTAssertTrue(steps[2].contains("where you are already signed in"), "whose session")
+        XCTAssertTrue(steps[2].contains("only at your Bookmarks"), "what is read")
+        XCTAssertTrue(steps[3].contains("link and words"), "the post's words are kept too (mcp.md)")
+        XCTAssertTrue(steps[3].contains("posted or changed"))
+        let headline = Copy.WebReading.headline(site: "X", app: "Claude Code")
+        let all = (steps + [headline, Copy.WebReading.headlineNoAI, Copy.WebReading.roleAI, Copy.WebReading.whoseSession,
+                            Copy.WebReading.whoSees(app: "Claude Code"), Copy.WebReading.oneClick]).joined(separator: " ")
+        for word in ["assistant app", "agent", "AI app", "switch"] {
+            XCTAssertFalse(all.localizedCaseInsensitiveContains(word), word)
+        }
+        XCTAssertTrue(Copy.WebReading.whoseSession.contains("never sees your password"))
+        XCTAssertTrue(Copy.WebReading.whoSees(app: "Claude Code").contains("company sees what it reads"))
+        XCTAssertTrue(Copy.WebReading.oneClick.contains(Copy.SourceLayout.readInBrowser), "names the control that is there")
         let view = try String(contentsOf: Self.source("Views/Sources/WebReadingCard.swift"), encoding: .utf8)
         XCTAssertFalse(view.contains("duration:"), "no duration is spelled in the view")
         XCTAssertFalse(view.contains(".seconds(0") || view.contains(".seconds(1"), "nor a sleep")
+    }
+
+    func testTheStepLitFollowsTheBeatAndASiteReadThroughAnAIIsNotReadingYetRatherThanOff() {
+        XCTAssertEqual((-1...4).map(WebReadingScene.step(atBeat:)), [0, 0, 1, 2, 2, 3])
+        XCTAssertEqual(WebReadingScene.laneGlyphs.count, 3, "one thing travels each lane")
+        XCTAssertEqual(SourcePageStatus.of(row: .off, run: .idle, latest: nil, readsThroughAI: true).word, "Not reading yet")
+        XCTAssertEqual(SourcePageStatus.of(row: .off, run: .idle, latest: nil).word, "Off", "every other source keeps its word")
+        XCTAssertEqual(SourcePageStatus.of(row: .connected, run: .idle, latest: nil, readsThroughAI: true).word, "Connected")
     }
 
     static func source(_ path: String) -> URL {

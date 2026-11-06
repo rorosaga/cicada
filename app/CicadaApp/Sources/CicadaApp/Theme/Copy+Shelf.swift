@@ -25,30 +25,41 @@ extension Copy {
 
     /// The website-reading card: an animation before the switch, and what a service reads, said plainly. Checked
     /// against `docs/architecture/mcp.md` ("Saved lists on X, Instagram and LinkedIn", Substack) and `network.md`.
+    /// Round 6 (six blind readers lost at "assistant app", "Claude Code" and "Off"): no word the person has to know;
+    /// the AI is "the AI you use on this Mac" once, then by its name; each node says what it does.
     enum WebReading {
         static let replay = "Replay"
         static let replayHelp = "Watch it again"
-        static let noApp = "No AI app connected yet"
-        static let noAppLine = "This app asks an AI app on this Mac to open your list in your browser. The AI app does the reading, not this app."
-        static let openAgents = "Connect an AI app"
-        static let yourAssistant = "your AI app"
+        static let yourAI = "your AI"
         static let yourBrowser = "your browser"
-        /// What the first node of the picture is called: this app, so a reader who sees only the card knows who "it" is.
-        static let cicada = "This app"
-        static func turnOn(_ site: String) -> String { "You turn on \(site)" }
-        static func nextTime(app: String) -> String { "Next time you use \(app), it can look at it" }
-        static func opens(app: String, site: String, browser: String) -> String {
-            "\(app) opens \(site) in \(browser), where you are signed in"
+        static let cicada = "Cicada"
+        /// Under each node, what it does.
+        static let roleCicada = "keeps the posts"
+        static let roleAI = "the AI you use here"
+        static let roleBrowser = "where you are signed in"
+        /// The line above the picture: why a second app is in it at all.
+        static func headline(site: String, app: String) -> String {
+            "Cicada can't open \(site) itself. It asks \(app), the AI you use on this Mac, to look for it."
         }
-        static func reads(list: String) -> String { "It reads only \(list), never anything else" }
-        static let hands = "It hands each item's link and words to this app, which keeps them"
-        /// The honest lines (one each: what is read, whose sign-in, who else sees it, how to stop).
-        static func whatIsRead(list: String, app: String) -> String {
-            "On this Mac, in your browser, while you use \(app): reads \(list) about once a day. Never posts or changes anything."
+        static let headlineNoAI = "Cicada can't open the site itself. It needs the AI you use on this Mac to look for it, and none is connected yet."
+        static let openAgents = "Connect the AI you use"
+        /// The four steps, in order.
+        static func stepTurnOn(_ site: String) -> String { "You turn on \(site) here." }
+        static func stepNote(app: String, list: String) -> String {
+            "Next time you use \(app), Cicada leaves it a note asking it to look at \(list). At most once a day."
         }
-        static let whoseSession = "Your browser, your sign-in. This app never sees a password."
-        static func whoSees(app: String) -> String { "\(app)'s company sees what it reads. No model reads a saved item unless you name it." }
-        static let oneClick = "One click on the switch turns it off. What was kept stays until you remove it."
+        static func stepOpens(app: String, site: String, browser: String, list: String) -> String {
+            "\(app) opens \(site) in \(browser), where you are already signed in, and looks only at \(list)."
+        }
+        static func stepBack(site: String) -> String {
+            "It sends each item's link and words back to Cicada, which keeps them. Nothing on \(site) is posted or changed."
+        }
+        /// The three facts under the steps: whose sign-in, who else sees it, how to stop.
+        static let whoseSession = "It uses your own sign-in, in your browser on this Mac. Cicada never sees your password and never opens the browser itself."
+        static func whoSees(app: String) -> String {
+            "\(app)'s company sees what it reads. No AI reads a saved item unless you mention it."
+        }
+        static let oneClick = "To stop, turn off \u{201C}\(Copy.SourceLayout.readInBrowser)\u{201D} on this page. What was kept stays until you remove it."
     }
 
     /// One honest line on a source that reads through the person's own sign-in or key, before its switch. Checked

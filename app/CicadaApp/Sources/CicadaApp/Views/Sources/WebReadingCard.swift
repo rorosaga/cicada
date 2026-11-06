@@ -1,11 +1,14 @@
 import SwiftUI
 
 /// ROR-118 (owner, Sources round 1) — before the switch of a source an agent reads in the person's browser, a short
-/// picture of who does what, drawn with the person's own things: their assistant app by its icon, their browser by its
-/// icon, the site by its mark, and Cicada. It plays once, by itself, the first time on this Mac, and again whenever the
-/// person clicks Replay (DR-60: a key never animates; with Reduce Motion it is the finished picture). Under it, four
-/// honest lines: what is read, whose session, who else sees it, how to stop. DR-9 (a ring, no shadow), DR-52 (marks
-/// are the real ones), DR-61 (explanatory motion, durations in `CicadaMotion`).
+/// picture of who does what, drawn with the person's own things: the AI they use on this Mac by its icon, their
+/// browser by its icon, the site by its mark, and Cicada. Round 6 (six readers lost at "assistant app" and "Claude
+/// Code"): a line says why a second app is in it, every node says what it does, a note, a cursor, an eye and the saved
+/// items travel the lanes, and the four steps sit under it in words, the one playing lit. It plays once, by itself,
+/// the first time on this Mac, and again whenever the person clicks Replay (DR-60: a key never animates; with Reduce
+/// Motion it is the finished picture). Under the steps, three honest lines: whose sign-in, who else sees it, how to
+/// stop. DR-9 (a ring, no shadow), DR-52 (marks are the real ones), DR-61 (explanatory motion, durations in
+/// `CicadaMotion`).
 struct WebReadingCard: View {
     let entry: SourceCatalogEntry
 
@@ -20,13 +23,14 @@ struct WebReadingCard: View {
     @State private var playing = false
 
     private var app: AgentCatalogEntry? { WebReadingScene.app(rows: Array(agents?.rows.values ?? [:].values)) }
-    private var appName: String { app?.name ?? Copy.WebReading.yourAssistant }
+    private var appName: String { app?.name ?? Copy.WebReading.yourAI }
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            headline
             scene
             if app != nil {
-                caption
+                steps
                 honestLines
             } else {
                 noApp
@@ -39,33 +43,41 @@ struct WebReadingCard: View {
         .task(id: app?.id) { await start() }
     }
 
+    private var headline: some View {
+        Text(app == nil ? Copy.WebReading.headlineNoAI : Copy.WebReading.headline(site: entry.title, app: appName))
+            .font(CicadaTheme.bodyFont.weight(.medium)).foregroundStyle(CicadaTheme.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     // MARK: - The picture
 
     private var scene: some View {
         let lit = WebReadingScene.litNodes(atBeat: beat)
         let has = app != nil
+        let list = WebReadingScene.list(entry.id)
         return HStack(alignment: .top, spacing: 0) {
-            node(name: Copy.WebReading.cicada, lit: true) {
+            node(name: Copy.WebReading.cicada, role: WebReadingScene.role(node: 0, list: list), lit: true) {
                 Image(nsImage: NSApp.applicationIconImage).resizable().interpolation(.high).scaledToFit()
             }
-            lane(forward: has && beat >= 1, back: has && beat >= 4)
-            node(name: appName, lit: has && lit >= 2, dashed: !has) { appIcon }
-            lane(forward: has && beat >= 2, back: has && beat >= 4)
-            node(name: browser.name, lit: has && lit >= 3) { browserIcon }
-            lane(forward: has && beat >= 3, back: has && beat >= 4)
-            node(name: entry.title, lit: has && lit >= 4) { siteIcon }
+            lane(0, has: has)
+            node(name: appName, role: WebReadingScene.role(node: 1, list: list), lit: has && lit >= 2, dashed: !has) { appIcon }
+            lane(1, has: has)
+            node(name: browser.name, role: WebReadingScene.role(node: 2, list: list), lit: has && lit >= 3) { browserIcon }
+            lane(2, has: has)
+            node(name: entry.title, role: WebReadingScene.role(node: 3, list: list), lit: has && lit >= 4) { siteIcon }
         }
         .animation(CicadaMotion.webLight(reduceMotion: reduceMotion), value: beat)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(WebReadingScene.caption(beat: WebReadingScene.beats, entry: entry, app: appName,
-                                                    browser: browser.name))
+        .accessibilityLabel(([Copy.WebReading.headline(site: entry.title, app: appName)] + sentences).joined(separator: " "))
     }
 
-    private func node<Icon: View>(name: String, lit: Bool, dashed: Bool = false,
+    private var sentences: [String] { WebReadingScene.steps(entry: entry, app: appName, browser: browser.name) }
+
+    private func node<Icon: View>(name: String, role: String, lit: Bool, dashed: Bool = false,
                                   @ViewBuilder icon: () -> Icon) -> some View {
         let side = CicadaTheme.scaled(56)
         let shape = CicadaTheme.shape(side * 0.25)
-        return VStack(spacing: CicadaTheme.scaled(6)) {
+        return VStack(spacing: CicadaTheme.scaled(4)) {
             ZStack {
                 shape.fill(CicadaTheme.surfaceElevated)
                 icon().frame(width: side * 0.66, height: side * 0.66)
@@ -73,25 +85,54 @@ struct WebReadingCard: View {
             }
             .frame(width: side, height: side)
             .ringed(in: shape)
-            Text(name).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+            .padding(.bottom, CicadaTheme.scaled(2))
+            Text(name).font(CicadaTheme.captionFont.weight(.medium)).foregroundStyle(CicadaTheme.textPrimary)
                 .lineLimit(1).truncationMode(.tail)
+            Text(role).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                .multilineTextAlignment(.center).lineLimit(2).fixedSize(horizontal: false, vertical: true)
         }
         .opacity(lit ? 1 : 0.35)
         .frame(width: CicadaTheme.scaled(96))
-        .help(name)
+        .help("\(name), \(role)")
     }
 
-    /// The two lanes between nodes: the way out (a line drawn left to right) and the way back (right to left).
-    private func lane(forward: Bool, back: Bool) -> some View {
-        VStack(spacing: CicadaTheme.scaled(10)) {
+    /// The lane after node `index`: the way out (a line drawn left to right, a note, a cursor or an eye travelling it
+    /// at its beat) and the way back (right to left, the saved items, at the last beat).
+    private func lane(_ index: Int, has: Bool) -> some View {
+        let forward = has && beat >= index + 1
+        let back = has && beat >= WebReadingScene.beats
+        return VStack(spacing: CicadaTheme.scaled(10)) {
             line(on: forward, towardsTrailing: true)
+                .overlay { token(WebReadingScene.laneGlyphs[index], arrived: forward, visible: has && beat == index + 1,
+                                 towardsTrailing: true, tint: CicadaTheme.accent) }
             // The way back is drawn only when it is the beat (never a second dim line to read past).
             line(on: back, towardsTrailing: false).opacity(back ? 1 : 0)
+                .overlay { token(WebReadingScene.backGlyph, arrived: back, visible: back, towardsTrailing: false,
+                                 tint: CicadaTheme.info) }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, CicadaTheme.scaled(14))
         .animation(CicadaMotion.webTravel(reduceMotion: reduceMotion), value: forward)
         .animation(CicadaMotion.webTravel(reduceMotion: reduceMotion), value: back)
+    }
+
+    /// What is being passed along a lane: a small glyph that rides the line from its start to its end.
+    private func token(_ symbol: String, arrived: Bool, visible: Bool, towardsTrailing: Bool, tint: Color) -> some View {
+        GeometryReader { proxy in
+            let size = CicadaTheme.scaled(16)
+            let near = size / 2 + CicadaTheme.scaled(2)
+            let far = proxy.size.width - size / 2 - CicadaTheme.scaled(10)
+            let x: CGFloat = {
+                let start = towardsTrailing ? near : far
+                let end = towardsTrailing ? far : near
+                return arrived ? end : start
+            }()
+            Image(systemName: symbol).font(CicadaTheme.font(size: 10, weight: .semibold)).foregroundStyle(tint)
+                .frame(width: size, height: size)
+                .background(Circle().fill(CicadaTheme.bgFocus))
+                .position(x: x, y: proxy.size.height / 2)
+                .opacity(visible ? 1 : 0)
+        }
     }
 
     private func line(on: Bool, towardsTrailing: Bool) -> some View {
@@ -137,27 +178,42 @@ struct WebReadingCard: View {
 
     // MARK: - The words
 
-    private var caption: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(WebReadingScene.caption(beat: min(max(beat, 0), WebReadingScene.beats), entry: entry, app: appName,
-                                         browser: browser.name))
-                .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
-                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: CicadaTheme.spacingSM)
-            Button { Task { await play() } } label: {
-                Label(Copy.WebReading.replay, systemImage: "arrow.counterclockwise").font(CicadaTheme.metaFont)
+    /// The four steps, numbered, all on screen. While the picture plays the one it is at is in full ink and the ones
+    /// not yet reached are dim; at rest, and under Reduce Motion, all four are in full ink.
+    private var steps: some View {
+        let at = WebReadingScene.step(atBeat: beat)
+        return VStack(alignment: .leading, spacing: CicadaTheme.scaled(8)) {
+            ForEach(Array(sentences.enumerated()), id: \.offset) { index, text in
+                HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.scaled(10)) {
+                    Text("\(index + 1)").font(CicadaTheme.metaFont.weight(.semibold))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .frame(width: CicadaTheme.scaled(18), height: CicadaTheme.scaled(18))
+                        .background(Circle().fill(CicadaTheme.surfaceElevated))
+                        .accessibilityHidden(true)
+                    Text(text).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    if index == 0 { replayButton }
+                }
+                .opacity(playing && index > at ? 0.35 : 1)
             }
-            .buttonStyle(.cicadaPlain)
-            .foregroundStyle(CicadaTheme.textSecondary)
-            .disabled(playing)
-            .help(Copy.WebReading.replayHelp)
-            .accessibilityLabel(Copy.WebReading.replay)
         }
+        .animation(CicadaMotion.webLight(reduceMotion: reduceMotion), value: at)
+    }
+
+    private var replayButton: some View {
+        Button { Task { await play() } } label: {
+            Label(Copy.WebReading.replay, systemImage: "arrow.counterclockwise").font(CicadaTheme.metaFont)
+        }
+        .buttonStyle(.cicadaPlain)
+        .foregroundStyle(CicadaTheme.textSecondary)
+        .disabled(playing)
+        .help(Copy.WebReading.replayHelp)
+        .accessibilityLabel(Copy.WebReading.replay)
     }
 
     private var honestLines: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
-            line("eye", Copy.WebReading.whatIsRead(list: WebReadingScene.list(entry.id), app: appName))
             line("person.crop.circle", Copy.WebReading.whoseSession)
             line("building.2", Copy.WebReading.whoSees(app: appName))
             line("power", Copy.WebReading.oneClick)
@@ -174,12 +230,8 @@ struct WebReadingCard: View {
     }
 
     private var noApp: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text(Copy.WebReading.noApp).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
-            Text(Copy.WebReading.noAppLine).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
-            Button(Copy.WebReading.openAgents) { router.routeToAgents() }
-                .buttonStyle(.cicadaPlain).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.accentText)
-        }
+        Button(Copy.WebReading.openAgents) { router.routeToAgents() }
+            .buttonStyle(.cicadaPlain).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.accentText)
     }
 
     // MARK: - Playing

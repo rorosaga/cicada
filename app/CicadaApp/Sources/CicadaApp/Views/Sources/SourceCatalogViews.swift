@@ -286,7 +286,8 @@ struct SourceCatalogDetail: View {
         let watch = channel.flatMap { watcher.state(for: $0.id) }
         let run = SourceRowText.status(channel: channel, watch: watch, run: channel.flatMap { activity?.run(for: $0.id) })
         return SourcePageStatus.of(row: row.status, run: run, latest: latest, check: chatCheck,
-                                   notInstalled: row.notInstalled, waitingOn: row.waitingOn, browser: row.browser)
+                                   notInstalled: row.notInstalled, waitingOn: row.waitingOn, browser: row.browser,
+                                   readsThroughAI: WebReadingScene.applies(row.entry))
     }
 
     private var chatCheck: ChatCheck? {

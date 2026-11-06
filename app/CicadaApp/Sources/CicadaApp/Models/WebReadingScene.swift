@@ -40,14 +40,32 @@ enum WebReadingScene {
         }
     }
 
-    /// The caption under the picture while it plays: one sentence a beat (0 is the first).
-    static func caption(beat: Int, entry: SourceCatalogEntry, app: String, browser: String) -> String {
-        switch beat {
-        case 0: Copy.WebReading.turnOn(entry.title)
-        case 1: Copy.WebReading.nextTime(app: app)
-        case 2: Copy.WebReading.opens(app: app, site: entry.title, browser: browser)
-        case 3: Copy.WebReading.reads(list: list(entry.id))
-        default: Copy.WebReading.hands
+    /// The story in four plain steps, all on screen at once (a reader who never watches the picture still has it), the
+    /// one the picture is at lit while it plays. Round 6: six readers lost at "assistant app" and "Claude Code", so the
+    /// AI is introduced by what it is to them (the one they use on this Mac) and the steps say what each one does.
+    static func steps(entry: SourceCatalogEntry, app: String, browser: String) -> [String] {
+        [Copy.WebReading.stepTurnOn(entry.title),
+         Copy.WebReading.stepNote(app: app, list: list(entry.id)),
+         Copy.WebReading.stepOpens(app: app, site: entry.title, browser: browser, list: list(entry.id)),
+         Copy.WebReading.stepBack(site: entry.title)]
+    }
+
+    /// Which step the picture is at: the turn-on, the note, the opening (two lanes: the AI to the browser, the browser
+    /// to the site), the way back. `beat` runs -1 (before) ... 4 (finished).
+    static func step(atBeat beat: Int) -> Int { [0, 0, 1, 2, 2, 3][min(max(beat, -1), 4) + 1] }
+
+    /// What travels along the lane after node `lane` (0...2): the note out to the AI, the AI's looking, the page seen.
+    static let laneGlyphs = ["note.text", "cursorarrow.click.2", "eye"]
+    /// What comes back along every lane: the saved items.
+    static let backGlyph = "bookmark.fill"
+
+    /// What a node does, under its name, in words that need no vocabulary.
+    static func role(node: Int, list: String) -> String {
+        switch node {
+        case 0: Copy.WebReading.roleCicada
+        case 1: Copy.WebReading.roleAI
+        case 2: Copy.WebReading.roleBrowser
+        default: list
         }
     }
 
