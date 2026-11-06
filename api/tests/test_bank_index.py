@@ -202,3 +202,25 @@ def test_a_file_that_moved_while_parsed_is_compared_again_on_the_same_listing(tm
         bank_index.files(tmp_path, "episodes")
         assert len(calls) == 2   # the same listing was compared again, never remembered as reconciled
     assert [f.frontmatter["processed"] for f in bank_index.files(tmp_path, "episodes")] == [True]
+
+
+def test_concurrent_cold_listings_parse_each_file_once(tmp_path):
+    """Speed 2026-11-06: the launch warm-ups and the app's first requests list one cold folder at once; the ones that
+    wait for the first find the cache filled instead of parsing every file again."""
+    import threading
+
+    from api.services import bank_index
+
+    entities = tmp_path / "entities"
+    entities.mkdir()
+    n = bank_index._PARSE_GUARD_MIN + 40
+    for i in range(n):
+        (entities / f"page-{i}.md").write_text(f"---\nid: page-{i}\ntype: concept\n---\nbody\n", encoding="utf-8")
+    bank_index.invalidate(tmp_path)
+    before = bank_index.parse_count
+    out: list[int] = []
+    threads = [threading.Thread(target=lambda: out.append(len(bank_index.files(tmp_path, "entities")))) for _ in range(4)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert out == [n] * 4
+    assert bank_index.parse_count - before == n
