@@ -38,7 +38,8 @@ from typing import Callable, Iterable
 from loguru import logger
 
 from api.models.schemas import SearchHit, SearchResponse
-from api.services import bank_index, evidence, inbox_questions, inbox_service, markdown_parser, search_index, text_fold
+from api.services import (bank_index, evidence, inbox_questions, inbox_service, markdown_parser, page_use, search_index,
+                          text_fold)
 from api.services.claims import EVENT_PREDICATES, is_current, is_record, parse_claims, read_valid_to
 
 KINDS = ("entity", "claim", "episode", "media", "inbox", "backlog")
@@ -104,13 +105,29 @@ def rrf_scores(*ranked_lists: list[dict], k: int = RRF_K, key: Callable[[dict], 
     return scores, keep
 
 
-def rrf_fuse(*ranked_lists: list[dict], k: int = RRF_K, key: Callable[[dict], str | None] | None = None) -> list[dict]:
-    """Reciprocal-rank fusion: score(id) = Σ 1/(k + rank), first-seen hit kept.
+#: A page said most lately counts this much more in fused order than a quiet one (Rodrigo, 2026-11-06: what has come up
+#: lately weighs more). It only reorders what the legs found, and confidence still ranks nothing. Rank scores are flat
+#: (1/61 v 1/68 within one leg), so this moves a page ahead of those one leg put first, not ahead of pages two legs agree on.
+LATELY_WEIGHT = 0.3
+
+
+def lately_lift(lately: dict[str, float], named: Iterable[str]) -> dict[str, float]:
+    """``lately`` with a page the query names counted a full lift above its own: nothing unnamed can overtake it (150 names
+    on a real clone, 9 lost first place without this), and of two pages sharing the name, the one said lately leads."""
+    return {**lately, **{ref: 1.0 + lately.get(ref, 0.0) for ref in named}}
+
+
+def rrf_fuse(*ranked_lists: list[dict], k: int = RRF_K, key: Callable[[dict], str | None] | None = None,
+             lately: dict[str, float] | None = None) -> list[dict]:
+    """Reciprocal-rank fusion: score(id) = Σ 1/(k + rank), first-seen hit kept, times ``1 + LATELY_WEIGHT x lately[id]``
+    with ``lately`` (:func:`page_use.lately`, :func:`lately_lift`).
 
     The one reciprocal-rank fusion: ``/search`` and MCP recall
     (``mcp_tools._rrf_fuse`` is this function, G140 Q-R1).
     """
     scores, keep = rrf_scores(*ranked_lists, k=k, key=key)
+    if lately:
+        scores = {h: v * (1.0 + LATELY_WEIGHT * lately.get(h, 0.0)) for h, v in scores.items()}
     return [keep[h] for h in sorted(scores, key=lambda h: -scores[h])]
 
 
@@ -348,6 +365,9 @@ def _pages_kind(ctx: _Ctx, kind: str, lexical: list[_Page], claims: list["_Claim
     keys = [p.doc.ref for p in lexical]
     if ctx.legs is not None:
         order, scores = _fuse(keys, _dedupe(vec), via_claim)
+        lately = lately_lift(page_use.lately(ctx.memory_path), [p.doc.ref for p in lexical if p.label in ("name", "alias")])
+        scores = {ref: v * (1.0 + LATELY_WEIGHT * lately.get(ref, 0.0)) for ref, v in scores.items()}
+        order = sorted(scores, key=lambda ref: -scores[ref])
     else:
         # Prefix mode keeps the exact-name hit on top: lexical order first,
         # pages reached only through one of their claims after it.

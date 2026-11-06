@@ -165,6 +165,13 @@ def lately(memory_path: Path, *, today: date | None = None) -> dict[str, float]:
     return out
 
 
+def lately_cached(memory_path: Path) -> dict[str, float]:
+    """The last :func:`lately` table with no rebuild, ``{}`` before the first: for a tie-break inside a hook's budget."""
+    with _LOCK:
+        hit = _LATELY.get(str(Path(memory_path)))
+    return hit[1] if hit is not None else {}
+
+
 def _dir_mtime(directory: Path) -> int:
     """The entities directory's own mtime: one stat, not a scan of 8k pages. Every page write is atomic (a temp file
     renamed into place, the storage rail), so each one moves it; a hand edit in place may not, and then the order is
