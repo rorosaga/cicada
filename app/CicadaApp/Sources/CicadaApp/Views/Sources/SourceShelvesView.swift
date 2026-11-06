@@ -2,25 +2,22 @@ import SwiftUI
 
 /// ROR-118 (owner, Sources round 1) — the Sources root as shelves. Six kinds of information, never vendors; each shelf
 /// draws its connected sources in its own way (conversations as a list of titles, events as the week, saved as marks
-/// and titles, media as covers and stills), and ends in one line that adds another. What waits on the person leads,
+/// and titles, media as covers and stills), and ends in the marks of what it could still take. What waits on the person leads,
 /// as words, not as a section of tiles. DR-9 (a ring, no shadow), DR-47 (labelled groups), DR-48/DR-63 (hover is a
 /// fill), DR-52 (one logo tile), DR-60 (a key never animates).
 enum SourceShelfLayout {
-    /// Two columns when the page is wide enough, the shelves dealt to the shorter column in turn, so neither runs long.
-    static func columns(_ shelves: [SourceShelves.Shelf]) -> (left: [SourceShelves.Shelf], right: [SourceShelves.Shelf]) {
-        var left: [SourceShelves.Shelf] = [], right: [SourceShelves.Shelf] = []
-        var leftHeight = 0, rightHeight = 0
-        for shelf in shelves {
-            let height = weight(shelf)
-            if leftHeight <= rightHeight { left.append(shelf); leftHeight += height } else { right.append(shelf); rightHeight += height }
-        }
-        return (left, right)
+    /// Shelves holding something lead, in the page's order; the empty ones follow as light blocks of marks, two across.
+    static func split(_ shelves: [SourceShelves.Shelf]) -> (held: [SourceShelves.Shelf], empty: [SourceShelves.Shelf]) {
+        (shelves.filter { !$0.connected.isEmpty }, shelves.filter { $0.connected.isEmpty && !$0.addable.isEmpty })
     }
 
-    /// A shelf's height in card units: its heading and add line, and each card (a list shelf's card is three rows).
-    static func weight(_ shelf: SourceShelves.Shelf) -> Int { 2 + shelf.connected.count * 3 }
+    /// The marks an add row names: the first few that could be added (an app already here first), the rest as "+N".
+    static func chips(_ shelf: SourceShelves.Shelf, limit: Int = 4) -> (shown: [SourceCatalogRow], more: Int) {
+        (Array(shelf.addable.prefix(limit)), max(0, shelf.addable.count - limit))
+    }
 
-    static let twoColumnMinWidth: CGFloat = 820
+    static let cardMinWidth: CGFloat = 340
+    static let blockMinWidth: CGFloat = 400
 }
 
 struct SourceShelvesView: View {
@@ -30,30 +27,24 @@ struct SourceShelvesView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
-            let shelves = SourceShelves.shelves(rows)
+            let split = SourceShelfLayout.split(SourceShelves.shelves(rows))
             let waiting = rows.filter(\.needsYou)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
                 if !waiting.isEmpty { SourceNeedsYou(rows: waiting, now: context.date, open: open) }
-                ViewThatFits(in: .horizontal) {
-                    let split = SourceShelfLayout.columns(shelves)
-                    HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
-                        column(split.left, now: context.date)
-                        column(split.right, now: context.date)
+                ForEach(split.held, id: \.shelf) { shelf in
+                    SourceShelfSection(shelf: shelf, now: context.date, open: open, add: add)
+                }
+                if !split.empty.isEmpty {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(SourceShelfLayout.blockMinWidth)),
+                                                 spacing: CicadaTheme.spacingXL, alignment: .topLeading)],
+                              alignment: .leading, spacing: CicadaTheme.spacingXL) {
+                        ForEach(split.empty, id: \.shelf) { shelf in
+                            SourceEmptyShelf(shelf: shelf, open: open, add: add)
+                        }
                     }
-                    .frame(minWidth: CicadaTheme.scaled(SourceShelfLayout.twoColumnMinWidth))
-                    column(shelves, now: context.date)
                 }
             }
         }
-    }
-
-    private func column(_ shelves: [SourceShelves.Shelf], now: Date) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
-            ForEach(shelves, id: \.shelf) { shelf in
-                SourceShelfSection(shelf: shelf, now: now, open: open, add: add)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 
@@ -102,7 +93,8 @@ private struct SourceNeedsRow: View {
     }
 }
 
-/// One kind: its heading, the connected sources it holds (each drawn its own way), and the line that adds another.
+/// One kind that holds something: its heading, its connected sources (each drawn its own way, two across when the page
+/// is wide), and the marks of what else could be added.
 struct SourceShelfSection: View {
     let shelf: SourceShelves.Shelf
     let now: Date
@@ -111,46 +103,87 @@ struct SourceShelfSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            SectionLabel(shelf.shelf.title, count: shelf.connected.isEmpty ? nil : shelf.connected.count)
-            ForEach(shelf.connected) { row in
-                SourceShelfCard(row: row, shelf: shelf.shelf, now: now) { open(.entry(row.id)) }
-                    .id(SourcesSelection.entry(row.id))
+            SectionLabel(shelf.shelf.title, count: shelf.connected.count)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(SourceShelfLayout.cardMinWidth)),
+                                         spacing: CicadaTheme.spacingSM, alignment: .topLeading)],
+                      alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                ForEach(shelf.connected) { row in
+                    SourceShelfCard(row: row, shelf: shelf.shelf, now: now) { open(.entry(row.id)) }
+                        .id(SourcesSelection.entry(row.id))
+                }
             }
-            if !shelf.addNames.isEmpty {
-                SourceAddLine(names: shelf.addNames, symbol: shelf.connected.isEmpty ? shelf.shelf.symbol : nil) { add(shelf.shelf) }
+            SourceAddChips(shelf: shelf, open: open, add: add).padding(.top, CicadaTheme.scaled(2))
+        }
+    }
+}
+
+/// A kind with nothing connected yet: its heading and the marks of what it takes, by name, each one tap to its page. No
+/// dashed box, no sentence: the marks are the shelf (round 2: the readers could not find Notes or Calendar by name).
+struct SourceEmptyShelf: View {
+    let shelf: SourceShelves.Shelf
+    let open: (SourcesSelection) -> Void
+    let add: (SourceShelf?) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            SectionLabel(shelf.shelf.title)
+            SourceAddChips(shelf: shelf, open: open, add: add)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+}
+
+/// The sources a kind could still take, as a wrapping row of marks with their names; "+N" opens the add overlay on the
+/// kind. A tap on a mark opens that source's own page (where its connect card lives).
+struct SourceAddChips: View {
+    let shelf: SourceShelves.Shelf
+    let open: (SourcesSelection) -> Void
+    let add: (SourceShelf?) -> Void
+
+    var body: some View {
+        let chips = SourceShelfLayout.chips(shelf)
+        if !chips.shown.isEmpty {
+            AskChipFlowLayout(spacing: CicadaTheme.scaled(6)) {
+                ForEach(chips.shown) { row in
+                    SourceChip(row: row) { open(.entry(row.id)) }.id(SourcesSelection.entry(row.id))
+                }
+                if chips.more > 0 {
+                    Button { add(shelf.shelf) } label: {
+                        Text("+\(chips.more)").font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                            .padding(.horizontal, CicadaTheme.scaled(10))
+                            .frame(height: CicadaTheme.scaled(32))
+                    }
+                    .buttonStyle(.cicadaPlain)
+                    .help(Copy.Shelf.addHelp)
+                    .accessibilityLabel(Copy.Shelf.add(shelf.addable.dropFirst(SourceShelfLayout.chips(shelf).shown.count).map(\.entry.title)))
+                }
             }
         }
     }
 }
 
-/// "+ Add Notion, Folders": opens the overlay on this kind. On an empty shelf it is the whole shelf, so it is one
-/// dashed row wearing the kind's own glyph (DR-9: a ring, no shadow); under sources it is a quiet text row.
-struct SourceAddLine: View {
-    let names: [String]
-    /// The kind's glyph, for an empty shelf only.
-    var symbol: String? = nil
-    let action: () -> Void
+struct SourceChip: View {
+    let row: SourceCatalogRow
+    let open: () -> Void
     @State private var hovering = false
 
     private var shape: some InsettableShape { CicadaTheme.shape(CicadaTheme.cornerRadius) }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: CicadaTheme.scaled(10)) {
-                Image(systemName: symbol ?? "plus").font(CicadaTheme.icon(symbol == nil ? .inline : .list))
-                Text(Copy.Shelf.add(names)).font(CicadaTheme.metaFont).lineLimit(1)
-                Spacer(minLength: 0)
+        Button(action: open) {
+            HStack(spacing: CicadaTheme.scaled(8)) {
+                SourceLogoTile(origin: row.entry.origin, size: .dense)
+                Text(row.entry.title).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
             }
-            .foregroundStyle(hovering ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
-            .padding(.horizontal, CicadaTheme.scaled(12))
-            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(symbol == nil ? RowMetrics.titleOnly : RowMetrics.twoLine),
-                   alignment: .leading)
-            .overlay { if symbol != nil { shape.strokeBorder(CicadaTheme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])) } }
+            .padding(.leading, CicadaTheme.scaled(4)).padding(.trailing, CicadaTheme.scaled(10))
+            .frame(height: CicadaTheme.scaled(32))
             .contentShape(shape)
         }
         .buttonStyle(.cicadaPlain)
-        .onHover { hovering = $0 }
-        .accessibilityLabel(Copy.Shelf.add(names))
+        .rowHover($hovering, selected: false, cornerRadius: CicadaTheme.cornerRadius)
+        .background(shape.fill(CicadaTheme.bgFocus))
+        .ringed(.resting, in: shape)
+        .accessibilityLabel(row.entry.title)
     }
 }
 
@@ -187,7 +220,7 @@ struct SourceShelfCard: View {
                                  today: ISODay.today(now: now), counted: overview.flatMap(counted))
             }
             .padding(CicadaTheme.scaled(12))
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .contentShape(shape)
         }
         .buttonStyle(.cicadaPlain)

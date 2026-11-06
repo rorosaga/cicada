@@ -156,7 +156,7 @@ struct WebReadingCard: View {
 
     private var honestLines: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
-            line("eye", Copy.WebReading.whatIsRead(list: WebReadingScene.list(entry.id)))
+            line("eye", Copy.WebReading.whatIsRead(list: WebReadingScene.list(entry.id), app: appName))
             line("person.crop.circle", Copy.WebReading.whoseSession)
             line("building.2", Copy.WebReading.whoSees(app: appName))
             line("power", Copy.WebReading.oneClick)

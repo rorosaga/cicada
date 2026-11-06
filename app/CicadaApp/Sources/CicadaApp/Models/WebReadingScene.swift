@@ -58,4 +58,16 @@ enum WebReadingScene {
     /// How many of the four nodes are lit at a beat: Cicada alone, then the app, then the browser, then the site. The
     /// last beat hands back, so all stay lit.
     static func litNodes(atBeat beat: Int) -> Int { min(max(beat, 0), 3) + 1 }
+
+    /// The one honest line on a source that reads through the person's own sign-in (not a website read by their agent):
+    /// nil for a source that needs none.
+    static func honestLine(_ entryId: String) -> String? {
+        switch entryId {
+        case "notion": Copy.Honest.notion
+        case "linear": Copy.Honest.linear
+        case "github": Copy.Honest.github
+        case TelegramChats.channel: Copy.Honest.telegram
+        default: nil
+        }
+    }
 }

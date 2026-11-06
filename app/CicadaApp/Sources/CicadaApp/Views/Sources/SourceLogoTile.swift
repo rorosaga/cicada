@@ -17,13 +17,40 @@ struct SourceLogoTile: View {
     /// A provider umbrella's logo slug (`GET /providers`, an agent request's `logo`), drawn before the origin's.
     var logo: String? = nil
 
+    /// ROR-118 round 2 — Claude Code draws the Claude mark itself: the terminal badge on its own asset read as noise at
+    /// 26 pt and made the two Claude rows look unlike each other.
+    private var slug: String? {
+        if let logo { return logo }
+        return origin == "claude-code" || origin == "mcp" ? "claude" : OriginIconography.logoName(for: origin)
+    }
+
+    private var hasMark: Bool {
+        if let bundle = OriginIconography.appBundleId(for: origin), InstalledAppIcon.image(bundleId: bundle, size: 18) != nil {
+            return true
+        }
+        return slug.map { LogoImage.exists(name: $0) } ?? false
+    }
+
+    private var tile: CGFloat { LogoTile.tileSide(size == .row ? .regular : .dense) }
+
     var body: some View {
-        // G217 — UI-A's one `LogoTile` (cherry-picked from feat/ui-settings-agents): the installed app's icon, else the
-        // umbrella's bundled mark, else a symbol, 26 pt in a 36 pt ringed tile (dense: 18 in 24).
-        LogoTile(logo: logo ?? OriginIconography.logoName(for: origin),
-                 bundleId: OriginIconography.appBundleId(for: origin),
-                 density: size == .row ? .regular : .dense,
-                 systemFallback: OriginIconography.symbol(for: origin))
+        // G217 — UI-A's one `LogoTile`: the installed app's icon, else the umbrella's bundled mark. A source with no
+        // mark of its own (files, folders, exports) draws its glyph in the primary ink, heavier, so it sits beside the
+        // full-colour marks instead of fading under them (ROR-118 round 2).
+        if hasMark {
+            LogoTile(logo: slug, bundleId: OriginIconography.appBundleId(for: origin),
+                     density: size == .row ? .regular : .dense, systemFallback: OriginIconography.symbol(for: origin))
+        } else {
+            ZStack {
+                CicadaTheme.shape(tile * 0.25).fill(CicadaTheme.surfaceElevated)
+                Image(systemName: OriginIconography.symbol(for: origin))
+                    .font(CicadaTheme.font(size: tile * 0.46, weight: .medium))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+            }
+            .frame(width: tile, height: tile)
+            .ringed(in: CicadaTheme.shape(tile * 0.25))
+            .accessibilityHidden(true)
+        }
     }
 }
 

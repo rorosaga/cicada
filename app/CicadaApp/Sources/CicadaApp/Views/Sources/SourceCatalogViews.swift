@@ -430,6 +430,10 @@ struct SourceCatalogDetail: View {
     private var connectSlot: some View {
         // ROR-118 — a source read through the person's own agent shows who does what, before its switch.
         if WebReadingScene.applies(row.entry) { WebReadingCard(entry: row.entry) }
+        if let honest = WebReadingScene.honestLine(row.entry.id) {
+            Text(honest).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
         connectControls
     }
 

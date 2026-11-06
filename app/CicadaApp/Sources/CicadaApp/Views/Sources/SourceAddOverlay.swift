@@ -27,12 +27,9 @@ struct SourceAddOverlay: View {
 
     private var tabs: [TextTab<SourceShelf>] {
         let all = SourceShelves.shelves(rows)
-        return [TextTab(id: nil, label: Copy.Shelf.all, count: all.reduce(0) { $0 + $1.addable.count })]
-            + all.filter { !$0.addable.isEmpty }.map { TextTab(id: $0.shelf, label: $0.shelf.title, count: $0.addable.count) }
+        return [TextTab(id: nil, label: Copy.Shelf.all, count: nil)]
+            + all.filter { !$0.addable.isEmpty }.map { TextTab(id: $0.shelf, label: $0.shelf.title, count: nil) }
     }
-
-    private let columns = [GridItem(.adaptive(minimum: CicadaTheme.scaled(230)), spacing: CicadaTheme.spacingSM,
-                                    alignment: .leading)]
 
     var body: some View {
         ZStack {
@@ -81,7 +78,7 @@ struct SourceAddOverlay: View {
 
     private var yoursStrip: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            SectionLabel(Copy.Shelf.yours, count: yours.count)
+            SectionLabel(Copy.Shelf.yours)
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                     ForEach(yours) { row in YoursTile(row: row) { open(row) } }
@@ -103,8 +100,8 @@ struct SourceAddOverlay: View {
                 ForEach(groups, id: \.shelf) { group in
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                         if shelf == nil { SectionLabel(group.shelf.title) }
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                            ForEach(group.addable) { row in AddRow(row: row) { open(row) } }
+                        AskChipFlowLayout(spacing: CicadaTheme.scaled(6)) {
+                            ForEach(group.addable) { row in SourceChip(row: row) { open(row) } }
                         }
                     }
                 }
@@ -131,34 +128,6 @@ private struct YoursTile: View {
         }
         .buttonStyle(.cicadaPlain)
         .onHover { hovering = $0 }
-        .accessibilityLabel(row.entry.title)
-    }
-}
-
-/// A source that could be added: the logo tile and the name, "On this Mac" when its app is here.
-private struct AddRow: View {
-    let row: SourceCatalogRow
-    let open: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: open) {
-            HStack(spacing: CicadaTheme.scaled(12)) {
-                SourceLogoTile(origin: row.entry.origin)
-                VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                    Text(row.entry.title).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
-                    if row.suggested {
-                        Text(Copy.Shelf.onThisMac).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, CicadaTheme.scaled(8))
-            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .rowHover($hovering, selected: false, cornerRadius: CicadaTheme.cornerRadius)
         .accessibilityLabel(row.entry.title)
     }
 }

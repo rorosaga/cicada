@@ -46,14 +46,29 @@ final class SourceShelfTests: XCTestCase {
         XCTAssertEqual(found.first, "notion")
     }
 
-    func testTwoColumnsAreDealtToTheShorterOneAndKeepEveryShelfOnce() {
+    func testShelvesWithSourcesLeadAndEmptyOnesFollowAsMarksByName() {
         let all = rows(channels: [channel("reddit"), channel("github")])
-        let shelves = SourceShelves.shelves(all)
-        let split = SourceShelfLayout.columns(shelves)
-        XCTAssertEqual((split.left + split.right).map(\.shelf).sorted { $0.rawValue < $1.rawValue },
-                       SourceShelf.allCases.sorted { $0.rawValue < $1.rawValue })
-        let heights = [split.left, split.right].map { $0.reduce(0) { $0 + SourceShelfLayout.weight($1) } }
-        XCTAssertLessThanOrEqual(abs(heights[0] - heights[1]), 8)
+        let split = SourceShelfLayout.split(SourceShelves.shelves(all))
+        XCTAssertEqual(split.held.map(\.shelf), [.work, .saved])
+        XCTAssertEqual(Set(split.held.map(\.shelf)).intersection(split.empty.map(\.shelf)), [])
+        let documents = split.empty.first { $0.shelf == .documents }!
+        let chips = SourceShelfLayout.chips(documents, limit: 3)
+        XCTAssertEqual(chips.shown.count, 3, "names, not a count")
+        XCTAssertEqual(chips.more, documents.addable.count - 3)
+        XCTAssertTrue(documents.addable.contains { $0.id == "notes" }, "Apple Notes is named on the first screen")
+        let events = split.empty.first { $0.shelf == .events }!
+        XCTAssertTrue(events.addable.contains { $0.id == "calendar" }, "so is Google Calendar")
+    }
+
+    func testOnlyASourceThatReadsThroughAnAccountOrKeyCarriesAnHonestLineAndItIsReadOnly() {
+        for id in ["notion", "linear", "github", TelegramChats.channel] {
+            XCTAssertNotNil(WebReadingScene.honestLine(id), id)
+        }
+        for id in ["notes", "files", "folders", "spotify", "imessage", "x"] {
+            XCTAssertNil(WebReadingScene.honestLine(id), id)
+        }
+        XCTAssertTrue(Copy.Honest.notion.hasPrefix("Read-only"))
+        XCTAssertTrue(Copy.Honest.telegram.contains("one-to-one chats you tick"))
     }
 
     func testTheWeekStartsOnMondayAndHoldsToday() {
@@ -99,9 +114,11 @@ final class SourceShelfTests: XCTestCase {
     }
 
     func testTheCardCarriesTheHonestLinesAndItsDurationsAreSpelledInCicadaMotion() throws {
-        let lines = [Copy.WebReading.whatIsRead(list: "your Bookmarks"), Copy.WebReading.whoseSession,
+        let lines = [Copy.WebReading.whatIsRead(list: "your Bookmarks", app: "an app"), Copy.WebReading.whoseSession,
                      Copy.WebReading.whoSees(app: "an app"), Copy.WebReading.oneClick]
-        XCTAssertTrue(lines[0].contains("10 times a day"), "G206's bound")
+        XCTAssertTrue(lines[0].contains("On this Mac, in your browser, while you use an app"), "where and when")
+        XCTAssertTrue(lines[0].contains("about once a day"), "G206's 20-hour offer")
+        XCTAssertFalse(Copy.WebReading.hands.contains("as a link"), "the post's words are kept too (mcp.md)")
         XCTAssertTrue(lines[1].contains("never sees a password"))
         XCTAssertTrue(lines[2].contains("company sees what it reads"))
         let view = try String(contentsOf: Self.source("Views/Sources/WebReadingCard.swift"), encoding: .utf8)
