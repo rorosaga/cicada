@@ -2071,7 +2071,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   every 3 hours, on a bank switch and on Refresh. macOS asks once whether Cicada may read another app's data, with the
   first read. The area's one line is `BooksRowText.appleBooks`: the read in progress, then "N books · N highlights"
   and what a book's cap left out, or the failure. The footer's Disconnect (asked first) stops it and deletes nothing.
-  *Goodreads* (`GoodreadsSlot`): one *Import a file* way, the source's mark on a file, where the export comes from on
+  *Goodreads* (`GoodreadsSlot`): one *Import a file* way, the source's mark on a file, where the export comes from on **Choosing (2026-11-06):** both doors show `BookChoiceList` (all ticked; *Add all* / *Add N*, *Select none*; Apple Books also *Leave out*) before anything is posted; Apple Books' status line says how many wait.
   its hover (a file importer); then the preview's counts as the line beside *Import*. No footer: nothing to refresh or
   disconnect. *Book scans* (ROR-116, `BookAddSlot`): add a book on the Mac. A field for an ISBN (typed or pasted; the Add enables
   on a valid number, `BookISBN.parse`, the backend's check), the phone's three statuses as chips (Reading · Finished · Want

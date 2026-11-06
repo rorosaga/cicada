@@ -127,28 +127,36 @@ def draft_for(row: dict, *, now: datetime) -> EpisodeDraft | None:
 
 
 def preview(data: bytes) -> dict:
-    """Counts only — what an import would bring — read from the file, writing nothing."""
+    """What an import would bring — counts plus one row per book (id, title, author, shelf) so the person can choose —
+    read from the file, writing nothing."""
     rows = _rows(data)
     by = {s: 0 for s in books.STATUSES}
     reviews = rated = 0
     now = datetime.now(timezone.utc)
+    listing = []
     for row in rows:
         d = draft_for(row, now=now)
         if d is None:
             continue
         rec = d.extra[books.EPISODE_KEY]
+        listing.append({"id": rec["goodreads_id"], "title": rec["title"],
+                        "author": (rec["authors"] or [""])[0], "status": rec["status"]})
         if rec["status"]:
             by[rec["status"]] += 1
         reviews += int(rec["has_note"])
         rated += int(bool(rec["rating"]))
     return {"books": len(rows), "finished": by[books.FINISHED], "reading": by[books.READING],
-            "want": by[books.WANT], "reviews": reviews, "rated": rated}
+            "want": by[books.WANT], "reviews": reviews, "rated": rated, "items": listing}
 
 
-def stage(memory_path: Path, data: bytes, *, bank: str | None = None, now: datetime | None = None) -> dict:
+def stage(memory_path: Path, data: bytes, *, bank: str | None = None, now: datetime | None = None,
+          ids: set[str] | None = None) -> dict:
+    """``ids`` is the person's choice (Goodreads ``Book Id`` values); ``None`` is every book, an empty set none."""
     rows = _rows(data)
     now = now or datetime.now(timezone.utc)
     drafts = [d for d in (draft_for(r, now=now) for r in rows) if d is not None]
+    if ids is not None:
+        drafts = [d for d in drafts if d.extra[books.EPISODE_KEY]["goodreads_id"] in ids]
     result = episode_staging.stage(drafts, Path(memory_path) / "episodes", bank=bank or Path(memory_path).name)
     return {"books": len(drafts), "created": result.created, "updated": result.updated,
             "unchanged": result.skipped, "queued": sum(1 for d in drafts if d.queue_for_sleep),

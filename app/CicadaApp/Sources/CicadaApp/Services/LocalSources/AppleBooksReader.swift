@@ -284,6 +284,22 @@ enum AppleBooksStore {
     static func changed(_ books: [AppleBooksBookRecord], sent: [String: String]) -> [AppleBooksBookRecord] {
         books.filter { sent[$0.assetId] != fingerprint($0) }
     }
+
+    /// The person chooses what enters memory: a book memory has already accepted is kept current (`update`); one it has
+    /// never seen waits for the person (`fresh`) unless they declined it (`skipped`); a hidden book that is new is
+    /// neither posted nor asked about.
+    static func partition(_ books: [AppleBooksBookRecord], sent: [String: String], skipped: Set<String>)
+        -> (update: [AppleBooksBookRecord], fresh: [AppleBooksBookRecord]) {
+        var update: [AppleBooksBookRecord] = [], fresh: [AppleBooksBookRecord] = []
+        for book in books {
+            if let stamp = sent[book.assetId] {
+                if stamp != fingerprint(book) { update.append(book) }
+            } else if !book.isHidden && !skipped.contains(book.assetId) {
+                fresh.append(book)
+            }
+        }
+        return (update, fresh)
+    }
 }
 
 private extension JSONEncoder {
@@ -310,6 +326,8 @@ final class AppleBooksReader {
     enum Status: Equatable {
         case off
         case syncing
+        /// New books found, none posted yet: the person picks which go into memory.
+        case choosing(books: Int)
         /// `notKept`: highlights past their book's cap, said on the row (never silent).
         case synced(at: Date, books: Int, highlights: Int, notKept: Int)
         case failed(String)
@@ -323,10 +341,15 @@ final class AppleBooksReader {
     nonisolated static let notKeptKey = "cicada.appleBooks.notKept"
     /// Per memory: the covers it accepted (asset id → `AppleBooksCovers.fingerprint`).
     nonisolated static let coversKey = "cicada.appleBooks.covers"
+    /// Per memory: the asset ids the person declined, never asked about again.
+    nonisolated static let skippedKey = "cicada.appleBooks.skipped"
     static let shared = AppleBooksReader()
 
     private(set) var status: Status = .off
     private(set) var enabled: Bool
+    /// New books waiting for the person's choice (nothing about them has left this Mac).
+    private(set) var pending: [AppleBooksBookRecord] = []
+    @ObservationIgnored private var lastRead: [AppleBooksBookRecord] = []
 
     @ObservationIgnored private let api: AppleBooksSyncAPI
     @ObservationIgnored private let defaults: UserDefaults
@@ -377,6 +400,7 @@ final class AppleBooksReader {
         enabled = false
         defaults.set(false, forKey: Self.enabledKey)
         periodic?.cancel(); periodic = nil
+        pending = []
         status = .off
         try? await api.saveAppleBooksSettings(enabled: false)
     }
@@ -424,7 +448,11 @@ final class AppleBooksReader {
             return
         }
         var sent = (defaults.dictionary(forKey: sentKey()) as? [String: String]) ?? [:]
-        let changed = resend ? books : AppleBooksStore.changed(books, sent: sent)
+        let skipped = Set(defaults.stringArray(forKey: Self.skippedKey + "." + bank()) ?? [])
+        let parts = AppleBooksStore.partition(books, sent: sent, skipped: skipped)
+        lastRead = books
+        pending = parts.fresh
+        let changed = parts.update
         var highlights = 0
         let notKeptKey = Self.notKeptKey + "." + bank()
         var notKept = (defaults.dictionary(forKey: notKeptKey) as? [String: Int]) ?? [:]
@@ -446,10 +474,57 @@ final class AppleBooksReader {
             status = .failed(Self.failureMessage(error))
             return
         }
+        guard gen == generation else { return }
+        finishSync(books: books, sent: sent, highlights: highlights, notKept: notKept, generation: gen)
+    }
+
+    /// The person's choice: the picked books are posted, the rest are declined and not asked about again.
+    func addChosen(_ ids: Set<String>) async {
+        guard enabled, !inFlight else { return }
+        inFlight = true
+        defer { inFlight = false }
+        let gen = generation
+        let chosen = pending.filter { ids.contains($0.assetId) }
+        let declined = pending.map(\.assetId).filter { !ids.contains($0) }
+        var sent = (defaults.dictionary(forKey: sentKey()) as? [String: String]) ?? [:]
+        let notKeptKey = Self.notKeptKey + "." + bank()
+        var notKept = (defaults.dictionary(forKey: notKeptKey) as? [String: Int]) ?? [:]
+        var highlights = 0
+        do {
+            for start in stride(from: 0, to: chosen.count, by: 500) {
+                let chunk = Array(chosen[start..<min(start + 500, chosen.count)])
+                let result = try await api.syncAppleBooks(AppleBooksSyncPayload(books: chunk))
+                guard gen == generation else { return }
+                highlights += result.highlights
+                for book in chunk {
+                    sent[book.assetId] = AppleBooksStore.fingerprint(book)
+                    notKept[book.assetId] = result.trimmedBooks?[book.assetId]
+                }
+                defaults.set(sent, forKey: sentKey())
+                defaults.set(notKept, forKey: notKeptKey)
+                pending.removeAll { book in chunk.contains { $0.assetId == book.assetId } }
+            }
+        } catch {
+            guard gen == generation else { return }
+            status = .failed(Self.failureMessage(error))
+            return
+        }
+        let key = Self.skippedKey + "." + bank()
+        defaults.set(Array(Set(defaults.stringArray(forKey: key) ?? []).union(declined)), forKey: key)
+        pending = []
+        finishSync(books: lastRead, sent: sent, highlights: highlights, notKept: notKept, generation: gen)
+    }
+
+    private func finishSync(books: [AppleBooksBookRecord], sent: [String: String], highlights: Int,
+                            notKept: [String: Int], generation gen: Int) {
+        if !pending.isEmpty { status = .choosing(books: pending.count) }
+        let books = books.filter { sent[$0.assetId] != nil }
         let total = books.reduce(0) { $0 + $1.annotations.filter { !($0.selectedText ?? "").isEmpty }.count }
-        status = .synced(at: now(), books: books.filter { !$0.isHidden }.count, highlights: max(total, highlights),
-                         notKept: notKept.values.reduce(0, +))
-        await sendCovers(assets: AppleBooksCovers.assets(of: books), generation: gen)
+        if pending.isEmpty {
+            status = .synced(at: now(), books: books.filter { !$0.isHidden }.count, highlights: max(total, highlights),
+                             notKept: notKept.values.reduce(0, +))
+        }
+        Task { await sendCovers(assets: AppleBooksCovers.assets(of: books), generation: gen) }
     }
 
     /// Ruling 61: the covers Apple Books keeps, after the books themselves. Best-effort and said nowhere: a book with no

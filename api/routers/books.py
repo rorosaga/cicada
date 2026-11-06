@@ -21,11 +21,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -292,13 +293,25 @@ async def preview_goodreads(file: UploadFile = File(...), settings: Settings = D
 
 
 @router.post("/sources/goodreads/import", dependencies=_DEMO_GATE)
-async def import_goodreads(file: UploadFile = File(...), settings: Settings = Depends(get_settings)):
-    """Stage one episode per book in the export (a re-import edits in place), commit them, make the pages. 422 for a
-    file that is not a Goodreads library export."""
+async def import_goodreads(file: UploadFile = File(...), ids: str | None = Form(None),
+                           settings: Settings = Depends(get_settings)):
+    """Stage one episode per chosen book in the export (a re-import edits in place), commit them, make the pages.
+    ``ids`` is the person's choice, a JSON list of the preview's ids; omitted means every book. 422 for a file that is
+    not a Goodreads library export or a malformed ``ids``."""
     memory_path = settings.memory_path
+    chosen: set[str] | None = None
+    if ids is not None:
+        try:
+            parsed = json.loads(ids)
+        except ValueError:
+            parsed = None
+        if not isinstance(parsed, list) or len(parsed) > goodreads_export.MAX_ROWS:
+            raise HTTPException(422, "ids must be a list of book ids")
+        chosen = {str(i) for i in parsed}
     data = await _export_bytes(file)
     try:
-        out = await run_in_threadpool(goodreads_export.stage, memory_path, data, bank=memory_path.name)
+        out = await run_in_threadpool(goodreads_export.stage, memory_path, data, bank=memory_path.name,
+                                    ids=chosen)
     except goodreads_export.PayloadError as exc:
         raise HTTPException(422, str(exc))
     sync_state.record_sync(memory_path, goodreads_export.CHANNEL_ID, count=out["books"])

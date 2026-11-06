@@ -2809,9 +2809,13 @@ actor APIClient {
         try await uploadMultipart(path: "/sources/goodreads/preview", fileData: data, filename: filename)
     }
 
-    /// `POST /sources/goodreads/import` — one entry per book; a re-import changes nothing.
-    func importGoodreads(data: Data, filename: String) async throws -> GoodreadsImportResult {
-        try await uploadMultipart(path: "/sources/goodreads/import", fileData: data, filename: filename)
+    /// `POST /sources/goodreads/import` — one entry per chosen book (`ids`; nil is every book); a re-import changes
+    /// nothing.
+    func importGoodreads(data: Data, filename: String, ids: [String]? = nil) async throws -> GoodreadsImportResult {
+        var fields: [String: String] = [:]
+        if let ids, let json = try? JSONEncoder().encode(ids) { fields["ids"] = String(data: json, encoding: .utf8) }
+        return try await uploadMultipart(path: "/sources/goodreads/import", fileData: data, filename: filename,
+                                         fields: fields)
     }
 
     /// Proposed ruling 55: `GET /people/numbers/match-key` — nothing while the feature is off, or from a client of a

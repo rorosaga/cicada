@@ -1856,6 +1856,8 @@ rides on the extraction's result.
 "I watched the film of <title>" → no mark, status unchanged. A first mention with no page was held, and a later library sync
 naming that title applied it, dated as said, under the door's own commit. *Not right* reopened the earlier status.
 
+- **Choosing what goes in (2026-11-06).** Where several books arrive at once the person confirms all or picks some, and nothing is staged before: `POST /sources/goodreads/preview` also returns `items` (`id`, `title`, `author`, `status`), `POST /sources/goodreads/import` takes an optional `ids` form field (JSON list; omitted is every book, `[]` none, a malformed one 422). Apple Books is chosen in the app (`AppleBooksStore.partition`): a book memory has never accepted waits, a declined one is not asked again, an accepted one is kept current as before. Books already in are untouched. A scan is one explicit add and goes in at once.
+
 ### Sleep — 5-stage nightly batch
 1. **Entity & relationship extraction** — LLM over episode chunks, structured output.
 2. **Entity resolution & dedup** — exact name, fuzzy match, embedding similarity, LLM disambiguation

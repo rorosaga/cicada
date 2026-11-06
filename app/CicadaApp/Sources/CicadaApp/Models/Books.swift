@@ -124,14 +124,34 @@ struct BooksSummary: Decodable, Equatable, Sendable {
     }
 }
 
-/// `POST /sources/goodreads/preview` — counts only.
+/// `POST /sources/goodreads/preview` — counts, and one row per book so the person can choose.
 struct GoodreadsPreview: Decodable, Equatable, Sendable {
+    struct Item: Decodable, Equatable, Sendable, Identifiable {
+        let id: String
+        let title: String
+        let author: String
+        let status: String?
+    }
     let books: Int
     let finished: Int
     let reading: Int
     let want: Int
     let reviews: Int
     let rated: Int
+    var items: [Item] = []
+
+    private enum CodingKeys: String, CodingKey { case books, finished, reading, want, reviews, rated, items }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        books = try c.decode(Int.self, forKey: .books); finished = try c.decode(Int.self, forKey: .finished)
+        reading = try c.decode(Int.self, forKey: .reading); want = try c.decode(Int.self, forKey: .want)
+        reviews = try c.decode(Int.self, forKey: .reviews); rated = try c.decode(Int.self, forKey: .rated)
+        items = try c.decodeIfPresent([Item].self, forKey: .items) ?? []
+    }
+    init(books: Int, finished: Int, reading: Int, want: Int, reviews: Int, rated: Int, items: [Item] = []) {
+        self.books = books; self.finished = finished; self.reading = reading; self.want = want
+        self.reviews = reviews; self.rated = rated; self.items = items
+    }
 }
 
 struct GoodreadsImportResult: Decodable, Equatable, Sendable {
@@ -190,6 +210,7 @@ enum BooksRowText {
         switch status {
         case .off: return nil
         case .syncing: return Line(text: Copy.appleBooksSyncing)
+        case .choosing(let books): return Line(text: Copy.booksChoosing(books, locale: locale))
         case .failed(let why): return Line(text: why, isProblem: true)
         case .synced(_, let books, let highlights, let notKept):
             if let lastError, !lastError.isEmpty { return Line(text: lastError, isProblem: true) }
