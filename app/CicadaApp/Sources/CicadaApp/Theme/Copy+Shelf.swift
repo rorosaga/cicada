@@ -29,6 +29,8 @@ extension Copy {
     /// the AI is "the AI you use on this Mac" once, then by its name; each node says what it does.
     enum WebReading {
         static let replay = "Replay"
+        /// The closed fold over the four steps.
+        static let howItWorks = "How it works"
         static let replayHelp = "Watch it again"
         static let yourAI = "your AI"
         static let yourBrowser = "your browser"

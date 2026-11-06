@@ -21,6 +21,8 @@ struct WebReadingCard: View {
     @State private var beat = WebReadingScene.beats
     @State private var browser = BrowserLook.live()
     @State private var playing = false
+    /// The four steps are folded away until the person opens them (closed by default); Replay stays in view.
+    @State private var stepsOpen = false
 
     private var app: AgentCatalogEntry? { WebReadingScene.app(rows: Array(agents?.rows.values ?? [:].values)) }
     private var appName: String { app?.name ?? Copy.WebReading.yourAI }
@@ -30,7 +32,7 @@ struct WebReadingCard: View {
             headline
             scene
             if app != nil {
-                steps
+                howItWorks
                 honestLines
             } else {
                 noApp
@@ -178,6 +180,19 @@ struct WebReadingCard: View {
 
     // MARK: - The words
 
+    /// "How it works": a closed fold over the four steps, Replay beside it so the picture can be watched again without
+    /// opening it (DR-39: the shared fold header, which eases a click and lands a key in one frame, DR-60).
+    private var howItWorks: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(8)) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                DisclosureHeader(title: Copy.WebReading.howItWorks, isOpen: stepsOpen) { stepsOpen.toggle() }
+                Spacer(minLength: CicadaTheme.spacingSM)
+                replayButton
+            }
+            if stepsOpen { steps.transition(.opacity) }
+        }
+    }
+
     /// The four steps, numbered, all on screen. While the picture plays the one it is at is in full ink and the ones
     /// not yet reached are dim; at rest, and under Reduce Motion, all four are in full ink.
     private var steps: some View {
@@ -192,8 +207,6 @@ struct WebReadingCard: View {
                         .accessibilityHidden(true)
                     Text(text).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: CicadaTheme.spacingSM)
-                    if index == 0 { replayButton }
                 }
                 .opacity(playing && index > at ? 0.35 : 1)
             }
