@@ -805,6 +805,8 @@ capture, `agentic_write`'s trust/origin gate, and MCP `cicada_write_claim`'s sch
 read `owner_identity.resolve_observer` instead of a hardcoded literal, so a bank's claim lineage
 never forks across writers.
 
+**Keep awake (G243, 2026-11-06).** `keepAwake` in `/sleep/run-options` (machine-global, off by default): `sleep_cycle.run` acquires `keep_awake` (`caffeinate -i -s -w <backend pid>`) after the window opens and releases it in its outermost `finally`. On AC only; dies with the backend; a failure to hold is a log line. It never wakes a sleeping Mac and does not keep a closed lid awake (root: G243 parts 2–3). Staying awake changes nothing about what may run (ruling 4).
+
 ### 4. Manual Sleep trigger
 "Run Sleep cycle now" + next-scheduled indicator. A person's trigger **drains the queue** (see Sleep — Consolidate reads
 everything, TODO ruling 13); `POST /sleep/cancel` says so ("Batches already filed stay filed"), and while a drain runs the
