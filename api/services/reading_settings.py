@@ -182,7 +182,7 @@ def youtube_list_allowed(name: str) -> bool:
 
 
 #: The saved lists on walled sites an agent may be asked to read (G206; ``saved_lists.PLATFORMS``' keys).
-SAVED_LISTS = ("x", "instagram", "linkedin", "reddit", "pinterest", "tiktok")
+SAVED_LISTS = ("x", "instagram", "linkedin", "reddit", "pinterest", "tiktok", "spotify", "goodreads")
 #: The saved lists :func:`apply_list_defaults` may turn on (owner 2026-10-26: onboarding pre-ticks them and an off is
 #: remembered). G232's Reddit, Pinterest and TikTok lists are off until the person turns one on: the app has no switch
 #: or onboarding row for them yet, so no consent and no visible off exist to rest a default on (review of #596).
@@ -386,7 +386,7 @@ def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sit
     if saved_lists_ is not None:
         # G206: the same standing ask as a YouTube list, one per walled site's saved list.
         if not isinstance(saved_lists_, dict) or any(str(k) not in SAVED_LISTS for k in saved_lists_):
-            raise SettingsError("savedLists must be a map of x, instagram, linkedin, reddit, pinterest or tiktok to true or false."
+            raise SettingsError("savedLists must be a map of x, instagram, linkedin, reddit, pinterest, tiktok, spotify or goodreads to true or false."
                                 "Nothing was changed.")
         if any(saved_lists_.values()) and not _ack_ok(data):
             raise SettingsError(

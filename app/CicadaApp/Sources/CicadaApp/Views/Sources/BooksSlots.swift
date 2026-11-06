@@ -267,10 +267,14 @@ struct BookStatusLine: View {
     }
 }
 
-/// G233 — a Goodreads export: Goodreads has no open API since 2020, so the person's own "Export Library" file is the
-/// one way in and nothing is read from the site. *Import a file* (where the file comes from on its hover), then what
-/// it holds in counts beside *Import*.
+/// G233 — Goodreads has no open API since 2020. The way in is the person's own agent reading their shelves in their own
+/// browser (ROR-128; the books wait in `GoodreadsWaitingList` for the person's pick), and, quietly after it, the
+/// person's own "Export Library" file: *Import a file* (where the file comes from on its hover), then what it holds in
+/// counts beside *Import*.
 struct GoodreadsSlot: View {
+    /// ROR-128 (owner 2026-11-06: "the browser should be there before exporting a file"): the person's own agent reads
+    /// their shelves in their browser — the page's *Read through your browser* switch comes first, the file after it.
+    var browserWay: SourceWayIn?
     @Environment(Store.self) private var store
     @State private var picking = false
     @State private var file: (data: Data, name: String)?
@@ -280,7 +284,8 @@ struct GoodreadsSlot: View {
 
     var body: some View {
         SourceConnectArea(primary: nil, line: line?.text, lineIsAttention: line?.isProblem ?? false,
-                          ways: [chooseWay]) {
+                          ways: (browserWay.map { [$0] } ?? []) + [chooseWay]) {
+            GoodreadsWaitingList()
             if let preview, !preview.items.isEmpty {
                 BookChoiceList(items: preview.items.map {
                     BookChoiceItem(id: $0.id, title: $0.title, author: $0.author,

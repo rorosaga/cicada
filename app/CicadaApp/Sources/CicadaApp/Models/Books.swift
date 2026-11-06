@@ -175,6 +175,18 @@ struct GoodreadsImportResult: Decodable, Equatable, Sendable {
     let unchanged: Int
 }
 
+/// ROR-128 — `GET /sources/goodreads/waiting`: the books the person's own agent read on their shelves, waiting for
+/// their choice (the preview's row shape, so the one pick list serves both).
+struct GoodreadsWaiting: Decodable, Equatable, Sendable {
+    struct Item: Decodable, Equatable, Sendable, Identifiable {
+        let id: String
+        let title: String
+        let author: String
+        let status: String?
+    }
+    let items: [Item]
+}
+
 /// The Reading pages' lines, pure (`AppleBooksReaderTests`).
 enum BooksRowText {
     /// How a book came in, as one small label: "Scanned 5 Nov", "Apple Books", "Goodreads".

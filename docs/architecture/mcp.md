@@ -711,8 +711,16 @@ default** (review of #596): `list_defaults` never turns one of the three on — 
 `reading_settings.DEFAULT_ON_SAVED_LISTS` (X, Instagram, LinkedIn), since the app has no switch or onboarding row for
 them yet, so neither the consent nor the remembered off the 2026-10-26 default rests on exists; only the person's own
 `PUT /reading/settings` turns one on. The app follow-up that ships their switches may revisit the default.
-**Spotify has no browser list:** its User Guidelines bar "crawling" or "scraping … by automated means" and "ingesting
-Spotify Content into a machine learning or AI model" (`ways_in.SPOTIFY_TERMS`, `network.md`, "Ways in, per source").
+**Spotify and Goodreads join (ROR-128, ruling 72, owner 2026-11-06: a site's terms do not decide this).** Two more
+`saved_lists.PLATFORMS`, last in the offer's order, off by default (not in `DEFAULT_ON_SAVED_LISTS`), on the same consent,
+bound and tool. **Spotify** Library (`https://open.spotify.com/`, then Your Library: Liked Songs, each playlist, album and
+podcast; `spotify-saved` / `Library` — the export's origin, so an item the download brought in is the same row; an item must
+be `/track|album|show|episode|playlist|artist/<id>` on `open.spotify.com`, an `intl-xx` prefix dropped), index-only like the
+rest. Its API connector stays unbuilt (its Developer Terms, `network.md`). **Goodreads** shelves
+(`https://www.goodreads.com/review/list`) are books, not posts: `cicada_record_saved_list(platform="goodreads", items)` takes
+`{id, title, author, shelf, rating, date_read, date_added, review}` per book and **writes nothing into the bank** — the books
+are held for the person's choice (`goodreads_waiting`, `capture-and-sleep.md`, "Books"); the reply says so. The queue line
+for it names the shelves Read, Currently Reading and Want to Read and the same never-click rule.
 
 **Substack: Saved, History and Subscriptions (G89, owner 2026-11-04: "a direct app integration is best to see history
 of read stuff, saved stuff, etc.").** Substack gives a reader no API, no OAuth app programme, no reader export and no

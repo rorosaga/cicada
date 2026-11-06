@@ -392,7 +392,7 @@ enum SourceCatalog {
     static let signInChannels: Set<String> = ["pinterest", "reddit", "x", "notion-api", "github", "linear-api"]
     /// G206 (#426): the sites whose saved list the person's own agent can keep current from their signed-in browser
     /// (`reading_settings.SAVED_LISTS`).
-    static let savedListSites: Set<String> = ["x", "instagram", "linkedin", "reddit", "pinterest", "tiktok"]
+    static let savedListSites: Set<String> = ["x", "instagram", "linkedin", "reddit", "pinterest", "tiktok", "spotify", "goodreads"]
     /// An overview row an import shares with a reader on this Mac → that reader's channel: Takeout's watch history and
     /// Chrome's watched days are both `youtube-history`.
     static let sharedWithReader: [String: String] = ["youtube-history": WatchHistoryWatcher.channel]

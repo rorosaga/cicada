@@ -19,7 +19,8 @@ existing route:
 
 Which ways exist was decided on 2026-11-04 against each service's own terms and developer documentation (the table in
 ``docs/architecture/network.md``, "Ways in, per source"). In short: Spotify's Developer Terms and its User Guidelines
-both bar automated access and putting its content into an AI model, so Spotify is a file only; Reddit's API serves a
+both bar an app putting its content into an AI model, so Spotify has no connector (its library is read in the person's
+own browser since ROR-128, ruling 72, and its download is a file); Reddit's API serves a
 desktop app with no secret (an installed app) but new access needs Reddit's approval, so Connect shows only once the
 build carries an approved client id; Pinterest's token exchange needs a client secret and apps registered since
 2026-09-14 cannot read a personal account's boards, so only the person's own older app connects; TikTok's and
@@ -56,9 +57,9 @@ class Source:
     not_offered: dict[str, str]
 
 
-SPOTIFY_TERMS = ("Spotify's terms don't allow it: its Developer Terms and User Guidelines bar automated access to the "
-                 "service and putting its content into an AI model. Your own data download is yours to bring in.")
-SPOTIFY_NO_BROWSER = SPOTIFY_TERMS
+SPOTIFY_TERMS = ("Spotify's Developer Terms bar an app from putting its content into an AI model, so Cicada has no "
+                 "Spotify connector. Your own agent can read your library in your browser, and your own data download "
+                 "is yours to bring in.")
 TIKTOK_NO_ACCOUNT = ("TikTok's API gives an app your profile and your own public videos only — never your likes, "
                      "favorites or watch history.")
 INSTAGRAM_NO_ACCOUNT = ("Instagram's API serves business and creator accounts only, and returns no saved or liked "
@@ -70,13 +71,13 @@ PINTEREST_FILE = ("Pinterest's data download (Settings → Privacy and data → 
 
 SOURCES: dict[str, Source] = {
     "spotify": Source(
-        "spotify", "Spotify", None, None,
+        "spotify", "Spotify", None, "spotify",
         FileWay("spotify", "https://www.spotify.com/account/privacy/",
                 "On spotify.com, open Account → Privacy settings → Download your data, and ask for Extended "
                 "streaming history (every play) or Account data (the last year, your library and playlists). "
                 "Spotify emails a .zip, which can take up to 30 days; drop it here.",
                 "Every play, one entry per day; your liked songs, albums, podcasts and playlists as saved items."),
-        {"account": SPOTIFY_TERMS, "browser": SPOTIFY_NO_BROWSER}),
+        {"account": SPOTIFY_TERMS}),
     "reddit": Source(
         "reddit", "Reddit", "reddit", "reddit",
         FileWay("reddit", "https://www.reddit.com/settings/data-request",
@@ -106,7 +107,7 @@ SOURCES: dict[str, Source] = {
 
 #: The one short line the connect area shows when the official account is not offered (its full reason on hover).
 SHORT: dict[str, str] = {
-    "spotify": "Spotify's terms allow your data download only.",
+    "spotify": "Spotify has no account connection; your agent can read it in your browser.",
     "pinterest": "Pinterest connects only through your own app.",
     "tiktok": "TikTok's API doesn't share likes or favorites.",
     "instagram": "Instagram's API doesn't share saved posts.",

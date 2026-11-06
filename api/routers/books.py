@@ -9,6 +9,8 @@
 * ``GET|PUT /sources/apple-books/settings`` and ``POST /sources/apple-books/sync`` — the app reads Apple Books after
   the person turned it on and posts a projection (``apple_books``); a sync while it is off is refused (409).
 * ``POST /sources/goodreads/preview`` and ``POST /sources/goodreads/import`` — the person's own Goodreads export CSV.
+* ``GET /sources/goodreads/waiting`` and ``POST /sources/goodreads/waiting/choose`` — the books their own agent read on
+  their shelves (ROR-128), held outside the bank until they choose (``goodreads_waiting``).
 * ``GET /sources/books/scans/{episodeId}`` — what a scan became, so the Mac's Add can say "Already in your books".
 * ``GET /sources/books`` — counts for the Reading rows: books by status, and scans waiting for their lookup.
 * ``POST /sources/apple-books/covers`` — the covers the app read from Apple Books' cache (ruling 61, ``book_covers``).
@@ -34,8 +36,8 @@ from starlette.concurrency import run_in_threadpool
 from api.config import Settings, get_settings
 from api.routers.capture import refuse_capture_into_demo
 from api.services import apple_books, book_covers, book_jobs, books, episode_staging, folder_source, goodreads_export
-from api.services import choice_covers, idempotency, logo_service, sync_state, telemetry, write_admission
-from api.services import media_preview
+from api.services import choice_covers, goodreads_waiting, idempotency, logo_service, sync_state, telemetry
+from api.services import media_preview, write_admission
 from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
@@ -327,6 +329,11 @@ async def import_goodreads(file: UploadFile = File(...), ids: str | None = Form(
                                     ids=chosen)
     except goodreads_export.PayloadError as exc:
         raise HTTPException(422, str(exc))
+    return await _finish_goodreads(memory_path, out)
+
+
+async def _finish_goodreads(memory_path: Path, out: dict) -> dict:
+    """The file's and the agent's door end the same way: record the sync, commit the episodes, make the pages."""
     sync_state.record_sync(memory_path, goodreads_export.CHANNEL_ID, count=out["books"])
     paths = out.pop("paths")
     if paths:
@@ -335,3 +342,28 @@ async def import_goodreads(file: UploadFile = File(...), ids: str | None = Form(
     applied = await book_jobs.apply_admitted(memory_path, author="user", trigger="capture/goodreads")
     return {**out, "pages": applied.get("pages_created", 0), "deferred": bool(applied.get("deferred")),
             "bank": memory_path.name}
+
+
+@router.get("/sources/goodreads/waiting")
+async def goodreads_waiting_list(settings: Settings = Depends(get_settings)):
+    """ROR-128: the books the person's own agent read on their shelves, waiting for the person's choice — the pick
+    list's shape (``id``, ``title``, ``author``, ``status``). Nothing is in memory until ``choose``."""
+    return {"items": await run_in_threadpool(goodreads_waiting.waiting, settings.memory_path),
+            "bank": settings.memory_path.name}
+
+
+class GoodreadsChoice(BaseModel):
+    #: The waiting books to add; every other waiting book is left out for good. ``[]`` leaves them all out.
+    ids: list[str] = Field(default_factory=list, max_length=goodreads_waiting.MAX_HELD)
+
+
+@router.post("/sources/goodreads/waiting/choose", dependencies=_DEMO_GATE)
+async def goodreads_waiting_choose(req: GoodreadsChoice, settings: Settings = Depends(get_settings)):
+    memory_path = settings.memory_path
+    rows = await run_in_threadpool(goodreads_waiting.choose, memory_path, req.ids)
+    if not rows:
+        return {"books": 0, "created": 0, "updated": 0, "unchanged": 0, "queued": 0, "pages": 0, "deferred": False,
+                "bank": memory_path.name}
+    out = await run_in_threadpool(goodreads_export.stage_rows, memory_path, rows, bank=memory_path.name)
+    return await _finish_goodreads(memory_path, out)
+

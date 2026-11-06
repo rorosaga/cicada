@@ -529,6 +529,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # `deferred` and the tail applies them — never refused.
     "POST /sources/apple-books/sync": (HELD, "api.services.book_jobs.apply_admitted"),
     "POST /sources/goodreads/import": (HELD, "api.services.book_jobs.apply_admitted"),
+    "POST /sources/goodreads/waiting/choose": (HELD, "api.services.book_jobs.apply_admitted"),
     "PUT /sources/apple-books/settings": (REGISTRY, None),
     # Ruling 61: covers kept outside every bank, each page's stamp by the same apply; a take-back inside admission.
     "POST /sources/apple-books/covers": (HELD, "api.services.book_jobs.apply_admitted"),

@@ -3,7 +3,8 @@
 Goodreads stopped issuing developer keys for its public API in December 2020 and has not reopened it; its pages sit
 behind sign-in and bot protection. So there is no connector: the way in is the export Goodreads itself offers its
 members (My Books → Import and export → Export Library, a ``goodreads_library_export.csv``), picked by the person in
-the app. The backend never fetches a Goodreads page, signed in or not.
+the app — the quiet second way since ROR-128 (ruling 72), after the person's own agent reading their shelves in their own
+browser (``goodreads_waiting``). The backend never fetches a Goodreads page, signed in or not.
 
 The columns read (the export's own headers): ``Book Id``, ``Title``, ``Author``, ``Additional Authors``, ``ISBN``,
 ``ISBN13`` (written ``="…"`` so a spreadsheet keeps the digits), ``My Rating``, ``Number of Pages``, ``Year
@@ -153,7 +154,13 @@ def preview(data: bytes) -> dict:
 def stage(memory_path: Path, data: bytes, *, bank: str | None = None, now: datetime | None = None,
           ids: set[str] | None = None) -> dict:
     """``ids`` is the person's choice (Goodreads ``Book Id`` values); ``None`` is every book, an empty set none."""
-    rows = _rows(data)
+    return stage_rows(memory_path, _rows(data), bank=bank, now=now, ids=ids)
+
+
+def stage_rows(memory_path: Path, rows: list[dict], *, bank: str | None = None, now: datetime | None = None,
+               ids: set[str] | None = None) -> dict:
+    """Stage export-shaped rows — a file's, or the books the person's agent read and the person chose
+    (``goodreads_waiting``): one writer, one episode per book whichever door."""
     now = now or datetime.now(timezone.utc)
     drafts = [d for d in (draft_for(r, now=now) for r in rows) if d is not None]
     if ids is not None:

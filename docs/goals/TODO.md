@@ -21,6 +21,7 @@
 - **2026-11-06 — a conflict answer writes the value only the question held (G98, ROR-31; branch `conflict-off-page-value`).**
   "Both", a pick of the off-page value, "both" on a description question and a multi-valued dismissal each dropped a value;
   each now writes it. No bank write. Still open: a question closed because a later value won drops its off-page rival (G98 row).
+- **2026-11-06 — Goodreads and Spotify through the person's own browser (ROR-128, G233, G232; branch `goodreads/agent-read`, stacked on `books/choose`).** Ruling 72. Both join the saved lists (`saved_lists.PLATFORMS`, `reading_settings.SAVED_LISTS`, off until the person turns one on); Goodreads' books wait in `goodreads_waiting` for the pick list, Spotify's are index-only saves. **Pick up here:** merge #666 first (this branch sits on it); then open Sources → Goodreads in a scratch app with a stdio agent, turn the switch on, have the agent record books, pick some. Not run: the full suites, the Swift tests, a real Goodreads or Spotify page (the item shape each page gives is the agent's to read).
 - **2026-11-06 — choose what goes in (G233, G39; branch `books/choose`).** Goodreads preview lists the books and the import takes `ids`; Apple Books holds never-accepted books for the person's tick (declined ones remembered, accepted ones kept current). A scan stays one explicit add. Each row shows its cover thumbnail (Apple Books' cache; a Goodreads ISBN through `choice_covers`, no cover = no picture). **Pick up here:** Swift filter `AppleBooksReaderTests`; open both doors in a scratch app. No ruling changed; piece 3 (descriptions, relevance at linking) waits on the owner's DECIDE.
 - **2026-11-05 — the book scanner (G233; branch `books-scanner`).** Scan opens a camera window over the app: the book outlined, the barcode marked on its own corners, the number taken by itself (3 analysed frames in a row), the window left open for the next book. **Pick up here:** Swift filters `BookScanMathTests`, `Lint`, `CicadaMotionTests`; the owner tries it with a real camera (the live frame rate and highlight placement are theirs to judge).
 - **2026-11-05 — a scanned book's page is worth opening (G233; branch `books-page`).** Lookup merges the edition, the work and Google Books (authors, a 700-character description with its source and day, publisher, subjects); a v1 cached lookup is asked again once; no placeholder line anywhere; the page leads with the cover and facts; the Add shows the book and opens its page; a scan is one label with its day and in no list or search. **Pick up here:** run Swift filters `BookAddTests`, `Lint`; open a scanned book in a scratch app. No ruling changed.
@@ -3685,6 +3686,29 @@ A whole row moves to DONE only after its remaining implementation and required a
    on a page nobody reads, and one that changes two on a page read daily, tied under "priority + 0.5 × use". **Trigger to
    revisit (a, b):** the `impact` buckets show the person answers the low ones as readily as the high ones over a few
    hundred answers, or the person reports the first question is wrong; **(d, e):** a request to count with recording off.
+72. **A site's terms do not decide whether the person's own agent reads their own list in their own browser (owner, 2026-11-06; ROR-128).**
+   The owner: "i still dont get the connections like import a file for goodreads. why? no one is going to do it like
+   this." and "don't care so much about if good reads terms or any other websites terms allow for it. Because in the end
+   it's just a browser harness that we're running... in my personal browser." and "for good reads I think the browser
+   should be there before exporting a file." (a) **Amends ruling 47 and G232:** the browser path no longer waits on a site's
+   terms. The limits that stay are the existing ones: the person starts it (the switch, off until they turn it on),
+   it is their own signed-in session, reads stay low-rate (one site's list at a time, ≤ 10 reads a UTC day), the page says
+   it reads through their browser, nothing is clicked that changes the list. (b) **Lifts Spotify's "never"** (ruling 47's
+   2026-10-29 row, G232): Spotify's library is a saved list (`saved_lists.PLATFORMS["spotify"]`, origin `spotify-saved`,
+   index-only, ruling 30) like the rest. Its Developer Terms still rule out an API *connector*, which stays unbuilt.
+   (c) **Browser first, the file after it** on a source that has both: Goodreads' page leads with *Read through your
+   browser*; the export stays a quiet fallback. (d) **The backend's ToS rail is unchanged:** it never fetches a page
+   behind authentication and never signs in; this ruling is about the person's own agent and browser, never Cicada's
+   server. (e) **Goodreads is books, so it is chosen:** the agent's read is held outside the bank (`goodreads_waiting`)
+   and the person picks with #666's pick list before anything is staged; a book left out is never asked about again. Both
+   doors write one episode per book (`goodreads:<Book Id>`). *Why:* the owner's test of a connection is whether a person
+   would do it; nobody exports a CSV to connect a library. **Trigger to revisit:** a site actively detects the person's own
+   browser session and restricts their account for it (measured, not assumed).
+   **File-first sources still to move to the browser (listed 2026-11-06, none built here):** Letterboxd (diary and
+   watchlist; its RSS stays), Goodreads' *shelves with highlights* beyond the first pass, Amazon/Kindle highlights, Apple
+   Podcasts and Pocket-style read-later (Pocket closed in 2025, so a file only), Notion's and Google's exports where the
+   API is not offered, Facebook and Threads saved items, Strava/Fitbit-style activity exports, and chat exports (their own
+   row, ROR-126). Each needs its page, its item shape and its own "never click" line before it joins; none is assumed.
 
 69. **A rename at the source renames the thing in Cicada, for every source (owner, 2026-11-05; ROR-122).**
    The owner: "I think these two-way updates should be in all sources. So if a voice memo changes the name and stuff,

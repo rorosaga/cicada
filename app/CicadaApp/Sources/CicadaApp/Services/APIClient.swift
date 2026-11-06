@@ -2818,6 +2818,16 @@ actor APIClient {
                                          fields: fields)
     }
 
+    /// `GET /sources/goodreads/waiting` — the books the person's own agent read on their shelves (ROR-128).
+    func fetchGoodreadsWaiting() async throws -> GoodreadsWaiting {
+        try await get("/sources/goodreads/waiting")
+    }
+
+    /// `POST /sources/goodreads/waiting/choose` — add the ticked books; every other waiting book is left out for good.
+    func chooseGoodreadsWaiting(ids: [String]) async throws -> GoodreadsImportResult {
+        try await post("/sources/goodreads/waiting/choose", body: ["ids": ids])
+    }
+
     /// Proposed ruling 55: `GET /people/numbers/match-key` — nothing while the feature is off, or from a client of a
     /// server elsewhere (403): then no card carries keys.
     func numberMatchKey() async -> String? {
