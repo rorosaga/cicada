@@ -13,7 +13,7 @@ struct ProjectsPage: View {
     @Environment(BacklogCache.self) private var backlogCache
     @Environment(AppRouter.self) private var router
     @Environment(ProvenanceRouter.self) private var provenance
-    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
+    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = ShellMetrics.labelledDefault
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var columns = ListColumns<String>()

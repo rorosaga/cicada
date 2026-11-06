@@ -158,9 +158,9 @@ final class ThemeTokenTests: XCTestCase {
             Row(name: "borderLight", read: { CicadaTheme.borderLight }, dark: 0x323334, light: 0xCFCFCE),
             Row(name: "textPrimary", read: { CicadaTheme.textPrimary }, dark: 0xF5F5F6, light: 0x141415),
             Row(name: "textSecondary", read: { CicadaTheme.textSecondary }, dark: 0xD0D1D4, light: 0x38393C),
-            Row(name: "textTertiary", read: { CicadaTheme.textTertiary }, dark: 0x8D8F94, light: 0x6A6B70),
-            Row(name: "textTertiaryOnFill", read: { CicadaTheme.textTertiaryOnFill }, dark: 0x8D8F94, light: 0x5E5F64),
-            Row(name: "textQuaternary", read: { CicadaTheme.textQuaternary }, dark: 0x6A6C71, light: 0x8A8B90),
+            Row(name: "textTertiary", read: { CicadaTheme.textTertiary }, dark: 0xA4A6AB, light: 0x6A6B70),
+            Row(name: "textTertiaryOnFill", read: { CicadaTheme.textTertiaryOnFill }, dark: 0xA4A6AB, light: 0x5E5F64),
+            Row(name: "textQuaternary", read: { CicadaTheme.textQuaternary }, dark: 0x7E8085, light: 0x8A8B90),
             Row(name: "progressFill", read: { CicadaTheme.progressFill }, dark: 0x6FB57B, light: 0x37753D),
             Row(name: "codeBackground", read: { CicadaTheme.codeBackground }, dark: 0x111213, light: 0xF7F7F5),
             // Meadow's nature tokens did not move (DR-13): art and reward moments only.
@@ -318,10 +318,10 @@ final class ThemeTokenTests: XCTestCase {
         CicadaTheme.mode = .light
         let light = NSColor(CicadaTheme.scrim).alphaComponent
         XCTAssertGreaterThan(dark, light)
-        XCTAssertEqual(Double(light), 0.35, accuracy: 0.001)
+        XCTAssertEqual(Double(light), 0.42, accuracy: 0.001)
         CicadaTheme.mode = .dark
-        XCTAssertEqual(Double(NSColor(CicadaTheme.scrimPanel).alphaComponent), 0.24, accuracy: 0.001)
+        XCTAssertEqual(Double(NSColor(CicadaTheme.scrimPanel).alphaComponent), 0.72, accuracy: 0.001)
         CicadaTheme.mode = .light
-        XCTAssertEqual(Double(NSColor(CicadaTheme.scrimPanel).alphaComponent), 0.12, accuracy: 0.001, "DR-33")
+        XCTAssertEqual(Double(NSColor(CicadaTheme.scrimPanel).alphaComponent), 0.42, accuracy: 0.001, "DR-33")
     }
 }

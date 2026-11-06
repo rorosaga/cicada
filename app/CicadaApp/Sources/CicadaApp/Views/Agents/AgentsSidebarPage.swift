@@ -15,7 +15,7 @@ struct AgentsSidebarPage: View {
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
+    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = ShellMetrics.labelledDefault
     @State private var directory = ProviderDirectory.shared
     @State private var live: [AgentLiveRow] = []
     @State private var tokens: [AgentToken] = []

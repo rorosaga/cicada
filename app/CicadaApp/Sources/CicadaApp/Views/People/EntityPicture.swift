@@ -40,6 +40,18 @@ struct EntityPicture: View {
     private var units: CGFloat { EntityPictureLayout.clamp(size) }
     private var frame: CGSize { EntityPictureLayout.frame(type, size: CicadaTheme.scaled(units)) }
     private var picture: EntityPictureRef? { store.picture(for: id, held: held) }
+    /// ROR-118 — the picture on the first frame when it was already seen this run (`ImageMemory`); the `.task` below
+    /// fills in what was not. Without it every page switch drew the fallback, then popped the image in.
+    private var shownImage: NSImage? {
+        if let image { return image }
+        guard let picture, let raw = picture.url else { return nil }
+        switch picture.source {
+        case .logo: return LogoStore.cachedImage(entityId: id, bank: store.bank)
+        case .upload, .contacts, .messages, .thumbnail, .profile:
+            return PictureURL.parse(raw).flatMap { PictureStore.cachedImage($0, bank: store.bank) }
+        case .initials: return nil
+        }
+    }
     private var loadKey: String { "\(store.bank)|\(id)|\(picture?.source.rawValue ?? "-")|\(picture?.url ?? "-")" }
 
     var body: some View {
@@ -109,11 +121,11 @@ struct EntityPicture: View {
     }
 
     var surface: some View {
-        let drawn = EntityPictureLayout.drawnFrame(type, source: picture?.source, image: image?.size, well: frame)
+        let drawn = EntityPictureLayout.drawnFrame(type, source: picture?.source, image: shownImage?.size, well: frame)
         let shape = EntityPictureLayout.clip(type, height: drawn.height)
         let fit = picture?.source == .logo
         return ZStack {
-            if let image {
+            if let image = shownImage {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)
@@ -127,7 +139,7 @@ struct EntityPicture: View {
         .frame(width: drawn.width, height: drawn.height)
         .clipShape(shape)
         .overlay {
-            if EntityPictureLayout.ringed(picture?.source, hasImage: image != nil, type: type) {
+            if EntityPictureLayout.ringed(picture?.source, hasImage: shownImage != nil, type: type) {
                 shape.stroke(CicadaTheme.ring(.resting), lineWidth: 1)
             }
         }

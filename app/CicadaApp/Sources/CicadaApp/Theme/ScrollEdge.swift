@@ -23,3 +23,25 @@ extension View {
     /// The one door for a page's soft top scroll edge.
     func softTopScrollEdge() -> some View { modifier(SoftTopScrollEdge()) }
 }
+
+/// ROR-118 - the bottom edge of a sheet or panel whose content runs past it (Settings was cut flush at a row with no cue
+/// that more follows): the same system soft edge, so the clipped row eases out instead of ending on a hard line. It is
+/// the chrome boundary's treatment, not a shadow or a glass material on content (DR-9, DR-14).
+struct SoftBottomScrollEdge: ViewModifier {
+    func body(content: Content) -> some View {
+        #if canImport(SwiftUI, _version: 7.0)
+        if #available(macOS 26, *) {
+            content.scrollEdgeEffectStyle(.soft, for: .bottom)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+extension View {
+    /// The one door for a panel's soft bottom scroll edge.
+    func softBottomScrollEdge() -> some View { modifier(SoftBottomScrollEdge()) }
+}

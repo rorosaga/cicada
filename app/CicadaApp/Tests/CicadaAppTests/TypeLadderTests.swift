@@ -9,13 +9,13 @@ final class TypeLadderTests: XCTestCase {
     func testTheLadderIsTheRulesSizesAndWeights() {
         CicadaTheme.uiScale = 1.0
         XCTAssertEqual(CicadaTheme.headingFont, CicadaTheme.font(size: 17, weight: .semibold))
-        XCTAssertEqual(CicadaTheme.detailBodyFont, CicadaTheme.font(size: 14))
-        XCTAssertEqual(CicadaTheme.bodyFont, CicadaTheme.font(size: 13), "R-DS9: body stays 13 off detail surfaces")
-        XCTAssertEqual(CicadaTheme.rowFont, CicadaTheme.font(size: 13, weight: .medium))
-        XCTAssertEqual(CicadaTheme.metaFont, CicadaTheme.font(size: 12))
-        XCTAssertEqual(CicadaTheme.metaMediumFont, CicadaTheme.font(size: 12, weight: .medium))
-        XCTAssertEqual(CicadaTheme.labelFont, CicadaTheme.font(size: 11, weight: .medium), "DR-20: no mono, no caps")
-        XCTAssertEqual(CicadaTheme.badgeFont, CicadaTheme.font(size: 10, weight: .semibold))
+        XCTAssertEqual(CicadaTheme.detailBodyFont, CicadaTheme.font(size: 15))
+        XCTAssertEqual(CicadaTheme.bodyFont, CicadaTheme.font(size: 14), "ROR-118: the ladder rose a step")
+        XCTAssertEqual(CicadaTheme.rowFont, CicadaTheme.font(size: 14, weight: .medium))
+        XCTAssertEqual(CicadaTheme.metaFont, CicadaTheme.font(size: 13))
+        XCTAssertEqual(CicadaTheme.metaMediumFont, CicadaTheme.font(size: 13, weight: .medium))
+        XCTAssertEqual(CicadaTheme.labelFont, CicadaTheme.font(size: 12, weight: .medium), "DR-20: no mono, no caps")
+        XCTAssertEqual(CicadaTheme.badgeFont, CicadaTheme.font(size: 11, weight: .semibold))
         XCTAssertEqual(CicadaTheme.quoteLineSpacing, 7, "DR-16: SF 15's natural 18 pt line + 7 = 25")
     }
 

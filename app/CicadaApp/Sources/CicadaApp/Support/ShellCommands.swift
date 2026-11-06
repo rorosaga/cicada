@@ -14,7 +14,7 @@ struct ShellCommands: Commands {
     let router: AppRouter
     /// G182 phase 5 — Check for Updates…, a release build's alone.
     let updates: UpdateService
-    @AppStorage(ShellMetrics.labelledKey) private var labelled = false
+    @AppStorage(ShellMetrics.labelledKey) private var labelled = ShellMetrics.labelledDefault
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {

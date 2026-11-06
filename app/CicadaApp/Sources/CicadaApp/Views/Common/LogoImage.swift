@@ -51,6 +51,11 @@ struct LogoImage: View {
         .task(id: taskKey) { await load() }
     }
 
+    private var entityImageNow: NSImage? {
+        guard case let .entity(id, _, _, _) = source else { return nil }
+        return LogoStore.cachedImage(entityId: id, bank: store.bank)
+    }
+
     private var taskKey: String {
         switch source {
         // R-L5: reading `CicadaTheme.mode` (through `resolvedName`) HERE is
@@ -89,7 +94,8 @@ struct LogoImage: View {
 
     @ViewBuilder
     private func entityBody(name: String, fallbackOrigin: String?) -> some View {
-        if let image {
+        // ROR-118 — a logo already seen this run is drawn on the first frame (`ImageMemory`), never popped in.
+        if let image = image ?? entityImageNow {
             Image(nsImage: image)
                 .resizable()
                 .interpolation(.high)

@@ -411,14 +411,19 @@ struct HomeQuestionRow: View {
                     }
                 }
                 Spacer(minLength: CicadaTheme.spacingSM)
-                Text(row.age)
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .help(row.ageHelp)
+                // ROR-118 (DR-38) — a row with no known age says nothing there, not a dash; the chevron only
+                // answers the pointer (the hover fill already marks the row), so neither decorates a resting row.
+                if row.age != "—" {
+                    Text(row.age)
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .help(row.ageHelp)
+                }
                 Image(systemName: "chevron.right")
                     .font(CicadaTheme.icon(.list))
                     .foregroundStyle(CicadaTheme.textTertiary)
+                    .opacity(hovering ? 1 : 0)
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, CicadaTheme.scaled(10))

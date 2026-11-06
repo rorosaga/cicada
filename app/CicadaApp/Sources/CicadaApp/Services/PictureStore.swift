@@ -42,6 +42,7 @@ actor PictureStore {
         let file = fileURL(k, bank: bank)
         if let data = try? Data(contentsOf: file), let image = NSImage(data: data) {
             memory[k] = image
+            ImageMemory.pictures.set(k, image)
             return image
         }
         if let running = inFlight[k] { return await running.value }
@@ -79,12 +80,14 @@ actor PictureStore {
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: file, options: .atomic)
         memory[k] = image
+        ImageMemory.pictures.set(k, image)
     }
 
     /// A bank switch forgets what is in memory for that bank (`LogoStore.clear`'s rule; the disk copy is keyed by URL).
     func clear(bank: String) {
         let prefix = "\(bank)|"
         memory = memory.filter { !$0.key.hasPrefix(prefix) }
+        ImageMemory.pictures.clear(prefix: prefix)
         misses = misses.filter { !$0.hasPrefix(prefix) }
         for (k, task) in inFlight where k.hasPrefix(prefix) {
             task.cancel()
