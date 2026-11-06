@@ -15,7 +15,7 @@ from _demo_scenario import T, build, demo
 from fastapi.testclient import TestClient
 
 from api import config, main
-from api.services import (demo_pictures, demo_showcase, entity_picture, handshake, markdown_parser, papers,
+from api.services import (demo_pictures, demo_showcase, entity_picture, handshake, markdown_parser, media_preview, papers,
                           video_urls)
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "demo_showcase.json"
@@ -58,24 +58,11 @@ def test_people_and_a_company_have_pictures_the_app_can_load(bank, client):
         assert nodes[eid]["picture"] == f"/entities/{eid}/picture?v={fm['picture']['sha']}"
         got = client.get(nodes[eid]["picture"])
         assert got.status_code == 200 and got.headers["content-type"] == "image/png", eid
-
-
-def test_a_lived_in_share_of_companies_tools_and_saved_pages_have_pictures(bank, client):
-    """ROR-118 round 2 — a real bank holds some logos and saved-page images, never one for every page: a few companies,
-    tools and a project carry an invented mark, five saved pages an invented 3:2 image (the two public pages' own thumbnails need a network); the rest of the roster has none."""
-    nodes = {n["id"]: n for n in client.get("/graph").json()["nodes"]}
-    pictured = {eid for eid, *_ in demo_showcase._MARKS} | {eid for eid, *_ in demo_showcase._COVERS}
-    for eid in pictured:
-        assert nodes[eid]["pictureSource"] == "upload", eid
-        assert client.get(nodes[eid]["picture"]).status_code == 200, eid
-    for eid, *_ in demo_showcase._COVERS:
-        data = (bank / "assets" / "pictures" / f"{eid}.png").read_bytes()
-        assert entity_picture.dimensions(data) == (360, 240), eid
-    companies = [n for n in nodes.values() if n["type"] == "company"]
-    tools = [n for n in nodes.values() if n["type"] == "tool"]
-    assert 0 < sum(1 for n in companies if n.get("picture")) < len(companies) / 2 + 1
-    assert 0 < sum(1 for n in tools if n.get("picture")) < len(tools) / 2
-    assert not [n for n in nodes.values() if n["type"] == "concept" and n.get("picture")]
+    # A media page's picture is Cicada's stored copy of the page's own image, keyed by the source it came from.
+    for eid, thumb in ((demo_showcase.VIDEO_ID, demo_showcase.VIDEO_THUMBNAIL),
+                       (demo_showcase.ARTICLE_ID, demo_showcase.ARTICLE_THUMBNAIL)):
+        key = media_preview.Source("image", thumb).key
+        assert nodes[eid]["picture"] == f"/entities/{eid}/preview?v={key}", eid
 
 
 def test_the_people_card_opens_on_the_pictured_people(client):

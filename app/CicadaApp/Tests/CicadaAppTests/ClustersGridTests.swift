@@ -32,13 +32,13 @@ final class ClustersGridTests: XCTestCase {
                        [.pair([.person]), .pair([.tool])], "Expand all: one card per row")
     }
 
-    /// ROR-118 — 8 portraits, 3 project cards, 4 names a list, 5 media, 2 lines in a short card.
+    /// ROR-118 — 8 portraits, 3 project cards, 6 chips a list, 6 media, 2 lines in a short card.
     func testTheBudgetIsOneStripOneRowOfCardsAndShortLists() {
         let rows = ClustersGrid.rows(groups, expandAll: false)
         XCTAssertEqual(ClustersGrid.budget(rows[0], index: 0, expandAll: false), 8)
         XCTAssertEqual(ClustersGrid.budget(rows[1], index: 1, expandAll: false), 3)
-        XCTAssertEqual(ClustersGrid.budget(rows[2], index: 2, expandAll: false), 4)
-        XCTAssertEqual(ClustersGrid.budget(rows[3], index: 3, expandAll: false), 5)
+        XCTAssertEqual(ClustersGrid.budget(rows[2], index: 2, expandAll: false), 6)
+        XCTAssertEqual(ClustersGrid.budget(rows[3], index: 3, expandAll: false), 6)
         XCTAssertEqual(ClustersGrid.budget(rows[4], index: 4, expandAll: false), 2)
         XCTAssertNil(ClustersGrid.budget(rows[0], index: 0, expandAll: true))
     }
@@ -46,47 +46,29 @@ final class ClustersGridTests: XCTestCase {
     /// DR-68 — ↑/↓ walk what is drawn in reading order: row by row, section by section.
     func testTheKeysWalkWhatIsDrawnInReadingOrder() {
         let visible = ClustersGrid.visible(groups, tab: nil, expandAll: false).map(\.id)
-        XCTAssertEqual(visible.count, 8 + 3 + 4 + 4 + 4 + 5 + 2 + 2 + 2)
+        XCTAssertEqual(visible.count, 8 + 3 + 6 + 6 + 6 + 6 + 2 + 2 + 2)
         XCTAssertEqual(Array(visible.prefix(10)), (0..<8).map { "person-\($0)" } + ["project-0", "project-1"])
         XCTAssertEqual(ClustersGrid.visible(groups, tab: .tool, expandAll: false).count, 22, "a tab shows every tile")
     }
 
-    /// ROR-118 round 2 — pictures lead, then the dimmed ones last in the name lists; a stable partition, so each group
-    /// keeps the model's order and the keys walk what is drawn.
-    func testPicturesLeadAndDimmedNamesTrailInAStablePartition() {
-        func quiet(_ id: String, _ type: EntityType) -> Entity { var x = e(id, type); x.quiet = true; return x }
-        let people = ["a", "b", "c", "d"].map { e($0, .person) }
-        let faces: Set<String> = ["b", "d"]
-        XCTAssertEqual(ClustersGrid.arranged(people, type: .person, pictured: { faces.contains($0.id) }).map(\.id),
-                       ["b", "d", "a", "c"])
-        let media = [quiet("m1", .media), e("m2", .media), quiet("m3", .media), e("m4", .media)]
-        XCTAssertEqual(ClustersGrid.arranged(media, type: .media, pictured: { $0.id == "m3" }).map(\.id),
-                       ["m3", "m2", "m4", "m1"], "pictured first, then bright, then dimmed")
-        let concepts = [quiet("c1", .concept), e("c2", .concept)]
-        XCTAssertEqual(ClustersGrid.arranged(concepts, type: .concept, pictured: { _ in true }).map(\.id), ["c2", "c1"])
-        let projects = [quiet("p1", .project), e("p2", .project)]
-        XCTAssertEqual(ClustersGrid.arranged(projects, type: .project, pictured: { _ in false }).map(\.id), ["p1", "p2"],
-                       "a project keeps the model's order")
-        let walked = ClustersGrid.visible([ClustersModel.Group(type: .person, entities: people)], tab: nil, expandAll: false,
-                                          pictured: { faces.contains($0.id) }).map(\.id)
-        XCTAssertEqual(walked, ["b", "d", "a", "c"], "↑/↓ follow the drawn order")
+    /// ROR-118 round 3 — the strip puts photos first; the name lists and Media put the dimmed ones last.
+    func testPhotosLeadTheStripAndDimmedNamesComeLast() {
+        let people = (0..<6).map { e("p\($0)", .person) }
+        let faces = ClustersGrid.shown(people, type: .person, row: .faces([.person]), budget: 4,
+                                       pictured: { ["p1", "p3"].contains($0.id) })
+        XCTAssertEqual(faces.map(\.id), ["p1", "p3", "p0", "p2"], "photos first, each part in the model's order")
+        var tools = (0..<5).map { e("t\($0)", .tool) }
+        tools[0].quiet = true
+        tools[2].quiet = true
+        let shown = ClustersGrid.shown(tools, type: .tool, row: .trio([.tool]), budget: 4, pictured: { _ in false })
+        XCTAssertEqual(shown.map(\.id), ["t1", "t3", "t4", "t0"], "dimmed last, then the budget")
+        let walk = ClustersGrid.visible([ClustersModel.Group(type: .tool, entities: tools)], tab: nil, expandAll: false)
+        XCTAssertEqual(walk.map(\.id), ["t1", "t3", "t4", "t0", "t2"], "the keys walk what is drawn")
     }
 
-    /// The name lists and Media arrange the whole group before taking what fits, so room goes to what has a picture;
-    /// People take the most recent few first and only then put photos ahead.
-    func testListsArrangeBeforeTheBudgetAndPeopleAfter() {
-        let tools = (0..<8).map { e("t\($0)", .tool) }
-        let logos: Set<String> = ["t6", "t7"]
-        let row = ClustersGrid.Row.trio([.tool])
-        XCTAssertEqual(ClustersGrid.shown(tools, type: .tool, row: row, budget: 4, pictured: { logos.contains($0.id) }).map(\.id),
-                       ["t6", "t7", "t0", "t1"])
-        let people = (0..<12).map { e("p\($0)", .person) }
-        XCTAssertEqual(ClustersGrid.shown(people, type: .person, row: .faces([.person]), budget: 8,
-                                          pictured: { $0.id == "p9" }).map(\.id), (0..<8).map { "p\($0)" },
-                       "a photo beyond the recent eight does not displace them")
-    }
-
-    func testTheCardsRegroupUnderNineHundredUnits() {
+    func testThePortraitsAndCardsRegroupUnderNineHundredUnits() {
+        XCTAssertEqual(ClustersGrid.faceColumns(width: 1200, scale: 1.0), 8)
+        XCTAssertEqual(ClustersGrid.faceColumns(width: 800, scale: 1.0), 4)
         XCTAssertEqual(ClustersGrid.leadColumns(width: 1200, scale: 1.0), 3)
         XCTAssertEqual(ClustersGrid.leadColumns(width: 1200, scale: 1.4), 1, "857 units")
     }

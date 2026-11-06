@@ -12,7 +12,6 @@ demo generated twice holds the same bytes (`demo_bank`'s R7), and 256 px sits in
 """
 from __future__ import annotations
 
-import math
 import struct
 import zlib
 
@@ -64,29 +63,8 @@ def avatar(top: Colour, bottom: Colour, figure: Colour, size: int = SIZE) -> byt
     return _png(rows, size)
 
 
-def _ink(kind: str, x: float, y: float, c: float, s: float) -> float:
-    """How much of the mark's ink covers (x, y) — four invented shapes, none a real brand's."""
-    if kind == "diamond":
-        d = (abs(x - c) + abs(y - c)) / 2 ** 0.5
-        return max(_cover(abs(d - 62 * s) - 11 * s), _cover(((x - c) ** 2 + (y - c) ** 2) ** 0.5 - 16 * s))
-    if kind == "bars":
-        cover = 0.0
-        for dx, half in ((-52, 56), (0, 84), (52, 38)):
-            qx, qy = abs(x - (c + dx * s)) - 14 * s, abs(y - (c + 44 * s)) - half * s
-            cover = max(cover, _cover(max(qx, qy)))
-        return cover
-    if kind == "pair":
-        cover = 0.0
-        for dx in (-30, 30):
-            r = ((x - (c + dx * s)) ** 2 + (y - c) ** 2) ** 0.5
-            cover = max(cover, _cover(abs(r - 48 * s) - 8 * s))
-        return cover
-    r = ((x - c) ** 2 + (y - c) ** 2) ** 0.5
-    return max(_cover(abs(r - 70 * s) - 10 * s), _cover(abs(r - 30 * s) - 10 * s))
-
-
-def mark(top: Colour, bottom: Colour, ink: Colour, size: int = SIZE, kind: str = "rings") -> bytes:
-    """A company's mark: invented geometry on a pastel gradient — concentric rings by default; no real brand's shape."""
+def mark(top: Colour, bottom: Colour, ink: Colour, size: int = SIZE) -> bytes:
+    """A company's mark: two concentric rings on a pastel gradient — no real brand's shape."""
     s = size / 256
     c = 128 * s
     rows = []
@@ -94,34 +72,11 @@ def mark(top: Colour, bottom: Colour, ink: Colour, size: int = SIZE, kind: str =
         ground = _mix(top, bottom, y / (size - 1))
         row = bytearray()
         for x in range(size):
-            row.extend(_mix(ground, ink, _ink(kind, x, y, c, s)))
+            r = ((x - c) ** 2 + (y - c) ** 2) ** 0.5
+            ring = max(_cover(abs(r - 70 * s) - 10 * s), _cover(abs(r - 30 * s) - 10 * s))
+            row.extend(_mix(ground, ink, ring))
         rows.append(bytes(row))
     return _png(rows, size)
-
-
-def cover(top: Colour, bottom: Colour, ink: Colour, width: int = 360, height: int = 240, kind: str = "hills") -> bytes:
-    """A media page's thumbnail: a soft 3:2 scene — a sky gradient, a sun-like disc and two hills ("hills"), or two
-    arcs over a horizon ("arc") — the stand-in for the saved page's own image. Never a photograph."""
-    rows = []
-    for y in range(height):
-        sky = _mix(top, bottom, y / (height - 1))
-        row = bytearray()
-        for x in range(width):
-            u = x / width
-            if kind == "arc":
-                r = ((x - 0.5 * width) ** 2 + (y - 1.05 * height) ** 2) ** 0.5
-                row.extend(_mix(sky, ink, 0.9 * max(_cover(abs(r - 0.62 * height) - 7), _cover(abs(r - 0.38 * height) - 7))))
-                continue
-            sun = ((x - 0.7 * width) ** 2 + (y - 0.32 * height) ** 2) ** 0.5 - 0.11 * height
-            back = (0.62 + 0.10 * math.sin(u * 5.2 + 1.0)) * height - y
-            front = (0.80 + 0.07 * math.sin(u * 7.4 + 3.0)) * height - y
-            px = _mix(sky, ink, 0.35 * _cover(sun))
-            px = _mix(px, _mix(ink, bottom, 0.45), _cover(back))
-            row.extend(_mix(px, ink, 0.85 * _cover(front)))
-        rows.append(bytes(row))
-    raw = b"".join(b"\x00" + r for r in rows)
-    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    return _SIGNATURE + _chunk(b"IHDR", header) + _chunk(b"IDAT", zlib.compress(raw, 9)) + _chunk(b"IEND", b"")
 
 
 # --- Design taste (2026-10-14): the demo board's screenshots ------------------------------------------------------

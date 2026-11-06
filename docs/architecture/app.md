@@ -2503,16 +2503,14 @@ the start or end of a longer name — "Claude" is not named by "Claude Code"; in
 - **Clusters has one filter:** a View menu with the Graph's own types (`graphVM.filter.types`), labels, and a
   remembered *Expand all*. Its tabs are navigation: All plus each present type, by plural name. With nothing open it
   is a page with a lead (ROR-118 round 1; plain labels and no type glyphs since 2026-10-28), never six like cards:
-  **People** as 88 pt portraits on the page's own ground for those with a photo, the name under each, then those
-  without one as a quiet line of 24 pt initials beside the name (a grey disc never sits at portrait size beside a photo);
-  **Projects** as a row of three cards with a visible edge (the strong ring), the name large over its whole line (two
-  lines of room) and the picture at the corner only when it has one; **Companies · Tools · Concepts** as three ruled
-  lists of five names, a 28 pt logo at the leading edge where any entry has one (the slot kept so names align, never a
-  glyph for one without; a concept has none); **Media** as 3:2 covers for the saved pages that have an image (the title
-  under, wrapping to two lines, never cut mid-word) then a ruled list of the rest. A section shows pictured entries
-  first and, in the name lists, dimmed ones last (`ClustersGrid.arranged`, a stable partition, also what the keys walk),
-  so the dimming reads as one block. Section names are 16 pt semibold; "Show all ›" is a quiet 12 pt tertiary link that
-  opens the type's tab. Under 900 units the cards are one column.
+  **People** as one strip of eight 76 pt portraits on the page's own ground, photos first and then initials (round 3),
+  the name under each and the line a hover help; **Projects** as a row of three cards, the name large over its whole
+  line (two lines of room, so a sentence is never cut) with the picture at the corner only when it has one; **Companies ·
+  Tools · Concepts** as three wrapping lines of six name chips, a logo inside its chip only where one exists (a chip with
+  none is just narrower, so no indent differs between rows); **Media** as a ruled list of six whole titles on up to two
+  lines, dimmed ones last in a list and in Media; the rest three to a short row. A section's heading is the way to the
+  rest: its name and a chevron when some are hidden (no repeated "Show all"), opening the type's tab. Under 900 units
+  the portraits are two rows of four and the cards one column.
   `ClustersGrid` decides it, pure (Expand all and a type tab keep the one-card-per-type `ClusterCard`). A click on a
   tile's picture opens the image picker (no separate hover button, owner 2026-09-30); its
   words open the card. ⌘F shows the list column (its find row, then find's ranked rows) in place of the cards while it
