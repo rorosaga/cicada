@@ -193,8 +193,10 @@ async def lifespan(app: FastAPI):
     if loaded:
         logger.info(f"Loaded {len(loaded)} provider key(s) from {connection_secrets.secrets_path()}")
 
-    from api.services import replica_guard, runtime_layout
+    from api.services import closed_lid, replica_guard, runtime_layout
 
+    # G243 part 3: a closed-lid hold a previous backend left journaled is undone now (a launchd helper also does, within a minute).
+    asyncio.get_running_loop().run_in_executor(None, closed_lid.restore_stale)
     # G132 phase 2: a hand-off cut short is finished (or a move that never committed its record undone) before this
     # backend reads which part it plays — the home or a replica — so it never starts half one and half the other.
     from api.services import home_move

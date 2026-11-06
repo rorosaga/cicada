@@ -1870,11 +1870,14 @@ async def _flush_pending_commits_safely(memory_path: Path) -> None:
 def _hold_awake_if_chosen(settings: Settings, cycle_id: str) -> None:
     """G243: the person's "keep my Mac awake while Sleep reads" switch. Never fails a run."""
     try:
-        from api.services import keep_awake, sleep_run_prefs
+        from api.services import closed_lid, keep_awake, sleep_run_prefs
         from api.services.connections.registry import get_registry
 
-        if sleep_run_prefs.load(get_registry(settings)).keep_awake:
+        opts = sleep_run_prefs.load(get_registry(settings))
+        if opts.keep_awake:
             keep_awake.acquire(cycle_id)
+            if opts.closed_lid_beta:  # BETA (G243 part 3): on power, this run only, read back, restored at the end
+                closed_lid.engage(cycle_id, beta=True, keep_awake=True)
     except Exception as e:  # noqa: BLE001
         logger.warning("keep-awake: not held (%s)", type(e).__name__)
 
@@ -2053,7 +2056,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
         logger.error(f"Sleep cycle failed: {e}")
         logger.exception("Full traceback:")
     finally:
-        from api.services import cycle_usage, keep_awake
+        from api.services import closed_lid, cycle_usage, keep_awake
         cycle_usage.discard(cycle_id)  # bounded: a cycle that never finalized frees its windows
         # Spec §1: this runs on EVERY exit path — idle, aborted before Stage
         # 1, aborted after Stage 1, raised, or fully completed — so capturing
@@ -2080,6 +2083,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
                 )
         finally:
             keep_awake.release(cycle_id)  # G243: after the tail, on every exit path; it also dies with this process
+            closed_lid.release(cycle_id)  # the lid hold, if one was made: sleep back on, read back (a launchd helper backs this up)
             _state.status = "idle"
             _state.writing = False
             _state.tail_only = False

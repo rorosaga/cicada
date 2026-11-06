@@ -747,3 +747,39 @@ def test_keep_awake_is_off_until_the_person_turns_it_on(server):
     assert client.put("/sleep/run-options", json={"keepAwake": True}).json()["keepAwake"] is True
     assert client.put("/sleep/run-options", json={"keepAwake": None}).status_code == 422
     assert client.put("/sleep/run-options", json={"keepAwake": False}).json()["keepAwake"] is False
+
+
+def test_closed_lid_beta_needs_keep_awake_and_the_warning_every_time(server, monkeypatch):
+    from api.services import closed_lid
+
+    client, reg, _ = server
+    monkeypatch.setattr(closed_lid, "turn_on", lambda: True)
+    monkeypatch.setattr(closed_lid, "turn_off", lambda: None)
+    assert client.get("/sleep/run-options").json()["closedLidBeta"] is False
+    r = client.put("/sleep/run-options", json={"closedLidBeta": True, "closedLidAcknowledged": True})
+    assert r.status_code == 422 and "keep this Mac awake" in r.json()["detail"], "keep-awake first"
+    client.put("/sleep/run-options", json={"keepAwake": True})
+    r = client.put("/sleep/run-options", json={"closedLidBeta": True})
+    assert r.status_code == 422 and r.json()["detail"] == closed_lid.WARNING, "no acknowledgement, no beta"
+    assert client.put("/sleep/run-options", json={"closedLidBeta": True, "closedLidAcknowledged": False}).status_code == 422
+    assert client.put("/sleep/run-options", json={"closedLidBeta": True, "closedLidAcknowledged": True}).json()["closedLidBeta"] is True
+    assert client.get("/sleep/run-options").json()["closedLidBeta"] is True
+    assert client.put("/sleep/run-options", json={"keepAwake": False}).json()["closedLidBeta"] is False, "never outlives its switch"
+    client.put("/sleep/run-options", json={"keepAwake": True})
+    assert client.get("/sleep/run-options").json()["closedLidBeta"] is False, "the acknowledgement is not remembered"
+    monkeypatch.setattr(closed_lid, "turn_on", lambda: False)
+    r = client.put("/sleep/run-options", json={"closedLidBeta": True, "closedLidAcknowledged": True})
+    assert r.status_code == 500 and client.get("/sleep/run-options").json()["closedLidBeta"] is False
+
+
+def test_closed_lid_status_serves_the_warning_and_the_exact_command(server, monkeypatch):
+    from api.services import closed_lid
+
+    client, _, _ = server
+    monkeypatch.setattr(closed_lid, "rule_installed", lambda: False)
+    monkeypatch.setattr(closed_lid, "username", lambda: "alice")
+    body = client.get("/sleep/closed-lid").json()
+    assert body["warning"] == closed_lid.WARNING and body["ruleInstalled"] is False
+    assert body["installCommand"] == closed_lid.install_command("alice")
+    assert body["removeCommand"] == "sudo rm /etc/sudoers.d/cicada-closed-lid" and body["holding"] is False
+

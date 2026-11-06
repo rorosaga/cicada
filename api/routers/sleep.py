@@ -1,3 +1,4 @@
+import asyncio
 import re
 from datetime import datetime, timedelta
 
@@ -24,12 +25,14 @@ from api.models.schemas import (
     SleepQueueResponse,
     SleepRunDetail,
     SleepRunOptions,
+    ClosedLidStatus,
     SleepRunOptionsUpdate,
     SleepStatusResponse,
     SleepTriggerBody,
     SleepTriggerResponse,
 )
 from api.services import (
+    closed_lid,
     bank_index,
     channel_items,
     episode_copy,
@@ -507,6 +510,7 @@ def _run_options_response(settings: Settings) -> SleepRunOptions:
         spend_limit_usd=opts.spend_limit_usd,
         spend_limit_choices=list(sleep_spend.CHOICES),
         keep_awake=opts.keep_awake,
+        closed_lid_beta=opts.closed_lid_beta,
     )
 
 
@@ -548,9 +552,43 @@ async def put_run_options(body: SleepRunOptionsUpdate, settings: Settings = Depe
         if body.keep_awake is None:
             raise HTTPException(status_code=422, detail="keepAwake must be true or false")
         changes["keep_awake"] = body.keep_awake
+    if "closed_lid_beta" in sent:
+        changes["closed_lid_beta"] = await _closed_lid_change(body, settings, changes)
+    elif changes.get("keep_awake") is False and sleep_run_prefs.load(get_registry(settings)).closed_lid_beta:
+        await asyncio.to_thread(closed_lid.turn_off)  # the beta never outlives its switch
     if changes:
         sleep_run_prefs.write(get_registry(settings), **changes)
     return _run_options_response(settings)
+
+
+async def _closed_lid_change(body, settings: Settings, changes: dict) -> bool:
+    """The closed-lid beta switch (G243 part 3). On needs the keep-awake switch on, the acknowledgement of the warning
+    in the same body (every time, never stored) and the recovery helper in place; otherwise nothing changes."""
+    if body.closed_lid_beta is None:
+        raise HTTPException(status_code=422, detail="closedLidBeta must be true or false")
+    if not body.closed_lid_beta:
+        await asyncio.to_thread(closed_lid.turn_off)
+        return False
+    awake = changes.get("keep_awake", sleep_run_prefs.load(get_registry(settings)).keep_awake)
+    if not awake:
+        raise HTTPException(status_code=422, detail="Closed lid extends 'keep this Mac awake'; turn that on first.")
+    if body.closed_lid_acknowledged is not True:
+        raise HTTPException(status_code=422, detail=closed_lid.WARNING)
+    if not await asyncio.to_thread(closed_lid.turn_on):
+        raise HTTPException(status_code=500, detail="Couldn't set up the helper that puts sleep back — nothing changed.")
+    return True
+
+
+@router.get("/sleep/closed-lid", response_model=ClosedLidStatus)
+async def get_closed_lid():
+    """The beta's warning, the exact admin command (shown, never run by Cicada) and where things stand."""
+    rule = await asyncio.to_thread(closed_lid.rule_installed)
+    return ClosedLidStatus(
+        warning=closed_lid.WARNING, available=closed_lid.available(), rule_installed=rule,
+        helper_installed=closed_lid.agent_installed(), install_command=closed_lid.install_command(),
+        remove_command=closed_lid.REMOVE_COMMAND, restore_command=closed_lid.RESTORE_COMMAND,
+        holding=closed_lid.holding(), pending_restore=closed_lid.pending_restore(), last_end=closed_lid.last_end(),
+    )
 
 
 async def _schedule_response(settings: Settings, cfg: ScheduleConfig) -> ScheduleResponse:

@@ -4184,6 +4184,8 @@ class SleepRunOptions(CamelModel):
     spend_limit_choices: list[int] = Field(default_factory=list)
     # G243: the Mac does not sleep on power while a run reads. Off by default; never wakes a sleeping Mac or holds a lid.
     keep_awake: bool = False
+    # G243 part 3: the closed-lid beta (off by default; only beside keep_awake).
+    closed_lid_beta: bool = False
 
 
 class SleepRunOptionsUpdate(CamelModel):
@@ -4194,6 +4196,23 @@ class SleepRunOptionsUpdate(CamelModel):
     scheduled_use_plan: Optional[bool] = None
     spend_limit_usd: Optional[float] = None
     keep_awake: Optional[bool] = None
+    closed_lid_beta: Optional[bool] = None
+    # An on needs this true in the same body, every time: the warning was shown and accepted (never stored).
+    closed_lid_acknowledged: Optional[bool] = None
+
+
+class ClosedLidStatus(CamelModel):
+    """G243 part 3: what the closed-lid beta needs and where it stands. Enums and fixed text only."""
+    warning: str
+    available: bool
+    rule_installed: bool
+    helper_installed: bool
+    install_command: Optional[str] = None
+    remove_command: str
+    restore_command: str
+    holding: bool
+    pending_restore: bool
+    last_end: Optional[str] = None
 
 
 class SleepTriggerBody(BaseModel):

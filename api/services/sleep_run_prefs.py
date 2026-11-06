@@ -22,6 +22,7 @@ id ``sleep-run``:
   machine that never set it — a new install, a bank that never chose — reads as on.
 
 * ``keep_awake`` — G243: off by default. While a run reads, the Mac does not sleep on power (``keep_awake``).
+* ``closed_lid_beta`` — G243 part 3: off by default, and only ever on beside ``keep_awake`` (``closed_lid``).
 
 A run snapshots all three when it starts, so a change applies to the next start or
 Continue and never to a run in flight.
@@ -45,6 +46,7 @@ class RunOptions:
     scheduled_use_plan: bool = True
     spend_limit_usd: float | None = sleep_spend.DEFAULT_USD
     keep_awake: bool = False
+    closed_lid_beta: bool = False
 
 
 def _entry(registry) -> dict:
@@ -70,6 +72,7 @@ def load(registry) -> RunOptions:
         scheduled_use_plan=_switch(e, "scheduled_use_plan", default=True),
         spend_limit_usd=_spend_limit(e),
         keep_awake=e.get("keep_awake") is True,
+        closed_lid_beta=e.get("closed_lid_beta") is True and e.get("keep_awake") is True,
     )
 
 
@@ -97,7 +100,7 @@ def effective_batch_size(opts: RunOptions, settings) -> int:
 
 
 def write(registry, *, batch_size=..., continue_after_reset=..., reserve_pct=..., scheduled_use_plan=...,
-          spend_limit_usd=..., keep_awake=...) -> None:
+          spend_limit_usd=..., keep_awake=..., closed_lid_beta=...) -> None:
     """Persist the fields that were passed (``...`` leaves one alone; ``None``
     clears ``batch_size`` / ``reserve_pct`` and turns the spending limit off). Callers validate first."""
     if spend_limit_usd is not ...:
@@ -113,3 +116,7 @@ def write(registry, *, batch_size=..., continue_after_reset=..., reserve_pct=...
         registry.set_pref(PREF_KEY, "scheduled_use_plan", bool(scheduled_use_plan))
     if keep_awake is not ...:
         registry.set_pref(PREF_KEY, "keep_awake", True if keep_awake else None)
+        if not keep_awake:
+            registry.set_pref(PREF_KEY, "closed_lid_beta", None)  # the beta extends the switch; never outlives it
+    if closed_lid_beta is not ...:
+        registry.set_pref(PREF_KEY, "closed_lid_beta", True if closed_lid_beta else None)
