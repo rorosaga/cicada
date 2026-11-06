@@ -19,13 +19,13 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertEqual(HomeLayout.labelGap, 6)
     }
 
-    /// ROR-118 (round 1, Home) — the headline leads at 34 pt and starts an eighth of the viewport down, between the room
-    /// pages' 24 pt inset and 88 pt; Today and Last read are rows with a 2 pt gap, not cards.
+    /// ROR-118 (Home) — the headline leads at 34 pt; round 2: it starts a fifth of the viewport down, between the room
+    /// pages' 24 pt inset and 150 pt; Today and Last read are rows with a 2 pt gap, not cards.
     func testTheHeadlineLeadsAndTheLowerRowsAreQuiet() {
         XCTAssertEqual(HomeLayout.headlineSize, 34)
         XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 100), 24, "never above the room pages' inset")
-        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 600), 72)
-        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 2000), 88, "never past 88 pt")
+        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 600), 120)
+        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 2000), 150, "never past 150 pt")
         XCTAssertEqual(HomeLayout.pulseGap, 2)
         XCTAssertLessThan(HomeLayout.pulseGap, HomeLayout.blockGap)
     }
@@ -116,5 +116,25 @@ final class HomeLayoutTests: XCTestCase {
                 XCTAssertFalse(text.contains(needle), "\(suffix) — \(needle)")
             }
         }
+    }
+
+    /// ROR-118 round 2 — one column (the cards and rows sit on the field's 640 pt edges), a lead card of the question and
+    /// one foot line, rows with no tile and no strip of marks, and the titlebar's search quiet on Home alone.
+    func testRoundTwoColumnCardRowsAndQuietTitlebar() throws {
+        let files = try ThemeTokenTests.swiftSources()
+        func text(_ suffix: String) throws -> String {
+            try String(contentsOf: XCTUnwrap(files.first { $0.path.hasSuffix(suffix) }), encoding: .utf8)
+        }
+        let view = try text("Views/Home/HomeView.swift")
+        XCTAssertFalse(view.contains("HomeLayout.columnWidth"), "the blocks share the field's column")
+        let sections = try text("Views/Home/HomeSections.swift")
+        XCTAssertFalse(sections.contains("OriginMark("), "no strip of marks on a row; the origins are its hover")
+        XCTAssertFalse(sections.contains("bgOption"), "a row's glyph has no tile")
+        XCTAssertFalse(sections.contains("Text(row.reason"), "the reason is the card's hover, not more small type")
+        let bar = try text("Views/Shell/CommandBar.swift")
+        XCTAssertTrue(bar.contains("router.requestPalette()"), "the bar still opens the palette on every other page")
+        let content = try text("ContentView.swift")
+        XCTAssertTrue(content.contains("quietSearch: selectedTab == .home && !tour.spotlights(.commandBar)"))
+        XCTAssertTrue(try text("Views/Find/FindPanelBody.swift").contains("if placement == .page {\n                FindModeSwitch("))
     }
 }

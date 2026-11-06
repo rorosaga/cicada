@@ -14,14 +14,14 @@ enum HomeLayout {
     /// The headline is Home's first content (the painted band retired, owner 2026-10-16; off since G189(a)): it takes
     /// the room pages' title inset (24 pt, `PageHeader`'s top), well inside DR-26's 120 pt.
     static let headlineTop: CGFloat = 24
-    /// ROR-118 (round 1) — the headline and the field are the page's lead: the headline is 34 pt and starts an eighth of
-    /// the viewport down (24 pt at the least, 88 pt at the most), so the lead sits where the eye lands and the rest
-    /// reads as what follows it.
+    /// ROR-118 — the headline and the field are the page's lead: the headline is 34 pt. Round 2: it starts a fifth of
+    /// the viewport down (24 pt at the least, 150 pt at the most), so the lead sits at the optical centre of the window
+    /// and the page is not all weight at the top over an empty lower half.
     static let headlineSize: CGFloat = 34
     static func headlineTop(viewportHeight: CGFloat) -> CGFloat {
-        min(88, max(headlineTop, (viewportHeight * 0.12).rounded()))
+        min(150, max(headlineTop, (viewportHeight * 0.2).rounded()))
     }
-    static let headlineBottom: CGFloat = 22
+    static let headlineBottom: CGFloat = 26
     static let blockGap: CGFloat = 24
     /// The field is a block like the rest (owner 2026-10-06): the first card sits one block gap under it.
     static let fieldToFirstBlock: CGFloat = blockGap
@@ -30,6 +30,9 @@ enum HomeLayout {
     /// card inset.
     static let pulseGap: CGFloat = 2
     static let leadInset: CGFloat = 18
+    /// ROR-118 round 2 — a quiet row's glyph column (no tile) and its gap to the words, so every row's text starts on one
+    /// edge, under the lead card's own text.
+    static let rowGlyph: CGFloat = 20
     static let leadPicture: CGFloat = 44
     static let bottomPadding: CGFloat = 64
     static let gutter: CGFloat = 40

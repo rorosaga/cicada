@@ -145,24 +145,40 @@ struct HomePulse<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.pulseGap)) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
-            // The rows' own 10 pt inset plus this 6 puts their glyphs on the lead card's 16 pt edge.
-            .padding(.horizontal, CicadaTheme.scaled(6))
+            // The rows' own 10 pt inset plus this 8 puts their glyphs on the lead card's 18 pt text edge.
+            .padding(.horizontal, CicadaTheme.scaled(8))
     }
 }
 
-/// One glyph style for every pulse row (ROR-118): a neutral SF Symbol on a 28 pt `bgOption` tile — never an emoji, a
-/// favicon or a coloured dot standing in for it (DR-5, DR-50's one-icon rule).
+/// One glyph style for every pulse row (ROR-118; round 2 drops the tile): a neutral SF Symbol in a 20 pt column, tertiary
+/// ink, no box behind it — never an emoji, a favicon or a coloured dot standing in for it (DR-5, DR-50's one-icon rule),
+/// so every row's words start on one edge.
 struct HomeGlyphTile: View {
     let systemName: String
 
     var body: some View {
         Image(systemName: systemName)
-            .font(CicadaTheme.icon(.list))
-            .foregroundStyle(CicadaTheme.textSecondary)
-            .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgOption))
+            .font(CicadaTheme.font(size: 15))
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .frame(width: CicadaTheme.scaled(HomeLayout.rowGlyph), height: CicadaTheme.scaled(HomeLayout.rowGlyph))
             .accessibilityHidden(true)
     }
+}
+
+/// The words of a pulse row — one size, one ink on every row (round 2: the figure was white on one row and grey on
+/// the next).
+private struct HomeRowWords: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(CicadaTheme.bodyFont)
+            .monospacedDigit()
+            .foregroundStyle(CicadaTheme.textSecondary)
+            .lineLimit(1)
+    }
+}
+
+private extension View {
+    func homeRowWords() -> some View { modifier(HomeRowWords()) }
 }
 
 /// A link that is not blue (ROR-118): a page's name or "All N questions" in the secondary text colour, primary on hover,
@@ -276,23 +292,12 @@ struct TodaySection: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
             }
         case let n?:
-            // F-09 (R-HO11) — one row, one link: the Sources page owns what came in.
-            HomeRowButton(help: Copy.homeCapturedHelp, action: { selectedTab = .sources }) {
+            // F-09 (R-HO11) — one row, one link: the Sources page owns what came in. Round 2: the busiest origins are
+            // the row's hover (names and counts), no longer a strip of 16 pt marks beside it.
+            HomeRowButton(help: ([Copy.homeCapturedHelp] + figures.origins.map { Copy.homeOriginCount($0.label, $0.count) })
+                .joined(separator: " · "), action: { selectedTab = .sources }) {
                 HomeGlyphTile(systemName: "tray.and.arrow.down")
-                Text(Copy.homeCapturedToday(n))
-                    .font(CicadaTheme.bodyFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                if !figures.origins.isEmpty {
-                    // DR-52 amended (§9, 2026-11-06) — on Home the busiest origins are their real marks alone, in one
-                    // row of one size; each one's name and count is its hover, and the row's accessibility label.
-                    HStack(spacing: CicadaTheme.scaled(6)) {
-                        ForEach(figures.origins, id: \.sourceId) { chip in
-                            OriginMark(origin: chip.mark, size: CicadaTheme.scaled(16))
-                                .help(Copy.homeOriginCount(chip.label, chip.count))
-                        }
-                    }
-                }
+                Text(Copy.homeCapturedToday(n)).homeRowWords()
             }
             .accessibilityLabel(Copy.homeTodayAccessibility(n, origins: figures.origins.map { ($0.label, $0.count) }))
         }
@@ -313,10 +318,7 @@ struct TodaySection: View {
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
             case let n?:
-                Text(Copy.homeWaiting(n))
-                    .font(CicadaTheme.bodyFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textPrimary)
+                Text(Copy.homeWaiting(n)).homeRowWords()
                 // G179 — the ticked Messages conversations among them, as stacked profile bubbles (hover names one).
                 MessageBubbleStack(size: 18, interactive: false)
             }
@@ -393,57 +395,54 @@ struct LeadQuestionCard: View {
 
     private var pictureSlot: CGFloat { CicadaTheme.scaled(HomeLayout.leadPicture) + CicadaTheme.scaled(14) }
 
+    /// The question and the one line under it (round 2): the reason and the age are the row's hover, not more small grey
+    /// type — the question itself says what is asked, and the list says the rest.
+    private var help: String {
+        [Copy.Catchup.answerHelp + " · " + row.kind.label, row.reason, row.age == "—" ? nil : row.ageHelp]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let hasPicture = drawsPicture && !row.entityId.isEmpty
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(12)) {
             Button(action: open) {
                 HStack(alignment: .top, spacing: CicadaTheme.scaled(14)) {
                     if !row.entityId.isEmpty {
                         EntityPicture(id: row.entityId, name: row.entityName, type: row.entityType ?? .unknown,
                                       size: HomeLayout.leadPicture, collapsesWhenEmpty: true)
                     }
-                    VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
-                        Text(row.question)
-                            .font(CicadaTheme.headingFont)
-                            .foregroundStyle(CicadaTheme.textPrimary)
-                            .lineLimit(3)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .multilineTextAlignment(.leading)
-                        if let reason = row.reason, !reason.isEmpty {
-                            Text(reason)
-                                .font(CicadaTheme.bodyFont)
-                                .foregroundStyle(CicadaTheme.textSecondary)
-                                .lineLimit(3)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .multilineTextAlignment(.leading)
-                        }
-                    }
+                    // 15 pt medium: under the field's 17 pt, so the field leads and this is what it asks.
+                    Text(row.question)
+                        .font(CicadaTheme.font(size: 15, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.cicadaPlain)
-            .help(Copy.Catchup.answerHelp + " · " + row.kind.label)
+            .help(help)
             .accessibilityAddTraits(.isHeader)
 
-            meta
-                .padding(.leading, drawsPicture && !row.entityId.isEmpty ? pictureSlot : 0)
-                .padding(.top, CicadaTheme.scaled(2))
-
+            // One foot line: the page it is about at the left, what the person can do with the rest at the right.
             HStack(spacing: CicadaTheme.spacingMD) {
+                meta
+                Spacer(minLength: CicadaTheme.spacingSM)
                 if !catchUp.isEmpty {
                     NeutralButton(title: Copy.Catchup.title, size: .compact,
                                   help: Copy.Catchup.blockLine(questions: catchUp.count, pages: pages)) {
                         startCatchup(catchUp)
                     }
                 }
-                Spacer(minLength: CicadaTheme.spacingSM)
                 if total > 0 {
                     QuietLink(title: Copy.Catchup.allQuestions(total), help: Copy.Catchup.allHelp, chevron: true,
                               action: openAll)
                 }
             }
-            .padding(.top, CicadaTheme.scaled(14))
+            .padding(.leading, hasPicture ? pictureSlot : 0)
         }
         .padding(CicadaTheme.scaled(HomeLayout.leadInset))
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -451,29 +450,21 @@ struct LeadQuestionCard: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// The page's name (opens the page), how many questions it holds when more than this one, and the question's age.
+    /// The page's name (opens the page) and how many questions it holds when more than this one. The question's age is
+    /// its hover: "last heard 3 weeks ago" is usually in the question already.
     private var meta: some View {
         HStack(spacing: CicadaTheme.scaled(4)) {
             if !row.entityId.isEmpty {
                 QuietLink(title: row.entityName, help: Copy.Catchup.openPage(row.entityName)) { openPage(row.entityId) }
-                    .fixedSize()
+                    .lineLimit(1)
             }
             if row.onPage > 1 {
-                dot
+                if !row.entityId.isEmpty { dot }
                 Text(Copy.Catchup.moreOnPage(row.onPage))
                     .font(CicadaTheme.metaFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .fixedSize()
-            }
-            // ROR-118 (DR-38) — a row with no known age says nothing there, not a dash.
-            if row.age != "—" {
-                if !row.entityId.isEmpty || row.onPage > 1 { dot }
-                Text(row.age)
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .help(row.ageHelp)
             }
         }
     }
@@ -593,13 +584,9 @@ struct LastReadSection: View {
         }
     }
 
-    /// "Last read" in the secondary colour, then the figures in the primary.
+    /// "Last read" and its figures: one ink, like the rows above it.
     private func lastReadWords(_ figures: String) -> some View {
-        (Text(Copy.homeLastReadShort + "  ").foregroundStyle(CicadaTheme.textSecondary)
-         + Text(figures).foregroundStyle(CicadaTheme.textPrimary))
-            .font(CicadaTheme.bodyFont)
-            .monospacedDigit()
-            .lineLimit(1)
+        Text(Copy.homeLastReadShort + ": " + figures).homeRowWords()
     }
 
     private func read(_ entry: SleepHistoryEntry) -> some View {
@@ -619,8 +606,8 @@ struct LastReadSection: View {
                             graphVM.revealEntity(id: chip.id)
                         } label: {
                             Text(chip.name + (index < chips.shown.count - 1 || chips.more > 0 ? "," : ""))
-                                .font(CicadaTheme.metaFont)
-                                .foregroundStyle(CicadaTheme.textSecondary)
+                                .font(CicadaTheme.bodyFont)
+                                .foregroundStyle(CicadaTheme.textTertiary)
                                 .lineLimit(1)
                                 .frame(minHeight: CicadaTheme.scaled(HomeTargets.tagHitHeight))
                                 .contentShape(Rectangle())
@@ -630,13 +617,13 @@ struct LastReadSection: View {
                     }
                     if chips.more > 0 {
                         Text(Copy.homeMoreChips(chips.more))
-                            .font(CicadaTheme.metaFont)
+                            .font(CicadaTheme.bodyFont)
                             .monospacedDigit()
                             .foregroundStyle(CicadaTheme.textTertiary)
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.leading, CicadaTheme.scaled(10 + 28 + 10))
+                .padding(.leading, CicadaTheme.scaled(10 + HomeLayout.rowGlyph + 10))
             }
         }
     }

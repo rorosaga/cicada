@@ -14,7 +14,7 @@ final class CommandBarTests: XCTestCase {
     func testTheBarIsTheToolbarsCentreAndTheHelpItsRightEdge() throws {
         let toolbar = try source("Views/Shell/ShellToolbar.swift")
         XCTAssertTrue(toolbar.contains("placement: .principal"))
-        XCTAssertTrue(toolbar.contains("CommandBar()"))
+        XCTAssertTrue(toolbar.contains("CommandBar(quiet: quietSearch)"))
         XCTAssertTrue(toolbar.contains("placement: .primaryAction"))
         XCTAssertTrue(toolbar.contains("TitlebarHelpButton(content: help)"))
     }

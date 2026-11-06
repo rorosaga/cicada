@@ -105,7 +105,7 @@ struct HomeView: View {
                                     }
                                 }
                                 .tourAnchor(.home)
-                                .frame(maxWidth: CicadaTheme.scaled(HomeLayout.columnWidth))
+                                .frame(maxWidth: CicadaTheme.scaled(HomeLayout.fieldWidth))   // ROR-118 r2 — one column: the field's edges
                                 .padding(.top, CicadaTheme.scaled(HomeLayout.fieldToFirstBlock))
                                 .padding(.bottom, CicadaTheme.scaled(HomeLayout.bottomPadding))
                             }
@@ -248,7 +248,7 @@ struct HomeView: View {
                               save(url)
                               return true
                           })
-                .glassCard()
+                .modifier(HomeLeadField())
                 .frame(maxHeight: showsResults ? .infinity : nil)
         }
         .frame(maxHeight: showsResults ? .infinity : nil, alignment: .top)
@@ -290,6 +290,19 @@ struct HomeView: View {
                 store.toast = AddSourceSheet.friendlyError(error)
             }
         }
+    }
+}
+
+/// ROR-118 round 2 (DR-9, DR-10) — the field is the page's one raised surface: a step lighter than the cards under it
+/// in dark (`bgOption`; light cards are white already) and the input ring (`.input`), never a shadow; the cards below stay on `surface` with the resting ring,
+/// so depth says what leads.
+struct HomeLeadField: ViewModifier {
+    func body(content: Content) -> some View {
+        let shape = CicadaTheme.shape(CicadaTheme.cornerRadius)
+        content
+            .background(shape.fill(CicadaTheme.mode == .dark ? CicadaTheme.bgOption : CicadaTheme.bgFocus))
+            .clipShape(shape)
+            .ringed(.input, in: shape)
     }
 }
 
