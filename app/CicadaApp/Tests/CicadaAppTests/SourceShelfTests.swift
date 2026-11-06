@@ -128,7 +128,7 @@ final class SourceShelfTests: XCTestCase {
         XCTAssertTrue(steps[2].contains("only at your Bookmarks"), "what is read")
         XCTAssertTrue(steps[3].contains("link and words"), "the post's words are kept too (mcp.md)")
         XCTAssertTrue(steps[3].contains("posted or changed"))
-        let headline = Copy.WebReading.headline(site: "X", app: "Claude Code")
+        let headline = Copy.WebReading.headline(site: "X", app: "Claude Code", list: "your Bookmarks")
         let all = (steps + [headline, Copy.WebReading.headlineNoAI, Copy.WebReading.roleAI, Copy.WebReading.whoseSession,
                             Copy.WebReading.whoSees(app: "Claude Code"), Copy.WebReading.oneClick]).joined(separator: " ")
         for word in ["assistant app", "agent", "AI app", "switch"] {

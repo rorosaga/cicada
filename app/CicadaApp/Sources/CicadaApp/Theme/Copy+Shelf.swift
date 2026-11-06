@@ -34,12 +34,12 @@ extension Copy {
         static let yourBrowser = "your browser"
         static let cicada = "Cicada"
         /// Under each node, what it does.
-        static let roleCicada = "keeps the posts"
+        static let roleCicada = "keeps what comes back"
         static let roleAI = "the AI you use here"
         static let roleBrowser = "where you are signed in"
         /// The line above the picture: why a second app is in it at all.
-        static func headline(site: String, app: String) -> String {
-            "Cicada can't open \(site) itself. It asks \(app), the AI you use on this Mac, to look for it."
+        static func headline(site: String, app: String, list: String) -> String {
+            "Cicada can't open \(site) itself. It asks \(app), the AI you use on this Mac, to read \(list) for it."
         }
         static let headlineNoAI = "Cicada can't open the site itself. It needs the AI you use on this Mac to look for it, and none is connected yet."
         static let openAgents = "Connect the AI you use"

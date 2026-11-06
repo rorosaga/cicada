@@ -44,7 +44,7 @@ struct WebReadingCard: View {
     }
 
     private var headline: some View {
-        Text(app == nil ? Copy.WebReading.headlineNoAI : Copy.WebReading.headline(site: entry.title, app: appName))
+        Text(app == nil ? Copy.WebReading.headlineNoAI : Copy.WebReading.headline(site: entry.title, app: appName, list: WebReadingScene.list(entry.id)))
             .font(CicadaTheme.bodyFont.weight(.medium)).foregroundStyle(CicadaTheme.textPrimary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -68,7 +68,7 @@ struct WebReadingCard: View {
         }
         .animation(CicadaMotion.webLight(reduceMotion: reduceMotion), value: beat)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(([Copy.WebReading.headline(site: entry.title, app: appName)] + sentences).joined(separator: " "))
+        .accessibilityLabel(([Copy.WebReading.headline(site: entry.title, app: appName, list: WebReadingScene.list(entry.id))] + sentences).joined(separator: " "))
     }
 
     private var sentences: [String] { WebReadingScene.steps(entry: entry, app: appName, browser: browser.name) }
