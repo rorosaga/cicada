@@ -9,6 +9,8 @@ extension Copy {
         static let saved = "Saved"
         static let videos = "Videos"
         static let pastReads = "Past reads"
+        /// ROR-118 round 3 - the tab row's door for a source, said beside its plus.
+        static let add = "Add"
         static let tabsLabel = "Sleep's lists"
         /// The Saved tab's View menu: the Feed's sort and kind filter in one place (DR-38 — never a second tab row).
         static let view = "View"

@@ -28,17 +28,58 @@ struct SleepRoomColumn: View {
     var ownerEntityId: String? = nil
     var onSelectEntity: ((String) -> Void)? = nil
     var openDetails: (DetailsSection) -> Void = { _ in }
+    /// ROR-118 — the page sets the group on the leading edge, beside the room's rectangle (DR-36 amended in §9); the
+    /// offscreen layouts keep the centred column.
+    var leading = false
+    /// ROR-118 round 2 - "last read 2 h ago", said in the lamp's line beside the room (nil: not said).
+    var lastRead: String? = nil
+    /// ROR-118 round 6 - beside the room the block is laid out to the room's own height: the page's title on top, the
+    /// headline and its lamp line in the middle, the buttons last, the free height shared by two springs, so the block's
+    /// top and bottom edges are the room's whatever the state says (`fillHeight`). The run's instrument is then drawn
+    /// by the page under both, at full width, never inside a block whose height the room sets.
+    var title: AnyView? = nil
+    var fillHeight: CGFloat? = nil
+    /// ROR-118 round 6 - only the notes (the first save's link, the automatic continue's promise, parked conversations),
+    /// drawn by the page under the room's row so the block beside the room never grows past the room.
+    var notesOnly = false
 
     var body: some View {
-        VStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
+        if notesOnly { notes.padding(.top, CicadaTheme.spacingSM).frame(maxWidth: .infinity, alignment: .leading) }
+        else if leading, let fillHeight { pinned(height: fillHeight) } else { stacked }
+    }
+
+    private func pinned(height: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            title
+            Spacer(minLength: CicadaTheme.spacingMD)
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform,
+                                 leading: true)
+                whisperRow.accessibilitySortPriority(RoomA11yOrder.whisper)
+            }
+            Spacer(minLength: CicadaTheme.spacingMD)
+            SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount, page: page,
+                            leading: true, part: .buttons)
+                .accessibilitySortPriority(RoomA11yOrder.control)
+                .tourAnchor(.consolidate)
+        }
+        .frame(maxWidth: SleepLayout.contentWidth, minHeight: height, alignment: .top)
+    }
+
+    private var stacked: some View {
+        VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingMD) {
             // R-Z5 — the one slot the worm speaks in; an answer replaces the status here (R-Z7).
-            RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform)
-            SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount, page: page)
+            RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform,
+                             leading: leading)
+            // ROR-118 round 5 - beside the room the schedule is the one fact about the job, so it sits under the
+            // headline it explains (overdue because no schedule), not under the buttons.
+            if leading { whisperRow.accessibilitySortPriority(RoomA11yOrder.whisper) }
+            SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount, page: page,
+                            leading: leading)
                 .accessibilitySortPriority(RoomA11yOrder.control)
                 .tourAnchor(.consolidate)
             notes
-            whisperRow
-                .accessibilitySortPriority(RoomA11yOrder.whisper)
+            if !leading { whisperRow.accessibilitySortPriority(RoomA11yOrder.whisper) }
             RunInstrument(page: page, justFinished: room.recentCycleCommit != nil)
         }
         .frame(maxWidth: SleepLayout.contentWidth)
@@ -56,7 +97,7 @@ struct SleepRoomColumn: View {
             Text(Copy.SleepV5.willContinueBySelf(when))
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
-                .multilineTextAlignment(.center)
+                .multilineTextAlignment(leading ? .leading : .center)
         }
         if !page.isRunning, page.paused == nil, page.parkedCount > 0 {
             Button { openDetails(.waiting) } label: {
@@ -76,17 +117,44 @@ struct SleepRoomColumn: View {
     /// The schedule in one quiet line (§7.2) — the lamp's text twin (R-A3). Since Z6 it is a control: it opens the
     /// same `LampPopover` the lamp does, anchored here (Z-P25); the popover's engine line shows the scheduled engine
     /// ALWAYS, so ruling 4 is on screen at the moment someone chooses to schedule.
+    @ViewBuilder
     private var whisperRow: some View {
+        if leading { cornerWhisper } else { centredWhisper }
+    }
+
+    /// ROR-118 round 4 - beside the room the schedule is the one fact about the job, so it is a quiet 13 pt
+    /// button (DR-40), the headline's subtitle, never a 12 pt caption under the buttons.
+    private var cornerWhisper: some View {
+        NeutralButton(title: cornerWhisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
+                                               lampLit: page.lampLit, lastRead: lastRead),
+                      systemImage: "moon.zzz", size: .compact,
+                      help: page.nextRunText.hasSuffix("—") ? Copy.nextRunUnknownReason : Copy.lampHint, quiet: true) {
+            room.lampPopover = .whisper
+        }
+        .roomLinkCursor()
+        .accessibilityHint(Copy.lampHint)
+        .popover(isPresented: Binding(get: { room.lampPopover == .whisper },
+                                      set: { if !$0 { room.lampPopover = nil } }),
+                 arrowEdge: .bottom) { LampPopover(page: page) }
+        .padding(.leading, -CicadaTheme.scaled(10))   // the words hang on the headline's left edge, not the button's padding
+        .padding(.top, -CicadaTheme.spacingXS)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var centredWhisper: some View {
         Button { room.lampPopover = .whisper } label: {
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "moon.zzz")
                     .font(CicadaTheme.font(size: 11))
                     .iconHover()
-                Text(whisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
-                                 lampLit: page.lampLit))
+                Text(leading
+                     ? cornerWhisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
+                                         lampLit: page.lampLit, lastRead: lastRead)
+                     : whisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
+                                   lampLit: page.lampLit))
                     .font(CicadaTheme.captionFont)
             }
-            .foregroundStyle(CicadaTheme.textTertiary)
+            .foregroundStyle(leading ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
@@ -98,7 +166,7 @@ struct SleepRoomColumn: View {
         .popover(isPresented: Binding(get: { room.lampPopover == .whisper },
                                       set: { if !$0 { room.lampPopover = nil } }),
                  arrowEdge: .bottom) { LampPopover(page: page) }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
     }
 }
 

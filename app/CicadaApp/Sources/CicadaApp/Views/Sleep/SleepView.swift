@@ -477,10 +477,18 @@ struct SleepView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                    eyebrowRow(page, gutter: plan.gutter)
-                        .id(Self.topAnchor)
-                    roomBlock(page, columnWidth: plan.list - 2 * plan.gutter)
+                    // ROR-118 round 6 - beside the room the title is the left block's first line (the room's top
+                    // edge is the title's), so only a column too narrow for both keeps the title above.
+                    let columnWidth = min(plan.list, SleepLayout.pageWidth) - 2 * plan.gutter
+                    if !SleepLayout.roomBeside(columnWidth: columnWidth) {
+                        eyebrowRow(page, gutter: plan.gutter)
+                            .id(Self.topAnchor)
+                    }
+                    roomBlock(page, columnWidth: columnWidth)
                         .padding(.horizontal, plan.gutter)
+                        .padding(.top, SleepLayout.roomBeside(columnWidth: columnWidth)
+                                 ? CicadaTheme.scaled(EyebrowRow<EmptyView>.topPadding) : 0)
+                        .id(SleepLayout.roomBeside(columnWidth: columnWidth) ? Self.topAnchor : "sleep.room")
                         .padding(.bottom, CicadaTheme.spacingXL)
                         // R-A12: `.saturation` is UNCONDITIONAL, at the identity 1.0 while live — an `if` around it
                         // would change the room's structural identity and rebuild it every time the connection flaps.
@@ -493,6 +501,9 @@ struct SleepView: View {
                     }
                 }
                 .padding(.bottom, CicadaTheme.scaled(72))
+                // ROR-118 — one column, centred: the hero, the tabs and the lists share it.
+                .frame(maxWidth: SleepLayout.pageWidth)
+                .frame(maxWidth: .infinity)
             }
             // A tail link, a spine or a hand-off asked for the lists: once they are drawn, bring the tab row to the
             // top in one frame (DESIGN §3.5 — "opening a row scrolls the tab row to the top in one frame").
@@ -511,10 +522,9 @@ struct SleepView: View {
 
     /// The page's eyebrow (DR-25, DR-26 — the first item, where the title used to be), with the staleness chip at its
     /// right while the backend is not answering (R-A12). The subtitle the title carried lives on as its hint.
-    private func eyebrowRow(_ page: SleepPageModel, gutter: CGFloat) -> some View {
-        EyebrowRow(eyebrow: SleepEyebrow.text(waiting: waitingCount, lastSleepAt: store.status.value?.lastSleepAt,
-                                              now: .now),
-                   horizontalPadding: gutter) {
+    private func eyebrowRow(_ page: SleepPageModel, gutter: CGFloat, bare: Bool = false) -> some View {
+        EyebrowRow(eyebrow: SleepEyebrow.text(waiting: waitingCount, lastSleepAt: nil, now: .now),
+                   horizontalPadding: gutter, bare: bare) {
             // R-A12: the chip explains the dimming below it, so it stays at full contrast and sits outside every
             // desaturated group.
             if let asOf = liveness.asOf { stalenessChip(asOf) }
@@ -696,7 +706,7 @@ struct SleepView: View {
     }
 
     /// The Waiting tab keeps its count everywhere (review of #363): the tab row is pinned, so once the room scrolls
-    /// away it is the one place the waiting total is still on screen.
+    /// away it is the one place the waiting total is still on screen (ROR-118 round 3 dropped it; round 4 takes it back).
     private func tabRowTabs(_ page: SleepPageModel) -> [TextTab<SleepTab>] {
         SleepTabRow.tabs(SleepTab.visible(waitingHasRows: waitingHasRows(page), saved: feedVM.items.count,
                                           exportWaiting: exportWaiting, videos: videoItems.count),
@@ -1120,35 +1130,21 @@ struct SleepView: View {
         let context = page.roomContext(recentCycleCommit: room.recentCycleCommit)
         let status = roomSentence(context)
         let answers = wormAnswers(context)
-        let cell = SleepLayout.artScale(columnWidth: min(columnWidth, SleepLayout.artMaxWidth))
+        let cell = SleepLayout.cornerScale(columnWidth: columnWidth)
+        let beside = SleepLayout.roomBeside(columnWidth: columnWidth)
 
-        return VStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
-            // Track Z Z5 (R-Z8): the room is its own view — the inert art,
-            // the worm on its lattice, the real pile, and a hotspot layer
-            // derived from the same pure layout. The bracket line (P8) moved
-            // from this group's label onto the worm's own element as its value.
-            StudyRoom(page: page, statusLine: status, answers: answers, room: room,
-                      episodes: sleepVM.queuedEpisodes, onOpenDetails: openDetails,
-                      onWhatChanged: room.recentCycleCommit == nil ? nil : { showWhatChanged() },
-                      reachable: liveness == .live, cell: cell)
-                .accessibilitySortPriority(RoomA11yOrder.room)
-
-            // G212 — each machine by its own name, how it connects and what waits; a click opens its queue below.
-            MachinesStripView(machines: sleepVM.machines, selected: openMachine) { machine in
-                Instant.run {
-                    openMachine = machine?.id
-                    if machine != nil { selectTab(.waiting) }
-                }
-            }
-
-            // G229 — right under the strip that says what waits: what each machine is still syncing after it was closed.
-            AwaySyncLines(entries: AwaySyncWords.machines(own: awaySync?.view, rows: sleepVM.machines),
-                          openSources: { selectedTab = .sources })
-
-            // G132 phase 2 — the device that runs consolidation, every other device's lag, and moving it (shared only).
-            HomeStripView(model: sleepVM.homeStrip)
-
-            // Everything under the room, one centred group in the 760 pt column (2026-10-16).
+        // ROR-118 — the room is a rectangle in the page's top-right corner (§9 2026-11-06): the worm, the pile and the
+        // lamp keep every hotspot, at 3 pt a cell (480 × 192) or 2 pt (320 × 128) in a narrower column; the sentence,
+        // the one control and the lamp's line sit on its left. Beneath a width that cannot hold both, the rectangle
+        // goes above them, still at 2 pt.
+        let corner = StudyRoom(page: page, statusLine: status, answers: answers, room: room,
+                             episodes: sleepVM.queuedEpisodes, onOpenDetails: openDetails,
+                             onWhatChanged: room.recentCycleCommit == nil ? nil : { showWhatChanged() },
+                             reachable: liveness == .live, cell: cell)
+            .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
+            .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+            .accessibilitySortPriority(RoomA11yOrder.room)
+        func column(notesOnly: Bool) -> SleepRoomColumn {
             SleepRoomColumn(page: page, status: status, answers: answers, room: room,
                             feedAsleep: feedIsAsleep(page.mood),
                             perform: { action in
@@ -1163,10 +1159,55 @@ struct SleepView: View {
                                 }
                             },
                             ownerEntityId: ownerEntityId, onSelectEntity: onSelectEntity,
-                            openDetails: openDetails)
+                            openDetails: openDetails, leading: true,
+                            lastRead: SleepEyebrow.lastRead(lastSleepAt: store.status.value?.lastSleepAt, now: .now),
+                            title: beside ? AnyView(eyebrowRow(page, gutter: 0, bare: true)) : nil,
+                            fillHeight: beside ? CGFloat(RoomLattice.rows) * cell : nil,
+                            notesOnly: notesOnly)
+        }
+        let words = column(notesOnly: false)
+
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            if beside {
+                // Rodrigo asked for it (2026-11-06): the title, the headline and the buttons are one block exactly
+                // as tall as the room (`fillHeight`), so their top and bottom edges are the room's whatever the
+                // state; the run's instrument runs under the pair at full width.
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
+                        words.frame(maxWidth: .infinity, alignment: .leading)
+                        corner
+                    }
+                    SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount,
+                                    page: page, leading: true, part: .captions)
+                    column(notesOnly: true)
+                    RunInstrument(page: page, justFinished: room.recentCycleCommit != nil)
+                }
+            } else {
+                corner
+                words
+            }
+
+            // G212 — each machine by its own name, how it connects and what waits; a click opens its queue below.
+            // One machine has nothing to choose between (its count is the headline's and the Waiting tab's), so the
+            // strip appears with a second.
+            if sleepVM.machines.count > 1 {
+                MachinesStripView(machines: sleepVM.machines, selected: openMachine) { machine in
+                    Instant.run {
+                        openMachine = machine?.id
+                        if machine != nil { selectTab(.waiting) }
+                    }
+                }
+            }
+
+            // G229 — right under the strip that says what waits: what each machine is still syncing after it was closed.
+            AwaySyncLines(entries: AwaySyncWords.machines(own: awaySync?.view, rows: sleepVM.machines),
+                          openSources: { selectedTab = .sources })
+
+            // G132 phase 2 — the device that runs consolidation, every other device's lag, and moving it (shared only).
+            HomeStripView(model: sleepVM.homeStrip)
         }
         .accessibilityElement(children: .contain)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Sleep page v5 (A7) — the run whose detail the lists read: the running or finished drain, else the paused run.

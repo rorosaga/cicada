@@ -30,6 +30,28 @@ final class SleepMeadowTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(RoomSentenceView.leadSize, CicadaTheme.displayMinimumSize)
     }
 
+    /// ROR-118 (2026-11-06): beside the room the lead is a small chip, not a 40 pt headline. The count stays a numeral,
+    /// "overdue" becomes a capitalised tag, and the sentence's stop and dash stay with the sentence.
+    func test_theChipSaysTheCountAndOverdueInFewWords() {
+        let overdue = statusParts(SentenceLine(lead: "21 to read — overdue.", numeral: "21", qualifier: "overdue"))
+        XCTAssertEqual(overdue.tag, "Overdue")
+        XCTAssertEqual(overdue.runs, [SentenceRun(text: "21", kind: .numeral), SentenceRun(text: " to read", kind: .plain)])
+        let waiting = statusParts(SentenceLine(lead: "21 to read.", numeral: "21"))
+        XCTAssertNil(waiting.tag)
+        XCTAssertEqual(waiting.runs, [SentenceRun(text: "21", kind: .numeral), SentenceRun(text: " to read", kind: .plain)])
+        let reading = statusParts(SentenceLine(lead: "Reading 14 of 25.", numeral: "14 of 25"))
+        XCTAssertEqual(reading.runs, [SentenceRun(text: "Reading ", kind: .plain), SentenceRun(text: "14 of 25", kind: .numeral)])
+        XCTAssertEqual(statusParts(SentenceLine(lead: "All caught up.")).runs, [SentenceRun(text: "All caught up", kind: .plain)])
+        XCTAssertEqual(statusParts(SentenceLine(lead: "Filing…")).runs, [SentenceRun(text: "Filing…", kind: .plain)],
+                       "an ellipsis is a word")
+    }
+
+    /// VoiceOver still hears the whole lead (count and "overdue"), whatever the chip draws.
+    func test_theChipsSpokenLineIsTheWholeLead() {
+        let line = SentenceLine(lead: "21 to read — overdue.", numeral: "21", qualifier: "overdue")
+        XCTAssertEqual(line.spoken, "21 to read — overdue.")
+    }
+
     /// The lead may shrink to one line only as far as the display face's floor.
     func test_theLeadNeverShrinksBelowTheDisplayFloor() {
         XCTAssertEqual(RoomSentenceView.leadSize * RoomSentenceView.leadMinimumScale,

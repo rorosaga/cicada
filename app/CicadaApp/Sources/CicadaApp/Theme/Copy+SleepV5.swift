@@ -16,6 +16,14 @@ import Foundation
 /// Short labels join `sleepV5Labels`, which `HomeSleepCopyTests`' rules read too.
 extension Copy {
     enum SleepV5 {
+        /// ROR-118 (Rodrigo asked for it, 2026-11-06) - the lamp-off wording the page had before round 3, without its
+        /// full stop so "last read ..." can follow it (`Copy.lampOffSentence` is the same words, ended).
+        static let lampOffShort = "The lamp is off — I read when you ask"
+        /// The Waiting list's two right-hand columns, named once.
+        static let columnOldest = "Oldest"
+        static let columnItems = "Items"
+        /// ROR-118 round 5 - the list's last row: the saves nothing reads, with their count in the Items column (the tooltip says the rest).
+        static let keptForLookupRow = "Kept for lookup"
         // MARK: Counting words
 
         static func count(_ n: Int, _ locale: Locale) -> String { UsageFormat.count(n, locale: locale) }
@@ -132,6 +140,8 @@ extension Copy {
         static let readingOptions = "Reading options…"
         /// The control row's third button (owner 2026-10-16); it opens the reading options sheet.
         static let options = "Options…"
+        /// ROR-118 round 4 - beside the room, "Options" with a slider mark (no ellipsis: a sheet, not a menu).
+        static let optionsShort = "Options"
         static let optionsHelp = "How a run reads: how often it saves, and what it runs on"
         static let seeYourPage = "See your page ›"
         static let retry = "Retry"
@@ -472,7 +482,7 @@ extension Copy {
 
     /// DR-59 over the v5 labels (short, plain, sentence case, priceless) — read by `HomeSleepCopyTests`' rules.
     static let sleepV5Labels: [String] = [
-        SleepV5.pause, SleepV5.pausing, SleepV5.continueRun, SleepV5.endRun, SleepV5.readingOptions, SleepV5.options,
+        SleepV5.pause, SleepV5.pausing, SleepV5.continueRun, SleepV5.endRun, SleepV5.readingOptions, SleepV5.options, SleepV5.optionsShort,
         SleepV5.seeYourPage, SleepV5.retry, SleepV5.optionsTitle, SleepV5.whatItReads, SleepV5.saveProgressEvery,
         SleepV5.runsOn, SleepV5.leaveRoom, SleepV5.setInEngineMenu, SleepV5.continueAfterReset, SleepV5.cancel,
         SleepV5.keepPlanFree, SleepV5.off, SleepV5.runLiveTitle, SleepV5.runDoneTitle, SleepV5.runStoppedTitle,

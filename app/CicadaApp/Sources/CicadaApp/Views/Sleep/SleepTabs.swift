@@ -68,6 +68,11 @@ enum SleepEyebrow {
         return Eyebrow.text(Copy.SleepTabs.page, last)
     }
 
+    /// "last read 2 h ago" for the lamp's line beside the room - nil until a read happened.
+    static func lastRead(lastSleepAt: String?, now: Date) -> String? {
+        lastSleepAt.flatMap { InboxAge.date($0) }.map { Copy.SleepTabs.lastRead(ago($0, now: now)) }
+    }
+
     /// "just now", "12 min ago", "2 h ago", then the Inbox's day words ("yesterday", "3 days ago").
     static func ago(_ date: Date, now: Date) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
@@ -92,4 +97,19 @@ extension SleepLayout {
 
     /// The widest the art is drawn: 880 pt of column (the 800 pt room and its breathing room).
     static let artMaxWidth: CGFloat = 880
+}
+
+extension SleepLayout {
+    /// ROR-118 — the page's own width: the room's rectangle, the words and the lists sit in one column this wide,
+    /// centred, so a count is never a window's width from its name.
+    static let pageWidth: CGFloat = 1_040
+
+    /// The room in its corner: 3 pt a cell (480 × 192) while the column can hold it beside 480 pt of words, else 2 pt
+    /// (320 × 128) — whole points, a pixel never resampled (ruling R3).
+    static func cornerScale(columnWidth: CGFloat) -> CGFloat {
+        columnWidth >= 960 ? 3 : 2
+    }
+
+    /// Whether the words sit beside the room: below this the rectangle goes above them.
+    static func roomBeside(columnWidth: CGFloat) -> Bool { columnWidth >= 720 }
 }

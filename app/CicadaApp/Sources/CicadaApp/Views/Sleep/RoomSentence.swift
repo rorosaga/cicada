@@ -466,6 +466,14 @@ func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> St
     lampLit ? "\(scheduleText) · \(nextRunText)" : Copy.lampOffSentence
 }
 
+/// ROR-118 round 2 - the one quiet line under the controls beside the room: the lamp, short, and when Sleep last
+/// read, so "last read" is not a second caption up by the title. `lastRead` is `SleepEyebrow.lastRead`'s phrase.
+func cornerWhisperLine(scheduleText: String, nextRunText: String, lampLit: Bool, lastRead: String?) -> String {
+    if !lampLit, lastRead == nil { return Copy.lampOffSentence }
+    let lamp = lampLit ? "\(scheduleText) · \(nextRunText)" : Copy.SleepV5.lampOffShort
+    return [lamp, lastRead].compactMap { $0 }.joined(separator: " · ")
+}
+
 // MARK: - The slot
 
 /// The one place the worm speaks (R-Z5), directly under the room. Its height
@@ -513,6 +521,9 @@ struct RoomSentenceView: View {
     /// one (`.whatChanged`), so a tail with an action always renders as a
     /// link — Z-P5's `canPerform` seam existed only while some did not.
     var perform: (SentenceAction) -> Void = { _ in }
+    /// ROR-118 — the page sets the sentence on the leading edge beside the room's rectangle; the offscreen layouts keep
+    /// the centred column.
+    var leading = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(IntakeRouter.self) private var intake
@@ -545,12 +556,17 @@ struct RoomSentenceView: View {
         let slot = slot
         let shown = line(for: slot)
         ZStack {
-            VStack(spacing: CicadaTheme.spacingXS) {
-                leadText(shown)
-                    .font(CicadaTheme.displayFont(size: Self.leadSize))
-                    .tracking(CicadaTheme.displayTracking(size: Self.leadSize))
-                    .lineLimit(1)
-                    .minimumScaleFactor(Self.leadMinimumScale)
+            VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingXS) {
+                if leading {
+                    // ROR-118 (2026-11-06) - beside the room the lead is a small status chip, not a headline.
+                    SleepStatusChip(line: shown)
+                } else {
+                    leadText(shown)
+                        .font(CicadaTheme.displayFont(size: Self.leadSize))
+                        .tracking(CicadaTheme.displayTracking(size: Self.leadSize))
+                        .lineLimit(1)
+                        .minimumScaleFactor(CicadaTheme.displayMinimumSize / Self.leadSize)
+                }
                 // A line with no tail is the lead alone: no empty line is held under the headline (owner QA
                 // 2026-10-17, amending R-Z5's one reserved tail line). A tail the worm adds on a poke takes its line
                 // as the answer comes up, and gives it back once the answer's cross-fade has finished (the outgoing
@@ -563,8 +579,8 @@ struct RoomSentenceView: View {
             .transition(.opacity)
         }
         .animation(SleepMotion.sentence(reduceMotion: reduceMotion), value: slot)
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
+        .multilineTextAlignment(leading ? .leading : .center)
+        .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
         .onHover { room?.pointerInSentence = $0 }
         // Every read below is `shown`, never `line`: VoiceOver reads what is
         // on screen, and the action follows the link that is on screen.
@@ -605,6 +621,8 @@ struct RoomSentenceView: View {
     }
 
     private func leadText(_ line: SentenceLine) -> Text {
+        // The numeral takes the lead's own size and weight (ROR-118 round 4: two sizes read as two voices).
+        let numeralSize = Self.leadSize
         let plainColor = line.qualifier == nil ? color(line.tone, plain: CicadaTheme.textPrimary) : CicadaTheme.textPrimary
         return sentenceRuns(line).reduce(Text(verbatim: "")) { text, run in
             switch run.kind {
@@ -612,7 +630,7 @@ struct RoomSentenceView: View {
                 return text + Text(verbatim: run.text).foregroundStyle(plainColor)
             case .numeral:
                 return text + Text(verbatim: run.text)
-                    .font(CicadaTheme.font(size: Self.leadSize, weight: .medium, design: .rounded))
+                    .font(CicadaTheme.font(size: numeralSize, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(plainColor)
             case .qualifier:
@@ -666,6 +684,89 @@ struct RoomSentenceView: View {
                 .foregroundStyle(tailColor)
                 .lineLimit(form.lines)
         }
+    }
+}
+
+// MARK: - The status chip (ROR-118, 2026-11-06)
+
+/// The lead cut for the chip: its runs without the qualifier (that becomes the tag) and without the stop and dash the
+/// sentence needed and a chip does not. `tag` is the qualifier with a capital: "Overdue".
+struct StatusParts: Equatable {
+    var runs: [SentenceRun]
+    var tag: String?
+}
+
+func statusParts(_ line: SentenceLine) -> StatusParts {
+    var runs = sentenceRuns(line)
+    var tag: String? = nil
+    if let word = line.qualifier, let at = runs.firstIndex(where: { $0.kind == .qualifier }) {
+        tag = word.prefix(1).uppercased() + word.dropFirst()
+        runs.remove(at: at)
+    }
+    // "21 to read — ." / "Reading 14 of 25." : the chip ends on its last word. An ellipsis is a word ("Filing…").
+    while let last = runs.last, last.kind == .plain {
+        var text = last.text
+        while let end = text.last, end == "." || end == "—" || end == " " { text.removeLast() }
+        if text.isEmpty { runs.removeLast(); continue }
+        runs[runs.count - 1] = SentenceRun(text: text, kind: .plain)
+        break
+    }
+    return StatusParts(runs: runs, tag: tag)
+}
+
+/// The Sleep page's status, small: a ringed capsule holding the count (or the stage) and, when it is true, an
+/// "Overdue" tag. The words are the sentence's lead, which VoiceOver still reads whole (`RoomSentenceView`'s label is
+/// `SentenceLine.spoken`): "21 to read — overdue." is heard, count and all. Depth is a ring (DR-9), the tag a
+/// `bgBadge` pill, no accent (DR-3), `warning` only for a stopped run (DR-7). It never animates (DR-60).
+struct SleepStatusChip: View {
+    let line: SentenceLine
+
+    private func ink(_ tone: SentenceTone, plain: Color) -> Color {
+        switch tone {
+        case .plain: plain
+        case .warning: CicadaTheme.warning
+        case .danger: CicadaTheme.danger
+        }
+    }
+
+    private func label(_ parts: StatusParts) -> Text {
+        let counted = parts.runs.contains { $0.kind == .numeral }
+        let wordInk = ink(line.tone, plain: counted ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
+        let numeralInk = ink(line.tone, plain: CicadaTheme.textPrimary)
+        return parts.runs.reduce(Text(verbatim: "")) { text, run in
+            switch run.kind {
+            case .numeral:
+                return text + Text(verbatim: run.text)
+                    .font(CicadaTheme.font(size: 20, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(numeralInk)
+            case .plain, .qualifier:
+                return text + Text(verbatim: run.text)
+                    .font(CicadaTheme.font(size: 15, weight: counted ? .regular : .medium))
+                    .foregroundStyle(wordInk)
+            }
+        }
+    }
+
+    var body: some View {
+        let parts = statusParts(line)
+        HStack(spacing: CicadaTheme.spacingSM) {
+            label(parts)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            if let tag = parts.tag {
+                Text(verbatim: tag)
+                    .font(CicadaTheme.badgeFont)
+                    .foregroundStyle(ink(line.tone, plain: CicadaTheme.textPrimary))
+                    .padding(.horizontal, CicadaTheme.spacingSM)
+                    .padding(.vertical, CicadaTheme.scaled(3))
+                    .background(Capsule().fill(CicadaTheme.bgBadge))
+            }
+        }
+        .padding(.leading, CicadaTheme.scaled(14))
+        .padding(.trailing, CicadaTheme.scaled(parts.tag == nil ? 14 : 6))
+        .padding(.vertical, CicadaTheme.scaled(6))
+        .ringed(in: Capsule())
     }
 }
 

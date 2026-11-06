@@ -51,9 +51,28 @@ struct SleepWaitingList: View {
                           onSelectEntity: onSelectEntity, room: room)
                 .id(DetailsSection.waiting.anchorID)
                 .saturation(liveness.saturation)
-            if let kept = Copy.keptForLookup(queue?.kept ?? 0) {
-                Text(kept).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let kept = queue?.kept, kept > 0 {
+                // ROR-118 round 5 - the list's own last row, in the table's columns: the chevron's slot, the mark's tile,
+                // the words in the name column and the number in the Items column, so it is a row, not a stranded line.
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Color.clear.frame(width: CicadaTheme.iconPoints(.inline), height: 1)
+                    Image(systemName: "tray")
+                        .font(CicadaTheme.icon(.inline))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .frame(width: CicadaTheme.scaled(22), height: CicadaTheme.scaled(22))
+                        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBadge))
+                    Text(Copy.SleepV5.keptForLookupRow).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                        .lineLimit(1)
+                    Spacer(minLength: CicadaTheme.spacingMD)
+                    Text(UsageFormat.count(kept)).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                        .monospacedDigit()
+                        .frame(minWidth: CicadaTheme.scaled(StudyListCard.countColumn), alignment: .trailing)
+                }
+                .padding(.horizontal, CicadaTheme.scaled(10))
+                .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 12))
+                .padding(.top, -CicadaTheme.spacingCard + CicadaTheme.spacingXS)
+                .help(Copy.keptForLookup(kept) ?? "")
+                .accessibilityElement(children: .combine)
             }
         }
     }

@@ -6,6 +6,15 @@ import XCTest
 /// whisper keep the 760 pt text column; the art left its card and takes a WHOLE number of points per lattice cell,
 /// chosen by the width it may take (5 from 880, 4 from 720, else 3), so a pixel is never resampled (ruling R3).
 final class SleepLayoutTests: XCTestCase {
+    /// ROR-118 — the room's corner rectangle: 3 pt a cell (480 wide) while the words can sit beside it, else 2 pt (320).
+    func test_theCornerRoomIsWholePointsAndBesideFromTheNarrowStep() {
+        XCTAssertEqual(SleepLayout.cornerScale(columnWidth: 1_000), 3)
+        XCTAssertEqual(SleepLayout.cornerScale(columnWidth: 959), 2)
+        XCTAssertTrue(SleepLayout.roomBeside(columnWidth: 720))
+        XCTAssertFalse(SleepLayout.roomBeside(columnWidth: 719))
+        XCTAssertLessThanOrEqual(CGFloat(RoomLattice.cols) * 3, SleepLayout.pageWidth / 2.1)
+    }
+
 
     func test_theColumnIsSevenSixty() {
         XCTAssertEqual(SleepLayout.contentWidth, 760)
@@ -257,5 +266,19 @@ final class SleepLivenessTests: XCTestCase {
         cal.timeZone = TimeZone(identifier: "UTC")!
         let date = cal.date(from: utcNoonish)!
         XCTAssertEqual(Copy.asOf(date, timeZone: TimeZone(identifier: "UTC")!), "as of 16:12")
+    }
+
+    /// ROR-118 round 2 - "last read" rides the lamp's line beside the room, one caption; the title row says "Sleep".
+    func test_lastReadJoinsTheLampsLine() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let twoHours = ISO8601DateFormatter().string(from: now.addingTimeInterval(-2 * 3_600))
+        XCTAssertEqual(SleepEyebrow.lastRead(lastSleepAt: twoHours, now: now), "last read 2 h ago")
+        XCTAssertNil(SleepEyebrow.lastRead(lastSleepAt: nil, now: now))
+        XCTAssertEqual(cornerWhisperLine(scheduleText: "x", nextRunText: "y", lampLit: false,
+                                         lastRead: "last read 2 h ago"), "The lamp is off — I read when you ask · last read 2 h ago")
+        XCTAssertEqual(cornerWhisperLine(scheduleText: "x", nextRunText: "y", lampLit: false, lastRead: nil),
+                       "The lamp is off — I read when you ask.")
+        XCTAssertEqual(cornerWhisperLine(scheduleText: "Nightly", nextRunText: "Next run 3:00", lampLit: true,
+                                         lastRead: nil), "Nightly · Next run 3:00")
     }
 }
