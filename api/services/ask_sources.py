@@ -923,6 +923,24 @@ def asks_implied(question: str, people: set[str] | None = None) -> bool:
     return bool(_WHO_IS.match(" ".join(text.replace("¿", " ").split())))
 
 
+#: A request for advice or a recommendation for the person themselves (2026-11-06, G148): the answer is shaped by what
+#: they use and like, and the record rarely says so in the question's words. Measured with no model: 23 of LongMemEval_S's
+#: 30 preference questions, 0 of its other 470, 0 of LoCoMo's 1,986.
+_ADVICE = re.compile(
+    r"\b(?:(?:can|could|would|will) you (?:please )?(?:recommend|suggest|give me (?:some |any )?(?:tips|advice|ideas))"
+    r"|any (?:tips|advice|suggestions|recommendations|ideas)\b"
+    r"|do you have (?:any |some )?(?:tips|advice|suggestions|recommendations|ideas)\b"
+    r"|what (?:would|do) you (?:recommend|suggest)|(?:recommend|suggest) (?:me|some|a|an)\b"
+    r"|what should i (?:do|try|read|watch|buy|get|cook|eat|use)\b"
+    r"|(?:me )?(?:puedes|podrias|podr[ií]as) (?:recomendar|sugerir|aconsejar)|me (?:recomiendas|sugieres|aconsejas)"
+    r"|alg[uú]n consejo|alguna (?:recomendaci[oó]n|sugerencia|idea)|qu[eé] me (?:recomiendas|sugieres))")
+
+
+def asks_advice(question: str) -> bool:
+    """The person asks for a recommendation or advice for themselves, not a recorded fact. No model."""
+    return bool(_ADVICE.search(" ".join((question or "").lower().replace("¿", " ").split())))
+
+
 #: Function words that tell a Spanish question from an English one (folded; none is a word of the other language
 #: a question would use — "a", "me", "no" are both and count for neither).
 _ES_WORDS = frozenset("que cual cuales quien quienes cuando donde como cuanto cuanta cuantos cuantas por para del "
@@ -1018,6 +1036,9 @@ class Searched:
     #: An English question whose nearest conversations include some in another language (:func:`record_language`):
     #: that language, else ``""``.
     record_lang: str = ""
+    #: The person asks for advice (:func:`asks_advice`): the meaning leg adds more, since their taste is rarely said in
+    #: the question's words.
+    advice: bool = False
 
 
 @dataclass
@@ -1418,6 +1439,9 @@ LANGUAGE_PASSAGES = 3
 #: By meaning beside the words (`Searched.adds`): at most this many more lines, in this many characters.
 MEANING_EXTRA_EXCERPTS = 2
 MEANING_EXTRA_CHARS = 800
+#: The same for a request for advice (2026-11-06): LongMemEval_S preference, answer turns in the prompt 4 → 8 of 14.
+ADVICE_EXTRA_EXCERPTS = 6
+ADVICE_EXTRA_CHARS = 3000
 
 
 def text_language(text: str) -> str:
@@ -1559,14 +1583,19 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
             first += [ep for ep in _episodes_on(memory_path, named_m) if ep not in passages]
             passages = {ep: passages.get(ep, []) for ep in first} | {ep: v for ep, v in passages.items()
                                                                        if ep not in first}
+    advice = asks_advice(question)
     similar = None
     if indexer is not None and (shape == SHAPE_ENUMERATE or meaning or asks_inference(question)
-                                or asks_implied(question)):
+                                or asks_implied(question) or advice):
         similar = _similarity(indexer, question, MEANING_TEXTS if meaning else SIMILAR_TEXTS)
     by = ({"meaning": meaning, "adds": not meaning, "passages": passages, "record_lang": record_lang,
-           "turn_similar": _similarity(indexer, _without(question, common), MEANING_TURNS)
+           "advice": advice, "turn_similar": _similarity(indexer, _without(question, common), MEANING_TURNS)
            if indexer is not None else None}
-          if by_mean else {})
+          if by_mean or (advice and passages) else {})
+    if not weights and advice and passages and not meaning:
+        # Advice in words the record does not use: what the vector leg found is all there is to tailor it by.
+        return Searched(episodes=list(passages), weights={}, shape=shape, similar=similar, meaning=True,
+                        **{k: v for k, v in by.items() if k not in ("meaning", "adds")})
     if not weights:
         if meaning:
             # No word the record uses, but the search model found where it speaks of this: its passages lead.
@@ -1751,8 +1780,9 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         for c in _meaning_turns(memory_path, found, near_docs, shown):
             firsts.setdefault(c[3], c)
         extra = sorted(firsts.values(), key=lambda c: (c[3] in shown_eps, c[1]))
-        chosen += _take(extra, near_docs, terms, owner_name, max_excerpts=MEANING_EXTRA_EXCERPTS,
-                        total_chars=MEANING_EXTRA_CHARS, taken=shown, deep=deep)
+        chosen += _take(extra, near_docs, terms, owner_name,
+                        max_excerpts=ADVICE_EXTRA_EXCERPTS if found.advice else MEANING_EXTRA_EXCERPTS,
+                        total_chars=ADVICE_EXTRA_CHARS if found.advice else MEANING_EXTRA_CHARS, taken=shown, deep=deep)
         chosen.sort(key=lambda e: e.order)
     return chosen
 

@@ -1332,6 +1332,16 @@ owner's page is never a source of links (it links to everyone) nor a linked pers
 synthesis rule 7 says what `also called` and `LINKED PEOPLE` are. `_claim_context` takes an id map (a scan per claim
 was ~1.7 s on a 6,008-claim page). `api/tests/test_ask_hub_context.py` reproduces both at hub scale.
 
+**A request for advice is not a question of fact (G148, 2026-11-06).** Asked for a recommendation, Ask answered as if the
+answer were on the record: "memory has no inventory of your photography gear", though the lines showed the gear. No model
+tells the shape: `ask_sources.asks_advice` (English and Spanish; 23 of LongMemEval_S's 30 preference questions, 0 of its other
+470, 0 of LoCoMo's 1,986). Such a question gets its own note (`_ADVICE_NOTE`): rule 1's "never guess" is about facts, the advice
+may use general knowledge, tailored to what the lines show, saying which lines and that the suggestions are its own, confidence
+below 0.7. The meaning leg adds up to 6 lines and 3,000 characters instead of 2 and 800, because a taste is rarely said in the
+question's words. Measured on LongMemEval_S, nothing slept, haiku on the answer and the judge, one run: preference 12.5 → 75.0
+of 8, 6 gained and 1 lost (sign test p = 0.125, so a small sample), overall 71 → 76 of 100, no other category moved because
+no other prompt changed. Tokens per right answer on preference 49,408 → 10,124, overall 8,791 → 8,362.
+
 **Ask reads pages item by item, and the conversations' own words behind them (G148/G118, 2026-10-17).** LoCoMo conv-26
 through Cicada scored J 52.5 against 95.0 for the same reader given the raw conversation; 17 of 19 wrong answers said
 memory lacked a detail that was either on the page past a cut or in the conversation a shown claim points at. Two
