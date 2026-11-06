@@ -61,7 +61,7 @@ struct GraphPage: View {
             if tab != .graph { Instant.run { findOpen = false; legendOpen = false }; graphVM.hover.end() }
         }
         // ROR-135 — once the graph is up, read the busiest pages' pictures into memory off the pointer's path.
-        .task(id: graphVM.nodes.count) {
+        .task(id: "\(graphVM.nodes.count)|\(isVisible)") {
             guard isVisible, !graphVM.nodes.isEmpty else { return }
             graphVM.hover.warm(graphVM.hoverWarmCandidates(), bank: graphVM.hoverBank)
         }
