@@ -425,3 +425,21 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertFalse(SourceCatalog.readsAsSignIn(nil))
     }
 }
+
+
+extension SourceCatalogTests {
+    /// ROR-138 (owner 2026-11-06): X, Instagram, LinkedIn, Reddit and Pinterest read Connected with no date. A list turned
+    /// on is a standing ask; it reads Connected through the agent only once the agent has read it.
+    func testAListTurnedOnReadsConnectedOnlyOnceTheAgentHasReadIt() {
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        func status(_ id: String, read: Set<String>) -> SourceCatalogStatus? {
+            SourceCatalog.rows(entries: entries, channels: [], overview: [], readableSites: [],
+                               savedListsOn: ["x", "instagram", "youtube", SourceCatalog.substackId], localAgent: true,
+                               savedListsRead: read).first { $0.id == id }?.status
+        }
+        for id in ["x", "instagram", "youtube", SourceCatalog.substackId] {
+            XCTAssertEqual(status(id, read: []), .waitingForAgent, "\(id): on, never read — no date, not Connected")
+            XCTAssertEqual(status(id, read: [id]), .connected, id)
+        }
+    }
+}

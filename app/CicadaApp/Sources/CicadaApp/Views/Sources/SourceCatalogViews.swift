@@ -16,6 +16,18 @@ extension ReadingAgentModel {
         return Set(settings.allowedSites.keys)
     }
 
+    /// ROR-138 (owner 2026-11-06: X, Instagram, LinkedIn, Reddit and Pinterest read Connected with no date) — the lists
+    /// the agent has actually read, each with a date: turning a list on is a standing ask, not a connection.
+    var savedListsRead: Set<String> {
+        guard let settings else { return [] }
+        var out = Set((settings.saved?.lists ?? [:]).filter { $0.value.lastReadAt != nil }.map { $0.key })
+        if let yt = settings.youtube?.lists, yt.values.contains(where: { $0.lastReadAt != nil }) { out.insert("youtube") }
+        if let ss = settings.substack?.lists, ss.values.contains(where: { $0.lastReadAt != nil }) {
+            out.insert(SourceCatalog.substackId)
+        }
+        return out
+    }
+
     /// G206 — the saved lists the person's agent keeps current: none while agent reading is off.
     var savedListsOn: Set<String> {
         guard let settings, settings.agentEnabled else { return [] }

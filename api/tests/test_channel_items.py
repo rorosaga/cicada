@@ -789,19 +789,22 @@ def test_a_publication_lists_on_substack_and_every_item_under_one_source(split_b
     tree = lambda c: channel_items.collections(bank, c)["accounts"][0]["collections"]
     assert {c.get("url") for c in tree("substack-feeds")} == {on_host, own_domain}
     assert all(c["mark"] == "substack" and c["count"] == 1 for c in tree("substack-feeds"))
-    assert [c.get("url") for c in tree("rss")] == [plain, None]
+    # ROR-138: RSS is how a publication is followed, so RSS lists every followed feed (Substack's marked) and Substack's
+    # row is the view of its own.
+    assert {c.get("url") for c in tree("rss")} == {on_host, own_domain, plain, None}
     assert tree("rss")[-1]["name"] == "Other"
     ids = lambda c: {r["id"] for r in channel_items.items(bank, c)["items"]}
-    assert ids("substack-feeds") == {"sub-1", "sub-2"} and ids("rss") == {"plain-1", "stray"}
+    assert ids("substack-feeds") == {"sub-1", "sub-2"} and ids("rss") == {"sub-1", "sub-2", "plain-1", "stray"}
     one = tree("substack-feeds")[0]
     assert channel_items.items(bank, "substack-feeds", collection=one["id"])["all"] == 1
 
 
-def test_with_only_publications_rss_answers_no_accounts(tmp_path):
+def test_with_only_publications_rss_lists_them_too(tmp_path):
     bank = tmp_path / "memory"
     (bank / "sources").mkdir(parents=True)
     feed_registry.subscribe_feed(bank, "https://alpha.substack.com/feed", [])
-    assert channel_items.collections(bank, "rss") == {"channel": "rss", "accounts": []}
+    rss = channel_items.collections(bank, "rss")["accounts"][0]["collections"]
+    assert [c["mark"] for c in rss] == ["substack"]
     assert channel_items.items(bank, "rss")["all"] == 0
     assert channel_items.collections(bank, "substack-feeds")["accounts"][0]["count"] == 0
 

@@ -57,6 +57,7 @@ struct SourcesPageView: View {
         return SourceCatalog.rows(entries: entries, channels: channels, overview: overview,
                                   readableSites: reading.readableSites, localReaders: localReaders,
                                   savedListsOn: reading.savedListsOn, localAgent: agents.connectedLocally,
+                                  savedListsRead: reading.savedListsRead,
                                   checked: chatChecks, notInstalled: localSources.missingApps,
                                   waitingOn: LocalReaders.waitingOnAccess(
                                       calendar: calendarReader, contacts: contactsReader, reminders: remindersReader,

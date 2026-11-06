@@ -421,17 +421,23 @@ enum SourceCatalog {
     /// stdio and hooks — the reading tools are stdio only); turned on with none, it waits for one, and says so.
     static func status(for entry: SourceCatalogEntry, channels: [SourceChannel], overview: [SourceOverview],
                        readableSites: Set<String>, localReaders: [String: Bool] = [:],
-                       savedListsOn: Set<String> = [], localAgent: Bool = false) -> SourceCatalogStatus {
+                       savedListsOn: Set<String> = [], localAgent: Bool = false,
+                       savedListsRead: Set<String>? = nil) -> SourceCatalogStatus {
         resolved(for: entry, channels: channels, overview: overview, readableSites: readableSites,
-                 localReaders: localReaders, savedListsOn: savedListsOn, localAgent: localAgent).status
+                 localReaders: localReaders, savedListsOn: savedListsOn, localAgent: localAgent,
+                 savedListsRead: savedListsRead).status
     }
 
     /// `status`, and whether the row is Connected only because the person's own agent reads it in their browser
     /// (ROR-114): then the tile says so, in its own colour, instead of the green of a connection.
     static func resolved(for entry: SourceCatalogEntry, channels: [SourceChannel], overview: [SourceOverview],
                          readableSites: Set<String>, localReaders: [String: Bool] = [:],
-                         savedListsOn: Set<String> = [], localAgent: Bool = false)
+                         savedListsOn: Set<String> = [], localAgent: Bool = false,
+                         savedListsRead: Set<String>? = nil)
         -> (status: SourceCatalogStatus, viaBrowser: Bool) {
+        // ROR-138: nil = the caller does not know which lists were read (the older rule); a set = only a list the agent
+        // has read, with a date, reads Connected through the agent.
+        func listRead(_ key: String) -> Bool { savedListsRead?.contains(key) ?? true }
         // G218 — traces read Connected only while the recorder records here; paused, off or on a server they read Off
         // (ruling 36's three words; the detail's own line says "Paused until …").
         if entry.id == tracesId { return (localReaders[tracesId] == true ? .connected : .off, false) }
@@ -455,8 +461,7 @@ enum SourceCatalog {
         // list on is a standing ask, not a connection — the row reads Connected through the agent only once something
         // it read has a date; until then it waits for the agent's first read.
         if let key = entry.savedListKey, savedListsOn.contains(key) {
-            let read = lastSync(for: entry, channels: channels, overview: overview) != nil
-            return localAgent && read ? (.connected, true) : (.waitingForAgent, false)
+            return localAgent && listRead(key) ? (.connected, true) : (.waitingForAgent, false)
         }
         // An account's import that fed memory counts, as a chat export does (2026-10-23, live test: YouTube read Off
         // over a Takeout's thousands of episodes). Only an overview row no channel speaks for — an import — and not one a
@@ -476,8 +481,10 @@ enum SourceCatalog {
             // G89: and for Substack's lists (`savedListsOn` holds "substack" then).
             || (entry.id == substackId && savedListsOn.contains(substackId))
         if agentReads {
-            let read = lastSync(for: entry, channels: channels, overview: overview) != nil
-            return localAgent && read ? (.connected, true) : (.waitingForAgent, false)
+            // A site the agent may open is a standing ask; YouTube's and Substack's lists are lists, read or not.
+            let listBased = (entry.id == "youtube" && savedListsOn.contains("youtube"))
+                || (entry.id == substackId && savedListsOn.contains(substackId))
+            return localAgent && (!listBased || listRead(entry.id)) ? (.connected, true) : (.waitingForAgent, false)
         }
         return (.off, false)
     }
@@ -500,7 +507,7 @@ enum SourceCatalog {
     /// for a reader that checked a minute ago.
     static func rows(entries: [SourceCatalogEntry], channels: [SourceChannel], overview: [SourceOverview],
                      readableSites: Set<String>, localReaders: [String: Bool] = [:],
-                     savedListsOn: Set<String> = [], localAgent: Bool = false,
+                     savedListsOn: Set<String> = [], localAgent: Bool = false, savedListsRead: Set<String>? = nil,
                      checked: [String: Date] = [:], notInstalled: Set<String> = [],
                      waitingOn: [String: String] = [:], suggested: Set<String> = [],
                      browserReads: [String: BrowserRead] = [:],
@@ -513,7 +520,8 @@ enum SourceCatalog {
             func resolve(_ readers: [String: Bool]) -> (status: SourceCatalogStatus, viaBrowser: Bool) {
                 gone ? (.off, false)
                     : resolved(for: entry, channels: channels, overview: overview, readableSites: readableSites,
-                               localReaders: readers, savedListsOn: savedListsOn, localAgent: localAgent)
+                               localReaders: readers, savedListsOn: savedListsOn, localAgent: localAgent,
+                               savedListsRead: savedListsRead)
             }
             func read(_ readers: [String: Bool]) -> SourceCatalogStatus { resolve(readers).status }
             // What this row would read with every reader it only borrows switched off.
