@@ -36,7 +36,7 @@ def page(bank, pid, *, name=None, type_="concept", said=-5, convs=1, claims=0, c
     """``claim_eps`` maps a claim's index to its ``source_episodes`` (default: one undated id, which says nothing of when)."""
     fm = {"type": type_, "name": name or pid.replace("-", " ").title(), "status": "active", "confidence": 0.7,
           "created": d(-400), "last_referenced": d(said),
-          "source_episodes": [f"ep_{d(-i - 1)}_001" for i in range(convs)], "related": [], **extra}
+          "source_episodes": [f"ep_{d(said - i)}_001" for i in range(convs)], "related": [], **extra}
     body = f"# {fm['name']}\n"
     if claims:
         rows = [Claim(id=f"clm_{pid}_{i}", text=f"fact {i}", subject=pid, predicate="note", object=f"o{i}",
@@ -298,6 +298,30 @@ def build_pairs(bank):
     pairs.append(("old fact on a small page opened daily > the same on a very large page opened daily",
                   "opening a hub every day puts about 30 of its 8,000 claims in front of a reader: it does not keep "
                   "every old fact on it from fading", better, worse))
+
+    # ---- what has come up lately (Rodrigo 2026-11-06: "<a-person> and <another> have come up a lot lately. Thats why
+    # recency is important.")
+    # 13. a page said in three conversations this week > a page with a long life gone quiet
+    page(bank, "said-this-week", convs=3, said=-1, claims=20)
+    page(bank, "long-life-quiet", convs=40, said=-100, claims=20)
+    worse = new(kind="clarification", priority=0.5, entity_id="long-life-quiet", entity_name="Long Life Quiet",
+                required_input="choice", created_date=d(0))
+    better = new(kind="clarification", priority=0.5, entity_id="said-this-week", entity_name="Said This Week",
+                 required_input="choice", created_date=d(-1))
+    pairs.append(("a page said this week > a page with a long life gone quiet",
+                  "what has come up lately is what the answer would be used for now", better, worse))
+
+    # 14. a merge fades never, and rises when its pages are said lately
+    page(bank, "merge-now-a", convs=2, said=-2, claims=20)
+    page(bank, "merge-now-b", convs=2, said=-3, claims=20)
+    page(bank, "merge-old-a", convs=2, said=-200, claims=20)
+    page(bank, "merge-old-b", convs=2, said=-200, claims=20)
+    worse = new(kind="merge_suggestion", priority=0.5, entity_id="merge-old-a", entity_name="Merge Old A",
+                merge_target_hint="merge-old-b", required_input="merge", created_date=d(0))
+    better = new(kind="merge_suggestion", priority=0.5, entity_id="merge-now-a", entity_name="Merge Now A",
+                 merge_target_hint="merge-now-b", required_input="merge", created_date=d(-1))
+    pairs.append(("a merge of two pages said lately > the same merge of two quiet pages",
+                  "who someone is never fades, but it is asked first when they are being talked about", better, worse))
     return pairs
 
 
@@ -336,7 +360,7 @@ def test_f3_passes_every_argued_pair(bank):
     assert failed == [], f"F3 fails an argued pair (report it, do not tune it away): {failed}"
 
 
-HELD, PAIR, OPENED, BIG, RECALL, FIVE, EFFORT, INFO, OLD, AGAIN, RELIEF, HUB = (
+HELD, PAIR, OPENED, BIG, RECALL, FIVE, EFFORT, INFO, OLD, AGAIN, RELIEF, HUB, LATELY, MERGE_LATELY = (
     "held name on a huge page < conflict on a moderate page",
     "same-person pair of two mid pages > conflict on an 8,000-claim hub",
     "opened daily, rarely talked about > the same question unopened",
@@ -346,16 +370,19 @@ HELD, PAIR, OPENED, BIG, RECALL, FIVE, EFFORT, INFO, OLD, AGAIN, RELIEF, HUB = (
     "conflict said over a year ago < a recent conflict of the same stake",
     "a fact said again recently > the same fact said once, long ago",
     "old fact on a small page opened daily > the same fact on an unopened page",
-    "old fact on a small page opened daily > the same on a very large page opened daily")
+    "old fact on a small page opened daily > the same on a very large page opened daily",
+    "a page said this week > a page with a long life gone quiet",
+    "a merge of two pages said lately > the same merge of two quiet pages")
 #: Measured by ``test_the_table`` (pinned so the docs' table cannot drift from what the code does). F0 passes only the
 #: held-name pair, by a margin its use term alone happens to give (a conflict outranks a merge by priority, and the
 #: mid page is used); F1 cannot see reads, effort, p, dilution or age; F2 sees reads, effort and p but not that three
-#: claims among 8,000 are almost never in front of a reader, nor that a fact said a year ago asks less (the four staleness
-#: pairs; only the unopened-versus-opened one it passes, through reads in its exposure).
+#: claims among 8,000 are almost never in front of a reader, nor that a fact said a year ago asks less (the staleness
+#: pairs; only the unopened-versus-opened one it passes, through reads in its exposure). None but F3 has ``lift``, so all
+#: three miss what has come up lately; the merge pair they pass on their use term alone.
 EXPECTED_FAILURES = {
-    "F0": {PAIR, OPENED, BIG, RECALL, FIVE, EFFORT, INFO, OLD, AGAIN, RELIEF, HUB},
-    "F1": {HELD, PAIR, OPENED, RECALL, EFFORT, INFO, OLD, AGAIN, RELIEF, HUB},
-    "F2": {HELD, OLD, AGAIN, HUB},
+    "F0": {PAIR, OPENED, BIG, RECALL, FIVE, EFFORT, INFO, OLD, AGAIN, RELIEF, HUB, LATELY},
+    "F1": {HELD, PAIR, OPENED, RECALL, EFFORT, INFO, OLD, AGAIN, RELIEF, HUB, LATELY},
+    "F2": {HELD, OLD, AGAIN, HUB, LATELY},
 }
 
 
@@ -1181,3 +1208,25 @@ def test_a_same_as_question_about_pages_spoken_of_lately_asks_first(bank):
 
     assert t.score(card("new-a", "new-b")) > 2 * t.score(card("old-a", "old-b"))
     assert t.recency(t.parts(card("old-a", "old-b"))) < 1.0001 + question_order.RECENT_BOOST * 0.001
+
+
+def test_lately_counts_conversations_by_when_they_were_said_and_no_export_or_feed(bank):
+    page(bank, "said-now", convs=8, said=-1)
+    page(bank, "said-once", convs=1, said=-1)
+    page(bank, "said-long-ago", convs=2, said=-200)
+    page(bank, "only-an-export", said=-200, source_episodes=[f"ep_{d(-1)}_009"])
+    markdown_parser.write(bank / "episodes" / f"ep_{d(-1)}_009.md", {"id": f"ep_{d(-1)}_009", "source": "claude_memory"},
+                          "summary")
+    bank_index.invalidate()
+    page_use.reset()
+    table = page_use.lately(bank, today=TODAY)
+    assert table["said-now"] == 1.0 and 0 < table["said-once"] < 0.5
+    assert "said-long-ago" not in table and "only-an-export" not in table
+
+
+def test_said_lately_halves_a_conversation_every_two_weeks():
+    today = date(2026, 11, 6)
+    assert page_use.said_lately([], today) == 0.0
+    assert page_use.said_lately([today], today) == pytest.approx(1.0)
+    assert page_use.said_lately([today - timedelta(days=14)], today) == pytest.approx(0.5)
+    assert page_use.said_lately([today + timedelta(days=3)], today) == pytest.approx(1.0)

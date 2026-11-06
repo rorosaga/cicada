@@ -12,7 +12,7 @@ to raw priority"). Every other place that lists or picks questions goes through 
 the app's ``orderIndex``); ``search_service`` drops priority from its tie-break. ``test_question_order_gate.py`` fails on
 a new sort keyed on a question's raw priority.
 
-    score(q) = p(q) x stake(q) / effort(q) x (FLOOR + exposure) x sqrt(seen(q)) x freshness(q)
+    score(q) = p(q) x stake(q) / effort(q) x (FLOOR + exposure) x sqrt(seen(q)) x freshness(q) x recency(q) x lift(q)
 
 * ``p`` - how likely an answer changes anything against what happens if it is never asked (:data:`P`). A conflict is
   answered into a verdict (.9); a decay question mostly retires on its own when ignored (.3); an informational
@@ -53,6 +53,12 @@ a new sort keyed on a question's raw priority.
   topic page's reads. What does **not** fade: who someone is (``merge_suggestion``, ``asks: name``, a held-name release,
   Rodrigo, 2026-11-06), ``decay`` (age is what it asks about, and its ``p`` already accounts for it), and a removal,
   normalization, page edit, ``asks: sources`` review or ``sensitive`` hold (not a fact someone said).
+
+* ``lift`` - what has come up lately (Rodrigo, 2026-11-06: "<a-person> and <another> have come up a lot lately. Thats why
+  recency is important"; a question on a page mentioned this week outranks one on a quiet page). A "same as?" question
+  has :meth:`Tables.recency` instead. ``1 + LATELY_WEIGHT x lately`` of the question's page said most lately (:func:`page_use.lately`,
+  by the days its conversations were said); on the owner's own page, always said, how lately the fact in question was. A factor, not part of ``exposure``: inside that
+  complement a page already busy has no room to rise, and measured on a real memory the most-said pages fell.
 
 **One type at a time** (Rodrigo, 2026-11-06: the top was a wall of "same as?", 9 of 10). The score stays what it is;
 :func:`spaced` takes the list in score order and lets at most :data:`RUN_LIMIT` questions of one :func:`family` run in a
@@ -99,6 +105,9 @@ RECENT_DAYS = 14.0
 SENSITIVE_SCORE = 3.0
 #: A fact said long ago still asks a little: the fade never goes below this (judgment, like the rest).
 FADE_FLOOR = 0.05
+#: How much more the page said most lately asks than a quiet one (Rodrigo, 2026-11-06). Judgment, with the table in
+#: ``features.md``.
+LATELY_WEIGHT = 2.0
 #: At most this many questions of one family in a row. Measured on a real memory, 659 open questions: two left "same as?"
 #: at 7 of the top 10 and 33 of the top 50, still the wall, for 1 % of the top's score; one leaves 5 and 25, for 5 %, and
 #: every question brought into the top 10 still scores in the high bucket (`features.md`).
@@ -232,6 +241,9 @@ class Parts:
     #: this page never fades). Both set only for a kind that fades.
     said: date | None = None
     half_life: float | None = None
+    #: A "same as?" question: :meth:`Tables.recency` speaks for it, by the older of its two pages, so one busy side never
+    #: lifts a pair (:meth:`Tables.lift` leaves it).
+    same_as: bool = False
     #: A "same as?" question only: the newest day either page was spoken of in a conversation (ROR-136).
     recent: date | None = None
 
@@ -265,6 +277,7 @@ class Tables:
         self.memory_path = Path(memory_path)
         self.today = today or date.today()
         self.use = page_use.scores(self.memory_path, today=today)
+        self.lately = page_use.lately(self.memory_path, today=today)
         self.reads_on = bool(reads)
         self.r = (page_reads.table(self.memory_path, today=self.today, live=set(self.use) if prune else None)
                   if reads else {})
@@ -341,6 +354,18 @@ class Tables:
             reads = page_reads.reads_fraction(self.r.get(pid, 0.0))
             best = max(best, 1.0 - (1.0 - use) * (1.0 - reads))
         return best
+
+    def lift(self, parts: Parts) -> float:
+        """:data:`LATELY_WEIGHT` of the question's page said most lately; 1.0 for a "same as?" question, which
+        :meth:`recency` speaks for. The owner's own page is said in nearly every conversation, so it says nothing of what
+        has come up: on it, the fact this question is about counts, by when it was said."""
+        if parts.same_as:
+            return 1.0
+        owner = self.owner()
+        best = max((self.lately.get(pid, 0.0) for pid in parts.pages if pid and pid != owner), default=0.0)
+        if owner in parts.pages and parts.said is not None:
+            best = max(best, page_use.said_lately([parts.said], self.today))
+        return 1.0 + LATELY_WEIGHT * best
 
     # ---- what each kind's resolver changes
 
@@ -431,6 +456,7 @@ class Tables:
         parts.p = max(0.1, min(1.0, conf))
         parts.reach, parts.n = min(a, b) + held + 1, a + b
         parts.pages = [x for x in (eid, target) if x]
+        parts.same_as = True
         # Stored as "person - could refer to the same person as X" (`entity_resolver`): the type is the first word, as
         # `inbox_service` reads it when it makes the page.
         stored = entity_types.in_set(str(fm.get("suggested_classification") or "concept").split(" ")[0])
@@ -573,7 +599,8 @@ class Tables:
             if parts.fixed is not None:
                 return parts.fixed
             return (parts.p * parts.stake / parts.effort * (FLOOR + self.exposure(parts.pages))
-                    * math.sqrt(max(0.0, self.seen(parts))) * self.freshness(parts) * self.recency(parts))
+                    * math.sqrt(max(0.0, self.seen(parts))) * self.freshness(parts) * self.recency(parts)
+                    * self.lift(parts))
         except Exception as exc:  # noqa: BLE001 - one bad item never costs the list
             logger.warning(f"question order: item scored by its priority ({type(exc).__name__})")
             return max(0.0, min(1.0, _f(fm.get("priority"), 0.0)))

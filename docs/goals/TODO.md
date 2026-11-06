@@ -848,6 +848,9 @@
   Needs the owner: a person's own site as a face, project avatars, Gravatar from Contacts, Wikidata P18, Stage 1's
   site upgraded by ruling 40, the two redrawn marks (`G159`).
 - **2026-10-28 — saved links feed the pages they are about (vision item 1; G61, G166, G191; branch `feat/vision-sources-reason`).** The person's reason for a save rides the reading queue (their words: remote with `sources` only), steers link summaries and earns a page described before it one more read (`read_for`); a saved link is a proposed where-to-check source on the project, company, concept, tool or place page its claims are about; `cicada_record_read(facts=…)` lands a read's specifics on their pages with page spans. Dry run on a copy of the owner's bank: 133 proposals on 113 pages, all in the one review; 9 haiku re-reads, the reason answered on 6 of 8 (2 before). Stage 1's prompt is unchanged (a note measured no gain). Coordinator calls: saves with no reason join the review; a read's facts never land on a person's page. **Next:** research citations as proposals (rulings 27/44) waits for the owner.
+- **2026-11-06 — ruling 70 amended: what has come up lately lifts a question (owner; G113).** A question on a page said this
+  week outranks one on a quiet page; a merge between pages said lately has `recency` (#691) and still never fades. `lift` in
+  `question_order`, from `page_use.lately`; table in `features.md`. Age stays from when it was said.
 - **2026-11-06 — the inbox is ordered by the expected change in what gets read (ruling 70; G113, G115; branch
   `feat/question-impact`).** `question_order` replaces `page_use.rank` for `GET /inbox`, the catch-up and `mode="ask"`;
   `page_reads` is the small per-memory read counter beside it (not the ledger); `orderIndex` goes to the app. Constants

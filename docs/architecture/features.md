@@ -229,6 +229,25 @@ multiplied by `1 + 2 x 0.5^(days / 14)` for the older of the two pages' newest c
 were spoken of, 1.5x after two weeks, 1 in time). It only raises: who someone is still does not fade (ruling 70), and a hub
 always in use or a name with no page yet carries nobody else's pair. One type at a time still spaces the wall.
 
+**What has come up lately lifts a question (owner 2026-11-06).** Owner: "<a-person> and <another> have come up a lot lately.
+Thats why recency is important." `lift = 1 + 2 x lately` of the question's page said most lately. `page_use.lately` counts the
+conversations naming a page, each halved every two weeks from the day it was said (the id's day, never `last_referenced`; a
+memory export entry or feed item is no mention), log-scaled against the page said most lately. The owner's page is said in
+nearly every conversation, so on it the fact in question counts instead. A "same as?" question keeps `recency` above. A conversation
+waiting for Sleep doesn't count until it's read. Measured read-only on a clone of a real memory, 663 open questions, with no
+read counter, conversations in the last 14 days on the question's page:
+
+| Weight | Mean, top 10 | Mean, top 50 | Pages quiet for 14 days, top 10 / top 50 | Owner's page, top 10 / top 50 |
+|---|---|---|---|---|
+| 0 (before) | 5.4 | 5.2 | 4 / 18 | 3 / 4 |
+| 1 | 6.6 | 9.2 | 3 / 12 | 2 / 4 |
+| **2** | **10.9** | **11.1** | **2 / 10** | **1 / 3** |
+| 3 | 11.0 | 12.0 | 2 / 9 | 1 / 3 |
+
+Two shapes failed first. Inside `exposure` (`1 - (1 - use)(1 - reads)(1 - lately)`), a busy page has no room to rise: the top 10's
+mean fell. A plain share (`1 - 0.5 ** n`) read .98 or more on the ten most-said pages. Past weight 2 little moves until the same-as questions start to fall. The
+cost is the owner's own questions on old facts, which fall under pages said this week.
+
     score = p × stake ÷ effort × (FLOOR + exposure) × √seen × freshness     FLOOR .1 · SHOWN 30 · FADE_FLOOR .05
 
 * **`p`**, does an answer change anything against never asking (judgment): conflict .9 · "still?" .5 · informational
