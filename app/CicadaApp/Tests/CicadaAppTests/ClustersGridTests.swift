@@ -32,12 +32,12 @@ final class ClustersGridTests: XCTestCase {
                        [.pair([.person]), .pair([.tool])], "Expand all: one card per row")
     }
 
-    /// ROR-118 — 8 portraits, 3 project cards, 5 names a list, 6 media, 2 lines in a short card.
+    /// ROR-118 — 8 portraits, 3 project cards, 4 names a list, 6 media, 2 lines in a short card.
     func testTheBudgetIsOneStripOneRowOfCardsAndShortLists() {
         let rows = ClustersGrid.rows(groups, expandAll: false)
         XCTAssertEqual(ClustersGrid.budget(rows[0], index: 0, expandAll: false), 8)
         XCTAssertEqual(ClustersGrid.budget(rows[1], index: 1, expandAll: false), 3)
-        XCTAssertEqual(ClustersGrid.budget(rows[2], index: 2, expandAll: false), 5)
+        XCTAssertEqual(ClustersGrid.budget(rows[2], index: 2, expandAll: false), 4)
         XCTAssertEqual(ClustersGrid.budget(rows[3], index: 3, expandAll: false), 6)
         XCTAssertEqual(ClustersGrid.budget(rows[4], index: 4, expandAll: false), 2)
         XCTAssertNil(ClustersGrid.budget(rows[0], index: 0, expandAll: true))
@@ -46,7 +46,7 @@ final class ClustersGridTests: XCTestCase {
     /// DR-68 — ↑/↓ walk what is drawn in reading order: row by row, section by section.
     func testTheKeysWalkWhatIsDrawnInReadingOrder() {
         let visible = ClustersGrid.visible(groups, tab: nil, expandAll: false).map(\.id)
-        XCTAssertEqual(visible.count, 8 + 3 + 5 + 5 + 5 + 6 + 2 + 2 + 2)
+        XCTAssertEqual(visible.count, 8 + 3 + 4 + 4 + 4 + 6 + 2 + 2 + 2)
         XCTAssertEqual(Array(visible.prefix(10)), (0..<8).map { "person-\($0)" } + ["project-0", "project-1"])
         XCTAssertEqual(ClustersGrid.visible(groups, tab: .tool, expandAll: false).count, 22, "a tab shows every tile")
     }

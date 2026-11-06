@@ -10,9 +10,11 @@ enum ClustersGrid {
     static let lists: [EntityType] = [.company, .tool, .concept]
     static let faces = 8
     static let leadCards = 3
-    static let listNames = 5
+    static let listNames = 4
     static let galleryNames = 6
     static let shortLines = 2
+    /// Media covers drawn above the title list.
+    static let coverCount = 5
 
     enum Row: Equatable, Identifiable {
         /// People as a strip of portraits.
@@ -150,7 +152,7 @@ struct ClustersGridView: View {
     var body: some View {
         GeometryReader { geo in
             ScrollView {
-                VStack(alignment: .leading, spacing: CicadaTheme.scaled(36)) {
+                VStack(alignment: .leading, spacing: CicadaTheme.scaled(30)) {
                     let columns = ClustersGrid.tabColumns(width: geo.size.width - gutter * 2,
                                                           scale: CGFloat(CicadaTheme.uiScale))
                     if let tab, let group = groups.first(where: { $0.type == tab }) {
@@ -426,22 +428,30 @@ struct ClusterFaces: View {
 
     var body: some View {
         ClusterSection(group: group, showAll: showAll, ruled: false) {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                let faces = shown.filter(pictured)
-                let others = shown.filter { !pictured($0) }
-                if !faces.isEmpty {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(120), maximum: CicadaTheme.scaled(150)),
-                                                 spacing: CicadaTheme.spacingLG, alignment: .top)],
-                              alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                        ForEach(faces) { entity in ClusterFace(entity: entity) { open(entity) }.id(entity.id) }
+            let faces = shown.filter(pictured)
+            let others = shown.filter { !pictured($0) }
+            let portraits = LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(112), maximum: CicadaTheme.scaled(136)),
+                                                         spacing: CicadaTheme.spacingMD, alignment: .top)],
+                                      alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                ForEach(faces) { entity in ClusterFace(entity: entity) { open(entity) }.id(entity.id) }
+            }
+            let initials = LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: CicadaTheme.spacingSM, alignment: .leading),
+                                                    count: 2),
+                                     alignment: .leading, spacing: 0) {
+                ForEach(others) { entity in ClusterPerson(entity: entity) { open(entity) }.id(entity.id) }
+            }
+            if faces.isEmpty {
+                initials
+            } else if others.isEmpty {
+                portraits
+            } else {
+                // The initials sit beside the portraits where the row has room, under them where it does not.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: CicadaTheme.spacingXL) {
+                        portraits
+                        initials.frame(width: CicadaTheme.scaled(440))
                     }
-                }
-                if !others.isEmpty {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(170)), spacing: CicadaTheme.spacingSM,
-                                                 alignment: .leading)],
-                              alignment: .leading, spacing: 0) {
-                        ForEach(others) { entity in ClusterPerson(entity: entity) { open(entity) }.id(entity.id) }
-                    }
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) { portraits; initials }
                 }
             }
         }
@@ -455,7 +465,7 @@ struct ClusterFace: View {
 
     var body: some View {
         VStack(spacing: CicadaTheme.spacingSM) {
-            EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 88, heldInputs: entity.pictureInputs,
+            EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 80, heldInputs: entity.pictureInputs,
                           editing: .tile)
                 .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
             Button(action: open) {
@@ -571,7 +581,7 @@ struct ClusterLead: View {
                 .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
         }
         .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(104), maxHeight: CicadaTheme.scaled(104),
+        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(96), maxHeight: CicadaTheme.scaled(96),
                alignment: .topLeading)
         .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
         .ringed(.strong, in: CicadaTheme.shape(CicadaTheme.cornerRadius))   // the card's edge reads at a glance
@@ -619,7 +629,7 @@ struct ClusterNameRow: View {
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             if leadingPicture {
-                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 28, heldInputs: entity.pictureInputs,
+                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 26, heldInputs: entity.pictureInputs,
                               editing: .tile, collapsesWhenEmpty: !reservesPicture)
                     .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
             }
@@ -647,8 +657,8 @@ struct ClusterNameRow: View {
             }
         }
         .padding(.horizontal, CicadaTheme.scaled(8))
-        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(leadingPicture ? 40 : RowMetrics.titleOnly),
-               maxHeight: wraps ? nil : CicadaTheme.scaled(leadingPicture ? 40 : RowMetrics.titleOnly), alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(leadingPicture ? 36 : RowMetrics.titleOnly),
+               maxHeight: wraps ? nil : CicadaTheme.scaled(leadingPicture ? 36 : RowMetrics.titleOnly), alignment: .leading)
         .rowHover($hovering)
     }
 }
@@ -666,14 +676,14 @@ struct ClusterMedia: View {
     let showAll: (() -> Void)?
 
     var body: some View {
-        let covers = Array(shown.filter(pictured).prefix(max(columns, 1)))
+        let covers = Array(shown.filter(pictured).prefix(ClustersGrid.coverCount))
         let coverIds = Set(covers.map(\.id))
         let rest = shown.filter { !coverIds.contains($0.id) }
         ClusterSection(group: group, showAll: showAll) {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
                 if !covers.isEmpty {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: CicadaTheme.spacingMD, alignment: .top),
-                                             count: max(columns, 1)),
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(150), maximum: CicadaTheme.scaled(190)),
+                                                 spacing: CicadaTheme.spacingMD, alignment: .top)],
                               alignment: .leading, spacing: CicadaTheme.spacingMD) {
                         ForEach(covers) { entity in ClusterCover(entity: entity) { open(entity) }.id(entity.id) }
                     }
@@ -707,9 +717,6 @@ struct ClusterCover: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if let line = ClustersModel.line(entity) {
-                    Text(line).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
-                }
             }
             .padding(CicadaTheme.scaled(6))
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -717,6 +724,7 @@ struct ClusterCover: View {
         }
         .buttonStyle(.cicadaPlain)
         .rowHover($hovering, cornerRadius: CicadaTheme.cornerRadius)
+        .help(ClustersModel.line(entity) ?? "")
         .contextMenu { PictureMenuItems(id: entity.id, name: entity.name, type: entity.type, held: entity.pictureRef,
                                         heldInputs: entity.pictureInputs) }
         .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.shownName, open: false))
