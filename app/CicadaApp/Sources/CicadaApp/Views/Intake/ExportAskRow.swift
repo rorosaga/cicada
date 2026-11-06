@@ -28,6 +28,8 @@ struct ExportAskRow: View {
                     Text(vendor.walkthrough.summary).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                 }
                 Spacer()
+                // ROR-118 (judges: "the import sheet repeats button pairs"): one labelled action a row; the reminder is
+                // a quiet bell beside it, its delays in the menu.
                 Button { NSWorkspace.shared.open(vendor.walkthrough.exportURL) } label: {
                     Label(Copy.intakeOpenExportPage, systemImage: "arrow.up.right.square")
                 }
@@ -40,10 +42,12 @@ struct ExportAskRow: View {
                         }
                     }
                 } label: {
-                    Label(Copy.reminderRemindMe, systemImage: "bell")
+                    Image(systemName: "bell")
                 }
-                .menuStyle(.borderedButton)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .fixedSize()
+                .help(Copy.reminderRemindMe)
                 .accessibilityLabel("\(Copy.reminderRemindMe), \(vendor.title)")
             }
             if denied {
@@ -52,6 +56,9 @@ struct ExportAskRow: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // One vendor in focus shows its steps; with three rows they sit on the name's hover instead of repeating
+            // "How to get it" three times (ROR-118).
+            if startsOpen {
             DisclosureGroup(isExpanded: $showSteps) {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(vendor.walkthrough.steps.enumerated()), id: \.offset) { i, step in
@@ -61,7 +68,9 @@ struct ExportAskRow: View {
             } label: {
                 Text(Copy.intakeHowToGet).font(CicadaTheme.captionFont)
             }
+            }
         }
+        .help(startsOpen ? "" : vendor.walkthrough.steps.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n"))
         .onHover { hovering = $0 }
         .onAppear { showSteps = startsOpen }
     }

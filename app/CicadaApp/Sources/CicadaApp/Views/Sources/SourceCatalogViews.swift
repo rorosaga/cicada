@@ -428,6 +428,13 @@ struct SourceCatalogDetail: View {
     /// The connect area, by source: one primary and at most one line for its state, then its ways in.
     @ViewBuilder
     private var connectSlot: some View {
+        // ROR-118 — a source read through the person's own agent shows who does what, before its switch.
+        if WebReadingScene.applies(row.entry) { WebReadingCard(entry: row.entry) }
+        connectControls
+    }
+
+    @ViewBuilder
+    private var connectControls: some View {
         let entry = row.entry
         switch entry.id {
         case CalendarRow.channelId:

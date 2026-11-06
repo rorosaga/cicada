@@ -47,7 +47,7 @@ extension Copy {
         /// The honest lines (one each: what is read, whose sign-in, who else sees it, how to stop).
         static func whatIsRead(list: String) -> String { "Reads \(list), at most 10 times a day. Never posts, likes or changes anything." }
         static let whoseSession = "Your own browser and your own sign-in. Cicada never sees a password and never opens a browser."
-        static func whoSees(app: String) -> String { "What \(app) reads goes through the company behind it. Cicada keeps each post as a link, and no model reads one unless you name it." }
+        static func whoSees(app: String) -> String { "What \(app) reads goes through the company behind it. Cicada keeps what comes back as links, and no model reads one unless you name it." }
         static let oneClick = "One click on the switch turns it off. What is already kept stays until you remove it."
     }
 }
