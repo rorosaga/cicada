@@ -104,6 +104,8 @@ final class HomeF09Tests: XCTestCase {
         XCTAssertTrue(sections.contains("NeutralButton(title: Copy.Catchup.answer"), "round 5 — never two primaries while setup is up")
         XCTAssertTrue(sections.contains("LeadQuestionCard("), "ROR-118 — one question leads, Catch me up in its foot")
         XCTAssertTrue(sections.contains("NeutralButton(title: Copy.Catchup.title"), "ruling 48 (1) — Catch me up stays, a button beside Answer (round 5)")
+        XCTAssertTrue(sections.contains("leading: AnyView(WormFace(mood: .idle, size: 18))"), "2026-11-06 — the small worm head is Catch me up's mark, never a bubble")
+        XCTAssertFalse(sections.contains("bubble.left"), "no chat bubble on Home")
         XCTAssertFalse(sections.contains("struct CatchupBlock"), "the second card is gone: nothing says the same thing twice")
         XCTAssertFalse(sections.contains("OriginMark(origin: chip.mark, size: CicadaTheme.scaled(14))"))
         XCTAssertTrue(try source("Views/Home/HomeView.swift").contains("LastReadSection("), "R-HO13 — Last read stays")

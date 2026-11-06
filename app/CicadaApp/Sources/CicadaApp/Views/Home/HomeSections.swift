@@ -499,7 +499,7 @@ struct LeadQuestionCard: View {
                         NeutralButton(title: Copy.Catchup.answer, help: help, action: open)
                     }
                     if !catchUp.isEmpty {
-                        NeutralButton(title: Copy.Catchup.title, size: .compact,
+                        NeutralButton(title: Copy.Catchup.title, leading: AnyView(WormFace(mood: .idle, size: 18)), size: .compact,
                                       help: Copy.Catchup.blockLine(questions: catchUp.count, pages: pages)) {
                             startCatchup(catchUp)
                         }
