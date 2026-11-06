@@ -78,7 +78,18 @@ _AVATARS = (
     ("maria-example", (225, 232, 216), (191, 208, 185), (127, 162, 138)),
     ("nina-example", (232, 222, 240), (201, 186, 222), (140, 118, 170)),
 )
-_MARKS = (("acme-example", (245, 236, 214), (226, 205, 160), (176, 132, 60)),)
+#: (entity id, gradient top, gradient bottom, ink, shape) — a company, a tool or a project with a trusted site draws its
+#: logo in a lived-in bank, and a real bank holds a few of each, never every one. These are invented marks stored as
+#: uploads (the demo's offline stand-in for a fetched logo); the rest of the roster has none, as a real bank's does.
+_MARKS = (
+    ("acme-example", (245, 236, 214), (226, 205, 160), (176, 132, 60), "rings"),
+    ("globex-example", (214, 230, 226), (176, 206, 198), (66, 128, 118), "diamond"),
+    ("hooli-example", (236, 222, 232), (212, 190, 208), (150, 96, 132), "pair"),
+    ("lab-cluster-example", (218, 224, 240), (184, 196, 226), (84, 100, 168), "bars"),
+    ("tool-example-a", (240, 226, 218), (222, 196, 180), (178, 104, 76), "diamond"),
+    ("tool-example-c", (226, 236, 214), (194, 214, 176), (96, 134, 70), "rings"),
+    ("alpha-project", (232, 226, 214), (208, 198, 176), (128, 110, 70), "pair"),
+)
 #: The people drawn above. `demo_bank` dates them today and the rest of its roster yesterday, so Clusters' People card,
 #: ordered recently mentioned first (R-PE13), opens on their pictures rather than on six monograms tied on one day.
 PICTURED_PEOPLE = tuple(eid for eid, *_ in _AVATARS)
@@ -140,6 +151,13 @@ _MEDIA = (
 #: `media_type: video`), so no new public URL joins `PUBLIC_URLS`. Same tuple shape as `_MEDIA`.
 GRIPPER_VIDEO_ID = "media-gripper-grasp-demo"
 LAB_VIDEO_ID = "media-lab-walkthrough"
+#: (media id, sky top, sky bottom, ink, scene) — a saved page's own image, a soft 3:2 scene drawn in code. The two
+#: public pages (the video and the article) keep their own thumbnails; these are the pages with none to fetch.
+_COVERS = (
+    (GRIPPER_VIDEO_ID, (206, 220, 232), (236, 228, 214), (88, 110, 142), "hills"),
+    (LAB_VIDEO_ID, (232, 220, 214), (240, 232, 216), (150, 104, 88), "arc"),
+    (BOOKMARK_ID, (214, 228, 220), (238, 232, 214), (92, 128, 108), "hills"),
+)
 _MEDIA_VIDEOS = (
     (GRIPPER_VIDEO_ID, "Gripper grasp demo", "https://example.com/videos/gripper-grasp-demo.mp4", "video",
      "example.com", "Alpha Robotics Lab", None, "direct", "chrome-bookmark", "Robotics", -1, "16:20",
@@ -221,11 +239,7 @@ def write(bank_dir: Path, today: date, *, commit: Commit) -> None:
     commit(bank_dir, git_service.build_commit_message(
         f"Agent write {day}", [f"{leo}: updated (source: n/a, trigger: mcp/claude-code)"],
         authors=["claude-code"], sessions=[SESSION]), [leo])
-    for write_ in _write_pictures(bank_dir, today):
-        lines = [f"{write_.page}: updated (trigger: {entity_picture.TRIGGER})"]
-        lines += [f"{p}: added (trigger: {entity_picture.TRIGGER})" for p in write_.added]
-        commit(bank_dir, git_service.build_commit_message(f"{write_.subject} {day}", lines, authors=["user"]),
-               [write_.page, *write_.added])
+    _commit_pictures(bank_dir, day, commit, _write_pictures(bank_dir, today))
     # G162 — last, so nothing above moves: two more saved videos, then an agent's record of two of them.
     videos = _write_video_saves(bank_dir, today)
     commit(bank_dir, git_service.build_commit_message(
@@ -237,6 +251,15 @@ def write(bank_dir: Path, today: date, *, commit: Commit) -> None:
     commit(bank_dir, git_service.build_commit_message(
         f"Agent write {day} (videos)", [f"{p}: updated (trigger: mcp/claude-code)" for p in watched],
         authors=["claude-code"], sessions=[SESSION]), watched)
+    _commit_pictures(bank_dir, day, commit, _write_covers(bank_dir, today))
+
+
+def _commit_pictures(bank_dir: Path, day: str, commit: Commit, writes) -> None:
+    for write_ in writes:
+        lines = [f"{write_.page}: updated (trigger: {entity_picture.TRIGGER})"]
+        lines += [f"{p}: added (trigger: {entity_picture.TRIGGER})" for p in write_.added]
+        commit(bank_dir, git_service.build_commit_message(f"{write_.subject} {day}", lines, authors=["user"]),
+               [write_.page, *write_.added])
 
 
 # --- Saved things: a video, an article, a bookmark, a paper (the Feed; R-DL18's guide too) -------------------------
@@ -527,8 +550,18 @@ def _write_pictures(bank_dir: Path, today: date) -> list[entity_picture.PictureW
         data = demo_pictures.avatar(top, bottom, ink)
         writes.append(entity_picture.write_upload(bank_dir, eid, data, entity_picture.validate_upload(data),
                                                   today=today))
-    for eid, top, bottom, ink in _MARKS:
-        data = demo_pictures.mark(top, bottom, ink)
+    for eid, top, bottom, ink, kind in _MARKS:
+        data = demo_pictures.mark(top, bottom, ink, kind=kind)
+        writes.append(entity_picture.write_upload(bank_dir, eid, data, entity_picture.validate_upload(data),
+                                                  today=today))
+    return writes
+
+
+def _write_covers(bank_dir: Path, today: date) -> list[entity_picture.PictureWrite]:
+    """The saved pages' images, stored the same way — after the videos exist, since two of the three are saved last."""
+    writes = []
+    for eid, top, bottom, ink, kind in _COVERS:
+        data = demo_pictures.cover(top, bottom, ink, kind=kind)
         writes.append(entity_picture.write_upload(bank_dir, eid, data, entity_picture.validate_upload(data),
                                                   today=today))
     return writes

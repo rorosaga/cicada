@@ -65,6 +65,24 @@ def test_people_and_a_company_have_pictures_the_app_can_load(bank, client):
         assert nodes[eid]["picture"] == f"/entities/{eid}/preview?v={key}", eid
 
 
+def test_a_lived_in_share_of_companies_tools_and_saved_pages_have_pictures(bank, client):
+    """ROR-118 round 2 — a real bank holds some logos and saved-page images, never one for every page: a few companies,
+    tools and a project carry an invented mark, three saved pages an invented 3:2 image; the rest of the roster has none."""
+    nodes = {n["id"]: n for n in client.get("/graph").json()["nodes"]}
+    pictured = {eid for eid, *_ in demo_showcase._MARKS} | {eid for eid, *_ in demo_showcase._COVERS}
+    for eid in pictured:
+        assert nodes[eid]["pictureSource"] == "upload", eid
+        assert client.get(nodes[eid]["picture"]).status_code == 200, eid
+    for eid, *_ in demo_showcase._COVERS:
+        data = (bank / "assets" / "pictures" / f"{eid}.png").read_bytes()
+        assert entity_picture.dimensions(data) == (360, 240), eid
+    companies = [n for n in nodes.values() if n["type"] == "company"]
+    tools = [n for n in nodes.values() if n["type"] == "tool"]
+    assert 0 < sum(1 for n in companies if n.get("picture")) < len(companies) / 2 + 1
+    assert 0 < sum(1 for n in tools if n.get("picture")) < len(tools) / 2
+    assert not [n for n in nodes.values() if n["type"] == "concept" and n.get("picture")]
+
+
 def test_the_people_card_opens_on_the_pictured_people(client):
     """Clusters orders a card recently mentioned first, A→Z on a tie (R-PE13, `ClustersModel.filtered`), and the first
     row of cards shows six tiles (`ClustersGrid.firstRowTiles`). With every roster person dated today the card opened

@@ -51,9 +51,28 @@ final class ClustersGridTests: XCTestCase {
         XCTAssertEqual(ClustersGrid.visible(groups, tab: .tool, expandAll: false).count, 22, "a tab shows every tile")
     }
 
-    func testThePortraitsAndCardsRegroupUnderNineHundredUnits() {
-        XCTAssertEqual(ClustersGrid.faceColumns(width: 1200, scale: 1.0), 8)
-        XCTAssertEqual(ClustersGrid.faceColumns(width: 800, scale: 1.0), 4)
+    /// ROR-118 round 2 — pictures lead, then the dimmed ones last in the name lists; a stable partition, so each group
+    /// keeps the model's order and the keys walk what is drawn.
+    func testPicturesLeadAndDimmedNamesTrailInAStablePartition() {
+        func quiet(_ id: String, _ type: EntityType) -> Entity { var x = e(id, type); x.quiet = true; return x }
+        let people = ["a", "b", "c", "d"].map { e($0, .person) }
+        let faces: Set<String> = ["b", "d"]
+        XCTAssertEqual(ClustersGrid.arranged(people, type: .person, pictured: { faces.contains($0.id) }).map(\.id),
+                       ["b", "d", "a", "c"])
+        let media = [quiet("m1", .media), e("m2", .media), quiet("m3", .media), e("m4", .media)]
+        XCTAssertEqual(ClustersGrid.arranged(media, type: .media, pictured: { $0.id == "m3" }).map(\.id),
+                       ["m3", "m2", "m4", "m1"], "pictured first, then bright, then dimmed")
+        let concepts = [quiet("c1", .concept), e("c2", .concept)]
+        XCTAssertEqual(ClustersGrid.arranged(concepts, type: .concept, pictured: { _ in true }).map(\.id), ["c2", "c1"])
+        let projects = [quiet("p1", .project), e("p2", .project)]
+        XCTAssertEqual(ClustersGrid.arranged(projects, type: .project, pictured: { _ in false }).map(\.id), ["p1", "p2"],
+                       "a project keeps the model's order")
+        let walked = ClustersGrid.visible([ClustersModel.Group(type: .person, entities: people)], tab: nil, expandAll: false,
+                                          pictured: { faces.contains($0.id) }).map(\.id)
+        XCTAssertEqual(walked, ["b", "d", "a", "c"], "↑/↓ follow the drawn order")
+    }
+
+    func testTheCardsRegroupUnderNineHundredUnits() {
         XCTAssertEqual(ClustersGrid.leadColumns(width: 1200, scale: 1.0), 3)
         XCTAssertEqual(ClustersGrid.leadColumns(width: 1200, scale: 1.4), 1, "857 units")
     }
