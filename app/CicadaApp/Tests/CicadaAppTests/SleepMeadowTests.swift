@@ -17,8 +17,8 @@ final class SleepMeadowTests: XCTestCase {
     /// rest, 2026-10-16). The owner asked for a minimal sans, so the New York quote face left the sentence too.
     func test_theSentenceSpeaksInMeadowsFaces() throws {
         let code = try sleepFile("RoomSentence.swift")
-        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayFont(size: leading ? Self.cornerLeadSize : Self.leadSize)") })
-        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayTracking(size: leading ? Self.cornerLeadSize : Self.leadSize)") })
+        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayFont(size: Self.leadSize)") })
+        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayTracking(size: Self.leadSize)") })
         // The tail left the display face for the ladder's 17 pt (2026-10-16): secondary words, not a second title —
         // and not italic (owner 2026-10-16: "no italics").
         XCTAssertTrue(code.contains { $0.contains("static func tailFont(size: CGFloat) -> Font { CicadaTheme.font(size: size) }") })
@@ -28,7 +28,28 @@ final class SleepMeadowTests: XCTestCase {
         XCTAssertFalse(code.contains { $0.contains("quoteFont") }, "the sentence left the serif (R-FX13)")
         XCTAssertFalse(code.contains { $0.contains("design: .serif") }, "the New York stand-in part a used until M1")
         XCTAssertGreaterThanOrEqual(RoomSentenceView.leadSize, CicadaTheme.displayMinimumSize)
-        XCTAssertGreaterThan(RoomSentenceView.cornerLeadSize, RoomSentenceView.leadSize)
+    }
+
+    /// ROR-118 (2026-11-06): beside the room the lead is a small chip, not a 40 pt headline. The count stays a numeral,
+    /// "overdue" becomes a capitalised tag, and the sentence's stop and dash stay with the sentence.
+    func test_theChipSaysTheCountAndOverdueInFewWords() {
+        let overdue = statusParts(SentenceLine(lead: "21 to read — overdue.", numeral: "21", qualifier: "overdue"))
+        XCTAssertEqual(overdue.tag, "Overdue")
+        XCTAssertEqual(overdue.runs, [SentenceRun(text: "21", kind: .numeral), SentenceRun(text: " to read", kind: .plain)])
+        let waiting = statusParts(SentenceLine(lead: "21 to read.", numeral: "21"))
+        XCTAssertNil(waiting.tag)
+        XCTAssertEqual(waiting.runs, [SentenceRun(text: "21", kind: .numeral), SentenceRun(text: " to read", kind: .plain)])
+        let reading = statusParts(SentenceLine(lead: "Reading 14 of 25.", numeral: "14 of 25"))
+        XCTAssertEqual(reading.runs, [SentenceRun(text: "Reading ", kind: .plain), SentenceRun(text: "14 of 25", kind: .numeral)])
+        XCTAssertEqual(statusParts(SentenceLine(lead: "All caught up.")).runs, [SentenceRun(text: "All caught up", kind: .plain)])
+        XCTAssertEqual(statusParts(SentenceLine(lead: "Filing…")).runs, [SentenceRun(text: "Filing…", kind: .plain)],
+                       "an ellipsis is a word")
+    }
+
+    /// VoiceOver still hears the whole lead (count and "overdue"), whatever the chip draws.
+    func test_theChipsSpokenLineIsTheWholeLead() {
+        let line = SentenceLine(lead: "21 to read — overdue.", numeral: "21", qualifier: "overdue")
+        XCTAssertEqual(line.spoken, "21 to read — overdue.")
     }
 
     /// The lead may shrink to one line only as far as the display face's floor.
