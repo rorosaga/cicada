@@ -201,7 +201,7 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
         started = time.monotonic()
         status, text = post(url, json.dumps(body).encode("utf-8"), token, TIMEOUT_S)
         ms = int((time.monotonic() - started) * 1000)
-        reason, pages, context = "-", 0, None
+        reason, pages, context, shown = "-", 0, None, None
         if status == 200:
             remember(home, harness, session_id, workspace, environ=environ)
             try:
@@ -210,11 +210,16 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
                 reason = raw if _REASON_RE.fullmatch(raw) else "other"
                 pages = len(parsed.get("injected") or [])
                 context = parsed.get("additionalContext")
+                shown = parsed.get("shown")
             except (ValueError, AttributeError, TypeError):
                 reason = "unparseable"
         if isinstance(context, str) and context.strip():
-            stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": hook_event,
-                                                            "additionalContext": context}}))
+            output = {"hookSpecificOutput": {"hookEventName": hook_event, "additionalContext": context}}
+            if harness == "claude-code" and isinstance(shown, str) and shown.strip():
+                # The line the person sees; the note itself stays between Cicada and the agent. Claude Code's common
+                # hook field; Codex's parser has not been checked for it, so only this harness gets it.
+                output["systemMessage"] = shown
+            stdout.write(json.dumps(output))
             stdout.flush()
         _log(log_path, f"{tag} {event} http {status} {reason} pages={pages} {ms}ms")
     except Exception as exc:  # noqa: BLE001 - the harness must never see a failure

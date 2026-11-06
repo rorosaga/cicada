@@ -744,6 +744,21 @@ def _with_saved(reader, memory_path: Path, prompt: str, note: Injection, *, rece
     return note
 
 
+def shown_line(note: Injection) -> str | None:
+    """One line the person sees when memory shaped a message (2026-11-06, "transparency over magic"): what rode, in
+    counts and ids, never the words themselves. Only a note about a message: the session's primer is always there."""
+    if not note.text or not note.injected or note.reason not in ("injected", "topic", "saved", "unread"):
+        return None
+    conversations = [i for i in note.injected if str(i).startswith("ep_")]
+    pages = [i for i in note.injected if not str(i).startswith("ep_")]
+    parts = []
+    if pages:
+        parts.append(f"{len(pages)} page{'s' if len(pages) != 1 else ''}")
+    if conversations:
+        parts.append(f"{len(conversations)} conversation{'s' if len(conversations) != 1 else ''}")
+    return f"◪ Cicada added {' and '.join(parts)} to this message: {', '.join(str(i) for i in note.injected)}"
+
+
 def prompt_context(memory_path: Path, prompt: str, *, recent: frozenset[str] = frozenset(),
                    deadline: float | None = None, clock=time.monotonic) -> Injection:
     """The UserPromptSubmit note for one message, or ``Injection.none(reason)``.

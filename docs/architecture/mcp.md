@@ -977,6 +977,9 @@ same way.
   8 notes, and the hook's p50 rose 14 → 21 ms with p95 inside the noise (44 → 33 ms). Precision over reach: the
   three-word rule turns down "fix the failing test in the parser" (a claim holding "test" and "parser") and also
   some real hits whose claims say a word differently ("running" vs "runs").
+- **What the person sees (2026-11-06).** The note is between Cicada and the agent; the person now gets one line when it
+  shaped a message ("◪ Cicada added 1 page to this message: <ids>", `hook_recall.shown_line`, `systemMessage`, Claude
+  Code only until Codex's parser is checked). Counts and ids, never the words; never for the session's primer.
 - **The vectors.** They only re-order pages already named, and only when the on-device embedder is already
   loaded. A hosted embedder is never sent a prompt.
 - **Repeats.** A per-session window keeps a page from being re-sent on consecutive turns.
