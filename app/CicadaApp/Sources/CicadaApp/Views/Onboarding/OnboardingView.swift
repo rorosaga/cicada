@@ -104,7 +104,7 @@ struct OnboardingView: View {
             ZStack(alignment: .topLeading) {
                 CicadaTheme.bgBase.ignoresSafeArea()
                 if page.isSplit, paneWidth > 0 {
-                    pane(width: paneWidth, height: geo.size.height)
+                    pane(width: paneWidth, height: geo.size.height + geo.safeAreaInsets.top, windowWidth: geo.size.width)
                 }
                 if page.isSplit {
                     column(width: geo.size.width - paneWidth)
@@ -113,6 +113,16 @@ struct OnboardingView: View {
                         .offset(x: paneWidth)
                 } else {
                     card(size: geo.size)
+                }
+                if page.isSplit || page == .welcome {
+                    // Round 4: the way out of the whole flow, in the window's top corner on Welcome and every working
+                    // step, level with the progress; Skip this step (the foot) only moves on.
+                    OnboardingLeaveLink(title: mode == .rerun ? Copy.welcomeClose : Copy.welcomeSetUpLater,
+                                        action: mode == .rerun ? closeRerun : setUpLater)
+                        .disabled(busy)
+                        .frame(height: CicadaTheme.scaled(OnboardingLayout.topbarHeight))
+                        .padding(.trailing, CicadaTheme.scaled(OnboardingLayout.columnPadding) - CicadaTheme.spacingSM)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 }
                 if let vendor = seeHow {
                     // CIC8 — the Welcome's own picker (`welcomeChooseRequest`), which stages what is picked here.
@@ -165,22 +175,29 @@ struct OnboardingView: View {
 
     // MARK: The split frame
 
-    /// The room in the working pages' pane, centred on a `bgPane` ground (one lightness step from the column, P-b).
-    /// Art only: it rests while See how covers it, and no word sits on it (DR-13).
-    private func pane(width: CGFloat, height: CGFloat) -> some View {
-        OnboardingRoom(mood: page.roomMood, cell: OnboardingRoomLayout.paneCell(paneWidth: width))
+    /// The room in the working pages' pane: cropped a little top and bottom and centred (ROR-118 round 6),
+    /// the page ground above and below it. Art only: it rests while See how covers it, and no word sits on it
+    /// (DR-13). A hairline on its trailing edge is the seam with the column (DR-9, a ring, not a shadow).
+    private func pane(width: CGFloat, height: CGFloat, windowWidth: CGFloat) -> some View {
+        let cell = OnboardingRoomLayout.paneCell(windowWidth: windowWidth, scale: CGFloat(CicadaTheme.uiScale))
+        return OnboardingRoom(mood: page.roomMood, cell: cell, fill: CGSize(width: width, height: height))
             .frame(width: width, height: height)
-            .background(CicadaTheme.bgPane.ignoresSafeArea())
+            .overlay(alignment: .trailing) { Rectangle().fill(CicadaTheme.ring(.resting)).frame(width: 1) }
+            .background(CicadaTheme.bgPane)
+            .ignoresSafeArea(edges: .top)
             .environment(\.scenePaused, seeHow != nil)
     }
 
+    /// The column (ROR-118 round 2): the topbar, then the step, then the foot — and each at one fixed place on every
+    /// step. The headline starts `stepTop` under the topbar, the foot sits on the bottom margin, so Back, Skip and
+    /// Continue never move between steps and stay as near the progress bar's frame as the window allows. A long step
+    /// scrolls inside the space between and the foot stays pinned (the G130 lesson: the way forward is never the first
+    /// thing to clip).
     private func column(width: CGFloat) -> some View {
         let s = snapshots
         return VStack(spacing: 0) {
             OnboardingTopbar(page: page, furthest: furthest, ownerSaved: ownerSaved,
-                             comingIn: SetupProgress.stillComingIn(s),
-                             trailing: mode == .rerun ? Copy.welcomeClose : Copy.welcomeSetUpLater,
-                             onJump: { go($0, .pointer) }, onTrailing: mode == .rerun ? closeRerun : setUpLater)
+                             comingIn: SetupProgress.stillComingIn(s), onJump: { go($0, .pointer) })
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     // The newest arrival, with its source's own mark (DR-52) — the design's "2,104 bookmarks in".
@@ -195,16 +212,19 @@ struct OnboardingView: View {
                     pageContent(width: width, snapshots: s)
                 }
                 .padding(.horizontal, CicadaTheme.scaled(OnboardingLayout.columnPadding))
-                .padding(.vertical, CicadaTheme.spacingLG)
+                .padding(.top, CicadaTheme.scaled(OnboardingLayout.stepTop))
+                .padding(.bottom, CicadaTheme.spacingLG)
             }
             .scrollBounceBehavior(.basedOnSize)
             // One scroll per step: the frame's single ScrollView kept the last step's offset, so the next step (and
             // Back) opened part-way down with its headline cut off under the topbar (QA 2026-10-16).
             .id(page)
-            // Pinned outside the scroll (the G130 lesson): the way forward is never the first thing to clip.
+            // The foot is a band of its own (ROR-118 round 3): a hairline over it, so the quiet ground a short step
+            // leaves between its rows and Continue reads as a page above a toolbar, not as a gap.
+            Rectangle().fill(CicadaTheme.ring(.resting)).frame(height: 1)
             foot
                 .padding(.horizontal, CicadaTheme.scaled(OnboardingLayout.columnPadding))
-                .padding(.bottom, CicadaTheme.scaled(OnboardingLayout.footBottom))
+                .frame(height: CicadaTheme.scaled(OnboardingLayout.footHeight))
         }
     }
 
@@ -230,20 +250,22 @@ struct OnboardingView: View {
         }
     }
 
-    /// Back, a visible Skip on the working steps (design-refs pattern 12), and the one primary. Skip and Continue both
-    /// move on and write nothing of their own: what a step changed, a click inside it already wrote.
+    /// The foot (ROR-118 rounds 3 and 4): what moves between steps and nothing else — Back on the leading side, *Skip
+    /// this step* and the one filled Continue on the trailing side, no key chip (⏎ still advances). Skip and Continue
+    /// both move on and write nothing of their own: what a step changed, a click inside it already wrote. The exit
+    /// from the whole flow (Set up later, Close on a rerun) is the top corner's (`OnboardingLeaveLink`), a different
+    /// place for a different act.
     private var foot: some View {
-        HStack(spacing: CicadaTheme.spacingMD) {
-            TextButton(title: Copy.onboardingBack, flushLeading: true) {
+        HStack(spacing: CicadaTheme.spacingXS) {
+            OnboardingLink(title: Copy.onboardingBack, leadingChevron: true) {
                 if let previous = page.previous { go(previous, .pointer) }
             }
             Spacer(minLength: CicadaTheme.spacingSM)
             if page.skippable {
-                TextButton(title: Copy.onboardingSkip) { skip() }
+                OnboardingLink(title: Copy.onboardingSkip) { skip() }
             }
             PrimaryActionButton(title: page == .savedLists ? SavedListsStepModel.primaryTitle(savedTicks)
-                                                           : Copy.onboardingContinue) { advance(.pointer) }
-            KeyHint("⏎")
+                                                           : Copy.onboardingContinue, large: true) { advance(.pointer) }
         }
     }
 
@@ -283,7 +305,10 @@ struct OnboardingView: View {
     // MARK: Welcome and Done
 
     private func card(size: CGSize) -> some View {
-        let width = OnboardingLayout.cardWidth(windowWidth: size.width, scale: CGFloat(CicadaTheme.uiScale))
+        let scale = CGFloat(CicadaTheme.uiScale)
+        // Welcome is the wide one (ROR-118): the room is its picture, 800 pt over a card of the same width.
+        let width = page == .welcome ? OnboardingLayout.welcomeWidth(windowWidth: size.width, scale: scale)
+                                     : OnboardingLayout.cardWidth(windowWidth: size.width, scale: scale)
         let content = Group {
             if page == .welcome {
                 WelcomePage(mode: mode, name: $name, editingName: $editingName,
@@ -291,8 +316,7 @@ struct OnboardingView: View {
                                                                     editing: editingName),
                             busy: busy, failure: failure,
                             waitingDrops: ownerSaved ? 0 : intake.welcomeDrops.count,
-                            onGetStarted: { advance(.pointer) }, onSetUpLater: mode == .rerun ? closeRerun : setUpLater,
-                            onTryDemo: tryDemo)
+                            onGetStarted: { advance(.pointer) }, onTryDemo: tryDemo)
             } else if page == .menuBar {
                 MenuBarStep(waiting: store.status.value?.waitingForSleep,
                             shownInMenuBar: menuBar?.introPhase == .done && menuBar?.isVisible == true, busy: busy,
@@ -307,8 +331,12 @@ struct OnboardingView: View {
         }
         .frame(width: width)
         // The room over the card (owner 2026-10-16), as wide as the card allows; a whole number of points per cell.
-        let room = OnboardingRoom(mood: page.roomMood, cell: OnboardingRoomLayout.cardCell(cardWidth: width))
+        // The picture is framed (a ring and the card's radius), so its own right-hand trim reads as the edge of a
+        // picture, never a clipped one (ROR-118, DR-9: depth is a ring).
+        let room = OnboardingRoom(mood: page.roomMood, cell: OnboardingRoomLayout.heroCell(cardWidth: width))
             .environment(\.scenePaused, seeHow != nil)
+            .clipShape(CicadaTheme.shape(CicadaTheme.radiusLarge))
+            .ringed(in: CicadaTheme.shape(CicadaTheme.radiusLarge))
         return VStack {
             Spacer(minLength: CicadaTheme.spacingLG)
             // A short window first drops the room (art only, DR-13), then scrolls the card with its actions inside it —
@@ -330,7 +358,7 @@ struct OnboardingView: View {
             Spacer(minLength: CicadaTheme.spacingLG)
         }
         .frame(maxWidth: .infinity)
-        .padding(.bottom, CicadaTheme.scaled(OnboardingLayout.cardBottom))
+        .padding(.bottom, page == .welcome ? 0 : CicadaTheme.scaled(OnboardingLayout.cardBottom))
     }
 
     // MARK: What the buttons do
@@ -555,19 +583,20 @@ private struct OnboardingTopbar: View {
     let furthest: OnboardingPage
     let ownerSaved: Bool
     let comingIn: Int
-    let trailing: String
     let onJump: (OnboardingPage) -> Void
-    let onTrailing: () -> Void
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            HStack(spacing: CicadaTheme.scaled(4)) {
+            HStack(spacing: CicadaTheme.scaled(5)) {
                 ForEach(OnboardingPage.allCases, id: \.self) { p in
                     Button { onJump(p) } label: {
+                        // ROR-118 round 5: 22 × 5 pt (round 4: 18 × 4, round 3: 36 × 6); every step reached reads in the secondary
+                        // ink and the steps still to come in the tertiary one (the text ladder, §3.2), no longer a ring-strength
+                        // track that all but vanished.
                         Capsule()
                             .fill(p == page ? CicadaTheme.textPrimary
-                                  : (p <= furthest ? CicadaTheme.textTertiary : CicadaTheme.bgSelected))
-                            .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(3))
+                                  : (p <= furthest ? CicadaTheme.textSecondary : CicadaTheme.textTertiary))
+                            .frame(width: CicadaTheme.scaled(22), height: CicadaTheme.scaled(5))
                             .frame(height: CicadaTheme.scaled(20))
                             .contentShape(Rectangle())
                     }
@@ -576,15 +605,15 @@ private struct OnboardingTopbar: View {
                     .accessibilityLabel(Copy.onboardingStepOf(p.step))
                 }
             }
-            Text(Copy.onboardingStepOf(page.step)).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+            Text(Copy.onboardingStepOf(page.step)).font(CicadaTheme.font(size: 15, weight: .medium))
+                .foregroundStyle(CicadaTheme.textSecondary)
             if comingIn > 0 {
                 // DR-43 (round 3, 2026-10-20): what is still arriving is said in words alone, never a spinner beside them.
                 Text("·").font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                Text(Copy.onboardingComingIn(comingIn)).font(CicadaTheme.metaFont)
+                Text(Copy.onboardingComingIn(comingIn)).font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary).monospacedDigit()
             }
             Spacer()
-            TextButton(title: trailing, action: onTrailing)
         }
         .frame(height: CicadaTheme.scaled(OnboardingLayout.topbarHeight))
         .padding(.leading, CicadaTheme.scaled(OnboardingLayout.columnPadding))

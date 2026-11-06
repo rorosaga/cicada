@@ -20,12 +20,14 @@ struct IntelligenceStep: View {
             OnboardingHeadline(title: Copy.intelTitle, subline: Copy.intelSubline)
             switch state {
             case let .plan(line, runs, mark):
-                headline(mark: mark, title: line, detail: runs)
-                keysToggle(Copy.intelUseKey)
+                // The plan Auto already uses and the key that could read instead are two equal rows, one chosen
+                // (ROR-118); a key row opens the keys beneath, and nothing is chosen until one is verified.
+                choice(selected: true, logo: mark, title: line, detail: runs) { showsKeys = false }
+                choice(selected: false, logo: nil, title: Copy.intelUseKey, detail: nil, symbol: "key") { showsKeys.toggle() }
                 if showsKeys { group(Copy.Intelligence.keys, kind: "key") }
             case let .chosen(title, line, mark):
-                headline(mark: mark, title: title, detail: line)
-                keysToggle(Copy.intelUsePlan)
+                choice(selected: true, logo: mark, title: title, detail: line) { showsKeys = false }
+                choice(selected: false, logo: nil, title: Copy.intelUsePlan, detail: nil, symbol: "sparkles") { showsKeys.toggle() }
                 if showsKeys { group(Copy.Intelligence.plans, kind: "plan") }
             case .nothing:
                 Text(Copy.intelNothing)
@@ -42,14 +44,12 @@ struct IntelligenceStep: View {
         .onChange(of: store.connections.value?.map(\.connected)) { _, _ in Task { await engineVM.load() } }
     }
 
-    private func headline(mark: String, title: String, detail: String) -> some View {
-        // The line already says it is in use ("Using your … plan"): no second status word (DR-38).
-        ConnectionLine(logo: mark, name: title, systemFallback: "sparkles", detail: detail) { EmptyView() }
-            .settingsCardSurface()
-    }
-
-    private func keysToggle(_ title: String) -> some View {
-        TextButton(title: title, inline: true, flushLeading: true) { showsKeys.toggle() }
+    private func choice(selected: Bool, logo: String?, title: String, detail: String?, symbol: String = "sparkles",
+                        action: @escaping () -> Void) -> some View {
+        OnboardingChoice(selected: selected, action: action) { indicator in
+            OnboardingRowLine(logo: logo, name: title, systemFallback: symbol, prominentGlyph: logo == nil,
+                              detail: detail) { indicator }
+        }
     }
 
     /// Settings → Intelligence's own rows for one kind — never the local row (D1: local is never pitched).

@@ -669,13 +669,26 @@ up*): **Welcome · Intelligence · Agents · Sources · Meet your bookworm · Do
 2026-10-23, below). Welcome (and, until v3, Done — now the menu-bar worm over its card) is the study room over a
 card (`OnboardingRoom`, the one illustration, DR-13; the worm's mood per step); the three working steps are the split
 frame — the room in its `bgPane` pane, the column with "Step n of 6 · k still coming in", *Set up later*, and a foot of
-Back, a visible **Skip** and the one primary Continue (⏎ never animates). What each step shows is pure data in
+Back, a visible **Skip** and the one primary Continue (⏎ never animates).
+**UI climb rounds 1-3 (ROR-118; round 3 amends what follows where it says so):** the pane is the original room art, cropped (round 6) and centred on the page ground
+(`OnboardingRoom(fill:)`: round 4: columns 0-111 of the lattice at 5 pt a cell, 560 pt at 1x (39% of a 1440 pt window), so the lamp, window, plant, worm, clock and mug are all whole — `OnboardingRoomLayout.paneCell`,
+a whole number of cells, stepping down before the column drops under its minimum, gone when it would be a sliver; the
+room is cropped 2 rows off its top and 2 off its bottom (`cropTopRows`, `cropRows` = 60, whole cells, worm whole) and centred vertically, the page's own ground above and below, nothing drawn or repeated (round 6, owner 2026-11-06: a drawn floor and ceiling "look super weird"; rounds 2-5's wall bands are gone); a hairline ring is its seam). The column is
+fixed: the headline starts `OnboardingLayout.stepTop` under the topbar on every step and the foot (Back, Skip, Continue)
+sits on the bottom margin on every step (round 4: one 88 pt band under a hairline holding *Back* leading and *Skip this step* and the one large Continue trailing, `OnboardingLink`: what moves between steps; *Set up later* (*Close* on a rerun) leaves the whole flow, so it is `OnboardingLeaveLink` with a close mark in the window's top corner, level with the progress, on Welcome and every working step; the ⏎ chip is gone, the key still advances), so nothing moves between steps; a tall step scrolls between them and the foot
+stays pinned (`OnboardingView.column`). Rows of the working steps are `OnboardingRowLine` (round 3: 17 medium over a 15 line, in the roomy 48 pt `LogoTile`; was 16 over 14 in the
+secondary ink, a line that only repeats the name is left out), the one action on a row `OnboardingRowAction` (round 5: a small outlined button, `bgButton` and the strong ring, 34 pt, so it reads as pressable and still sits under the large filled Continue; was words and
+a chevron, no box); the engine choice is two 144 pt rows (the open circle in `textSecondary`), the chosen one a 2 pt
+ring over `bgSelected` with a filled check, the key row's glyph at full strength. Welcome is wider (round 3: 960 pt over a 6 pt-a-cell room, was 800 over 5)
+(`OnboardingRoomLayout.heroCell`), the room framed in a ring and the card's radius so its own trim reads as a picture's
+edge; its greeting is 56 pt, its line 24, *Not Maya? Change* an outlined button with a pencil centred on the greeting (`OnboardingOutlinedButton`), and one action line: a large Continue and *Try the demo* outlined. Headlines are 40 pt over a 19 pt medium line; the topbar's segments are 22 × 5 (round 5), a
+reached step in `textSecondary`, one still to come in `textTertiary`, the count in 15 pt `textSecondary`. Every mark in a roomy tile takes the one 36 pt box in the 48 pt tile (round 5), a vendor icon published finished (`LogoSet.fullBleed`: OpenCode, Hermes) keeping its own curvature inside it; elsewhere (regular, dense) it still fills its tile edge to edge. What each step shows is pure data in
 `Support/OnboardingSteps.swift` (`OnboardingStepsTests`), each step's fixed words under 40.
 *Welcome*: the greeting (saved name, else the Mac account's, *Not you?* corrects it), one sentence, Continue — the owner
-PUT alone and first (G117 R1; a file dropped here waits for it) — *Try the demo* and *Set up later*.
+PUT alone and first (G117 R1; a file dropped here waits for it) — *Try the demo*; *Set up later* is the top-corner exit.
 *Intelligence* (`IntelligenceStep`, ruling 36 D1): `IntelligenceStepState` — a signed-in plan (Auto resolving to it, or
 chosen) is pre-selected, the plan said once ("Using your Claude plan" / "Cicada runs your own Claude Code.", ruling 39,
-2026-10-24 — Settings' own headline keeps "— you're signed in."), *Use an API key* opens Settings → Intelligence's own `IntelligenceRow`s for four keys (`featuredKeys`;
+2026-10-24 — Settings' own headline keeps "— you're signed in.") as the first of two equal rows (`OnboardingChoice`: a `textPrimary` ring and a filled check on the chosen one, DR-5; ROR-118), *Use an API key* the second, which opens Settings → Intelligence's own `IntelligenceRow`s for four keys (`featuredKeys`;
 paste → Verify, the 422/503 sentences) with "More keys in Settings → Intelligence"; with nothing that can read, the plans
 and those keys show side by side. A local model is never offered. The step writes only from a row's click (Sign in,
 Verify, *Use* through `IntelligenceView.write(using:)`); Continue and Skip change nothing.
@@ -684,7 +697,7 @@ as the Agents page lists them) holding the products of it found on this machine 
 says installed, Claude Desktop is present, or `/agents/live` saw it; `umbrellas` groups them) — Anthropic: Claude Code ·
 Claude Desktop; OpenAI: Codex. The umbrella's own mark in a `LogoTile`, never a product badge (a product no umbrella claims
 wears its vendor's mark, `umbrellaLogo`); a dot and one word (Not connected → Waiting → Connected, green when any product
-first calls, polled every 3 s; the Agents page's vocabulary, never "Found"). One *Connect* opens each found product's own
+first calls, polled every 3 s; the Agents page's vocabulary, never "Found"; a row not yet connected shows no dot or word at all, ROR-118: four of them each saying *Not connected* was the repetition; the prerequisite sentence sits under the rows and the *Then try it* chip appears only once something is connected). One *Connect* opens each found product's own
 action, Settings' paths: Connect for me plus
 Remembers automatically (R-OB12) through `AgentConnect.run` with the wiring answer's binaries — "Cicada runs exactly these
 commands…" and *Run these*, the commands behind a collapsed *Show commands* (spec decision 14); *Set up Claude Desktop*'s merge;

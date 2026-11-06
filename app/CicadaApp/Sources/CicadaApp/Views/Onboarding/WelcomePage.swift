@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Onboarding v2, step 1 (G92, G217; 2026-10-22) — the card under the study room: the greeting (the saved name, else
 /// the Mac account's — W7: one click corrects it), what Cicada is in one sentence, Continue (the one primary, ⏎; it
-/// saves the name first, G117 R1) beside Set up later, and *Try the demo* as a quiet link (seam 2; hidden on a rerun,
-/// R-OB19). Under 40 words. Every word sits on the card, none on art (DR-13). The card sits in the page, so it is ringed, never shadowed
+/// saves the name first, G117 R1) and *Try the demo* beside it as an outlined button (round 4; seam 2, hidden on a rerun,
+/// R-OB19); *Set up later* is the window's top-corner exit. Under 40 words. Every word sits on the card, none on art (DR-13). The card sits in the page, so it is ringed, never shadowed
 /// (DR-9, DR-10; looks pass 2026-10-23). The card rises once (DR-65, DR-67);
 /// Reduce Motion fades it in.
 struct WelcomePage: View {
@@ -17,7 +17,6 @@ struct WelcomePage: View {
     /// Exports dropped on this page, held until Get started (R-OB2) — said, so a drop never vanishes silently.
     let waitingDrops: Int
     let onGetStarted: () -> Void
-    let onSetUpLater: () -> Void
     let onTryDemo: () -> Void
 
     @FocusState private var nameFocused: Bool
@@ -29,8 +28,8 @@ struct WelcomePage: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             if editingName && fromMacAccount {
                 Text(Copy.welcomeHelloNoName)
-                    .font(CicadaTheme.displayFont(size: 40))
-                    .tracking(CicadaTheme.displayTracking(size: 40))
+                    .font(CicadaTheme.displayFont(size: 56))
+                    .tracking(CicadaTheme.displayTracking(size: 56))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .accessibilityAddTraits(.isHeader)
                 Text(Copy.welcomeNameFromMac)
@@ -46,20 +45,27 @@ struct WelcomePage: View {
                     .onAppear { nameFocused = true }
                     .accessibilityLabel(Copy.welcomeYourName)
             } else {
-                Text(first.isEmpty ? Copy.welcomeHelloNoName : Copy.welcomeHello(first))
-                    .font(CicadaTheme.displayFont(size: 40))
-                    .tracking(CicadaTheme.displayTracking(size: 40))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
+                // ROR-118 round 4: the correction is an outlined button centred on the greeting's own height, not a
+                // small bare word hung on the headline's baseline.
+                HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
+                    Text(first.isEmpty ? Copy.welcomeHelloNoName : Copy.welcomeHello(first))
+                        .font(CicadaTheme.displayFont(size: 56))
+                        .tracking(CicadaTheme.displayTracking(size: 56))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
+                    if !first.isEmpty {
+                        OnboardingOutlinedButton(title: Copy.welcomeNotYou(first), systemImage: "pencil", height: 34) {
+                            editingName = true
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
             }
             Text(Copy.welcomeLine)
-                .font(CicadaTheme.displayFont(size: 22))
-                .tracking(CicadaTheme.displayTracking(size: 22))
+                .font(CicadaTheme.displayFont(size: 24))
+                .tracking(CicadaTheme.displayTracking(size: 24))
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if !first.isEmpty && !editingName {
-                TextButton(title: Copy.welcomeNotYou(first), inline: true, flushLeading: true) { editingName = true }
-            }
             if let failure {
                 Text(failure).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
@@ -68,19 +74,20 @@ struct WelcomePage: View {
                 Label(Copy.welcomeDropsWaiting(waitingDrops), systemImage: "tray.and.arrow.down")
                     .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
             }
-            HStack(spacing: CicadaTheme.spacingSM) {
-                PrimaryActionButton(title: busy ? Copy.welcomeStarting : Copy.onboardingContinue, action: onGetStarted)
+            // Round 4: the filled Continue and, beside it, the demo as an outlined button. The way out of the flow
+            // (Set up later) is the window's top-corner exit (`OnboardingLeaveLink`), the same on every step.
+            HStack(spacing: CicadaTheme.spacingMD) {
+                PrimaryActionButton(title: busy ? Copy.welcomeStarting : Copy.onboardingContinue, large: true,
+                                    action: onGetStarted)
                     .disabled(busy || !OnboardingFlow.canStart(name: name))
-                KeyHint("⏎")
-                Spacer()
                 if mode != .rerun {
-                    TextButton(title: Copy.welcomeTryTheDemo, action: onTryDemo).disabled(busy)
+                    OnboardingOutlinedButton(title: Copy.welcomeTryTheDemo, action: onTryDemo).disabled(busy)
                 }
-                TextButton(title: mode == .rerun ? Copy.welcomeClose : Copy.welcomeSetUpLater, action: onSetUpLater)
-                    .disabled(busy)
+                Spacer(minLength: 0)
             }
+            .padding(.top, CicadaTheme.spacingSM)
         }
-        .padding(CicadaTheme.spacingXL)
+        .padding(CicadaTheme.scaled(40))
         .onboardingCard()
         .opacity(risen ? 1 : 0)
         .offset(y: risen || reduceMotion ? 0 : CicadaTheme.scaled(12))

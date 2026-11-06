@@ -145,6 +145,9 @@ struct PrimaryActionButton: View {
     var systemImage: String? = nil
     /// Hover and, for a reader with no pointer, the accessibility help; the title says it when nil.
     var help: String? = nil
+    /// Onboarding's one filled action (ROR-118 round 3): the large control size and a minimum width, so the way
+    /// forward is the heaviest thing on the screen. Left false, every other caller is unchanged.
+    var large = false
     let action: () -> Void
 
     @ViewBuilder
@@ -153,6 +156,12 @@ struct PrimaryActionButton: View {
             Group {
                 if let systemImage { Label(title, systemImage: systemImage) } else { Text(title) }
             }
+            // The glass style ignores the control size, so the large action is sized in its own label: 17 pt words,
+            // 14 pt over and under, 128 pt at least.
+            .font(large ? CicadaTheme.font(size: 17, weight: .medium) : nil)
+            .padding(.vertical, large ? CicadaTheme.scaled(5) : 0)
+            .padding(.horizontal, large ? CicadaTheme.scaled(10) : 0)
+            .frame(minWidth: large ? CicadaTheme.scaled(128) : nil)
             .primaryActionInk()
         }
         .primaryActionStyle()

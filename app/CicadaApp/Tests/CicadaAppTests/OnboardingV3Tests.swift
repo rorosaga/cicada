@@ -429,7 +429,7 @@ final class OnboardingV3FirstCallTests: XCTestCase {
 
     /// Provider-neutral copy: the step never names a vendor of its own accord.
     func testTheStepNamesNoVendorOfItsOwn() {
-        for line in [Copy.agentsTryAsk(nil), Copy.agentsTryLead, Copy.agentsOther, Copy.agentsOtherSummary] {
+        for line in [Copy.agentsTryAsk(nil), Copy.agentsTryLead, Copy.agentsOther, Copy.agentsNeedsPlan] {
             for vendor in ["Claude", "ChatGPT", "Codex", "OpenAI", "Gemini", "Cursor"] {
                 XCTAssertFalse(line.contains(vendor), "\(line) names \(vendor)")
             }

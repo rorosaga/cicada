@@ -90,13 +90,21 @@ enum OnboardingNav {
 
 /// R-OB1 — the frame's geometry (F-02's board: pane 540, column padding 64, topbar 52, foot 36 from the bottom).
 enum OnboardingLayout {
-    static let pane: CGFloat = 540
+    /// The pane is the room whole, floor to wall, edge to edge (ROR-118): 560 pt at 1x is 112 lattice columns at
+    /// 5 pt (`OnboardingRoomLayout`), so the room is never a strip floating in a wide ground.
+    static let pane: CGFloat = 560
+    /// The step's headline sits this far under the topbar on every step, and the foot on the same line at the bottom,
+    /// so nothing moves between steps (ROR-118 round 2).
+    static let stepTop: CGFloat = 44
     static let minColumn: CGFloat = 620
     static let minPane: CGFloat = 240
     static let columnPadding: CGFloat = 64
     static let topbarHeight: CGFloat = 52
-    static let footBottom: CGFloat = 36
+    /// The foot's band (ROR-118 round 3): a hairline over Back, Set up later, Skip and Continue, 88 pt tall, on the window's bottom edge.
+    static let footHeight: CGFloat = 88
     static let cardMaxWidth: CGFloat = 640
+    /// Welcome alone is wider (ROR-118): the room is its picture, 960 pt wide at 6 pt a cell, over a card of the same width.
+    static let welcomeMaxWidth: CGFloat = 960
     static let cardBottom: CGFloat = 48
     static let gutter: CGFloat = 16
     /// The Sources grid's tile: wide enough for its two-line consent caption at 1×, so a 532 pt column holds 3.
@@ -106,14 +114,16 @@ enum OnboardingLayout {
     static let sourceTileHeight: CGFloat = 128
 
     /// The room's pane gives way before the column does, and goes rather than become a sliver: it is art only
-    /// (DR-13), so losing it loses no word.
+    /// (DR-13), so losing it loses no word. Always a whole number of cells wide (`OnboardingRoomLayout`).
     static func paneWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {
-        guard w > 0, scale > 0 else { return 0 }
-        let width = min(pane * scale, w - minColumn * scale)
-        return width < minPane * scale ? 0 : width
+        OnboardingRoomLayout.paneWidth(windowWidth: w, scale: scale)
     }
 
     static func cardWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {
         max(0, min(cardMaxWidth * scale, w - 2 * gutter * scale))
+    }
+
+    static func welcomeWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {
+        max(0, min(welcomeMaxWidth * scale, w - 2 * gutter * scale))
     }
 }

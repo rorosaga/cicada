@@ -113,7 +113,7 @@ extension Copy {
 
     /// Welcome: what Cicada is, in one sentence.
     static let welcomeLine = "One memory on this Mac that every agent you use reads and adds to."
-    static let onboardingSkip = "Skip"
+    static let onboardingSkip = "Skip this step"
 
     /// Intelligence (ruling 36 D1): a signed-in plan is pre-selected and said in words, with what will run; a key is
     /// an equal option one click away; a local model is never pitched.
@@ -138,8 +138,7 @@ extension Copy {
     /// Tester readiness (2026-10-26) — the one prerequisite, said where agents are connected: consolidation runs on the
     /// person's own Claude Code or Codex plan (or a key they add). Names the two tools as what to have, never as a
     /// choice Cicada made for them (provider-neutral copy, owner 2026-09-30).
-    static let agentsNeedsPlan = "To read your conversations into memory, Cicada needs Claude Code or Codex signed in "
-        + "to a paid plan, or an API key added in Settings."
+    static let agentsNeedsPlan = "Reading your conversations needs a signed-in plan or an API key."
     static let agentsConnect = "Connect"
     static let agentsRun = "Run these"
     static let agentsShowCommands = "Show commands"
@@ -150,7 +149,6 @@ extension Copy {
     static let agentsPersonalNames = "Grok Bot, Muse, Instinct, Dots"
     /// Onboarding v3 (DR-39): *Another agent* and *Personal agents* fold under one remembered disclosure.
     static let agentsOther = "Other agents"
-    static let agentsOtherSummary = "Any other agent · personal agents"
     /// The one live check (after HeyClicky's "Testing, testing, 1, 2, 3" chip): the exact words to say to the person's
     /// own agent — named only when it is theirs (provider-neutral copy), else "your agent".
     static let agentsTryLead = "Then try it:"
@@ -242,7 +240,7 @@ extension Copy {
          agentsConnect, agentsRun, agentsShowCommands, agentsDone, agentsNoneFound, agentsAnother, agentsPersonal,
          agentsPersonalNames, sourcesSubline, sourcesChats, sourcesDropFile, sourcesHowToExport, sourcesOn,
          sourcesComingIn, sourcesNeedsYou, sourcesOff, sourcesNeedsAccess, doneLead, doneScheduled("tonight at 3:00"), doneImportsNow,
-         doneReadNow, gsCoveredInSetup(1), gsCoveredInSetup(4), agentsOther, agentsOtherSummary, agentsTryLead,
+         doneReadNow, gsCoveredInSetup(1), gsCoveredInSetup(4), agentsOther, agentsTryLead,
          agentsTryPrompt, agentsTryAsk("Claude Code"), agentsTryAsk(nil), agentsTryCopyHelp,
          agentsFirstCall("Claude Code"), sourcesMore, doneTitle, doneAlready, doneReading, doneEmpty, doneUntitled, doneMore(9),
          donePage, doneWaiting]

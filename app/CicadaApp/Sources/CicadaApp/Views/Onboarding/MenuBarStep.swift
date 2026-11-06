@@ -52,12 +52,11 @@ struct MenuBarStep: View {
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: CicadaTheme.spacingMD) {
-                TextButton(title: Copy.onboardingBack, flushLeading: true, action: onBack)
+                OnboardingLink(title: Copy.onboardingBack, leadingChevron: true, action: onBack)
                 Spacer(minLength: CicadaTheme.spacingSM)
-                TextButton(title: Copy.onboardingSkip, action: onSkip).disabled(busy)
-                PrimaryActionButton(title: Copy.onboardingContinue, action: onContinue)
+                OnboardingLink(title: Copy.onboardingSkip, action: onSkip).disabled(busy)
+                PrimaryActionButton(title: Copy.onboardingContinue, large: true, action: onContinue)
                     .disabled(busy)
-                KeyHint("⏎")
             }
         }
         .padding(CicadaTheme.spacingXL)
