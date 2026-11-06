@@ -270,7 +270,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   Sleep sets its flag then waits holders out — past the bound it pauses, never reads; never held across a model call or a fetch. Sleep's bank-wide work runs off the event loop; Stage 2's judge calls alone go back to it (G238).
 - **Sleep tends the inbox (ruling 29):** after each batch's commit it settles questions the person's own words answer
   (spans in their own turns, never a guess) and, per drain, the small stuff by rule, through the person's own resolvers
-  as Sleep's commit, each undoable; never a person's identity without their words (`features.md`).
+  as Sleep's commit (`inbox/<kind>/settled:`), each undoable; never a person's identity without their words (`features.md`).
+  **Ruling 73 (2026-11-06):** a value only a question held is written closed when it ends, never lost; Cicada's own counters are never asked.
 - **An edited conversation is a revision of itself (G104, owner 2026-11-03):** diffed against the version Sleep read
   (git), only what changed is read, spans re-anchored never fuzzily; what only removed text said is superseded by the
   same revision's value (no question) or withdrawn by a record, never deleted; still one conversation for every count;

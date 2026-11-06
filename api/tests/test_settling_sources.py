@@ -15,7 +15,7 @@ from api.services.claims import Claim, parse_claims, write_claims
 
 SITE = "https://nora-hidden-example.org/about"
 HTML = "<html><title>About</title><main>Nora Hidden is part of Globex now, and has since this year.</main></html>"
-PREDICATE = "part-of"
+PREDICATE = "takes-place-in"
 TRUSTED = {"ref": SITE, "kind": "url", "predicate": PREDICATE, "added_by": "user", "added_at": "2026-09-01"}
 
 
