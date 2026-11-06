@@ -33,6 +33,27 @@ a time — find, Legend, Reader, column; another node swaps the column in place 
 posts `backgroundClicked` and `escape` and takes `setSelectedNode` (a neutral ring), read and spelled in one
 place (`GraphMessage`, `GraphJS`) and tested on both sides — none of them touches the simulation.
 
+**The hover card (ROR-135, owner 2026-11-06: "a small card with the picture and title and author … Aim for smth thats
+fast and snappy too").** Resting the pointer on a node shows a small card beside it (`GraphHoverCardLayer`, SwiftUI
+over the canvas, never taking the pointer): a book its cover, title and author; a person their picture and name; a
+company or anything else its logo or picture, its name and the first sentence of its summary (one line, two at most); a
+hub its name and "N pages"; a facet satellite none. Everything it draws is already in the app with the graph: the node
+(`name`, `summary`, and `byline` — a book's authors, added to `GET /graph` nodes, omitted otherwise, node shape
+`+byline`, folded into `contentHash` only when present), the picture the one precedence resolved onto it
+(`Store.picture(for:)`, `storage.md`), and bytes already in `ImageMemory`. A hover does no fetch of its own and shows no
+spinner: a picture not in memory is read once from the stores' own copy or the local backend, a third party's thumbnail
+never (`HoverPictures`), and a page with no picture shows none — a person their initials, any other type nothing, never a
+type glyph. After the graph lands `GraphHoverModel.warm` reads the 300 busiest pictured pages into memory at utility
+priority. graph.js adds one thing, `reportHover` at the end of `draw()`: `nodeHovered` (id, screen centre, radius) on a
+change only, and `hoverEnded` once when the pointer leaves or a pan, zoom or drag moves the node from under the card — a
+pan posts nothing per frame, and none of it reads or writes the simulation (G109). The card opens
+`CicadaMotion.hoverCardOpenDelay` (0.1 s) after the pointer settles, so sweeping across the graph opens nothing, and at
+once while one is up or within `hoverCardWarmWindow` (0.3 s) of one closing; it fades with `CicadaMotion.hover`, a swap
+does not. Hidden while the entity column is open (the hover is quiet then, R-DG10), the Legend or find is up, or the
+page is. Measured at 9,000 nodes (`Tests/graph/graph-hover.test.js`, `GraphHoverCardTests`): a pointer move with its
+report 0.06 ms (p95 0.07), a pan frame's report 0.04 µs, the card's content for a hovered page 2 µs (p95 2.8 µs).
+Applies DR-2, DR-5, DR-9, DR-10, DR-12, DR-52, DR-70.
+
 **Layout on a push (item 6, 2026-10-08).** A data push relaxes only the nodes it brings: every settled node is held
 where it is for that layout (`holdSettled`/`releaseHolds` in graph.js — never over a drag's or focus mode's pin, and
 released when the layout ends), and a push that brings no node (a rename, a confidence, a removal) starts no layout.

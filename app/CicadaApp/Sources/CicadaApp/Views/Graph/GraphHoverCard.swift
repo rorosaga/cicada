@@ -193,7 +193,7 @@ struct GraphHoverCardLayer: View {
     }
 }
 
-private struct GraphHoverCard: View {
+struct GraphHoverCard: View {
     let node: GraphNode
     let content: GraphHoverCardContent.Content
     @Environment(Store.self) private var store
@@ -262,7 +262,8 @@ private struct HoverPictureSlot: View {
                 shape.stroke(CicadaTheme.ring(.resting), lineWidth: 1)
             }
         }
-        .frame(width: frame.width, height: frame.height)
+        // A card holds one picture beside its words, so a tall cover takes its own width, not the 3:2 well's.
+        .frame(width: drawn.width, height: frame.height)
         .task {
             guard loaded == nil, image == nil, let picture else { return }
             loaded = await HoverPictures.image(id: node.id, picture: picture, bank: bank)

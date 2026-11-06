@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import CicadaApp
 
@@ -106,5 +107,66 @@ final class GraphHoverCardTests: XCTestCase {
         let p95 = samples[Int(Double(samples.count) * 0.95)]
         print("hover card: content for a hovered page at 9,000 pages p50 \(samples[samples.count / 2]) µs, p95 \(p95) µs")
         XCTAssertLessThan(p95, 2_000, "under 2 ms even on a loaded machine")
+    }
+}
+
+/// ROR-135 — the picture for the PR: the real card view on invented pages, light and dark. Set GRAPH_HOVER_RENDER_DIR.
+@MainActor
+final class GraphHoverCardRenderTests: XCTestCase {
+    private func swatch(_ size: NSSize, _ a: NSColor, _ b: NSColor) -> NSImage {
+        NSImage(size: size, flipped: false) { rect in
+            NSGradient(starting: a, ending: b)?.draw(in: rect, angle: 70)
+            return true
+        }
+    }
+
+    func testRenderTheCardForABookAPersonACompanyAndAPageWithNoPicture() throws {
+        guard let dir = ProcessInfo.processInfo.environment["GRAPH_HOVER_RENDER_DIR"], !dir.isEmpty else {
+            throw XCTSkip("set GRAPH_HOVER_RENDER_DIR to render the hover card")
+        }
+        let cache = SnapshotCache(root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        let store = Store(cache: cache, api: FakeSyncAPI())
+        let bank = store.bank
+        let coverURL = "/entities/the-glass-orchard/preview?v=c0ffee", faceURL = "/entities/maya-example/picture?v=beef01"
+        ImageMemory.pictures.set("\(bank)|\(PictureURL.parse(coverURL)!.cacheKey)",
+                                 swatch(NSSize(width: 200, height: 300), .systemTeal, .systemIndigo))
+        ImageMemory.pictures.set("\(bank)|\(PictureURL.parse(faceURL)!.cacheKey)",
+                                 swatch(NSSize(width: 256, height: 256), .systemOrange, .systemPink))
+        ImageMemory.logos.set("\(bank)/northwind-example", swatch(NSSize(width: 128, height: 128), .systemGreen, .systemMint))
+        let nodes: [GraphNode] = [
+            GraphNode(id: "the-glass-orchard", name: "The Glass Orchard", type: .media, summary: "A novel.",
+                      picture: coverURL, pictureSource: "thumbnail", byline: "Ines Marlowe"),
+            GraphNode(id: "maya-example", name: "Maya Example", type: .person, picture: faceURL, pictureSource: "upload"),
+            GraphNode(id: "northwind-example", name: "Northwind Example", type: .company,
+                      summary: "A small studio that makes field instruments for coastal surveys. Founded in 2019.",
+                      hasLogo: true, picture: "/entities/northwind-example/logo", pictureSource: "logo"),
+            GraphNode(id: "tide-notes", name: "Tide notes", type: .concept,
+                      summary: "Running notes on how the estuary behaves over a season."),
+            GraphNode(id: "bo-example", name: "Bo Example", type: .person),
+        ]
+        let held = CicadaTheme.mode
+        defer { CicadaTheme.mode = held }
+        for mode in [AppColorScheme.light, .dark] {
+            CicadaTheme.mode = mode
+            CicadaTheme.uiScale = 1
+            let view = VStack(alignment: .leading, spacing: 14) {
+                ForEach(nodes, id: \.id) { node in
+                    HStack(spacing: 10) {
+                        Circle().fill(CicadaTheme.textTertiary).frame(width: 9, height: 9)
+                        GraphHoverCard(node: node, content: GraphHoverCardContent.make(node)!)
+                    }
+                }
+            }
+            .padding(24)
+            .frame(width: 400, alignment: .leading)
+            .background(CicadaTheme.bgBase)
+            .environment(store)
+            .environment(\.colorScheme, mode == .dark ? .dark : .light)
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            let image = try XCTUnwrap(renderer.nsImage?.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+            let png = try XCTUnwrap(image.representation(using: .png, properties: [:]))
+            try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("hover-card-\(mode == .dark ? "dark" : "light").png"))
+        }
     }
 }
