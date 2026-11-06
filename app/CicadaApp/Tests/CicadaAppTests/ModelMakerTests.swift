@@ -47,14 +47,32 @@ final class ModelMakerTests: XCTestCase {
         XCTAssertEqual(ContributorIdentity.modelMark(author: "openrouter/z-ai/glm-5.2"), "zai")
         XCTAssertEqual(ContributorIdentity.modelMark(author: "accounts/fireworks/models/deepseek-v3p1"), "deepseek")
         XCTAssertEqual(ContributorIdentity.modelMark(author: "claude-sonnet-4-5"), "claude")
-        // Unknown maker, or a maker with no bundled mark (Meta): initials, not the router's mark.
-        XCTAssertNil(ContributorIdentity.modelMark(author: "openrouter/some-lab/novel-7b"))
-        XCTAssertNil(ContributorIdentity.modelMark(author: "ollama/llama3.2"))
+        // Meta's infinity is back in the set: a Llama, served by anyone, wears it.
+        XCTAssertEqual(ContributorIdentity.modelMark(author: "ollama/llama3.2"), "meta-infinity")
+        XCTAssertEqual(ContributorIdentity.modelMark(author: "openrouter/meta-llama/llama-4-maverick"), "meta-infinity")
+        XCTAssertEqual(ContributorIdentity.modelMark(author: "together_ai/meta-llama/Llama-3.3-70B"), "meta-infinity")
+    }
+
+    func testAnUnknownMakerWearsTheRoutersMarkNotInitials() {
+        // The router says who served it when the id does not say who made it (Rodrigo, 2026-11-06).
+        XCTAssertEqual(ContributorIdentity.modelMark(author: "openrouter/some-lab/novel-7b"), "openrouter")
+        XCTAssertEqual(ContributorIdentity.modelMark(author: "openrouter/someone/qwen-finetune"), "openrouter")
+        XCTAssertEqual(ContributorIdentity.modelMark(author: "together_ai/some-lab/novel-7b"), "together")
+        XCTAssertEqual(ContributorIdentity.modelMark(author: "accounts/acme/models/deepseek-ft"), "fireworks")
+        XCTAssertEqual(ContributorIdentity.modelMark(author: "ollama/novel-7b"), "ollama")
+        // The maker still outranks the router, and an id with no router and no maker draws initials.
+        XCTAssertEqual(ContributorIdentity.modelMark(author: "openrouter/z-ai/glm-5.2"), "zai")
+        XCTAssertNil(ContributorIdentity.modelMark(author: "totally-new-model-1"))
+        XCTAssertNil(ContributorIdentity.modelMark(author: "someone/qwen-finetune"))
     }
 
     func testEveryMakerMarkIsBundled() {
         for maker in ModelMaker.Maker.allCases {
             guard let name = ContributorIdentity.makerMark(maker) else { continue }
+            XCTAssertTrue(LogoImage.exists(name: name), "\(name).png is not bundled")
+        }
+        for router in ModelMaker.Router.allCases {
+            guard let name = ContributorIdentity.routerMark(router) else { continue }
             XCTAssertTrue(LogoImage.exists(name: name), "\(name).png is not bundled")
         }
     }

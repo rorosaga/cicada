@@ -1,6 +1,6 @@
 {
  "generated": "2026-11-06",
- "count": 58,
+ "count": 59,
  "needs_a_mac": [
   "Calendar",
   "Contacts",
@@ -472,6 +472,25 @@
    "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of Mistral AI; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
    "note": null
+  },
+  {
+   "slug": "meta-infinity",
+   "group": "provider",
+   "file": "meta-infinity.svg",
+   "format": "svg",
+   "pixels": null,
+   "meets_bar": true,
+   "source_tier": "lobe-icons",
+   "source_url": "https://unpkg.com/@lobehub/icons-static-svg@1.97.0/icons/meta-color.svg",
+   "fetched": "2026-11-06",
+   "sha256": "adf9f2c1a646ccd3a37ca8c2e7e5985d64630cd633f4b95fba393d1d44e0578c",
+   "umbrella": "Meta (Llama)",
+   "sub_products": [],
+   "dark_variant": null,
+   "replaces_bundled": [],
+   "license": "@lobehub/icons-static-svg 1.97.0 (MIT for the package; the mark stays its owner’s trademark)",
+   "trademark": "Trademark of Meta Platforms, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+   "note": "A model maker’s mark (ROR-127): draws a contributor served through any provider whose model id names Meta or Llama. Meta’s infinity, back in the set (2026-11-06) beside Muse, which keeps the `meta` agent id; lobe-icons’ is the same drawing as Meta’s own."
   },
   {
    "slug": "x",

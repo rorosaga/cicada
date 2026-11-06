@@ -381,6 +381,19 @@
       "umbrella": "LinkedIn"
     },
     {
+      "file": "meta-infinity.png",
+      "id": "meta-infinity",
+      "licence": "@lobehub/icons-static-svg 1.97.0 (MIT for the package; the mark stays its owner’s trademark)",
+      "origin": "set",
+      "restrictions": "Trademark of Meta Platforms, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/meta-infinity.svg",
+      "sha256": "e33ca6a984874fc0fb0b3fa01f726aebcb180ac4c954fc0e8eb3d47381510e04",
+      "sourceTier": "lobe-icons",
+      "sourceUrl": "https://unpkg.com/@lobehub/icons-static-svg@1.97.0/icons/meta-color.svg",
+      "svgSha256": "adf9f2c1a646ccd3a37ca8c2e7e5985d64630cd633f4b95fba393d1d44e0578c",
+      "umbrella": "Meta (Llama)"
+    },
+    {
       "file": "minimax.png",
       "id": "minimax",
       "licence": "@lobehub/icons-static-svg 1.97.0 (MIT for the package; the mark stays its owner’s trademark)",

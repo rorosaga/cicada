@@ -23,6 +23,9 @@ enum ModelMaker {
         case anthropic, openai, google, meta, mistral, deepseek, qwen, zai, moonshot, minimax, xai
     }
 
+    /// The routers and hosts whose own mark is bundled: the fallback picture of a model whose maker is unknown.
+    enum Router: CaseIterable { case openrouter, ollama, together, fireworks, deepinfra, groq }
+
     /// Segments that name a route or a host, never a maker (the part of a LiteLLM / router id before the model).
     private static let routes: Set<String> = [
         "openrouter", "ollama", "litellm", "fireworks", "fireworks_ai", "fireworks-ai", "together", "together_ai",
@@ -84,6 +87,23 @@ enum ModelMaker {
             return orgs[org]   // known organisation → its maker; a stranger → nil, never a guess from the name
         }
         return family(of: name)
+    }
+
+    /// The router or host an id came through, when it is one with a bundled mark: the first segment of a LiteLLM / router
+    /// id (`openrouter/…`, `together_ai/…`), or Fireworks' own `accounts/…` layout. nil for a bare id and for any other
+    /// prefix, so an unknown id with no router still draws initials.
+    static func router(of author: String) -> Router? {
+        let segments = author.lowercased().trimmingCharacters(in: .whitespaces).split(separator: "/").map(String.init)
+        guard segments.count >= 2, let first = segments.first else { return nil }
+        switch first {
+        case "openrouter": return .openrouter
+        case "ollama": return .ollama
+        case "together", "together_ai", "togetherai": return .together
+        case "fireworks", "fireworks_ai", "fireworks-ai", "accounts": return .fireworks
+        case "deepinfra": return .deepinfra
+        case "groq": return .groq
+        default: return nil
+        }
     }
 
     private static func family(of name: String) -> Maker? {
