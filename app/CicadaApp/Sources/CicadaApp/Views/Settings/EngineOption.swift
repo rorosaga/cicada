@@ -204,7 +204,24 @@ enum EngineOption {
     /// `CICADA_LLM_MODE` says otherwise), which `EngineReadiness` reports honestly.
     static func compactCandidates(_ candidates: [SleepEngineCandidate]) -> [SleepEngineCandidate] {
         // G49/G50: the person's own Cursor, OpenCode or Grok wait in Settings → Intelligence; onboarding keeps its four.
-        candidates.filter { $0.id != "auto" && !isOwnTool($0) }
+        // Ruling 36 D1: a local model runs only when chosen and is never a first rung, so it stands last.
+        let shown = candidates.filter { $0.id != "auto" && !isOwnTool($0) }
+        return shown.filter { !isLocal($0.id) } + shown.filter { isLocal($0.id) }
+    }
+
+    /// Onboarding's rule for a click: `isSelectable`, and a local model that is not installed is not offered as a
+    /// choice (it stays when it is already the saved one, so the card never vanishes under a pick).
+    static func isSelectableCompact(_ candidate: SleepEngineCandidate, selectedMode: String) -> Bool {
+        guard isSelectable(candidate, selectedMode: selectedMode) else { return false }
+        guard isLocal(candidate.id), candidate.id != selectedMode else { return true }
+        return OllamaGuideState.from(candidate: candidate) != .notInstalled
+    }
+
+    /// Nothing can read yet: no plan signed in, no key, no local model ready. The chooser then leads to
+    /// Plans & keys instead of leaving a stranger to pick a card that cannot run.
+    static func nothingConnected(_ candidates: [SleepEngineCandidate], hasKey: Bool) -> Bool {
+        guard !hasKey else { return false }
+        return !candidates.contains { isPlan($0) && $0.connected } && !EngineReadiness.ollamaReady(candidates)
     }
 
     /// The key card's state comes from `Store.connections`, never from the byok
