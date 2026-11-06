@@ -85,11 +85,15 @@ struct HomeView: View {
                         VStack(spacing: 0) {
                             // R-HS2 — the headline is the row under the band, on the window (DR-50), in the room pages'
                             // title (DR-17): one line, the mock's words.
-                            PageTitle(Copy.homeHeadline, fontSize: HomeLayout.headlineSize)
+                            // ROR-118 round 3 — the worm greets over the headline: the page's one picture, small, on the
+                            // window and never behind a word or a figure (DR-13), at rest or at its mood.
+                            HomeGreeter(state: mascotState)
                                 .id(Self.topAnchor)
+                                .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTop(viewportHeight: viewport.size.height)))
+                                .padding(.bottom, CicadaTheme.scaled(HomeLayout.greeterGap))
+                            PageTitle(Copy.homeHeadline, fontSize: HomeLayout.headlineSize)
                                 .multilineTextAlignment(.center)
                                 .accessibilityAddTraits(.isHeader)
-                                .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTop(viewportHeight: viewport.size.height)))
                                 .padding(.bottom, CicadaTheme.scaled(HomeLayout.headlineBottom))
                             fieldColumn(showsResults: showsResults)
                                 .frame(maxWidth: CicadaTheme.scaled(HomeLayout.fieldWidth))
@@ -148,6 +152,11 @@ struct HomeView: View {
         // schedule fetch failed is retried here too, or Getting started's
         // schedule question would never be asked (R-IB20).
         .task(id: store.status.value?.lastSleepAt) { await sleepVM.refreshForHome() }
+    }
+
+    /// The worm's mood is the menu bar's, from the same status: asleep while a read runs, curious when conversations wait.
+    private var mascotState: BookwormState {
+        store.status.value.map { deriveBookwormState($0, justFinishedAt: nil) } ?? .awake
     }
 
     private func popToRoot() {
@@ -317,5 +326,17 @@ struct HomePageScroll: ViewModifier {
             .scrollBounceBehavior(pinned ? .basedOnSize : .automatic, axes: .vertical)
             .scrollIndicators(.automatic)
             .softTopScrollEdge()
+    }
+}
+
+/// ROR-118 round 3 (DR-13; DESIGN_RULES §9 2026-11-06) — Home's one picture: the study room's worm at 72 pt over the
+/// headline, the room's pixel art on the window's own ground. It carries no words and no number, never sits behind
+/// either, and its mood and Reduce Motion are the sprite clock's.
+struct HomeGreeter: View {
+    let state: BookwormState
+
+    var body: some View {
+        BookwormView(state: state, pointSize: HomeLayout.greeterSize, artSet: .small)
+            .accessibilityHidden(true)
     }
 }

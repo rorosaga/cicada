@@ -19,8 +19,12 @@ enum HomeLayout {
     /// and the page is not all weight at the top over an empty lower half.
     static let headlineSize: CGFloat = 34
     static func headlineTop(viewportHeight: CGFloat) -> CGFloat {
-        min(150, max(headlineTop, (viewportHeight * 0.2).rounded()))
+        min(120, max(headlineTop, (viewportHeight * 0.11).rounded()))
     }
+    /// Round 3 — the worm over the headline: 72 pt, 10 pt above it. With it the lead is taller, so it starts a ninth of
+    /// the viewport down (24 pt at the least, 120 pt at the most) and the block sits at the window's optical centre.
+    static let greeterSize: CGFloat = 72
+    static let greeterGap: CGFloat = 10
     static let headlineBottom: CGFloat = 26
     static let blockGap: CGFloat = 24
     /// The field is a block like the rest (owner 2026-10-06): the first card sits one block gap under it.
@@ -34,6 +38,8 @@ enum HomeLayout {
     /// edge, under the lead card's own text.
     static let rowGlyph: CGFloat = 20
     static let leadPicture: CGFloat = 44
+    /// ROR-118 round 3 — a page chip's picture under Last read (the smallest `EntityPicture` draws is 20).
+    static let chipPicture: CGFloat = 22
     static let bottomPadding: CGFloat = 64
     static let gutter: CGFloat = 40
     static let blockInset: CGFloat = 4

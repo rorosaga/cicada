@@ -99,7 +99,7 @@ final class HomeF09Tests: XCTestCase {
         // ROR-118 (round 1, Home): ONE question leads in one card; Catch me up and *All N questions* are its foot.
         XCTAssertTrue(sections.contains("QuietLink(title: Copy.Catchup.allQuestions(total)"))
         XCTAssertTrue(sections.contains("LeadQuestionCard("), "ROR-118 — one question leads, Catch me up in its foot")
-        XCTAssertTrue(sections.contains("NeutralButton(title: Copy.Catchup.title"), "ruling 48 (1) — Catch me up stays")
+        XCTAssertTrue(sections.contains("QuietLink(title: Copy.Catchup.title"), "ruling 48 (1) — Catch me up stays, one weight with All N questions (round 3)")
         XCTAssertFalse(sections.contains("struct CatchupBlock"), "the second card is gone: nothing says the same thing twice")
         XCTAssertFalse(sections.contains("OriginMark(origin: chip.mark, size: CicadaTheme.scaled(14))"))
         XCTAssertTrue(try source("Views/Home/HomeView.swift").contains("LastReadSection("), "R-HO13 — Last read stays")

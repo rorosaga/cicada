@@ -25,7 +25,7 @@ extension Copy {
     static let homeCapturedHelp = "Captured since 00:00 UTC"
     static let homeLoading = "Loading…"
     static let homeNothingCapturedToday = "Nothing captured yet today"
-    static let homeNothingWaiting = "Nothing waiting to be read"
+    static let homeNothingWaiting = "Nothing waiting"
     static let homeNothingNeedsYou = "Nothing needs you right now."
     static let homeNothingReadYet = "Nothing read yet"
     static let homeNothingChanged = "nothing changed"
@@ -38,8 +38,11 @@ extension Copy {
     static func homeCapturedToday(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "\(UsageFormat.count(n, locale: locale)) captured today"
     }
+    /// ROR-118 round 3 — the figure alone beside "captured today": the two share one line.
+    static let homeCapturedWords = "captured today"
+    static let homeWaitingWords = "waiting"
     static func homeWaiting(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        "\(UsageFormat.count(n, locale: locale)) waiting to be read"
+        "\(UsageFormat.count(n, locale: locale)) \(homeWaitingWords)"
     }
     static func homeMoreChips(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "+\(UsageFormat.count(n, locale: locale))"
