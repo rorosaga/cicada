@@ -32,13 +32,13 @@ final class ClustersGridTests: XCTestCase {
                        [.pair([.person]), .pair([.tool])], "Expand all: one card per row")
     }
 
-    /// ROR-118 — 8 portraits, 3 project cards, 4 names a list, 6 media, 2 lines in a short card.
+    /// ROR-118 — 8 portraits, 3 project cards, 4 names a list, 5 media, 2 lines in a short card.
     func testTheBudgetIsOneStripOneRowOfCardsAndShortLists() {
         let rows = ClustersGrid.rows(groups, expandAll: false)
         XCTAssertEqual(ClustersGrid.budget(rows[0], index: 0, expandAll: false), 8)
         XCTAssertEqual(ClustersGrid.budget(rows[1], index: 1, expandAll: false), 3)
         XCTAssertEqual(ClustersGrid.budget(rows[2], index: 2, expandAll: false), 4)
-        XCTAssertEqual(ClustersGrid.budget(rows[3], index: 3, expandAll: false), 6)
+        XCTAssertEqual(ClustersGrid.budget(rows[3], index: 3, expandAll: false), 5)
         XCTAssertEqual(ClustersGrid.budget(rows[4], index: 4, expandAll: false), 2)
         XCTAssertNil(ClustersGrid.budget(rows[0], index: 0, expandAll: true))
     }
@@ -46,7 +46,7 @@ final class ClustersGridTests: XCTestCase {
     /// DR-68 — ↑/↓ walk what is drawn in reading order: row by row, section by section.
     func testTheKeysWalkWhatIsDrawnInReadingOrder() {
         let visible = ClustersGrid.visible(groups, tab: nil, expandAll: false).map(\.id)
-        XCTAssertEqual(visible.count, 8 + 3 + 4 + 4 + 4 + 6 + 2 + 2 + 2)
+        XCTAssertEqual(visible.count, 8 + 3 + 4 + 4 + 4 + 5 + 2 + 2 + 2)
         XCTAssertEqual(Array(visible.prefix(10)), (0..<8).map { "person-\($0)" } + ["project-0", "project-1"])
         XCTAssertEqual(ClustersGrid.visible(groups, tab: .tool, expandAll: false).count, 22, "a tab shows every tile")
     }
@@ -70,6 +70,20 @@ final class ClustersGridTests: XCTestCase {
         let walked = ClustersGrid.visible([ClustersModel.Group(type: .person, entities: people)], tab: nil, expandAll: false,
                                           pictured: { faces.contains($0.id) }).map(\.id)
         XCTAssertEqual(walked, ["b", "d", "a", "c"], "↑/↓ follow the drawn order")
+    }
+
+    /// The name lists and Media arrange the whole group before taking what fits, so room goes to what has a picture;
+    /// People take the most recent few first and only then put photos ahead.
+    func testListsArrangeBeforeTheBudgetAndPeopleAfter() {
+        let tools = (0..<8).map { e("t\($0)", .tool) }
+        let logos: Set<String> = ["t6", "t7"]
+        let row = ClustersGrid.Row.trio([.tool])
+        XCTAssertEqual(ClustersGrid.shown(tools, type: .tool, row: row, budget: 4, pictured: { logos.contains($0.id) }).map(\.id),
+                       ["t6", "t7", "t0", "t1"])
+        let people = (0..<12).map { e("p\($0)", .person) }
+        XCTAssertEqual(ClustersGrid.shown(people, type: .person, row: .faces([.person]), budget: 8,
+                                          pictured: { $0.id == "p9" }).map(\.id), (0..<8).map { "p\($0)" },
+                       "a photo beyond the recent eight does not displace them")
     }
 
     func testTheCardsRegroupUnderNineHundredUnits() {

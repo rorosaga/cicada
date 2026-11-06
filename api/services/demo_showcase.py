@@ -151,9 +151,12 @@ _MEDIA = (
 #: `media_type: video`), so no new public URL joins `PUBLIC_URLS`. Same tuple shape as `_MEDIA`.
 GRIPPER_VIDEO_ID = "media-gripper-grasp-demo"
 LAB_VIDEO_ID = "media-lab-walkthrough"
-#: (media id, sky top, sky bottom, ink, scene) — a saved page's own image, a soft 3:2 scene drawn in code. The two
-#: public pages (the video and the article) keep their own thumbnails; these are the pages with none to fetch.
+#: (media id, sky top, sky bottom, ink, scene) — a saved page's own image, a soft 3:2 scene drawn in code. A lived-in
+#: bank has these cached; the demo has no network to fetch them, so the two public pages' real thumbnails (still named
+#: in their frontmatter) are stood in for by a drawn one, stored as the person's own choice like the rest.
 _COVERS = (
+    (VIDEO_ID, (214, 222, 238), (240, 226, 214), (168, 104, 84), "arc"),
+    (ARTICLE_ID, (230, 222, 236), (240, 234, 220), (112, 100, 150), "hills"),
     (GRIPPER_VIDEO_ID, (206, 220, 232), (236, 228, 214), (88, 110, 142), "hills"),
     (LAB_VIDEO_ID, (232, 220, 214), (240, 232, 216), (150, 104, 88), "arc"),
     (BOOKMARK_ID, (214, 228, 220), (238, 232, 214), (92, 128, 108), "hills"),
