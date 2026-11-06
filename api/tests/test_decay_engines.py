@@ -262,8 +262,47 @@ def _decayed_confidence(tmp_path, cls_value: str) -> float:
     return reconciled["subj"][0].confidence
 
 
-def test_an_evergreen_subjects_claims_never_decay(tmp_path):
-    assert _decayed_confidence(tmp_path, "evergreen") == 0.9
+def test_a_media_subjects_claims_never_decay(tmp_path):
+    predicates.install_predicate_map(tmp_path)
+    _page(tmp_path, "subj", type="media")
+    reconciled, _n, _a = reconcile_stage3(
+        [], {"subj": [_open_claim("subj", "clm_1")]}, _ClaimSettings(tmp_path),
+        cardinality_fn=lambda _p: True, now_date="2026-04-01")
+    assert reconciled["subj"][0].confidence == 0.9
+
+
+def test_an_evergreen_pages_facts_fade_by_their_own_class_ror_129(tmp_path):
+    """The page never fades; a fact with no class of its own lends `active`, one marked evergreen never fades."""
+    active = 0.9 - _decayed_confidence(tmp_path, "active")
+    assert active > 0
+    assert abs((0.9 - _decayed_confidence(tmp_path, "evergreen")) - active) < 1e-9
+
+
+def _fact(tmp_path, **own):
+    predicates.install_predicate_map(tmp_path)
+    claim = _open_claim("subj", "clm_1")
+    for k, v in own.items():
+        setattr(claim, k, v)
+    out, nudges, _a = reconcile_stage3(
+        [], {"subj": [claim]}, _ClaimSettings(tmp_path), cardinality_fn=lambda _p: True,
+        now_date="2026-04-01", decay_class_fn=lambda _sid: DecayClass.evergreen)
+    return out["subj"][0], nudges
+
+
+def test_a_fact_marked_evergreen_never_fades_and_keeps_its_real_clock(tmp_path):
+    claim, nudges = _fact(tmp_path, decay_class="evergreen", class_by="user")
+    assert claim.confidence == 0.9 and not nudges
+
+
+def test_a_fact_class_sets_its_pace_on_an_evergreen_page(tmp_path):
+    slow, _ = _fact(tmp_path, decay_class="durable", class_by="model")
+    fast, _ = _fact(tmp_path, decay_class="volatile", class_by="model")
+    assert 0.9 > slow.confidence > fast.confidence
+
+
+def test_an_evergreen_page_never_raises_the_page_level_question(tmp_path):
+    _claim, nudges = _fact(tmp_path, decay_class="volatile", class_by="model", confidence=0.41)
+    assert nudges == []
 
 
 def test_a_volatile_subjects_claims_decay_twice_as_fast_as_an_active_one(tmp_path):

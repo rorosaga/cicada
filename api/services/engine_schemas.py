@@ -28,7 +28,7 @@ Two dialects:
 """
 from __future__ import annotations
 
-from api.models.schemas import AGENT_PRODUCIBLE_DECAY_CLASSES, PRODUCIBLE_ENTITY_TYPES
+from api.models.schemas import AGENT_PRODUCIBLE_DECAY_CLASSES, PRODUCIBLE_ENTITY_TYPES, DecayClass
 
 DRAFT_07 = "http://json-schema.org/draft-07/schema#"
 
@@ -58,6 +58,10 @@ def extraction_schema(*, strict: bool) -> dict:
     decay = ({"type": ["string", "null"], "enum": [*decay_classes(), None]} if strict
              else {"type": "string", "enum": decay_classes()})
     quote = {"type": ["string", "null"]} if strict else {"type": "string"}
+    # ROR-129: a fact's own class, any of the four (the page rail "never evergreen" stays for `decay_class` above).
+    fact_classes = [c.value for c in DecayClass]
+    fact_class = ({"type": ["string", "null"], "enum": [*fact_classes, None]} if strict
+                  else {"type": "string", "enum": fact_classes})
     website = {"type": ["string", "null"]} if strict else {"type": "string"}   # G61 S3-b: company/tool/project only
     # Ruling 42 (`application_page`): an event or program the person acted on; checked against the conversation.
     application = _object({"status": text, "by": text}, ["status"], strict=strict)
@@ -80,11 +84,11 @@ def extraction_schema(*, strict: bool) -> dict:
         "ask_person": website,   # optional text, nullable when strict
     }, ["name", "type"], strict=strict)
     relationship = _object(
-        {"source": text, "target": text, "label": text, "evidence_quote": quote},
+        {"source": text, "target": text, "label": text, "evidence_quote": quote, "fact_class": fact_class},
         ["source", "target", "label"], strict=strict,
     )
     value = _object(
-        {"entity": text, "attribute": text, "value": text, "evidence_quote": quote},
+        {"entity": text, "attribute": text, "value": text, "evidence_quote": quote, "fact_class": fact_class},
         ["entity", "attribute", "value"], strict=strict,
     )
     root = _object({
