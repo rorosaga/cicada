@@ -2121,6 +2121,39 @@ function draw() {
     }
 
     ctx.restore();
+    reportHover();
+}
+
+// ROR-135 — the hover card is Swift's: it needs nothing from here but WHICH node the pointer rests on and where that
+// node is on screen (the picture, name and line are already in the app, with the graph). Called once per frame at the
+// end of draw(), so it costs a compare when nothing changed and posts only on a change:
+//   - a new hovered node posts `nodeHovered` (id, screen centre, screen radius);
+//   - a pan, a zoom, a drag or the pointer leaving posts `hoverEnded` ONCE — the node has moved from under the card,
+//     and a pan then posts nothing further per frame (no lag in panning); the card returns on the next hover change;
+//   - a node that drifts while the layout settles re-posts its centre once it has moved HOVER_MOVE_PX.
+// None of it reads or writes the simulation (G109).
+const HOVER_MOVE_PX = 2;
+let reportedHover = null;   // { id, x, y, r, k, tx, ty, hidden } — the last thing Swift was told
+function reportHover() {
+    const n = (hoveredNode && !draggingNode && !hoverSuppressed) ? hoveredNode : null;
+    if (!n) {
+        if (reportedHover) { reportedHover = null; postToSwift({ type: "hoverEnded" }); }
+        return;
+    }
+    const t = transform;
+    if (reportedHover && reportedHover.id === n.id) {
+        if (reportedHover.hidden) return;
+        if (reportedHover.k !== t.k || reportedHover.tx !== t.x || reportedHover.ty !== t.y) {
+            reportedHover.hidden = true;
+            postToSwift({ type: "hoverEnded" });
+            return;
+        }
+        const x = n.x * t.k + t.x, y = n.y * t.k + t.y;
+        if (Math.abs(x - reportedHover.x) < HOVER_MOVE_PX && Math.abs(y - reportedHover.y) < HOVER_MOVE_PX) return;
+    }
+    const x = n.x * t.k + t.x, y = n.y * t.k + t.y, r = nodeRadius(n) * t.k;
+    reportedHover = { id: n.id, x, y, r, k: t.k, tx: t.x, ty: t.y, hidden: false };
+    postToSwift({ type: "nodeHovered", id: n.id, x, y, r });
 }
 
 // Render the labels for whichever small set is in scope: the focus-mode
