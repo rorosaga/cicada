@@ -653,6 +653,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # G166 exploring: the queue file in $CICADA_HOME only; the bank is written by cicada_record_capture alone.
     "POST /explore/batches": (OUTSIDE, None),
     "POST /explore/stop": (OUTSIDE, None),
+    "POST /export-requests/{vendor}": (OUTSIDE, None),
+    "DELETE /export-requests/{vendor}": (OUTSIDE, None),
     "POST /explore/queue/{key}/retry": (OUTSIDE, None),
     "POST /explore/look": (OUTSIDE, None),            # looks v2: "Save its look" writes the queue file only
     # The Skills page (2026-10-15): the agents' own skill folders and $CICADA_HOME/skills only (skill_store).
@@ -716,6 +718,7 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_skills": (NONE, None),
     "cicada_propose_skill": (OUTSIDE, None),
     "cicada_create_skill": (OUTSIDE, None),
+    "cicada_export_requests": (OUTSIDE, None),
     **{t: (NONE, None) for t in (
         "cicada_handshake", "cicada_recall", "cicada_recall_detail", "cicada_open_hub", "cicada_get_perspective",
         "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources", "cicada_ask",

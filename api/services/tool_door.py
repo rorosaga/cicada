@@ -120,6 +120,7 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         a.get("duration"), a.get("lease_token")),
     "cicada_video_queue": lambda c, a: mcp_tools.video_queue_list(c, a.get("limit")),
     "cicada_video_claim": lambda c, a: mcp_tools.video_claim(c, a.get("limit"), a.get("release")),
+    "cicada_export_requests": lambda c, a: mcp_tools.export_requests(c, a.get("done")),
     "cicada_explore_queue": lambda c, a: mcp_tools.explore_queue_list(c, a.get("limit")),
     "cicada_explore_claim": lambda c, a: mcp_tools.explore_claim(c, a.get("limit"), a.get("release")),
     "cicada_record_capture": lambda c, a: mcp_tools.record_capture(

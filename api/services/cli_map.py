@@ -221,6 +221,8 @@ ROWS: tuple[Row, ...] = (
         replica="home"),
     Row(("video", "claim"), "cicada_video_claim", "Take videos from the queue to watch.",
         (_f("limit", "int"), _f("release", "json")), mutates=True),
+    Row(("export", "requests"), "cicada_export_requests", "Chat exports the person asked their agent to request.",
+        (_f("done", "json"),), mutates=True),
     # G166 exploring (2026-10-14): proposed spellings, not exposed yet; the start is never a CLI door (D5, ruling 21a).
     Row(("explore", "queue"), "cicada_explore_queue", "Saved sites the person asked to have explored.",
         (_f("limit", "int"),), replica="home"),

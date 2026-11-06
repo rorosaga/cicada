@@ -83,6 +83,8 @@ NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_rep
                           # G166 exploring (2026-10-14): stdio only in slice 1 — the record reads image files the agent
                           # saved, and a run starts only from the person in a local conversation (D5: never remote).
                           "cicada_explore_queue", "cicada_explore_claim", "cicada_record_capture",
+                          # ROR-126: the person's own agent in their own browser — a local agent's job, like the explore seat.
+                          "cicada_export_requests",
                           "cicada_explore_start", "cicada_site_map",
                           # G61, ruling 26: a tracked source's re-check reads in the person's own browser session —
                           # a local agent's job; a remote one is the owner's open question.
