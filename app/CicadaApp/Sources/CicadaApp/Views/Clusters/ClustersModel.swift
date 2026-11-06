@@ -44,11 +44,29 @@ enum ClustersModel {
     /// `lastReferenced` is an ISO day, so a string compare is a date compare; a page with none sorts last.
     /// `withLooks` (owner 2026-10-20: "we can filter looks inside the entities page") keeps only the pages that show
     /// a look; nil leaves every page in.
+    /// ROR-138 — the media kinds in the order the View menu lists them (`media_kinds.KINDS`, the wire ids).
+    static let mediaKindOrder = ["book", "article", "video", "picture", "paper", "repository", "link", "file", "feed"]
+
+    /// ROR-138 (owner 2026-11-06: "only what you saved"): a feed item (published to the person, never saved) the
+    /// person has not mentioned stays out of Media unless its kind is chosen. `kinds` empty keeps every other kind.
+    static func mediaShown(_ e: Entity, kinds: Set<String>) -> Bool {
+        guard e.type == .media else { return true }
+        if kinds.isEmpty { return !(e.mediaKind == "feed" && e.quiet) }
+        return e.mediaKind.map(kinds.contains) ?? false
+    }
+
     static func filtered(_ all: [Entity], types: Set<EntityType>, labels: Set<String>,
-                         withLooks: Set<String>? = nil) -> [Entity] {
+                         withLooks: Set<String>? = nil, mediaKinds: Set<String> = [],
+                         groupByChannel: Bool = false) -> [Entity] {
         all.filter { types.contains($0.type) && (labels.isEmpty || !labels.isDisjoint(with: Set($0.tags)))
-                     && (withLooks?.contains($0.id) ?? true) }
+                     && (withLooks?.contains($0.id) ?? true) && mediaShown($0, kinds: mediaKinds) }
             .sorted { a, b in
+                if groupByChannel, a.type == .media, b.type == .media, a.mediaChannel != b.mediaChannel {
+                    // Named channels first, A→Z; media with none last.
+                    guard let x = a.mediaChannel else { return false }
+                    guard let y = b.mediaChannel else { return true }
+                    return x.localizedCaseInsensitiveCompare(y) == .orderedAscending
+                }
                 if a.lastReferenced != b.lastReferenced { return a.lastReferenced > b.lastReferenced }
                 return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }

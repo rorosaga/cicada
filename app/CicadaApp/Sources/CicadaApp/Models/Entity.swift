@@ -855,6 +855,11 @@ struct Entity: Identifiable, Codable {
     /// not mentioned yet (`quiet_pages`): drawn dimmed in lists and the graph. Derived by the backend on every read,
     /// never stored; false from an older backend.
     var quiet: Bool = false
+    /// ROR-138 — a media page's kind (`media_kinds`: book, article, video, …, feed), the origin that brought it in and
+    /// the channel or publication it names; set from the graph node, nil on every other page and from an older backend.
+    var mediaKind: String? = nil
+    var origin: String? = nil
+    var mediaChannel: String? = nil
     /// Owner ruling 44 (G121) — why the page matters to the person, derived on read; nil from an older backend.
     var relevance: EntityRelevance? = nil
     /// Vision item 5 (2026-10-28) — which blocks the page has and their data; nil from an older backend or a stub.
@@ -876,8 +881,12 @@ struct Entity: Identifiable, Codable {
         related: [String], version: Int, markdownContent: String,
         history: [EntityHistoryEntry], decayClass: DecayClass = .active,
         isOwner: Bool = false, pictureURL: String? = nil, pictureSource: String? = nil, quiet: Bool = false,
-        qualifier: String? = nil, displayName: String? = nil
+        qualifier: String? = nil, displayName: String? = nil,
+        mediaKind: String? = nil, origin: String? = nil, mediaChannel: String? = nil
     ) {
+        self.mediaKind = mediaKind
+        self.origin = origin
+        self.mediaChannel = mediaChannel
         self.id = id
         self.name = name
         self.type = type
@@ -1157,6 +1166,10 @@ struct GraphNode: Codable, Sendable {
     /// ROR-135 — a book's authors, for the graph's hover card ("A, B"). Only a book page has one; the server omits it
     /// otherwise, and an older backend never sends it.
     let byline: String?
+    /// ROR-138 — a media page's kind, the origin that brought it in and its channel or publication (omitted elsewhere).
+    let mediaKind: String?
+    let origin: String?
+    let mediaChannel: String?
 
     /// The name every list, the palette and the graph show (G227).
     var shownName: String { displayName ?? name }
@@ -1168,7 +1181,7 @@ struct GraphNode: Codable, Sendable {
         case degree, isHub, hasPending, memberCount, hubId
         case observers, contexts, isFacet, parentId, context
         case summary, contentHash, hasLogo, decayClass, isOwner, aliases
-        case picture, pictureSource, lastReferenced, quiet, qualifier, displayName, byline
+        case picture, pictureSource, lastReferenced, quiet, qualifier, displayName, byline, mediaKind, origin, mediaChannel
     }
 
     init(
@@ -1181,9 +1194,13 @@ struct GraphNode: Codable, Sendable {
         decayClass: DecayClass = .active, isOwner: Bool = false,
         aliases: [String] = [], picture: String? = nil,
         pictureSource: String? = nil, lastReferenced: String? = nil, quiet: Bool = false,
-        qualifier: String? = nil, displayName: String? = nil, byline: String? = nil
+        qualifier: String? = nil, displayName: String? = nil, byline: String? = nil,
+        mediaKind: String? = nil, origin: String? = nil, mediaChannel: String? = nil
     ) {
         self.byline = byline
+        self.mediaKind = mediaKind
+        self.origin = origin
+        self.mediaChannel = mediaChannel
         self.id = id
         self.name = name
         self.type = type
@@ -1250,5 +1267,8 @@ struct GraphNode: Codable, Sendable {
         qualifier = (try? c.decodeIfPresent(String.self, forKey: .qualifier)) ?? nil
         displayName = (try? c.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
         byline = (try? c.decodeIfPresent(String.self, forKey: .byline)) ?? nil
+        mediaKind = (try? c.decodeIfPresent(String.self, forKey: .mediaKind)) ?? nil
+        origin = (try? c.decodeIfPresent(String.self, forKey: .origin)) ?? nil
+        mediaChannel = (try? c.decodeIfPresent(String.self, forKey: .mediaChannel)) ?? nil
     }
 }

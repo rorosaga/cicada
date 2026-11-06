@@ -21,6 +21,9 @@ struct ClustersPage: View {
     @State private var labels: Set<String> = []
     /// Owner 2026-10-20 — "we can filter looks inside the entities page": only the pages that show a look.
     @State private var onlyWithLooks = false
+    /// ROR-138 — Media's kinds shown (empty = every kind but unmentioned feed items) and the channel grouping.
+    @State private var mediaKinds: Set<String> = []
+    @State private var groupByChannel = false
     /// The Looks tab (review of #384): every look the person saved, as tiles, searchable by words and by picture.
     @State private var showLooks = false
     @State private var looksQuery = ""
@@ -73,12 +76,13 @@ struct ClustersPage: View {
     private var looksCache: LooksCache { .shared }
 
     private var isFiltered: Bool {
-        !labels.isEmpty || onlyWithLooks || graphVM.filter.types.count < EntityType.selectableCases.count
+        !labels.isEmpty || onlyWithLooks || !mediaKinds.isEmpty || groupByChannel || graphVM.filter.types.count < EntityType.selectableCases.count
     }
 
     var body: some View {
         let filtered = ClustersModel.filtered(graphVM.entities, types: graphVM.filter.types, labels: labels,
-                                              withLooks: onlyWithLooks ? LooksCache.shared.pagesWithLooks : nil)
+                                              withLooks: onlyWithLooks ? LooksCache.shared.pagesWithLooks : nil,
+                                              mediaKinds: mediaKinds, groupByChannel: groupByChannel)
         let groups = ClustersModel.groups(filtered)
         let found = ClustersModel.matches(query: findOpen ? query : "", within: filtered) {
             graphVM.clusterSearchIndex().rank($0)
@@ -102,7 +106,11 @@ struct ClustersPage: View {
                                              typeCounts: Dictionary(grouping: graphVM.entities, by: \.type)
                                                  .mapValues(\.count),
                                              expandAll: $expandAll, onlyWithLooks: $onlyWithLooks,
-                                             looksCount: LooksCache.shared.pagesWithLooks.count)
+                                             looksCount: LooksCache.shared.pagesWithLooks.count,
+                                             mediaKinds: $mediaKinds,
+                                             kindCounts: Dictionary(graphVM.entities.compactMap(\.mediaKind).map { ($0, 1) },
+                                                                      uniquingKeysWith: +),
+                                             groupByChannel: $groupByChannel)
                         }
                 }
             }
@@ -170,6 +178,7 @@ struct ClustersPage: View {
             ReaderColumn().focused($focus, equals: .reader)
         }
         .background(CicadaTheme.bgBase)
+        .environment(\.clusterShowsChannel, groupByChannel)
         // The looks' pages, for the View menu's "Only pages with looks": read on appear and again when the menu opens
         // (an ETag makes an unchanged answer a 304; owner 2026-10-20).
         .task(id: viewMenuOpen) { await LooksCache.shared.refresh() }

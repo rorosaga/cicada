@@ -475,7 +475,10 @@ enum SourceCatalog {
             || (entry.id == "youtube" && savedListsOn.contains("youtube"))
             // G89: and for Substack's lists (`savedListsOn` holds "substack" then).
             || (entry.id == substackId && savedListsOn.contains(substackId))
-        if agentReads { return localAgent ? (.connected, true) : (.waitingForAgent, false) }
+        if agentReads {
+            let read = lastSync(for: entry, channels: channels, overview: overview) != nil
+            return localAgent && read ? (.connected, true) : (.waitingForAgent, false)
+        }
         return (.off, false)
     }
 

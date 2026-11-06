@@ -294,6 +294,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 byline=book_byline(fm),
                 media_kind=media_kinds.kind_of(fm),
                 origin=media_kinds.origin_of(fm) if media_kinds.kind_of(fm) else None,
+                media_channel=media_kinds.channel_of(fm) if media_kinds.kind_of(fm) else None,
             )
         )
         raw_sources = fm.get("sources")

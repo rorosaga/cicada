@@ -2552,13 +2552,14 @@ class GraphNode(CamelModel):
     # page (and when absent), like an absent picture, so the largest snapshot pays only for its media pages.
     media_kind: Optional[str] = None
     origin: Optional[str] = None
+    media_channel: Optional[str] = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_picture(self, handler) -> dict[str, Any]:
         data = handler(self)
         if isinstance(data, dict):
             for key in ("picture", "pictureSource", "picture_source", "qualifier", "displayName", "display_name",
-                        "byline", "mediaKind", "media_kind", "origin"):
+                        "byline", "mediaKind", "media_kind", "origin", "mediaChannel", "media_channel"):
                 if key in data and data[key] is None:
                     del data[key]
             if data.get("quiet") is False:

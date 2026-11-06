@@ -31,6 +31,13 @@ def origin_of(fm: dict) -> str | None:
     return origin or None
 
 
+def channel_of(fm: dict) -> str | None:
+    """The channel or publication a page came from, as its ``media.channel`` names it (a YouTube channel, a Substack
+    publication); None when it names none. A name only — no picture is fetched for it (`storage.md`, pictures)."""
+    channel = " ".join(str(_media(fm).get("channel") or "").split())[:80]
+    return channel or None
+
+
 def kind_of(fm: dict) -> str | None:
     """The kind of a ``media`` page; None for every other page."""
     fm = fm or {}
