@@ -90,9 +90,9 @@ enum OnboardingNav {
 
 /// R-OB1 — the frame's geometry (F-02's board: pane 540, column padding 64, topbar 52, foot 36 from the bottom).
 enum OnboardingLayout {
-    /// The pane is the room's close view, floor to wall, edge to edge (ROR-118): 664 pt at 1x is 83 lattice columns at
-    /// 8 pt (`OnboardingRoomLayout`), so the room is never a strip floating in a wide ground.
-    static let pane: CGFloat = 664
+    /// The pane is the room whole, floor to wall, edge to edge (ROR-118): 560 pt at 1x is 112 lattice columns at
+    /// 5 pt (`OnboardingRoomLayout`), so the room is never a strip floating in a wide ground.
+    static let pane: CGFloat = 560
     /// The step's headline sits this far under the topbar on every step, and the foot on the same line at the bottom,
     /// so nothing moves between steps (ROR-118 round 2).
     static let stepTop: CGFloat = 44

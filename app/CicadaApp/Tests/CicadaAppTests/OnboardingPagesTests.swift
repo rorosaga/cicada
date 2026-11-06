@@ -52,7 +52,7 @@ final class OnboardingPagesTests: XCTestCase {
         XCTAssertEqual(OnboardingPage.permissions.roomMood, .reading)
         XCTAssertEqual(OnboardingPage.agents.roomMood, .happy)
         XCTAssertEqual(OnboardingPage.done.roomMood, .happy)
-        XCTAssertEqual(OnboardingRoomLayout.paneCell(windowWidth: 1440, scale: 1), 8, "83 columns at 8 pt, floor to wall")
+        XCTAssertEqual(OnboardingRoomLayout.paneCell(windowWidth: 1440, scale: 1), 5, "112 columns at 5 pt, every prop whole")
         XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 800), 5)
         XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 960), 6, "960 × 384 over the 960 pt card")
         XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 2000), 6)
@@ -89,9 +89,9 @@ final class OnboardingPagesTests: XCTestCase {
 
     /// R-OB1 — the painting gives way before the column does, and goes rather than become a sliver.
     func testThePaneShrinksThenGoesAndTheColumnNeverDropsBelowItsMinimum() {
-        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1440, scale: 1), 664)
-        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1200, scale: 1), 498)
-        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1000, scale: 1), 332)
+        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1440, scale: 1), 560)
+        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1200, scale: 1), 560)
+        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1000, scale: 1), 336)
         XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 800, scale: 1), 0)
         for scale in stride(from: CGFloat(0.8), through: 1.4001, by: 0.1) {
             for width in [CGFloat(800), 1000, 1200, 1440, 1800] {

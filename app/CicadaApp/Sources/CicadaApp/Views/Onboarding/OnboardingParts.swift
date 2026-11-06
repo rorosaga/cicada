@@ -98,7 +98,7 @@ struct OnboardingRowLine<Trailing: View, Below: View>: View {
         }
         .padding(.vertical, CicadaTheme.spacingSM)
         .padding(.horizontal, CicadaTheme.spacingMD)
-        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(80), alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(92), alignment: .leading)
     }
 }
 
@@ -199,6 +199,62 @@ struct OnboardingLink: View {
             .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             .padding(.horizontal, CicadaTheme.spacingSM)
             .frame(height: CicadaTheme.scaled(40))
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgSelected : .clear))
+        }
+        .buttonStyle(.cicadaPlain)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+    }
+}
+
+/// A way forward that is not the step's one filled action (ROR-118 round 4): the neutral button's material (`bgButton`
+/// and a resting ring, DR-40) at the large Continue's height, so *Try the demo* and *Not Maya? Change* read as buttons
+/// beside it and not as stray words. Only Continue is filled; this one is outlined.
+struct OnboardingOutlinedButton: View {
+    let title: String
+    var systemImage: String? = nil
+    var height: CGFloat = 40
+    let action: () -> Void
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let shape = CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+        Button(action: action) {
+            HStack(spacing: CicadaTheme.scaled(6)) {
+                if let systemImage { Image(systemName: systemImage).font(CicadaTheme.font(size: 13, weight: .medium)) }
+                Text(title).font(CicadaTheme.font(size: 16, weight: .medium))
+            }
+            .foregroundStyle(CicadaTheme.textPrimary)
+            .padding(.horizontal, CicadaTheme.scaled(16))
+            .frame(height: CicadaTheme.scaled(height))
+            .background(shape.fill(hovering ? CicadaTheme.bgButtonHover : CicadaTheme.bgButton))
+            .ringed(in: shape)
+        }
+        .buttonStyle(.cicadaPlain)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+    }
+}
+
+/// The way out of the whole flow (ROR-118 round 4): *Set up later* (*Close* on a rerun) with a close mark, in the
+/// window's top corner on every step that has one — the place a window's own exit lives — so it is never mistaken
+/// for *Skip this step*, which sits in the foot beside Continue and only moves on.
+struct OnboardingLeaveLink: View {
+    let title: String
+    let action: () -> Void
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: CicadaTheme.scaled(6)) {
+                Text(title).font(CicadaTheme.font(size: 15, weight: .medium))
+                Image(systemName: "xmark").font(CicadaTheme.font(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+            .padding(.horizontal, CicadaTheme.spacingSM)
+            .frame(height: CicadaTheme.scaled(36))
             .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgSelected : .clear))
         }
         .buttonStyle(.cicadaPlain)

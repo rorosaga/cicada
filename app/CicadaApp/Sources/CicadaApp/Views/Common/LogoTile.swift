@@ -57,8 +57,14 @@ struct LogoTile: View {
             Image(nsImage: icon).resizable().interpolation(.high).scaledToFit()
                 .frame(width: mark, height: mark)
         } else if let logo, LogoImage.exists(name: logo) {
-            LogoImage(name: logo, size: mark)
-                .clipShape(CicadaTheme.shape(radius * (mark / tile)))
+            if LogoSet.fullBleed.contains(logo) {
+                // A vendor that published its mark as a finished icon (its own square or squircle ground) fills the
+                // tile: set in the padded mark box it read as a dark or white tile inside a tile (ROR-118 round 4).
+                LogoImage(name: logo, size: tile).clipShape(CicadaTheme.shape(radius))
+            } else {
+                LogoImage(name: logo, size: mark)
+                    .clipShape(CicadaTheme.shape(radius * (mark / tile)))
+            }
         } else if !name.isEmpty, systemFallback == Self.monogramFallback {
             Text(LogoImage.monogram(for: name))
                 .font(CicadaTheme.font(size: mark * 0.5, weight: .semibold))
@@ -83,6 +89,9 @@ enum LogoSet {
         "devin", "warp", "amp", "instinct", "openrouter", "fireworks", "deepinfra", "together", "groq", "mistral",
         "t3",   // G228 follow-up (2026-10-29): T3 Code's own mark, from its repository at a pinned commit
     ]
+    /// Marks the vendor published as a finished icon with its own ground (`opencode`: a dark square; `hermes`: a white
+    /// squircle). They fill the tile edge to edge; a bare glyph keeps its padding. The files are untouched (DR-52).
+    static let fullBleed: Set<String> = ["opencode", "hermes"]
     static let sourceMarks: [String] = [
         "x", "instagram", "youtube", "linkedin", "reddit", "tiktok", "github", "scholar", "telegram", "whatsapp",
         "spotify", "pinterest", "chrome", "firefox", "arc", "brave", "rss", "gmail", "google-calendar", "wispr",

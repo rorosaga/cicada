@@ -35,7 +35,7 @@ final class SourcesDefaultsCalendarTests: XCTestCase {
         let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first {
             $0.path.hasSuffix("Views/Onboarding/OnboardingView.swift") })
         let view = try String(contentsOf: file, encoding: .utf8)
-        XCTAssertTrue(view.contains("TextButton(title: Copy.onboardingSkip) { skip() }"),
+        XCTAssertTrue(view.contains("OnboardingLink(title: Copy.onboardingSkip) { skip() }"),
                       "the foot's Skip goes through skip(), never advance()")
         let start = try XCTUnwrap(view.range(of: "private func skip() {"))
         let body = String(view[start.upperBound...].prefix(400))

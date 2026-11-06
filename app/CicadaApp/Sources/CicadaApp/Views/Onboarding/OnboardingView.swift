@@ -114,6 +114,16 @@ struct OnboardingView: View {
                 } else {
                     card(size: geo.size)
                 }
+                if page.isSplit || page == .welcome {
+                    // Round 4: the way out of the whole flow, in the window's top corner on Welcome and every working
+                    // step, level with the progress; Skip this step (the foot) only moves on.
+                    OnboardingLeaveLink(title: mode == .rerun ? Copy.welcomeClose : Copy.welcomeSetUpLater,
+                                        action: mode == .rerun ? closeRerun : setUpLater)
+                        .disabled(busy)
+                        .frame(height: CicadaTheme.scaled(OnboardingLayout.topbarHeight))
+                        .padding(.trailing, CicadaTheme.scaled(OnboardingLayout.columnPadding) - CicadaTheme.spacingSM)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                }
                 if let vendor = seeHow {
                     // CIC8 — the Welcome's own picker (`welcomeChooseRequest`), which stages what is picked here.
                     ExportWalkthroughSheet(vendor: vendor, onClose: { seeHow = nil },
@@ -240,17 +250,16 @@ struct OnboardingView: View {
         }
     }
 
-    /// The foot (ROR-118 round 3): everything the person does to move is in this one band — Back and Set up later
-    /// (Close on a rerun) on the leading side, Skip and the one filled Continue on the trailing side, no key chip
-    /// (⏎ still advances). Skip and Continue both move on and write nothing of their own: what a step changed, a
-    /// click inside it already wrote.
+    /// The foot (ROR-118 rounds 3 and 4): what moves between steps and nothing else — Back on the leading side, *Skip
+    /// this step* and the one filled Continue on the trailing side, no key chip (⏎ still advances). Skip and Continue
+    /// both move on and write nothing of their own: what a step changed, a click inside it already wrote. The exit
+    /// from the whole flow (Set up later, Close on a rerun) is the top corner's (`OnboardingLeaveLink`), a different
+    /// place for a different act.
     private var foot: some View {
         HStack(spacing: CicadaTheme.spacingXS) {
             OnboardingLink(title: Copy.onboardingBack, leadingChevron: true) {
                 if let previous = page.previous { go(previous, .pointer) }
             }
-            OnboardingLink(title: mode == .rerun ? Copy.welcomeClose : Copy.welcomeSetUpLater,
-                           action: mode == .rerun ? closeRerun : setUpLater)
             Spacer(minLength: CicadaTheme.spacingSM)
             if page.skippable {
                 OnboardingLink(title: Copy.onboardingSkip) { skip() }
@@ -307,9 +316,7 @@ struct OnboardingView: View {
                                                                     editing: editingName),
                             busy: busy, failure: failure,
                             waitingDrops: ownerSaved ? 0 : intake.welcomeDrops.count,
-                            leaveTitle: mode == .rerun ? Copy.welcomeClose : Copy.welcomeSetUpLater,
-                            onGetStarted: { advance(.pointer) }, onTryDemo: tryDemo,
-                            onLeave: mode == .rerun ? closeRerun : setUpLater)
+                            onGetStarted: { advance(.pointer) }, onTryDemo: tryDemo)
             } else if page == .menuBar {
                 MenuBarStep(waiting: store.status.value?.waitingForSleep,
                             shownInMenuBar: menuBar?.introPhase == .done && menuBar?.isVisible == true, busy: busy,
@@ -580,15 +587,15 @@ private struct OnboardingTopbar: View {
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            HStack(spacing: CicadaTheme.scaled(5)) {
+            HStack(spacing: CicadaTheme.scaled(4)) {
                 ForEach(OnboardingPage.allCases, id: \.self) { p in
                     Button { onJump(p) } label: {
-                        // ROR-118: 5 pt, not 3, and every step reached reads in the secondary ink (the text ladder, §3.2),
-                        // so the way through is seen at a glance; the steps still to come keep a ring-strength track.
+                        // ROR-118 round 4: 18 × 4 pt, a short quiet bar (it was 36 × 6, 323 pt long); every step reached reads
+                        // in the secondary ink (the text ladder, §3.2), the steps still to come keep a ring-strength track.
                         Capsule()
                             .fill(p == page ? CicadaTheme.textPrimary
                                   : (p <= furthest ? CicadaTheme.textSecondary : CicadaTheme.ring(.input)))
-                            .frame(width: CicadaTheme.scaled(36), height: CicadaTheme.scaled(6))
+                            .frame(width: CicadaTheme.scaled(18), height: CicadaTheme.scaled(4))
                             .frame(height: CicadaTheme.scaled(20))
                             .contentShape(Rectangle())
                     }
@@ -597,8 +604,8 @@ private struct OnboardingTopbar: View {
                     .accessibilityLabel(Copy.onboardingStepOf(p.step))
                 }
             }
-            Text(Copy.onboardingStepOf(page.step)).font(CicadaTheme.font(size: 15, weight: .medium))
-                .foregroundStyle(CicadaTheme.textPrimary)
+            Text(Copy.onboardingStepOf(page.step)).font(CicadaTheme.font(size: 14, weight: .medium))
+                .foregroundStyle(CicadaTheme.textSecondary)
             if comingIn > 0 {
                 // DR-43 (round 3, 2026-10-20): what is still arriving is said in words alone, never a spinner beside them.
                 Text("·").font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)

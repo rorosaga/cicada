@@ -113,7 +113,7 @@ extension Copy {
 
     /// Welcome: what Cicada is, in one sentence.
     static let welcomeLine = "One memory on this Mac that every agent you use reads and adds to."
-    static let onboardingSkip = "Skip"
+    static let onboardingSkip = "Skip this step"
 
     /// Intelligence (ruling 36 D1): a signed-in plan is pre-selected and said in words, with what will run; a key is
     /// an equal option one click away; a local model is never pitched.

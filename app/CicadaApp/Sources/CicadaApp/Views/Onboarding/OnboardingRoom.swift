@@ -67,14 +67,14 @@ enum OnboardingRoomLayout {
         return max(1, min(maxCell, (width / CGFloat(RoomLattice.cols)).rounded(.down)))
     }
 
-    /// The pane shows the room's columns `cropStartCol ..< cropStartCol + cropCols` — most of the window, the plant,
-    /// the worm whole on its beanbag with room to spare on its left (round 3: the head and glasses no longer sit on
-    /// the edge), the clock and the mug, with a margin before the seam.
-    static let cropStartCol = 27
-    static let cropCols = 83
-    /// Points per cell in the pane at 1×; scales with the UI scale and steps down, whole, before the column would
-    /// drop below its minimum.
-    static let paneCellAt1x: CGFloat = 8
+    /// The pane shows the room's columns `cropStartCol ..< cropStartCol + cropCols` — round 4: every prop whole, the lamp,
+    /// the window, the plant, the worm on its beanbag, the clock and the mug, with a margin each side, so no object
+    /// is cut by the pane's edge on any step (round 3 cut the window, plant and lamp).
+    static let cropStartCol = 0
+    static let cropCols = 112
+    /// Points per cell in the pane at 1×: 5 is a 560 pt pane, 39% of a 1440 pt window, the column the rest. It scales
+    /// with the UI scale and steps down, whole, before the column would drop below its minimum.
+    static let paneCellAt1x: CGFloat = 5
 
     /// The working pages' pane cell: always whole points; 0 when the pane would be a sliver and goes (art only,
     /// DR-13).
