@@ -24,6 +24,7 @@ Only bank files are opened (``evidence.source_document``); transcripts under ``~
 """
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Callable
@@ -1163,6 +1164,100 @@ def rare_word_conversations(memory_path: Path, query: str, k: int) -> list[tuple
             return out
     except Exception as exc:  # noqa: BLE001 — a missing index is a leg fewer
         logger.debug(f"recall word leg: word index unavailable ({type(exc).__name__})")
+        return []
+
+
+#: The hook's stricter reading of "rare" (G207, 2026-11-06): a word in more than 1% of the passages finds nothing, and a
+#: turn past this length is a paste, not something the person said about the subject.
+UNREAD_COMMON_SHARE = 0.01
+UNREAD_TURN_CHARS = 1500
+#: The most of a message's rare-word weight a turn must hold, and how close together its words must sit.
+UNREAD_MIN_COVER = 0.6
+UNREAD_NEAR_CHARS = 240
+
+
+def _held_near(folded: str, pattern, need: int) -> set[str]:
+    """The most distinct words of ``pattern`` inside one window of :data:`UNREAD_NEAR_CHARS`, once it reaches ``need``."""
+    hits = [(m.start(), m.group(1)) for m in pattern.finditer(folded)]
+    best: set[str] = set()
+    for i, (at, _word) in enumerate(hits):
+        held = {w for pos, w in hits[i:] if pos - at <= UNREAD_NEAR_CHARS}
+        if len(held) > len(best):
+            best = held
+    return best if len(best) >= need else set()
+
+
+def rare_word_turns(memory_path: Path, query: str, k: int, *, recent: frozenset[str] = frozenset(),
+                    session_id: str | None = None, pool: int = 12) -> list[tuple[str, object, dict, str]]:
+    """``[(episode id, turn, frontmatter, text)]``: what the person themselves said in a conversation Sleep has not read
+    yet, about what ``query`` says (G207, 2026-11-06, the hook's leg): their own turn holding its rare words close
+    together, at most one per conversation, best first, at most ``k``. The other side of a chat repeats a message's
+    words but never did the thing; a long paste says every word somewhere. Never this session's own conversation, an
+    index-only record or a save with no reason. Engine-free; never raises; the query is never logged."""
+    from api.services import history_index, search_index
+
+    terms = sorted(search_terms(query))
+    if len(terms) < 2:
+        return []
+    try:
+        if search_index.ensure_fresh(memory_path) not in ("ready", "stale"):
+            return []
+        bits = search_index.ROW_BITS
+        with search_index.Reader(memory_path) as reader:
+            unread = reader.unread_episodes()
+            if not unread:
+                return []
+            conn = reader.conn
+            n = int(conn.execute("SELECT count(*) FROM pas").fetchone()[0])
+            cap = min(RECALL_DF_CAP, int(max(UNREAD_COMMON_SHARE * n, RECALL_COMMON_FLOOR)) + 1)
+            weights: dict[str, float] = {}
+            docs_of: dict[str, set[int]] = {}
+            for t in terms:
+                found = [int(r) for (r,) in conn.execute("SELECT rowid FROM pas WHERE pas MATCH ? LIMIT ?",
+                                                         (f'"{t}"*', cap))]
+                if found and len(found) < cap:
+                    weights[t] = math.log((n + 1) / (len(found) + 0.5))
+                    docs_of[t] = {r >> bits for r in found if (r >> bits) in unread}
+        need = min(RECALL_WORDS_HELD, len(weights))
+        if need < 2:
+            return []
+        total = sum(weights.values())
+        scored: dict[int, float] = {}
+        count: dict[int, int] = {}
+        for t, ids in docs_of.items():
+            for d in ids:
+                scored[d] = scored.get(d, 0.0) + weights[t]
+                count[d] = count.get(d, 0) + 1
+        order = sorted((d for d in scored if count[d] >= need), key=lambda d: (-scored[d], -d))[:pool]
+        pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(weights, key=len, reverse=True)) + ")")
+        found_turns: list[tuple[float, str, object, dict, str]] = []
+        for d in order:
+            ep = unread[d]
+            if ep in recent:
+                continue
+            doc = evidence.source_document(memory_path, ep)
+            if doc is None:
+                continue
+            fm, text = doc
+            if fm.get("processed") or history_index.is_index_only(fm):
+                continue
+            if session_id and str(fm.get("session_id") or "") == session_id:
+                continue
+            best: tuple[float, object] | None = None
+            for turn in evidence.turns(text, stamps=evidence.turn_stamps(fm), override=authorship.of(fm),
+                                       gaps=evidence.gap_ranges(fm, text)):
+                if turn.role != "user" or turn.end - turn.content_start > UNREAD_TURN_CHARS:
+                    continue
+                held = _held_near(text_fold.fold(text[turn.content_start:turn.end]), pattern, need)
+                score = sum(weights[t] for t in held)
+                if held and score >= UNREAD_MIN_COVER * total and (best is None or score > best[0]):
+                    best = (score, turn)
+            if best is not None:
+                found_turns.append((best[0], ep, best[1], fm, text))
+        found_turns.sort(key=lambda f: (-f[0], f[1]))
+        return [(ep, turn, fm, text) for _s, ep, turn, fm, text in found_turns[:k]]
+    except Exception as exc:  # noqa: BLE001 — a missing index is a leg fewer
+        logger.debug(f"unread turn leg: unavailable ({type(exc).__name__})")
         return []
 
 
