@@ -9,11 +9,8 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
-<<<<<<< HEAD
 | ROR-118 | UI climb round 1, shared parts (ROR-118): a clearer rail, the type ladder up a step with a lighter dark tertiary, the page name leading each list page, stronger scrims, a Settings panel that cues more below, pictures drawn on the first frame | PR open | pending | 2026-11-06 |
-=======
 | [G243](memory-evolution.md#g243) | Keep the Mac awake while Sleep reads, on power (off by default; `keepAwake` on `/sleep/run-options`; no root, drops with the backend). Wake-for-schedule and closed-lid not built; UI toggle waits for #659 | PR open | — | 2026-11-06 |
->>>>>>> b5ecac93 (Keep the Mac awake while Sleep reads, on power: a switch, off by default, no root (G243))
 | [G161](memory-evolution.md#g161) | An Apple Note reads as the note (ROR-15, part 1): headings, lists, checklists as far as Notes' HTML carries them, styles, tables and links, native and read-only, spans on the one standard; fetched at view time, in memory only, plain text on any mismatch or failure | Implemented, not yet seen on a real note | #638 | 2026-11-05 |
 | [G161](memory-evolution.md#g161) | A pinned Apple Note (ROR-15, part 2): listed first under "Pinned", read from Notes' store with Full Disk Access already held (`Z_PK` alone), kept outside the hash and the queue, and told to Stage 1 as one line for the model to judge | Implemented, not yet seen on a real store | #639 | 2026-11-05 |
 | [G161](memory-evolution.md#g161) | Open where it lives (ROR-111): one icon button on a source's item opens the note in Notes, the repository on GitHub, or a saved link, feed item or video in the browser; http(s) only, on the person's click; an item with no known place shows none | PR #630 | [#630](https://github.com/rorosaga/cicada/pull/630) | 2026-11-05 |
