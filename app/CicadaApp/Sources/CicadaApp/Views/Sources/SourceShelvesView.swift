@@ -14,44 +14,50 @@ enum SourceShelfLayout {
         shelves.filter { !$0.connected.isEmpty || !$0.addable.isEmpty }
     }
 
-    /// Connected cards: 3 across on a wide page. Tiles: 6 across, the old page's grid.
-    static let cardMinWidth: CGFloat = 300
+    /// Tiles: 6 across on a wide page, the old page's grid; a connected card is two tiles wide.
     static let tileMinWidth: CGFloat = 180
     static let gap: CGFloat = 12
 }
 
-/// Equal cells in rows: as many columns as fit the minimum width, every cell as wide as its column and every cell in a
-/// row as tall as the tallest, so a card with two titles and a card with one still make a clean grid.
+/// Equal cells in rows. Both grids on the page share one set of tile columns (as many as fit the minimum width, an even
+/// number), and a card spans two of them, so a card and a tile never stagger; every cell in a row is as tall as the
+/// tallest, so a card with two titles and a card with one still make a clean grid.
 private struct EqualGridLayout: Layout {
-    let minCell: CGFloat
+    let minTile: CGFloat
     let gap: CGFloat
+    /// How many tile columns a cell covers: 1 for a tile, 2 for a card.
+    let span: Int
 
-    private func columns(_ width: CGFloat) -> Int { max(1, Int((width + gap) / (minCell + gap))) }
+    private func tileColumns(_ width: CGFloat) -> Int { max(2, Int((width + gap) / (minTile + gap)) / 2 * 2) }
 
-    private func heights(_ subviews: Subviews, cell: CGFloat, n: Int) -> [CGFloat] {
-        stride(from: 0, to: subviews.count, by: n).map { start in
-            subviews[start..<min(start + n, subviews.count)]
-                .map { $0.sizeThatFits(.init(width: cell, height: nil)).height }.max() ?? 0
+    private struct Grid { let columns: Int; let cell: CGFloat }
+    private func grid(_ width: CGFloat) -> Grid {
+        let n = tileColumns(width)
+        let tile = (width - gap * CGFloat(n - 1)) / CGFloat(n)
+        return Grid(columns: n / span, cell: tile * CGFloat(span) + gap * CGFloat(span - 1))
+    }
+
+    private func heights(_ subviews: Subviews, _ g: Grid) -> [CGFloat] {
+        stride(from: 0, to: subviews.count, by: g.columns).map { start in
+            subviews[start..<min(start + g.columns, subviews.count)]
+                .map { $0.sizeThatFits(.init(width: g.cell, height: nil)).height }.max() ?? 0
         }
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? minCell
-        let n = columns(width)
-        let cell = (width - gap * CGFloat(n - 1)) / CGFloat(n)
-        let rows = heights(subviews, cell: cell, n: n)
+        let width = proposal.width ?? minTile * 2 + gap
+        let rows = heights(subviews, grid(width))
         return CGSize(width: width, height: rows.reduce(0, +) + gap * CGFloat(max(0, rows.count - 1)))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let n = columns(bounds.width)
-        let cell = (bounds.width - gap * CGFloat(n - 1)) / CGFloat(n)
-        let rows = heights(subviews, cell: cell, n: n)
+        let g = grid(bounds.width)
+        let rows = heights(subviews, g)
         var y = bounds.minY
         for (r, height) in rows.enumerated() {
-            for c in 0..<n where r * n + c < subviews.count {
-                subviews[r * n + c].place(at: CGPoint(x: bounds.minX + CGFloat(c) * (cell + gap), y: y),
-                                          anchor: .topLeading, proposal: .init(width: cell, height: height))
+            for c in 0..<g.columns where r * g.columns + c < subviews.count {
+                subviews[r * g.columns + c].place(at: CGPoint(x: bounds.minX + CGFloat(c) * (g.cell + gap), y: y),
+                                                  anchor: .topLeading, proposal: .init(width: g.cell, height: height))
             }
             y += height + gap
         }
@@ -134,8 +140,8 @@ struct SourceShelfSection: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             SectionLabel(shelf.shelf.title)
             if !shelf.connected.isEmpty {
-                EqualGridLayout(minCell: CicadaTheme.scaled(SourceShelfLayout.cardMinWidth),
-                                gap: CicadaTheme.scaled(SourceShelfLayout.gap)) {
+                EqualGridLayout(minTile: CicadaTheme.scaled(SourceShelfLayout.tileMinWidth),
+                                gap: CicadaTheme.scaled(SourceShelfLayout.gap), span: 2) {
                     ForEach(shelf.connected) { row in
                         SourceShelfRow(row: row, shelf: shelf.shelf, now: now) { open(.entry(row.id)) }
                             .id(SourcesSelection.entry(row.id))
@@ -143,8 +149,8 @@ struct SourceShelfSection: View {
                 }
             }
             if !shelf.addable.isEmpty {
-                EqualGridLayout(minCell: CicadaTheme.scaled(SourceShelfLayout.tileMinWidth),
-                                gap: CicadaTheme.scaled(SourceShelfLayout.gap)) {
+                EqualGridLayout(minTile: CicadaTheme.scaled(SourceShelfLayout.tileMinWidth),
+                                gap: CicadaTheme.scaled(SourceShelfLayout.gap), span: 1) {
                     ForEach(shelf.addable) { row in
                         SourceAddTile(row: row) { open(.entry(row.id)) }.id(SourcesSelection.entry(row.id))
                     }

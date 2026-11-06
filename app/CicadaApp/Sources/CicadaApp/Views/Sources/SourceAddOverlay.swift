@@ -94,8 +94,8 @@ struct SourceAddOverlay: View {
                 ForEach(groups, id: \.shelf) { group in
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                         SectionLabel(group.shelf.title)
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: CicadaTheme.scaled(SourceShelfLayout.gap), alignment: .topLeading),
-                                            GridItem(.flexible(), alignment: .topLeading)],
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: CicadaTheme.scaled(SourceShelfLayout.gap),
+                                                                     alignment: .topLeading), count: 3),
                                   alignment: .leading, spacing: CicadaTheme.scaled(SourceShelfLayout.gap)) {
                             ForEach(group.addable) { row in SourceAddTile(row: row) { open(row) } }
                         }
