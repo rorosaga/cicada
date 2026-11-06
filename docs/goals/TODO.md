@@ -1877,7 +1877,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     is still what the person's own choice resolves to (label and model). The job is a one-shot `DateTrigger` at the
     reset plus a minute, recorded in the run's sidecar so a restart re-arms it, and every guard is checked again at fire
     time; a guard that fails leaves the run paused and `autoContinue.blocked` says why. If the Mac slept through the
-    reset it fires on wake while still inside the 36 hours; keeping the Mac awake is not built.
+    reset it fires on wake while still inside the 36 hours; keeping the Mac awake is G243 (a run on power holds an assertion when the person's switch is on; no wake, no closed lid).
     **The rail.** `run(continue_from=…)` is called from exactly two places, the Continue route and
     `sleep_autocontinue` (`test_only_the_continue_route_and_this_module_may_pass_continue_from`); the scheduler never.
     **The honest limits.** The plan's percentage covers all use of the plan, not only Cicada's; a reset the person
@@ -1896,7 +1896,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     minutes; the after-import probe counts *readable* conversations (waiting minus parked), so a queue of only parked ones
     never fires an empty run every five minutes; only the person's Continue can resume a scheduled run, on the manual
     engine, which can be a plan (the button names the engine). **Not built:** a spending cap or a batch cap for scheduled
-    runs (owner, 2026-09-30: "no cap for now"), and "keep the Mac awake" — revisit on the first real bill an unattended drain produces.
+    runs (owner, 2026-09-30: "no cap for now"), and "keep the Mac awake" (built as G243, a switch, 2026-11-06) — revisit on the first real bill an unattended drain produces.
     *Refined 2026-09-30 (final review):* the "starts nothing" rule protects a pause **a person chose or can act on**;
     a scheduled run's pause nobody chose — the process went away (`restart`, every app quit without the launchd agent)
     or the scheduled engine failed (`engine`, once at least 6 hours old so an absent engine costs one call every few

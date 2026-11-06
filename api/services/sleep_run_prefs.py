@@ -21,6 +21,8 @@ id ``sleep-run``:
   the plan's limits, said where it can be turned off. Stored only as an explicit ``false`` (off); a
   machine that never set it — a new install, a bank that never chose — reads as on.
 
+* ``keep_awake`` — G243: off by default. While a run reads, the Mac does not sleep on power (``keep_awake``).
+
 A run snapshots all three when it starts, so a change applies to the next start or
 Continue and never to a run in flight.
 """
@@ -42,6 +44,7 @@ class RunOptions:
     reserve_pct: int | None = None
     scheduled_use_plan: bool = True
     spend_limit_usd: float | None = sleep_spend.DEFAULT_USD
+    keep_awake: bool = False
 
 
 def _entry(registry) -> dict:
@@ -66,6 +69,7 @@ def load(registry) -> RunOptions:
         reserve_pct=pct if isinstance(pct, int) and not isinstance(pct, bool) and pct in RESERVE_CHOICES else None,
         scheduled_use_plan=_switch(e, "scheduled_use_plan", default=True),
         spend_limit_usd=_spend_limit(e),
+        keep_awake=e.get("keep_awake") is True,
     )
 
 
@@ -93,7 +97,7 @@ def effective_batch_size(opts: RunOptions, settings) -> int:
 
 
 def write(registry, *, batch_size=..., continue_after_reset=..., reserve_pct=..., scheduled_use_plan=...,
-          spend_limit_usd=...) -> None:
+          spend_limit_usd=..., keep_awake=...) -> None:
     """Persist the fields that were passed (``...`` leaves one alone; ``None``
     clears ``batch_size`` / ``reserve_pct`` and turns the spending limit off). Callers validate first."""
     if spend_limit_usd is not ...:
@@ -107,3 +111,5 @@ def write(registry, *, batch_size=..., continue_after_reset=..., reserve_pct=...
     if scheduled_use_plan is not ...:
         # Stored both ways: an explicit off must outlive the default flipping on (2026-10-19).
         registry.set_pref(PREF_KEY, "scheduled_use_plan", bool(scheduled_use_plan))
+    if keep_awake is not ...:
+        registry.set_pref(PREF_KEY, "keep_awake", True if keep_awake else None)

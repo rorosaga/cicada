@@ -1867,6 +1867,18 @@ async def _flush_pending_commits_safely(memory_path: Path) -> None:
         logger.warning(f"Kept commits not landed: {type(e).__name__}: {e}")
 
 
+def _hold_awake_if_chosen(settings: Settings, cycle_id: str) -> None:
+    """G243: the person's "keep my Mac awake while Sleep reads" switch. Never fails a run."""
+    try:
+        from api.services import keep_awake, sleep_run_prefs
+        from api.services.connections.registry import get_registry
+
+        if sleep_run_prefs.load(get_registry(settings)).keep_awake:
+            keep_awake.acquire(cycle_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("keep-awake: not held (%s)", type(e).__name__)
+
+
 async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True, drain: bool = False,
               continue_from: dict | None = None, only_ids: list[str] | None = None,
               tail_only: bool = False, catch_up_for: str | None = None) -> None:
@@ -2004,6 +2016,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     outcome = _StageOutcome()
     window_refused = False
     try:
+        _hold_awake_if_chosen(settings, cycle_id)
         # status/writing are set above; no page is read, flushed or committed before writers are out.
         if not await _open_window(memory_path):
             window_refused = True
@@ -2040,7 +2053,8 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
         logger.error(f"Sleep cycle failed: {e}")
         logger.exception("Full traceback:")
     finally:
-        from api.services import cycle_usage
+        from api.services import cycle_usage, keep_awake
+        keep_awake.release(cycle_id)  # G243: on every exit path; the assertion also dies with this process
         cycle_usage.discard(cycle_id)  # bounded: a cycle that never finalized frees its windows
         # Spec §1: this runs on EVERY exit path — idle, aborted before Stage
         # 1, aborted after Stage 1, raised, or fully completed — so capturing

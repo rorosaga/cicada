@@ -4182,6 +4182,8 @@ class SleepRunOptions(CamelModel):
     # ROR-102: a run on a key stops at this many dollars (`sleep_spend`); null is the person's off.
     spend_limit_usd: Optional[float] = None
     spend_limit_choices: list[int] = Field(default_factory=list)
+    # G243: the Mac does not sleep on power while a run reads. Off by default; never wakes a sleeping Mac or holds a lid.
+    keep_awake: bool = False
 
 
 class SleepRunOptionsUpdate(CamelModel):
@@ -4191,6 +4193,7 @@ class SleepRunOptionsUpdate(CamelModel):
     reserve_pct: Optional[int] = None
     scheduled_use_plan: Optional[bool] = None
     spend_limit_usd: Optional[float] = None
+    keep_awake: Optional[bool] = None
 
 
 class SleepTriggerBody(BaseModel):
