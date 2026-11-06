@@ -18,6 +18,7 @@
 
 ## Current state and evidence
 
+- **2026-11-06 — Ask finds what a new memory holds (G148, G76; branch `prod/ask-small-bank`).** A word in over half the conversations ranked nothing, so a one-conversation bank had no words at all and Ask said nothing matches while recall found the turn. `COMMON_FLOOR` (5 conversations) stops that; a bank past ten conversations reads as before, the benchmarks' banks included. Found walking a stranger's path before the first Sleep.
 - **2026-11-06 — a conflict answer writes the value only the question held (G98, ROR-31; branch `conflict-off-page-value`).**
   "Both", a pick of the off-page value, "both" on a description question and a multi-valued dismissal each dropped a value;
   each now writes it. No bank write. Still open: a question closed because a later value won drops its off-page rival (G98 row).

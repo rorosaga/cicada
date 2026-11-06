@@ -370,3 +370,29 @@ def test_a_words_rarity_is_counted_over_conversations_not_watched_days(bank):
     assert "guitar" in found.weights
     assert found.episodes[0] == "ep_2025-09-01_001"
     assert not any(ep.startswith("ep_2025-08-") for ep in found.episodes)
+
+
+@pytest.mark.parametrize("count", [1, 2, 5])
+def test_a_new_memory_finds_what_was_just_said(tmp_path, count):
+    """A word said in every conversation of a small bank is still what tells it apart from nothing: a share alone made
+    all of a one-conversation bank's words common, so Ask answered "nothing matches" before the first Sleep."""
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir()
+    for i in range(1, count + 1):
+        _episode(memory, f"ep_2026-01-0{i}_001", [f"user: I am starting beta-project, a sourdough timer, part {i}."])
+    assert search_index.ensure_fresh(memory, wait=True) == "ready"
+    found = ask_sources.search(memory, "what is beta-project?")
+    assert len(found.episodes) == count
+
+
+def test_past_the_floor_a_word_in_most_conversations_is_still_common(tmp_path):
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir()
+    for i in range(1, 21):
+        _episode(memory, f"ep_2026-01-{i:02d}_001", [f"user: sourdough note {i}."])
+    assert search_index.ensure_fresh(memory, wait=True) == "ready"
+    common: set[str] = set()
+    weights, _, _ = ask_sources._lexical(memory, {"sourdough"}, common=common)
+    assert not weights and common == {"sourdough"}
