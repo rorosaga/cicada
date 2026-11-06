@@ -1589,6 +1589,17 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
      tres días" name days. English prompts are
      byte-identical except the judgement questions'. Measured: `docs/research/2026-10-17-memory-benchmarks.md`,
      "Judgements and Spanish".
+- **Every language, no dictionary (2026-11-06, G148).** The word index holds an unspaced run (kana, Han, Thai, Lao, Khmer,
+  Burmese) as one token, so a word inside it could never be found. `text_fold.unspaced_pairs` turns such a run into
+  overlapping character pairs on both sides (`pas.pairs`, `subject_terms`), and rarity decides which pairs count; there
+  is no per-language dictionary. `text_fold.term_pattern` is the one pattern over folded turns. `question_language` and
+  `text_language` return `"other"` for text with no function word of either list, so `by_meaning` holds and the meaning
+  leg carries it. **Measured** on one LoCoMo conversation held and asked in each language (40 questions, translations by
+  a model, unslept), Ask graded: de 35→45, ar 25→42.5, ja 0→42.5, zh 0→62.5; en 60, its reach and prompts unchanged. The
+  same questions over someone else's memory: 0 of 160 right. **Still language-bound:** `question_shape`, `named_days`,
+  `asked_about`, the inference and implied detectors and `text_fold`'s stopwords and stem are word lists; names and claims
+  tables have no pairs, only `pas`; Arabic clitics and Korean particles match by prefix alone; Sleep in other languages
+  is unmeasured.
 - **Implied facts, English over Spanish, names across languages (2026-10-20, G148, the gaps after #385).** No model in
   retrieval; measured in `docs/research/2026-10-17-memory-benchmarks.md`, "Implied facts and the record's language".
   1. *A fact the record only implies.* `ask_sources.asks_implied` (no model) reads a question worded as a fact whose

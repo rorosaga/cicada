@@ -80,7 +80,8 @@ DB_FILE = "search_index.db"
 # description is the page's words, never the person's; the bump rebuilds every index once.
 # "9": an agent's saved note's `docs.meta` carries `evidence_kind: agent` (ruling 50, `authorship.of`), so a hit in it
 # is the agent's words, never the person's; the bump rebuilds every index once.
-SCHEMA_VERSION = "10"
+# "11": `pas.pairs` holds the overlapping pairs of unspaced scripts (G148, `text_fold.unspaced_pairs`); every index rebuilds once.
+SCHEMA_VERSION = "11"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
@@ -112,7 +113,7 @@ _FTS_COLUMNS = {
     "med": "title, aliases, keywords, body",
     "clm": "title, aliases, keywords, payload UNINDEXED",
     "epi": "title, keywords",
-    "pas": "body, s UNINDEXED, e UNINDEXED",
+    "pas": "body, pairs, s UNINDEXED, e UNINDEXED",
     "inb": "title, aliases, keywords, body",
     "blg": "title, aliases, keywords, body",
 }
@@ -121,7 +122,7 @@ WEIGHTS = {
     "med": "10.0, 9.0, 7.0, 4.0",
     "clm": "10.0, 9.0, 7.0, 0.0",
     "epi": "10.0, 7.0",
-    "pas": "4.0, 0.0, 0.0",
+    "pas": "4.0, 4.0, 0.0, 0.0",
     "inb": "10.0, 9.0, 7.0, 4.0",
     "blg": "10.0, 9.0, 7.0, 4.0",
 }
@@ -583,8 +584,8 @@ def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
     text = evidence.mask_gaps(body, gaps)
     for n, (s, e) in enumerate(passage_spans(body)[:MAX_ROWS_PER_DOC], start=1):
         conn.execute(
-            "INSERT INTO pas(rowid, body, s, e) VALUES (?, ?, ?, ?)",
-            ((doc_id << ROW_BITS) | n, text[s:e], s, e),
+            "INSERT INTO pas(rowid, body, pairs, s, e) VALUES (?, ?, ?, ?, ?)",
+            ((doc_id << ROW_BITS) | n, text[s:e], " ".join(text_fold.unspaced_pairs(text_fold.fold(text[s:e]))), s, e),
         )
 
 

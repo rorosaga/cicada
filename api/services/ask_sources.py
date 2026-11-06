@@ -183,12 +183,9 @@ def _who(turn, fm: dict, owner_name: str | None) -> str:
 
 def _first_match(text: str, terms: set[str]) -> int | None:
     """Where the first word holding one of ``terms`` starts: the word itself, or a longer form of it (as the word
-    index matches a prefix)."""
-    for m in re.finditer(r"\w+", text):
-        word = text_fold.fold(m.group(0))
-        if text_fold.stem(word) in terms or any(len(t) >= 4 and word.startswith(t) for t in terms):
-            return m.start()
-    return None
+    index matches a prefix); a pair of an unspaced script, where it first stands."""
+    found = _match_starts(text, terms)
+    return found[0] if found else None
 
 
 def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name: str | None = None,
@@ -328,11 +325,15 @@ UNREAD_PASSAGE_CHARS = 500
 def _match_starts(text: str, terms: set[str]) -> list[int]:
     """Where every word holding one of ``terms`` starts (:func:`_first_match`'s rule), in order."""
     out: list[int] = []
+    unspaced = {t for t in terms if text_fold.is_unspaced(t)}
+    if unspaced:
+        folded, back = text_fold.fold_with_map(text)
+        out = [back[m.start()] for m in text_fold.term_pattern(unspaced).finditer(folded)]
     for m in re.finditer(r"\w+", text):
         word = text_fold.fold(m.group(0))
         if text_fold.stem(word) in terms or any(len(t) >= 4 and word.startswith(t) for t in terms):
             out.append(m.start())
-    return out
+    return sorted(set(out))
 
 
 def _read_more(body: str, terms: set[str], clipped: str, deep: dict) -> str | None:
@@ -938,8 +939,15 @@ _EN_OPENERS = frozenset("what which who whom whose when where why how is are was
                         "should will have has had am".split())
 
 
+#: A language the word lists here were not written for (2026-11-06): the meaning leg, which has none, carries it.
+LANGUAGE_OTHER = "other"
+#: In Latin letters, a passage this long with no function word of either list is another language; a shorter one may
+#: be a name and a number.
+OTHER_MIN_WORDS = 20
+
+
 def question_language(question: str) -> str:
-    """``"es"`` for a Spanish question, else ``"en"`` — the language the shape detectors and the word index's stemming
+    """``"es"`` for a Spanish question, :data:`LANGUAGE_OTHER` for one with no function word of either list, else ``"en"`` — the language the shape detectors and the word index's stemming
     were written for. English when it opens with an English question word or auxiliary and has no "¿"; otherwise
     Spanish when its Spanish function words outnumber its English ones (an opening "¿" breaks a tie). An article or
     "de"/"y" next to a capitalised word is part of a name (review of #385: "the house at Los Olivos") and counts for
@@ -959,6 +967,8 @@ def question_language(question: str) -> str:
             es += 1
         elif w in _EN_WORDS:
             en += 1
+    if not es and not en and "¿" not in text:
+        return LANGUAGE_OTHER
     return "es" if es > en or ("¿" in text and es >= en) else "en"
 
 
@@ -1229,7 +1239,7 @@ def rare_word_turns(memory_path: Path, query: str, k: int, *, recent: frozenset[
                 scored[d] = scored.get(d, 0.0) + weights[t]
                 count[d] = count.get(d, 0) + 1
         order = sorted((d for d in scored if count[d] >= need), key=lambda d: (-scored[d], -d))[:pool]
-        pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(weights, key=len, reverse=True)) + ")")
+        pattern = text_fold.term_pattern(weights)
         found_turns: list[tuple[float, str, object, dict, str]] = []
         for d in order:
             ep = unread[d]
@@ -1434,7 +1444,7 @@ def _pick_ends(memory_path: Path, ends: Ends, terms: set[str], weights: dict[str
         w = ranked[i][1]
         if not w:
             return None
-        pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(w, key=len, reverse=True)) + ")")
+        pattern = text_fold.term_pattern(w)
         found = _scored_turns(memory_path, [ep], pattern, w, {}, 1)
         return min(found, key=lambda c: (-c[0], c[2]))[2] if found else None
 
@@ -1516,10 +1526,13 @@ MEANING_EXTRA_CHARS = 800
 
 
 def text_language(text: str) -> str:
-    """``"es"`` when a text's Spanish function words outnumber its English ones, else ``"en"`` — a passage's language,
+    """``"es"`` when a text's Spanish function words outnumber its English ones, :data:`LANGUAGE_OTHER` with neither, else ``"en"`` — a passage's language,
     cheaply (no model)."""
     words = text_fold.words(text)
-    return "es" if sum(w in _ES_WORDS for w in words) > sum(w in _EN_WORDS for w in words) else "en"
+    es, en = sum(w in _ES_WORDS for w in words), sum(w in _EN_WORDS for w in words)
+    if not es and not en and (len(words) >= OTHER_MIN_WORDS or any(c.isalpha() and ord(c) > 0x24f for c in text)):
+        return LANGUAGE_OTHER
+    return "es" if es > en else "en"
 
 
 def _other_language(passages: dict[str, list[str]], lang: str) -> bool:
@@ -1750,7 +1763,7 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
     if weights:
         # A turn holds a word as the word index found it: at a word's start, any ending ("decid" meets "decided" and
         # "deciding", as `"decid"*` did) — one pattern over the turn's folded text, longest first.
-        pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True)) + ")")
+        pattern = text_fold.term_pattern(terms)
         candidates = _scored_turns(memory_path, found.episodes, pattern, weights, docs, max_episodes)
     else:
         pattern, candidates = None, []
@@ -1779,8 +1792,7 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         for pick in found.ends:
             if pick.episode is None or not pick.weights:
                 continue
-            own = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(pick.weights, key=len, reverse=True))
-                             + ")")
+            own = text_fold.term_pattern(pick.weights)
             mine: dict[str, tuple] = {}
             turns_e = _scored_turns(memory_path, [pick.episode], own, pick.weights, mine, 1)
             docs.update({k: v for k, v in mine.items() if k not in docs})
