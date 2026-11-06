@@ -20,6 +20,11 @@ frontmatter through ``bank_index`` (no body, no claims, no model, nothing stored
 
 The person's own page is always the most used (1.0); every other score is scaled into ``[0, 1]`` against the
 busiest page. A question about two pages (a duplicate pair) takes the busier side's score.
+
+:func:`lately` is apart from ``scores`` (Rodrigo, 2026-11-06: "<a-person> and <another> have come up a lot lately. Thats
+why recency is important"). ``scores`` holds a lifetime, so a person said in three conversations this week stays far under
+a page said in two hundred over the years. ``lately`` counts only recent conversations, each by how long ago it was said: the id's day is the conversation's own (ruling 34), never
+``last_referenced``, which an inbox answer or a sync also bumps, and a memory export entry or feed item is no mention.
 """
 from __future__ import annotations
 
@@ -30,9 +35,14 @@ import time
 from datetime import date
 from pathlib import Path
 
-from api.services import bank_index
+from api.services import bank_index, episode_ids, episode_time
 
 HALF_LIFE_DAYS = 90
+#: A conversation counts half after this long in :func:`lately`. Judgment: "this week" counts nearly whole, last month
+#: a quarter.
+LATELY_HALF_LIFE_DAYS = 14
+#: Older than this a conversation counts under 5% and no header is read for it: the bank's history stays unread.
+LATELY_WINDOW_DAYS = 60
 LINK_WEIGHT = 0.25
 #: The ledger's enum for a score (G113: ids and enums only, never a number that could fingerprint a page).
 BUCKETS = (("high", 0.5), ("mid", 0.15), ("low", 0.0))
@@ -42,6 +52,7 @@ MAX_AGE_S = 60.0
 
 _LOCK = threading.Lock()
 _CACHE: dict[str, tuple[tuple, dict[str, float], float]] = {}
+_LATELY: dict[str, tuple[tuple, dict[str, float], float]] = {}
 
 
 def _day(value) -> date | None:
@@ -101,6 +112,59 @@ def scores(memory_path: Path, *, today: date | None = None) -> dict[str, float]:
     return out
 
 
+def said_lately(said_days, today: date) -> float:
+    """How many conversations a page was said in on ``said_days``, each counted by its age: today 1, two weeks ago .5."""
+    return sum(0.5 ** (max(0, (today - d).days) / LATELY_HALF_LIFE_DAYS) for d in said_days)
+
+
+def lately(memory_path: Path, *, today: date | None = None) -> dict[str, float]:
+    """``{page id: [0, 1]}`` for the pages said within :data:`LATELY_WINDOW_DAYS`; a page not listed is 0. Log-scaled
+    against the page said most lately, as :func:`scores` is against the busiest: a plain share saturates in a bank with
+    thousands of conversations (measured on a real one, the ten most-said pages all read .98 or more and their questions
+    fell). Cached like :func:`scores`. Only a conversation inside the window has its header read, once."""
+    memory_path = Path(memory_path)
+    today = today or date.today()
+    stamp = (_dir_mtime(memory_path / "entities"), today.isoformat())
+    key = str(memory_path)
+    now = time.monotonic()
+    with _LOCK:
+        hit = _LATELY.get(key)
+        if hit is not None and (hit[0] == stamp or (hit[0][1] == stamp[1] and now - hit[2] < MAX_AGE_S)):
+            return hit[1]
+    timed: dict[str, date | None] = {}
+
+    def said(episode: str) -> date | None:
+        if episode not in timed:
+            parsed = episode_ids.parse_episode_id(episode)
+            day = _day(parsed[0]) if parsed else None
+            if day is not None and (today - day).days > LATELY_WINDOW_DAYS:
+                day = None
+            elif day is not None:
+                f = bank_index.file(memory_path, "episodes", f"{episode}.md")
+                if f is not None and not episode_time.counts_as_activity(f.frontmatter):
+                    day = None
+            timed[episode] = day
+        return timed[episode]
+
+    out: dict[str, float] = {}
+    for f in bank_index.files(memory_path, "entities"):
+        fm = f.frontmatter or {}
+        raw = fm.get("source_episodes")
+        if str(fm.get("status") or "") == "dropped" or not isinstance(raw, list):
+            continue
+        days = [d for d in (said(e) for e in {str(x).strip() for x in raw}) if d is not None]
+        if days:
+            out[f.stem] = math.log2(1 + said_lately(days, today))
+    from api.services import everyday_names
+
+    owner = everyday_names.owner_id(memory_path)
+    top = max((v for k, v in out.items() if k != owner), default=0.0)
+    out = {k: (min(1.0, v / top) if top > 0 else 0.0) for k, v in out.items()}
+    with _LOCK:
+        _LATELY[key] = (stamp, out, now)
+    return out
+
+
 def _dir_mtime(directory: Path) -> int:
     """The entities directory's own mtime: one stat, not a scan of 8k pages. Every page write is atomic (a temp file
     renamed into place, the storage rail), so each one moves it; a hand edit in place may not, and then the order is
@@ -129,3 +193,4 @@ def reset() -> None:
     """Forget every cached table (tests)."""
     with _LOCK:
         _CACHE.clear()
+        _LATELY.clear()
