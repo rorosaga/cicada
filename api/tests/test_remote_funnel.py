@@ -406,7 +406,7 @@ def test_no_test_can_reach_a_tailscale_it_did_not_make(tmp_path, monkeypatch):
 
 def test_only_one_place_builds_it_and_only_the_route_runs_it():
     api = Path(reach.__file__).parents[1]
-    sources = {p: p.read_text() for p in api.rglob("*.py") if "tests" not in p.parts and "vendor" not in p.parts}
+    sources = {p: p.read_text() for p in api.rglob("*.py") if not {"tests", "vendor", ".venv"} & set(p.parts)}
     assert [p.name for p, s in sources.items() if '"funnel", "--bg"' in s] == ["reach.py"]
     assert sorted(p.name for p, s in sources.items() if "run_funnel(" in s) == ["reach.py", "remote.py"]
     assert not any('"up"' in s.split("def run_funnel")[1] for p, s in sources.items() if p.name == "reach.py")

@@ -166,6 +166,21 @@ def _default_cicada_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _off_switches_stay_in_their_test():
+    """A benchmark's `main()` turns these off for its own process with `os.environ.setdefault`. Called from a test, that
+    silently turned reads and capture off for every test after it in the run, which is why `test_question_order` failed in
+    a full run and passed alone."""
+    names = ("CICADA_TELEMETRY", "CICADA_CAPTURE", "CICADA_RECALL")
+    before = {name: os.environ.get(name) for name in names}
+    yield
+    for name, value in before.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+
+@pytest.fixture(autouse=True)
 def _no_real_agent_home(tmp_path, monkeypatch):
     """G138: the handshake and GET /skills/recommended look for SKILL.md files
     and plugin ids under the agents' home. The suite must never read the

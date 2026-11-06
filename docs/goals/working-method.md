@@ -40,7 +40,7 @@ list is what a reviewer checks:
 | Suite | Command | Expected |
 |---|---|---|
 | Crucial tier | `make test-crucial` | **0 failures** — 247 backend tests in ~16 s, 47 Swift tests in ~4 s (+ build), 2026-10-19 |
-| Dev CI | `.github/workflows/dev-ci.yml` (`make test-crucial-backend` on `ubuntu-latest`) | **0 failures** — 258 backend tests in ~32 s, ~1.5 min with the venv, 2026-10-22 |
+| Dev CI | `.github/workflows/dev-ci.yml` (`make test-crucial-backend`, then the whole backend suite in six shards, on `ubuntu-latest`) | **0 failures** — crucial ~2 min; whole suite 16,500+ tests, slowest shard ~9 min with the venv, 2026-11-06. `swift-lint` takes 4-7 min on a PR, so a PR waits ~2 min longer than before |
 | Bench tier | `make test-bench` | 12 tests, ~50 s, 2026-10-19: **1 known failure**, `test_projects_bench.py` (the 2,500-page project list's p95 is ~230 ms against its 80 ms budget; it was an unrun `CICADA_BENCH=1` opt-in until the marker). Run on a quiet machine. Every budget is CPU time with the wall under 4×, timed with the heap frozen out of the collector (`api/tests/_bench.py`: `measure`, `Timer`, `frozen`), so it holds inside the full suite too (2026-10-29) |
 | Backend | `api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` | October 5 audit on `4264e297`: 6,016 passed, **1 known G185 failure**, 1 skipped; rerun for the change |
 | App | `cd app/CicadaApp && swift test` | **0 failures** |
@@ -118,7 +118,13 @@ Sleep cycle (Claude plan, haiku), the CLI and a second copy of the app (a per-ru
 feature with its recipe. `--checkout <path>` runs another worktree's branch. Use it instead of driving the person's
 app or backend.
 
-**CI on `dev` (2026-10-22).** `.github/workflows/dev-ci.yml` runs the backend half of the crucial tier on every push to
+**The whole suite on CI (2026-11-06).** A merge of two PRs put an `UnboundLocalError` on `dev` that 27 tests could see, and
+no CI job ran any of them. `backend-shard` now runs every backend test file except the `bench` budgets, on every push and PR,
+split by `api/tests/_ci_shard.py`. The shard split is by file size, a cheap guess at time. Selecting tests by what a PR changed
+was tried and dropped: on the last 40 merges it ran a median of ~80 of 830 files and still couldn't see two PRs' interaction;
+`swift-lint`'s 4-7 minutes would have capped what it saved. The Mac stays the only place the Swift suite, the `bench` tier and the tests that need `sips` or
+the Mac's `openssl` run (skipped on Linux, each with its reason). A test that leaves a process-wide switch off is now undone by `conftest`'s
+`_off_switches_stay_in_their_test`. **CI on `dev` (2026-10-22).** `.github/workflows/dev-ci.yml` runs the backend half of the crucial tier on every push to
 `dev` and every PR into it: `ubuntu-latest`, Python 3.12.11 (the version `api/.venv` runs), `uv sync --frozen` from
 `api/uv.lock`, then `make test-crucial-backend`; actions pinned to commit SHAs (Node 24 releases), checkout without
 persisted credentials, 20-minute timeout; a newer push to a PR cancels its older run, while every commit on `dev` keeps

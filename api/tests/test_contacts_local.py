@@ -138,7 +138,7 @@ def test_a_photo_is_cached_outside_the_bank_at_the_path_t_people_reads(client, t
     assert "contacts_photo" not in _page(memory, "bob-example").frontmatter
 
 
-@pytest.mark.parametrize("photo", [b"GIF89a" + b"\x00" * 60, JPEG + b"\x00" * (70 * 1024)])
+@pytest.mark.parametrize("photo", [b"GIF89a" + b"\x00" * 60, JPEG + b"\x00" * (70 * 1024)], ids=["gif", "too-large"])
 def test_a_photo_that_is_not_a_small_jpeg_or_png_is_ignored(client, photo):
     c, memory = client
     assert _post(c, [_contact("C1", "Bob", "Example", photo=photo)]).json()["photos"] == 0
