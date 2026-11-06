@@ -9,6 +9,9 @@ hold those; without them it was 42 false alarms, most of that shape.
 
 A question read as advice gets more lines by meaning and ``ask_service._ADVICE_NOTE``. With no model on this machine it
 says no, and the question goes on with the usual retrieval and no note.
+
+"What has come up lately?" (owner, 2026-11-06) names no subject, so no word finds its answer: :func:`asks_lately` reads
+it the same way and ``ask_sources.search`` hands over the newest conversations.
 """
 from __future__ import annotations
 
@@ -20,6 +23,9 @@ NEAREST = 3
 #: How far advice must beat the other kinds: it only has to be the nearest. With the "other" examples that recall a past
 #: recommendation, measured over 150 translated questions and 2,456 English ones (`mcp.md`); it is not a tuned optimum.
 ADVICE_MARGIN = 0.0
+#: How far "what's come up lately" must beat every other kind when the question has a subject of its own, so it costs some
+#: of the window. Measured on held-out questions: `mcp.md`.
+LATELY_MARGIN = 0.02
 
 EXAMPLES: dict[str, list[str]] = {
     "advice": ["Can you recommend something for me?", "Any tips for this?", "What should I do about it?",
@@ -37,6 +43,13 @@ EXAMPLES: dict[str, list[str]] = {
               "What advice did she give him?", "What did he recommend to her?", "What did you suggest last time?",
               "Can you remind me what you recommended?", "What suggestion did they give?",
               "What is my preferred one?"],
+    "lately": ["What has been happening lately?", "What's new?", "What have I been up to recently?",
+               "Catch me up on recent things.", "What has come up a lot this week?",
+               "Who have I been talking to recently?", "What's on my mind these days?",
+               "Give me a recap of the last few days."],
+    # A dated fact about one subject: only the "lately" question is compared with these. The advice one is not.
+    "dated": ["What did she do recently?", "What did he buy last week?", "What is the latest on that project?",
+              "When did I last see her?", "What has Maria been doing lately?", "What did I start recently?"],
 }
 
 
@@ -56,3 +69,13 @@ def asks_advice(indexer, question: str) -> bool:
     """The person asks for a recommendation or advice, not a recorded fact."""
     scores = _scores(indexer, question)
     return scores is not None and scores["advice"] - max(scores["count"], scores["other"]) > ADVICE_MARGIN
+
+
+def asks_lately(indexer, question: str, *, no_subject: bool = False) -> bool:
+    """The person asks what has come up lately, about no subject in particular. ``no_subject``: no word of the question
+    is the record's, so there is nothing to lose and being the nearest is enough."""
+    scores = _scores(indexer, question)
+    if scores is None:
+        return False
+    margin = scores["lately"] - max(v for kind, v in scores.items() if kind != "lately")
+    return margin > (0.0 if no_subject else LATELY_MARGIN)

@@ -2293,10 +2293,16 @@ def _recall(ctx: ToolContext, query: str) -> str:
     merged = _rrf_fuse(semantic, keyword, claim_subjects,
                        lately=search_service.lately_lift(
                            page_use.lately_of(memory_path, [h.get("entity_id") or h.get("id") for h in merged]), named))
+    lately_lead = _lately_pages(memory_path, query, no_subject=not keyword)
+    if lately_lead:
+        # What's come up lately names no subject: the pages said most lately lead, past the floor (`_above_floor`'s named).
+        by_id = {h.get("entity_id") or h.get("id"): h for h in merged}
+        lead = [by_id.get(e) or {"entity_id": e, "id": e} for e in lately_lead]
+        merged = lead + [h for h in merged if (h.get("entity_id") or h.get("id")) not in set(lately_lead)]
     seen_ids: set[str] = {h.get("entity_id") or h.get("id") for h in merged}
     # Lean reads (2026-10-27): only pages some leg ranks near its own best are shown — at most RECALL_PAGES_SHOWN,
     # never fewer than the top one (`_above_floor`).
-    shown_hits = _above_floor(merged, semantic, keyword, claim_subjects, named=named)
+    shown_hits = _above_floor(merged, semantic, keyword, claim_subjects, named=named | set(lately_lead))
 
     # === Structured hints block (machine-parseable, emitted first) ===
     # A small model that ignores prose can json.loads this fenced block to get
@@ -5133,6 +5139,23 @@ def _repeats_a_turn(snippet: str, turns: "list[str] | tuple") -> bool:
                for turn in turns if len(turn) >= RECALL_REPEAT_CHARS)
 
 
+def _lately_pages(memory_path: Path, query: str, *, no_subject: bool) -> list[str]:
+    """The pages said most lately for a question about what has come up lately, else none. Never raises."""
+    from api.services import page_use, question_intent
+
+    try:
+        from api.services.vector_index import SqliteVecIndexer
+
+        if not question_intent.asks_lately(SqliteVecIndexer(memory_path), query, no_subject=no_subject):
+            return []
+        return page_use.top_lately(memory_path, RECALL_LATELY_PAGES)
+    except Exception as exc:  # noqa: BLE001 — a leg fewer (no query logged)
+        from loguru import logger
+
+        logger.debug(f"recall: lately unavailable ({type(exc).__name__})")
+        return []
+
+
 def _turn_excerpts(memory_path: Path, query: str) -> list:
     """The turns that say what ``query`` asks, by Ask's own search leg (``ask_sources``: words by rarity and the
     vector leg, whose turn tells it, index-only records skipped by the same check Ask uses). A conversation's passage
@@ -5148,6 +5171,8 @@ def _turn_excerpts(memory_path: Path, query: str) -> list:
         pool = ask_sources.gather_search(memory_path, query, found, owner_name=owner, max_episodes=RECALL_TURN_EPISODES,
                                          max_excerpts=RECALL_TURNS * 2, total_chars=RECALL_TURNS * 2 * RECALL_TURN_CHARS,
                                          deep={"left": 0}, excerpt_chars=RECALL_TURN_CHARS)
+        # A question about what has come up lately keeps the newest, not the oldest, of what fits.
+        pool = sorted(pool, key=lambda e: e.order, reverse=bool(found.lately))
         return sorted(sorted(pool, key=lambda e: e.role == "assistant")[:RECALL_TURNS], key=lambda e: e.order)
     except Exception as exc:  # noqa: BLE001 — a leg fewer; the passages below still answer (no query logged)
         from loguru import logger
@@ -5335,6 +5360,7 @@ RECALL_TOP_BODY = 1_800          # the best page's body: Summary, then its disti
 RECALL_OTHER_BODY = 700          # every other page's body
 RECALL_HOP_CHARS = 160           # one one-hop head (shown only when a single page passed the floor)
 RECALL_EXCERPT_CHARS = 400       # one conversation excerpt (unchanged)
+RECALL_LATELY_PAGES = 4          # what has come up lately: the pages said most lately that lead (`_lately_pages`)
 RECALL_TURNS = 4                 # 2026-11-06: turns from Ask's search leg, before the fused passages (LongMemEval_S: 74 of 88 reach an answer turn)
 RECALL_TURN_EPISODES = 6         # the conversations they are read from
 RECALL_TURN_CHARS = 400          # one such turn

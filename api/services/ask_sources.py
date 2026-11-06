@@ -27,6 +27,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Callable
 from pathlib import Path
 
@@ -1042,6 +1043,9 @@ class Searched:
     #: The person asks for advice (:func:`question_intent.asks_advice`): the meaning leg adds more, since their taste is
     #: rarely said in the question's words.
     advice: bool = False
+    #: The person asks what has come up lately (:func:`question_intent.asks_lately`): the newest conversations, newest
+    #: first, whatever their words (:func:`newest_conversations`).
+    lately: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1612,8 +1616,56 @@ def by_meaning(question: str) -> bool:
     return question_language(question) != "en"
 
 
+#: What's come up lately: this many conversations at most, this many from one day, so a busy day leaves room for the
+#: days before it.
+LATELY_EPISODES = 10
+LATELY_PER_DAY = 3
+LATELY_EXCERPTS = 10
+LATELY_CHARS = 4000
+
+
+def newest_conversations(memory_path: Path, limit: int = LATELY_EPISODES, *, today=None) -> list[str]:
+    """The conversations said last, newest first, read or not: an id's day is the conversation's own (ruling 34). Never a
+    record with no mention behind it (a memory export entry, a feed item, a watched day, a bare save: rulings 30, 39, 62)."""
+    from api.services import bank_index, episode_time, history_index
+
+    today = (today or date.today()).isoformat()
+    per_day: dict[str, int] = {}
+    out: list[str] = []
+    for path in sorted((Path(memory_path) / "episodes").glob("ep_*.md"), key=lambda p: p.name, reverse=True):
+        day = episode_day(path.stem)
+        if day > today or per_day.get(day, 0) >= LATELY_PER_DAY:
+            continue
+        entry = bank_index.file(memory_path, "episodes", path.name)
+        fm = entry.frontmatter if entry is not None else None
+        if fm is None or history_index.is_index_only(fm) or not episode_time.counts_as_activity(fm):
+            continue
+        per_day[day] = per_day.get(day, 0) + 1
+        out.append(path.stem)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def search(memory_path: Path, question: str, *, terms: set[str] | None = None, embed_fn=None,
            indexer=None, today=None) -> Searched:
+    """:func:`_search_words`, and for a question about what has come up lately, the newest conversations beside it. No
+    word finds those: it asks about no subject, so before this it found nothing in most languages."""
+    found = _search_words(memory_path, question, terms=terms, embed_fn=embed_fn, indexer=indexer, today=today)
+    try:
+        if indexer is None:
+            from api.services.vector_index import SqliteVecIndexer
+
+            indexer = SqliteVecIndexer(memory_path, embed_fn=embed_fn) if embed_fn else SqliteVecIndexer(memory_path)
+        if question_intent.asks_lately(indexer, question, no_subject=not found.weights):
+            found.lately = newest_conversations(memory_path, today=today)
+    except Exception as exc:  # noqa: BLE001 — a leg fewer; never the question in a log
+        logger.debug(f"ask search leg: lately unavailable ({type(exc).__name__})")
+    return found
+
+
+def _search_words(memory_path: Path, question: str, *, terms: set[str] | None = None, embed_fn=None,
+                  indexer=None, today=None) -> Searched:
     """The conversations most likely to hold what ``question`` asks, read from the derived indexes only — never a
     model, never a write, never the question in a log. Two legs, fused by rank: the word index (:func:`_lexical`) and
     the vector index's episode chunks (the question's vector is the page leg's: one embed per Ask, through the
@@ -1781,7 +1833,7 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
     Same who-spoke labels, clipping and bounds as :func:`gather`; index-only episodes are skipped (ruling 30)."""
     weights = found.weights
     if not found.episodes or not (weights or found.meaning):
-        return []
+        return _lately_excerpts(memory_path, found, owner_name, set(taken or ()), deep, max_excerpts, excerpt_chars)
     terms = set(weights)
     taken = set(taken or ())
     docs: dict[str, tuple] = {}
@@ -1895,7 +1947,36 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
                         max_excerpts=ADVICE_EXTRA_EXCERPTS if found.advice else MEANING_EXTRA_EXCERPTS,
                         total_chars=ADVICE_EXTRA_CHARS if found.advice else MEANING_EXTRA_CHARS, taken=shown, deep=deep)
         chosen.sort(key=lambda e: e.order)
+    if found.lately:
+        chosen += _lately_excerpts(memory_path, found, owner_name, taken | shown_turns(chosen), deep, max_excerpts,
+                                   excerpt_chars)
+        chosen.sort(key=lambda e: e.order)
     return chosen
+
+
+def _lately_excerpts(memory_path: Path, found: Searched, owner_name: str | None, taken: set[tuple[str, int]],
+                     deep: dict | None, max_excerpts: int, excerpt_chars: int) -> list[Excerpt]:
+    """What each of the newest conversations was about: the person's first turn, then their last, newest conversation
+    first, in a budget of its own. A conversation with no turn of theirs shows the first one it has."""
+    docs: dict[str, tuple] = {}
+    first: list[tuple] = []
+    last: list[tuple] = []
+    for rank, ep in enumerate(found.lately):
+        doc = evidence.source_document(memory_path, ep)
+        if doc is None:
+            continue
+        fm, text = doc
+        turns = [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm), override=authorship.of(fm),
+                                           gaps=evidence.gap_ranges(fm, text))
+                 if t.role != evidence.GAP_KIND and text[t.content_start:t.end].strip()]
+        docs[ep] = (fm, text, turns)
+        theirs = [i for i, t in enumerate(turns) if t.role != "assistant"] or list(range(len(turns)))[:1]
+        if theirs:
+            first.append((0.0, rank, theirs[0], ep, turns[theirs[0]], None))
+        if len(theirs) > 1:
+            last.append((0.0, rank, theirs[-1], ep, turns[theirs[-1]], None))
+    return _take(first + last, docs, set(), owner_name, max_excerpts=min(LATELY_EXCERPTS, max_excerpts),
+                 total_chars=LATELY_CHARS, taken=taken, deep=deep, excerpt_chars=excerpt_chars, context=False)
 
 
 #: First-person words: a question in them is about the person this memory belongs to ("how many … have I …").
