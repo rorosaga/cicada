@@ -292,7 +292,7 @@ final class OnboardingStepsTests: XCTestCase {
             // A word has a letter: "—" and a step number are not words.
             parts.joined(separator: " ").split { $0.isWhitespace }.filter { $0.contains { $0.isLetter } }.count
         }
-        let welcome = words([Copy.welcomeHello("Verify"), Copy.welcomeLine, Copy.welcomeNotYou("Verify"),
+        let welcome = words([Copy.welcomeHello("Verify"), Copy.welcomeLine, Copy.welcomeEditName,
                              Copy.onboardingContinue, Copy.welcomeTryTheDemo, Copy.welcomeSetUpLater])
         let frame = [Copy.onboardingStepOf(2), Copy.welcomeSetUpLater, Copy.onboardingBack, Copy.onboardingSkip,
                      Copy.onboardingContinue]

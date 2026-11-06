@@ -721,10 +721,10 @@ secondary ink, a line that only repeats the name is left out), the one action on
 a chevron, no box); the engine choice is two 144 pt rows (the open circle in `textSecondary`), the chosen one a 2 pt
 ring over `bgSelected` with a filled check, the key row's glyph at full strength. Welcome is wider (round 3: 960 pt over a 6 pt-a-cell room, was 800 over 5)
 (`OnboardingRoomLayout.heroCell`), the room framed in a ring and the card's radius so its own trim reads as a picture's
-edge; its greeting is 56 pt, its line 24, *Not Maya? Change* an outlined button with a pencil centred on the greeting (`OnboardingOutlinedButton`), and one action line: a large Continue and *Try the demo* outlined. Headlines are 40 pt over a 19 pt medium line; the topbar's segments are 22 × 5 (round 5), a
+edge; its greeting is 44 pt (owner 2026-11-06: "the letters there are huge"), its line 24, and the name carries a small pencil (label *Edit your name*, also its hover words) that turns the name into a plain line to fill in place — same type, a hairline under it, no box, as wide as its words; ⏎ keeps it, Esc puts back what it was (`WelcomePage.greeting`, `nameLine`), and one action line: a large Continue and *Try the demo* outlined. Headlines are 40 pt over a 19 pt medium line; the topbar's segments are 22 × 5 (round 5), a
 reached step in `textSecondary`, one still to come in `textTertiary`, the count in 15 pt `textSecondary`. Every mark in a roomy tile takes the one 36 pt box in the 48 pt tile (round 5), a vendor icon published finished (`LogoSet.fullBleed`: OpenCode, Hermes) keeping its own curvature inside it; elsewhere (regular, dense) it still fills its tile edge to edge. What each step shows is pure data in
 `Support/OnboardingSteps.swift` (`OnboardingStepsTests`), each step's fixed words under 40.
-*Welcome*: the greeting (saved name, else the Mac account's, *Not you?* corrects it), one sentence, Continue — the owner
+*Welcome*: the greeting (saved name, else the Mac account's; the pencil beside it edits it in place), one sentence, Continue — the owner
 PUT alone and first (G117 R1; a file dropped here waits for it) — *Try the demo*; *Set up later* is the top-corner exit.
 *Intelligence* (`IntelligenceStep`, ruling 36 D1): `IntelligenceStepState` — a signed-in plan (Auto resolving to it, or
 chosen) is pre-selected, the plan said once ("Using your Claude plan" / "Cicada runs your own Claude Code.", ruling 39,
@@ -3300,7 +3300,7 @@ establish the owner's visual acceptance or the live CPU budget.
 every `CicadaTheme` font and spacing token, so every reader repaints with no `.id()` anywhere (the
 PR #49 lesson repeated). The graph canvas keeps its own zoom; ⌘+/⌘− means chrome, not canvas, same
 as a browser's page zoom vs. a map widget's. `Settings` gains a *General* tab (Appearance + a Text
-size slider) alongside Agents, Plans & keys and Schedule. Slice 1b (PR #58) finished the job:
+size slider) alongside Agents, Plans & keys and Schedule. **The percentage pill (owner 2026-11-06, "like in Chrome"):** every zoom — a key, the menu, the palette, the slider — bumps `ThemeStore.zoomPulse` (also at a limit and for Actual Size) and `ZoomPill`, an overlay at the window's top that takes no click, reads the size (100% by default) with no animation and leaves on its own after `CicadaMotion.zoomPillHold`, a fade under `zoomPillFadeDuration` (none under Reduce Motion); VoiceOver hears the percentage. Slice 1b (PR #58) finished the job:
 every literal `.font(.system(size:))` / `Font.system(size:)` in `Sources/` now goes through
 `CicadaTheme.font(size:...)`, and `FontLiteralLintTests` fails the build on a new one.
 
@@ -3388,7 +3388,7 @@ transform is an exact luminance inversion of a *monochrome* mark into its `-dark
 and every page in both themes (the ranked audit is outside the repo, with its shots). What it changed:
 - **Onboarding.** Welcome's and Done's card under the study room is ringed, never shadowed (`onboardingCard()`: it sits
   in the page, DR-9/DR-10). A text button that starts a column sets its words on the column's edge
-  (`TextButton(flushLeading:)`: Back, *Use an API key*, *Not you? Change*, *How to get an export*; the entity card's lone
+  (`TextButton(flushLeading:)`: Back, *Use an API key*, *How to get an export*; the entity card's lone
   *Add a place to check* sits in a scroll view, which reaches out by `TextButton.inset` instead, so its hover fill is not
   clipped). A row of Sources' tiles is one height: at least `OnboardingLayout.sourceTileHeight`, growing with its
   longest caption (never cut — a consent is read before the tick), and every tile in the row grows with it;

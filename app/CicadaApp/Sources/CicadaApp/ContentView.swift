@@ -269,6 +269,8 @@ struct ContentView: View {
         // DR-33 — Settings is a panel inside this window, above every other layer; the shell
         // under it is inert (R-DS21).
         .overlay { if router.settingsOpen { SettingsPanel() } }
+        // Owner 2026-11-06 — the text size's percentage, a moment after each zoom; it never takes a click.
+        .overlay(alignment: .top) { ZoomPill() }
         // Report a problem… (tester readiness 2026-10-26): the Help menu and Settings → General open it here.
         .sheet(isPresented: Binding(get: { router.reportProblemOpen }, set: { router.reportProblemOpen = $0 })) {
             ReportProblemSheet { router.reportProblemOpen = false }

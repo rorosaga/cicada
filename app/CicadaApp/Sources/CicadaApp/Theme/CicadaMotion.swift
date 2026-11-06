@@ -133,6 +133,15 @@ enum CicadaMotion {
         reduceMotion ? nil : .easeOut(duration: spanRevealDuration)
     }
 
+    // MARK: - Zoom percentage (owner 2026-11-06)
+    /// The pill that reads the new size stays this long after the last change, then fades on its own. The change it
+    /// reports is never animated (a keyboard action never animates); only the pill's leaving is.
+    static let zoomPillHold: TimeInterval = 1.2
+    static let zoomPillFadeDuration: TimeInterval = 0.25
+    static func zoomPillFade(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeOut(duration: zoomPillFadeDuration)
+    }
+
     // MARK: - Progressive columns (DR-61, DR-66)
     static let columnDuration: TimeInterval = 0.25
     static let readerInDuration: TimeInterval = 0.25
