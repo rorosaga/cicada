@@ -66,6 +66,32 @@ final class ClustersGridTests: XCTestCase {
         XCTAssertEqual(walk.map(\.id), ["t1", "t3", "t4", "t0", "t2"], "the keys walk what is drawn")
     }
 
+    /// Round 5 — Media is drawn down its columns, so the keys walk the columns top to bottom, then the next column: ↓
+    /// goes to the title under the one it left, never across the row (the round 4 defect the keys were checked for).
+    func testMediaKeysWalkDownEachColumnLikeTheEyeDoes() {
+        for n in 1...9 {
+            let items = Array(0..<n)
+            let parts = ClustersGrid.columnMajor(items, columns: 3)
+            XCTAssertEqual(parts.count, 3)
+            XCTAssertEqual(parts.flatMap { $0 }, items, "the walk is the columns end to end (\(n))")
+            let rows = Int((Double(n) / 3).rounded(.up))
+            XCTAssertTrue(parts.allSatisfy { $0.count <= rows })
+            // ↓ from a title that has one under it lands on that title.
+            for part in parts { for pair in zip(part, part.dropFirst()) { XCTAssertEqual(pair.1, pair.0 + 1) } }
+        }
+        XCTAssertEqual(ClustersGrid.columnMajor(Array(0..<6), columns: 3), [[0, 1], [2, 3], [4, 5]])
+        XCTAssertEqual(ClustersGrid.columnMajor(Array(0..<7), columns: 3), [[0, 1, 2], [3, 4, 5], [6]])
+        XCTAssertEqual(ClustersGrid.columnMajor(Array(0..<4), columns: 1), [[0, 1, 2, 3]])
+        // The page's walk for Media is the same sequence the layout draws: bright first, dimmed last, then columns.
+        var media = (0..<8).map { e("m\($0)", .media) }
+        media[0].quiet = true
+        media[3].quiet = true
+        let walk = ClustersGrid.visible([ClustersModel.Group(type: .media, entities: media)], tab: nil, expandAll: false)
+        let drawn = ClustersGrid.columnMajor(walk, columns: 3).flatMap { $0 }.map(\.id)
+        XCTAssertEqual(drawn, walk.map(\.id))
+        XCTAssertEqual(walk.map(\.id), ["m1", "m2", "m4", "m5", "m6", "m7"], "six shown, dimmed ones past the budget")
+    }
+
     func testThePortraitsAndCardsRegroupUnderNineHundredUnits() {
         XCTAssertEqual(ClustersGrid.faceColumns(width: 1200, scale: 1.0), 8)
         XCTAssertEqual(ClustersGrid.faceColumns(width: 800, scale: 1.0), 4)

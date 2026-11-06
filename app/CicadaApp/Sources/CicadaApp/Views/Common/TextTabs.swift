@@ -84,7 +84,10 @@ private struct TextTabButton<ID: Hashable>: View {
                 }
             }
             .font(large ? CicadaTheme.font(size: 14, weight: isActive ? .semibold : .medium) : CicadaTheme.metaMediumFont)
-            .foregroundStyle(isActive ? CicadaTheme.textPrimary : (hovering ? CicadaTheme.textPrimary : (large ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)))
+            // strongCounts (Clusters, round 5): the inactive label rises with its count, one step up the ladder.
+            .foregroundStyle(isActive ? CicadaTheme.textPrimary
+                             : (large ? (hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                                : (hovering || strongCount ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)))
             .padding(.horizontal, CicadaTheme.scaled(large ? 12 : TextTabs<ID>.horizontalPadding))
             .frame(height: CicadaTheme.scaled(large ? 30 : TextTabs<ID>.height))
             .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)

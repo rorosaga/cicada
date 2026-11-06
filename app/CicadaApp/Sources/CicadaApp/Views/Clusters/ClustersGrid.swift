@@ -116,6 +116,15 @@ enum ClustersGrid {
         }
     }
 
+    /// Round 5 — Media's columns, filled down: the first `ceil(n / columns)` titles are the first column, and so on. The
+    /// layout draws these columns and the keys walk their concatenation (`visible`), so ↓ goes to the title under the
+    /// one it left and, at a column's foot, to the top of the next column — what the eye sees, one function for both.
+    static func columnMajor<T>(_ items: [T], columns: Int) -> [[T]] {
+        let count = max(columns, 1)
+        let rows = Int((Double(items.count) / Double(count)).rounded(.up))
+        return (0..<count).map { Array(items.dropFirst($0 * rows).prefix(rows)) }
+    }
+
     /// DR-68 — what ↑/↓ walk: every drawn tile in reading order, row by row, card by card.
     static func visible(_ groups: [ClustersModel.Group], tab: EntityType?, expandAll: Bool,
                         pictured: (Entity) -> Bool = { _ in false }) -> [Entity] {
@@ -388,7 +397,7 @@ private struct ClusterSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            if ruled { Rectangle().fill(CicadaTheme.border).frame(height: 1) }
+            if ruled { Rectangle().fill(CicadaTheme.borderLight).frame(height: 1) }
             ClusterSectionHeading(type: group.type, showAll: showAll)
             content
         }
@@ -408,8 +417,8 @@ struct ClusterSectionHeading: View {
                 .foregroundStyle(CicadaTheme.textPrimary)
             if showAll != nil {
                 Image(systemName: "chevron.right")
-                    .font(CicadaTheme.font(size: 11, weight: .semibold))
-                    .foregroundStyle(hovering ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
+                    .font(CicadaTheme.font(size: 12, weight: .bold))
+                    .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             }
         }
     }
@@ -565,17 +574,24 @@ struct ClusterNames: View {
             // Round 4: Media fills down its columns, not across its rows, so the dimmed titles (ordered last) are
             // whole columns and the dimming reads as a block, never a flicker between neighbours.
             if lines > 1, columns > 1 {
-                let rows = Int((Double(shown.count) / Double(columns)).rounded(.up))
-                HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
-                    ForEach(0..<columns, id: \.self) { column in
+                // Round 5: a hairline between the columns makes each one a unit, so a dimmed column beside a bright one
+                // reads as a choice, not a fault; the same columns the keys walk (`ClustersGrid.columnMajor`).
+                let parts = ClustersGrid.columnMajor(shown, columns: columns)
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(Array(parts.enumerated()), id: \.offset) { column, part in
+                        if column > 0 {
+                            Rectangle().fill(CicadaTheme.borderLight).frame(width: 1)
+                                .padding(.horizontal, CicadaTheme.spacingXL / 2)
+                        }
                         VStack(spacing: 0) {
-                            ForEach(Array(shown.dropFirst(column * rows).prefix(rows))) { entity in
+                            ForEach(part) { entity in
                                 ClusterNameRow(entity: entity, lines: lines) { open(entity) }.id(entity.id)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .top)
                     }
                 }
+                .fixedSize(horizontal: false, vertical: true)
             } else {
                 grid(shown)
             }
@@ -596,21 +612,27 @@ struct ClusterNameRow: View {
     var lines = 1
     let open: () -> Void
     @State private var hovering = false
+    @Environment(Store.self) private var store
 
     var body: some View {
+        // Round 5: a name with no picture has nothing after it, so no empty slot spends the row's width on spacing
+        // (it was wrapping titles a word early) and the title and mark align on the top line.
+        let drawn = EntityPictureLayout.anyDrawn([entity], store: store)
         Button(action: open) {
             // Round 4: a logo sits right after its name, one mark with it, never alone at the far edge; the weight is
             // regular so a name reads a step under its heading and the cards' titles.
-            HStack(spacing: CicadaTheme.spacingSM) {
+            HStack(alignment: lines > 1 ? .top : .center, spacing: CicadaTheme.spacingSM) {
                 Text(entity.name)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(entity.quiet ? CicadaTheme.quietName : CicadaTheme.textPrimary)
                     .lineLimit(lines)
                     .multilineTextAlignment(.leading)
                 QualifierTag(qualifier: entity.qualifier)   // G227
-                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 18, heldInputs: entity.pictureInputs,
-                              editing: .tile, collapsesWhenEmpty: true)
-                    .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
+                if drawn {
+                    EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 18, heldInputs: entity.pictureInputs,
+                                  editing: .tile, collapsesWhenEmpty: true)
+                        .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
+                }
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
