@@ -145,9 +145,9 @@ each subsystem — module names, wire shapes, routes, the app's views — lives 
 | Area | Doc |
 |---|---|
 | Capture (Awake), the Sleep cycle, the drain, entity promotion, temporal decay | [`docs/architecture/capture-and-sleep.md`](docs/architecture/capture-and-sleep.md) |
-| Markdown + git storage, entity schema, decay classes, claims and evidence, sources (G61), pictures, backlogs, `_state.md`, derived indexes, telemetry, git trailers | [`docs/architecture/storage.md`](docs/architecture/storage.md) |
+| Markdown + git storage, the entity schema, decay classes, claims and evidence, sources (G61), pictures and logos, backlogs, `_state.md` and the handshake, the derived indexes, the telemetry ledger, git trailers and commits | [`docs/architecture/storage.md`](docs/architecture/storage.md) |
 | The MCP tools, recall, implicit recall, video watch, reading with the person's own agent | [`docs/architecture/mcp.md`](docs/architecture/mcp.md) |
-| The companion app: its views and Settings, onboarding, engines, integrations, the Sleep page, the demo, brand marks, design direction D, the Reader | [`docs/architecture/app.md`](docs/architecture/app.md) |
+| The companion app: shell, Settings, Home, onboarding, engines, integrations, agents, skills, Sources, Clusters, the Feed, Projects, the Sleep page, the find palette, the demo, brand marks, design direction D, the Reader | [`docs/architecture/app.md`](docs/architecture/app.md) |
 | API auth, ETags and their client mappings, endpoint traps | [`docs/architecture/api.md`](docs/architecture/api.md) |
 | The graph explorer, the entity card, the unified inbox, the Sleep trigger and schedule, conversation upload | [`docs/architecture/features.md`](docs/architecture/features.md) |
 | The three network gates, the remote connector, the ToS rail, credentials, video | [`docs/architecture/network.md`](docs/architecture/network.md) |
@@ -261,7 +261,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **The person's own Cursor, OpenCode or Grok (G49/G50, 2026-10-28)** are plans under ruling 4's switch (Grok user-started
   only), headless with no tools or MCP context, on their own sign-in; a key-billed path is refused or stops the run (`cli_engines`).
   **Ruling 46 (owner, 2026-10-28):** Auto is Claude plan → ChatGPT plan → Cursor → OpenCode (subscription model only), each
-  read from cached status, an unknown or hung tool skipped, never a stall; Grok never on Auto (`capture-and-sleep.md`).
+  read from cached status, an unknown or hung tool skipped in words, never a stall; Grok never on Auto (`capture-and-sleep.md`).
   **Ruling 63 (owner 2026-11-04):** a key whose provider has an official SDK row (`direct_engines`) is served by that
   SDK, every other key by LiteLLM; a key's limit is a pause that never says the person's plan (`capture-and-sleep.md`, "A Claude key").
   **46a (owner 2026-10-28):** Auto and schedules run Cursor only on Cursor's own models; a third-party one there is labelled "billed separately at list price", never auto-picked. Continue-after-reset is opt-in,
@@ -524,12 +524,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   connector's port>` or that one mapping's off: no port or argv from a request, never over a held port, never 8443, never `up`; nothing stored, every answer read back. The mapping outlives the listener, so the connector's switch closes it too (`network.md`, "One click opens it").
   Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling 28) with its own revocable device
   token and no bank of its own; what it posts records `device` (`headless.md`).
-  **Ruling 51 (owner 2026-10-29, G132):** one movable home writes, mints, commits and runs Sleep; other devices hold replicas and send writes as
-  transactions; nothing merged by git. **Ruling 51f (owner 2026-11-03, amends c):** nothing rented, no cloud mailbox, no Tailscale requirement; each device
-  tries an ordered route list and else queues, an unsent outbox item never expiring (`headless.md`, "The route list"). **The door** is the one listener besides
+  **Ruling 51 (owner 2026-10-29, G132; decided, amends this rail as each phase ships):** one movable home writes, mints, commits and runs Sleep; other devices hold replicas and send writes as
+  transactions; all dial out to an E2E relay that never sees plaintext; nothing merged by git. **Ruling 51f (owner 2026-11-03, amends c):** nothing rented, no cloud mailbox, no Tailscale requirement; each device
+  tries an ordered route list (the relay only under Advanced) and else queues, an unsent outbox item never expiring (`headless.md`, "The route list and the home-network door"). **The door** is the one listener besides
   loopback: sealed frames only, never the HTTP API or a token, open only while a memory is shared; **it binds loopback
   and each of this computer's own private and Tailscale addresses, one socket each — never a wildcard, a public or global address, nor a carrier's 100.64/10**
-  (`network.md`, "The route list"); a peer only of its socket's own kind, a first packet that proves no pairing key dropped without a byte.
+  (`network.md`, "The route list and the home-network door"); a peer only of its socket's own kind, a first packet that proves no pairing key dropped without a byte.
   Identity is the pairing keys, never an address. Away-from-home reach waits behind an off switch.
   Built (`headless.md`): the home may publish its log (off by default, never a demo); a client may run in **replica mode** (`replica_of`), every bank writer refused but the apply;
   the home moves (Sleep page, `cicada home move`), the term fences two homes, a take-over only on the person's OK, a returning old home's later commits set aside, never merged.
