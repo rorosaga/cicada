@@ -3316,12 +3316,14 @@ actor APIClient {
     /// preview (`UploadPreview`) without duplicating the multipart plumbing.
     /// `filename`: the name the backend sees; nil is the file's own name. A walked folder's file is named by its
     /// path inside the folder, which the backend reads as "a member of an export folder" (`saved_exports`).
-    private func uploadMultipart<T: Decodable>(path: String, fileURL: URL, filename: String? = nil) async throws -> T {
+    private func uploadMultipart<T: Decodable>(path: String, fileURL: URL, filename: String? = nil,
+                                               fields: [String: String] = [:]) async throws -> T {
         try await uploadMultipart(path: path, fileData: try Data(contentsOf: fileURL),
-                                  filename: filename ?? fileURL.lastPathComponent)
+                                  filename: filename ?? fileURL.lastPathComponent, fields: fields)
     }
 
-    private func uploadMultipart<T: Decodable>(path: String, fileData: Data, filename: String) async throws -> T {
+    private func uploadMultipart<T: Decodable>(path: String, fileData: Data, filename: String,
+                                               fields: [String: String] = [:]) async throws -> T {
         var request = makeRequest(path, method: "POST", json: false)
 
         let boundary = UUID().uuidString
@@ -3333,6 +3335,11 @@ actor APIClient {
             .replacingOccurrences(of: "\n", with: " ")
 
         var body = Data()
+        for (name, value) in fields.sorted(by: { $0.key < $1.key }) {
+            body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+            body.append(Data(value.utf8))
+            body.append("\r\n".data(using: .utf8)!)
+        }
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
@@ -4725,8 +4732,14 @@ extension APIClient: IntakeAPI {
     }
 
     /// `POST /intake/import` — 200 with counts, or 202 with `job` (Track I T2b).
-    func importIntake(fileURL: URL, bank: String?) async throws -> IntakeImportResponse {
-        try await uploadMultipart(path: "/intake/import" + Self.bankQuery(bank), fileURL: fileURL)
+    /// ROR-126: `choice` rides as form fields — a long deselected list never fits in a query.
+    func importIntake(fileURL: URL, bank: String?, choice: ImportChoice) async throws -> IntakeImportResponse {
+        var fields: [String: String] = [:]
+        if let since = choice.since { fields["since"] = since }
+        if !choice.exclude.isEmpty || choice.since != nil {
+            fields["exclude"] = String(data: (try? JSONEncoder().encode(choice.exclude)) ?? Data("[]".utf8), encoding: .utf8)
+        }
+        return try await uploadMultipart(path: "/intake/import" + Self.bankQuery(bank), fileURL: fileURL, fields: fields)
     }
 
     func intakeJob(id: String) async throws -> IntakeJobStatus { try await get("/intake/jobs/\(id)") }
@@ -4740,6 +4753,11 @@ extension APIClient: IntakeAPI {
     /// `GET /agents/wiring` (Track I T3) — read-only: which agents are wired
     /// and the exact argv `AgentConnect` may run after the person's click.
     func fetchAgentWiring() async throws -> AgentWiringResponse { try await get("/agents/wiring") }
+
+    /// ROR-126 — the person's yes per provider to having their agent request a chat export, and what it found.
+    func fetchExportRequests() async throws -> ExportRequestsResponse { try await get("/export-requests") }
+    func askExportRequest(vendor: String) async throws -> ExportRequest { try await post("/export-requests/\(vendor)") }
+    func stopExportRequest(vendor: String) async throws { _ = try await delete("/export-requests/\(vendor)") }
 
     /// Round 4 C8 (R-AG5) — `GET /agents/live`: which agents Cicada has seen connect, engine-free and
     /// subprocess-free on the server, so the Agents page can poll it every few seconds (R-AG15).

@@ -170,7 +170,9 @@ struct IntakePanel: View {
             if !p.chatFiles.isEmpty {
                 Text(IntakeSummary.previewDelta(p.delta)).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
             }
-            if !p.titles.isEmpty { titleList(p) }
+            if p.offersChoice {
+                ExportChoiceView(preview: p) { intake.updatePreview($0) }
+            } else if !p.titles.isEmpty { titleList(p) }
             ForEach(Array(p.skipped.enumerated()), id: \.offset) { _, s in
                 Text(Copy.intakeSkipped(s.name, s.reason)).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             }

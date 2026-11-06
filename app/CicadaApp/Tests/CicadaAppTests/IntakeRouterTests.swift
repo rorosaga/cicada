@@ -30,7 +30,7 @@ final class FakeIntakeAPI: IntakeAPI, @unchecked Sendable {
         return sniffs[name] ?? IntakeSniff(reason: "unknown")
     }
 
-    func importIntake(fileURL: URL, bank: String?) async throws -> IntakeImportResponse {
+    func importIntake(fileURL: URL, bank: String?, choice: ImportChoice) async throws -> IntakeImportResponse {
         importedBanks.append(bank)
         if failImport.contains(fileURL.lastPathComponent) { throw APIError.serverUnreachable }
         return imports[fileURL.lastPathComponent] ?? IntakeImportResponse()

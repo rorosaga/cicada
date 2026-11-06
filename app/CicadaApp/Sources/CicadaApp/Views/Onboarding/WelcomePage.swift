@@ -16,6 +16,8 @@ struct WelcomePage: View {
     let failure: String?
     /// Exports dropped on this page, held until Get started (R-OB2) — said, so a drop never vanishes silently.
     let waitingDrops: Int
+    /// ROR-126 — opens the chooser for a staged export that has chats to choose from.
+    var onChooseDrops: (() -> Void)? = nil
     let onGetStarted: () -> Void
     let onTryDemo: () -> Void
 
@@ -71,8 +73,12 @@ struct WelcomePage: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if waitingDrops > 0 {
-                Label(Copy.welcomeDropsWaiting(waitingDrops), systemImage: "tray.and.arrow.down")
-                    .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Label(Copy.welcomeDropsWaiting(waitingDrops), systemImage: "tray.and.arrow.down")
+                        .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                    // ROR-126: the choice comes before Begin, because Begin is when a staged export is read in.
+                    if let onChooseDrops { TextButton(title: Copy.exportChoiceWelcomeButton, action: onChooseDrops) }
+                }
             }
             // Round 4: the filled Continue and, beside it, the demo as an outlined button. The way out of the flow
             // (Set up later) is the window's top-corner exit (`OnboardingLeaveLink`), the same on every step.

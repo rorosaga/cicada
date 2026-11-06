@@ -131,3 +131,50 @@ extension ExportWait {
         ChatVendor(rawValue: vendor).map { .reminder($0) } ?? fallback
     }
 }
+
+/// ROR-126 — once an agent is connected and can drive a browser, the walkthrough offers to have it request this
+/// provider's export in the person's own signed-in browser. One yes per provider, one short line on why. Cicada opens
+/// no browser and signs in nowhere; the agent picks the request up when the person next talks to it
+/// (`cicada_export_requests`) and says what it found, and a page it cannot drive stays a manual one.
+struct AgentExportOffer: View {
+    let vendor: ChatVendor
+    @Environment(ExportAgentModel.self) private var agent
+    @Environment(ExportWaitStore.self) private var waits
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        Group {
+            if let row = agent.request(for: vendor.rawValue) {
+                status(row)
+            } else if agent.canRequest {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        NeutralButton(title: Copy.exportAgentAsk(vendor.title), size: .compact) {
+                            Task { await agent.grant(vendor: vendor, waits: waits, bank: store.bank) }
+                        }
+                        Text(Copy.exportAgentInBrowser).font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                    Text(Copy.exportAgentWhy).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .task { await agent.refresh(waits: waits, bank: store.bank) }
+    }
+
+    @ViewBuilder
+    private func status(_ row: ExportRequest) -> some View {
+        switch row.state {
+        case "requested":
+            Text(Copy.exportAgentRequested(vendor.title)).font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+        case "manual":
+            Text(row.reason.map { "\(Copy.exportAgentManual) \($0)" } ?? Copy.exportAgentManual)
+                .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        default:
+            Text(Copy.exportAgentAsked).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+        }
+    }
+}

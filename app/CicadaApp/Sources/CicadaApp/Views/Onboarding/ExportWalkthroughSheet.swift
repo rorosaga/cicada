@@ -28,6 +28,7 @@ struct ExportWalkthroughSheet: View {
                     .background { WindowVisibilityReader { windowVisible = $0 } }
                 Text(scene.honestLine).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                AgentExportOffer(vendor: scene.vendor)   // ROR-126: only when an agent can drive a browser
                 footer(scene)
             }
             .padding(CicadaTheme.spacingXL)

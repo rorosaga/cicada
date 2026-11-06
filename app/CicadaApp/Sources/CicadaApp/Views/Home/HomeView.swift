@@ -101,6 +101,7 @@ struct HomeView: View {
                                 // Between the field and the end of the page, and only while the blocks show (R-IB6): the
                                 // first keystroke replaces them too.
                                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
+                                    HomeExportWaitStrip()   // ROR-126: the worm waiting on an export, per provider
                                     ForEach(Array(arrangement.order.enumerated()), id: \.element) { index, id in
                                         // ROR-118 — Today and Last read are one quiet group when they sit together.
                                         block(id, today: today, gettingStartedVisible: gettingStartedVisible,
