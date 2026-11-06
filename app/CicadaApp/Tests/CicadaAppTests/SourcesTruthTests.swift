@@ -50,4 +50,35 @@ final class SourcesTruthTests: XCTestCase {
             XCTAssertEqual(SourceCatalog.connectedCount(waiting), 0, "\(key): waiting is not connected")
         }
     }
+
+    func testATypedRateLimitIsNeverASignInAndATypedRefusalAlwaysIs() {
+        for id in SourceCatalog.signInChannels {
+            let limited = SourceChannel(id: id, label: id, connected: true, lastError: "Slow down: 403 unauthorized",
+                                        lastErrorCode: "rate")
+            XCTAssertFalse(rows(channels: [limited]).contains { $0.status == .needsSignIn }, id)
+            let refused = SourceChannel(id: id, label: id, connected: true, lastError: "GitHub refused Cicada's access.",
+                                        lastErrorCode: "sign-in")
+            XCTAssertTrue(rows(channels: [refused]).contains { $0.status == .needsSignIn }, id)
+        }
+    }
+
+    func testAListTurnedOnIsConnectedOnlyOnceItHasRead() throws {
+        let key = "x"
+        func result(_ state: BrowserRead.State) throws -> SourceCatalogRow {
+            let reads = [key: BrowserRead(state: state)]
+            let all = SourceCatalog.rows(entries: entries, channels: [], overview: [], readableSites: [],
+                                         savedListsOn: [key], localAgent: true, browserReads: reads)
+            return try XCTUnwrap(all.first { $0.id == key })
+        }
+        XCTAssertTrue(try result(.read).isConnectedHere)
+        XCTAssertFalse(try result(.notReadYet).isConnectedHere, "on, nothing read yet: turned on, not connected")
+        XCTAssertFalse(try result(.couldntRead).isConnectedHere)
+        XCTAssertTrue(try result(.couldntRead).needsYou, "a list that could not read is Needs you, to try again")
+        XCTAssertFalse(try result(.signedOut).isConnectedHere)
+        // …and it is still on the page: an unread list stays addable, in its own words, never vanishing.
+        let unread = try result(.notReadYet)
+        let shelf = SourceShelves.shelves([unread]).first { $0.shelf == unread.entry.shelf }
+        XCTAssertEqual(shelf?.addable.map(\.id), [key])
+        XCTAssertEqual(shelf?.connected.count, 0)
+    }
 }

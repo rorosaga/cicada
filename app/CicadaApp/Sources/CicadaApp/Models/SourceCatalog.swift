@@ -390,6 +390,13 @@ enum SourceCatalog {
             && !error.contains("item(s) failed")
     }
 
+    /// A channel's last failure is a refused account: by its typed code when it has one (a 403 that is a rate limit is
+    /// `rate`, never a sign-in), else by reading a line written before codes existed.
+    static func refusesAccount(_ channel: SourceChannel) -> Bool {
+        if let code = channel.lastErrorCode, !code.isEmpty { return code == "sign-in" }
+        return readsAsSignIn(channel.lastError)
+    }
+
     /// The channels a person signs in to (`ChannelActions.connectorChannels`). Only these can need a sign-in: a reader
     /// on this Mac whose failure happens to say "not authorized" or "token" needs a permission or a retry, never an
     /// account (2026-10-23).
@@ -429,7 +436,7 @@ enum SourceCatalog {
         // (ruling 36's three words; the detail's own line says "Paused until …").
         if entry.id == tracesId { return (localReaders[tracesId] == true ? .connected : .off, false) }
         let mine = channelsOf(entry, in: channels)
-        if mine.contains(where: { signInChannels.contains($0.id) && readsAsSignIn($0.lastError) }) {
+        if mine.contains(where: { signInChannels.contains($0.id) && refusesAccount($0) }) {
             return (.needsSignIn, false)
         }
         // 2026-11-04 (owner: "I just pressed sync contacts … it said syncing and then it turned off … now that it finished

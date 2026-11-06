@@ -81,16 +81,16 @@ final class BrowserSourcesTests: XCTestCase {
         XCTAssertEqual(try row("reddit", all).tone, .attention)
     }
 
-    func testSignedOutNeedsYouAndIsNotCountedWhileTheOtherStatesStayConnected() throws {
+    func testOnlyAListThatHasReadIsCountedConnectedAndOneThatCouldNotReadOrIsSignedOutNeedsYou() throws {
         let all = rows(on: ["x", "instagram", "reddit", "tiktok"], reads: [
             "x": BrowserRead(state: .read), "instagram": BrowserRead(state: .signedOut),
             "reddit": BrowserRead(state: .couldntRead),
         ])
         XCTAssertEqual(try row("instagram", all).section, .needsYou)
         XCTAssertEqual(try row("x", all).section, .shelf(.saved))
-        XCTAssertEqual(try row("reddit", all).section, .shelf(.saved))
-        XCTAssertTrue(try row("tiktok", all).isConnectedHere)
-        XCTAssertEqual(SourceCatalog.connectedCount(all), 3, "signed out is waiting on the person")
+        XCTAssertEqual(try row("reddit", all).section, .needsYou, "could not read: the person tries again")
+        XCTAssertFalse(try row("tiktok", all).isConnectedHere, "on, nothing read yet: turned on, not connected")
+        XCTAssertEqual(SourceCatalog.connectedCount(all), 1, "only the list that has read (sources-truth)")
         let line = SourceGrid.line(try row("instagram", all), now: Date())
         XCTAssertEqual(line, SourceGrid.Line(word: "Signed out", tone: .attention))
         XCTAssertEqual(SourceGrid.line(try row("x", all), now: Date()),

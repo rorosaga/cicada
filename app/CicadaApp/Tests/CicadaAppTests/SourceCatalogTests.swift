@@ -178,7 +178,8 @@ final class SourceCatalogTests: XCTestCase {
                                                                                       "linkedin"])
         let connected = SourceCatalog.rows(entries: entries, channels: synced, overview: [], readableSites: [],
                                            savedListsOn: lists, localAgent: true)
-        XCTAssertEqual(SourceCatalog.connectedCount(connected), 5)
+        // Lists turned on with an agent here but nothing read yet are on, not connected (sources-truth).
+        XCTAssertEqual(SourceCatalog.connectedCount(connected), 1)
         XCTAssertEqual(SourceCatalogStatus.waitingForAgent.word, "On · waits for your agent")
         XCTAssertNotEqual(SourceCatalogStatus.waitingForAgent.tone, .on, "never painted as connected")
     }

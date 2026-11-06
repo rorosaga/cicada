@@ -92,10 +92,11 @@ final class SourceShelfTests: XCTestCase {
 
     func testOnlySourcesAnAgentReadsInTheBrowserGetTheCard() {
         let all = rows()
-        for id in ["x", "instagram", "linkedin", "reddit", "pinterest", "tiktok", "youtube", SourceCatalog.substackId] {
+        for id in ["x", "instagram", "linkedin", "reddit", "pinterest", "tiktok", "spotify", "youtube",
+                   SourceCatalog.substackId] {
             XCTAssertTrue(WebReadingScene.applies(all.first { $0.id == id }!.entry), id)
         }
-        for id in ["notes", "github", "spotify", "imessage"] {
+        for id in ["notes", "github", "imessage"] {
             XCTAssertFalse(WebReadingScene.applies(all.first { $0.id == id }!.entry), id)
         }
     }
