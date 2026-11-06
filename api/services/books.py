@@ -1074,12 +1074,16 @@ def apply_title_matches(memory_path: Path, today: str) -> list[str]:
         path = Path(f.path)
         parsed = markdown_parser.parse(path)
         new = dict(book)
+        set_fields: list[str] = []
         for field in ("published", "pages", "publisher", "cover_id"):
             if hit.get(field) and not new.get(field) and not (field == "cover_id" and new.get("local_cover")):
                 new[field] = hit[field]
+                set_fields.append(field)
         if not new.get("subjects") and hit.get("subjects"):
             new["subjects"] = book_lookup.readable_subjects(hit["subjects"])
-        new["title_match"] = {"isbn": answer["isbn"], "work_id": answer.get("work_id"), "at": today}
+            set_fields.append("subjects")
+        # `set` lists exactly what the match wrote, so "not this book" removes those and nothing a door gave.
+        new["title_match"] = {"isbn": answer["isbn"], "work_id": answer.get("work_id"), "at": today, "set": set_fields}
         facts = BookFacts(description=hit.get("description"), description_source=hit.get("description_source"),
                           description_url=hit.get("description_url"))
         body, _ = _book_prose(parsed.body, new, facts, today)
@@ -1140,7 +1144,8 @@ def not_this_book(memory_path: Path, entity_id: str, *, today: str | None = None
     prose = strip_claims_block(body or "")
     if prose.startswith("## Summary") and book.get("description_at"):   # the machine's paragraph, nothing of anyone's
         body = preserve_claims_blocks(body, "")
-    for field in ("description_at", "description_source", "description_url", "title_match"):
+    match = book["title_match"] if isinstance(book["title_match"], dict) else {}
+    for field in (*(match.get("set") or []), "description_at", "description_source", "description_url", "title_match"):
         book.pop(field, None)
     book["title_match_declined"] = True
     markdown_parser.write(path, {**fm, "book": book}, body)

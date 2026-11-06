@@ -130,6 +130,7 @@ def test_not_this_book_takes_the_match_back_and_it_is_never_asked_again(env):
     page = _books(memory)["quiet-engines"]
     assert page.frontmatter["book"]["title_match_declined"] is True and "title_match" not in page.frontmatter["book"]
     assert "engines that learn" not in page.body and "description_at" not in page.frontmatter["book"]
+    assert not any(page.frontmatter["book"].get(k) for k in ("cover_id", "pages", "publisher", "published", "subjects"))
     assert c.get("/entities/quiet-engines/book").json()["description"] is None
     _run(memory)
     assert "engines that learn" not in _books(memory)["quiet-engines"].body
