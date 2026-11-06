@@ -331,9 +331,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   and restores a page with its ledger (`storage.md`).
 - **Entity types are a closed set of 10**; Stage 1 never produces `deadline` or `media`; a model's word is mapped into the
   set at extraction and again where a page is born (`entity_types`, 2026-10-17). Status: active → decaying → archived → dropped.
-- **Decay classes (G66):** one resolver; Stage 1 may propose `durable|active|volatile` for a *page*, **never `evergreen`**.
-  **A fact has its own class (ruling 74, 2026-11-06):** the model proposes one per fact, any of the four, in any language;
-  an evergreen page never fades but its facts do (media excepted), "keep this fact" is the person's word (`fact_keep`).
+- **Decay classes (G66):** one resolver; Stage 1 proposes `durable|active|volatile` for a page, **never `evergreen`**; for a
+  fact any class (ruling 74), so an evergreen page's facts fade (not media's); "keep this fact" is the person's.
 - **Evidence spans, not copies (G118):** offsets into the source's evidence text with a hash; locate is exact →
   whitespace → case-insensitive, **never fuzzy**; an unlocatable quote becomes `reasoning` and **the claim is still
   written — provenance never blocks memory**. Judged on read, one shape (`source_spans`): held or stale never draws. Six evidence kinds; every claim on the wire is built by one function.
