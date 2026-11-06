@@ -2778,6 +2778,11 @@ actor APIClient {
         try await get("/entities/\(encodedID(id))/book")
     }
 
+    /// `POST /entities/{id}/book/not-this-book` — a title found the wrong book: what it wrote goes, and it is never asked again.
+    func notThisBook(id: String) async throws {
+        let _: BookStatusUndoReply = try await post("/entities/\(encodedID(id))/book/not-this-book")
+    }
+
     /// `POST /entities/{id}/book-status/undo` — "Not right": that record is taken back, the one before it opens.
     func undoBookStatus(id: String, claimId: String) async throws {
         let _: BookStatusUndoReply = try await post("/entities/\(encodedID(id))/book-status/undo",

@@ -59,6 +59,12 @@ extension Copy {
         + "come in; nothing is read from the Goodreads site."
     static let goodreadsImport = "Import"
     static let goodreadsReading = "Reading the export…"
+    /// The description box (2026-11-06): where it came from, and the way back from a wrong title match.
+    static func bookDescriptionSource(_ name: String, saved: String?) -> String {
+        saved.map { "From \(name), saved \($0)" } ?? "From \(name)"
+    }
+    static let bookFoundByTitle = "Found by its title and author."
+    static let bookNotThisBook = "Not this book"
     static func goodreadsPreview(books: Int, finished: Int, reading: Int, want: Int, reviews: Int,
                                  locale: Locale = .autoupdatingCurrent) -> String {
         func n(_ v: Int) -> String { UsageFormat.count(v, locale: locale) }

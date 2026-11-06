@@ -783,12 +783,19 @@ def ways_in(fm: dict) -> list[str]:
     """Where a book came in from, in the person's words, in a fixed order — read from the page (``book.doors``; a page
     made before that field is known by its Apple Books and Goodreads ids)."""
     book = fm.get("book") if isinstance(fm.get("book"), dict) else {}
+    doors = door_set(book)
+    return [DOOR_WORDS[d] for d in (APPLE_ORIGIN, GOODREADS_ORIGIN, SCAN_ORIGIN) if d in doors]
+
+
+def door_set(book: dict) -> set[str]:
+    """The doors a book page came in through: ``book.doors``, plus — for a page made before that field — its Apple Books
+    and Goodreads ids (a dry run on the real bank found 272 of 286 pages that way)."""
     doors = set(book.get("doors") or [])
     if book.get("apple_books"):
         doors.add(APPLE_ORIGIN)
     if book.get("goodreads"):
         doors.add(GOODREADS_ORIGIN)
-    return [DOOR_WORDS[d] for d in (APPLE_ORIGIN, GOODREADS_ORIGIN, SCAN_ORIGIN) if d in doors]
+    return doors
 
 
 def scan_result(memory_path: Path, episode_id: str) -> dict | None:
@@ -813,6 +820,15 @@ def scan_result(memory_path: Path, episode_id: str) -> dict | None:
     cover = media_preview.preview_path(page, page_fm)
     return {"state": "added", "entityId": page, "name": str(page_fm.get("name") or page), "existing": first != episode_id,
             "authors": [str(a) for a in book.get("authors") or []][:3], **({"cover": cover} if cover else {})}
+
+
+def _summary_text(memory_path: Path, entity_id: str) -> str | None:
+    """The machine's one ``## Summary`` paragraph, when that is all the article holds (a page someone wrote on has its own
+    words and draws no box)."""
+    entry = bank_index.file(Path(memory_path), "entities", f"{entity_id}.md")
+    prose = strip_claims_block(entry.body() or "") if entry is not None else ""
+    m = re.fullmatch(r"## Summary\n(.+?)(?:\n\nFrom [^\n]*)?", prose.strip(), re.S)
+    return m.group(1).strip() if m else None
 
 
 def book_card(memory_path: Path, entity_id: str) -> dict | None:
@@ -843,10 +859,11 @@ def book_card(memory_path: Path, entity_id: str) -> dict | None:
     source = str(book.get("description_source") or "")
     return {"subtitle": book.get("subtitle") or None, "authors": [str(a) for a in book.get("authors") or []][:3],
             "published": str(book.get("published") or "") or None, "pages": book.get("pages") or None,
-            "publisher": book.get("publisher") or None, "subjects": book_lookup.readable_subjects(book.get("subjects")),
+            "why": book.get("why") or None, "publisher": book.get("publisher") or None, "subjects": book_lookup.readable_subjects(book.get("subjects")),
             "descriptionSource": SOURCE_NAMES.get(source) if book.get("description_at") else None,
             "descriptionAt": book.get("description_at") or None, "descriptionUrl": book.get("description_url") or None,
-            "ways": ways}
+            "description": _summary_text(Path(memory_path), entity_id) if book.get("description_at") else None,
+            "matchedByTitle": bool(book.get("title_match")), "ways": ways}
 
 
 def set_rating(memory_path: Path, entity_id: str, *, rating: int, day: str, episode_id: str, quote: str,
@@ -1025,6 +1042,131 @@ def _enrich_from_lookups(memory_path: Path, index: BookIndex, today: str) -> lis
         if changed:
             paths.append(f"entities/{entity_id}.md")
     return paths
+
+
+_ID_TITLE = re.compile(r"[0-9A-Fa-f]{16}|\d{4}\.\d{4,5}(v\d+)?")
+
+
+def id_title(title) -> bool:
+    """A "title" that is an identifier — an Apple Books asset id or an arXiv number, a PDF it holds — never a book's."""
+    return bool(_ID_TITLE.fullmatch(str(title or "").strip()))
+
+
+def title_candidates(memory_path: Path) -> list[dict]:
+    """The books a title may find (ruling 61 amended 2026-11-06): a page the person's own door added (Apple Books, Goodreads)
+    that holds no ISBN, a real title and an author, no description yet, and was never told "not this book". Only
+    ``{title, authors}`` leave this function — never a page id."""
+    out: list[dict] = []
+    for f in bank_index.files(Path(memory_path), "entities"):
+        fm = f.frontmatter or {}
+        book = fm.get("book") if is_book(fm) and isinstance(fm.get("book"), dict) else None
+        if (not book or book.get("isbns") or book.get("title_from") == "placeholder" or book.get("description_at")
+                or book.get("title_match_declined") or not (book.get("title") or fm.get("name"))
+                or id_title(book.get("title") or fm.get("name"))
+                or not book.get("authors") or not ({APPLE_ORIGIN, GOODREADS_ORIGIN} & door_set(book))):
+            continue
+        out.append({"title": book.get("title") or fm.get("name"), "authors": list(book.get("authors") or [])})
+    return out
+
+
+def apply_title_matches(memory_path: Path, today: str) -> list[str]:
+    """Each candidate whose cached title answer found a book takes that book's description (and year, pages, publisher,
+    subjects, cover id) once, marked ``book.title_match`` so "not this book" can take it back. Nothing is asked here; the
+    title, authors and ISBNs of the page are never changed, so no page joins another through a guess."""
+    from api.services import book_lookup
+
+    paths: list[str] = []
+    for f in bank_index.files(Path(memory_path), "entities"):
+        fm = f.frontmatter or {}
+        book = fm.get("book") if is_book(fm) and isinstance(fm.get("book"), dict) else None
+        if (not book or book.get("isbns") or book.get("title_match") or book.get("title_match_declined")
+                or book.get("description_at")):
+            continue
+        key = book_lookup.title_key(book.get("title") or fm.get("name"), book.get("authors"))
+        answer = book_lookup.cached(key) if key else None
+        hit = book_lookup.cached(answer["isbn"]) if answer and answer.get("found") else None
+        if not (hit and hit.get("found")):
+            continue
+        path = Path(f.path)
+        parsed = markdown_parser.parse(path)
+        new = dict(book)
+        set_fields: list[str] = []
+        for field in ("published", "pages", "publisher", "cover_id"):
+            if hit.get(field) and not new.get(field) and not (field == "cover_id" and new.get("local_cover")):
+                new[field] = hit[field]
+                set_fields.append(field)
+        if not new.get("subjects") and hit.get("subjects"):
+            new["subjects"] = book_lookup.readable_subjects(hit["subjects"])
+            set_fields.append("subjects")
+        # `set` lists exactly what the match wrote, so "not this book" removes those and nothing a door gave.
+        new["title_match"] = {"isbn": answer["isbn"], "work_id": answer.get("work_id"), "at": today, "set": set_fields}
+        facts = BookFacts(description=hit.get("description"), description_source=hit.get("description_source"),
+                          description_url=hit.get("description_url"))
+        body, _ = _book_prose(parsed.body, new, facts, today)
+        markdown_parser.write(path, {**parsed.frontmatter, "book": new}, body)
+        paths.append(f"entities/{path.name}")
+    return paths
+
+
+def backfill_plan(memory_path: Path) -> dict:
+    """A dry run of what a backfill of existing books would do — counts only, nothing asked, nothing written: pages that
+    already have a description, pages whose ISBN lookup would be asked (no description, number not yet answered), pages a
+    title search would ask about, and pages that can get no description (no ISBN and no author, or no door of the person's own)."""
+    from api.services import book_lookup
+
+    plan = {"books": 0, "described": 0, "isbn_lookups": 0, "title_searches": 0, "cannot": 0, "seconds_at_1rps": 0}
+    candidates = {book_lookup.title_key(c["title"], c["authors"]) for c in title_candidates(memory_path)}
+    for f in bank_index.files(Path(memory_path), "entities"):
+        fm = f.frontmatter or {}
+        book = fm.get("book") if is_book(fm) and isinstance(fm.get("book"), dict) else None
+        if not book:
+            continue
+        plan["books"] += 1
+        if book.get("description_at"):
+            plan["described"] += 1
+            continue
+        isbns = [str(i) for i in book.get("isbns") or []]
+        if isbns:
+            hits = [book_lookup.cached(i) for i in isbns]
+            if any(h and h.get("found") and h.get("description") for h in hits):
+                continue   # a cached answer already holds it; the next enrichment writes it with no request
+            if any(book_lookup.due(i) for i in isbns):
+                plan["isbn_lookups"] += 1
+            else:
+                plan["cannot"] += 1
+            continue
+        key = book_lookup.title_key(book.get("title") or fm.get("name"), book.get("authors"))
+        if key in candidates and book_lookup.due(key):
+            plan["title_searches"] += 1
+        else:
+            plan["cannot"] += 1
+    plan["seconds_at_1rps"] = plan["isbn_lookups"] * 4 + plan["title_searches"] * 5
+    return plan
+
+
+def not_this_book(memory_path: Path, entity_id: str, *, today: str | None = None) -> dict:
+    """"Not this book": a title match is taken back — what it wrote is removed, the page is marked so it is never matched
+    again, and the description stays gone. Only a page a title matched is touched (a description a scan or a person gave
+    stands). Returns ``{"undone": bool, "paths": [...]}``."""
+    path = Path(memory_path) / "entities" / f"{entity_id}.md"
+    if not path.exists():
+        return {"undone": False, "paths": []}
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    book = dict(fm.get("book") or {}) if is_book(fm) else {}
+    if not book.get("title_match"):
+        return {"undone": False, "paths": []}
+    body = parsed.body
+    prose = strip_claims_block(body or "")
+    if prose.startswith("## Summary") and book.get("description_at"):   # the machine's paragraph, nothing of anyone's
+        body = preserve_claims_blocks(body, "")
+    match = book["title_match"] if isinstance(book["title_match"], dict) else {}
+    for field in (*(match.get("set") or []), "description_at", "description_source", "description_url", "title_match",
+                  "why", "why_at"):
+        book.pop(field, None)
+    book["title_match_declined"] = True
+    markdown_parser.write(path, {**fm, "book": book}, body)
+    return {"undone": True, "paths": [f"entities/{entity_id}.md"]}
 
 
 def _stamp_local_covers(memory_path: Path) -> list[str]:
@@ -1210,6 +1352,7 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
                 logger.warning(f"book episode not applied: {tool_contract.where(exc)}")
         try:
             own += _enrich_from_lookups(memory_path, index, today_s)
+            own += apply_title_matches(memory_path, today_s)
         except Exception as exc:  # noqa: BLE001
             from api.services import tool_contract
 

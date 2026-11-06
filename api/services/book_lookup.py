@@ -464,3 +464,123 @@ async def resolve(isbns: list[str], *, fetch: FetchFn | None = None, max_isbns: 
         else:
             report["missing"] += 1
     return report
+
+
+# --- A title finds the book (ruling 61, amended 2026-11-06) ----------------------------------------------------------
+# For a book the person chose to add that carries no ISBN (Apple Books: about one entry in 284 has one), its title and
+# author go to the same keyless Open Library, behind the same gate, paced and cached, with no identity sent. Only a
+# *confident* match counts: the page's title (or title + subtitle) equals a result's title once case, accents and
+# punctuation are set aside, AND every one of the page's authors is among the result's; several works that both qualify with exactly the page's
+# authors are one book filed more than once (the most editions wins; a tie is ambiguous); otherwise ambiguous, match nothing. No fuzzy step. The answer is cached under ``title:<hash>`` in the same file
+# (a hash of the normalised words, never the words), so a miss is asked again only after :data:`MISS_RETRY_DAYS`.
+SEARCH_FIELDS = "key,title,subtitle,author_name,isbn,first_publish_year,edition_count"
+SEARCH_LIMIT = 10
+
+
+def title_key(title, authors) -> str | None:
+    """The cache key for a title and its authors, or None when either is empty (a title alone is never sent)."""
+    import hashlib
+
+    from api.services import books
+
+    t = books.norm_words(title)
+    a = "|".join(sorted(books.author_set(authors)))
+    if not t or not a:
+        return None
+    return "title:" + hashlib.sha256(f"{t}\n{a}".encode()).hexdigest()[:20]
+
+
+def confident_match(data, title, authors) -> dict:
+    """``{"match": {work_id, isbn}}`` for one confident work, else ``{"match": None, "why": "none"|"ambiguous"|"no_isbn"}``."""
+    from api.services import books
+
+    docs = data.get("docs") if isinstance(data, dict) else None
+    forms = books.title_forms(title)
+    want = books.author_set(authors)
+    works: dict[str, list[str]] = {}
+    exact: dict[str, int] = {}   # works whose authors are exactly the page's, with their edition counts
+    for doc in docs or []:
+        if not isinstance(doc, dict):
+            continue
+        key = str(doc.get("key") or "")
+        m = re.fullmatch(r"/works/(OL\d+W)", key)
+        if not m:
+            continue
+        got = books.title_forms(doc.get("title"), doc.get("subtitle"))
+        have = books.author_set(doc.get("author_name"))
+        if not (forms & got) or not want or not want <= have:
+            continue
+        isbns = sorted({i for i in (books.isbn13(x) for x in doc.get("isbn") or []) if i})
+        works.setdefault(m.group(1), []).extend(isbns)
+        if have == want:
+            count = doc.get("edition_count")
+            exact[m.group(1)] = max(exact.get(m.group(1), 0), count if isinstance(count, int) else 0)
+    if not works:
+        return {"match": None, "why": "none"}
+    if len(works) > 1:
+        # Several works carry this exact title and exactly these authors: the same book, filed more than once. The
+        # record with the most editions stands for it; a tie, or no work with exactly these authors, stays ambiguous.
+        # Never fuzzy, and "not this book" is still the undo.
+        ranked = sorted(exact.items(), key=lambda kv: -kv[1])
+        if not ranked or (len(ranked) > 1 and ranked[0][1] == ranked[1][1]) or ranked[0][1] <= 0:
+            return {"match": None, "why": "ambiguous"}
+        works = {ranked[0][0]: works[ranked[0][0]]}
+    (work, isbns), = works.items()
+    if not isbns:
+        return {"match": None, "why": "no_isbn"}
+    return {"match": {"work_id": work, "isbn": sorted(set(isbns))[0]}}
+
+
+async def match_title(title, authors, *, fetch: FetchFn | None = None, pacer: _Pacer | None = None) -> dict | None:
+    """One search, one verdict: ``{"found": True, "isbn", "work_id"}``, ``{"found": False, "why"}`` for a definite
+    miss, or None when the service did not answer. Never called without the person having added the book."""
+    from urllib.parse import quote
+
+    key = title_key(title, authors)
+    if key is None:
+        return {"found": False, "why": "no_author"}
+    fetch = fetch or default_fetch
+    pacer = pacer or _shared_pacer()
+    first = _clean(authors[0] if authors else "")
+    url = (f"{OPEN_LIBRARY}/search.json?title={quote(_clean(title)[:200])}&author={quote(first[:120])}"
+           f"&fields={SEARCH_FIELDS}&limit={SEARCH_LIMIT}")
+    resp = await _get(fetch, pacer, url)
+    if resp.status != 200:
+        return None
+    data = _json(resp.body)
+    if not isinstance(data, dict):
+        return None
+    verdict = confident_match(data, title, authors)
+    if verdict["match"]:
+        return {"found": True, "v": VERSION, **verdict["match"]}
+    return {"found": False, "why": verdict["why"]}
+
+
+async def resolve_titles(items: list[dict], *, fetch: FetchFn | None = None, max_items: int = RUN_MAX,
+                         pacer: _Pacer | None = None, now: datetime | None = None) -> dict:
+    """For each ``{title, authors}`` (a book the person added, no ISBN) not yet asked: one title search, and when it
+    matched, the normal ISBN lookup of the match (so the description, cover id and subjects are cached as a scan's are).
+    Counts only: ``{asked, matched, missing, ambiguous, failed}``."""
+    pacer = pacer or _shared_pacer()
+    report = {"asked": 0, "matched": 0, "missing": 0, "ambiguous": 0, "failed": 0}
+    for item in items:
+        if report["asked"] >= max_items:
+            break
+        key = title_key(item.get("title"), item.get("authors"))
+        if key is None or not due(key, now=now):
+            continue
+        report["asked"] += 1
+        answer = await match_title(item.get("title"), item.get("authors"), fetch=fetch, pacer=pacer)
+        _remember(key, answer, now=now or _now())
+        if answer is None:
+            report["failed"] += 1
+        elif answer.get("found"):
+            report["matched"] += 1
+            if due(answer["isbn"], now=now):
+                got = await lookup(answer["isbn"], fetch=fetch, pacer=pacer)
+                _remember(answer["isbn"], got, now=now or _now())
+        elif answer.get("why") == "ambiguous":
+            report["ambiguous"] += 1
+        else:
+            report["missing"] += 1
+    return report
