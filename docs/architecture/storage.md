@@ -2861,3 +2861,10 @@ more than 32 files need parsing, then re-checks what is still missing: the launc
 list the same folders at once and each used to parse every file (9,000-page memory, backend just started: first `/status`
 22 → 12 s, first `/graph` 45 → 35 s, the first ten requests 103 → 80 s). What remains cold is the page headers' own
 parse (~10 s alone) and `graph_edges.yaml` (~64,000 edges, ~4 s).
+
+**Start-up warm-ups run staged (speed, 2026-11-06; on top of the per-folder guard).** `api/main.py`'s `_staged_warm` reads the
+page and conversation headers first, alone, and only then starts the search model and index (G136), the sensitive hold
+(G235) and the question order (ruling 70). Backend just started on a 9,000-page memory, first requests in order: `/status`
+12 → 6 s, `/graph` 35 → 22 s (under the app's 30 s refresh timeout; it was 45 s before the guard), ten requests 103 → 80
+(guard) → 62 s. The app shows its disk snapshot (`Store.hydrate`) meanwhile; what is left cold is the headers' parse
+(~10 s) and `graph_edges.yaml` (~4 s).
