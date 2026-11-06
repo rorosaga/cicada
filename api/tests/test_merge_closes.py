@@ -54,3 +54,14 @@ def test_open_questions_reads_both_directions_and_nothing_else(bank):
     assert merge_closes.open_questions(bank, "alpha-eg", "alpha-example") == ["inbox/inbox-001.md",
                                                                               "inbox/inbox-002.md"]
     assert merge_closes.open_questions(bank, "alpha-eg", "carol-example") == ["inbox/inbox-003.md"]
+
+
+def test_two_people_answer_takes_a_crossed_alias_off(bank):
+    from api.services import merge_rejections
+
+    fm = markdown_parser.parse(bank / "entities" / "alpha-eg.md").frontmatter
+    markdown_parser.write(bank / "entities" / "alpha-eg.md", {**fm, "aliases": ["Alpha Example", "Algy"]}, "## Summary\nx.\n")
+    assert merge_rejections.uncross_aliases(bank, "alpha-eg", "alpha-example") == ["entities/alpha-eg.md"]
+    after = markdown_parser.parse(bank / "entities" / "alpha-eg.md").frontmatter
+    assert after["aliases"] == ["Algy"] and after["aliases_removed"][0]["alias"] == "Alpha Example"
+    assert merge_rejections.uncross_aliases(bank, "alpha-eg", "alpha-example") == []

@@ -3066,11 +3066,14 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             path.unlink()
             return entity_id, False, kept
         merge_rejections.add_rejected(settings.memory_path, entity_id, other)
+        # "Two people": an alias on either page that names the other is wrong, and leaves (`uncross_aliases`).
+        crossed = merge_rejections.uncross_aliases(settings.memory_path, entity_id, other)
         path.unlink()
         return (
             entity_id,
             False,
-            [f"{merge_rejections.FILE}: updated (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)"],
+            [f"{merge_rejections.FILE}: updated (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)",
+             *[f"{rel}: updated (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)" for rel in crossed]],
         )
 
     source_episode = str(parsed.frontmatter.get("source_episode", "") or "").strip()

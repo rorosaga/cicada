@@ -2336,6 +2336,11 @@ drain (`inbox_catchup.Budget`, `NEW_PER_DRAIN` = 3), each in its own `cicada` co
   direction, by page id or by the slug of its title) in the merge's own commit (and `merge_footprint` lists them for the
   sweep's rollback). A "Which X is this?" question over several pages and every other kind are left to their resolvers.
   Undoing the join restores the card with the pages.
+- **"Two people" takes a crossed alias off** (`merge_rejections.uncross_aliases`, owner 2026-11-06): answering a same-person
+  question "no, different" removes, from each person page, an alias that names the other (its name, id or one of its
+  aliases) into `aliases_removed`, so no writer adds it back. Why: a page listed a real other person's name as its alias
+  since a Sleep extraction read two co-applicants named in one sentence as one person; the guard against a crossed alias
+  (`alias_policy.names_another_page`, 2026-10-29) is for aliases Sleep adds and never reached one already written.
 
 **The web check (owner ruling 2026-10-16, TODO ruling 27; `sleep_cycle._web_check_safely`, `web_lookup`).** After the
 run's last nudges, up to `web_check_per_run` (8; `CICADA_WEB_CHECK_PER_RUN`, 0 = off) pending questions about public

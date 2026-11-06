@@ -104,3 +104,48 @@ def clear_pairs(memory_path: Path, pairs) -> bool:
     data[SPLIT_KEY] = [list(x) for x in split - gone]
     _write(memory_path, data)
     return True
+
+
+def uncross_aliases(memory_path: Path, a: str, b: str, *, author: str = "user") -> list[str]:
+    """The person said ``a`` and ``b`` are two people: an alias on one that names the other (its name, its id, or one of
+    its own aliases) is wrong and leaves the page, recorded in ``aliases_removed`` so no automatic writer adds it back.
+    Only person pages. Returns the memory-relative paths written.
+
+    Owner 2026-11-06: a page listed "<other's name>" as its own alias since a Sleep extraction read two co-applicants
+    named in one sentence as one person; the guard against a crossed alias (`alias_policy.names_another_page`) came
+    three weeks later and does not reach one already written. Answering "two people" is the person's word on it."""
+    from datetime import date
+
+    from api.services import markdown_parser, page_edits
+    from api.services.id_utils import sanitize_id
+
+    memory_path = Path(memory_path)
+    pages = {pid: memory_path / "entities" / f"{pid}.md" for pid in (a, b)}
+    if not all(p.is_file() for p in pages.values()):
+        return []
+    parsed = {pid: markdown_parser.parse(p) for pid, p in pages.items()}
+    if any(str(x.frontmatter.get("type") or "") != "person" for x in parsed.values()):
+        return []
+
+    def spellings(pid: str) -> set[str]:
+        fm = parsed[pid].frontmatter
+        names = [pid, str(fm.get("name") or ""), *[x for x in fm.get("aliases") or () if isinstance(x, str)]]
+        return {" ".join(n.split()).casefold() for n in names if n and n.strip()} | {sanitize_id(n) for n in names if n}
+
+    written: list[str] = []
+    for pid, other in ((a, b), (b, a)):
+        fm = dict(parsed[pid].frontmatter)
+        aliases = [x for x in fm.get("aliases") or () if isinstance(x, str)]
+        theirs = spellings(other)
+        crossed = [x for x in aliases if " ".join(x.split()).casefold() in theirs or sanitize_id(x) in theirs]
+        if not crossed:
+            continue
+        fm["aliases"] = [x for x in aliases if x not in crossed]
+        if not fm["aliases"]:
+            fm.pop("aliases")
+        rows = list(fm.get(page_edits.ALIASES_REMOVED) or []) if isinstance(fm.get(page_edits.ALIASES_REMOVED), list) else []
+        rows += [{"alias": x, "by": author, "on": date.today().isoformat()} for x in crossed]
+        fm[page_edits.ALIASES_REMOVED] = rows[-page_edits.MAX_ALIASES_REMOVED:]
+        markdown_parser.write(pages[pid], fm, parsed[pid].body)
+        written.append(f"entities/{pid}.md")
+    return written

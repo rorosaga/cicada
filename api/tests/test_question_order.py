@@ -1161,3 +1161,23 @@ def test_a_resolved_item_stays_behind_the_open_ones(bank):
     served = inbox_service.load_inbox(bank)
     statuses = [str(i.status) for i in served]
     assert statuses == sorted(statuses, key=lambda s: 0 if s.endswith("pending") else 1)
+
+
+def test_a_same_as_question_about_pages_spoken_of_lately_asks_first(bank):
+    """ROR-136 (Rodrigo, 2026-11-06): two names that came up lately ask before an old pair of the same standing."""
+    def person(pid, episodes):
+        markdown_parser.write(bank / "entities" / f"{pid}.md", {"name": pid, "type": "person", "status": "active",
+                                                                "source_episodes": episodes}, "## Summary\nx.\n")
+    today = date.today()
+    new, old = f"ep_{today.isoformat()}_001", "ep_2025-01-01_001"
+    for pid, eps in (("new-a", [new]), ("new-b", [new]), ("old-a", [old]), ("old-b", [old])):
+        person(pid, eps)
+    bank_index.invalidate()
+    t = question_order.tables(bank)
+
+    def card(a, b):
+        return {"kind": "merge_suggestion", "entity_id": a, "entity_name": a, "merge_target_hint": b,
+                "suggested_classification": "person", "suggested_confidence": 0.5}
+
+    assert t.score(card("new-a", "new-b")) > 2 * t.score(card("old-a", "old-b"))
+    assert t.recency(t.parts(card("old-a", "old-b"))) < 1.0001 + question_order.RECENT_BOOST * 0.001
