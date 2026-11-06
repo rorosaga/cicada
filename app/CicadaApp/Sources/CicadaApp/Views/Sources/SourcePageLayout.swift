@@ -36,7 +36,7 @@ enum SourceConnectState: Equatable {
         case .browser(let read): read.state == .signedOut || read.state == .couldntRead ? .needsAttention : .connected
         case .syncing: .connecting
         case .needsYou: .needsAttention
-        case .off, .notInstalled: .notConnected
+        case .off, .notInstalled, .notReading: .notConnected
         }
     }
 }

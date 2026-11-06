@@ -30,13 +30,13 @@ final class ChatSourcePageTests: XCTestCase {
         XCTAssertEqual(SourcePageActions.of(browser, exploreGone: true), [])
     }
 
-    // MARK: 6 — what is set up comes first (ROR-7: at the top of the page, no longer of each section)
+    // MARK: 6 — what is set up comes first within its kind (ROR-118)
 
     func testWhatIsSetUpComesFirstAndKeepsTheCataloguesOrderInEachPart() {
         let entries = [entry("a"), entry("b"), entry("c"), entry("d")]
         let status: [String: SourceCatalogStatus] = ["a": .off, "b": .connected, "c": .off, "d": .needsSignIn]
         let rows = entries.map { SourceCatalogRow(entry: $0, status: status[$0.id]!, lastSync: nil) }
-        XCTAssertEqual(SourceGrid.sections(rows).map(\.section), [.needsYou, .connected, .category(.social)])
+        XCTAssertEqual(SourceGrid.sections(rows).map(\.section), [.needsYou, .shelf(.saved)])
         XCTAssertEqual(SourceGrid.drawnOrder(rows).map(\.id), ["d", "b", "a", "c"], "the keys walk what is drawn")
     }
 

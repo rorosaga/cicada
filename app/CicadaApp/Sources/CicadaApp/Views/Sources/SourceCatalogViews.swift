@@ -145,7 +145,7 @@ struct SourceCatalogRowView: View {
                 .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)   // DR-36
                 Spacer(minLength: CicadaTheme.spacingSM)
                 // Its heading already says Connected; the word only cost the name its room.
-                if style == .wide || (style == .triage && row.section != .connected) {
+                if (style == .wide || (style == .triage && !row.isConnectedHere)) && (row.status != .off || row.waitingOn != nil || row.notInstalled) {
                     StatusWord(word: row.word, tone: row.tone)
                 }
             }
@@ -286,7 +286,8 @@ struct SourceCatalogDetail: View {
         let watch = channel.flatMap { watcher.state(for: $0.id) }
         let run = SourceRowText.status(channel: channel, watch: watch, run: channel.flatMap { activity?.run(for: $0.id) })
         return SourcePageStatus.of(row: row.status, run: run, latest: latest, check: chatCheck,
-                                   notInstalled: row.notInstalled, waitingOn: row.waitingOn, browser: row.browser)
+                                   notInstalled: row.notInstalled, waitingOn: row.waitingOn, browser: row.browser,
+                                   readsThroughAI: WebReadingScene.applies(row.entry))
     }
 
     private var chatCheck: ChatCheck? {
@@ -428,6 +429,17 @@ struct SourceCatalogDetail: View {
     /// The connect area, by source: one primary and at most one line for its state, then its ways in.
     @ViewBuilder
     private var connectSlot: some View {
+        // ROR-118 — a source read through the person's own agent shows who does what, before its switch.
+        if WebReadingScene.applies(row.entry) { WebReadingCard(entry: row.entry) }
+        if let honest = WebReadingScene.honestLine(row.entry.id) {
+            Text(honest).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        connectControls
+    }
+
+    @ViewBuilder
+    private var connectControls: some View {
         let entry = row.entry
         switch entry.id {
         case CalendarRow.channelId:
@@ -497,10 +509,11 @@ struct SourceCatalogDetail: View {
             } else if entry.overviewId != nil {
                 EmptyView()
             } else if let connector = Self.connectorChannel(in: mine) {
-                ConnectorSlot(slot: .connect, channel: connector, title: entry.title, ways: siteWays,
-                              vendors: entry.tile?.vendors ?? [], needsSignIn: row.status == .needsSignIn)
+                ConnectorSlot(slot: .connect, channel: connector, title: entry.title,
+                              ways: siteWays(withoutBrowser: webStart != nil), vendors: entry.tile?.vendors ?? [],
+                              needsSignIn: row.status == .needsSignIn, primaryOverride: webStart)
             } else if entry.site != nil || entry.savedListKey != nil || entry.verb == .importFile {
-                SourceConnectArea(ways: siteWays)
+                SourceConnectArea(primary: webStart, ways: siteWays(withoutBrowser: webStart != nil))
             } else if let feed = mine.first, feed.actions.contains("manage"), let tile = entry.tile {
                 // A feed: the Subscribe field and the list are its flow.
                 if feed.count == 0 {
@@ -528,6 +541,19 @@ struct SourceCatalogDetail: View {
 
     /// An account's ways in beyond its connector: the browser reader's per-site switch, the saved list it keeps
     /// current, and the export (the source's own mark on a file, its where-from on hover).
+    /// ROR-118 round 4 — a site read through the person's own AI app, still off: the card above says how, and ONE
+    /// button turns it on. The account connection, the file and the switch are ways below it, never rivals of it.
+    private var webStart: SourcePrimaryAction? {
+        guard WebReadingScene.applies(row.entry), let key = row.entry.savedListKey, row.status == .off,
+              !reading.savedListsOn.contains(key) else { return nil }
+        return SourcePrimaryAction(title: Copy.SourceLayout.readSiteInBrowser(row.entry.title),
+                                   help: Copy.Catalog.readSavedList(key)) { flipSavedList(key, on: true) }
+    }
+
+    private func siteWays(withoutBrowser: Bool) -> [SourceWayIn] {
+        siteWays.filter { !(withoutBrowser && ($0.id == "saved" || $0.id == "browser")) }
+    }
+
     private var siteWays: [SourceWayIn] {
         var ways: [SourceWayIn] = []
         // ROR-114: a source with a saved list has ONE switch, "Read through your browser" (the list's). The site grant

@@ -17,13 +17,69 @@ struct SourceLogoTile: View {
     /// A provider umbrella's logo slug (`GET /providers`, an agent request's `logo`), drawn before the origin's.
     var logo: String? = nil
 
+    /// ROR-118 round 4 — Claude Code keeps its ">_" badge (DR-52, R-AG8): without it the two Claude rows were the same
+    /// sunburst twice and no one could tell them apart.
+    private var slug: String? {
+        if let logo { return logo }
+        return origin == "mcp" ? "claude" : OriginIconography.logoName(for: origin)
+    }
+
+    /// Chat exports are every assistant's own file, so the tile shows four of their marks, not a share glyph.
+    static let exportMarks = ["claude", "openai", "gemini", "grok"]
+
+    private var hasMark: Bool {
+        if let bundle = OriginIconography.appBundleId(for: origin), InstalledAppIcon.image(bundleId: bundle, size: 18) != nil {
+            return true
+        }
+        return slug.map { LogoImage.exists(name: $0) } ?? false
+    }
+
+    private var tile: CGFloat { LogoTile.tileSide(size == .row ? .regular : .dense) }
+
     var body: some View {
-        // G217 — UI-A's one `LogoTile` (cherry-picked from feat/ui-settings-agents): the installed app's icon, else the
-        // umbrella's bundled mark, else a symbol, 26 pt in a 36 pt ringed tile (dense: 18 in 24).
-        LogoTile(logo: logo ?? OriginIconography.logoName(for: origin),
-                 bundleId: OriginIconography.appBundleId(for: origin),
-                 density: size == .row ? .regular : .dense,
-                 systemFallback: OriginIconography.symbol(for: origin))
+        // G217 — UI-A's one `LogoTile`: the installed app's icon, else the umbrella's bundled mark. A source with no
+        // mark of its own (files, folders, exports) draws its glyph in the primary ink, heavier, so it sits beside the
+        // full-colour marks instead of fading under them (ROR-118 round 2).
+        if origin == SourceCatalog.chatExportsOrigin {
+            marksTile
+        } else if hasMark {
+            LogoTile(logo: slug, bundleId: OriginIconography.appBundleId(for: origin),
+                     density: size == .row ? .regular : .dense, systemFallback: OriginIconography.symbol(for: origin))
+        } else {
+            ZStack {
+                CicadaTheme.shape(tile * 0.25).fill(CicadaTheme.surfaceElevated)
+                Image(systemName: OriginIconography.symbol(for: origin))
+                    .font(CicadaTheme.font(size: tile * 0.46, weight: .medium))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+            }
+            .frame(width: tile, height: tile)
+            .ringed(in: CicadaTheme.shape(tile * 0.25))
+            .accessibilityHidden(true)
+        }
+    }
+}
+
+extension SourceLogoTile {
+    /// Four marks in the one tile (2 by 2), each the vendor's own, clipped like a single mark.
+    fileprivate var marksTile: some View {
+        let side = LogoTile.tileSide(size == .row ? .regular : .dense)
+        let mark = side * 0.36
+        return ZStack {
+            CicadaTheme.shape(side * 0.25).fill(CicadaTheme.surfaceElevated)
+            VStack(spacing: side * 0.07) {
+                ForEach(0..<2, id: \.self) { row in
+                    HStack(spacing: side * 0.07) {
+                        ForEach(0..<2, id: \.self) { col in
+                            LogoImage(name: Self.exportMarks[row * 2 + col], size: mark)
+                                .clipShape(CicadaTheme.shape(mark * 0.25))
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: side, height: side)
+        .ringed(in: CicadaTheme.shape(side * 0.25))
+        .accessibilityHidden(true)
     }
 }
 

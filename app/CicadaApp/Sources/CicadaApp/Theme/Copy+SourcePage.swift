@@ -11,6 +11,8 @@ extension Copy {
         static let syncing = "Syncing"
         static let needsYou = "Needs you"
         static let off = "Off"
+        /// ROR-118 round 6 — a site read through the person's AI, before they start it.
+        static let notReading = "Not reading yet"
         /// "last item today" — the day the newest item came in, after the status word.
         static func lastItem(_ day: String) -> String { "last item \(day)" }
         static let nothingYet = "nothing in yet"

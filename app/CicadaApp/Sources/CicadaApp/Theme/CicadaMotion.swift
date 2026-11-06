@@ -603,3 +603,28 @@ extension CicadaMotion {
             : .spring(duration: helperBounceDownDuration, bounce: helperBounceSpring)
     }
 }
+
+// MARK: - The website-reading card (ROR-118, Sources round 1)
+
+/// An explanation that plays once, in the connect card before the switch, and again on the person's click (the card's
+/// Replay). Like the worm's flight it is longer than the 0.4 s UI ceiling on purpose: it is the content, not a
+/// transition between two layouts, and a person must be able to follow it with the eye (DESIGN_RULES §9, 2026-11-06).
+/// Four beats of about a second and a half each, about six seconds in all. Reduce Motion shows the finished picture;
+/// a keyboard action never animates it (DR-60).
+extension CicadaMotion {
+    /// A line drawing from one node to the next.
+    static let webTravelDuration: TimeInterval = 0.7
+    /// A node coming up to full strength as the line reaches it.
+    static let webLightDuration: TimeInterval = 0.25
+    /// How long a beat rests before the next starts (after its line has drawn).
+    static let webBeatHold: TimeInterval = 0.8
+    /// The pause before the first beat, so the eye is on the card when it starts.
+    static let webStartDelay: TimeInterval = 0.4
+
+    static func webTravel(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : CicadaCurve.ease(webTravelDuration)
+    }
+    static func webLight(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeOut(duration: webLightDuration)
+    }
+}

@@ -44,6 +44,9 @@ enum SourcePageStatus: Equatable {
     case needsYou(String)
     /// Not reading now; `lastItem` is the newest thing it brought in before, when it holds any.
     case off(lastItem: String?)
+    /// ROR-118 round 6 — a site read through the person's AI, still switched off. Six readers took "Off" for a fault or
+    /// a switch they could not find; it says what is true: nothing is being read yet, and the button below starts it.
+    case notReading(lastItem: String?)
     /// 2026-11-03 (live) — a chat reader on this Mac that reads on every change of its app's store: when it last
     /// checked the ticked chats and the newest message in them (`ChatCheck`), instead of the day something last came in.
     /// "Connected · last item Oct 28" (and the list's "4 days ago") read as a stopped reader while it was checking on
@@ -58,7 +61,8 @@ enum SourcePageStatus: Equatable {
 
     static func of(row: SourceCatalogStatus, run: SourceRowStatus, latest: String?,
                    check: ChatCheck? = nil, notInstalled: Bool = false,
-                   waitingOn: String? = nil, browser: BrowserRead? = nil) -> SourcePageStatus {
+                   waitingOn: String? = nil, browser: BrowserRead? = nil,
+                   readsThroughAI: Bool = false) -> SourcePageStatus {
         if notInstalled { return .notInstalled }
         if case .syncing(let detail, _, _) = run { return .syncing(detail: detail) }
         // ROR-7 — a read waiting on the person reads the same on the tile and on the page it opens, whether its reader
@@ -69,7 +73,7 @@ enum SourcePageStatus: Equatable {
         switch row {
         case .needsSignIn: return .needsYou(Copy.SourcePage.signInAgain)
         case .waitingForAgent: return .needsYou(Copy.SourcePage.connectAnAgent)
-        case .off: return .off(lastItem: latest)
+        case .off: return readsThroughAI ? .notReading(lastItem: latest) : .off(lastItem: latest)
         case .connected:
             if case .problem(let why) = run {
                 return .needsYou(why == Copy.sourceNeedsAccess ? Copy.SourcePage.allowAccess : why)
@@ -84,7 +88,7 @@ enum SourcePageStatus: Equatable {
         case .connected, .syncing, .checked: .on
         case .browser(let read): read.state.tone
         case .needsYou: .attention
-        case .off, .notInstalled: .off
+        case .off, .notInstalled, .notReading: .off
         }
     }
 
@@ -95,6 +99,7 @@ enum SourcePageStatus: Equatable {
         case .syncing: Copy.SourcePage.syncing
         case .needsYou: Copy.SourcePage.needsYou
         case .off, .notInstalled: Copy.SourcePage.off
+        case .notReading: Copy.SourcePage.notReading
         }
     }
 
@@ -121,7 +126,7 @@ enum SourcePageStatus: Equatable {
             case .signedOut: return Copy.Browser.signedOutDetail
             case .couldntRead: return Copy.Browser.couldntReadDetail
             }
-        case .off(let latest):
+        case .off(let latest), .notReading(let latest):
             return ISODay(latest).map {
                 Copy.SourcePage.lastItem(Self.dayWord(Self.cameIn($0, today: today), today: today, locale: locale))
             }

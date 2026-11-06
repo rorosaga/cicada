@@ -87,15 +87,15 @@ final class BrowserSourcesTests: XCTestCase {
             "reddit": BrowserRead(state: .couldntRead),
         ])
         XCTAssertEqual(try row("instagram", all).section, .needsYou)
-        XCTAssertEqual(try row("x", all).section, .connected)
-        XCTAssertEqual(try row("reddit", all).section, .connected)
-        XCTAssertEqual(try row("tiktok", all).section, .connected)
+        XCTAssertEqual(try row("x", all).section, .shelf(.saved))
+        XCTAssertEqual(try row("reddit", all).section, .shelf(.saved))
+        XCTAssertTrue(try row("tiktok", all).isConnectedHere)
         XCTAssertEqual(SourceCatalog.connectedCount(all), 3, "signed out is waiting on the person")
         let line = SourceGrid.line(try row("instagram", all), now: Date())
         XCTAssertEqual(line, SourceGrid.Line(word: "Signed out", tone: .attention))
-        XCTAssertEqual(SourceGrid.line(try row("x", all), now: Date(), headed: true),
+        XCTAssertEqual(SourceGrid.line(try row("x", all), now: Date()),
                        SourceGrid.Line(word: "Through your browser", tone: .browser),
-                       "under the Connected heading the word still says how it is read")
+                       "the word says how it is read")
         XCTAssertEqual(SourceGrid.line(try row("reddit", all), now: Date())?.tone, .attention)
     }
 

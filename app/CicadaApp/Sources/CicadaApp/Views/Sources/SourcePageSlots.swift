@@ -574,6 +574,9 @@ struct ConnectorSlot: View {
     var ways: [SourceWayIn] = []
     var vendors: [WalkthroughVendor] = []
     let needsSignIn: Bool
+    /// ROR-118 round 4 — when a site's own way in (its list read through the person's AI app) leads, that is the one
+    /// primary and the account connection becomes a way below it.
+    var primaryOverride: SourcePrimaryAction? = nil
 
     @Environment(Store.self) private var store
     @Environment(LocalSourceWatcher.self) private var localSources
@@ -589,6 +592,12 @@ struct ConnectorSlot: View {
                 if needsSignIn {
                     SourceConnectArea(primary: SourcePrimaryAction(title: Copy.SourceLayout.reconnect) { showPanel = true },
                                       line: channel.lastError, lineIsAttention: true, ways: ways)
+                } else if !channel.connected, let lead = primaryOverride {
+                    SourceConnectArea(primary: lead, ways: [
+                        SourceWayIn(id: "account", icon: .symbol("person.crop.circle"),
+                                    title: Copy.SourceLayout.useAccount(title),
+                                    control: .button(Copy.SourceLayout.connectShort) { showPanel = true }),
+                    ] + ways)
                 } else if !channel.connected {
                     SourceConnectArea(primary: SourcePrimaryAction(title: Copy.SourceLayout.connect(title)) {
                         showPanel = true

@@ -36,6 +36,11 @@ struct SourcesPageView: View {
     @State private var gridSearch = SourceGridSearch()
     /// Off sources whose app is on this Mac (`SourceGrid.suggested`): one Launch Services pass per appearance.
     @State private var suggested: Set<String> = []
+    /// ROR-118 — the add overlay: closed, or open on a kind (nil is every kind).
+    @State private var adding: AddRequest?
+
+    /// The overlay's one state: which kind it opens on.
+    private struct AddRequest: Equatable { var shelf: SourceShelf? }
 
     private var rows: [SourceOverview] { SourceOverview.gridOrder(store.sourcesOverview.value ?? []) }
 
@@ -117,9 +122,7 @@ struct SourcesPageView: View {
                 if !detailOpen {
                     // CIC8 (2026-10-29): it opens the one intake — every export it reads, each chat app's export page
                     // and steps, *Choose a file…* in Downloads — named for what people bring.
-                    PageAddButton(title: Copy.Catalog.importChatsOrFiles, help: Copy.Catalog.dropHint) {
-                        intake.present(from: .emptyState(.sources))
-                    }
+                    PageAddButton(title: Copy.Shelf.addSource, help: Copy.Shelf.addHelp) { adding = AddRequest(shelf: nil) }
                 }
             }
         } list: { plan in
@@ -148,6 +151,16 @@ struct SourcesPageView: View {
             }
         }
         .background(CicadaTheme.bgBase)
+        .overlay {
+            if let request = adding {
+                SourceAddOverlay(rows: catalog, shelf: request.shelf, open: { row in
+                    adding = nil
+                    select(.entry(row.id))
+                }, close: { adding = nil })
+                    .transition(.opacity)
+            }
+        }
+        .animation(CicadaMotion.panel(reduceMotion: reduceMotion), value: adding)
         .environment(chatPanel)
         .environment(pageBack)
         .onChange(of: provenance.isPresented) { _, open in if open { chatPanel.close() } }
@@ -161,6 +174,7 @@ struct SourcesPageView: View {
             if wants { router.pendingReadingSheet = false; showReadingSheet = true }
         }
         .environment(reading)
+        .environment(agents)
         .task { await exploreCache.refresh() }
         .task { await reading.loadSettings() }
         .task { await agents.run() }

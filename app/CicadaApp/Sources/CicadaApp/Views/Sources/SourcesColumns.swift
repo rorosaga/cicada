@@ -135,8 +135,12 @@ struct SourcesOverviewColumn: View {
                         } else {
                             // G217 — every way in, on or off, so the page is never empty (a dropped export lands on the
                             // window's own intake, and on Files and links).
-                            SourceGridView(rows: catalog, search: search.wrappedValue, open: onOpen,
-                                           importFiles: { intake.present(from: .emptyState(.sources)) })
+                            if searching {
+                                SourceGridView(rows: catalog, search: search.wrappedValue, open: onOpen,
+                                               importFiles: { intake.present(from: .emptyState(.sources)) })
+                            } else {
+                                SourceShelvesView(rows: catalog, open: onOpen)
+                            }
                         }
                         if !searching { statistics.frame(maxWidth: textCap, alignment: .leading) }
                     }
