@@ -52,9 +52,10 @@ final class OnboardingPagesTests: XCTestCase {
         XCTAssertEqual(OnboardingPage.permissions.roomMood, .reading)
         XCTAssertEqual(OnboardingPage.agents.roomMood, .happy)
         XCTAssertEqual(OnboardingPage.done.roomMood, .happy)
-        XCTAssertEqual(OnboardingRoomLayout.paneCell(windowWidth: 1440, scale: 1), 9, "74 columns at 9 pt, floor to wall")
-        XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 800), 5, "800 × 320 over the 800 pt card")
-        XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 2000), 5)
+        XCTAssertEqual(OnboardingRoomLayout.paneCell(windowWidth: 1440, scale: 1), 8, "83 columns at 8 pt, floor to wall")
+        XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 800), 5)
+        XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 960), 6, "960 × 384 over the 960 pt card")
+        XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 2000), 6)
         XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 0), 1, "a zero width never traps")
         for width in stride(from: CGFloat(0), through: 900, by: 37) {
             let cell = OnboardingRoomLayout.heroCell(cardWidth: width)
@@ -88,9 +89,9 @@ final class OnboardingPagesTests: XCTestCase {
 
     /// R-OB1 — the painting gives way before the column does, and goes rather than become a sliver.
     func testThePaneShrinksThenGoesAndTheColumnNeverDropsBelowItsMinimum() {
-        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1440, scale: 1), 666)
-        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1200, scale: 1), 518)
-        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1000, scale: 1), 370)
+        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1440, scale: 1), 664)
+        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1200, scale: 1), 498)
+        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1000, scale: 1), 332)
         XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 800, scale: 1), 0)
         for scale in stride(from: CGFloat(0.8), through: 1.4001, by: 0.1) {
             for width in [CGFloat(800), 1000, 1200, 1440, 1800] {

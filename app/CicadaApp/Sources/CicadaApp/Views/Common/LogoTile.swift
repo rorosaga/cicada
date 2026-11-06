@@ -4,7 +4,7 @@ import SwiftUI
 /// connection is listed — Settings → Intelligence, the Agents page, Devices, You's profiles, and (UI-B) Sources.
 ///
 /// One size per density, never a per-call number: `.regular` is a 26 pt mark in a 36 pt tile, `.dense` an 18 pt mark
-/// in a 24 pt tile for long lists. The tile is the neutral elevated surface with the resting 1 pt ring (DR-9, never a
+/// in a 24 pt tile for long lists, and `.roomy` (ROR-118 round 3, onboarding's rows alone) a 34 pt mark in a 48 pt tile. The tile is the neutral elevated surface with the resting 1 pt ring (DR-9, never a
 /// tint and never a shadow), its radius concentric with the mark's clip (DR-12), and every size scales with `uiScale`
 /// (DR-70). The mark itself is never altered (DR-52): it is drawn as the vendor published it, clipped to the tile's own
 /// curvature so a vendor that publishes a tiled app icon (Grok, OpenCode, Amp …) and one that publishes a bare glyph
@@ -15,7 +15,7 @@ import SwiftUI
 /// mark), then a monogram of `name` for an agent the set has no mark for (CLAUDE.md's picture precedence ends there),
 /// or `systemFallback` when the caller named a glyph.
 struct LogoTile: View {
-    enum Density { case regular, dense }
+    enum Density { case regular, dense, roomy }
 
     let logo: String?
     var name: String = ""
@@ -30,11 +30,11 @@ struct LogoTile: View {
     var glyphProminent = false
 
     static func tileSide(_ density: Density) -> CGFloat {
-        CicadaTheme.scaled(density == .regular ? 36 : 24)
+        CicadaTheme.scaled(density == .roomy ? 48 : density == .regular ? 36 : 24)
     }
 
     static func markSide(_ density: Density) -> CGFloat {
-        CicadaTheme.scaled(density == .regular ? 26 : 18)
+        CicadaTheme.scaled(density == .roomy ? 34 : density == .regular ? 26 : 18)
     }
 
     private var tile: CGFloat { Self.tileSide(density) }

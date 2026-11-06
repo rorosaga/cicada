@@ -67,13 +67,14 @@ enum OnboardingRoomLayout {
         return max(1, min(maxCell, (width / CGFloat(RoomLattice.cols)).rounded(.down)))
     }
 
-    /// The pane shows the room's columns `cropStartCol ..< cropStartCol + cropCols` — the window's right half, the
-    /// worm on its beanbag, the clock and the mug, with a margin before the seam — so the worm is the picture, not a strip of a wide room.
-    static let cropStartCol = 38
-    static let cropCols = 74
+    /// The pane shows the room's columns `cropStartCol ..< cropStartCol + cropCols` — most of the window, the plant,
+    /// the worm whole on its beanbag with room to spare on its left (round 3: the head and glasses no longer sit on
+    /// the edge), the clock and the mug, with a margin before the seam.
+    static let cropStartCol = 27
+    static let cropCols = 83
     /// Points per cell in the pane at 1×; scales with the UI scale and steps down, whole, before the column would
     /// drop below its minimum.
-    static let paneCellAt1x: CGFloat = 9
+    static let paneCellAt1x: CGFloat = 8
 
     /// The working pages' pane cell: always whole points; 0 when the pane would be a sliver and goes (art only,
     /// DR-13).
@@ -89,8 +90,8 @@ enum OnboardingRoomLayout {
         paneCell(windowWidth: w, scale: scale) * CGFloat(cropCols)
     }
 
-    /// Welcome: the room over its card, 800 × 320 over the 800 pt card (ROR-118).
+    /// Welcome: the room over its card, 960 × 384 over the 960 pt card (ROR-118 round 3).
     static func heroCell(cardWidth: CGFloat) -> CGFloat {
-        cell(fitting: cardWidth, maxCell: 5)
+        cell(fitting: cardWidth, maxCell: 6)
     }
 }

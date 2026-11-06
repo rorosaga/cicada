@@ -670,18 +670,18 @@ up*): **Welcome · Intelligence · Agents · Sources · Meet your bookworm · Do
 card (`OnboardingRoom`, the one illustration, DR-13; the worm's mood per step); the three working steps are the split
 frame — the room in its `bgPane` pane, the column with "Step n of 6 · k still coming in", *Set up later*, and a foot of
 Back, a visible **Skip** and the one primary Continue (⏎ never animates).
-**UI climb rounds 1-2 (ROR-118):** the pane is a close view of the room that fills it floor to wall, edge to edge
-(`OnboardingRoom(fill:)`: columns 38-112 of the lattice at 9 pt a cell, 666 pt at 1x — `OnboardingRoomLayout.paneCell`,
+**UI climb rounds 1-3 (ROR-118; round 3 amends what follows where it says so):** the pane is a close view of the room that fills it floor to wall, edge to edge
+(`OnboardingRoom(fill:)`: round 3: columns 27-109 of the lattice at 8 pt a cell, 664 pt at 1x, so the worm is whole with the window beside it — `OnboardingRoomLayout.paneCell`,
 a whole number of cells, stepping down before the column drops under its minimum, gone when it would be a sliver; the
 wall above the room is the room's own top row drawn tall, never resampled; a hairline ring is its seam). The column is
 fixed: the headline starts `OnboardingLayout.stepTop` under the topbar on every step and the foot (Back, Skip, Continue)
-sits on the bottom margin on every step, so nothing moves between steps; a tall step scrolls between them and the foot
-stays pinned (`OnboardingView.column`). Rows of the working steps are `OnboardingRowLine` (16 medium over a 14 line in the
+sits on the bottom margin on every step (round 3: one 88 pt band under a hairline holding *Back*, *Set up later* (*Close* on a rerun), *Skip* and the one large Continue, `OnboardingLink`; the topbar holds only the progress, and the ⏎ chip is gone, the key still advances), so nothing moves between steps; a tall step scrolls between them and the foot
+stays pinned (`OnboardingView.column`). Rows of the working steps are `OnboardingRowLine` (round 3: 17 medium over a 15 line, in the roomy 48 pt `LogoTile`; was 16 over 14 in the
 secondary ink, a line that only repeats the name is left out), the one action on a row `OnboardingRowAction` (words and
-a chevron, no box, so none competes with the filled Continue); the engine choice is two 88 pt rows, the chosen one a 2 pt
-ring over `bgSelected` with a filled check, the key row's glyph at full strength. Welcome is wider: an 800 pt card under a 5 pt-a-cell room
+a chevron, no box, so none competes with the filled Continue); the engine choice is two 104 pt rows (the open circle in `textSecondary`), the chosen one a 2 pt
+ring over `bgSelected` with a filled check, the key row's glyph at full strength. Welcome is wider (round 3: 960 pt over a 6 pt-a-cell room, was 800 over 5)
 (`OnboardingRoomLayout.heroCell`), the room framed in a ring and the card's radius so its own trim reads as a picture's
-edge; its greeting is 52 pt, its line 24, *Not Maya? Change* on the greeting's line, *Try the demo* the card's one quiet link, *Set up later* top right where the steps keep it. Headlines are 36 pt over a 17 pt line; the topbar's segments are 32 × 5, a
+edge; its greeting is 56 pt, its line 24, *Not Maya? Change* against the greeting, and one action line: a large Continue, *Try the demo*, *Set up later*. Headlines are 40 pt over an 18 pt line; the topbar's segments are 36 × 6, a
 reached step in `textSecondary`, the count in `metaMediumFont` `textPrimary`. What each step shows is pure data in
 `Support/OnboardingSteps.swift` (`OnboardingStepsTests`), each step's fixed words under 40.
 *Welcome*: the greeting (saved name, else the Mac account's, *Not you?* corrects it), one sentence, Continue — the owner

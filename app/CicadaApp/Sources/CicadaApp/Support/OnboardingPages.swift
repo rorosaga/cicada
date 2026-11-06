@@ -90,20 +90,21 @@ enum OnboardingNav {
 
 /// R-OB1 — the frame's geometry (F-02's board: pane 540, column padding 64, topbar 52, foot 36 from the bottom).
 enum OnboardingLayout {
-    /// The pane is the room's close view, floor to wall, edge to edge (ROR-118): 666 pt at 1x is 74 lattice columns at
-    /// 9 pt (`OnboardingRoomLayout`), so the room is never a strip floating in a wide ground.
-    static let pane: CGFloat = 666
+    /// The pane is the room's close view, floor to wall, edge to edge (ROR-118): 664 pt at 1x is 83 lattice columns at
+    /// 8 pt (`OnboardingRoomLayout`), so the room is never a strip floating in a wide ground.
+    static let pane: CGFloat = 664
     /// The step's headline sits this far under the topbar on every step, and the foot on the same line at the bottom,
     /// so nothing moves between steps (ROR-118 round 2).
-    static let stepTop: CGFloat = 56
+    static let stepTop: CGFloat = 44
     static let minColumn: CGFloat = 620
     static let minPane: CGFloat = 240
     static let columnPadding: CGFloat = 64
     static let topbarHeight: CGFloat = 52
-    static let footBottom: CGFloat = 36
+    /// The foot's band (ROR-118 round 3): a hairline over Back, Set up later, Skip and Continue, 88 pt tall, on the window's bottom edge.
+    static let footHeight: CGFloat = 88
     static let cardMaxWidth: CGFloat = 640
-    /// Welcome alone is wider (ROR-118): the room is its picture, 800 pt wide at 5 pt a cell, over a card of the same width.
-    static let welcomeMaxWidth: CGFloat = 800
+    /// Welcome alone is wider (ROR-118): the room is its picture, 960 pt wide at 6 pt a cell, over a card of the same width.
+    static let welcomeMaxWidth: CGFloat = 960
     static let cardBottom: CGFloat = 48
     static let gutter: CGFloat = 16
     /// The Sources grid's tile: wide enough for its two-line consent caption at 1×, so a 532 pt column holds 3.
