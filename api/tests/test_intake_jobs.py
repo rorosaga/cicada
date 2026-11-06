@@ -84,7 +84,7 @@ def test_a_failing_job_records_its_error_and_still_finishes(tmp_path, monkeypatc
     monkeypatch.setattr(episode_staging, "stage", boom)
     intake_jobs.run(job.id, [{}, {}, {}], tmp_path / "episodes")
     done = intake_jobs.get(job.id)
-    assert done.done is True and done.error == "OSError: disk full" and done.staged == 0
+    assert done.done is True and done.error == intake_jobs.WRITE_FAILED and done.staged == 0
 
 
 def test_two_jobs_into_one_bank_never_collide(tmp_path):

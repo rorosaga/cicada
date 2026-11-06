@@ -115,6 +115,14 @@ private struct CompactEngineChooser: View {
             }
         }
 
+        if let hint = EngineOption.installHint(response.candidates) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Text(hint).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                SettingsInlineLink(section: .intelligence, row: .plansAndKeys, label: Copy.plansAndKeys)
+                    .font(CicadaTheme.captionFont)
+            }
+        }
+
         // R-AG14 — the same note Settings → Intelligence shows, for the card the Welcome would write
         // (the pick) or else the saved one, so phase B's Who reads inherits it.
         let note = LeavesMacNote.text(selected: pick?.wrappedValue ?? selectedCard, provider: response.provider,

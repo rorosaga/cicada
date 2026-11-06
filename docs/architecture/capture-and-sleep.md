@@ -441,6 +441,11 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   line shape, so `episode_staging.stamps_for` builds the list, and the episode `timestamp` stays the
   session's start while each turn carries its own time. A Stop-hook episode written before PJ-4 still
   holds an integer count, which reads as no stamps.
+- **A watched folder says what it left out (2026-11-06):** a file over `FolderScanner.maxFileBytes` (2 MB) or one the app
+  could not open was collected in `FolderReadResult.tooLarge` / `unreadable` and read by nothing, so the row showed
+  "Synced" for a folder missing files. `LocalSourceWatcher.folderSkipped` now holds one line per folder
+  (`LocalSourceCopy.skipped`: the file named, why, the rest counted) that the row draws beside the light until a scan that
+  reads everything clears it. What is read and posted is unchanged.
 - **A local source is read by the app and parsed by the backend** (G133/G134). A watched folder:
   security-scoped bookmark, FSEvents, an mtime+size+sha manifest, bytes posted with relative paths to
   `POST /sources/folders/{id}/sync`; files under an agent glob land as `evidence_kind: assistant`,
@@ -2646,7 +2651,10 @@ labelled before they chose it. The guard runs whatever set the mode: a `CICADA_L
 `auto` and as the operator's explicit choice when it is `cursor`. A tool is a rung only installed and signed in — OpenCode only with a GitHub
 Copilot or OpenCode Go model listed — else skipped, never an error and never a key; an installed tool skipped (signed
 out, only key-backed models, no answer) or an app here without the tool it needs is named in the no-engine sentence,
-with the line to run; an absent one is not. **Found where it is (ROR-52, 2026-11-04):** `base.resolve_binary` looks on
+with the line to run; an absent one is not. **The Claude and ChatGPT plans' missing tool (2026-11-06):** `ConnectionStatus` and
+the `agent` / `codex` engine cards carry `nextCommand` — the vendor's own installer, from `connections/install_hints.py` — beside
+a short `detail`; the Sleep pre-flight and engine errors say the same line in a sentence (`CLAUDE_INSTALL_SENTENCE`,
+`CODEX_INSTALL_SENTENCE`), never `npm i -g` (a stranger's Mac has no Node). **Found where it is (ROR-52, 2026-11-04):** `base.resolve_binary` looks on
 PATH, then the usual folders (`~/.opencode/bin` added, where OpenCode's own installer puts it), then
 `base.APP_BUNDLED_TOOLS`: OpenCode.app carries its tool as `Contents/Resources/opencode-cli` (its Electron build's `process.resourcesPath`, ROR-41) or, in an older build, `Contents/MacOS/opencode-cli`, and a tool on PATH outranks either.
 The backend makes this read because it is what spawns the tool: two fixed folders (`/Applications`, `~/Applications`),

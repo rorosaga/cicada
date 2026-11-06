@@ -210,6 +210,7 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
             id="agent", label="Claude plan",
             available=bool(claude and claude.available), connected=bool(claude and claude.connected),
             models=agent_models, detail=claude.detail if claude else None,
+            next_command=claude.next_command if claude else None,
         ),
         SleepEngineCandidate(
             id="codex", label="ChatGPT plan",
@@ -217,6 +218,7 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
             models=codex_models,
             detail=((chatgpt.plan_label or "Signed in to ChatGPT.") if chatgpt and chatgpt.connected
                     else (chatgpt.detail if chatgpt else None)),
+            next_command=chatgpt.next_command if chatgpt else None,
         ),
         SleepEngineCandidate(
             id="openrouter", label="OpenRouter", mode="byok", available=True, connected=or_connected,

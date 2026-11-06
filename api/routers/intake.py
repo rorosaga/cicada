@@ -70,6 +70,14 @@ NOT_GEMINI_REASON = ("This is Google activity for another product. "
                      "Export only Gemini Apps from Takeout.")
 NOT_A_CHAT_PAGE = "This page isn't a chat export Cicada can read."
 EMPTY_ZIP_REASON = "This zip has no conversations Cicada can read."
+#: 2026-11-06 — a file that is not whole, in words and with the way out. Never the parser's own message (G199): a
+#: `Expecting value: line 1 column 1 (char 0)` tells a person nothing and may quote the file. The file the provider's
+#: export needs to be is `conversations.json` (ChatGPT and Claude both), or the whole `.zip`.
+CUT_SHORT_JSON_REASON = ("This file is damaged or was cut short. Download the export again, "
+                         "then drop conversations.json or the whole .zip.")
+UNKNOWN_JSON_REASON = "This isn't a chat export Cicada knows. Drop conversations.json, or the whole .zip."
+BAD_ZIP_REASON = ("This zip is damaged or didn't finish downloading. "
+                  "Download the export again, then drop the whole .zip.")
 EMPTY_EXPORT_REASON = "Nothing in this file is a conversation."
 #: Refusals the sniff never hands on to the saved-content parser (R-IA8). Both
 #: pages are full of ``<a href>`` links, which ``media_ingestor``'s Netscape
@@ -232,7 +240,8 @@ def _parse_json(content: bytes, base: str) -> ParsedExport:
     try:
         data = json.loads(content)
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
-        raise HTTPException(400, f"Failed to parse file: {e}")
+        logger.info(f"Intake: unreadable JSON ({type(e).__name__})")
+        raise HTTPException(400, CUT_SHORT_JSON_REASON)
     if isinstance(data, dict) and (("prompt_template" in data and "uuid" in data)
                                    or "conversations_memory" in data or "memory_files" in data):
         # Claude's newer export writes one project per file (`projects/<name>.json`)
@@ -242,7 +251,7 @@ def _parse_json(content: bytes, base: str) -> ParsedExport:
     source = conv.detect_source(data, base)
     shape = _JSON_SHAPES.get(source)
     if shape is None:
-        raise HTTPException(400, "Unrecognized JSON export format")
+        raise HTTPException(400, UNKNOWN_JSON_REASON)
     fmt, vendor, origin, key = shape
     episodes = conv._stamp_origin(_JSON_PARSERS[source](data), origin)
     projects = conv.claude_project_list(data) if source == "anthropic_projects" else []
@@ -258,7 +267,8 @@ def _parse_zip(content: bytes, *, owner_names: tuple[str, ...] = ()) -> ParsedEx
     try:
         zf = zipfile.ZipFile(io.BytesIO(content))
     except zipfile.BadZipFile as e:
-        raise HTTPException(400, f"Invalid zip file: {e}")
+        logger.info(f"Intake: unreadable zip ({type(e).__name__})")
+        raise HTTPException(400, BAD_ZIP_REASON)
     if notion_export.looks_like(zf):
         return _parse_notion(zf, owner_names)
     out = ParsedExport()

@@ -123,6 +123,7 @@ struct IntakePanel: View {
         VStack(spacing: CicadaTheme.spacingMD) {
             BookwormView(state: .reading, pointSize: 48)
             Text(Copy.intakeReading(names)).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+            bigFile
             Button(Copy.intakeCancel) { intake.cancel() }.buttonStyle(.bordered).keyboardShortcut(.cancelAction)
         }
         .frame(maxWidth: .infinity)
@@ -136,9 +137,18 @@ struct IntakePanel: View {
             if let staged = progress.staged {
                 ProgressView(value: Double(staged), total: Double(max(progress.total, 1)))
                     .frame(maxWidth: CicadaTheme.scaled(280))
+            } else {
+                bigFile
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// One line under the wait for a big file (`IntakeFailureWords.bigFileBytes`).
+    @ViewBuilder private var bigFile: some View {
+        if let note = intake.bigFileNote {
+            Text(note).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+        }
     }
 
     private func failed(_ reason: String) -> some View {

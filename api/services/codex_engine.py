@@ -62,6 +62,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import agent_engine, engine_errors, engine_schemas
+from api.services.connections import install_hints
 from api.services.connections.base import CliResult
 
 CODEX_PINNED: tuple[str, ...] = (
@@ -82,9 +83,7 @@ DEFAULT_TIMEOUT_S = agent_engine.DEFAULT_TIMEOUT_S
 DEFAULT_INSTRUCTIONS = (
     "Answer the request directly and completely. Do not run commands, read files or change anything."
 )
-INSTALL_HINT = (
-    "Install Codex CLI (npm i -g @openai/codex), then sign in with ChatGPT on Settings → Intelligence → Plans & keys."
-)
+INSTALL_HINT = install_hints.CODEX_INSTALL_SENTENCE
 SIGNED_OUT = (
     "ChatGPT isn't signed in for Cicada — sign in with ChatGPT on Settings → Intelligence → Plans & keys, "
     "then run Sleep again."

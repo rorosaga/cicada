@@ -155,9 +155,11 @@ struct IntakePreview: Equatable {
             p.titlesTruncated = p.titlesTruncated || s.titlesTruncated
         }
         if p.chatFiles.isEmpty && p.savedFiles.isEmpty {
-            return .failed(unreadable.first?.reason
-                            ?? p.skipped.first.map { Copy.intakeSkipped($0.name, $0.reason) }
-                            ?? Copy.intakeNothingReadable)
+            // Which file, and why (2026-11-06): a bare reason named nothing when several were dropped.
+            if !unreadable.isEmpty {
+                return .failed(IntakeFailureWords.summary(unreadable.map { (name: $0.name, reason: $0.reason) }))
+            }
+            return .failed(p.skipped.first.map { Copy.intakeSkipped($0.name, $0.reason) } ?? Copy.intakeNothingReadable)
         }
         p.skipped += unreadable
         p.vendor = vendors.count == 1 ? vendors.first : nil
@@ -398,6 +400,9 @@ final class IntakeRouter {
     /// The last sniff's preview, for the importing line's noun and the Into
     /// picker's "new memory" delta.
     private(set) var sniffedPreview: IntakePreview?
+    /// The biggest dropped file's name and size in words, when it is big enough to take a while — shown while the panel
+    /// reads and imports it, so a long wait is expected rather than mistaken for a hang. Nil for an ordinary drop.
+    private(set) var bigFileNote: String?
     /// G71 (2026-10-16): the preview's "Include watch history" switch — off for every new drop. On, the sniff shows
     /// the history as the days it becomes and the import brings it in that way (never as saved links).
     private(set) var includeHistory = false
@@ -599,6 +604,7 @@ final class IntakeRouter {
         let bank = targetSlug
         let capped = self.capped
         let history = includeHistory
+        bigFileNote = IntakeFailureWords.bigFileNote(files)
         phase = .reading(files.map(\.lastPathComponent))
         task?.cancel()
         task = Task { [weak self] in
@@ -613,7 +619,7 @@ final class IntakeRouter {
                     }
                     results.append(IntakeFileSniff(url: url, sniff: s))
                 } catch {
-                    results.append(IntakeFileSniff(url: url, error: AddSourceSheet.friendlyError(error)))
+                    results.append(IntakeFileSniff(url: url, error: IntakeFailureWords.reason(error)))
                 }
             }
             guard gen == self.generation else { return }
@@ -662,7 +668,7 @@ final class IntakeRouter {
                                     unchanged: r.duplicatesSkipped, response: r)
                     }
                 } catch {
-                    outcome.failures.append("\(url.lastPathComponent): \(AddSourceSheet.friendlyError(error))")
+                    outcome.failures.append(IntakeFailureWords.line(name: url.lastPathComponent, error: error))
                 }
             }
             for url in preview.savedFiles {
@@ -674,7 +680,7 @@ final class IntakeRouter {
                     outcome.savedCreated += r.episodesCreated
                     outcome.unchanged += r.duplicatesSkipped
                 } catch {
-                    outcome.failures.append("\(url.lastPathComponent): \(AddSourceSheet.friendlyError(error))")
+                    outcome.failures.append(IntakeFailureWords.line(name: url.lastPathComponent, error: error))
                 }
             }
             await self.store?.refresh([.channels, .status, .sources, .sourcesOverview, .graph, .banks])
@@ -747,7 +753,7 @@ final class IntakeRouter {
                     }
                     results.append(IntakeFileSniff(url: url, sniff: s))
                 } catch {
-                    results.append(IntakeFileSniff(url: url, error: AddSourceSheet.friendlyError(error)))
+                    results.append(IntakeFileSniff(url: url, error: IntakeFailureWords.reason(error)))
                 }
             }
             switch IntakePreview.aggregate(results, capped: capped) {
@@ -812,7 +818,7 @@ final class IntakeRouter {
                     outcome.add(created: r.episodesStaged, updated: r.episodesUpdated, unchanged: r.duplicatesSkipped, response: r)
                 }
             } catch {
-                outcome.failures.append("\(url.lastPathComponent): \(AddSourceSheet.friendlyError(error))")
+                outcome.failures.append(IntakeFailureWords.line(name: url.lastPathComponent, error: error))
             }
         }
         for url in preview.savedFiles {
@@ -821,7 +827,7 @@ final class IntakeRouter {
                 outcome.savedCreated += r.episodesCreated
                 outcome.unchanged += r.duplicatesSkipped
             } catch {
-                outcome.failures.append("\(url.lastPathComponent): \(AddSourceSheet.friendlyError(error))")
+                outcome.failures.append(IntakeFailureWords.line(name: url.lastPathComponent, error: error))
             }
         }
         await store?.refresh([.channels, .status, .sources, .sourcesOverview, .graph, .banks])

@@ -42,6 +42,8 @@ struct IntelligenceStep: View {
         }
         // A sign-in or a verified key lands in /connections; the engine's answer follows it.
         .onChange(of: store.connections.value?.map(\.connected)) { _, _ in Task { await engineVM.load() } }
+        // Back from Terminal with the tool installed: the row says so without leaving the step.
+        .refreshesMissingTools()
     }
 
     private func choice(selected: Bool, logo: String?, title: String, detail: String?, symbol: String = "sparkles",

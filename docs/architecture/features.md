@@ -959,7 +959,19 @@ zip's conversations, memories and projects), the known extras (`user(s).json`, f
 comparison files, ChatGPT's `chat.html` viewer) skipped **by name**, the vendor's `origin` stamped
 on every path, per-message times kept as `turns: [{offset, ts, speaker}]` outside `content_hash`,
 and re-imports updating grown threads in place (G20) without duplicating. `POST /intake/sniff`
-previews and stages nothing; `POST /intake/import` stages. `/conversations/upload` (deprecated,
+previews and stages nothing; `POST /intake/import` stages. **A file that does not go in gets words (2026-11-06):** a
+file that is cut short, a zip that is not whole and a JSON no parser knows answer `CUT_SHORT_JSON_REASON`,
+`BAD_ZIP_REASON` and `UNKNOWN_JSON_REASON` — what is wrong and which file to drop (`conversations.json`, or the whole
+`.zip`), never the parser's message (`Expecting value: line 1 column 1 (char 0)`; G199) — and a background write that stops
+records `intake_jobs.WRITE_FAILED`, the exception's class staying in the log. The app (`IntakeFailureWords`) names every
+failed file with its reason, three at most then "and N more" (a bare reason named none), and maps every transport error to
+a sentence of its own. **A large export is slow, not failed:** measured on a synthetic ChatGPT-shaped file (invented
+text) on a busy Mac, the time is the secret scrub (`episode_scrub`, ~0.5 s a megabyte), not the JSON parse (0.6 s for 26
+MB): a 25 MB file sniffed in 7 s, a 150 MB one in 110 s, and its import took about 3.5 min — the same plan runs
+twice, once to preview and once to import; the parse's peak memory was ~2.6x the file. The app's 60 s default ended the
+request with "The request timed out." while the server went on and wrote every conversation (6,332 here), so
+`uploadMultipart` waits up to `APIClient.uploadTimeout` (1 h, an idle timeout) and a file of 50 MB or more says so under
+the wait ("A file this big takes a few minutes."). Nothing about what is imported, scrubbed or staged changed. `/conversations/upload` (deprecated,
 `Deprecation: true`) and `/banks/{name}/import` are shims over it.
 
 ---

@@ -51,6 +51,10 @@ extension Copy {
         /// G49/G50 — the person's own agent tools, each signed in through itself.
         static let ownTools = "Your agent tools"
         static let notInstalled = "Not installed"
+        /// The line under a plan whose tool isn't on this Mac, beside the command to copy (backend `install_hints`).
+        static let pasteInTerminal = "Paste this in Terminal."
+        /// Home's First read: the plan cards say "Not installed"; this leads to the row that gives the line.
+        static func installHint(_ names: [String]) -> String { "To use your \(names.joined(separator: " or ")), install it in" }
         /// ROR-52 — the app is here; the tool Sleep needs isn't, or is too old. The row's line says which.
         static let notReady = "Not ready"
         static let keys = "API keys"

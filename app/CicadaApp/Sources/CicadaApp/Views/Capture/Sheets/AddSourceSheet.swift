@@ -937,7 +937,7 @@ struct AddSourceSheet: View {
         result = nil
         Task {
             var created = 0, updated = 0, skipped = 0
-            var firstError: String?
+            var failed: [(name: String, reason: String)] = []
             for file in files {
                 do {
                     let r = try await upload(file)
@@ -945,18 +945,18 @@ struct AddSourceSheet: View {
                     updated += r.episodesUpdated
                     skipped += r.duplicatesSkipped
                 } catch {
-                    if firstError == nil { firstError = Self.friendlyError(error) }
+                    failed.append((file.lastPathComponent, IntakeFailureWords.reason(error)))
                 }
             }
-            if created == 0, updated == 0, let firstError {
-                self.error = firstError
+            if created == 0, updated == 0, !failed.isEmpty {
+                self.error = IntakeFailureWords.summary(failed)
                 self.result = nil
                 busy = false
             } else {
                 // R7 defect 4: "Imported N, skipped M" dropped G20's grown
                 // threads on the floor; the one intake sentence keeps them.
                 var summary = IntakeSummary.line(new: created, updated: updated, unchanged: skipped)
-                if firstError != nil { summary += " (some files failed)" }
+                if !failed.isEmpty { summary += " (\(Copy.intakeSomeFailed(failed.map(\.name))))" }
                 await finish(summary)
             }
         }

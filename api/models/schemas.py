@@ -5976,6 +5976,9 @@ class ConnectionStatus(CamelModel):
     billing: str = "usage"  # subscription | usage | free
     engine_role: Optional[str] = None
     detail: Optional[str] = None
+    # 2026-11-06 — the one line to run when `available` is false because the tool is not on this Mac (`install_hints`),
+    # so the app draws it in a copyable box beside `detail`. Absent when the tool is here. Additive.
+    next_command: Optional[str] = None
     # G63: one sentence explaining *why this card says Connected*, authored
     # next to the probe that decided it so the copy can never drift from the
     # check. None when the connection isn't connected — there is nothing to
