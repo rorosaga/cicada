@@ -471,26 +471,29 @@ enum CicadaTheme {
 
     // MARK: - The type ladder (DESIGN_RULES §4, DR-16). SF only (DR-15).
     static var titleFont: Font { font(size: 20, weight: .semibold) }
+    /// ROR-118 — a list page's own title (the first part of its eyebrow): 20 semibold in `textPrimary`, so the page
+    /// is named in the type that leads it, with its counts beside it in `metaFont` (§9, 2026-11-06).
+    static var pageNameFont: Font { font(size: 20, weight: .semibold) }
     /// Error-card titles and panel headings: 17 semibold (DR-16; was 16 medium).
     static var headingFont: Font { font(size: 17, weight: .semibold) }
-    /// 13 regular — body off detail surfaces, and the command bar's placeholder. R-DS9: a global
-    /// 14 would resize 136 bodies on list pages, where the ladder wants 13.
-    static var bodyFont: Font { font(size: 13) }
-    /// 14 regular — body on a detail surface (the focus card, the Reader), adopted by DS-2.
-    static var detailBodyFont: Font { font(size: 14) }
-    /// A row's title, a list question: 13 medium.
-    static var rowFont: Font { font(size: 13, weight: .medium) }
-    /// Meta, the eyebrow, source lines: 12 regular; links and the eyebrow's medium: 12 medium.
-    static var metaFont: Font { font(size: 12) }
-    static var metaMediumFont: Font { font(size: 12, weight: .medium) }
-    static var captionFont: Font { font(size: 11) }
+    /// 14 regular — body off detail surfaces, and the command bar's placeholder. ROR-118 (2026-11-06) raised the whole
+    /// ladder a step (§9): blind judges could not read 11-13 pt secondary text at window width.
+    static var bodyFont: Font { font(size: 14) }
+    /// 15 regular — body on a detail surface (the focus card, the Reader), adopted by DS-2.
+    static var detailBodyFont: Font { font(size: 15) }
+    /// A row's title, a list question: 14 medium.
+    static var rowFont: Font { font(size: 14, weight: .medium) }
+    /// Meta, the eyebrow, source lines: 13 regular; links and the eyebrow's medium: 13 medium.
+    static var metaFont: Font { font(size: 13) }
+    static var metaMediumFont: Font { font(size: 13, weight: .medium) }
+    static var captionFont: Font { font(size: 12) }
     /// DR-19 — only for what a person would copy (MonospaceLintTests holds the list).
     static var monoFont: Font { font(size: 12, design: .monospaced) }
-    /// DR-20 — the one section label: 11 medium, sentence case, never mono, never tracked.
+    /// DR-20 — the one section label: 12 medium, sentence case, never mono, never tracked.
     /// `SectionLabel` is its one reader (SectionLabelLintTests).
-    static var labelFont: Font { font(size: 11, weight: .medium) }
-    /// The rail's pending numeral: 10 semibold, tabular at the call site (DR-16, DR-22).
-    static var badgeFont: Font { font(size: 10, weight: .semibold) }
+    static var labelFont: Font { font(size: 12, weight: .medium) }
+    /// The rail's pending numeral: 11 semibold, tabular at the call site (DR-16, DR-22).
+    static var badgeFont: Font { font(size: 11, weight: .semibold) }
 
     // MARK: - Display + quote (DR-15, DR-18)
     /// Display is a role, not a face: page titles, the question H1, onboarding headlines,
@@ -540,7 +543,12 @@ enum CicadaTheme {
         }
     }
     static func icon(_ role: IconRole) -> Font {
-        role == .disclosure ? font(size: role.points, weight: .semibold) : font(size: role.points)
+        switch role {
+        case .disclosure: font(size: role.points, weight: .semibold)
+        // ROR-118 — the page glyphs are medium, not regular: thin strokes read as unlabelled decoration.
+        case .rail, .railFoot: font(size: role.points, weight: .medium)
+        default: font(size: role.points)
+        }
     }
     static func iconPoints(_ role: IconRole) -> CGFloat { scaled(role.points) }
 
@@ -652,14 +660,14 @@ private extension CicadaTheme {
         // 3.6:1 (disabled only). ThemeContrastTests holds every surface.
         static let textPrimary = Color(hex: 0xF5F5F6)
         static let textSecondary = Color(hex: 0xD0D1D4)
-        static let textTertiary = Color(hex: 0x8D8F94)
-        static let textQuaternary = Color(hex: 0x6A6C71)
+        static let textTertiary = Color(hex: 0xA4A6AB)
+        static let textQuaternary = Color(hex: 0x7E8085)
 
         /// R-DS6 — the pre-D accent, frozen as the "active" status hue and the heat ramp.
         static let dataIndigo = Color(hex: 0x8C9CFF)
         static let onMeadow = bgBase
-        static let scrim = Color.black.opacity(0.55)
-        static let scrimPanel = Color.black.opacity(0.24)
+        static let scrim = Color.black.opacity(0.72)
+        static let scrimPanel = Color.black.opacity(0.72)
         static let codeBackground = bgBase
         static let progressFill = Color(hex: 0x6FB57B)
 
@@ -819,8 +827,8 @@ private extension CicadaTheme {
 
         static let dataIndigo = Color(hex: 0x4A5BD6)
         static let onMeadow = Color(hex: 0xFFFFFF)
-        static let scrim = Color.black.opacity(0.35)
-        static let scrimPanel = Color.black.opacity(0.12)
+        static let scrim = Color.black.opacity(0.42)
+        static let scrimPanel = Color.black.opacity(0.42)
         static let codeBackground = bgBase
         static let progressFill = Color(hex: 0x37753D)
 

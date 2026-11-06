@@ -49,6 +49,7 @@ actor LogoStore {
         let url = fileURL(entityId, bank)
         if let data = try? Data(contentsOf: url), let image = NSImage(data: data) {
             memory[k] = image
+            ImageMemory.logos.set(k, image)
             return image
         }
 
@@ -75,6 +76,7 @@ actor LogoStore {
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)
         memory[k] = image
+        ImageMemory.logos.set(k, image)
         return image
     }
 
@@ -93,6 +95,7 @@ actor LogoStore {
     func clear(bank: String) {
         let prefix = "\(bank)/"
         memory = memory.filter { !$0.key.hasPrefix(prefix) }
+        ImageMemory.logos.clear(prefix: prefix)
         misses = misses.filter { !$0.hasPrefix(prefix) }
         for (key, task) in inFlight where key.hasPrefix(prefix) {
             task.cancel()

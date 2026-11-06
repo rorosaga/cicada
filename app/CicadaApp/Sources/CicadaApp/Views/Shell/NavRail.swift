@@ -111,7 +111,9 @@ struct NavRailCell: View {
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var ink: Color { selected || hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary }
+    /// ROR-118 — resting ink is `textSecondary`, not the dim tertiary the thin glyphs had: the name and icon of every page
+    /// are legible without a hover; the selected page is `textPrimary` on `bgSelected`.
+    private var ink: Color { selected || hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary }
     private var fill: Color { selected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgRailHover : Color.clear) }
 
     var body: some View {
@@ -168,11 +170,11 @@ struct RailBadge: View {
     var body: some View {
         let corner = style == .corner
         Text(UsageFormat.count(count))
-            .font(corner ? CicadaTheme.badgeFont : CicadaTheme.font(size: 11, weight: .medium))
+            .font(corner ? CicadaTheme.badgeFont : CicadaTheme.font(size: 12, weight: .semibold))
             .monospacedDigit()
             .foregroundStyle(CicadaTheme.textPrimary)
-            .padding(.horizontal, CicadaTheme.scaled(corner ? 3 : 5))
-            .frame(minWidth: CicadaTheme.scaled(corner ? 14 : 18), minHeight: CicadaTheme.scaled(corner ? 14 : 18))
+            .padding(.horizontal, CicadaTheme.scaled(corner ? 4 : 6))
+            .frame(minWidth: CicadaTheme.scaled(corner ? 16 : 22), minHeight: CicadaTheme.scaled(corner ? 16 : 20))
             .background(Capsule().fill(CicadaTheme.bgBadge))
             .background { if corner { Capsule().fill(CicadaTheme.bgRail).padding(-2) } }
             .accessibilityHidden(true)   // the cell's label already says "6 pending"
@@ -188,7 +190,7 @@ private struct RailFootGlyph: View {
     var body: some View {
         Image(systemName: systemName)
             .font(CicadaTheme.icon(.railFoot))
-            .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+            .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             .iconHover(hovering: hovering)
             .frame(width: CicadaTheme.scaled(ShellMetrics.railCell), height: CicadaTheme.scaled(ShellMetrics.railCell))
             .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgRailHover : Color.clear))

@@ -174,6 +174,7 @@ struct SettingsPanel: View {
                 detailView
             }
         }
+        .softBottomScrollEdge()
         .environment(\.settingsHeaderTrailingInset, CicadaTheme.scaled(SettingsPanelLayout.closeClusterWidth))
         .overlay(alignment: .topTrailing) {
             HStack(spacing: CicadaTheme.spacingSM) {
@@ -227,8 +228,8 @@ struct SettingsPanel: View {
 
 /// DR-33 — the panel's geometry, pure.
 enum SettingsPanelLayout {
-    static let width: CGFloat = 880
-    static let height: CGFloat = 620
+    static let width: CGFloat = 920
+    static let height: CGFloat = 740
     static let sidebarWidth: CGFloat = 220
     static let minimumInset: CGFloat = 40
     /// `esc` keycap + gap + 28 pt close × + trailing padding.

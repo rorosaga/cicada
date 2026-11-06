@@ -75,7 +75,7 @@ struct GraphLegendButton: View {
             }
             .font(CicadaTheme.metaMediumFont)
             .foregroundStyle(isOpen || hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-            .padding(.horizontal, CicadaTheme.scaled(8))
+            .padding(.horizontal, CicadaTheme.scaled(6))
             .frame(height: CicadaTheme.scaled(TextTabs<String>.height))
             .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .fill(isOpen ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))

@@ -303,7 +303,7 @@ owner 2026-10-26), no wordmark. The gear's `warning` dot lights only
 when the engine the person chose is a plan that is installed but signed out (owner 2026-10-16,
 `ConnectionsViewModel.needsAttention(engine:)` over `EngineOption.connectionId` — a plan merely available, never chosen,
 is not the person's problem; the engine choice is read once the backend answers). ⌃⌘S or the titlebar toggle swaps it
-for a 208 pt labelled sidebar, remembered per viewer (`cicada.shell.labelledSidebar`). Relaunch restores the last tab:
+with the 56 pt rail, remembered per viewer (`cicada.shell.labelledSidebar`). Relaunch restores the last tab:
 nothing stored, or a value no build knows, opens Home, and a stored Graph stays on Graph; `AppTab` raw values are the
 persisted identity and `AppTab.restored(from:)` maps retired ones. **The titlebar is a SwiftUI toolbar** with the
 title hidden (AppKit keeps the drag area in every gap): the sidebar toggle after the traffic lights; the **command

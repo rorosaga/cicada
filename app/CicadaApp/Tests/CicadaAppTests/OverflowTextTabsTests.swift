@@ -34,8 +34,12 @@ final class OverflowTextTabsTests: XCTestCase {
             TextTabs(tabs: OverflowTabs.pinned(tabs, selection: selection), selection: .constant(selection))
             Text("More ⌄").font(CicadaTheme.metaMediumFont).padding(.horizontal, 9)
         })
-        let eyebrow = Self.ideal(Text(Eyebrow.text("Inbox", "1 of 12", InboxKind.mergeSuggestion.label))
-            .font(CicadaTheme.metaMediumFont))
+        // The Inbox's eyebrow as `EyebrowRow` draws it (ROR-118): the page name in 20 semibold, the rest in meta.
+        let parts = Eyebrow.split(Copy.Inbox.homePath)
+        let eyebrow = Self.ideal(HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+            Text(parts.name).font(CicadaTheme.pageNameFont)
+            Text(parts.rest ?? "").font(CicadaTheme.metaFont)
+        })
         // 1200 pt with the Reader open: the list column's eyebrow row is about 520 pt wide, less 2 × 24 pt of padding.
         let row: CGFloat = 520 - 48
         XCTAssertGreaterThan(full + eyebrow + 12, row, "the case is real: every tab does not fit")
