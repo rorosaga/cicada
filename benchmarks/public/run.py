@@ -24,6 +24,7 @@ import argparse
 import json
 import os
 import pwd
+import shutil
 import subprocess
 import sys
 import time
@@ -36,7 +37,7 @@ from benchmarks.system.runner import MARKER, REPO, _no_symlinks
 HOME_MARKER = "_bench_home.yaml"
 BANK_MARKER = "_bench.yaml"
 RUN_MARKER = "_bench_run.yaml"
-PATHS = ("ask", "full-context")
+PATHS = ("ask", "full-context", "closed-book", "wrong-bank", "recall", "hook", "doors")
 #: The run's settings that must match on --resume (anything else would mix two experiments in one table).
 PINNED = ("dataset", "sleep_model", "disambiguation_model", "answer_model", "judge_model", "paths",
           "sleep_schedule", "batch_size", "embedding_model", "units", "only", "per_category", "limit",
@@ -145,6 +146,9 @@ def _config(args) -> dict:
         "turns": str(Path(args.turns).absolute()) if args.turns else "",
         "concurrency": args.concurrency, "fake_engine": bool(args.fake_engine),
         "dataset_file": str(args.dataset_file) if args.dataset_file else "",
+        "banks_from": str(Path(args.banks_from).absolute()) if args.banks_from else "",
+        "reuse_from": str(Path(args.reuse_from).absolute()) if args.reuse_from else "",
+        "wrong_bank": str(Path(args.wrong_bank).absolute()) if args.wrong_bank else "",
     }
 
 
@@ -167,6 +171,8 @@ def run(args) -> int:
             raise SystemExit(f"--paths takes {', '.join(PATHS)}")
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         run_dir = lay["runs"] / f"{cfg['dataset']}-{stamp}"
+        if run_dir.exists():   # two runs started in one second would mix their results in one table
+            raise SystemExit(f"{run_dir.name} already exists: start again")
         _mark(run_dir, RUN_MARKER)
         cfg["created"] = stamp
         cfg["revision"] = _git_rev()
@@ -202,13 +208,22 @@ def run(args) -> int:
         out.mkdir(parents=True, exist_ok=True)
         (out / "unit.json").write_text(json.dumps(unit), encoding="utf-8")
         bank = run_dir / "banks" / uid
+        if not bank.exists() and cfg.get("banks_from"):
+            # The banks an earlier run built, cloned: a retrieval change needs no new intake (or no new Sleep).
+            source = Path(cfg["banks_from"])
+            _check_marked(source, RUN_MARKER)
+            shutil.copytree(source / "banks" / uid, bank, symlinks=True)
+            old = json.loads((source / "units" / uid / "state.json").read_text(encoding="utf-8"))
+            state.write_text(json.dumps({k: old[k] for k in ("slept", "sleep", "bank") if k in old}), encoding="utf-8")
         if not bank.exists():
             _mark(bank, BANK_MARKER)
         _check_marked(bank, BANK_MARKER)
         job = {"unit_path": str(out / "unit.json"), "bank": str(bank), "out_dir": str(out),
                **{k: cfg[k] for k in ("sleep_model", "disambiguation_model", "answer_model", "judge_model", "paths",
                                       "sleep_schedule", "batch_size", "concurrency")},
-               "fake_engine": bool(cfg.get("fake_engine"))}
+               "fake_engine": bool(cfg.get("fake_engine")),
+               "reuse_from": str(Path(cfg["reuse_from"]) / "units" / uid) if cfg.get("reuse_from") else "",
+               "wrong_bank": cfg.get("wrong_bank") or _other_bank(run_dir, cfg, uid)}
         if args.gate:
             while subprocess.run(args.gate, shell=True, check=False).returncode != 0:   # noqa: S602 — the person's own
                 time.sleep(60)
@@ -258,6 +273,30 @@ def report_cmd(args) -> int:
     return 0
 
 
+def _other_bank(run_dir: Path, cfg: dict, uid: str) -> str | None:
+    """Another unit's bank for the wrong-bank control: one this run built, else one ``--banks-from`` holds, so the
+    run's first unit has one too."""
+    roots = [run_dir / "banks"] + ([Path(cfg["banks_from"]) / "banks"] if cfg.get("banks_from") else [])
+    for root in roots:
+        for bank in sorted(root.glob("*")):
+            if bank.name != uid and bank.is_dir() and (bank / "episodes").is_dir():
+                return str(bank)
+    return None
+
+
+def compare_cmd(args) -> int:
+    """Per question, which of two runs (or two paths of one run) got what right. No model call."""
+    a_run, b_run = Path(args.a).expanduser().absolute(), Path(args.b or args.a).expanduser().absolute()
+    a_path, b_path = args.a_path, args.b_path or args.a_path
+    if a_run == b_run and a_path == b_path:
+        raise SystemExit("compare two runs, or two paths of one run (--a-path, --b-path)")
+    a_name, b_name = "A", "B"
+    print(f"A = {a_run.name} {a_path}\nB = {b_run.name} {b_path}")
+    print(report.render_compare(report.compare(report.per_question(a_run, a_path), report.per_question(b_run, b_path),
+                                               a_name=a_name, b_name=b_name), a_name, b_name))
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -287,12 +326,19 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument("--disambiguation-model", default="haiku")
     r.add_argument("--answer-model", default="sonnet")
     r.add_argument("--judge-model", default="sonnet")
-    r.add_argument("--paths", default="ask", help="comma list: ask (cicada_ask) and/or full-context (the control)")
+    r.add_argument("--paths", default="ask", help="comma list: ask (cicada_ask); controls full-context (the whole "
+                   "history), closed-book (no memory), wrong-bank (another unit's memory); recall, hook (an agent holding only "
+                   "that door's words answers); doors (what Ask, recall, the "
+                   "hook and pending hand over per question: no model call, no judge)")
     r.add_argument("--sleep-schedule", choices=("once", "per-session", "none"), default="once",
                    help="none: stage and index only, no Sleep (Ask over the raw conversations' search leg); "
                         "once: one drain after everything is staged; per-session: a drain after each session, "
                         "on that session's day (the nightly rhythm; more Sleep calls)")
     r.add_argument("--batch-size", type=int, default=25)
+    r.add_argument("--banks-from", help="an earlier run folder whose banks to clone instead of building them")
+    r.add_argument("--reuse-from", help="an earlier run folder: a question whose Ask prompt is byte-identical keeps "
+                   "that run's answer and verdict (no call); only the changed prompts are read again")
+    r.add_argument("--wrong-bank", help="the wrong-bank control reads this bank instead of another unit's")
     r.add_argument("--embedding-model", default="", help="pin the search model id (default: what the home has)")
     r.add_argument("--concurrency", type=int, default=3, help="concurrent plan calls (CICADA_AGENT_MAX_CONCURRENCY)")
     r.add_argument("--gate", help="a shell command run before each unit; the unit starts once it exits 0 (e.g. a "
@@ -303,12 +349,17 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument("--dataset-file", type=Path, help=argparse.SUPPRESS)          # with --fake-engine only
     rep = sub.add_parser("report", help="re-aggregate a run folder")
     rep.add_argument("--run", required=True)
+    cmp = sub.add_parser("compare", help="per question, which of two runs or paths got what right (no model call)")
+    cmp.add_argument("--a", required=True, help="a run folder")
+    cmp.add_argument("--b", help="a second run folder (default: --a, comparing two of its paths)")
+    cmp.add_argument("--a-path", default="ask")
+    cmp.add_argument("--b-path", help="default: --a-path")
     return ap
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    return {"prepare": prepare, "run": run, "report": report_cmd}[args.cmd](args)
+    return {"prepare": prepare, "run": run, "report": report_cmd, "compare": compare_cmd}[args.cmd](args)
 
 
 if __name__ == "__main__":
