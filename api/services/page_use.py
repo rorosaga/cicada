@@ -21,7 +21,7 @@ frontmatter through ``bank_index`` (no body, no claims, no model, nothing stored
 The person's own page is always the most used (1.0); every other score is scaled into ``[0, 1]`` against the
 busiest page. A question about two pages (a duplicate pair) takes the busier side's score.
 
-:func:`lately` is apart from ``scores`` (Rodrigo, 2026-11-06: "<a-person> and <another> have come up a lot lately. Thats
+:func:`lately` is apart from ``scores`` (owner, 2026-11-06: "<a-person> and <another> have come up a lot lately. Thats
 why recency is important"). ``scores`` holds a lifetime, so a person said in three conversations this week stays far under
 a page said in two hundred over the years. ``lately`` counts only recent conversations, each by how long ago it was said: the id's day is the conversation's own (ruling 34), never
 ``last_referenced``, which an inbox answer or a sync also bumps, and a memory export entry or feed item is no mention.

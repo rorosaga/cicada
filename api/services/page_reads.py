@@ -1,7 +1,7 @@
 """How often the person (and their agents) actually read each page - a small counter that orders the inbox and
 nothing else (TODO ruling 70, 2026-11-06; ``question_order``).
 
-Rodrigo (2026-11-06): "the questions should have in order the impact they might have on current accesses knowledge,
+Owner (2026-11-06): "the questions should have in order the impact they might have on current accesses knowledge,
 and things that might have big impact." ``page_use`` is derived from what was *said*; this is what was *read*. It is
 deliberately **not** the telemetry ledger: the ledger's rail is "nothing learned from it is auto-applied", and an
 order learned from it would be exactly that. The ledger event and this count share one choke point
