@@ -43,7 +43,7 @@ struct OnboardingChoice<Content: View>: View {
                 .accessibilityHidden(true))
         let row = content(indicator)
             .padding(.vertical, CicadaTheme.spacingSM)
-            .frame(minHeight: CicadaTheme.scaled(128))
+            .frame(minHeight: CicadaTheme.scaled(144))
             .background(shape.fill(selected ? CicadaTheme.bgSelected : CicadaTheme.bgFocus))
             .overlay(shape.strokeBorder(selected ? CicadaTheme.textPrimary : CicadaTheme.ring(.strong),
                                         lineWidth: selected ? 2 : 1))
