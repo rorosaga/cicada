@@ -127,7 +127,19 @@ enum ClustersModel {
         }
         let first = ExcerptText.clean(text).split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
         let trimmed = first.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? nil : trimmed
+        return trimmed.isEmpty || repeatsName(trimmed, of: e) ? nil : trimmed
+    }
+
+    /// A saved page's generated summary is "Saved link — <its own title>." (or "From a feed — …"): the row already says
+    /// the title, so a summary that only says it again is no line at all. One that adds anything stays.
+    static func repeatsName(_ line: String, of e: Entity) -> Bool {
+        guard e.type == .media, let dash = line.range(of: " — ") else { return false }
+        let verb = line[..<dash.lowerBound]
+        guard verb.hasPrefix("Saved ") || verb == "From a feed" else { return false }
+        func norm(_ t: String) -> String {
+            t.trimmingCharacters(in: CharacterSet(charactersIn: ". \u{2026}")).lowercased()
+        }
+        return norm(String(line[dash.upperBound...])) == norm(e.name)
     }
 
     /// A row beside a card: the type only where types mix (find's matches), then the line.
