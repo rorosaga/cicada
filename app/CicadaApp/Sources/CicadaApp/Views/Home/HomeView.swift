@@ -154,9 +154,12 @@ struct HomeView: View {
         .task(id: store.status.value?.lastSleepAt) { await sleepVM.refreshForHome() }
     }
 
-    /// The worm's mood is the menu bar's, from the same status: asleep while a read runs, curious when conversations wait.
+    /// The worm's mood is the menu bar's, from the same status; the waiting count is already a figure on this page, so
+    /// the badge that carries it there never draws here — a worm reading a book says the same thing without a number.
     private var mascotState: BookwormState {
-        store.status.value.map { deriveBookwormState($0, justFinishedAt: nil) } ?? .awake
+        let state = store.status.value.map { deriveBookwormState($0, justFinishedAt: nil) } ?? .awake
+        if case .curious = state { return .reading }
+        return state
     }
 
     private func popToRoot() {
@@ -336,7 +339,7 @@ struct HomeGreeter: View {
     let state: BookwormState
 
     var body: some View {
-        BookwormView(state: state, pointSize: HomeLayout.greeterSize, artSet: .small)
+        BookwormView(state: state, pointSize: HomeLayout.greeterSize)
             .accessibilityHidden(true)
     }
 }
