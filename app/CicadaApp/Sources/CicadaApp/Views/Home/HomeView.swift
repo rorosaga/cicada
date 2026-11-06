@@ -105,7 +105,9 @@ struct HomeView: View {
                                         // ROR-118 — Today and Last read are one quiet group when they sit together.
                                         block(id, today: today, gettingStartedVisible: gettingStartedVisible,
                                               graduated: graduated, empty: empty, tipShown: tipShown,
-                                              joinsToday: id == .lastRead && index > 0 && arrangement.order[index - 1] == .today)
+                                              joinsToday: id == .lastRead && index > 0 && arrangement.order[index - 1] == .today,
+                                              takesLastRead: id == .today && index + 1 < arrangement.order.count
+                                                  && arrangement.order[index + 1] == .lastRead)
                                     }
                                 }
                                 .tourAnchor(.home)
@@ -189,8 +191,10 @@ struct HomeView: View {
     /// One block of the column, by id — `HomeArrangement` owns the order, this owns nothing but the mapping.
     @ViewBuilder
     private func block(_ id: HomeBlockID, today: Date, gettingStartedVisible: Bool, graduated: Bool,
-                       empty: HomeEmptiness, tipShown: Bool, joinsToday: Bool) -> some View {
+                       empty: HomeEmptiness, tipShown: Bool, joinsToday: Bool, takesLastRead: Bool) -> some View {
         let mode = empty.mode(setupCardShown: gettingStartedVisible)
+        // ROR-118 round 4 — Last read under Today is the status line's last segment, one line, never a second block.
+        let oneLine = mode == .blocks && !empty.todayEmpty && !empty.lastReadNever
         switch id {
         case .setup:
             GettingStartedCard(selectedTab: $selectedTab, seeHow: $seeHow, graduated: graduated)
@@ -198,7 +202,7 @@ struct HomeView: View {
             switch mode {
             case .blocks:
                 TodaySection(today: today, gettingStartedVisible: gettingStartedVisible, empty: empty.todayEmpty,
-                             selectedTab: $selectedTab)
+                             includesLastRead: takesLastRead && oneLine, selectedTab: $selectedTab)
             case .one:
                 HomeEmptyBlock()   // review #8 — one block says it once, where Today would be
             case .hidden:
@@ -212,11 +216,8 @@ struct HomeView: View {
         case .readingSites:
             ReadingSitesSection()
         case .lastRead:
-            if mode == .blocks {
+            if mode == .blocks && !(joinsToday && oneLine) {
                 LastReadSection(empty: empty.lastReadNever, selectedTab: $selectedTab)
-                    // Under Today the two read as one list: the block gap is taken back, leaving a row's own gap.
-                    .padding(.top, joinsToday && !empty.lastReadNever && !empty.todayEmpty
-                             ? -CicadaTheme.scaled(HomeLayout.blockGap - HomeLayout.pulseGap) : 0)
             }
         case .tour:
             // Seam 3 — onboarding's "Open Cicada" asked for the tour's offer; Home asks once.
@@ -332,14 +333,22 @@ struct HomePageScroll: ViewModifier {
     }
 }
 
-/// ROR-118 round 3 (DR-13; DESIGN_RULES §9 2026-11-06) — Home's one picture: the study room's worm at 72 pt over the
-/// headline, the room's pixel art on the window's own ground. It carries no words and no number, never sits behind
-/// either, and its mood and Reduce Motion are the sprite clock's.
+/// ROR-118 rounds 3 and 4 (DR-13; DESIGN_RULES §9 2026-11-06) — Home's one picture: the study room's worm over the
+/// headline, the room's pixel art on the window's own ground, drawn at a whole 3 points per art pixel and cropped to the
+/// pixels it ever draws. It carries no words and no number, never sits behind either, and its mood and Reduce Motion are
+/// the sprite clock's.
 struct HomeGreeter: View {
     let state: BookwormState
 
     var body: some View {
-        BookwormView(state: state, pointSize: HomeLayout.greeterSize)
+        // A whole number of points per art pixel at any zoom, like the Sleep page's room (never fractional, so a resize
+        // never blurs a pixel).
+        let cell = max(1, (HomeLayout.greeterCell * CicadaTheme.uiScale).rounded())
+        let ink = HomeLayout.greeterInk
+        BookwormView(state: state, latticeCell: cell)
+            .offset(x: -ink.minX * cell, y: -ink.minY * cell)
+            .frame(width: ink.width * cell, height: ink.height * cell, alignment: .topLeading)
+            .clipped()
             .accessibilityHidden(true)
     }
 }

@@ -235,6 +235,9 @@ struct TodaySection: View {
     let gettingStartedVisible: Bool
     /// Review #8 — nothing captured and nothing waiting: the label says it, no card.
     var empty = false
+    /// Round 4 — the newest read joins this line (one status line, not three blocks): set by `HomeView` when Last read
+    /// sits right under Today and both have something to say.
+    var includesLastRead = false
     @Binding var selectedTab: AppTab
 
     @Environment(Store.self) private var store
@@ -254,20 +257,27 @@ struct TodaySection: View {
         }
     }
 
-    /// ROR-118 round 3 — what came in and what waits are ONE line, each figure a link to the page that owns it, the
-    /// figures in the primary ink so the line reads as numbers and not as a footnote.
+    /// ROR-118 round 4 — what came in, what waits and when memory was last read are ONE centred line under the question,
+    /// each a link to the page that owns it; figures in the primary ink, words in the secondary, so the line reads as
+    /// the page's one status and not as three footnotes.
     private func statLine(_ figures: HomeToday) -> some View {
         HStack(spacing: CicadaTheme.scaled(8)) {
             captured(figures)
             if HomeLayout.showsWaitingInToday(gettingStartedVisible: gettingStartedVisible, hasRunBefore: hasRunBefore) {
-                Text(Copy.Inbox.dot).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
-                    .accessibilityHidden(true)
+                statDot
                 waiting
             }
-            Spacer(minLength: 0)
+            if includesLastRead {
+                statDot
+                LastReadSegment(selectedTab: $selectedTab)
+            }
         }
-        .padding(.horizontal, CicadaTheme.scaled(10))
-        .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.oneLine), alignment: .center)
+    }
+
+    private var statDot: some View {
+        Text(Copy.Inbox.dot).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
+            .accessibilityHidden(true)
     }
 
     /// G229 — what this Mac is still syncing after it was closed, under what waits: the same words as the Sleep page's
@@ -336,8 +346,10 @@ struct TodaySection: View {
 /// secondary, both primary under the pointer, inside `InlineLink`'s layout-neutral hit frame. What `TodaySection`'s rows
 /// were (a glyph, grey words, a hover chevron) is this one line.
 struct HomeStatLink<Trailing: View>: View {
+    /// Round 4 — words before the figure ("Last read Today 1:54 PM"): the secondary ink, like the words after it.
+    var lead = ""
     let figure: String
-    let words: String
+    var words = ""
     let help: String
     var label: String? = nil
     let action: () -> Void
@@ -349,8 +361,10 @@ struct HomeStatLink<Trailing: View>: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: CicadaTheme.scaled(6)) {
-                (Text(figure).font(CicadaTheme.font(size: 13, weight: .semibold)).foregroundStyle(CicadaTheme.textPrimary)
-                 + Text(" " + words).foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary))
+                let words = hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary
+                (Text(lead.isEmpty ? "" : lead + " ").foregroundStyle(words)
+                 + Text(figure).font(CicadaTheme.font(size: 13, weight: .semibold)).foregroundStyle(CicadaTheme.textPrimary)
+                 + Text(self.words.isEmpty ? "" : " " + self.words).foregroundStyle(words))
                     .font(CicadaTheme.bodyFont)
                     .monospacedDigit()
                     .lineLimit(1)
@@ -360,15 +374,16 @@ struct HomeStatLink<Trailing: View>: View {
         }
         .buttonStyle(.cicadaPlain)
         .help(help)
-        .accessibilityLabel(label ?? figure + " " + words)
+        .accessibilityLabel(label ?? [lead, figure, words].filter { !$0.isEmpty }.joined(separator: " "))
         .onHover { hovering = $0 }
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
     }
 }
 
 extension HomeStatLink where Trailing == EmptyView {
-    init(figure: String, words: String, help: String, label: String? = nil, action: @escaping () -> Void) {
-        self.init(figure: figure, words: words, help: help, label: label, action: action) { EmptyView() }
+    init(lead: String = "", figure: String, words: String = "", help: String, label: String? = nil,
+         action: @escaping () -> Void) {
+        self.init(lead: lead, figure: figure, words: words, help: help, label: label, action: action) { EmptyView() }
     }
 }
 
@@ -402,8 +417,7 @@ struct NeedsYouSection: View {
                              open: {
                                  router.pendingInboxItem = lead.id
                                  selectedTab = .inbox
-                             },
-                             openAll: { selectedTab = .inbox })
+                             })
         } else {
             // Only the list's own kinds wait (an agent's request, the link review): the list says what they are.
             HomeBlock(title: Copy.homeNeedsYouCount(figures.total), emptyNote: nil) {
@@ -417,15 +431,16 @@ struct NeedsYouSection: View {
     }
 }
 
-/// The lead question (ROR-118, round 1; `06-home-a`'s row grown into the page's one card): the page's picture
-/// (DR-48: a face, logo or initials — nothing when it has none, never a type glyph), the question in `headingFont`, its
-/// reason in `bodyFont` secondary, the page's name and the question's age on a meta line, and in the foot *Catch me up*
-/// — a `NeutralButton`, never the accent (Home has no primary, DR-40), its hover saying the same session is one sentence
-/// away in any agent with Cicada — and *All N questions*.
+/// The lead question (ROR-118, rounds 1 and 4): the page's picture (DR-48: a face, logo or initials, opening the page;
+/// nothing when it has none, never a type glyph), the question in 15 pt medium, and under it the one next act. Round 4:
+/// *Answer* is a `NeutralButton` (the card's only filled control, so it is found at a glance; Home has no accent
+/// primary, DR-40) opening the question in the Inbox's list, where the rest wait; *Catch me up* is the one quiet link
+/// beside it. The page's name, its age and "N more on this page" are the question's hover and accessibility hint, not a
+/// second line of small grey type, and *All N questions* is gone (Answer lands in the list).
 struct LeadQuestionCard: View {
     let row: HomeQuestions.Row
     /// The page has something to draw (`HomeQuestions.reservesPicture`): with none, the card has no slot for it and its
-    /// meta line starts at the card's own edge.
+    /// question starts at the card's own edge.
     let drawsPicture: Bool
     let total: Int
     let catchUp: [String]
@@ -433,31 +448,31 @@ struct LeadQuestionCard: View {
     let openPage: (String) -> Void
     let startCatchup: ([String]) -> Void
     let open: () -> Void
-    let openAll: () -> Void
 
-    @State private var hovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var pictureSlot: CGFloat { CicadaTheme.scaled(HomeLayout.leadPicture) + CicadaTheme.scaled(14) }
-
-    /// The question and the one line under it (round 2): the reason and the age are the row's hover, not more small grey
-    /// type — the question itself says what is asked, and the list says the rest.
+    /// The question's hover and, for a reader with no pointer, its hint: what it is, the reason, the page, the age, how
+    /// many more wait.
     private var help: String {
-        [Copy.Catchup.answerHelp + " · " + row.kind.label, row.reason, row.age == "—" ? nil : row.ageHelp]
-            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+        var lines: [String?] = [Copy.Catchup.answerHelp + " · " + row.kind.label, row.reason]
+        if !row.entityId.isEmpty { lines.append(row.entityName) }
+        if row.age != "—" { lines.append(row.ageHelp) }
+        if total > 1 { lines.append(Copy.Catchup.allQuestions(total)) }
+        return lines.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     var body: some View {
-        let hasPicture = drawsPicture && !row.entityId.isEmpty
-        VStack(alignment: .leading, spacing: CicadaTheme.scaled(12)) {
-            Button(action: open) {
-                HStack(alignment: .top, spacing: CicadaTheme.scaled(14)) {
-                    if !row.entityId.isEmpty {
-                        EntityPicture(id: row.entityId, name: row.entityName, type: row.entityType ?? .unknown,
-                                      size: HomeLayout.leadPicture, collapsesWhenEmpty: true)
-                    }
-                    // 15 pt medium: under the field's 17 pt, so the field leads and this is what it asks.
-                    // Balanced, so the lines come out even whatever the string (no word left alone on the last line).
+        HStack(alignment: .top, spacing: CicadaTheme.scaled(14)) {
+            if drawsPicture && !row.entityId.isEmpty {
+                Button { openPage(row.entityId) } label: {
+                    EntityPicture(id: row.entityId, name: row.entityName, type: row.entityType ?? .unknown,
+                                  size: HomeLayout.leadPicture, collapsesWhenEmpty: true)
+                }
+                .buttonStyle(.cicadaPlain)
+                .help(Copy.Catchup.openPage(row.entityName))
+            }
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(14)) {
+                Button(action: open) {
+                    // 15 pt medium: under the field's 17 pt, so the field leads and this is what it asks. Balanced, so
+                    // the lines come out even whatever the string (no word left alone on the last line).
                     BalancedLines {
                         Text(row.question)
                             .font(CicadaTheme.font(size: 15, weight: .medium))
@@ -465,63 +480,31 @@ struct LeadQuestionCard: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .multilineTextAlignment(.leading)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.cicadaPlain)
+                .help(help)
+                .accessibilityHint(help)
+                .accessibilityAddTraits(.isHeader)
+
+                HStack(spacing: CicadaTheme.scaled(12)) {
+                    NeutralButton(title: Copy.Catchup.answer, help: help, action: open)
+                    if !catchUp.isEmpty {
+                        QuietLink(title: Copy.Catchup.title,
+                                  help: Copy.Catchup.blockLine(questions: catchUp.count, pages: pages)) {
+                            startCatchup(catchUp)
+                        }
+                    }
                     Spacer(minLength: 0)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.cicadaPlain)
-            .help(help)
-            .accessibilityHint(help)   // the hover's reason and age, for a reader with no pointer
-            .accessibilityAddTraits(.isHeader)
-
-            // One foot line: the page it is about at the left, what the person can do with the rest at the right.
-            HStack(spacing: CicadaTheme.spacingMD) {
-                meta
-                Spacer(minLength: CicadaTheme.spacingSM)
-                // Round 3: the two actions are one weight (a button beside a link left no primary): the question
-                // above them is the primary — answering it is a click on it.
-                if !catchUp.isEmpty {
-                    QuietLink(title: Copy.Catchup.title,
-                              help: Copy.Catchup.blockLine(questions: catchUp.count, pages: pages)) {
-                        startCatchup(catchUp)
-                    }
-                }
-                if total > 0 {
-                    QuietLink(title: Copy.Catchup.allQuestions(total), help: Copy.Catchup.allHelp, chevron: true,
-                              action: openAll)
-                }
-            }
-            .padding(.leading, hasPicture ? pictureSlot : 0)
         }
         .padding(CicadaTheme.scaled(HomeLayout.leadInset))
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Round 3: a ring and no fill — the field above is the page's one filled surface, so the card cannot outweigh it.
+        // A ring and no fill — the field above is the page's one filled surface, so the card cannot outweigh it.
         .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
         .accessibilityElement(children: .contain)
-    }
-
-    /// The page's name (opens the page) and how many questions it holds when more than this one. The question's age is
-    /// its hover: "last heard 3 weeks ago" is usually in the question already.
-    private var meta: some View {
-        HStack(spacing: CicadaTheme.scaled(4)) {
-            if !row.entityId.isEmpty {
-                QuietLink(title: row.entityName, help: Copy.Catchup.openPage(row.entityName)) { openPage(row.entityId) }
-                    .lineLimit(1)
-            }
-            if row.onPage > 1 {
-                if !row.entityId.isEmpty { dot }
-                Text(Copy.Catchup.moreOnPage(row.onPage))
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .fixedSize()
-            }
-        }
-    }
-
-    private var dot: some View {
-        Text(Copy.Inbox.dot).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
     }
 }
 
@@ -568,14 +551,12 @@ struct ReadingSitesSection: View {
 
 // MARK: - Last read
 
-/// ROR-118 (round 3, Home) — the newest Sleep commit as what a person can recognise: "Last read" and when (a link to
-/// that read's details) over the pages it touched, each its own picture (a face, a logo, initials — nothing when it has
-/// none, never a type glyph) and name, each opening the graph on that page. The old row of grey figures and an
-/// indented line of names said less than the pictures do; the counts it held ("4 updated") are the row's hover and its
-/// accessibility label.
-struct LastReadSection: View {
-    /// Review #8 — no read ever ran: "Last time Cicada read · not yet", no card.
-    var empty = false
+/// ROR-118 (rounds 3 and 4, Home) — the newest Sleep commit: "Last read <when>" (a link to that read's details) and the
+/// pages it touched as pictures, each a button that shows the page on the graph (its name is the hover and the
+/// accessibility label; a page with no picture draws nothing, never a type glyph, and stays one click away in the read's
+/// details). Round 4: it is the status line's last segment when it sits under Today (`TodaySection.includesLastRead`), its
+/// own centred line otherwise; the counts ("4 updated") are the link's hover and accessibility label.
+struct LastReadSegment: View {
     @Binding var selectedTab: AppTab
 
     @Environment(Store.self) private var store
@@ -583,25 +564,14 @@ struct LastReadSection: View {
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(AppRouter.self) private var router
 
-    var body: some View {
-        if empty {
-            HomeBlock(title: Copy.homeLastRead, emptyNote: Copy.homeLastReadNotYet) { EmptyView() }
-        } else {
-            HomePulse { content }
-        }
-    }
-
-    /// A one-line state ("Loading…", "Nothing read yet"): plain words on the column's edge.
+    /// A one-line state ("Loading…", "Nothing read yet"): plain words.
     private func note(_ text: String) -> some View {
         Text(text)
             .font(CicadaTheme.bodyFont)
             .foregroundStyle(CicadaTheme.textSecondary)
-            .padding(.horizontal, CicadaTheme.scaled(10))
-            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.oneLine), alignment: .leading)
     }
 
-    @ViewBuilder
-    private var content: some View {
+    var body: some View {
         switch HomeFigures.lastRead(sleepVM.history, loaded: sleepVM.historyLoaded,
                                     failed: sleepVM.historyFailed,
                                     hasRunBefore: sleepVM.status?.debt.hasRunBefore
@@ -611,78 +581,74 @@ struct LastReadSection: View {
             // Owner 2026-10-14 — words, not a bare "—": a box that is only a dash reads as broken.
             note(Copy.homeLastReadLoading)
         case .failed:
-            lastReadLink(Copy.homeLastReadFailed, label: nil)
+            lastReadLink(figure: Copy.homeLastReadFailed, lead: "", label: nil)
         case .never:
             note(Copy.homeNothingReadYet)
         case .entry(let entry):
             read(entry)
         case .earlier(let at):
-            // Off the history page: the day the status gives, and the page
-            // that owns the rest — never counts this block did not read.
+            // Off the history page: the day the status gives, and the page that owns the rest — never counts this
+            // block did not read.
             if let when = at.flatMap({ HomeFigures.when($0) }) {
-                lastReadLink(Copy.homeLastReadShort + " " + when, label: nil)
+                lastReadLink(figure: when, lead: Copy.homeLastReadShort, label: nil)
             } else {
-                lastReadLink(Copy.homeLastReadEarlier, label: nil)
+                lastReadLink(figure: Copy.homeLastReadEarlier, lead: "", label: nil)
             }
         }
     }
 
-    /// "Last read, Today 1:39 PM": a link to that read in the Sleep page's Details (review #9), never a trigger.
-    private func lastReadLink(_ words: String, label: String?, help: String = Copy.homeLastReadHelp) -> some View {
-        QuietLink(title: words, help: help, chevron: true, action: openDetails)
-            .lineLimit(1)
-            .padding(.horizontal, CicadaTheme.scaled(10))
-            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine), alignment: .leading)
-            .accessibilityLabel(label ?? words)
+    /// "Last read Today 1:39 PM": a link to that read in the Sleep page's Details (review #9), never a trigger.
+    private func lastReadLink(figure: String, lead: String, label: String?, help: String = Copy.homeLastReadHelp)
+        -> some View {
+        HomeStatLink(lead: lead, figure: figure, help: help, label: label, action: openDetails)
     }
 
     private func read(_ entry: SleepHistoryEntry) -> some View {
         let chips = HomeFigures.chips(entry, nodes: store.graph.value?.nodes ?? [])
         let when = HomeFigures.when(entry.date) ?? String(entry.date.prefix(10))
         let line = HomeFigures.lastReadLine(entry)
-        let link = lastReadLink(Copy.homeLastReadShort + " " + when,
-                                label: Copy.homeLastReadShort + ": " + line,
-                                help: Copy.homeLastReadHelp + " · " + line)
-        return VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-            link
-            if !chips.shown.isEmpty {
-                HStack(spacing: CicadaTheme.scaled(14)) {
-                    ForEach(chips.shown, id: \.id) { chip in pageChip(chip) }
-                    if chips.more > 0 {
-                        Text(Copy.homeMoreChips(chips.more))
-                            .font(CicadaTheme.metaMediumFont)
-                            .monospacedDigit()
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, CicadaTheme.scaled(10))
+        return HStack(spacing: CicadaTheme.scaled(8)) {
+            lastReadLink(figure: when, lead: Copy.homeLastReadShort,
+                         label: Copy.homeLastReadShort + ": " + line,
+                         help: Copy.homeLastReadHelp + " · " + line)
+            // One size, one ring, side by side: the pictures read as one group (a page with none is simply not there).
+            HStack(spacing: CicadaTheme.scaled(4)) {
+                ForEach(chips.shown, id: \.id) { chip in pageChip(chip) }
             }
         }
     }
 
-    /// One page the read touched: its picture (collapsing to nothing when it has none) and its name; a click shows it
-    /// on the graph.
+    /// One page the read touched, as its picture alone (collapsing to nothing when it has none); a click shows it on
+    /// the graph.
     private func pageChip(_ chip: HomeChip) -> some View {
         Button {
             selectedTab = .graph
             graphVM.revealEntity(id: chip.id)
         } label: {
-            HStack(spacing: CicadaTheme.scaled(7)) {
-                EntityPicture(id: chip.id, name: chip.name, type: chip.type, size: HomeLayout.chipPicture,
-                              collapsesWhenEmpty: true)
-                Text(chip.name)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .lineLimit(1)
-            }
-            .frame(minHeight: CicadaTheme.scaled(HomeTargets.tagHitHeight))
-            .contentShape(Rectangle())
+            EntityPicture(id: chip.id, name: chip.name, type: chip.type, size: HomeLayout.chipPicture,
+                          collapsesWhenEmpty: true)
         }
         .buttonStyle(.cicadaPlain)
         .help(Copy.homeShowOnGraph(chip.name))
+        .accessibilityLabel(Copy.homeShowOnGraph(chip.name))
     }
 
     /// Review #9 — Last read opens *that read* in the Sleep page's Details, not the page again.
     private func openDetails() { router.routeToSleepDetails(.lastCycle) }
+}
+
+/// Last read as its own line, for when it does not sit under Today (the first week's order, or Today has nothing).
+struct LastReadSection: View {
+    /// Review #8 — no read ever ran: "Last time Cicada read · not yet", no card.
+    var empty = false
+    @Binding var selectedTab: AppTab
+
+    var body: some View {
+        if empty {
+            HomeBlock(title: Copy.homeLastRead, emptyNote: Copy.homeLastReadNotYet) { EmptyView() }
+        } else {
+            LastReadSegment(selectedTab: $selectedTab)
+                .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.oneLine), alignment: .center)
+        }
+    }
 }

@@ -26,7 +26,9 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 100), 24, "never above the room pages' inset")
         XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 600), 102, "round 3: 17 %, above the worm")
         XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 2000), 140, "never past 140 pt")
-        XCTAssertEqual(HomeLayout.greeterSize, 72)
+        XCTAssertEqual(HomeLayout.greeterCell, 3, "round 4 — a whole 3 points per art pixel, crisp")
+        XCTAssertEqual(HomeLayout.greeterCell, HomeLayout.greeterCell.rounded(), "never a fractional pixel")
+        XCTAssertEqual(HomeLayout.greeterInk, CGRect(x: 4, y: 3, width: 56, height: 45), "the pixels every mood draws")
         XCTAssertEqual(HomeLayout.pulseGap, 2)
         XCTAssertLessThan(HomeLayout.pulseGap, HomeLayout.blockGap)
     }

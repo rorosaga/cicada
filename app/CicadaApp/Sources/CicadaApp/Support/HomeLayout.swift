@@ -21,10 +21,14 @@ enum HomeLayout {
     static func headlineTop(viewportHeight: CGFloat) -> CGFloat {
         min(140, max(headlineTop, (viewportHeight * 0.17).rounded()))
     }
-    /// Round 3 — the worm over the headline: 72 pt, 10 pt above it. With it the lead is taller, so it starts 17 % of
-    /// the viewport down (24 pt at the least, 140 pt at the most) and the block sits at the window's optical centre.
-    static let greeterSize: CGFloat = 72
-    static let greeterGap: CGFloat = 10
+    /// Round 3 — the worm over the headline. With it the lead is taller, so it starts 17 % of the viewport down (24 pt at
+    /// the least, 140 pt at the most) and the block sits at the window's optical centre.
+    /// Round 4 — drawn at 3 points to the art pixel (it was 2: 112 pt wide, soft beside the thin icons), an integer so
+    /// every pixel stays square and crisp, and cropped to the pixels the sprite ever draws (`greeterInk`, art pixels:
+    /// x 4–60, y 3–48 across every mood), so its transparent margin does not push the headline down.
+    static let greeterCell: CGFloat = 3
+    static let greeterInk = CGRect(x: 4, y: 3, width: 56, height: 45)
+    static let greeterGap: CGFloat = 12
     static let headlineBottom: CGFloat = 26
     static let blockGap: CGFloat = 24
     /// The field is a block like the rest (owner 2026-10-06): the first card sits one block gap under it.
