@@ -125,6 +125,28 @@ final class MediaViewerTests: XCTestCase {
         XCTAssertEqual(PhotoViewer.clamp(40), 6)
     }
 
+    // ROR-131 — the players' controls.
+
+    func testThePhotoViewerZoomsFromTheKeyboardAndReadsAsAPercentOfTheFit() {
+        XCTAssertEqual(PhotoViewer.zoom(after: "+", from: 1), 1.5)
+        XCTAssertEqual(PhotoViewer.zoom(after: "-", from: 1), 1, "out of the fit stays at the fit")
+        XCTAssertEqual(PhotoViewer.zoom(after: "0", from: 4), 1)
+        XCTAssertEqual(PhotoViewer.zoom(after: "=", from: 5), 6, "clamped to the top of the range")
+        XCTAssertNil(PhotoViewer.zoom(after: "x", from: 2))
+        XCTAssertEqual(PhotoViewer.percent(1), "100%")
+        XCTAssertEqual(PhotoViewer.percent(1.5), "150%")
+    }
+
+    func testTheViewerGrowsWithTheScreenButNeverBelowItsOldSizeOrPastTheCap() {
+        let minimum = CGSize(width: 880, height: 600)
+        XCTAssertEqual(MediaViewerModel.sheetSize(screen: nil, minimum: minimum), minimum)
+        XCTAssertEqual(MediaViewerModel.sheetSize(screen: CGSize(width: 1000, height: 700), minimum: minimum), minimum)
+        XCTAssertEqual(MediaViewerModel.sheetSize(screen: CGSize(width: 1800, height: 1100), minimum: minimum),
+                       CGSize(width: 1260, height: 825))
+        XCTAssertEqual(MediaViewerModel.sheetSize(screen: CGSize(width: 6000, height: 4000), minimum: minimum),
+                       CGSize(width: 1600, height: 1000))
+    }
+
     // MARK: A photo comes in
 
     func testAPhotoIsAKindOfAddedFileButAnSVGIsNot() throws {

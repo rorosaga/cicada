@@ -541,10 +541,16 @@ list row): `MediaViewerModel.target(id:at:places:)` decides before any player ex
 the hit's second, a photo shows, a file that is not on this Mac is one sentence ("That file isn't on this Mac.") with
 *Choose it…* (a file chosen again must hash to the id, `isTheFile`; a Voice Memo, keyed by its store, offers no choice).
 Video is `AVPlayerSurface` (the existing seam; `VideoPlaybackController` gained `currentTime`, `length`, `seek(to:)`,
-`stop()`, so `AVImportLintTests`' allow-list did not widen); audio is `AudioSurface` — the time, a scrubber, play and
-pause, never an empty video box. Space toggles (R10). The header carries ‹ (back to the list), the name, *Open in default
-app* and ✕; Esc closes. Closing the sheet runs `MediaViewerModel.end` (pause, drop the item): nothing keeps playing.
-A photo is `PhotoViewer`: fit, pinch / double click / two buttons to zoom, scroll when zoomed, no animation (DR-60).
+`stop()`, `speed`, `isMuted`, so `AVImportLintTests`' allow-list did not widen): the system's inline transport (play,
+scrubber, time, volume) plus its full-screen button (ROR-131). Audio is `AudioSurface` — the time and the time left, a
+scrubber that follows the finger and seeks on release, back 10 / play / forward 10, a speed menu (0.75–2×) and mute,
+read from the player's clock ten times a second; a finished file plays again from the start. **Keys (ROR-131,
+`PlayerKeys`, scoped to the player's container, R10):** Space or K play and pause, ← → skip 5 s, J L skip 10 s, M mutes;
+the same on `VideoPlayerView` and the sheet / page pane; a held arrow repeats, a held Space does not. The sheet and the
+lightbox size to the screen (`MediaViewerModel.sheetSize`: 70% × 75%, never below 880 × 600 / 640, never past
+1,600 × 1,000). The header carries ‹ (back to the list), the name, *Open in default app* and ✕; Esc closes. Closing
+the sheet runs `MediaViewerModel.end` (pause, drop the item): nothing keeps playing.
+A photo is `PhotoViewer`: fit, pinch / double click / two buttons / + − 0 to zoom, the zoom read as a percentage of the fit with a button back to it, scroll when zoomed, no animation (DR-60). `ImageLightbox` (a stored picture, enlarged) draws the same `PhotoViewer` on its dark scrim, so a zoomed corner can be reached (ROR-131).
 *The list* (**File → Added Files…**): `GET /files` newest first — glyph, name, length — a row opens the same file; the
 context menu keeps *Open in default app* and *Show in Finder*. **A photo** joins File → Add (the picker and the drop take
 `.image` but not SVG): `MediaFrames.photoFrame` decodes it with ImageIO on this Mac, posts kind `image` with no words

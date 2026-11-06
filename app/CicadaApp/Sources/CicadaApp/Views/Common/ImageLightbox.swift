@@ -70,34 +70,17 @@ struct ImageLightbox: View {
     let image: NSImage
     var caption: String? = nil
     @Environment(\.dismiss) private var dismiss
-    @State private var zoom: CGFloat = 1.0
-    @State private var committedZoom: CGFloat = 1.0
+
+    /// ROR-131 — the same zoomable surface as the media viewer (`PhotoViewer`: pinch, double click, + − 0, scroll when
+    /// zoomed, fit), on the dark scrim, sized to the screen. It used to scale the picture in place, so a zoomed corner
+    /// could not be reached.
+    private var size: CGSize {
+        MediaViewerModel.sheetSize(screen: NSScreen.main?.visibleFrame.size, minimum: CGSize(width: 880, height: 640))
+    }
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.92)
-                .onTapGesture { dismiss() }
-
-            VStack(spacing: CicadaTheme.spacingSM) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .scaleEffect(zoom)
-                    .gesture(
-                        MagnificationGesture()
-                            .onChanged { value in
-                                // Accumulate against the last committed zoom so repeated pinches don't snap back.
-                                zoom = max(1.0, min(5.0, committedZoom * value))
-                            }
-                            .onEnded { _ in committedZoom = zoom }
-                    )
-                if let caption {
-                    Text(caption)
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(.white.opacity(0.8))
-                }
-            }
-            .padding(CicadaTheme.spacingXL)
+            PhotoViewer(image: image, background: Color.black.opacity(0.92), onDark: true)
 
             VStack {
                 HStack {
@@ -115,9 +98,18 @@ struct ImageLightbox: View {
                     .padding(CicadaTheme.spacingLG)
                 }
                 Spacer()
+                if let caption {
+                    Text(caption)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, CicadaTheme.spacingLG)
+                        .padding(.bottom, CicadaTheme.spacingMD)
+                        .allowsHitTesting(false)
+                }
             }
         }
-        .frame(minWidth: 600, minHeight: 440)
-        .frame(width: 880, height: 640)
+        .frame(width: size.width, height: size.height)
+        .onExitCommand { dismiss() }
     }
 }
