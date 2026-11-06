@@ -33,8 +33,40 @@ struct SleepRoomColumn: View {
     var leading = false
     /// ROR-118 round 2 - "last read 2 h ago", said in the lamp's line beside the room (nil: not said).
     var lastRead: String? = nil
+    /// ROR-118 round 6 - beside the room the block is laid out to the room's own height: the page's title on top, the
+    /// headline and its lamp line in the middle, the buttons last, the free height shared by two springs, so the block's
+    /// top and bottom edges are the room's whatever the state says (`fillHeight`). The run's instrument is then drawn
+    /// by the page under both, at full width, never inside a block whose height the room sets.
+    var title: AnyView? = nil
+    var fillHeight: CGFloat? = nil
+    /// ROR-118 round 6 - only the notes (the first save's link, the automatic continue's promise, parked conversations),
+    /// drawn by the page under the room's row so the block beside the room never grows past the room.
+    var notesOnly = false
 
     var body: some View {
+        if notesOnly { notes.padding(.top, CicadaTheme.spacingSM).frame(maxWidth: .infinity, alignment: .leading) }
+        else if leading, let fillHeight { pinned(height: fillHeight) } else { stacked }
+    }
+
+    private func pinned(height: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            title
+            Spacer(minLength: CicadaTheme.spacingMD)
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform,
+                                 leading: true)
+                whisperRow.accessibilitySortPriority(RoomA11yOrder.whisper)
+            }
+            Spacer(minLength: CicadaTheme.spacingMD)
+            SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount, page: page,
+                            leading: true, part: .buttons)
+                .accessibilitySortPriority(RoomA11yOrder.control)
+                .tourAnchor(.consolidate)
+        }
+        .frame(maxWidth: SleepLayout.contentWidth, minHeight: height, alignment: .top)
+    }
+
+    private var stacked: some View {
         VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingMD) {
             // R-Z5 — the one slot the worm speaks in; an answer replaces the status here (R-Z7).
             RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform,

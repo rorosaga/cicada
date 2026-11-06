@@ -477,10 +477,18 @@ struct SleepView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                    eyebrowRow(page, gutter: plan.gutter)
-                        .id(Self.topAnchor)
-                    roomBlock(page, columnWidth: min(plan.list, SleepLayout.pageWidth) - 2 * plan.gutter)
+                    // ROR-118 round 6 - beside the room the title is the left block's first line (the room's top
+                    // edge is the title's), so only a column too narrow for both keeps the title above.
+                    let columnWidth = min(plan.list, SleepLayout.pageWidth) - 2 * plan.gutter
+                    if !SleepLayout.roomBeside(columnWidth: columnWidth) {
+                        eyebrowRow(page, gutter: plan.gutter)
+                            .id(Self.topAnchor)
+                    }
+                    roomBlock(page, columnWidth: columnWidth)
                         .padding(.horizontal, plan.gutter)
+                        .padding(.top, SleepLayout.roomBeside(columnWidth: columnWidth)
+                                 ? CicadaTheme.scaled(EyebrowRow<EmptyView>.topPadding) : 0)
+                        .id(SleepLayout.roomBeside(columnWidth: columnWidth) ? Self.topAnchor : "sleep.room")
                         .padding(.bottom, CicadaTheme.spacingXL)
                         // R-A12: `.saturation` is UNCONDITIONAL, at the identity 1.0 while live — an `if` around it
                         // would change the room's structural identity and rebuild it every time the connection flaps.
@@ -514,9 +522,9 @@ struct SleepView: View {
 
     /// The page's eyebrow (DR-25, DR-26 — the first item, where the title used to be), with the staleness chip at its
     /// right while the backend is not answering (R-A12). The subtitle the title carried lives on as its hint.
-    private func eyebrowRow(_ page: SleepPageModel, gutter: CGFloat) -> some View {
+    private func eyebrowRow(_ page: SleepPageModel, gutter: CGFloat, bare: Bool = false) -> some View {
         EyebrowRow(eyebrow: SleepEyebrow.text(waiting: waitingCount, lastSleepAt: nil, now: .now),
-                   horizontalPadding: gutter) {
+                   horizontalPadding: gutter, bare: bare) {
             // R-A12: the chip explains the dimming below it, so it stays at full contrast and sits outside every
             // desaturated group.
             if let asOf = liveness.asOf { stalenessChip(asOf) }
@@ -1136,7 +1144,8 @@ struct SleepView: View {
             .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
             .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
             .accessibilitySortPriority(RoomA11yOrder.room)
-        let words = SleepRoomColumn(page: page, status: status, answers: answers, room: room,
+        func column(notesOnly: Bool) -> SleepRoomColumn {
+            SleepRoomColumn(page: page, status: status, answers: answers, room: room,
                             feedAsleep: feedIsAsleep(page.mood),
                             perform: { action in
                                 switch action {
@@ -1151,15 +1160,27 @@ struct SleepView: View {
                             },
                             ownerEntityId: ownerEntityId, onSelectEntity: onSelectEntity,
                             openDetails: openDetails, leading: true,
-                            lastRead: SleepEyebrow.lastRead(lastSleepAt: store.status.value?.lastSleepAt, now: .now))
+                            lastRead: SleepEyebrow.lastRead(lastSleepAt: store.status.value?.lastSleepAt, now: .now),
+                            title: beside ? AnyView(eyebrowRow(page, gutter: 0, bare: true)) : nil,
+                            fillHeight: beside ? CGFloat(RoomLattice.rows) * cell : nil,
+                            notesOnly: notesOnly)
+        }
+        let words = column(notesOnly: false)
 
         return VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             if beside {
-                // Rodrigo asked for it (2026-11-06): the words hang from the room's top edge, so the status
-                // capsule sits just under the title instead of centred on the room's height.
-                HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
-                    words.frame(maxWidth: .infinity, alignment: .leading)
-                    corner
+                // Rodrigo asked for it (2026-11-06): the title, the headline and the buttons are one block exactly
+                // as tall as the room (`fillHeight`), so their top and bottom edges are the room's whatever the
+                // state; the run's instrument runs under the pair at full width.
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
+                        words.frame(maxWidth: .infinity, alignment: .leading)
+                        corner
+                    }
+                    SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount,
+                                    page: page, leading: true, part: .captions)
+                    column(notesOnly: true)
+                    RunInstrument(page: page, justFinished: room.recentCycleCommit != nil)
                 }
             } else {
                 corner

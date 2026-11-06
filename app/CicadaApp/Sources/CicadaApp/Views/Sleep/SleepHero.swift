@@ -425,6 +425,11 @@ struct SleepControlRow: View {
     /// ROR-118 — set on the leading edge beside the room's rectangle (round 5: the engine and Options are DR-40 neutral
     /// buttons beside the one primary, so they read as controls); the offscreen layouts keep the centred group.
     var leading = false
+    /// ROR-118 round 6 - which part of the row is drawn: beside the room the buttons sit inside the block that is the
+    /// room's height, and the lines that explain them (the stop's whisper, the elapsed time) hang under the pair, so
+    /// a state with more to say never makes the block taller than the room.
+    enum Part { case all, buttons, captions }
+    var part: Part = .all
 
     @State private var optionsOpen = false
 
@@ -439,6 +444,25 @@ struct SleepControlRow: View {
 
     var body: some View {
         VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingSM) {
+            if part != .captions { buttonRow }
+            if part != .buttons { captions }
+        }
+        .padding(.top, part == .captions && hasCaptions ? CicadaTheme.spacingSM : 0)
+        .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
+        .sheet(isPresented: $optionsOpen) {
+            ReadingOptionsSheet(waiting: page?.readable ?? queuedCount,
+                                onClose: { optionsOpen = false },
+                                onConsolidate: {
+                                    optionsOpen = false
+                                    Task {
+                                        await sleepVM.triggerManually()
+                                        await store.refresh([.status, .channels])
+                                    }
+                                })
+        }
+    }
+
+    private var buttonRow: some View {
             HStack(spacing: CicadaTheme.spacingSM) {
                 if sleepVM.isRunning {
                     if draining { pauseButton } else { cancelButton }
@@ -464,6 +488,14 @@ struct SleepControlRow: View {
                     }
                 }
             }
+    }
+
+    private var hasCaptions: Bool {
+        caption != nil || (sleepVM.isRunning && engineVM.response?.runKeepsEngine == true)
+    }
+
+    @ViewBuilder
+    private var captions: some View {
             // The whisper sits on its own line under the group (2026-10-16): beside the buttons it pushed the pair
             // off the column's centre by its own width.
             if let caption = caption {
@@ -483,19 +515,6 @@ struct SleepControlRow: View {
                     .multilineTextAlignment(leading ? .leading : .center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-        }
-        .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
-        .sheet(isPresented: $optionsOpen) {
-            ReadingOptionsSheet(waiting: page?.readable ?? queuedCount,
-                                onClose: { optionsOpen = false },
-                                onConsolidate: {
-                                    optionsOpen = false
-                                    Task {
-                                        await sleepVM.triggerManually()
-                                        await store.refresh([.status, .channels])
-                                    }
-                                })
-        }
     }
 
     /// Running: the elapsed time of a run that reads in batches (measured, never a remaining time — G107), else
