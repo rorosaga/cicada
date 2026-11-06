@@ -426,7 +426,7 @@ def test_the_hook_says_how_many_tracked_sources_wait_for_the_persons_agent(readi
     # R12: every tool the line names exists in the stdio schema.
     names = {t["name"] for t in server.TOOLS}
     assert {"cicada_refresh_claim", "cicada_record_refresh"} <= names
-    assert "cicada_refresh_claim" in line and "cicada_record_refresh" in line
+    assert "cicada_refresh_claim" in line and "cicada_record_refresh" not in line  # its reply names it (tool_offer)
     # It rides the SessionStart note.
     note = hook_recall.session_start_note(memory, harness="claude-code", session_id="ses_hook", cwd=None,
                                           source=None, bank_paths=[memory], deadline=10 ** 9)

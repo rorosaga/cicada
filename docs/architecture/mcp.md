@@ -2226,6 +2226,22 @@ last the projects from the list's end, counted in one line, the first never (R10
 a SessionStart reserve: `compose_note` settles that note whole, so a pointer riding along never costs a project or an agreement. What it stores and how a person turns it
 off: `capture-and-sleep.md`, "The Claude desktop app, on its local connection".
 
+## Recording tools join the list when they're needed (G148, owner 2026-11-06)
+
+Seven tools only record what a job found: `cicada_record_read`, `_check`, `_youtube_list`, `_saved_list`, `_substack_list`,
+`_refresh` and `_capture`, about 22k of the list's 74k characters. A client known to re-read `tools/list` starts without them
+(`tool_offer.REFRESHING_CLIENTS`). When a reply or a prompt names one (`cicada_reading_queue`, `cicada_check_nudges`,
+`cicada_explore_claim` and `cicada_refresh_claim` do), it joins the list and the client gets
+`notifications/tools/list_changed`, after the reply. The list only grows during a session. Any other client, an unknown or
+unnamed one included, holds all of them from the start and is promised nothing, so an untested client loses nothing. A held-back
+tool called by name still runs. R12 holds: such a client's primer and the hook's lines name only the queue, whose reply names
+the rest (`CONTRACT_VERSION` 26). The remote door's list is unchanged.
+
+Which clients re-read it, 2026-11-06: Claude Code by test (2.1.319, interactive docs and `-p` run: re-listed within 10 ms and
+called the new tool), VS Code and Gemini CLI by source. Not treated this way: Codex (flag `mcp_tool_list_changed`, off by
+default at 0.165), Claude desktop (no handler found in its bundle), Cursor and OpenCode (a handler, the refresh untested). Adding
+a client is one line after a test.
+
 ## The remote connector's sign-in and capture (ruling 32, owner 2026-10-19)
 
 - **Sign-in.** The G135 listener is also an OAuth 2.1 authorization server (`api/remote/oauth.py`; the whole flow,

@@ -1217,11 +1217,39 @@ def _relay_offered() -> bool:
     return not in_engine_spawn() and relay_capture.local_relay_allowed(CLIENT_INFO.get("name"), SESSION.harness)
 
 
+#: The recording tools Cicada's own words have named to this client this session (`tool_offer`).
+_OPENED: set[str] = set()
+
+
+def _held_back() -> frozenset[str]:
+    """What this client isn't offered yet: nothing unless it is known to re-read the list (`tool_offer`)."""
+    from api.services import tool_offer
+
+    return tool_offer.OPENED_BY_A_REPLY - _OPENED if tool_offer.refreshes(CLIENT_INFO.get("name")) else frozenset()
+
+
 def tools_for_client() -> list[dict]:
-    """What `tools/list` answers: nothing under a Cicada engine spawn, the relay only to an app with no hook."""
+    """What `tools/list` answers: nothing under a Cicada engine spawn, the relay only to an app with no hook, and a
+    recording tool once a reply has named it, to a client that re-reads the list (`tool_offer`)."""
     if in_engine_spawn():
         return []
-    return TOOLS if _relay_offered() else [t for t in TOOLS if t["name"] != "cicada_capture_turns"]
+    held = _held_back()
+    relay = _relay_offered()
+    return [t for t in TOOLS if t["name"] not in held and (relay or t["name"] != "cicada_capture_turns")]
+
+
+def _offer_what_was_named(result: dict) -> None:
+    """After a reply: a held-back tool it names joins the list, and the client is told. Never raises."""
+    from api.services import tool_offer
+
+    try:
+        named = tool_offer.named_in(json.dumps(result)) & _held_back()
+        if named:
+            _OPENED.update(named)
+            sys.stdout.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}) + "\n")
+            sys.stdout.flush()
+    except Exception as exc:  # noqa: BLE001 — a client that isn't told still holds the reply; the class, never the message
+        print(f"cicada-mcp: tool offer failed: {type(exc).__name__}", file=sys.stderr)
 
 
 def initialize_result(params: dict) -> dict:
@@ -1246,7 +1274,7 @@ def initialize_result(params: dict) -> dict:
         })
     result = {
         "protocolVersion": "2024-11-05",
-        "capabilities": {"tools": {}, "prompts": {}},
+        "capabilities": {"tools": {"listChanged": True} if _held_back() else {}, "prompts": {}},
         "serverInfo": {"name": "cicada-bookworm", "version": __version__},
     }
     if in_engine_spawn():
@@ -1374,6 +1402,7 @@ def main():
                 respond_error(req_id, -32602, f"Invalid params: no prompt named {str(name)[:64]!r}")
             else:
                 respond(req_id, prompt)
+                _offer_what_was_named(prompt)
 
         elif method == "tools/call":
             tool_name = params.get("name", "") if isinstance(params, dict) else ""
@@ -1386,7 +1415,9 @@ def main():
             if in_engine_spawn():
                 respond_error(req_id, -32601, "Cicada offers no tools inside its own engine call")
                 continue
-            respond(req_id, call_tool(tool_name, arguments))
+            result = call_tool(tool_name, arguments)
+            respond(req_id, result)
+            _offer_what_was_named(result)
 
         elif req_id is not None:
             # Unknown method with an id — return error
