@@ -121,8 +121,8 @@ app or backend.
 **The whole suite on CI (2026-11-06).** A merge of two PRs put an `UnboundLocalError` on `dev` that 27 tests could see, and
 no CI job ran any of them. `backend-shard` now runs every backend test file except the `bench` budgets, on every push and PR,
 split by `api/tests/_ci_shard.py`. The shard split is by file size, a cheap guess at time. Selecting tests by what a PR changed
-was tried and dropped: on the last 40 merges it ran a median of ~80 of 830 files and still couldn't see two PRs' interaction,
-for about 6 minutes saved. The Mac stays the only place the Swift suite, the `bench` tier and the tests that need `sips` or
+was tried and dropped: on the last 40 merges it ran a median of ~80 of 830 files and still couldn't see two PRs' interaction;
+`swift-lint`'s 4-7 minutes would have capped what it saved. The Mac stays the only place the Swift suite, the `bench` tier and the tests that need `sips` or
 the Mac's `openssl` run (skipped on Linux, each with its reason). A test that leaves a process-wide switch off is now undone by `conftest`'s
 `_off_switches_stay_in_their_test`. **CI on `dev` (2026-10-22).** `.github/workflows/dev-ci.yml` runs the backend half of the crucial tier on every push to
 `dev` and every PR into it: `ubuntu-latest`, Python 3.12.11 (the version `api/.venv` runs), `uv sync --frozen` from
