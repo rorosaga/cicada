@@ -16,8 +16,9 @@ import Foundation
 /// Short labels join `sleepV5Labels`, which `HomeSleepCopyTests`' rules read too.
 extension Copy {
     enum SleepV5 {
-        /// ROR-118 round 3 - no schedule, in plain words (round 2's "Lamp off" read as a riddle; the lamp is in the room).
-        static let lampOffShort = "No schedule"
+        /// ROR-118 (Rodrigo asked for it, 2026-11-06) - the lamp-off wording the page had before round 3, without its
+        /// full stop so "last read ..." can follow it (`Copy.lampOffSentence` is the same words, ended).
+        static let lampOffShort = "The lamp is off — I read when you ask"
         /// The Waiting list's two right-hand columns, named once.
         static let columnOldest = "Oldest"
         static let columnItems = "Items"

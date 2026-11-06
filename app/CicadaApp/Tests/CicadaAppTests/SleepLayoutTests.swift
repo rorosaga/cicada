@@ -275,7 +275,9 @@ final class SleepLivenessTests: XCTestCase {
         XCTAssertEqual(SleepEyebrow.lastRead(lastSleepAt: twoHours, now: now), "last read 2 h ago")
         XCTAssertNil(SleepEyebrow.lastRead(lastSleepAt: nil, now: now))
         XCTAssertEqual(cornerWhisperLine(scheduleText: "x", nextRunText: "y", lampLit: false,
-                                         lastRead: "last read 2 h ago"), "No schedule · last read 2 h ago")
+                                         lastRead: "last read 2 h ago"), "The lamp is off — I read when you ask · last read 2 h ago")
+        XCTAssertEqual(cornerWhisperLine(scheduleText: "x", nextRunText: "y", lampLit: false, lastRead: nil),
+                       "The lamp is off — I read when you ask.")
         XCTAssertEqual(cornerWhisperLine(scheduleText: "Nightly", nextRunText: "Next run 3:00", lampLit: true,
                                          lastRead: nil), "Nightly · Next run 3:00")
     }

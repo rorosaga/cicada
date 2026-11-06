@@ -469,6 +469,7 @@ func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> St
 /// ROR-118 round 2 - the one quiet line under the controls beside the room: the lamp, short, and when Sleep last
 /// read, so "last read" is not a second caption up by the title. `lastRead` is `SleepEyebrow.lastRead`'s phrase.
 func cornerWhisperLine(scheduleText: String, nextRunText: String, lampLit: Bool, lastRead: String?) -> String {
+    if !lampLit, lastRead == nil { return Copy.lampOffSentence }
     let lamp = lampLit ? "\(scheduleText) · \(nextRunText)" : Copy.SleepV5.lampOffShort
     return [lamp, lastRead].compactMap { $0 }.joined(separator: " · ")
 }

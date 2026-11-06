@@ -1155,7 +1155,9 @@ struct SleepView: View {
 
         return VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             if beside {
-                HStack(alignment: .center, spacing: CicadaTheme.spacingXL) {
+                // Rodrigo asked for it (2026-11-06): the words hang from the room's top edge, so the status
+                // capsule sits just under the title instead of centred on the room's height.
+                HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
                     words.frame(maxWidth: .infinity, alignment: .leading)
                     corner
                 }
