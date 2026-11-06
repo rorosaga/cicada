@@ -11,6 +11,17 @@ final class ClustersModelTests: XCTestCase {
                markdownContent: summary, history: [])
     }
 
+    func testASavedPagesSummaryThatOnlyRepeatsItsTitleIsNoLine() {
+        let repeated = e("m1", "Why local-first software matters", .media, summary: "## Summary\nSaved url — Why local-first software matters.")
+        XCTAssertNil(ClustersModel.line(repeated), "the row already says the title")
+        let feed = e("m2", "A gripper teardown", .media, summary: "## Summary\nFrom a feed — A gripper teardown.")
+        XCTAssertNil(ClustersModel.line(feed))
+        let adds = e("m3", "Lab walkthrough", .media, summary: "## Summary\nSaved video — A tour of the lab bench.")
+        XCTAssertEqual(ClustersModel.line(adds), "Saved video — A tour of the lab bench.", "a line that adds something stays")
+        let person = e("p1", "Leo", .person, summary: "## Summary\nSaved url — Leo.")
+        XCTAssertNotNil(ClustersModel.line(person), "only media pages are judged")
+    }
+
     /// Owner 2026-10-20 — "we can filter looks inside the entities page": only the pages that show a look.
     func testTheViewMenuNarrowsToThePagesWithLooks() {
         let types = Set(EntityType.selectableCases)

@@ -54,8 +54,11 @@ struct LogoTile: View {
     @ViewBuilder
     private var content: some View {
         if let bundleId, let icon = InstalledAppIcon.image(bundleId: bundleId, size: mark) {
+            // A white app icon (Reminders, Notes) on the light tile had no edge and read as nothing; a hairline on the
+            // icon's own squircle gives it one, and is invisible on a dark icon.
             Image(nsImage: icon).resizable().interpolation(.high).scaledToFit()
                 .frame(width: mark, height: mark)
+                .overlay(CicadaTheme.shape(mark * 0.225).strokeBorder(CicadaTheme.border, lineWidth: 0.75))
         } else if let logo, LogoImage.exists(name: logo) {
             if LogoSet.fullBleed.contains(logo), density != .roomy {
                 // A vendor that published its mark as a finished icon (its own square or squircle ground) fills the

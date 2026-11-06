@@ -38,7 +38,7 @@ from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, episode_time
 from api.services import book_marks, entity_relations, episode_actor, page_blocks
-from api.services import history_index, media_pages, saved_lookup, search_service
+from api.services import history_index, media_pages, page_use, saved_lookup, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import (bank_index, entity_bands, link_views, markdown_parser, page_lock, same_name, search_index,
                           write_admission)
@@ -2289,11 +2289,13 @@ def _recall(ctx: ToolContext, query: str) -> str:
     keyword = live(_keyword_search_entities(entities_dir, query, top_k=8))
     claim_subjects = live(_claim_subject_search(memory_path, query, top_k=8))
     merged = _rrf_fuse(semantic, keyword, claim_subjects)
+    named = _named_hits(entities_dir, query, merged)
+    merged = _rrf_fuse(semantic, keyword, claim_subjects,
+                       lately=search_service.lately_lift(page_use.lately(memory_path), named))
     seen_ids: set[str] = {h.get("entity_id") or h.get("id") for h in merged}
     # Lean reads (2026-10-27): only pages some leg ranks near its own best are shown — at most RECALL_PAGES_SHOWN,
     # never fewer than the top one (`_above_floor`).
-    shown_hits = _above_floor(merged, semantic, keyword, claim_subjects,
-                              named=_named_hits(entities_dir, query, merged))
+    shown_hits = _above_floor(merged, semantic, keyword, claim_subjects, named=named)
 
     # === Structured hints block (machine-parseable, emitted first) ===
     # A small model that ignores prose can json.loads this fenced block to get
