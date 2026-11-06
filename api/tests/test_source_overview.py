@@ -490,3 +490,11 @@ def test_a_saved_row_without_a_channel_counts_its_saved_pages_like_its_list(tmp_
     from api.services import channel_items
     assert youtube["intent"] == "saved"
     assert youtube["items"] == 2 == channel_items.items(m, "youtube")["total"], "the row's number is its list's"
+
+
+def test_the_pinterest_saved_list_origin_is_the_pinterest_row_not_an_unnamed_import():
+    from api.services import saved_lists, source_overview
+
+    origins = {o for spec in source_overview.CATALOG for o in spec.origins}
+    for key, platform in saved_lists.PLATFORMS.items():
+        assert platform.origin in origins, f"{key}'s saved list files under {platform.origin}, which no overview row names"

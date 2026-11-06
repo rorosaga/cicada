@@ -1836,6 +1836,12 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         index_changed = (index_file.read_bytes() if index_file.is_file() else None) != before_index
     if index_changed:
         paths.append("sources/url_index.json")
+    if dropped and not seen:
+        # Every row was something else (a feed, a profile, a login page): the agent was not on the list. Calling that a
+        # read would show the source healthy, count against the day and clear a pause, with nothing kept.
+        saved_lists.note(memory_path, key, "failed", **who)
+        return (f"Recorded: the read failed. None of the {dropped} row(s) were {p.name} posts, so nothing was written; "
+                f"the list is offered again later. Open {p.name}'s {p.label} page and read that list." + unkept)
     saved_lists.note(memory_path, key, "read", items=len(seen), **who)
     if paths:
         lines = ([f"sources/url_index.json: updated (trigger: {ctx.trigger})"] if index_changed else []) + (
