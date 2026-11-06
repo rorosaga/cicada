@@ -76,6 +76,8 @@ _HUMAN_ORIGINS = {"manual_edit", "clarification", "companion_app"}
 # `decayed_through` backfill migration: a future outage/paused-schedule gap
 # degrades gradually over several cycles instead of one cliff.
 MAX_DECAY_DAYS_PER_CYCLE = 7
+#: A fact on a page that never fades is charged once this many days are owed (ROR-129, git size measured).
+FACT_CHARGE_MIN_DAYS = 7
 
 
 # --------------------------------------------------------------------------- #
@@ -1459,6 +1461,12 @@ def _decay_claims(
                 owed = decay_policy.Silence(0, 0, today_date)
             if cap == 0 and owed.days == 0:
                 continue  # read this pass, nothing proven: untouched, as before
+            if quiet_page and owed.proven_days == 0 and owed.live_days < FACT_CHARGE_MIN_DAYS:
+                # Git size (ROR-129, measured): a fact on a page that never fades is charged once a week, not nightly.
+                # Ruling 1 caps a pass's live silence at one week, so the total is the same; the bytes are not — a
+                # nightly pass rewrote every line of the owner's ledger (9.8 MB packed a quarter against 1.5 MB).
+                # The watermark stays where it was, so the days are owed, not lost.
+                continue
             rate = claim_rate(c, about, multiplier, untimed=untimed, alpha=alpha, floor=floor)
             if rate > 0 and owed.days > 0:
                 # One-offs fall freely; a claim restated across 2+ conversations floors where a page would
