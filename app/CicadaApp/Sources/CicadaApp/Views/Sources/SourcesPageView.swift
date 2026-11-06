@@ -130,7 +130,7 @@ struct SourcesPageView: View {
                 SourcesOverviewColumn(rows: rows, catalog: catalog,
                                       hasLoaded: store.sourcesOverview.value != nil || store.channels.value != nil,
                                       onOpen: { select($0) }, onSelectEntity: onSelectEntity, search: $gridSearch,
-                                      onOpenByKey: { openByKey($0) }, onAdd: { adding = AddRequest(shelf: $0) })
+                                      onOpenByKey: { openByKey($0) })
             } else {
                 SourcesListColumn(catalog: catalog, style: plan.listStyle,
                                   selection: columns.openId, open: { select($0) },

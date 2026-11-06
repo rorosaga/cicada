@@ -1,63 +1,59 @@
 import SwiftUI
 
-/// ROR-118 (owner, Sources round 1; round 3 after the judges) — the Sources root as kinds. Six kinds of information,
-/// never vendors. Each draws its connected sources as plain rows on the page's own ground (no card, no ring: a ring
-/// per source made twenty boxes), one logo tile size throughout, and shows what came in its own way (titles, the week,
-/// marks, covers). What is not connected is never a mark on this page: a kind with nothing in it is one dashed line
-/// naming what it takes, and the "+" beside every kind's name opens the add overlay on it. So a row is connected and a
-/// dashed line is not, at a glance. DR-9 (a ring, no shadow), DR-47 (labelled groups), DR-48/DR-63 (hover is a fill),
-/// DR-52 (one logo tile), DR-60 (a key never animates).
+/// ROR-118 (owner, Sources round 1; round 5 after four rounds below the plain page) — the Sources root as kinds. Six
+/// kinds of information, never vendors, one full-width column in a fixed order. Inside a kind the page does what the
+/// plain tile page did and the ranked rows lost: every source is a visible, full-size mark with its name. What is
+/// connected is a card (a ring on a fill, the status dot and when it last read, then what came in in the kind's own
+/// way: titles, the week, marks, covers); what is not is a plain tile of the same family, logo and name, one tap to its
+/// own page. No "Add X and N more" lines, no stacked marks: nothing is cut off and nothing is a count. A kind with
+/// nothing connected is its tiles alone, so Events and Work read as finished. DR-9 (a ring, no shadow), DR-47 (labelled
+/// groups), DR-48/DR-63 (hover is a fill), DR-52 (one logo tile), DR-60 (a key never animates).
 enum SourceShelfLayout {
-    /// Two columns on a wide page, one fixed place per kind, so a kind never moves when a source joins it; on a narrow
-    /// page the same six stack in `SourceShelf.allCases` order.
-    static func column(_ shelf: SourceShelf) -> Int {
-        switch shelf {
-        case .conversations, .events, .work: 0
-        case .documents, .saved, .media: 1
-        }
-    }
-
     /// The kinds the page draws: every one holding something, and every one that could still take something.
     static func shown(_ shelves: [SourceShelves.Shelf]) -> [SourceShelves.Shelf] {
         shelves.filter { !$0.connected.isEmpty || !$0.addable.isEmpty }
     }
 
-    static let columnMinWidth: CGFloat = 340
-    static let columnGap: CGFloat = 56
+    /// Connected cards: 3 across on a wide page. Tiles: 6 across, the old page's grid.
+    static let cardMinWidth: CGFloat = 300
+    static let tileMinWidth: CGFloat = 180
+    static let gap: CGFloat = 12
 }
 
-private struct ShelfColumnKey: LayoutValueKey { static let defaultValue = 0 }
-
-/// The kinds in two columns when the page is wide enough, else in one, in the order given.
-private struct ShelfColumnsLayout: Layout {
-    let minColumn: CGFloat
+/// Equal cells in rows: as many columns as fit the minimum width, every cell as wide as its column and every cell in a
+/// row as tall as the tallest, so a card with two titles and a card with one still make a clean grid.
+private struct EqualGridLayout: Layout {
+    let minCell: CGFloat
     let gap: CGFloat
-    let rowGap: CGFloat
 
-    private func count(_ width: CGFloat) -> Int { width >= minColumn * 2 + gap ? 2 : 1 }
+    private func columns(_ width: CGFloat) -> Int { max(1, Int((width + gap) / (minCell + gap))) }
+
+    private func heights(_ subviews: Subviews, cell: CGFloat, n: Int) -> [CGFloat] {
+        stride(from: 0, to: subviews.count, by: n).map { start in
+            subviews[start..<min(start + n, subviews.count)]
+                .map { $0.sizeThatFits(.init(width: cell, height: nil)).height }.max() ?? 0
+        }
+    }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? minColumn * 2 + gap
-        let n = count(width)
-        let colWidth = (width - gap * CGFloat(n - 1)) / CGFloat(n)
-        var heights = [CGFloat](repeating: 0, count: n)
-        for sub in subviews {
-            let c = n == 1 ? 0 : sub[ShelfColumnKey.self]
-            heights[c] += (heights[c] > 0 ? rowGap : 0) + sub.sizeThatFits(.init(width: colWidth, height: nil)).height
-        }
-        return CGSize(width: width, height: heights.max() ?? 0)
+        let width = proposal.width ?? minCell
+        let n = columns(width)
+        let cell = (width - gap * CGFloat(n - 1)) / CGFloat(n)
+        let rows = heights(subviews, cell: cell, n: n)
+        return CGSize(width: width, height: rows.reduce(0, +) + gap * CGFloat(max(0, rows.count - 1)))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let n = count(bounds.width)
-        let colWidth = (bounds.width - gap * CGFloat(n - 1)) / CGFloat(n)
-        var y = [CGFloat](repeating: bounds.minY, count: n)
-        for sub in subviews {
-            let c = n == 1 ? 0 : sub[ShelfColumnKey.self]
-            let size = sub.sizeThatFits(.init(width: colWidth, height: nil))
-            sub.place(at: CGPoint(x: bounds.minX + CGFloat(c) * (colWidth + gap), y: y[c]), anchor: .topLeading,
-                      proposal: .init(width: colWidth, height: size.height))
-            y[c] += size.height + rowGap
+        let n = columns(bounds.width)
+        let cell = (bounds.width - gap * CGFloat(n - 1)) / CGFloat(n)
+        let rows = heights(subviews, cell: cell, n: n)
+        var y = bounds.minY
+        for (r, height) in rows.enumerated() {
+            for c in 0..<n where r * n + c < subviews.count {
+                subviews[r * n + c].place(at: CGPoint(x: bounds.minX + CGFloat(c) * (cell + gap), y: y),
+                                          anchor: .topLeading, proposal: .init(width: cell, height: height))
+            }
+            y += height + gap
         }
     }
 }
@@ -65,7 +61,6 @@ private struct ShelfColumnsLayout: Layout {
 struct SourceShelvesView: View {
     let rows: [SourceCatalogRow]
     let open: (SourcesSelection) -> Void
-    let add: (SourceShelf?) -> Void
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
@@ -73,11 +68,9 @@ struct SourceShelvesView: View {
             let waiting = rows.filter(\.needsYou)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
                 if !waiting.isEmpty { SourceNeedsYou(rows: waiting, now: context.date, open: open) }
-                ShelfColumnsLayout(minColumn: CicadaTheme.scaled(SourceShelfLayout.columnMinWidth),
-                                   gap: CicadaTheme.scaled(SourceShelfLayout.columnGap), rowGap: CicadaTheme.scaled(36)) {
+                VStack(alignment: .leading, spacing: CicadaTheme.scaled(28)) {
                     ForEach(shown, id: \.shelf) { shelf in
-                        SourceShelfSection(shelf: shelf, now: context.date, open: open, add: add)
-                            .layoutValue(key: ShelfColumnKey.self, value: SourceShelfLayout.column(shelf.shelf))
+                        SourceShelfSection(shelf: shelf, now: context.date, open: open)
                     }
                 }
             }
@@ -130,65 +123,71 @@ private struct SourceNeedsRow: View {
     }
 }
 
-/// One kind: its name, its connected sources as rows, and one line that names what else it takes ("Add Apple Notes,
-/// Contacts") with those apps' own marks. A kind with nothing connected is just that line, never a box: a row is
-/// connected, a plus line is not.
+/// One kind: its name, its connected sources as cards, then what else it takes as plain tiles. Both grids are equal
+/// cells, so the eye reads a card as connected (a fill, a dot, a time) and a tile as available (a mark and a name).
 struct SourceShelfSection: View {
     let shelf: SourceShelves.Shelf
     let now: Date
     let open: (SourcesSelection) -> Void
-    let add: (SourceShelf?) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             SectionLabel(shelf.shelf.title)
             if !shelf.connected.isEmpty {
-                VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
+                EqualGridLayout(minCell: CicadaTheme.scaled(SourceShelfLayout.cardMinWidth),
+                                gap: CicadaTheme.scaled(SourceShelfLayout.gap)) {
                     ForEach(shelf.connected) { row in
                         SourceShelfRow(row: row, shelf: shelf.shelf, now: now) { open(.entry(row.id)) }
                             .id(SourcesSelection.entry(row.id))
                     }
                 }
             }
-            if !shelf.addable.isEmpty { SourceAddLine(shelf: shelf) { add(shelf.shelf) } }
+            if !shelf.addable.isEmpty {
+                EqualGridLayout(minCell: CicadaTheme.scaled(SourceShelfLayout.tileMinWidth),
+                                gap: CicadaTheme.scaled(SourceShelfLayout.gap)) {
+                    ForEach(shelf.addable) { row in
+                        SourceAddTile(row: row) { open(.entry(row.id)) }.id(SourcesSelection.entry(row.id))
+                    }
+                }
+            }
         }
     }
 }
 
-/// The one way to add to a kind: a plus, the names of what it takes, and their marks. A tap opens the add overlay on
-/// the kind. Same height and rhythm as a source row, so a kind with nothing in it still reads as finished.
-struct SourceAddLine: View {
-    let shelf: SourceShelves.Shelf
-    let add: () -> Void
+/// A source that is not connected: its own mark and its name in a plain tile, one tap to its page where it connects.
+/// Calendar carries its one honest note (it reads Google too, when the person added Google to this Mac).
+struct SourceAddTile: View {
+    let row: SourceCatalogRow
+    let open: () -> Void
     @State private var hovering = false
 
     var body: some View {
-        Button(action: add) {
+        Button(action: open) {
             HStack(spacing: CicadaTheme.scaled(12)) {
-                Image(systemName: "plus").font(CicadaTheme.icon(.list)).foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(width: CicadaTheme.scaled(36))
-                Text(Copy.Shelf.add(shelf.addNames, more: shelf.addMore)).font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
-                Spacer(minLength: CicadaTheme.spacingSM)
-                HStack(spacing: CicadaTheme.scaled(-8)) {
-                    ForEach(Array(shelf.addable.prefix(3).enumerated()), id: \.element.id) { index, row in
-                        SourceLogoTile(origin: row.entry.origin, size: .dense).zIndex(Double(-index))
+                SourceLogoTile(origin: row.entry.origin)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.entry.title).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
+                    if row.entry.id == "calendar-local" {
+                        Text(Copy.Shelf.calendarNote).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                            .lineLimit(1)
                     }
                 }
+                Spacer(minLength: 0)
             }
-            .padding(CicadaTheme.scaled(8))
-            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(52), alignment: .leading)
+            .padding(CicadaTheme.scaled(10))
+            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(60), alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
         .rowHover($hovering, selected: false, cornerRadius: CicadaTheme.cornerRadius)
-        .help(Copy.Shelf.add(shelf.addable.map(\.entry.title), more: 0))
-        .accessibilityLabel(Copy.Shelf.add(shelf.addNames, more: shelf.addMore))
+        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .help(row.entry.title)
+        .accessibilityLabel(row.entry.title)
     }
 }
 
-/// A connected source: the logo tile, the name, when it last read (time only: every row on this page is connected, so a
-/// dot or the word "Connected" said nothing); what came in below, aligned to the name. The whole row opens the source.
+/// A connected source as a card: the logo tile, the name, the green dot and when it last read (the dot is what tells a
+/// card from a tile at a glance, as on the plain page); what came in below, aligned to the name. The whole card opens it.
 struct SourceShelfRow: View {
     let row: SourceCatalogRow
     let shelf: SourceShelf
@@ -218,27 +217,22 @@ struct SourceShelfRow: View {
                                  mediaSymbol: Self.mediaSymbol(row.entry.id))
                     .padding(.leading, CicadaTheme.scaled(48))
             }
-            .padding(CicadaTheme.scaled(8))
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(CicadaTheme.scaled(10))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
         .rowHover($hovering, selected: false, cornerRadius: CicadaTheme.cornerRadius)
+        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
         .accessibilityLabel("\(row.entry.title), \(row.word)")
         .task(id: listId) { if let listId { await cache?.refresh(listId) } }
     }
 
-    /// The same place on every row: when it last read. Only a source that needs something says more, with its dot.
+    /// The same place on every card: the dot and when it last read; a source that needs something says so in its tone.
     @ViewBuilder private var trailing: some View {
         if let line = SourceGrid.line(row, now: now) {
-            if line.tone == .on {
-                if line.word != row.status.word {
-                    Text(line.word).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
-                        .monospacedDigit().lineLimit(1)
-                }
-            } else {
-                StatusWord(word: line.word, tone: line.tone).monospacedDigit()
-            }
+            StatusWord(word: line.word, tone: line.tone).monospacedDigit()
         }
     }
 }
@@ -279,7 +273,7 @@ struct SourceShelfItems: View {
 
     var body: some View {
         if items.isEmpty, let counted {
-            Text(counted).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+            Text(counted).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
         } else { kind }
     }
 
@@ -295,7 +289,7 @@ struct SourceShelfItems: View {
     }
 
     private func titleLine(_ item: ChannelItem) -> some View {
-        Text(item.title).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+        Text(item.title).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
             .lineLimit(1).truncationMode(.tail)
     }
 

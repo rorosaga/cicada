@@ -32,7 +32,6 @@ final class SourceShelfTests: XCTestCase {
         XCTAssertEqual(saved.connected.map(\.id), ["reddit"])
         XCTAssertFalse(saved.addable.contains { $0.id == "reddit" }, "added already")
         XCTAssertTrue(saved.addable.contains { $0.id == "instagram" })
-        XCTAssertLessThanOrEqual(saved.addNames.count, 3, "one line: three names")
         XCTAssertEqual(SourceShelves.yours(all).map(\.id), ["reddit"])
     }
 
@@ -46,21 +45,16 @@ final class SourceShelfTests: XCTestCase {
         XCTAssertEqual(found.first, "notion")
     }
 
-    func testEveryKindHoldsOnePlaceInTwoColumnsAndAnEmptyOneStillNamesWhatItTakes() {
+    func testEveryKindHoldsOnePlaceAndAnEmptyOneStillShowsWhatItTakes() {
         let all = rows(channels: [channel("reddit"), channel("github")])
         let shown = SourceShelfLayout.shown(SourceShelves.shelves(all))
         XCTAssertEqual(shown.map(\.shelf), SourceShelf.allCases, "one fixed order: a kind never moves when a source joins it")
-        XCTAssertEqual(Set(SourceShelf.allCases.map(SourceShelfLayout.column)), [0, 1], "two columns")
-        for shelf in SourceShelf.allCases {
-            XCTAssertEqual(SourceShelfLayout.column(shelf), SourceShelfLayout.column(shelf), "no shelf moves with its content")
-        }
         let documents = shown.first { $0.shelf == .documents }!
         XCTAssertTrue(documents.connected.isEmpty)
-        XCTAssertLessThanOrEqual(documents.addNames.count, 3, "names, not a count")
         XCTAssertTrue(documents.addable.contains { $0.id == "notes" }, "Apple Notes is findable by name")
         let events = shown.first { $0.shelf == .events }!
         XCTAssertTrue(events.addable.contains { $0.id == "calendar-local" }, "so is the Mac's Calendar")
-        XCTAssertEqual(Copy.Shelf.calendarNote, "Includes Google, if added to your Mac")
+        XCTAssertEqual(Copy.Shelf.calendarNote, "Includes Google")
     }
 
     func testTheCountInTheTitleIsTheYoursStripAndTheRowsOnThePage() {

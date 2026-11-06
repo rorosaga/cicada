@@ -2,7 +2,7 @@ import SwiftUI
 
 /// ROR-118 (owner, Sources round 1: "adding a source is an overlay with a Yours strip on top and everything else below")
 /// — one overlay for every way in. *Yours* first (what is already connected, one tap to its page), then a search, the
-/// every source that could still be added, grouped by kind, each with a "+" (round 3: no tabs, two columns of rows). A tap closes the overlay and opens
+/// every source that could still be added, grouped by kind, as the same plain tiles the page draws (round 5: no "+", no rows). A tap closes the overlay and opens
 /// that source's page, where its own connect card lives; nothing here connects anything by itself. The scrim is the
 /// shared scrim (DR-37); Esc and a tap outside close it (DR-28); the panel eases in on the panel curve and a key
 /// never animates (DR-60).
@@ -94,46 +94,15 @@ struct SourceAddOverlay: View {
                 ForEach(groups, id: \.shelf) { group in
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                         SectionLabel(group.shelf.title)
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: CicadaTheme.spacingLG, alignment: .topLeading),
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: CicadaTheme.scaled(SourceShelfLayout.gap), alignment: .topLeading),
                                             GridItem(.flexible(), alignment: .topLeading)],
-                                  alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                            ForEach(group.addable) { row in AddRow(row: row) { open(row) } }
+                                  alignment: .leading, spacing: CicadaTheme.scaled(SourceShelfLayout.gap)) {
+                            ForEach(group.addable) { row in SourceAddTile(row: row) { open(row) } }
                         }
                     }
                 }
             }
         }
-    }
-}
-
-/// A source that could be added: the tile, the name, and a "+" at the end. Never drawn for a connected one, so a "+" is
-/// what "not connected" looks like here. Calendar carries its one honest note.
-private struct AddRow: View {
-    let row: SourceCatalogRow
-    let open: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: open) {
-            HStack(spacing: CicadaTheme.scaled(12)) {
-                SourceLogoTile(origin: row.entry.origin)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(row.entry.title).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
-                    if row.entry.id == "calendar-local" {
-                        Text(Copy.Shelf.calendarNote).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: CicadaTheme.spacingSM)
-                Image(systemName: "plus").font(CicadaTheme.icon(.inline)).foregroundStyle(CicadaTheme.textTertiary)
-            }
-            .padding(.horizontal, CicadaTheme.scaled(8))
-            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(52), alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .rowHover($hovering, selected: false, cornerRadius: CicadaTheme.cornerRadius)
-        .accessibilityLabel(row.entry.title)
     }
 }
 
@@ -147,8 +116,8 @@ private struct YoursTile: View {
         Button(action: open) {
             VStack(spacing: CicadaTheme.scaled(6)) {
                 SourceLogoTile(origin: row.entry.origin)
-                Text(row.entry.title).font(CicadaTheme.captionFont)
-                    .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                Text(row.entry.title).font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1).frame(maxWidth: .infinity)
             }
             .contentShape(Rectangle())

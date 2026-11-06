@@ -55,7 +55,7 @@ extension SourceCatalogEntry {
     var shelf: SourceShelf { SourceShelf.of(self) }
 }
 
-/// What a shelf draws, pure: the connected sources of one shelf, and the one line that adds another.
+/// What a shelf draws, pure: the connected sources of one shelf, and what could still be added.
 enum SourceShelves {
     struct Shelf: Equatable {
         let shelf: SourceShelf
@@ -63,10 +63,6 @@ enum SourceShelves {
         let connected: [SourceCatalogRow]
         /// What could still be added here, suggested first (an app already on this Mac), then the catalogue's order.
         let addable: [SourceCatalogRow]
-
-        /// "Add Apple Notes, Contacts, Folders": the first three addable names, and how many more there are.
-        var addNames: [String] { addable.prefix(3).map(\.entry.title) }
-        var addMore: Int { max(0, addable.count - 3) }
     }
 
     static func shelves(_ rows: [SourceCatalogRow]) -> [Shelf] {
