@@ -70,6 +70,72 @@ _CONCEPTS = [
     "knowledge-management",
 ]  # 15
 
+#: One line per roster page, each its own plausible fictional thing (ROR-118: a page that reads "A synthetic X for
+#: trying Cicada" repeated across a card made the demo look generated). Keyed by id; every id in the roster has one
+#: (`test_demo_bank` pins it), and a new id without one falls back to a bare kind line, never boilerplate about the demo.
+_SUMMARIES = {
+    "carol-example": "Backend engineer who owns the deploy pipeline and reviews most of the infrastructure changes.",
+    "dana-example": "Product manager running the team's planning; keeps the roadmap honest about what is slipping.",
+    "erin-example": "Designer who prototypes in the browser and cares more about spacing than about color.",
+    "frank-example": "Mechanical engineer who builds the test rigs; answers questions about tolerances with a sketch.",
+    "grace-example": "Researcher reading across robotics and perception; sends a paper a week worth opening.",
+    "henry-example": "Friend from university, now teaching high school physics; the two trade book recommendations.",
+    "iris-example": "Data analyst who turns messy survey exports into charts people actually read.",
+    "jack-example": "Climbing partner; meets on Thursday evenings and plans the weekend trips.",
+    "karen-example": "Mentor with a long career in hardware startups; the one to ask before signing anything.",
+    "leo-example": "Neighbor and fellow maker; lends tools and trades parts from his workshop.",
+    "maria-example": "Operations lead at a small supplier; the contact for lead times and shipping questions.",
+    "nina-example": "Freelance writer who edits the newsletter drafts and catches the long sentences.",
+    "oscar-example": "Former colleague, now at a logistics company; checks in a few times a year.",
+    "paula-example": "Physiotherapist who set the stretching routine that keeps the desk-posture complaints away.",
+    "quinn-example": "Open-source maintainer of a small library the projects here depend on.",
+    "alpha-project": "A rover-arm controller: getting a servo arm to hold a pose under load without oscillating.",
+    "beta-project": "A weekend web app for tracking tool loans between neighbors, with a plain list view.",
+    "gamma-project": "A reading-list tool that pulls saved articles into one place and highlights what is unread.",
+    "delta-project": "A home-lab migration: moving the small server's services into containers, one at a time.",
+    "epsilon-project": "A newsletter on practical robotics, drafted monthly and edited with a friend.",
+    "zeta-project": "A sensor board for the balcony garden that logs soil moisture and light twice an hour.",
+    "eta-project": "A small calendar utility that turns shared invitations into a single weekly view.",
+    "theta-project": "A study plan for a controls course, with weekly problem sets and a running list of confusions.",
+    "iota-project": "A 3D-printed enclosure for the garden sensor, iterated through four revisions so far.",
+    "kappa-project": "A budget spreadsheet rebuilt as a script, so monthly totals no longer need hand-copying.",
+    "lambda-project": "A photo archive cleanup: deduplicating ten years of pictures and naming them by date.",
+    "mu-project": "A talk proposal on lessons from building a robot arm on a small budget.",
+    "tool-example-a": "Terminal editor used for nearly everything; configuration lives in one tidy file.",
+    "tool-example-b": "Note app with backlinks; holds the reading notes and the weekly review template.",
+    "tool-example-c": "Issue tracker the team uses for planning; the board is checked every morning.",
+    "tool-example-d": "Container runtime behind the home-lab services; updates are applied on Sundays.",
+    "tool-example-e": "CAD program for enclosures and brackets; exports go straight to the slicer.",
+    "tool-example-f": "Password manager shared with the household for the accounts both people need.",
+    "tool-example-g": "Task timer used for focused blocks; a session is twenty-five minutes, then a short walk.",
+    "tool-example-h": "Plotting library for the sensor data; the same three chart styles cover most reports.",
+    "tool-example-i": "Continuous-integration service running the tests on every push to the main branch.",
+    "tool-example-j": "Cloud notebook for quick experiments before anything is moved into a real repository.",
+    "acme-example": "Hardware supplier for motors and drivers; orders arrive in about a week.",
+    "globex-example": "Consulting firm that ran a workshop on product planning last spring.",
+    "initech-example": "Software company whose payroll tools a few friends complain about.",
+    "umbrella-example": "Biotech employer of a friend; talk of it usually turns to lab schedules.",
+    "stark-example": "Electronics distributor with the best catalog for sensors and connectors.",
+    "wayne-example": "Foundation funding a community maker space nearby; the grant deadline is in spring.",
+    "hooli-example": "Large search and media company; mostly mentioned in industry reading.",
+    "soylent-example": "Meal-kit startup a colleague left for; its logistics are a recurring topic.",
+    "deep-work": "Long uninterrupted blocks for hard problems; mornings work, afternoons rarely do.",
+    "spaced-repetition": "Reviewing flashcards on a widening schedule; used for controls formulas and vocabulary.",
+    "code-review": "Reading each other's changes before merging; small diffs get better feedback.",
+    "pair-programming": "Working through a problem with another person at one screen; best for unfamiliar code.",
+    "dark-mode": "A preference for dark interfaces at night; some tools get it right and others do not.",
+    "minimalism": "Owning and installing less; a rule applied to desk items, apps and meetings.",
+    "morning-routine": "Coffee, a short walk and ten minutes of notes before opening any messages.",
+    "note-taking": "How ideas get written down: short notes, linked later, reviewed on Fridays.",
+    "remote-work": "Working from home three days a week; the setup matters more than the schedule.",
+    "open-source": "Contributing to and depending on public projects; bug reports with a reproduction go furthest.",
+    "async-communication": "Writing things down so a reply can wait; fewer meetings, longer messages.",
+    "first-principles": "Reasoning from basic facts instead of habit; used when a design feels stuck.",
+    "design-systems": "Shared components and tokens that keep screens consistent as a product grows.",
+    "test-driven-development": "Writing the failing test first; slows the start and speeds the finish.",
+    "knowledge-management": "Keeping what is learned findable later; capture is easy, retrieval is the hard part.",
+}
+
 _ALL_ENTITIES = _PEOPLE + _PROJECTS + _TOOLS + _COMPANIES + _CONCEPTS  # 60
 
 #: Every synthetic episode here is a conversation (`user: …`), so each carries a conversational origin. Ruling 39: an
@@ -221,7 +287,7 @@ def _write_entities(bank_dir: Path, day: date) -> None:
                 "layout_version": 2,
             }
             body = entity_body.compose_body_v2(
-                summary=f"A synthetic {kind} for trying Cicada.",
+                summary=_SUMMARIES.get(entity_id, f"A {kind}."),
                 key_facts=[], history_entries=[], related=[], links=[], open_questions=[],
             )
             markdown_parser.write(bank_dir / "entities" / f"{entity_id}.md", fm, body)
