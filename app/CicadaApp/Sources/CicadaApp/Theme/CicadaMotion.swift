@@ -67,6 +67,12 @@ enum CicadaMotion {
     static let linkPreviewOpenDelay: TimeInterval = 0.25
     static let linkPreviewCloseDelay: TimeInterval = 0.08
 
+    /// ROR-135 — the graph's hover card. The pointer must rest this long on a node before its card opens (sweeping
+    /// across a dense graph opens nothing), and within `hoverCardWarmWindow` of a card closing the next opens at once,
+    /// as the rail's tooltips do. Hover delays, not animations.
+    static let hoverCardOpenDelay: TimeInterval = 0.1
+    static let hoverCardWarmWindow: TimeInterval = 0.3
+
     /// A Settings landing keeps its row on screen this long while the page's late cards arrive (Agents' setup steps,
     /// the devices list): each move of the row above the fold lands again, never animated. A bound, not an
     /// animation; the person's own scroll, a new search or a sidebar pick ends it sooner (`SettingsFocus`).

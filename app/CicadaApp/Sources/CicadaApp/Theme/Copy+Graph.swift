@@ -9,6 +9,8 @@ extension Copy {
         static let phone = "Phone"
         static let aNumber = "a number"
         static let startNewNumberFile = "Start a new one"
+        // The hover card (ROR-135): a hub's one line.
+        static func hoverHubPages(_ count: Int) -> String { count == 1 ? "1 page" : "\(count) pages" }
         // The floating group (R-DG3)
         static let controlsLabel = "Graph controls"
         static let all = "All"

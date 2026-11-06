@@ -1154,6 +1154,9 @@ struct GraphNode: Codable, Sendable {
     /// G227 — `Entity.qualifier`/`displayName`'s twins: present only when another page shares this title.
     let qualifier: String?
     let displayName: String?
+    /// ROR-135 — a book's authors, for the graph's hover card ("A, B"). Only a book page has one; the server omits it
+    /// otherwise, and an older backend never sends it.
+    let byline: String?
 
     /// The name every list, the palette and the graph show (G227).
     var shownName: String { displayName ?? name }
@@ -1165,7 +1168,7 @@ struct GraphNode: Codable, Sendable {
         case degree, isHub, hasPending, memberCount, hubId
         case observers, contexts, isFacet, parentId, context
         case summary, contentHash, hasLogo, decayClass, isOwner, aliases
-        case picture, pictureSource, lastReferenced, quiet, qualifier, displayName
+        case picture, pictureSource, lastReferenced, quiet, qualifier, displayName, byline
     }
 
     init(
@@ -1178,8 +1181,9 @@ struct GraphNode: Codable, Sendable {
         decayClass: DecayClass = .active, isOwner: Bool = false,
         aliases: [String] = [], picture: String? = nil,
         pictureSource: String? = nil, lastReferenced: String? = nil, quiet: Bool = false,
-        qualifier: String? = nil, displayName: String? = nil
+        qualifier: String? = nil, displayName: String? = nil, byline: String? = nil
     ) {
+        self.byline = byline
         self.id = id
         self.name = name
         self.type = type
@@ -1245,5 +1249,6 @@ struct GraphNode: Codable, Sendable {
         quiet = (try? c.decodeIfPresent(Bool.self, forKey: .quiet)) ?? false
         qualifier = (try? c.decodeIfPresent(String.self, forKey: .qualifier)) ?? nil
         displayName = (try? c.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
+        byline = (try? c.decodeIfPresent(String.self, forKey: .byline)) ?? nil
     }
 }
