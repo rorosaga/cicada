@@ -55,13 +55,16 @@ struct SettingsGeneralView: View {
         Binding(get: { CicadaTheme.uiScale }, set: { CicadaTheme.uiScale = $0 })
     }
 
+    /// Round 1 (ROR-118): one lead (Appearance, three larger tiles, Text size under them), one card of switches
+    /// (login, menu bar, connect suggestions, the background service, the updater), one strip of setup tiles and a
+    /// quiet footer. Five blocks and no clipped Version row, where eight cards ran off the panel.
     var body: some View {
         SettingsPage(section: .general) {
             // F-10 — Look: the window's light and the chrome's size.
             SettingsGroupCard {
                 // Owner 2026-10-26 — three live miniatures (Light · Dark · System), System by default; the sidebar's
-                // toggle retired into this row.
-                SettingsRow(.appearance, title: Copy.appearance, detail: Copy.appearanceDetail) {
+                // toggle retired into this row. Its one-line sentence retired with round 1: the tiles say it.
+                SettingsRow(.appearance, title: Copy.appearance) {
                     EmptyView()
                 } below: {
                     AppearancePicker(selection: appearance)
@@ -69,22 +72,36 @@ struct SettingsGeneralView: View {
                 }
                 SettingsDivider()
                 SettingsRow(.textSize, title: Copy.textSize) {
+                    // Round 4 (ROR-118): the readout ends on the card's trailing edge, like every switch below it;
+                    // "Actual size" (only while the size is not 100%) sits in the free space to the slider's left,
+                    // so it never moves the slider under the pointer.
                     HStack(spacing: CicadaTheme.spacingSM) {
+                        Text("A")
+                            .font(CicadaTheme.font(size: 13, weight: .semibold))
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .accessibilityHidden(true)
                         Slider(value: scale, in: ThemeStore.scaleRange, step: ThemeStore.scaleStep)
-                            .frame(width: CicadaTheme.scaled(160))
+                            .frame(width: CicadaTheme.scaled(220))
+                        Text("A")
+                            .font(CicadaTheme.font(size: 20, weight: .semibold))
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .accessibilityHidden(true)
                         Text("\(Int((CicadaTheme.uiScale * 100).rounded()))%")
-                            .font(CicadaTheme.metaFont.monospacedDigit())
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                            .frame(width: CicadaTheme.scaled(44), alignment: .trailing)
-                        Button(Copy.actualSize) { CicadaTheme.resetZoom() }
-                            .buttonStyle(.cicadaPlain)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.accent)
-                            .disabled(CicadaTheme.uiScale == 1.0)
+                            .font(CicadaTheme.font(size: 15, weight: .medium).monospacedDigit())
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .frame(width: CicadaTheme.scaled(52), alignment: .trailing)
+                    }
+                    .overlay(alignment: .leading) {
+                        if CicadaTheme.uiScale != 1.0 {
+                            NeutralButton(title: Copy.actualSize, size: .compact) { CicadaTheme.resetZoom() }
+                                .fixedSize()
+                                .alignmentGuide(.leading) { $0[.trailing] + CicadaTheme.spacingMD }
+                        }
                     }
                 }
             }
-            // F-10 — Startup: onboarding's F-06 switches, reversible here (decision 6).
+            // F-10 — Startup: onboarding's F-06 switches, reversible here (decision 6); with G231's connect
+            // suggestion, G143's background service and G182's updater in the same card (round 1: one list of switches).
             SettingsGroupCard {
                 // D6 word budget: the state's sentence only when macOS needs the person's approval.
                 SettingsRow(.openAtLogin, title: Copy.openAtLogin, detail: loginItems.state.offersSettings
@@ -104,9 +121,30 @@ struct SettingsGeneralView: View {
                         .toggleStyle(.switch)
                         .labelsHidden()
                 }
+                // G231 — the notch's connect suggestion, and the apps the person said No to.
+                ConnectSuggestSettingRow()
+                // G182 phase 5 — the updater's switch and its one status line (DR-37: a line never gets a card of its
+                // own). Hidden entirely where the updater is inert (a developer build).
+                if updates.isActive {
+                    SettingsDivider()
+                    SettingsRow(.autoUpdate, title: Copy.Updates.autoTitle) {
+                        Toggle(Copy.Updates.autoTitle, isOn: Binding(get: { updates.automatic },
+                                                                     set: { updates.automatic = $0 }))
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    } below: {
+                        if updates.state != .idle { UpdateStatusLine() }
+                    }
+                }
             }
-            // G231 — the notch's connect suggestion, and the apps the person said No to.
-            ConnectSuggestSettingCard()
+            .task { loginItems.refresh(); await backendAgent.refresh() }
+            // The person may have just used System Settings → Login Items (R-FA7).
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                loginItems.refresh()
+            }
+            // Round 5 (ROR-118): what is not a switch shares the last card, so a word at the trailing edge (On) and a
+            // menu read as values, never as a broken switch; setup, the checklist, the tour and the demo are one
+            // row's menu (B12), not a bar of four buttons.
             SettingsGroupCard {
                 // G181 phase 3 — on a server nothing runs on this Mac for the memory, so nothing is offered.
                 let onServer = ServerConnection.current.isServer
@@ -123,51 +161,41 @@ struct SettingsGeneralView: View {
                         CommandBox(command: backendAgent.display)
                     }
                 }
-            }
-            .task { loginItems.refresh(); await backendAgent.refresh() }
-            // The person may have just used System Settings → Login Items (R-FA7).
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                loginItems.refresh()
-            }
-            // Hyrum audit B12: setup, the tour and the demo are one job, so one card. The command-line tool left for
-            // Agents (B11).
-            SettingsDemoTourGroup()
-            SettingsGroupCard {
-                // G182 — the version a tester reports; the backend's only when it differs (an updated app beside a
-                // background service still running the old one). Plain text, monospaced digits (DR-21). An update
-                // that couldn't be installed while Cicada was closed is said here, once, for this session (phase 5).
-                SettingsRow(.appVersion, title: Copy.versionTitle,
-                            detail: updates.lastInstallFailure.map { Copy.Updates.installFailed($0, current: appVersion.short) }
-                                ?? (appVersion.differs(fromBackend: backendVersion)
-                                    ? Copy.versionDetail(appVersion, backend: backendVersion) : nil)) {
-                    Text(Copy.versionLine(appVersion))
-                        .font(CicadaTheme.captionFont.monospacedDigit())
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .textSelection(.enabled)
-                }
-                .task(id: store.isConnected) {
-                    if let health = try? await APIClient.shared.fetchHealth() { backendVersion = health.version }
-                }
-                // G182 phase 5 — the updater's switch and its one status line, in Version's card (DR-37: a line never
-                // gets a card of its own). Hidden entirely where the updater is inert (a developer build).
-                if updates.isActive {
-                    SettingsDivider()
-                    SettingsRow(.autoUpdate, title: Copy.Updates.autoTitle) {
-                        Toggle(Copy.Updates.autoTitle, isOn: Binding(get: { updates.automatic },
-                                                                     set: { updates.automatic = $0 }))
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                    } below: {
-                        if updates.state != .idle { UpdateStatusLine() }
-                    }
-                }
-                // Tester readiness (2026-10-26) — beside the version a report quotes; the same sheet as Help's item.
                 SettingsDivider()
-                SettingsRow(.reportProblem, title: Copy.ReportProblem.title, detail: Copy.ReportProblem.settingsDetail) {
-                    NeutralButton(title: Copy.ReportProblem.settingsButton, size: .compact) {
+                SettingsDemoTourGroup()
+            }
+            // G182 — the version a tester reports; the backend's only when it differs (an updated app beside a
+            // background service still running the old one). Plain text, monospaced digits (DR-21). An update that
+            // couldn't be installed while Cicada was closed is said here, once, for this session (phase 5). Round 1:
+            // a footer, not a card — the version beside Report a problem, whose sentence is its tooltip.
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                HStack(spacing: CicadaTheme.spacingMD) {
+                    Text(Copy.versionLine(appVersion))
+                        .font(CicadaTheme.metaFont.monospacedDigit())
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .textSelection(.enabled)
+                        .settingsRow(.appVersion)
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    // Tester readiness (2026-10-26) — beside the version a report quotes; the same sheet as Help's item.
+                    // Round 4 (ROR-118): the quietest control on the page, a text button on the footer line.
+                    TextButton(title: Copy.ReportProblem.settingsButton, help: Copy.ReportProblem.settingsDetail) {
                         router.openReportProblem()
                     }
+                    .settingsRow(.reportProblem)
                 }
+                if let note = updates.lastInstallFailure.map({ Copy.Updates.installFailed($0, current: appVersion.short) })
+                    ?? (appVersion.differs(fromBackend: backendVersion)
+                        ? Copy.versionDetail(appVersion, backend: backendVersion) : nil) {
+                    Text(note)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.leading, CicadaTheme.spacingMD)
+            .padding(.trailing, max(0, CicadaTheme.spacingMD - TextButton.inset(inline: false)))
+            .task(id: store.isConnected) {
+                if let health = try? await APIClient.shared.fetchHealth() { backendVersion = health.version }
             }
         }
     }
@@ -188,6 +216,11 @@ struct BackgroundServiceButton: View {
         }
     }
 
+    /// A native switch's height, so a row with a word in its place stands as tall as its neighbours.
+    private static let switchHeight: CGFloat = 28
+    /// The switch's track ends a little inside its frame; the word ends on the track's edge.
+    private static let switchTrailingInset: CGFloat = 2
+
     var body: some View {
         switch backendAgent.state {
         case .missing, .stopped, .failed:
@@ -205,8 +238,15 @@ struct BackgroundServiceButton: View {
         case .checking, .installing:
             ProgressView().controlSize(.small)
         case .running:
-            // The row said nothing at all while it worked (looks pass 2026-10-23): a dot and one word, like Devices.
-            StatusDot(word: Copy.Status.on, on: true)
+            // Round 4 (ROR-118): it has no off switch here (the service is installed, not toggled), so it is a plain
+            // word where the switches sit, at their height and on their trailing edge. The green dot, a pattern no
+            // other row had, is gone.
+            Text(Copy.Status.on)
+                .font(CicadaTheme.font(size: 15, weight: .medium))
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .frame(minHeight: CicadaTheme.scaled(Self.switchHeight))
+                .padding(.trailing, CicadaTheme.scaled(Self.switchTrailingInset))
+                .fixedSize()
         }
     }
 }

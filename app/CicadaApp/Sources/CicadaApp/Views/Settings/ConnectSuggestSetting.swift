@@ -1,23 +1,25 @@
 import SwiftUI
 
-/// G231 — Settings → General's switch for the notch's connect suggestion (on by default), and under it each app the
+/// G231 — Settings → General's row for the notch's connect suggestion (on by default), and under it each app the
 /// person said No to, with Suggest again. Per Mac, like the suggestion's own memory (`ConnectSuggestStore`).
-struct ConnectSuggestSettingCard: View {
+struct ConnectSuggestSettingRow: View {
     /// Optional, so a page rendered without the app's center (a test, a preview) draws no card rather than trapping.
     @Environment(ConnectSuggestCenter.self) private var center: ConnectSuggestCenter?
 
     var body: some View {
-        if let center { card(center) }
+        if let center { row(center) }
     }
 
-    private func card(_ center: ConnectSuggestCenter) -> some View {
-        SettingsGroupCard {
-            SettingsRow(.connectSuggest, title: Copy.ConnectSuggest.settingTitle,
-                        detail: Copy.ConnectSuggest.settingDetail) {
+    /// Round 1 (ROR-118): one row inside General's switches card, its sentence a tooltip instead of a paragraph.
+    private func row(_ center: ConnectSuggestCenter) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsDivider()
+            SettingsRow(.connectSuggest, title: Copy.ConnectSuggest.settingTitle) {
                 Toggle(Copy.ConnectSuggest.settingTitle, isOn: Binding(get: { center.enabled },
                                                                        set: { center.enabled = $0 }))
                     .toggleStyle(.switch)
                     .labelsHidden()
+                    .help(Copy.ConnectSuggest.settingDetail)
             } below: {
                 let declined = center.declined
                 if !declined.isEmpty {
@@ -42,5 +44,7 @@ struct ConnectSuggestSettingCard: View {
                 }
             }
         }
+        // The old sentence on the whole row, not only on the switch.
+        .help(Copy.ConnectSuggest.settingDetail)
     }
 }

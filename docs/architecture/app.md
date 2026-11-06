@@ -317,11 +317,11 @@ on the rail's surface (owner 2026-10-07): `CicadaTheme.titlebarBackground(for:)`
 (`shellContentPanel()`, `ShellContentPanel`) whose top-leading corner alone is rounded at
 `CicadaTheme.contentCornerRadius` (`radiusLarge`, fixed) and clips what scrolls up into the band.
 `RailCornerSnapshotTests` writes it offscreen on request. **Settings is a panel inside this window (DR-33)**: ⌘,
-(`ShellCommands`, which opens the window first if none is) and the gear open it over a scrim — 880 × 620 at 1×,
-inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
+(`ShellCommands`, which opens the window first if none is) and the gear open it over the app, dimmed past legibility (`SettingsPanelLayout.backdropDim`, 0.9 black over the panel scrim, ROR-118 round 6: the app can be felt behind, no page text reads through; no solid field; the titlebar's items hide) — 1080 × 780 at 1×,
+inset ≥ 36 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
 Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Search & memory · Sleep;
 Customize: Integrations · Reading the web · Agents · Devices & access · Skills; Engines & keys: Engines — and each
-page's own header with an `esc` keycap and a close ×. It is modal: the shell under it is inert, ⌘K waits, Esc and a
+page's own header with a close × (the `esc` keycap beside it retired, ROR-118 round 1; the × carries Esc). It is modal: the shell under it is inert, ⌘K waits, Esc and a
 scrim click close it. `AppRouter.openSettings(_:row:)` is the one door (`SettingsSectionLink`, the gear, ⌘,), every
 hand-off to a page closes it, and `cicada.settingsSection` is only its remembered selection — the `Settings{}` scene
 and its cross-window seeds are gone. Privacy & data exports a bank and moves one to `<root>/.trash/`, but never
@@ -333,7 +333,7 @@ under the anchor its header had (`SettingsRowID.memoryGroup` = `page:memory`, `.
 three old raw values onto their new section and group: a saved `cicada.settingsSection`, the R-O11 `agentsMode`
 hand-off (now Devices & access) and a ⌘K recent (the group keeps its page's palette key) all open there, never
 General. Search still finds each by its old name (`SettingsIndex.formerNames`, the groups' own entries). General's
-Setup row joined the tour and the demo in one *Getting started* card (B12); the command-line tool moved to Agents' last
+Setup row joined the tour and the demo in one *Getting started* row (B12; ROR-118 round 5: a menu row whose items are the four actions, in General's last card beside Keep memory working's word, never a bar of buttons); the command-line tool moved to Agents' last
 card (B11); Reading's two method groups wait under *How your agent reads and watches* while its switch is off, and a
 landing on any of them opens the fold for that view only, never stored (B23, `ReadingMethodsFold`; Plans & keys' key
 fold the same; both draw through `DisclosureHeader`, DR-39). A saved retired value lands on its group
@@ -379,8 +379,10 @@ Light · Dark · System (`AppearancePicker`, owner 2026-10-26), each a drawing o
 a pointer's choice cross-fades the window on `CicadaMotion.settle`, a key switches in one frame (`AppearanceMotion`,
 DR-60). **System is the default** (`AppearancePreference.defaultChoice`: an absent or unknown value; a stored `light`/`dark`
 is an explicit choice, kept on upgrade) and follows the Mac's own light/dark through one app-scope observer
-(`ThemeStore.observeSystemAppearance`). The palette's Switch to light/dark actions write the same key. General (F-10:
-Look · Startup · When Cicada is closed) holds Appearance and Text size (Scene retired with the painted art, owner
+(`ThemeStore.observeSystemAppearance`). The palette's Switch to light/dark actions write the same key. General (F-10, re-laid in ROR-118 round 1 as five blocks: Appearance with three larger
+tiles and Text size under them; one card of switches (Open Cicada at login, Show in menu bar, Suggest connecting apps,
+Keep memory working, the updater); one low bar of four equal setup cells on the cards' own fill and ring with hairlines between them (Run setup again, Show setup checklist, Take the tour,
+the demo; round 4); Keep memory working is the plain word "On" at a switch's height and trailing edge, never a switch, a pill or a dot, because the service is installed, not toggled (an off switch would stop capture, feeds and scheduled Sleep while the app is closed, and the app has no uninstall path; held for the owner, 2026-11-06); Actual size sits left of the slider, so the readout ends on the card's edge; the chosen Appearance tile wears a 2 pt accent ring and a check; a footer: the version in `textTertiary` and Report a problem as a text button) holds Appearance and Text size (Scene retired with the painted art, owner
 2026-10-16: it picked a painting, and none is left), Open Cicada at
 login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does not keep says so), Show in
 menu bar (per viewer, on by default; hides the 18 × 18 menu-bar bookworm (ruling 18), the Dock icon stays); a login launch opens no

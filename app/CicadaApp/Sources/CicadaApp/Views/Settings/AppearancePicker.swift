@@ -27,9 +27,11 @@ struct AppearancePicker: View {
     @Binding var selection: AppearancePreference
 
     var body: some View {
-        HStack(spacing: CicadaTheme.scaled(14)) {
+        // Round 1 (ROR-118): three larger tiles spread across the card, one cell each, so the choice leads the page.
+        HStack(spacing: CicadaTheme.scaled(12)) {
             ForEach(AppearancePreference.pickerOrder) { choice in
                 AppearanceTile(choice: choice, selected: selection == choice) { selection = choice }
+                    .frame(maxWidth: .infinity)
             }
         }
         .accessibilityElement(children: .contain)
@@ -55,17 +57,28 @@ private struct AppearanceTile: View {
     var body: some View {
         Button(action: choose) {
             VStack(spacing: CicadaTheme.scaled(6)) {
-                AppearanceMiniature(choice: choice)
-                    .frame(width: AppearanceMiniature.width, height: AppearanceMiniature.height)
+                AppearanceMiniature(choice: choice, k: AppearanceMiniature.pickerScale)
+                    .frame(width: AppearanceMiniature.width * AppearanceMiniature.pickerScale,
+                           height: AppearanceMiniature.height * AppearanceMiniature.pickerScale)
                     .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
                     .overlay {
                         CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                             .strokeBorder(selected ? CicadaTheme.accent
                                           : CicadaTheme.ring(hovering ? .strong : .resting),
-                                          lineWidth: selected ? 1.5 : 1)
+                                          lineWidth: selected ? 2 : 1)
+                    }
+                    // Round 3 (ROR-118): the chosen tile also wears a check, so selection is not a thin outline alone.
+                    .overlay(alignment: .topTrailing) {
+                        if selected {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(CicadaTheme.font(size: 16, weight: .semibold))
+                                .foregroundStyle(Color.white, CicadaTheme.accent)
+                                .padding(CicadaTheme.scaled(6))
+                                .accessibilityHidden(true)
+                        }
                     }
                 Text(choice.label)
-                    .font(selected ? CicadaTheme.metaMediumFont : CicadaTheme.metaFont)
+                    .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(selected || hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             }
             .contentShape(Rectangle())
@@ -84,65 +97,72 @@ private struct AppearanceTile: View {
 /// what that appearance paints — whatever the window shows now.
 struct AppearanceMiniature: View {
     let choice: AppearancePreference
+    /// Every measure below is multiplied by `k`, so a tile can be larger without a transform (DR-63).
+    var k: CGFloat = 1
     static let width: CGFloat = 132
     static let height: CGFloat = 84
+    /// Round 1 (ROR-118): the Settings picker draws them 1.4 times the size; round 5, 1.7.
+    static let pickerScale: CGFloat = 1.7
 
     var body: some View {
         switch choice {
-        case .light: Pane(palette: .light)
-        case .dark: Pane(palette: .dark)
+        case .light: Pane(palette: .light, k: k)
+        case .dark: Pane(palette: .dark, k: k)
         case .system:
             HStack(spacing: 0) {
-                Pane(palette: .light).frame(width: Self.width / 2, alignment: .leading).clipped()
-                Pane(palette: .dark).frame(width: Self.width / 2, alignment: .trailing).clipped()
+                Pane(palette: .light, k: k).frame(width: Self.width * k / 2, alignment: .leading).clipped()
+                Pane(palette: .dark, k: k).frame(width: Self.width * k / 2, alignment: .trailing).clipped()
             }
         }
     }
 
     private struct Pane: View {
         let palette: AppearancePalette
+        let k: CGFloat
 
         var body: some View {
             HStack(spacing: 0) {
                 // The rail: a column of glyph dots.
-                VStack(spacing: 5) {
+                VStack(spacing: 5 * k) {
                     ForEach(0..<5, id: \.self) { i in
                         Circle().fill(i == 1 ? palette.text.opacity(0.85) : palette.faint.opacity(0.6))
-                            .frame(width: 4, height: 4)
+                            .frame(width: 4 * k, height: 4 * k)
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.top, 10)
-                .frame(width: 14)
+                .padding(.top, 10 * k)
+                .frame(width: 14 * k)
                 .frame(maxHeight: .infinity)
                 .background(palette.rail)
                 // The page: a heading, lines, and a ringed card with a selected row.
-                VStack(alignment: .leading, spacing: 5) {
-                    CicadaTheme.shape(1.5).fill(palette.text.opacity(0.9)).frame(width: 42, height: 5)
-                    CicadaTheme.shape(1).fill(palette.faint.opacity(0.7)).frame(width: 70, height: 3)
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 4) {
-                            Circle().fill(palette.accent).frame(width: 4, height: 4)
-                            CicadaTheme.shape(1).fill(palette.text.opacity(0.8)).frame(width: 46, height: 3)
+                VStack(alignment: .leading, spacing: 5 * k) {
+                    CicadaTheme.shape(1.5 * k).fill(palette.text.opacity(0.9)).frame(width: 42 * k, height: 5 * k)
+                    CicadaTheme.shape(k).fill(palette.faint.opacity(0.7)).frame(width: 70 * k, height: 3 * k)
+                    VStack(alignment: .leading, spacing: 4 * k) {
+                        HStack(spacing: 4 * k) {
+                            Circle().fill(palette.accent).frame(width: 4 * k, height: 4 * k)
+                            CicadaTheme.shape(k).fill(palette.text.opacity(0.8)).frame(width: 46 * k, height: 3 * k)
+                            Spacer(minLength: 0)
+                            Capsule().fill(palette.accent).frame(width: 8 * k, height: 4 * k)
                         }
-                        .padding(.horizontal, 4)
-                        .frame(maxWidth: .infinity, minHeight: 9, alignment: .leading)
-                        .background(CicadaTheme.shape(2).fill(palette.selected))
-                        CicadaTheme.shape(1).fill(palette.faint.opacity(0.6)).frame(width: 60, height: 3)
-                            .padding(.horizontal, 4)
-                        CicadaTheme.shape(1).fill(palette.faint.opacity(0.6)).frame(width: 38, height: 3)
-                            .padding(.horizontal, 4)
+                        .padding(.horizontal, 4 * k)
+                        .frame(maxWidth: .infinity, minHeight: 9 * k, alignment: .leading)
+                        .background(CicadaTheme.shape(2 * k).fill(palette.selected))
+                        CicadaTheme.shape(k).fill(palette.faint.opacity(0.6)).frame(width: 60 * k, height: 3 * k)
+                            .padding(.horizontal, 4 * k)
+                        CicadaTheme.shape(k).fill(palette.faint.opacity(0.6)).frame(width: 38 * k, height: 3 * k)
+                            .padding(.horizontal, 4 * k)
                     }
-                    .padding(.vertical, 5)
-                    .background(CicadaTheme.shape(3).fill(palette.pane))
-                    .overlay(CicadaTheme.shape(3).strokeBorder(palette.ring, lineWidth: 1))
+                    .padding(.vertical, 5 * k)
+                    .background(CicadaTheme.shape(3 * k).fill(palette.pane))
+                    .overlay(CicadaTheme.shape(3 * k).strokeBorder(palette.ring, lineWidth: 1))
                     Spacer(minLength: 0)
                 }
-                .padding(8)
+                .padding(8 * k)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(palette.base)
             }
-            .frame(width: AppearanceMiniature.width, height: AppearanceMiniature.height)
+            .frame(width: AppearanceMiniature.width * k, height: AppearanceMiniature.height * k)
             .accessibilityHidden(true)
         }
     }

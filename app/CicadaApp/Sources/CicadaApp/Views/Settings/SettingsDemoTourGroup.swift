@@ -17,44 +17,64 @@ struct SettingsDemoTourGroup: View {
     @Environment(IntakeRouter.self) private var intake
     @Environment(GraphViewModel.self) private var graphVM
     @State private var busy = false
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var inDemo: Bool { DemoMode.isActive(store.banks.value) }
 
+    /// Round 5 (ROR-118): the four actions are one row, *Getting started*, whose whole width opens a menu (a chevron at its
+    /// trailing edge, as a value row has). Rounds 1-4 drew them as tiles, a strip, loose buttons and a bar; judges read
+    /// every one as onboarding clutter on a settings page, and a rarely used action needs no standing control. Each
+    /// item is the old button, unchanged, and the row keeps all three landing anchors. Neutral, no primary (DR-40).
     var body: some View {
-        SettingsGroupCard {
-            SettingsRow(.runSetup, title: Copy.setup) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    // DR-40 — F-10's text buttons.
-                    TextButton(title: Copy.runSetupAgain) {
-                        OnboardingState.reset(bank: store.bank)
-                        router.requestFirstRun()
-                    }
-                    // R-IB17 — the checklist is re-openable, beside Run setup again so G139's index lands on both.
-                    TextButton(title: Copy.gsShowChecklist) {
-                        GettingStartedState.showChecklist(bank: store.bank)
-                        // A card already seen done this session would otherwise reopen as "You're set up."
-                        runner.sawDoneThisSession = false
-                        runner.checklistChanged()
-                        router.pendingTab = .home
-                        router.activateMainWindow()
-                    }
-                }
+        Menu {
+            Button { rerunSetup() } label: { Label(Copy.runSetupAgain, systemImage: "arrow.counterclockwise") }
+            // R-IB17 — the checklist is re-openable, beside Run setup again so G139's index lands on both.
+            Button { showChecklist() } label: { Label(Copy.gsShowChecklist, systemImage: "checklist") }
+            Button { router.closeSettings(); tour.requestStart() } label: { Label(Copy.Tour.offerTake, systemImage: "map") }
+            Button { inDemo ? leave() : enter() } label: {
+                Label(inDemo ? Copy.Demo.leaveDemo : Copy.Demo.exploreDemo, systemImage: "play.circle")
             }
-            SettingsDivider()
-            SettingsRow(.guidedTour, title: Copy.Tour.settingsTitle) {
-                TextButton(title: Copy.Tour.offerTake) {
-                    router.closeSettings()
-                    tour.requestStart()
-                }
+            .disabled(busy)
+        } label: {
+            HStack(spacing: CicadaTheme.spacingMD) {
+                Text(Copy.Demo.settingsGroup)
+                    .font(CicadaTheme.font(size: 15, weight: .medium))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Spacer(minLength: CicadaTheme.scaled(16))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(CicadaTheme.font(size: 12, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .padding(.trailing, CicadaTheme.scaled(6))
             }
-            SettingsDivider()
-            SettingsRow(.demoMemory, title: Copy.Demo.demoTitle) {
-                TextButton(title: inDemo ? Copy.Demo.leaveDemo : Copy.Demo.exploreDemo) {
-                    inDemo ? leave() : enter()
-                }
-                .disabled(busy)
-            }
+            .padding(.vertical, CicadaTheme.spacingSM + CicadaTheme.scaled(2))
+            .padding(.horizontal, CicadaTheme.spacingMD)
+            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(48), alignment: .leading)
+            .background(hovering ? CicadaTheme.bgButtonHover : Color.clear)
+            .contentShape(Rectangle())
         }
+        .menuStyle(.button)
+        .buttonStyle(.cicadaPlain)
+        .menuIndicator(.hidden)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+        .settingsRow(.runSetup)
+        .settingsRow(.guidedTour)
+        .settingsRow(.demoMemory)
+    }
+
+    private func rerunSetup() {
+        OnboardingState.reset(bank: store.bank)
+        router.requestFirstRun()
+    }
+
+    private func showChecklist() {
+        GettingStartedState.showChecklist(bank: store.bank)
+        // A card already seen done this session would otherwise reopen as "You're set up."
+        runner.sawDoneThisSession = false
+        runner.checklistChanged()
+        router.pendingTab = .home
+        router.activateMainWindow()
     }
 
     /// `GettingStartedCard`'s effects, with Home as the landing — the demo plan ends on `.showHome`.

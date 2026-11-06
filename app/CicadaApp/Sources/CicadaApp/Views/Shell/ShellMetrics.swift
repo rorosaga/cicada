@@ -75,7 +75,7 @@ struct ShellChrome: Equatable {
 
     var itemsHidden: Bool { welcomeShowing }
     var itemsDisabled: Bool { welcomeShowing || settingsOpen || tourActive }
-    var itemOpacity: Double { welcomeShowing ? 0 : (settingsOpen ? 0.4 : 1) }
+    var itemOpacity: Double { welcomeShowing ? 0 : (settingsOpen ? 0 : 1) }
 }
 
 extension View {

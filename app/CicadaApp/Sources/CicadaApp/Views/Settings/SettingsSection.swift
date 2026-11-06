@@ -38,8 +38,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .you: "person.crop.circle"
         case .intelligence: "cpu"
-        case .sleep: "moon.zzz"
-        case .devices: "laptopcomputer.and.iphone"
+        case .sleep: "moon"
+        case .devices: "laptopcomputer"
         case .privacy: "hand.raised"
         }
     }
