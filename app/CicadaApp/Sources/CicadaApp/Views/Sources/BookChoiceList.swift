@@ -30,8 +30,8 @@ struct BookChoiceCover: View {
             if let image {
                 Image(nsImage: image).resizable().scaledToFill()
                     .frame(width: Self.size.width, height: Self.size.height).clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.radiusXS, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: CicadaTheme.radiusXS, style: .continuous)
+                    .clipShape(CicadaTheme.shape(CicadaTheme.radiusXS))
+                    .overlay(CicadaTheme.shape(CicadaTheme.radiusXS)
                         .strokeBorder(CicadaTheme.ring(.resting), lineWidth: 1))
             }
         }
