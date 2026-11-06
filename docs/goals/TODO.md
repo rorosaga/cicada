@@ -3973,6 +3973,22 @@ A whole row moves to DONE only after its remaining implementation and required a
     count (G104), each part its own provenance by a `relayed [<app>]:` marker the one marker grammar reads as the model's, the
     imported part's offsets untouched, Sleep reading only what grew, another import upgrading the turns it holds without a
     duplicate (`capture-and-sleep.md`, "A chat that goes on after its import"). **Revisit** only if the owner asks for a repeating import.
+    **58b, a narrow amendment (owner idea 2026-11-06, ROR-126, verbatim: "Once an agent is connected and has the browser
+    skill, Cicada offers to have it request the export from each provider, in the person's own signed-in browser. The
+    person says yes, one provider at a time." and "The little worm on Home shows 'waiting on your data export', per
+    provider. A reminder is the fallback"; "No email watching in this version"):** the wait the person starts is the
+    same one-off the *Remind me* was: one provider, one yes, started by the person, gone when the export is imported,
+    when they stop waiting, or after 14 days. The new part is who asks the provider: the person's own agent, in their
+    own signed-in browser, through the request queue (`export_requests`, outside every bank, ids and enums only,
+    `cicada_export_requests`, stdio only). It is **not** a repeat: a request is never made on a schedule, never again
+    after an import, and nothing looks in Downloads or Mail for the result. The agent never signs in for the person;
+    a sign-in, captcha or changed page is reported as `manual` and that provider stays on its walkthrough. A provider's
+    terms do not block it: it is the person's own agent in their own browser (owner 2026-11-06). **Choosing what to
+    bring in:** after an upload and before anything becomes an episode, the person picks a start date and may untick
+    chats (Consolidate reads everything it was given, rulings 13 and 16); unticked chats are remembered per memory
+    (`import_choices`, keys only, never a title) so a later, grown export does not offer them as new. The start date is
+    not remembered. **Revisit** the email watch (Apple Mail only) as a separate version, and the remembered start date
+    if a repeating import is ever asked for.
 59. **One click may open the connector's own port to the internet (owner, 2026-11-04: "YES to one-click Tailscale Funnel
     for the claude.ai and phone connector"; G135, G132's D6′; amends G132 (c), the headless rail's "never `funnel`" and the
     2026-10-29 one-click rail; branch `feat/g135-funnel-one-click`).** Why: claude.ai and the phone apps relay through the

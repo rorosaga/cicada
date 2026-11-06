@@ -150,6 +150,8 @@ struct CicadaApp: App {
     /// defaults, told by the Feed, the menu bar and Getting started whether or
     /// not notifications were allowed.
     @State private var exportWaits = ExportWaitStore()
+    /// ROR-126 — the exports the person asked their own agent to request, and what it found.
+    @State private var exportAgent = ExportAgentModel()
     /// R-IA25 — the one AppKit hook SwiftUI's `App` lacks: a Dock "Open With"
     /// or a drop on the Dock icon. Its queue holds a cold launch's URLs until
     /// `.onAppear` attaches the router.
@@ -445,6 +447,7 @@ struct CicadaApp: App {
             .environment(setupRunner)
             .environment(inventory)
             .environment(exportWaits)
+            .environment(exportAgent)
             .environment(menuBarManager)
     }
 
@@ -597,8 +600,9 @@ struct CicadaApp: App {
         }
         // R-IB22 — the export someone was waiting for arrived (a sniff
         // recognised its vendor): its wait, in the active memory, is done.
-        intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in
+        intakeRouter.onVendorSniffed = { [exportWaits, exportAgent, store] vendor in
             exportWaits.clear(vendor: vendor, bank: store.bank)
+            Task { await exportAgent.arrived(vendor: vendor) }
         }
         // A tapped reminder opens the one intake idle for that vendor —
         // never a cycle (G125 R10). Queued until now on a cold launch.
@@ -641,8 +645,11 @@ struct CicadaApp: App {
             }
         }
         // Read as the menu opens, so "requested 2 hours ago" is true then.
-        menuBarManager.exportWaitLines = { [exportWaits, store] in
-            exportWaits.active(bank: store.bank).map { ExportWaits.menuLine($0, now: Date()) }
+        menuBarManager.exportWaitLines = { [exportWaits, exportAgent, store] in
+            let waiting = Set(ExportAgentRules.waitingVendors(waits: exportWaits.active(bank: store.bank),
+                                                              requests: exportAgent.requests))
+            return exportWaits.active(bank: store.bank).filter { waiting.contains($0.vendor) }
+                .map { ExportWaits.menuLine($0, now: Date()) }
         }
         // Sleep page v5 — while a run is paused, every door routes to the Sleep page (only its Continue
         // resumes the run); the menu bar reads the same words the page's doors do.

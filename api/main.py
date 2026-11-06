@@ -38,6 +38,7 @@ from api.routers import (
     diagnostics,
     embeddings,
     explore,
+    export_requests,
     files,
     entities,
     github_repos,
@@ -474,6 +475,7 @@ app.include_router(remote.router, tags=["remote"])
 app.include_router(skills.router, tags=["skills"])
 app.include_router(videos.router, tags=["videos"])
 app.include_router(explore.router, tags=["explore"])
+app.include_router(export_requests.router, tags=["export-requests"])
 app.include_router(embeddings.router, tags=["embeddings"])
 app.include_router(devices.router, tags=["devices"])
 app.include_router(diagnostics.router, tags=["diagnostics"])

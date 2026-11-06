@@ -57,6 +57,35 @@ struct IntakeDelta: Codable, Hashable {
 struct IntakeTitle: Codable, Hashable {
     let title: String
     let date: String?
+    /// ROR-126 — the chat's identity across re-exports, what an import is told to leave out. nil from an older backend.
+    var key: String?
+    /// What an import would do to this chat: `new`, `grown` or `unchanged`.
+    var status: String?
+    /// Left out of an earlier import into this bank: offered unticked and never counted as new.
+    var deselected = false
+
+    init(title: String, date: String?, key: String? = nil, status: String? = nil, deselected: Bool = false) {
+        self.title = title; self.date = date; self.key = key; self.status = status; self.deselected = deselected
+    }
+
+    enum CodingKeys: String, CodingKey { case title, date, key, status, deselected }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = try c.decode(String.self, forKey: .title)
+        date = (try? c.decodeIfPresent(String.self, forKey: .date)) ?? nil
+        key = (try? c.decodeIfPresent(String.self, forKey: .key)) ?? nil
+        status = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? nil
+        deselected = (try? c.decodeIfPresent(Bool.self, forKey: .deselected)) ?? false
+    }
+}
+
+/// ROR-126 — what the person chose to bring in from an uploaded export, before anything becomes an episode: a start
+/// date (`YYYY-MM-DD`, nil for everything) and the chats they deselected (remembered by the backend for the memory).
+struct ImportChoice: Equatable {
+    var since: String?
+    var exclude: [String] = []
+    static let everything = ImportChoice()
 }
 
 struct IntakeDateRange: Codable, Hashable {

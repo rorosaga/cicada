@@ -650,6 +650,29 @@ TOOLS = [
         },
     },
     {
+        # ROR-126: the exports the person said yes to. Stdio only; the queue lives outside every bank.
+        "name": "cicada_export_requests",
+        "description": "The chat exports the person said yes to having you request, one provider at a time, in their own signed-in browser. With no `done`, lists what is waiting and where each provider's export page is. With `done`, reports each one: requested once you asked the provider, or manual when a sign-in, a captcha or a changed page stopped you (never sign in for them, never open their email). It changes only the person's request list, not their memory.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "done": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "vendor": {"type": "string", "enum": ["claude", "chatgpt", "gemini"], "description": "Which provider."},
+                            "outcome": {"type": "string", "enum": ["requested", "manual"], "description": "requested: you asked and confirmed. manual: you could not."},
+                            "reason": {"type": "string", "description": "Optional. One short line (at most 200 characters) when manual."},
+                        },
+                        "required": ["vendor", "outcome"],
+                    },
+                    "description": "Optional. What you did for each provider.",
+                },
+            },
+        },
+    },
+    {
         # G166 exploring (2026-10-14): read-only over the queue file outside the bank. Stdio only in this slice.
         "name": "cicada_explore_queue",
         "description": "The person's explore run, read-only: the saved sites they asked an agent to explore, and whether each is waiting, picked up or paused at a sign-in. Takes no lease and changes nothing. Use cicada_explore_claim to take a site.",
@@ -1838,6 +1861,8 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
         return handle_video_queue(arguments.get("limit"))
     elif name == "cicada_video_claim":
         return handle_video_claim(arguments.get("limit"), arguments.get("release"))
+    elif name == "cicada_export_requests":
+        return mcp_tools.export_requests(_ctx(), arguments.get("done"))
     elif name == "cicada_explore_queue":
         return mcp_tools.explore_queue_list(_ctx(), arguments.get("limit"))
     elif name == "cicada_explore_claim":

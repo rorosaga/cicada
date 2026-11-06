@@ -1464,6 +1464,16 @@ desktop app alone; the relay there needs no address.
 export is one-time". The official export (web or desktop, never the phone apps) comes by email with a link that expires in 24
 hours and has no schedule or API; its staging is per conversation and idempotent, and upgrades a relayed episode in place.
 
+**Choosing what an export brings in (ruling 58b, ROR-126).** `POST /intake/sniff` gives every listed chat a `key`
+(`import_choices.key_for`: the source's name and its conversation id — a hash of title and date only when the parser gave no
+id, never the title), what an import would do to it (`new`, `grown`, `unchanged`) and `deselected` when the person left it out
+of an earlier import into this bank; the delta never counts those. `POST /intake/import` takes `since` (`YYYY-MM-DD`; an
+undated chat is kept) and `exclude` (a JSON list of keys) as form fields and applies them to the parsed episodes before
+`plan` and the stager, so nothing is written for a chat left out. `exclude` is remembered in the bank
+(`<bank>/import_deselected.json`, keys and a day, atomic, one writer): each upload replaces the decisions for the chats its file
+holds and keeps every other file's, so ticking a chat again forgets it; with no `exclude` (the CLI shim, a relay door) the
+remembered ones still stay out. The start date is not remembered.
+
 **A chat that goes on after its import (ruling 58, owner 2026-11-04).** The later turns stay in the same episode: one
 conversation for every count, found by the same `lc_`/`rc_` handle. `episode_staging.append_relayed` adds them after the imported
 part, whose offsets never move (`relay.tail_at` is where they start, `relay.imported_hash` what the export wrote). The imported

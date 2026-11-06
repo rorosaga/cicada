@@ -7034,6 +7034,39 @@ def _explore_because(plan: dict) -> str:
     return "; ".join(bits) + tail
 
 
+def export_requests(ctx: ToolContext, done: list | None = None) -> str:
+    """``cicada_export_requests`` (ROR-126): the chat exports the person said yes to having their agent request, one
+    provider at a time. No ``done`` lists them; ``done`` reports each as requested or manual. Writes only the request
+    file outside the bank, so it is not refused while Sleep runs; refused in a demo bank."""
+    from api.services import export_requests as er
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    try:
+        if done:
+            lines = []
+            for item in done[:len(er.VENDORS)]:
+                vendor = str(item.get("vendor") or "") if isinstance(item, dict) else ""
+                try:
+                    row = er.report(memory_path, vendor, str(item.get("outcome") or ""), harness=ctx.harness,
+                                    reason=_one_line(str(item.get("reason") or ""), er.MAX_REASON))
+                except er.RequestError as exc:
+                    lines.append(f"{_one_line(vendor, 40) or 'That provider'}: not recorded ({exc}).")
+                    continue
+                said = ("recorded as requested; the person's app now waits for the export" if row["state"] == "requested"
+                        else "left for the person to do by hand")
+                lines.append(f"{er.VENDORS[vendor]['title']}: {said}.")
+            return "\n".join(lines or ["Nothing was recorded."])
+        waiting = [r for r in er.rows(memory_path) if r["state"] == "asked"]
+    except (er.RequestError, OSError, ValueError):
+        return Reply("Error: could not read the person's export requests.", code="error")
+    if not waiting:
+        return "No export is waiting for you to request."
+    return "\n".join([f"The person said yes to {len(waiting)} export request(s). {er.RULES}",
+                      *_untrusted_block(ctx, [f"{i}. {er.agent_brief(r)}" for i, r in enumerate(waiting, 1)])])
+
+
 def explore_queue_list(ctx: ToolContext, limit=None) -> str:
     """``cicada_explore_queue``: the person's explore run, read-only — what is waiting, picked up and paused."""
     from api.services import explore_candidates, explore_queue

@@ -222,6 +222,8 @@ ROUTES: dict[str, str] = {
     "POST /explore/look": FORWARD,
     "POST /explore/queue/{key}/retry": FORWARD,
     "POST /explore/stop": FORWARD,
+    "POST /export-requests/{vendor}": FORWARD,
+    "DELETE /export-requests/{vendor}": FORWARD,
     "POST /inbox/catchup/record": FORWARD,
     "POST /inbox/settled/{item_id}/undo": FORWARD,
     "POST /inbox/tidy": FORWARD,

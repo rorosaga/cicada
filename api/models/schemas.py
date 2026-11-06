@@ -4470,6 +4470,12 @@ class IntakeDelta(CamelModel):
 class IntakeTitle(CamelModel):
     title: str
     date: Optional[str] = None
+    #: ROR-126 — the chat's identity across re-exports (``import_choices.key_for``), what the app sends back to leave
+    #: it out. ``status`` is what an import would do to it; ``deselected`` is a chat the person left out of an earlier
+    #: import into this bank (offered unticked, never counted as new).
+    key: Optional[str] = None
+    status: Optional[Literal["new", "grown", "unchanged"]] = None
+    deselected: bool = False
 
 
 class IntakeSniffResponse(CamelModel):

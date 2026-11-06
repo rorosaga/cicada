@@ -39,6 +39,9 @@ struct OnboardingView: View {
     @State private var page: OnboardingPage = .welcome
     @State private var furthest: OnboardingPage = .welcome
     @State private var ownerSaved = false
+    /// ROR-126 — staged exports waiting on the chooser, and whether it shows.
+    @State private var choosingDrops = false
+    @State private var heldForChoice: Set<String> = []
     @State private var name = ""
     @State private var owner: OwnerSettings?
     @State private var editingName = false
@@ -145,7 +148,20 @@ struct OnboardingView: View {
         .onExitCommand(perform: exit)
         .task { await load() }
         // R-OB2 — a drop starts at once once the owner is saved; before that it waits, staged.
-        .onChange(of: intake.welcomeDrops.map(\.id)) { old, new in startDrops(new.filter { !old.contains($0) }) }
+        // ROR-126: an export with chats to choose from opens the chooser first; it is read in only after Done.
+        .onChange(of: intake.welcomeDrops.map(\.id)) { old, new in
+            let arrived = new.filter { !old.contains($0) }
+            let choosable = arrived.filter { id in intake.welcomeDrops.first { $0.id == id }?.preview.offersChoice == true }
+            if !choosable.isEmpty { heldForChoice.formUnion(choosable); choosingDrops = true }
+            startDrops(arrived.filter { !choosable.contains($0) })
+        }
+        .sheet(isPresented: $choosingDrops) { WelcomeExportChoiceSheet { choosingDrops = false } }
+        .onChange(of: choosingDrops) { _, open in
+            guard !open else { return }
+            let ids = Array(heldForChoice)
+            heldForChoice = []
+            startDrops(ids)
+        }
         // ⌘⇧I and the menu bar's Import Chats or Files… while onboarding shows (R-IB15), a turn later: a modal panel must
         // not run inside a view update.
         .onChange(of: intake.welcomeChooseRequest) { _, _ in Task { @MainActor in SourcesStep.chooseFile(intake) } }
@@ -316,6 +332,8 @@ struct OnboardingView: View {
                                                                     editing: editingName),
                             busy: busy, failure: failure,
                             waitingDrops: ownerSaved ? 0 : intake.welcomeDrops.count,
+                            onChooseDrops: intake.welcomeDrops.contains { $0.preview.offersChoice }
+                                ? { choosingDrops = true } : nil,
                             onGetStarted: { advance(.pointer) }, onTryDemo: tryDemo)
             } else if page == .menuBar {
                 MenuBarStep(waiting: store.status.value?.waitingForSleep,
