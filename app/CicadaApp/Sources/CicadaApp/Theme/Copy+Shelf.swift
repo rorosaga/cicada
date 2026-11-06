@@ -21,6 +21,7 @@ extension Copy {
         static let nothingToAdd = "Nothing else to add here"
         static func savedCount(_ n: Int) -> String { n == 1 ? "1 saved" : "\(n.formatted()) saved" }
         static func itemCount(_ n: Int) -> String { n == 1 ? "1 item" : "\(n.formatted()) items" }
+        static func conversationCount(_ n: Int) -> String { n == 1 ? "1 conversation" : "\(n.formatted()) conversations" }
         static let nothingYet = "Nothing in yet"
         static let onThisMac = "On this Mac"
     }

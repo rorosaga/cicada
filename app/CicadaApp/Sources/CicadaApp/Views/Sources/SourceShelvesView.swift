@@ -117,31 +117,36 @@ struct SourceShelfSection: View {
                     .id(SourcesSelection.entry(row.id))
             }
             if !shelf.addNames.isEmpty {
-                SourceAddLine(names: shelf.addNames, quiet: shelf.connected.isEmpty) { add(shelf.shelf) }
+                SourceAddLine(names: shelf.addNames, symbol: shelf.connected.isEmpty ? shelf.shelf.symbol : nil) { add(shelf.shelf) }
             }
         }
     }
 }
 
-/// "+ Add Notion, Folders": opens the overlay on this kind. On an empty shelf it is the whole shelf, so it is the one
-/// ringed line; under sources it is a quiet text row.
+/// "+ Add Notion, Folders": opens the overlay on this kind. On an empty shelf it is the whole shelf, so it is one
+/// dashed row wearing the kind's own glyph (DR-9: a ring, no shadow); under sources it is a quiet text row.
 struct SourceAddLine: View {
     let names: [String]
-    var quiet = true
+    /// The kind's glyph, for an empty shelf only.
+    var symbol: String? = nil
     let action: () -> Void
     @State private var hovering = false
 
+    private var shape: some InsettableShape { CicadaTheme.shape(CicadaTheme.cornerRadius) }
+
     var body: some View {
         Button(action: action) {
-            HStack(spacing: CicadaTheme.scaled(8)) {
-                Image(systemName: "plus").font(CicadaTheme.icon(.inline))
+            HStack(spacing: CicadaTheme.scaled(10)) {
+                Image(systemName: symbol ?? "plus").font(CicadaTheme.icon(symbol == nil ? .inline : .list))
                 Text(Copy.Shelf.add(names)).font(CicadaTheme.metaFont).lineLimit(1)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(hovering ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
-            .padding(.horizontal, CicadaTheme.scaled(quiet ? 12 : 4))
-            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.titleOnly), alignment: .leading)
-            .contentShape(Rectangle())
+            .padding(.horizontal, CicadaTheme.scaled(12))
+            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(symbol == nil ? RowMetrics.titleOnly : RowMetrics.twoLine),
+                   alignment: .leading)
+            .overlay { if symbol != nil { shape.strokeBorder(CicadaTheme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])) } }
+            .contentShape(shape)
         }
         .buttonStyle(.cicadaPlain)
         .onHover { hovering = $0 }
@@ -179,7 +184,7 @@ struct SourceShelfCard: View {
                     }
                 }
                 SourceShelfItems(shelf: shelf, items: list?.items ?? [], total: list?.all ?? list?.total ?? overview?.items,
-                                 today: ISODay.today(now: now))
+                                 today: ISODay.today(now: now), counted: overview.flatMap(counted))
             }
             .padding(CicadaTheme.scaled(12))
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -194,14 +199,34 @@ struct SourceShelfCard: View {
     }
 }
 
+extension SourceShelfCard {
+    /// What a source with no list of titles still says: how many it holds, in its own unit (a harness's conversations).
+    fileprivate func counted(_ overview: SourceOverview) -> String? {
+        switch shelf {
+        case .conversations where overview.conversations > 0: Copy.Shelf.conversationCount(overview.conversations)
+        case .saved where overview.items > 0: Copy.Shelf.savedCount(overview.items)
+        default: nil
+        }
+    }
+}
+
 /// The kind's own way of showing what came in. Pure data in, so it draws the same for a test and for the page.
 struct SourceShelfItems: View {
     let shelf: SourceShelf
     let items: [ChannelItem]
     let total: Int?
     let today: ISODay
+    /// One quiet line when there are no titles to list.
+    var counted: String? = nil
 
     var body: some View {
+        if items.isEmpty, let counted {
+            Text(counted).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+        } else { kind }
+    }
+
+    @ViewBuilder
+    private var kind: some View {
         switch shelf {
         case .conversations: titles(glyph: nil, limit: 3)
         case .documents: titles(glyph: "doc.text", limit: 3)

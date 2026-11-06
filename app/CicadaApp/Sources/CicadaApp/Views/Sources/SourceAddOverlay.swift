@@ -125,7 +125,7 @@ private struct YoursTile: View {
                 SourceLogoTile(origin: row.entry.origin)
                 Text(row.entry.title).font(CicadaTheme.captionFont)
                     .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-                    .lineLimit(1).frame(width: CicadaTheme.scaled(72))
+                    .lineLimit(1).frame(width: CicadaTheme.scaled(96))
             }
             .contentShape(Rectangle())
         }
