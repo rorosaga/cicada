@@ -143,3 +143,26 @@ def test_log_is_private_and_rotates(tmp_path):
 def test_the_hook_imports_nothing_from_api():
     src = Path(hook.__file__).read_text()
     assert "from api" not in src and "import api" not in src
+
+
+def test_the_person_sees_one_line_when_memory_shaped_their_message(tmp_path):
+    reply = {"additionalContext": NOTE, "injected": ["alpha-project"], "reason": "injected",
+             "shown": "◪ Cicada added 1 page to this message: alpha-project"}
+    _rc, _calls, out, _log = _run(tmp_path, UPS, reply=reply)
+    printed = json.loads(out)
+    assert printed["systemMessage"] == reply["shown"]
+    assert printed["hookSpecificOutput"]["additionalContext"] == NOTE
+    _rc, _calls, out, _log = _run(tmp_path, UPS, reply=reply, argv=("--harness", "codex"))
+    assert "systemMessage" not in json.loads(out), "only the harness whose reference names the field"
+    _rc, _calls, out, _log = _run(tmp_path, UPS, reply={k: v for k, v in reply.items() if k != "shown"})
+    assert "systemMessage" not in json.loads(out)
+
+
+def test_the_shown_line_counts_what_rode_and_never_quotes_it():
+    from api.services import hook_recall
+
+    note = hook_recall.Injection("private words", ("alpha-project", "ep_2026-11-01_001"), "unread")
+    line = hook_recall.shown_line(note)
+    assert line == ("◪ Cicada added 1 page and 1 conversation to this message: alpha-project, ep_2026-11-01_001")
+    assert hook_recall.shown_line(hook_recall.Injection("primer text", (), "primer")) is None
+    assert hook_recall.shown_line(hook_recall.Injection(None, (), "no_match")) is None

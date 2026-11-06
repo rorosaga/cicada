@@ -528,7 +528,7 @@ async def hook_context_endpoint(req: HookContextRequest, settings: Settings = De
     latency_ms = int((time.perf_counter() - started) * 1000)
     hook_recall.record(req.event, req.harness, result, latency_ms=latency_ms, model=req.model, bank=bank)
     return {"additionalContext": result.text, "injected": list(result.injected),
-            "reason": result.reason, "latencyMs": latency_ms}
+            "reason": result.reason, "latencyMs": latency_ms, "shown": hook_recall.shown_line(result)}
 
 
 # ── Ruling 43 (owner 2026-10-27): an agent's own memory notes ──────────────────────────────────────────────────────

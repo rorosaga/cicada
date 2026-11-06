@@ -41,7 +41,7 @@ def test_a_named_page_comes_back_as_the_note(client):
     r = client.post(URL, json=_body())
     assert r.status_code == 200, r.text
     data = r.json()
-    assert set(data) == {"additionalContext", "injected", "reason", "latencyMs"}
+    assert set(data) == {"additionalContext", "injected", "reason", "latencyMs", "shown"}
     assert data["injected"] == ["alpha-project"] and data["reason"] == "injected"
     assert data["additionalContext"].startswith(recall_text.RECALL_HEADER)
     assert isinstance(data["latencyMs"], int) and data["latencyMs"] >= 0
