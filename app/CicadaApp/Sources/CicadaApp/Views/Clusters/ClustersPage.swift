@@ -8,6 +8,7 @@ import SwiftUI
 struct ClustersPage: View {
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(AppRouter.self) private var router
+    @Environment(Store.self) private var store
     @Environment(ProvenanceRouter.self) private var provenance
     @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
     @AppStorage(ClustersModel.expandAllKey) private var expandAll = false
@@ -91,8 +92,8 @@ struct ClustersPage: View {
                                                                                        label: $0.label, count: $0.count) }
                                          + [TextTab(id: .looks, label: Copy.Looks.tab,
                                                     count: looksCache.board?.refs.count)],
-                                     selection: pageTabs, menuTitle: Copy.Lists.type)
-                    PageFindButton(isOpen: $findOpen).padding(.leading, CicadaTheme.spacingSM)
+                                     selection: pageTabs, menuTitle: Copy.Lists.type, strongCounts: true)
+                    PageFindButton(isOpen: $findOpen).padding(.leading, CicadaTheme.spacingLG)
                     TextButton(title: isFiltered ? Copy.Lists.viewFiltered : Copy.Lists.view,
                                help: Copy.Lists.viewHelp) { viewMenuOpen.toggle() }
                         .popover(isPresented: $viewMenuOpen, arrowEdge: .bottom) {
@@ -129,7 +130,8 @@ struct ClustersPage: View {
                                  open: { openEntity($0) },
                                  showTab: { type in Instant.run { tabSelection.wrappedValue = type } },
                                  move: { delta in
-                                     move(delta, visible: ClustersGrid.visible(groups, tab: tab, expandAll: expandAll))
+                                     move(delta, visible: ClustersGrid.visible(groups, tab: tab, expandAll: expandAll,
+                                                                               pictured: { ClustersGrid.isPictured($0, store: store) }))
                                  },
                                  escape: { escape() })
                     .focused($focus, equals: .list)
