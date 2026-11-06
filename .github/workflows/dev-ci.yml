@@ -60,11 +60,12 @@ jobs:
       - name: The backend's venv, from the lock
         run: cd api && uv sync --frozen
 
-      # A test that makes its own repository commits under the machine's identity. A bank never needs this: it sets its own.
+      # Some tests commit in their own repository under the machine's identity, as a Mac has one from the account. It's
+      # the system file because the suite moves HOME. A bank never needs this: it sets its own (`ensure_commit_identity_sync`).
       - name: A git identity
         run: |
-          git config --global user.name "Cicada CI"
-          git config --global user.email "ci@cicada.invalid"
+          sudo git config --system user.name "Cicada CI"
+          sudo git config --system user.email "ci@cicada.invalid"
 
       - name: The shard's tests
         run: api/.venv/bin/python -m pytest -q -p no:cacheprovider --tb=short $(python3 api/tests/_ci_shard.py ${{ matrix.shard }}/6)
