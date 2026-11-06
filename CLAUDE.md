@@ -190,12 +190,11 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Capture never depends on a model calling a tool where a hook exists (G105; ruling 57 for the apps with none).** Claude Code and Codex sessions are captured by the
   harness's own Stop hook; the backend reads a transcript only when it resolves under the harness root as
   `<session_id>.jsonl` within the size cap. Only the person's turns and the agent's final reply are kept, plus each agent
-  turn's model and effort. After scrubbing, the first person message keeps up to 16k characters; later person turns
-  keep a 2k head, agent final replies a 2k head+tail including a recorded non-speaker gap (G110 A2).
+  turn's model and effort, capped after scrubbing (G110 A2, `capture-and-sleep.md`).
   Cursor and Gemini CLI hooks post the turn's own words to `/capture/turn` (same writer, caps, scrub and demo rule;
   no transcript read, `capture-and-sleep.md`). **One episode per session** (G104). Cicada's own `claude -p` / `codex exec` spawns run with
   `CICADA_CAPTURE=off` and `CICADA_RECALL=off` (separate switches since 2026-10-23, `mcp.md`). Stop is the trigger; PreCompact and SessionEnd run the same hook as a best-effort, idempotent
-  flush, each log line tagged with its event (G110 gate A). Over the session cap the head and the latest turns are kept
+  flush (G110 gate A). Over the session cap the head and the latest turns are kept
   around one marker line (G110 gate B2; its G104 costs in `capture-and-sleep.md`). Recall is the same move (G149): the
   SessionStart/UserPromptSubmit hooks inject Cicada's note; a note the harness records as a separate non-person record
   is never captured, and one that arrives inside the person's own text is kept, counted and disclosed (G110 gate C).
@@ -263,9 +262,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   only), headless with no tools or MCP context, on their own sign-in; a key-billed path is refused or stops the run (`cli_engines`).
   **Ruling 46 (owner, 2026-10-28):** Auto is Claude plan → ChatGPT plan → Cursor → OpenCode (subscription model only), each
   read from cached status, an unknown or hung tool skipped in words, never a stall; Grok never on Auto (`capture-and-sleep.md`).
-  **Ruling 63 (owner 2026-11-04):** a key whose provider has an official SDK row (`direct_engines`: Claude today) is served by that
-  SDK behind the plan's own seam, every other key by LiteLLM; a Claude key's list, tiers and prices keep current without a release,
-  a retired id moves forward in words, a key's limit is a pause that never says the person's plan (`capture-and-sleep.md`, "A Claude key").
+  **Ruling 63 (owner 2026-11-04):** a key whose provider has an official SDK row (`direct_engines`) is served by that
+  SDK, every other key by LiteLLM; a key's limit is a pause that never says the person's plan (`capture-and-sleep.md`, "A Claude key").
   **46a (owner 2026-10-28):** Auto and schedules run Cursor only on Cursor's own models; a third-party one there is labelled "billed separately at list price", never auto-picked. Continue-after-reset is opt-in,
   off (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
   run — never over a pause or a running cycle (`sleep_catch_up`, owner 2026-10-19, `features.md`).
@@ -356,11 +354,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   person's name never reaches any service; every page says why it matters to the person, derived on read (`web_context`,
   `page_relevance`, `storage.md`). **Ruling 54 (owner 2026-11-04):** a handle vs a named person is worked like an
   agent on the Claude plan only, on by default: a tool-less model reads anything in memory, every query and link it asks for
-  passes `name_guard` in code (a name known only from the person's record never leaves; a tie always blocks), ≤ 6 searches through
-  a hand holding only cleared queries; the model judges (one site is enough), its quote checked on the page; cited, undoable, never a merge (`settling_agent`, `features.md`). **54a:** a page's tracked
+  passes `name_guard` in code (a name known only from the person's record never leaves; a tie always blocks); cited, undoable, never a merge (`settling_agent`, `features.md`). **54a:** a page's tracked
   sources come first, opened directly, never a search for a private person; a walled one only by the person's agent. **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
-  day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
+  day or undated asks once; walled pages only by the person's agent (`storage.md`, `network.md`).
   **Where to check (ruling 36 D5, 2026-10-22):** an agent (`inferred`) or Sleep's engine-free step may PROPOSE a link
   already on the record — never one guessed from a name; a proposal is never trusted, drawn or re-checked until the
   person takes it, one grouped review ("Confirm N links"); Sleep settles one only when the person's own located line
@@ -371,7 +368,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked chat holds (Messages, WhatsApp, Telegram) → a
   person's public-profile photo → a brand's logo → a media thumbnail → a person's monogram; any other page with none draws
   nothing, never a type glyph — owner 2026-10-28). **A logo comes only from a trusted
-  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a private person's name (G146/G159).** Owner 2026-10-28 (C, E): a public figure ruling 44's full test matched gets that item's encyclopedia portrait, asked by item, never with the name as a query; a project its trusted site's mark or, only when an organisation owns its repository, that organisation's avatar (`storage.md`). Ruling 40's homepage-confirmed find is trusted, and a public place with one draws its mark. A saved link's own site may show its own icon, asked of that site only (or the icon host its homepage declares, 2026-10-20; an SVG icon only sanitised and drawn to a PNG out of process, never served as SVG, 2026-10-20), on the person's view (owner 2026-10-19; a followed feed's on its RSS row too, 2026-11-05; `storage.md`); a watched or saved YouTube video its still, from YouTube's own host for that id only, on the same terms (2026-10-19); a book its own copy's cover from Apple Books' cache, else Open Library's by cover id or ISBN, never a title (ruling 61). A person's photo is asked only
+  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a private person's name (G146/G159).** Owner 2026-10-28 (C, E): a public figure ruling 44's full test matched gets that item's encyclopedia portrait, asked by item, never with the name as a query; a project its trusted site's mark or, only when an organisation owns its repository, that organisation's avatar (`storage.md`). Ruling 40's homepage-confirmed find is trusted, and a public place with one draws its mark. A saved link's own site may show its own icon, asked of that site only (or the icon host its homepage declares, 2026-10-20; an SVG icon never served as SVG, 2026-10-20, `network.md`), on the person's view (owner 2026-10-19; a followed feed's on its RSS row too, 2026-11-05; `storage.md`); a watched or saved YouTube video its still, from YouTube's own host for that id only, on the same terms (2026-10-19); a book its own copy's cover from Apple Books' cache, else Open Library's by cover id or ISBN, never a title (ruling 61). A person's photo is asked only
   with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
   X, Instagram or LinkedIn profile link (owner, 2026-10-09; Instagram, D5), never a proposal the person has not taken (`network.md`); a LinkedIn link from the person's connections counts as given
   on a confident match, never an alias-only one (owner 2026-10-17). The photo a chat shares in Messages is its page's
@@ -522,33 +519,20 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Headless (G181):** the bank's **home** (a server or any computer; ruling 51 (1), phase 2) is its one writer and binds its API to 127.0.0.1 only; reach from another machine is an
   overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32, 59), and no installer creates or copies a credential (`headless.md`).
   **One click (owner 2026-10-29, amends G132 (c)):** Settings → Devices may run exactly the shown `tailscale serve --bg
-  --https=8443 <port>` (tailnet only) or that one mapping's off (`--https=<its port> --set-path=/ off`) — argv built by the backend, 10 s, never `funnel` or `up` (`network.md`).
+  --https=8443 <port>` (tailnet only) or that one mapping's off — argv built by the backend, 10 s, never `funnel` or `up`.
   **Ruling 59 (owner 2026-11-04):** the person's click, or their shell, may run exactly the shown `tailscale funnel --bg --https=<443|10000> <the
-  connector's port>` or that one mapping's off (`--set-path=/`): no port or argv from a request, never over a held port, never 8443, never `up`; nothing stored, every answer read back (`network.md`).
-  The mapping outlives the listener: the connector's switch closes it too, a down listener's port is asked and another program on it said first, other public mappings shown with their off to copy, never run.
+  connector's port>` or that one mapping's off: no port or argv from a request, never over a held port, never 8443, never `up`; nothing stored, every answer read back. The mapping outlives the listener, so the connector's switch closes it too (`network.md`, "One click opens it").
   Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling 28) with its own revocable device
   token and no bank of its own; what it posts records `device` (`headless.md`).
-  **Ruling 51 (owner 2026-10-29, G132; decided, not built — amends this rail as each phase ships):** one movable home
-  writes, mints, commits and runs Sleep; other devices (the phone a full one) hold replicas and send writes as
-  transactions; all dial out to an E2E relay that never sees plaintext; nothing merged by git (`headless.md`).
-  **Ruling 51f (owner 2026-11-03, amends c):** nothing rented, no cloud mailbox, no Tailscale requirement. Each device
-  runs an ordered route list (T3 Code's: first that answers, learned routes kept, re-checked each minute and on a
-  network change, moved back) — the home's door on the LAN, a tailnet if present, the configured address, the relay
-  only under Advanced — else it queues; an unsent outbox item never expires. **The door** is the one listener besides
+  **Ruling 51 (owner 2026-10-29, G132; decided, amends this rail as each phase ships):** one movable home writes, mints, commits and runs Sleep; other devices hold replicas and send writes as
+  transactions; all dial out to an E2E relay that never sees plaintext; nothing merged by git. **Ruling 51f (owner 2026-11-03, amends c):** nothing rented, no cloud mailbox, no Tailscale requirement; each device
+  tries an ordered route list (the relay only under Advanced) and else queues, an unsent outbox item never expiring (`headless.md`, "The route list and the home-network door"). **The door** is the one listener besides
   loopback: sealed frames only, never the HTTP API or a token, open only while a memory is shared; **it binds loopback
-  and each of this computer's own private (RFC 1918, IPv6 ULA) and Tailscale addresses, one socket each, rebound when
-  the network changes — never a wildcard, a public or global address, nor a carrier's 100.64/10 (a tailnet only on Tailscale's
-  own interface holding its 100.x and `fd7a:` pair, the 100.x not the default route's source)** (on a Mac, loopback until the app's permissions
-  step); a peer only of its socket's own kind, a first packet that proves no pairing key dropped without a byte,
-  rate-limited, fuzzed. Identity
-  is the pairing keys, never an address. The phone is for now a capture device on that list (`network.md`, "The route
-  list"); away-from-home reach (router port, IPv6, a DHT record) waits behind an off switch.
-  Phase 1 A built: the home may publish its log (off by default, never a demo; a rewritten history freezes it).
-  Phase 1 B built — rail (2) in effect: a client machine may instead run in **replica mode** (`replica_of`): a
-  read-only copy it fast-forwards, every bank writer refused but the apply, its writes transactions to the home.
-  Phase 2 built — rail (1) in effect: the home moves (Sleep page, `cicada home move`): it closes, parks Sleep, commits a
-  signed `_home.json` alone as its last commit, then follows the target; the term fences two homes; a take-over only on
-  the person's OK with the lag shown; a returning old home's later commits set aside, offered back, never merged.
+  and each of this computer's own private and Tailscale addresses, one socket each — never a wildcard, a public or global address, nor a carrier's 100.64/10**
+  (`network.md`, "The route list and the home-network door"); a peer only of its socket's own kind, a first packet that proves no pairing key dropped without a byte.
+  Identity is the pairing keys, never an address. Away-from-home reach waits behind an off switch.
+  Built (`headless.md`): the home may publish its log (off by default, never a demo); a client may run in **replica mode** (`replica_of`), every bank writer refused but the apply;
+  the home moves (Sleep page, `cicada home move`), the term fences two homes, a take-over only on the person's OK, a returning old home's later commits set aside, never merged.
 - **Video:** only a provider's own player URL is loaded; an oEmbed response is read for its fields, never its HTML.
 
 ### Rulings
@@ -594,10 +578,9 @@ the later Developer ID steps are in [`docs/RELEASING.md`](docs/RELEASING.md). Fr
 `install.sh` is the source of truth; `install.md` is the paste-into-your-agent path for a fresh Mac
 (clone → `./install.sh` → `make install-app` → open the app; G76), and it never loops `make doctor`.
 The rest of the paste-prompt install story is G76 in the backlog.
-`scripts/install-backend-agent.sh` is the one source of the `com.cicada.backend` plist; `install.sh` step 6 calls it
-behind its healthy-skip guard, and the app runs it from Settings → General (G143). `BackendProcess` spawns
-`python -m uvicorn`, never the venv's `uvicorn` script. `make login-item` is the old developer path; the app's switch
-is the supported one. **A release app (G182) carries its own backend** and every agent, hook and plist runs the
+`scripts/install-backend-agent.sh` is the one source of the `com.cicada.backend` plist (`install.sh` calls it; the app
+runs it from Settings → General, G143). `BackendProcess` spawns `python -m uvicorn`, never the venv's `uvicorn` script.
+The app's switch is the supported login item (`make login-item` is the old developer path). **A release app (G182) carries its own backend** and every agent, hook and plist runs the
 `~/.cicada/bin` launchers it rewrites on launch — never a path inside the app; a developer build is unchanged
 (`docs/architecture/app.md`, "The release app").
 **Claude Code (owner 2026-10-19): the plugin is the canonical Claude Code door; `install.sh` the canonical machine
