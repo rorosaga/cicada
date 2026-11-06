@@ -52,10 +52,23 @@ struct SleepWaitingList: View {
                 .id(DetailsSection.waiting.anchorID)
                 .saturation(liveness.saturation)
             if let kept = Copy.keptForLookupShort(queue?.kept ?? 0) {
-                Text(kept).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, CicadaTheme.scaled(10))
-                    .help(Copy.keptForLookup(queue?.kept ?? 0) ?? "")
+                // ROR-118 round 3 - the list's own last row: the chevron's slot, the mark's tile, then the words in
+                // the name column, so the line hangs off the names above it instead of floating under them.
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Color.clear.frame(width: CicadaTheme.iconPoints(.inline), height: 1)
+                    Image(systemName: "tray")
+                        .font(CicadaTheme.icon(.inline))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .frame(width: CicadaTheme.scaled(22), height: CicadaTheme.scaled(22))
+                        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBadge))
+                    Text(kept).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, CicadaTheme.scaled(10))
+                .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 12))
+                .padding(.top, -CicadaTheme.spacingCard + CicadaTheme.spacingXS)
+                .help(Copy.keptForLookup(queue?.kept ?? 0) ?? "")
+                .accessibilityElement(children: .combine)
             }
         }
     }

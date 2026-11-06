@@ -267,14 +267,19 @@ struct StudyListCard: View {
         }
     }
 
-    /// ROR-118 round 2 - the two right-hand columns named once, over the first row, in the columns' own widths.
+    /// ROR-118 round 3 - the name's own width (chevron, mark, name): the age and the count follow it at a glance, never
+    /// a window's width away across the row.
+    static var nameColumn: CGFloat { CicadaTheme.scaled(330) }
+
+    /// ROR-118 round 2 - the two columns named once, over the first row, in the columns' own widths.
     private var columnHeads: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            Spacer(minLength: 0)
+            Color.clear.frame(width: Self.nameColumn, height: 1)
             Text(Copy.SleepV5.columnOldest)
                 .frame(width: CicadaTheme.scaled(76), alignment: .trailing)
             Text(Copy.SleepV5.columnItems)
-                .frame(minWidth: CicadaTheme.scaled(56), alignment: .trailing)
+                .frame(width: CicadaTheme.scaled(56), alignment: .trailing)
+            Spacer(minLength: 0)
         }
         .font(CicadaTheme.metaFont)
         .foregroundStyle(CicadaTheme.textTertiary)
@@ -310,6 +315,7 @@ struct StudyListCard: View {
             // R-HS15 — one 36 pt row (DR-34): the chevron, the source's real mark (DR-52), its
             // name, the oldest age inline, and the trailing state.
             HStack(spacing: CicadaTheme.spacingSM) {
+              HStack(spacing: CicadaTheme.spacingSM) {
                 DisclosureChevron(isOpen: expandedOrigins.contains(row.origin))
 
                 mark(row.origin)
@@ -323,7 +329,9 @@ struct StudyListCard: View {
                     // chat on hover; the row's own click still discloses its episodes.
                     MessageBubbleStack(size: 18, interactive: false)
                 }
-                Spacer(minLength: CicadaTheme.spacingMD)
+                Spacer(minLength: 0)
+              }
+              .frame(width: Self.nameColumn, alignment: .leading)
 
                 // ROR-118 — the age and the count are one right-hand cluster of two fixed columns, so a name is
                 // never run into its age and the counts line up down the list (the column head says "Oldest",
@@ -335,7 +343,8 @@ struct StudyListCard: View {
                     .frame(width: CicadaTheme.scaled(76), alignment: .trailing)
 
                 trailing(row)
-                    .frame(minWidth: CicadaTheme.scaled(56), alignment: .trailing)
+                    .frame(width: CicadaTheme.scaled(56), alignment: .trailing)
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, CicadaTheme.scaled(10))
             .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 12))

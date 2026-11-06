@@ -68,7 +68,7 @@ struct NeutralButton: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
         }
-        .font(CicadaTheme.font(size: size == .compact ? 12 : 13, weight: .medium))
+        .font(CicadaTheme.font(size: size == .compact && !quiet ? 12 : 13, weight: .medium))
         .foregroundStyle(quiet && !hovering ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
         .padding(.horizontal, CicadaTheme.scaled(size == .compact ? 10 : 12))
         .frame(height: CicadaTheme.scaled(size.height))

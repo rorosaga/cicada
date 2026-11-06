@@ -109,6 +109,8 @@ struct SleepRoomColumn: View {
                                       set: { if !$0 { room.lampPopover = nil } }),
                  arrowEdge: .bottom) { LampPopover(page: page) }
         .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
+        // ROR-118 round 3 - the lamp's line stands apart from the control cluster above it.
+        .padding(.top, leading ? CicadaTheme.spacingSM : 0)
     }
 }
 

@@ -38,16 +38,20 @@ struct SleepTabRow: View {
         }
         // R-DL14 — the one-shot import's door (G126), a plain icon, and ⌘N's only home. The page draws one row at a
         // time (the sticky one with nothing open, the eyebrow's beside an item), so ⌘N has one publisher.
-        IconButton(systemName: "plus", help: Copy.Lists.addSourceShortcut,
-                   accessibilityLabel: Copy.addASource,
-                   shortcut: KeyboardShortcut("n", modifiers: .command), action: onAdd)
+        // ROR-118 round 3 - the door says its word ("Add") beside the plus, as DR-40's quiet text button.
+        NeutralButton(title: Copy.SleepTabs.add, systemImage: "plus", size: .compact,
+                      shortcut: KeyboardShortcut("n", modifiers: .command),
+                      help: Copy.Lists.addSourceShortcut, quiet: true, action: onAdd)
+            .accessibilityLabel(Copy.addASource)
     }
 
     /// The tabs on screen with their counts; Past reads carries none (it is not a pile).
-    static func tabs(_ shown: [SleepTab], waiting: Int, saved: Int, videos: Int) -> [TextTab<SleepTab>] {
+    /// `waitingSaidAbove` (ROR-118 round 3): the room's headline is already saying the number, so the Waiting tab does not.
+    static func tabs(_ shown: [SleepTab], waiting: Int, saved: Int, videos: Int,
+                     waitingSaidAbove: Bool = false) -> [TextTab<SleepTab>] {
         shown.map { tab in
             switch tab {
-            case .waiting: TextTab(id: tab, label: tab.label, count: waiting)
+            case .waiting: TextTab(id: tab, label: tab.label, count: waitingSaidAbove ? nil : waiting)
             case .saved: TextTab(id: tab, label: tab.label, count: saved)
             case .videos: TextTab(id: tab, label: tab.label, count: videos)
             case .pastReads: TextTab(id: tab, label: tab.label)

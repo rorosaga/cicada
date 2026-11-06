@@ -447,7 +447,14 @@ struct SleepControlRow: View {
                 } else {
                     consolidateButton
                 }
-                if leading { Color.clear.frame(width: CicadaTheme.spacingSM, height: 1) }
+                // ROR-118 round 3 - one hairline between the primary and the two quiet settings, so the engine and
+                // Options read as one cluster that belongs to the button, not as three equal captions.
+                if leading {
+                    Rectangle().fill(CicadaTheme.border)
+                        .frame(width: 1, height: CicadaTheme.scaled(18))
+                        .padding(.horizontal, CicadaTheme.spacingSM)
+                        .accessibilityHidden(true)
+                }
                 // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
                 // applies to the next one (G80). It names the person's own engine and model — never another.
                 EngineLabelButton(size: .compact, quiet: leading)   // D6: a label that opens Settings → Intelligence (UI-A)
