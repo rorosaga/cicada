@@ -1089,7 +1089,7 @@ Round 4 (C2–C4):
   waiting proposal, an agent's too, is a row of ONE item — `kind: clarification`, `asks: sources`, `review: true`,
   title "Confirm N links", `rows: [{id, page, page_name, page_type, ref, predicate, link_kind, label, added_by,
   evidence?}]` (`id` a stable hash of page + link), options `yes` / `no` (all rows), `required_input: choice`; the step
-  adds and removes rows every run and removes the item when none waits, so it is idempotent. **Row order (ROR-135,
+  adds and removes rows every run and removes the item when none waits, so it is idempotent. **Row order (ROR-137,
   `source_proposals.review_order`):** the rows that put a picture on a page lead — a site in the `website` role, then a
   person's own GitHub/X/Instagram/LinkedIn account, then every other place to check — and within a tier the page named
   in the most conversations first; derived at each sync, never stored. The one exception is a
