@@ -320,6 +320,8 @@ struct ContentView: View {
                     // nothing on screen) posts `store.toast`; show it at the
                     // bottom of whatever page is open (§5.4).
                     .overlay(alignment: .bottom) { toastBanner }
+                    // Production blocker (2026-11-06) — the backend not answering is said here, once, over every page.
+                    .safeAreaInset(edge: .top, spacing: 0) { BackendBannerView() }
             } reader: {
                 ReaderColumn().disabled(tour.isActive)
             }

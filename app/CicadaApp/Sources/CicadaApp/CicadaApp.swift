@@ -75,6 +75,9 @@ struct CicadaApp: App {
     @State private var homeSearch: HomeSearch
     @State private var menuBarManager = MenuBarManager()
     @State private var backend: BackendProcess
+    /// Production blocker (2026-11-06) — says so, in one place, when the backend stops answering; restarts one the app
+    /// started.
+    @State private var backendWatch: BackendWatch
     /// Round-4 D3 (G143) — Settings → General → In the background. App-lifetime so the
     /// login item's remembered intent and the service probe are one instance per app.
     @State private var loginItems = LoginItemService()
@@ -211,6 +214,21 @@ struct CicadaApp: App {
         _backend = State(initialValue: backend)
         let backendAgent = BackendAgentService(runtime: runtime, onInstalled: { [backend] in backend.stopSpawnedChild() })
         _backendAgent = State(initialValue: backendAgent)
+        // The banner's one action: kick launchd's copy when the background service owns the backend, else restart the
+        // child this app started (`restartNow` starts nothing while another program holds the port). On a server there
+        // is nothing here to restart — the click is only a fresh look.
+        let onServer = ServerConnection.current.isServer
+        _backendWatch = State(initialValue: BackendWatch(
+            port: runtime.port, onServer: onServer,
+            probe: BackendWatch.liveProbe(),
+            noteSilence: { answer in onServer ? false : BackendSilence.note(answer, home: runtime.cicadaHome) },
+            publish: { [store] in store.reach = $0 },
+            isRetrying: { [backend] in backend.restartPending },
+            restart: { [backend, backendAgent] in
+                guard !onServer else { return }
+                if FileManager.default.fileExists(atPath: BackendAgentPolicy.plistURL().path), await backendAgent.kickstart() { return }
+                backend.restartNow()
+            }))
         // G182 — a background service an older build installed keeps running what it named; point it at this
         // copy's launcher. Never blocks launch, and installs nothing when the person never chose the service.
         // G181 phase 3: nothing to migrate or keep running while the memory lives on a server.
@@ -356,6 +374,7 @@ struct CicadaApp: App {
         }
         // G181 phase 3 — the server answers again: what the readers left waiting goes first.
         .onChange(of: store.isConnected) { _, connected in
+            backendWatch.connectionChanged(connected)
             if connected { Task { await APIClient.shared.flushOutbox() } }
         }
         // G191 live — back from System Settings: a browser whose file was refused when its watch was armed
@@ -442,6 +461,7 @@ struct CicadaApp: App {
             .environment(traceRecorder)
             .environment(loginItems)
             .environment(backendAgent)
+            .environment(backendWatch)
             .environment(updates)
             .environment(intakeRouter)
             .environment(setupRunner)
@@ -519,6 +539,8 @@ struct CicadaApp: App {
         }
         // G181 phase 3 — on a server this Mac runs no backend of its own (and never falls back to one).
         if !ServerConnection.current.isServer { backend.start() }
+        // The event stream is not open yet at launch: look until it is (it stops looking the moment it opens).
+        if !store.isConnected { backendWatch.connectionChanged(false) }
         // Arms the per-browser watches and catches up on anything
         // saved while the app was closed.
         browserWatcher.start(store: store)

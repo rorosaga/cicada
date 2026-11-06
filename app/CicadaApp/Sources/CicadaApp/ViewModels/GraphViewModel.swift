@@ -155,6 +155,13 @@ final class GraphViewModel {
     /// there is genuinely nothing to show yet.
     var isLoading: Bool { store.graph.isEmpty && store.graph.isRefreshing }
 
+    /// Nothing to draw because the memory could not be read — not because it is empty (`Store.couldNotRead`).
+    var couldNotRead: Bool { store.graph.isEmpty && store.couldNotRead(.graph) }
+
+    /// The unread state's one action, when the backend itself is fine and only this read failed.
+    func retryRead() { Task { await store.refresh([.graph]) } }
+    var offersRetry: Bool { store.reach == .up }
+
     /// Shared filter state for the Graph and Topics tabs. Any mutation pushes
     /// `applyFilters` to graph.js on the next update pass — filtering happens
     /// in JS so node positions survive filter toggles.

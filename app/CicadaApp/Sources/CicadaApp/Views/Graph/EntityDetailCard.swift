@@ -54,6 +54,8 @@ struct EntityDetailCard: View {
     // keys; the perspective tab filters to valid claims itself.
     @State private var claims: [Claim] = []
     @State private var claimsLoaded = false
+    /// Production blocker (2026-11-06) — the read failed. The beliefs are unknown, which is not "none recorded".
+    @State private var claimsUnread = false
     /// F4 — the verbatim file, fetched for Source or Copy when the card's payload withheld its fence (`rawOmitted`).
     @State private var rawFile = RawFileLoader()
     /// What every tab shows from `claims`, derived once per load off the main actor (`ClaimDigest`).
@@ -179,7 +181,7 @@ struct EntityDetailCard: View {
                 isStub: isStub,
                 canGoBack: canGoBack, backTargetName: backTargetName, onBack: goBack,
                 showsClose: showsCloseButton, onClose: close,
-                tabs: EntityTabs.tabs(digest: claimsLoaded ? digest : nil,
+                tabs: EntityTabs.tabs(digest: claimsLoaded && !claimsUnread ? digest : nil,
                                       historyCount: EntityTabs.historyCount(embedded: entity.history, fetched: nil),
                                       selected: selectedTab),
                 selection: $selectedTab,
@@ -899,6 +901,8 @@ struct EntityDetailCard: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
             if !claimsLoaded {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, alignment: .center)
+            } else if claimsUnread {
+                claimsUnreadRow
             } else if validClaims.isEmpty {
                 Text(Copy.Graph.noBeliefsYet)
                     .font(CicadaTheme.bodyFont)
@@ -956,6 +960,8 @@ struct EntityDetailCard: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             if !claimsLoaded {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, alignment: .center)
+            } else if claimsUnread {
+                claimsUnreadRow
             } else {
                 let keys = TimelineKeys.rows(contested: digest.contested, requested: requestedKey)
                 if keys.isEmpty {
@@ -993,7 +999,7 @@ struct EntityDetailCard: View {
     /// unstructured so a caller's cancellation (a tab switch removing the section) never discards it half-way; the
     /// card checks it is still on the same page before keeping the answer.
     private func loadClaimsIfNeeded() async {
-        guard !claimsLoaded else { return }
+        guard !claimsLoaded || claimsUnread else { return }
         if let claimsRead { return await claimsRead.value }
         let id = entity.id
         let read = Task { @MainActor in
@@ -1006,11 +1012,26 @@ struct EntityDetailCard: View {
             guard id == entity.id else { return }
             claims = loaded
             digest = derived
+            claimsUnread = fetched == nil   // a failed read is not "no beliefs" (2026-11-06)
             claimsLoaded = true
         }
         claimsRead = read
         await read.value
         if claimsRead == read { claimsRead = nil }
+    }
+
+    /// The beliefs could not be read: said once, with the one way to ask again.
+    private var claimsUnreadRow: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            Text(Copy.Reach.beliefsUnread)
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+            TextButton(title: Copy.Reach.tryAgain, inline: true) {
+                claimsLoaded = false
+                claimsUnread = false
+                Task { await loadClaimsIfNeeded() }
+            }
+        }
     }
 
     // MARK: - Helpers
