@@ -739,7 +739,7 @@ the person's own agent, in their own signed-in browser, on their standing ask. T
 **Subscriptions** (the account menu → Subscriptions). Cicada never spawns a browser, never signs in and never fetches a
 Substack page; the private reader endpoints with the person's cookie are scraping behind authentication and stay out.
 **Consent:** agent reading on (its sheet acknowledged) AND the person turned that list on (`reading.json`
-`substack_lists`, `{saved|history|subscriptions: day}`, offs in `substack_lists_off`; `PUT /reading/settings`
+`substack_lists`, `{saved|liked|history|subscriptions: day}`, offs in `substack_lists_off`; `PUT /reading/settings`
 `substackLists` patch; `GET` carries `substackLists`, `substackListsOff` and `substack` — per list the last read, its
 outcome and count, and the one pause). **Off until the person turns it on**: no memory shows a Substack account before
 a read, so owner 2026-10-26's on-by-default (for accounts the memory shows) cannot apply. Each switch is a standing ask

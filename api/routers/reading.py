@@ -62,7 +62,7 @@ class SettingsUpdate(BaseModel):
     #: G206 (2026-10-22): a patch ``{x|instagram|linkedin: bool}`` — the saved lists on those sites the person's own
     #: agent keeps current from their signed-in browser (the Sources page's switch). Turning one on lifts its pause.
     savedLists: dict[str, bool] | None = None
-    #: G89 (2026-11-04): a patch ``{saved|history|subscriptions: bool}`` — the Substack lists the person's own agent
+    #: G89 (2026-11-04): a patch ``{saved|liked|history|subscriptions: bool}`` — the Substack lists the person's own agent
     #: keeps current from their signed-in browser (the Sources page's Substack entry). Turning one on lifts the pause.
     substackLists: dict[str, bool] | None = None
 

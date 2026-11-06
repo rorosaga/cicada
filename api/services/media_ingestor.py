@@ -2129,8 +2129,10 @@ def _episode_body(
     return "\n".join(lines)
 
 
-def _entity_body(meta: MediaMeta, note: str | None) -> str:
-    summary = f"Saved {meta.media_type} — {meta.title}."
+def _entity_body(meta: MediaMeta, note: str | None, origin: str | None = None) -> str:
+    # ROR-138: a feed item (RSS/Atom) was published to the person, never saved by them, so its page never says "Saved".
+    verb = "From a feed" if (origin or "").strip().lower() in episode_time.FEED_ORIGINS else f"Saved {meta.media_type}"
+    summary = f"{verb} — {meta.title}."
     lines = ["## Summary", summary]
     if meta.description:
         lines += ["", "## Description", meta.description]
@@ -2410,7 +2412,7 @@ def write_media_entity(
         # G166: the wall the save-time request hit, in the backfill's own keys.
         frontmatter["fetch_status"] = meta.fetch_status
         frontmatter["fetch_attempted_at"] = today.strftime("%Y-%m-%d")
-    body = _entity_body(meta, item.note)
+    body = _entity_body(meta, item.note, item.origin)
     markdown_parser.write(entities_dir / f"{entity_id}.md", frontmatter, body)
 
 

@@ -202,7 +202,7 @@ def saved_list_allowed(key: str) -> bool:
 
 
 #: G89 (2026-11-04): the Substack lists an agent may be asked to read (``substack_lists.LISTS``' keys).
-SUBSTACK_LISTS = ("saved", "history", "subscriptions")
+SUBSTACK_LISTS = ("saved", "liked", "history", "subscriptions")
 
 
 def substack_lists() -> dict[str, str]:
@@ -414,7 +414,7 @@ def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sit
     if substack_lists_ is not None:
         # G89: the same standing ask, one per Substack list.
         if not isinstance(substack_lists_, dict) or any(str(k) not in SUBSTACK_LISTS for k in substack_lists_):
-            raise SettingsError("substackLists must be a map of saved, history or subscriptions to true or false. "
+            raise SettingsError("substackLists must be a map of saved, liked, history or subscriptions to true or false. "
                                 "Nothing was changed.")
         if any(substack_lists_.values()) and not _ack_ok(data):
             raise SettingsError(

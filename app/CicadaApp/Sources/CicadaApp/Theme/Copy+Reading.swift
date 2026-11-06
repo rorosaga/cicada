@@ -28,13 +28,15 @@ extension Copy {
         }
         // G89 (2026-11-04): the Substack lists the person's own agent keeps current from their signed-in browser.
         static let substackIntro = "Substack gives readers no way to connect another app, so your own agent reads "
-            + "these pages in your browser and keeps them current here. Saved posts are kept for lookup, never read; "
+            + "these pages in your browser and keeps them current here. Saved and liked posts are kept for lookup, never read; "
             + "what you read becomes one entry per day; each subscription is followed through the publication's "
             + "public feed. Cicada never signs in for you."
         static let substackSavedTitle = "Keep Saved current"
+        static let substackLikedTitle = "Keep Liked current"
         static let substackHistoryTitle = "Keep reading history current"
         static let substackSubscriptionsTitle = "Follow my subscriptions"
         static let substackSavedOff = "Off — your agent never opens your Saved posts."
+        static let substackLikedOff = "Off — your agent never opens your liked posts."
         static let substackHistoryOff = "Off — your agent never opens your reading history."
         static let substackSubscriptionsOff = "Off — your agent never opens your subscriptions."
         static func substackPaused(_ day: String) -> String {
