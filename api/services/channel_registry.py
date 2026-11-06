@@ -42,6 +42,7 @@ from api.services import (
     media_ingestor,
     messages_source,
     origin_stats,
+    source_overview,
     reminders_local,
     sync_state,
     tab_groups,
@@ -329,12 +330,13 @@ def build_channels(
     by_origin = {o["origin"]: o for o in origin_stats.aggregate_origins(memory_path)}
     connected_map = connectors_connected or {}
 
+    # The links and files the person saved — not every item `ingest_batch` ever wrote: a saved-list post, a bookmark, a
+    # pin or a feed item is another source's, and counting it made Files & links read Connected over someone who never
+    # added one (sources-truth). The same set the Files & links page lists (`source_overview.files_media_count`).
     try:
-        url_index = media_ingestor.load_url_index(memory_path)
+        saved_count = source_overview.files_media_count(memory_path)
     except Exception:
-        url_index = {}
-    # R-LS14: an alias entry is the same paper under its other URL.
-    saved_count = sum(1 for e in url_index.values() if not (isinstance(e, dict) and e.get("alias_of")))
+        saved_count = 0
 
     telegram_count = int((by_origin.get("telegram") or {}).get("episodeCount") or 0)
 
