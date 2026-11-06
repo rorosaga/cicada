@@ -33,6 +33,25 @@ CLI_FIX = {
 }
 
 
+#: What a server adds to Sleep's no-engine sentence (``engine_select.no_engine_sentence``): the sentence names only
+#: what the app does, and the CLI, which is how a machine with no app is set up, says the commands.
+RUN_CLI_FIX = ("On a server: `cicada engine connect claude-plan` (or `chatgpt-plan`), or `cicada sleep engine --mode "
+               "byok` for a key you chose.")
+SCHEDULE_CLI_FIX = "On a server: `cicada sleep schedule --use-plan on`."
+
+
+def cli_fix_for_error(error: str | None) -> str:
+    """The command-line fix for a Sleep error that is a no-engine sentence, else ``""``."""
+    from api.services import engine_select
+
+    text = (error or "").strip()
+    if text.startswith(engine_select.NO_ENGINE_LEAD):
+        return RUN_CLI_FIX
+    if text.startswith(engine_select.SCHEDULE_DEGRADED_LEAD):
+        return SCHEDULE_CLI_FIX
+    return ""
+
+
 @dataclass(frozen=True)
 class Problem:
     code: str

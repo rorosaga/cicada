@@ -610,7 +610,10 @@ def cmd_sleep_status(boot, args) -> Result:
     if "unprocessedCount" in debt:
         lines.append(f"  waiting: {debt['unprocessedCount']} conversation(s)")
     if st.get("error"):
-        lines.append(f"  last error: {st['error']}")
+        from api.services import engine_readiness
+
+        fix = engine_readiness.cli_fix_for_error(str(st["error"]))
+        lines.append(f"  last error: {st['error']}" + (f" {fix}" if fix else ""))
     return Result(text="\n".join(lines), data=st, warnings=_warn(boot))
 
 
