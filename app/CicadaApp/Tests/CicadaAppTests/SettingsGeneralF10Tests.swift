@@ -15,11 +15,11 @@ final class SettingsGeneralF10Tests: XCTestCase {
         // D6's word budget: the groups keep their order without their headings.
         let marks = ["SettingsRow(.appearance,", "SettingsRow(.textSize,",
                      "SettingsRow(.openAtLogin,", "SettingsRow(.showInMenuBar,",
-                     "SettingsRow(.backgroundService,", "SettingsDemoTourGroup()", "SettingsRow(.appVersion,"]
+                     "SettingsRow(.backgroundService,", "SettingsDemoTourGroup()", ".settingsRow(.appVersion)"]
         let positions = try marks.map { try XCTUnwrap(text.range(of: $0), $0).lowerBound }
         XCTAssertEqual(positions, positions.sorted(),
                        "F-10: Look · Startup · When Cicada is closed, then Getting started and the version (Hyrum B12)")
-        XCTAssertTrue(try source("Views/Settings/SettingsDemoTourGroup.swift").contains("SettingsRow(.runSetup,"),
+        XCTAssertTrue(try source("Views/Settings/SettingsDemoTourGroup.swift").contains(".settingsRow(.runSetup)"),
                       "Setup is in Getting started")
         XCTAssertEqual(Copy.lookGroup, "Look")
         XCTAssertEqual(Copy.startupGroup, "Startup")

@@ -20,40 +20,35 @@ struct SettingsDemoTourGroup: View {
 
     private var inDemo: Bool { DemoMode.isActive(store.banks.value) }
 
+    /// Round 1 (ROR-118): four action tiles in one strip, each a glyph over its own words, instead of three rows of
+    /// plain text (the row titles repeated their buttons). Each tile is its row's landing anchor.
     var body: some View {
-        SettingsGroupCard {
-            SettingsRow(.runSetup, title: Copy.setup) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    // DR-40 — F-10's text buttons.
-                    TextButton(title: Copy.runSetupAgain) {
-                        OnboardingState.reset(bank: store.bank)
-                        router.requestFirstRun()
-                    }
-                    // R-IB17 — the checklist is re-openable, beside Run setup again so G139's index lands on both.
-                    TextButton(title: Copy.gsShowChecklist) {
-                        GettingStartedState.showChecklist(bank: store.bank)
-                        // A card already seen done this session would otherwise reopen as "You're set up."
-                        runner.sawDoneThisSession = false
-                        runner.checklistChanged()
-                        router.pendingTab = .home
-                        router.activateMainWindow()
-                    }
-                }
+        HStack(spacing: CicadaTheme.spacingSM) {
+            // DR-40 — neutral, no primary.
+            SetupTile(systemImage: "arrow.counterclockwise", title: Copy.runSetupAgain) {
+                OnboardingState.reset(bank: store.bank)
+                router.requestFirstRun()
             }
-            SettingsDivider()
-            SettingsRow(.guidedTour, title: Copy.Tour.settingsTitle) {
-                TextButton(title: Copy.Tour.offerTake) {
-                    router.closeSettings()
-                    tour.requestStart()
-                }
+            .settingsRow(.runSetup)
+            // R-IB17 — the checklist is re-openable, beside Run setup again so G139's index lands on both.
+            SetupTile(systemImage: "checklist", title: Copy.gsShowChecklist) {
+                GettingStartedState.showChecklist(bank: store.bank)
+                // A card already seen done this session would otherwise reopen as "You're set up."
+                runner.sawDoneThisSession = false
+                runner.checklistChanged()
+                router.pendingTab = .home
+                router.activateMainWindow()
             }
-            SettingsDivider()
-            SettingsRow(.demoMemory, title: Copy.Demo.demoTitle) {
-                TextButton(title: inDemo ? Copy.Demo.leaveDemo : Copy.Demo.exploreDemo) {
-                    inDemo ? leave() : enter()
-                }
-                .disabled(busy)
+            SetupTile(systemImage: "map", title: Copy.Tour.offerTake) {
+                router.closeSettings()
+                tour.requestStart()
             }
+            .settingsRow(.guidedTour)
+            SetupTile(systemImage: "sparkles", title: inDemo ? Copy.Demo.leaveDemo : Copy.Demo.exploreDemo,
+                      isDisabled: busy) {
+                inDemo ? leave() : enter()
+            }
+            .settingsRow(.demoMemory)
         }
     }
 
@@ -89,5 +84,43 @@ struct SettingsDemoTourGroup: View {
             if let why = DemoMode.leaveToast(outcome) { store.toast = why }
             busy = false
         }
+    }
+}
+
+/// One tile of the Getting started strip: a glyph over its words, on the focus surface with a resting ring that
+/// strengthens under the pointer (DR-9, DR-48); neutral like every Settings button (DR-40).
+private struct SetupTile: View {
+    let systemImage: String
+    let title: String
+    var isDisabled = false
+    let action: () -> Void
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: CicadaTheme.scaled(6)) {
+                Image(systemName: systemImage)
+                    .font(CicadaTheme.icon(.sidebar))
+                    .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                Text(title)
+                    .font(CicadaTheme.metaMediumFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, CicadaTheme.spacingSM)
+            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(76))
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+            .rowHoverFill(hovering: hovering, cornerRadius: CicadaTheme.cornerRadius)
+            .ringed(hovering ? .strong : .resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? NeutralButton.disabledOpacity : 1)
     }
 }

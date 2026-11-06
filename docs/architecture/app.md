@@ -321,7 +321,7 @@ on the rail's surface (owner 2026-10-07): `CicadaTheme.titlebarBackground(for:)`
 inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
 Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Search & memory · Sleep;
 Customize: Integrations · Reading the web · Agents · Devices & access · Skills; Engines & keys: Engines — and each
-page's own header with an `esc` keycap and a close ×. It is modal: the shell under it is inert, ⌘K waits, Esc and a
+page's own header with a close × (the `esc` keycap beside it retired, ROR-118 round 1; the × carries Esc). It is modal: the shell under it is inert, ⌘K waits, Esc and a
 scrim click close it. `AppRouter.openSettings(_:row:)` is the one door (`SettingsSectionLink`, the gear, ⌘,), every
 hand-off to a page closes it, and `cicada.settingsSection` is only its remembered selection — the `Settings{}` scene
 and its cross-window seeds are gone. Privacy & data exports a bank and moves one to `<root>/.trash/`, but never
@@ -379,8 +379,10 @@ Light · Dark · System (`AppearancePicker`, owner 2026-10-26), each a drawing o
 a pointer's choice cross-fades the window on `CicadaMotion.settle`, a key switches in one frame (`AppearanceMotion`,
 DR-60). **System is the default** (`AppearancePreference.defaultChoice`: an absent or unknown value; a stored `light`/`dark`
 is an explicit choice, kept on upgrade) and follows the Mac's own light/dark through one app-scope observer
-(`ThemeStore.observeSystemAppearance`). The palette's Switch to light/dark actions write the same key. General (F-10:
-Look · Startup · When Cicada is closed) holds Appearance and Text size (Scene retired with the painted art, owner
+(`ThemeStore.observeSystemAppearance`). The palette's Switch to light/dark actions write the same key. General (F-10, re-laid in ROR-118 round 1 as five blocks: Appearance with three larger
+tiles and Text size under them; one card of switches (Open Cicada at login, Show in menu bar, Suggest connecting apps,
+Keep memory working, the updater); a strip of four setup tiles (Run setup again, Show setup checklist, Take the tour,
+the demo); a version footer beside Report a problem) holds Appearance and Text size (Scene retired with the painted art, owner
 2026-10-16: it picked a painting, and none is left), Open Cicada at
 login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does not keep says so), Show in
 menu bar (per viewer, on by default; hides the 18 × 18 menu-bar bookworm (ruling 18), the Dock icon stays); a login launch opens no

@@ -59,7 +59,11 @@ struct SettingsPanel: View {
         GeometryReader { geo in
             let size = SettingsPanelLayout.size(container: geo.size)
             ZStack {
-                CicadaTheme.scrimPanel
+                // Round 1 (ROR-118): the app behind the panel is dimmed past legibility so the panel alone is read.
+                ZStack {
+                    CicadaTheme.scrimPanel
+                    Color.black.opacity(CicadaTheme.mode == .dark ? 0.4 : 0.14)
+                }
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture { router.closeSettings() }
@@ -178,7 +182,6 @@ struct SettingsPanel: View {
         .environment(\.settingsHeaderTrailingInset, CicadaTheme.scaled(SettingsPanelLayout.closeClusterWidth))
         .overlay(alignment: .topTrailing) {
             HStack(spacing: CicadaTheme.spacingSM) {
-                KeyHint("esc").help(Copy.pressEscToClose)
                 IconButton(systemName: "xmark", help: Copy.closeSettingsHelp, accessibilityLabel: Copy.closeSettings,
                            shortcut: .cancelAction) { focus.escape { router.closeSettings() } }
             }
@@ -232,8 +235,8 @@ enum SettingsPanelLayout {
     static let height: CGFloat = 740
     static let sidebarWidth: CGFloat = 220
     static let minimumInset: CGFloat = 40
-    /// `esc` keycap + gap + 28 pt close × + trailing padding.
-    static let closeClusterWidth: CGFloat = 88
+    /// The 28 pt close × + a gap. The `esc` keycap beside it retired (round 1, ROR-118): the × carries Esc.
+    static let closeClusterWidth: CGFloat = 52
 
     static func size(container: CGSize) -> CGSize {
         CGSize(width: max(0, min(CicadaTheme.scaled(width), container.width - 2 * minimumInset)),
@@ -242,7 +245,7 @@ enum SettingsPanelLayout {
 }
 
 /// A sidebar row (DR-33 "in the rail's row tokens"): 32 pt, a 16 pt glyph that acknowledges
-/// the pointer, `rowFont`. `textTertiary` at rest; `bgHover` + `textPrimary` on hover;
+/// the pointer, `rowFont`. `textSecondary` at rest (round 1); `bgHover` + `textPrimary` on hover;
 /// `bgSelected` + `textPrimary` when chosen — never the accent. While a query is active it
 /// carries its match count in tabular figures, and VoiceOver reads it as a value.
 /// The Settings sidebar's hover, as one value (owner's live check 2026-10-14: "Skills" kept a fill while "Agents", then
@@ -292,9 +295,10 @@ private struct SettingsSidebarRow: View {
                         .foregroundStyle(isSelected ? CicadaTheme.textTertiaryOnFill : CicadaTheme.textTertiary)
                 }
             }
-            .foregroundStyle(isSelected || hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+            // Round 1 (ROR-118): rows rest in textSecondary, not textTertiary — the icons read dim beside the page.
+            .foregroundStyle(isSelected || hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             .padding(.horizontal, CicadaTheme.scaled(10))
-            .frame(height: CicadaTheme.scaled(32))
+            .frame(height: CicadaTheme.scaled(34))
             .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(fill))
             .contentShape(Rectangle())
         }
