@@ -83,6 +83,7 @@ REPLY_PLAIN = 1 + 64
 REPLY_LEN = 32 + REPLY_PLAIN + TAG
 CLOCK_SKEW_S = 300
 HELLO_TIMEOUT_S = 3.0
+STOP_WAIT_S = 2.0
 IDLE_S = 120.0
 PING_S = 25.0
 CHUNK = 512 * 1024
@@ -800,10 +801,16 @@ class Server:
     async def stop(self) -> None:
         if self.rebind_task is not None:
             self.rebind_task.cancel()
-        for srv in list(self.bound.values()):
+        for srv in self.bound.values():
             srv.close()
+        # `wait_closed` waits for every open connection, so a connected peer would hold the stop forever.
+        for writers in self.by_device.values():
+            for writer in writers:
+                with contextlib.suppress(Exception):
+                    writer.transport.abort()
+        for srv in list(self.bound.values()):
             with contextlib.suppress(Exception):
-                await srv.wait_closed()
+                await asyncio.wait_for(srv.wait_closed(), STOP_WAIT_S)
         self.bound.clear()
         if self.watch_task is not None:
             self.watch_task.cancel()
@@ -1132,6 +1139,9 @@ class Conn:
 
     def close(self) -> None:
         self.broken = True
+        # Linux doesn't wake a thread blocked reading this socket on close alone: a watch would wait on.
+        with contextlib.suppress(OSError):
+            self.sock.shutdown(socket.SHUT_RDWR)
         with contextlib.suppress(OSError):
             self.sock.close()
 
