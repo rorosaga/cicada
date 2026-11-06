@@ -2502,10 +2502,15 @@ name on word boundaries, literal characters, diacritic-insensitive and case-inse
 the start or end of a longer name — "Claude" is not named by "Claude Code"; in doubt the name shows).
 - **Clusters has one filter:** a View menu with the Graph's own types (`graphVM.filter.types`), labels, and a
   remembered *Expand all*. Its tabs are navigation: All plus each present type, by plural name. With nothing open it
-  is mock A's cards (F-11, G146; plain labels and no type glyphs since 2026-10-28): People · Projects · Companies · Tools · Concepts · Media two to a row, the
-  rest three to a short row, each a card of 56 pt tiles — `EntityPicture`, the name, one line in words (never tags or
-  a percentage) — six in the first row of cards and four after, "Show all ›" opening the type's tab (one card, every
-  tile); `ClustersGrid` decides it, pure. A click on a tile's picture opens the image picker (no separate hover button, owner 2026-09-30); its
+  is a page with a lead (ROR-118 round 1; plain labels and no type glyphs since 2026-10-28), never six like cards:
+  **People** as one strip of eight 76 pt portraits on the page's own ground (a monogram where there is no photo), the
+  name under each and the line a hover help; **Projects** as a row of three cards, the name large over its whole line
+  (two lines of room, so a sentence is never cut) with the picture at the corner only when it has one; **Companies ·
+  Tools · Concepts** as three ruled lists of five names alone side by side, a picture on the trailing edge only where one
+  exists so the names share one left edge; **Media** as a ruled list of six names; the rest three to a short row;
+  "Show all ›" opens the type's tab. Under 900 units the portraits are two rows of four and the cards one column.
+  `ClustersGrid` decides it, pure (Expand all and a type tab keep the one-card-per-type `ClusterCard`). A click on a
+  tile's picture opens the image picker (no separate hover button, owner 2026-09-30); its
   words open the card. ⌘F shows the list column (its find row, then find's ranked rows) in place of the cards while it
   is open. Beside a card the list keeps rows with pictures and an age, recently mentioned first
   (`lastReferenced` on `/graph` nodes). The detail column hosts DS-3a's `EntityDetailCard`, in its `.card` style, with

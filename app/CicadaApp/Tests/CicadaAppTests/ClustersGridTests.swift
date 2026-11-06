@@ -19,33 +19,43 @@ final class ClustersGridTests: XCTestCase {
          group(.media, 40), group(.skill, 6), group(.location, 4), group(.directory, 3)]
     }
 
-    func testFullCardsPairUpAndTheRestShareShortRows() {
+    func testFacesLeadListsAndMediaThenTheShortRows() {
         XCTAssertEqual(ClustersGrid.rows(groups, expandAll: false), [
-            .pair([.person, .project]), .pair([.company, .tool]), .pair([.concept, .media]),
+            .faces([.person]), .lead([.project]), .trio([.company, .tool, .concept]), .gallery([.media]),
             .short([.skill, .location, .directory]),
         ])
         XCTAssertEqual(ClustersGrid.rows([group(.person, 2), group(.skill, 1)], expandAll: false),
-                       [.pair([.person]), .short([.skill])])
+                       [.faces([.person]), .short([.skill])])
+        XCTAssertEqual(ClustersGrid.rows([group(.tool, 2), group(.concept, 1)], expandAll: false),
+                       [.trio([.tool, .concept])], "a missing list leaves its slot, not a hole in the order")
         XCTAssertEqual(ClustersGrid.rows([group(.person, 2), group(.tool, 1)], expandAll: true),
                        [.pair([.person]), .pair([.tool])], "Expand all: one card per row")
     }
 
-    /// F-11's own counts: 6 tiles in the first row of cards, 4 after, 2 lines in a short card.
-    func testTheTileBudgetIsF11s() {
+    /// ROR-118 — 8 portraits, 3 project cards, 5 names a list, 6 media, 2 lines in a short card.
+    func testTheBudgetIsOneStripOneRowOfCardsAndShortLists() {
         let rows = ClustersGrid.rows(groups, expandAll: false)
-        XCTAssertEqual(ClustersGrid.budget(rows[0], index: 0, expandAll: false), 6)
-        XCTAssertEqual(ClustersGrid.budget(rows[1], index: 1, expandAll: false), 4)
-        XCTAssertEqual(ClustersGrid.budget(rows[3], index: 3, expandAll: false), 2)
+        XCTAssertEqual(ClustersGrid.budget(rows[0], index: 0, expandAll: false), 8)
+        XCTAssertEqual(ClustersGrid.budget(rows[1], index: 1, expandAll: false), 3)
+        XCTAssertEqual(ClustersGrid.budget(rows[2], index: 2, expandAll: false), 5)
+        XCTAssertEqual(ClustersGrid.budget(rows[3], index: 3, expandAll: false), 6)
+        XCTAssertEqual(ClustersGrid.budget(rows[4], index: 4, expandAll: false), 2)
         XCTAssertNil(ClustersGrid.budget(rows[0], index: 0, expandAll: true))
     }
 
-    /// DR-68 — ↑/↓ walk the tiles in reading order: row by row, card by card.
+    /// DR-68 — ↑/↓ walk what is drawn in reading order: row by row, section by section.
     func testTheKeysWalkWhatIsDrawnInReadingOrder() {
         let visible = ClustersGrid.visible(groups, tab: nil, expandAll: false).map(\.id)
-        XCTAssertEqual(visible.count, 6 + 6 + 4 + 4 + 4 + 4 + 2 + 2 + 2)
-        XCTAssertEqual(Array(visible.prefix(7)), ["person-0", "person-1", "person-2", "person-3", "person-4", "person-5",
-                                                  "project-0"])
+        XCTAssertEqual(visible.count, 8 + 3 + 5 + 5 + 5 + 6 + 2 + 2 + 2)
+        XCTAssertEqual(Array(visible.prefix(10)), (0..<8).map { "person-\($0)" } + ["project-0", "project-1"])
         XCTAssertEqual(ClustersGrid.visible(groups, tab: .tool, expandAll: false).count, 22, "a tab shows every tile")
+    }
+
+    func testThePortraitsAndCardsRegroupUnderNineHundredUnits() {
+        XCTAssertEqual(ClustersGrid.faceColumns(width: 1200, scale: 1.0), 8)
+        XCTAssertEqual(ClustersGrid.faceColumns(width: 800, scale: 1.0), 4)
+        XCTAssertEqual(ClustersGrid.leadColumns(width: 1200, scale: 1.0), 3)
+        XCTAssertEqual(ClustersGrid.leadColumns(width: 1200, scale: 1.4), 1, "857 units")
     }
 
     func testATabsCardWidensWithTheWindowAndNarrowsWithZoom() {
