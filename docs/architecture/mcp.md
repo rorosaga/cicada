@@ -838,6 +838,16 @@ never opens a browser and never schedules an agent.
   refused with "keep the files and record again" while Sleep writes. A shot is a file the agent saved (the design board's
   by-identity refusal of `~/.claude`, `~/.codex`, `~/.cicada`, `~/Library` and the bank) or base64, ≤ 12 MB. When the
   person turned signed-in exploring off, a record claiming `signed_in: true` is refused.
+- **`cicada_export_requests(done?)`** (ROR-126, ruling 58b; stdio only, `catalog.NEVER_REMOTE`; refused in a demo bank) is the
+  person's yes per provider to having their agent request a chat export. No `done` lists what waits (`state: asked`) with the
+  provider's export page and the rules: use the person's own browser session, never sign in or ask for a password, never open
+  their email. `done=[{vendor, outcome: requested|manual, reason?}]` reports each: `requested` starts nothing new (the app's
+  wait began at the yes) and tells the app the export is on its way, `manual` ends the wait and leaves that provider on its
+  walkthrough. Only a provider the person said yes to can be reported on. The queue is `export_requests.py`
+  (`$CICADA_HOME/export_requests/<bank>.json`, 0600, outside every bank, a vendor, a state, dates, the harness's name and
+  a ≤ 200-character reason; rows expire after 14 days) behind `GET/POST/DELETE /export-requests`; Cicada opens no browser,
+  signs in nowhere and schedules no agent, and the handshake does not mention it — the person's yes and "request my exports"
+  are the trigger, as with exploring.
 - **`cicada_explore_queue(limit?)`** is the read-only list; **`cicada_site_map(site?)`** (slice 2) reads a site's map
   by name or by any link on it, or lists the explored sites. All five tools are stdio-only (`catalog.NEVER_REMOTE`);
   the four that act are refused in a demo bank and while "Let an agent read pages for you" is off. Telemetry: one

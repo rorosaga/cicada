@@ -204,7 +204,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   name to no session a harness named, so a hook-captured harness never is. One episode per conversation, stored as
   relayed (`evidence_kind: assistant`), never the person's own words until that app's export upgrades it in place
   (`capture-and-sleep.md`). **Exports are one-time (ruling 58):** a new memory's start or an import from an AI provider;
-  nothing reminds a person to repeat one or watches for one. Turns after an import stay in that episode, each marked as relayed.
+  nothing reminds a person to repeat one or watches for one. **58b:** a one-off wait the person starts, their agent requesting it in their own browser (`cicada_export_requests`), never a repeat or a mail watch. Turns after an import stay in that episode, each marked as relayed.
 - **Transcripts under `~/.claude/` are never read anywhere else** — the MCP seam and resume only `isfile()` them.
   A client of a server elsewhere reads its session there with Cicada's own extractor and posts the capped turns (ruling 28).
   **Agent memory notes (ruling 43):** Claude Code's `projects/*/memory/*.md` are read by its own hook, never the backend

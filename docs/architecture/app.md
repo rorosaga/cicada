@@ -524,6 +524,27 @@ once at launch (`removeRetiredNudges`, identifiers `cicada.exportWeekly.*` and `
 one-off wait and everything imported alone. An old notification's tap opens the intake idle, as a due reminder's does. A
 Files and Folders grant macOS recorded stays listed in System Settings; the app no longer uses it.
 
+**Asking the person's agent to request it (ruling 58b, ROR-126).** `AgentExportOffer`, under the walkthrough's honest
+line, shows only when `ExportAgentRules.canRequest` is true: an agent is connected (`/agents/wiring`, recall on) and can
+drive a browser (`/agent-methods`, the reading job chosen as the agent's own tools or a browser skill installed). *Request
+<provider> for me* is one yes for that provider; it posts `POST /export-requests/<vendor>` and, from that same click,
+starts the wait and its reminder (`ExportWaitStore.remind`, tomorrow 09:00 — the reminder is the fallback, and its
+notification permission is asked here, as it is from *Remind me*). The agent picks the request up through
+`cicada_export_requests` (`mcp.md`) when the person next talks to it; the offer then says "Asked. Tell your agent…",
+"Your agent asked for the … export", or, for `manual`, why this one stays by hand (and the wait is dropped). **Home's
+worm:** `HomeExportWaitStrip`, above the blocks, one row a provider ("Waiting on your … export · requested …"), the small
+mood sprite beside it (DR-13 keeps the study room the one illustration, so this is the mood sprite on a row Rodrigo
+asked for by name, 2026-11-06); a request still `asked`, or `manual`, is not a wait (`ExportAgentRules.waitingVendors`),
+and the menu bar's lines follow the same rule. A sniff of that provider's export clears both the wait and the request.
+
+**Choosing what to bring in (ruling 58b).** The intake preview and the Welcome's staged exports show `ExportChoiceView`:
+a start date (`Everything`, or a date within the exports' own range) and a tick per new or grown chat, with a filter,
+*Select all/none* and "n of m chats". `IntakePreview.since` / `.deselected` are the choice; `chatImportCount` is the
+Import button's number. The choice goes with the import as form fields (`since`, `exclude`), applied by the backend before
+staging, so nothing becomes an episode first. A chat left out before arrives unticked ("Left out of an earlier import").
+An export that arrives during onboarding opens the chooser (`WelcomeExportChoiceSheet`) before it is read in; Done reads
+it in, or Get started does when it arrived on the Welcome.
+
 **Recordings and videos (meaning index 2, 2026-10-28).** **File → Add Recording, Video or Photo…** (2026-10-29; photos 2026-11-05) is the
 keyboard and VoiceOver twin: the intake's own open panel (`IntakePicker.chooseMedia`, audio and video types, no folders)
 hands what was chosen to `IntakeRouter.accept`, so the menu takes the drop's door and its rules. An audio or video file among a drop (by its type; a folder
