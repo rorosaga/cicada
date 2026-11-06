@@ -13,9 +13,8 @@ struct OnboardingRoom: View {
     let mood: BookwormState
     /// Points per lattice cell (`OnboardingRoomLayout.cell`).
     let cell: CGFloat
-    /// The working pages' pane (ROR-118, round 2): the room as a close view that fills the whole pane, its floor on the
-    /// window's bottom edge and its wall carried up to the top edge, so no ground shows above or below it. Nil is the
-    /// whole room at its own size (Welcome, Done).
+    /// The working pages' pane (ROR-118, round 6): the room cropped a little top and bottom and centred in the pane,
+    /// the page's plain ground above and below. Nil is the whole room at its own size (Welcome, Done).
     var fill: CGSize? = nil
 
     @AppStorage(SceneryMode.defaultsKey) private var sceneryRaw = SceneryMode.localWeather.rawValue
@@ -34,46 +33,21 @@ struct OnboardingRoom: View {
         .frame(width: size.width, height: size.height)
         Group {
             if let fill {
-                ZStack(alignment: .bottomLeading) {
-                    // The wall above the room is the room's own top nine rows, repeated upward (ROR-118 round 5; round 4
-                    // stretched row one, a blank wall): the backdrop's wallpaper repeats every nine rows, so whole bands
-                    // of it carry its dashes and light up the wall, whole cells, never resampled. The backdrop alone,
-                    // so no prop's top edge repeats with it.
-                    wallBands(scenery: scenery, height: fill.height - size.height, roomHeight: size.height)
-                    art
-                }
-                .offset(x: -CGFloat(OnboardingRoomLayout.cropStartCol) * cell)
-                .frame(width: fill.width, height: fill.height, alignment: .bottomLeading)
-                .clipped()
+                // Round 6 (owner 2026-11-06: the drawn floor and ceiling "look super weird"): the original room art only,
+                // a few rows cropped off its top and bottom so no wall repeats, whole cells, centred in the pane on the
+                // page's own dark ground. No wall bands, no floor, nothing added.
+                art
+                    .offset(x: -CGFloat(OnboardingRoomLayout.cropStartCol) * cell,
+                            y: -CGFloat(OnboardingRoomLayout.cropTopRows) * cell)
+                    .frame(width: CGFloat(OnboardingRoomLayout.cropCols) * cell,
+                           height: CGFloat(OnboardingRoomLayout.cropRows) * cell, alignment: .topLeading)
+                    .clipped()
+                    .frame(width: fill.width, height: fill.height, alignment: .center)
             } else {
                 art
             }
         }
         .accessibilityHidden(true)
-    }
-}
-
-extension OnboardingRoom {
-    /// The wall's repeat, in lattice rows: the backdrop's dashes sit every nine rows from the top.
-    static let wallPeriodRows = 9
-
-    /// Bands of the backdrop's top `wallPeriodRows` rows, stacked so their bottom edge meets the room's top edge and
-    /// they cover `height`, bottom-leading like the room.
-    @ViewBuilder
-    func wallBands(scenery: Scenery, height: CGFloat, roomHeight: CGFloat) -> some View {
-        let band = CGFloat(Self.wallPeriodRows) * cell
-        let count = max(1, Int((max(0, height) / band).rounded(.up)) + 1)
-        let art = RoomArt.tag(.backdrop, lampLit: false, scenery: scenery)
-        let sheet = art.flatMap { SpriteSheets.sheet(named: $0.sheet) }
-        VStack(spacing: 0) {
-            ForEach(0..<count, id: \.self) { _ in
-                SpriteLayerView(clip: art.flatMap { sheet?.clip($0.tag) }, sheet: sheet, pixelScale: cell,
-                                canvasSize: CGSize(width: DeskScene.cols, height: DeskScene.rows))
-                    .frame(width: CGFloat(DeskScene.cols) * cell, height: band, alignment: .top)
-                    .clipped()
-            }
-        }
-        .offset(y: -roomHeight)
     }
 }
 
@@ -111,6 +85,11 @@ enum OnboardingRoomLayout {
     static func paneWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {
         paneCell(windowWidth: w, scale: scale) * CGFloat(cropCols)
     }
+
+    /// Rows cropped off the room's top and bottom in the pane: 2 above the window's frame, 2 of the baseboard's foot;
+    /// the worm (rows 9–57 from the bottom), window, lamp, plant, clock and mug stay whole.
+    static let cropTopRows = 2
+    static let cropRows = 60
 
     /// Welcome: the room over its card, 960 × 384 over the 960 pt card (ROR-118 round 3).
     static func heroCell(cardWidth: CGFloat) -> CGFloat {

@@ -175,8 +175,8 @@ struct OnboardingView: View {
 
     // MARK: The split frame
 
-    /// The room in the working pages' pane: a close view that fills it, floor to wall, edge to edge (ROR-118 round 2),
-    /// so no black ground sits above or below it. Art only: it rests while See how covers it, and no word sits on it
+    /// The room in the working pages' pane: cropped a little top and bottom and centred (ROR-118 round 6),
+    /// the page ground above and below it. Art only: it rests while See how covers it, and no word sits on it
     /// (DR-13). A hairline on its trailing edge is the seam with the column (DR-9, a ring, not a shadow).
     private func pane(width: CGFloat, height: CGFloat, windowWidth: CGFloat) -> some View {
         let cell = OnboardingRoomLayout.paneCell(windowWidth: windowWidth, scale: CGFloat(CicadaTheme.uiScale))

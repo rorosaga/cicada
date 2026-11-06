@@ -670,10 +670,10 @@ up*): **Welcome · Intelligence · Agents · Sources · Meet your bookworm · Do
 card (`OnboardingRoom`, the one illustration, DR-13; the worm's mood per step); the three working steps are the split
 frame — the room in its `bgPane` pane, the column with "Step n of 6 · k still coming in", *Set up later*, and a foot of
 Back, a visible **Skip** and the one primary Continue (⏎ never animates).
-**UI climb rounds 1-3 (ROR-118; round 3 amends what follows where it says so):** the pane is a close view of the room that fills it floor to wall, edge to edge
+**UI climb rounds 1-3 (ROR-118; round 3 amends what follows where it says so):** the pane is the original room art, cropped (round 6) and centred on the page ground
 (`OnboardingRoom(fill:)`: round 4: columns 0-111 of the lattice at 5 pt a cell, 560 pt at 1x (39% of a 1440 pt window), so the lamp, window, plant, worm, clock and mug are all whole — `OnboardingRoomLayout.paneCell`,
 a whole number of cells, stepping down before the column drops under its minimum, gone when it would be a sliver; the
-wall above the room is the backdrop's own top nine rows repeated upward (round 5: `OnboardingRoom.wallBands`, whole cells, so its dashes continue; round 4 stretched one row, a blank wall), never resampled; a hairline ring is its seam). The column is
+room is cropped 2 rows off its top and 2 off its bottom (`cropTopRows`, `cropRows` = 60, whole cells, worm whole) and centred vertically, the page's own ground above and below, nothing drawn or repeated (round 6, owner 2026-11-06: a drawn floor and ceiling "look super weird"; rounds 2-5's wall bands are gone); a hairline ring is its seam). The column is
 fixed: the headline starts `OnboardingLayout.stepTop` under the topbar on every step and the foot (Back, Skip, Continue)
 sits on the bottom margin on every step (round 4: one 88 pt band under a hairline holding *Back* leading and *Skip this step* and the one large Continue trailing, `OnboardingLink`: what moves between steps; *Set up later* (*Close* on a rerun) leaves the whole flow, so it is `OnboardingLeaveLink` with a close mark in the window's top corner, level with the progress, on Welcome and every working step; the ⏎ chip is gone, the key still advances), so nothing moves between steps; a tall step scrolls between them and the foot
 stays pinned (`OnboardingView.column`). Rows of the working steps are `OnboardingRowLine` (round 3: 17 medium over a 15 line, in the roomy 48 pt `LogoTile`; was 16 over 14 in the

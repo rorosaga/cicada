@@ -53,6 +53,10 @@ final class OnboardingPagesTests: XCTestCase {
         XCTAssertEqual(OnboardingPage.agents.roomMood, .happy)
         XCTAssertEqual(OnboardingPage.done.roomMood, .happy)
         XCTAssertEqual(OnboardingRoomLayout.paneCell(windowWidth: 1440, scale: 1), 5, "112 columns at 5 pt, every prop whole")
+        // Round 6: the original art cropped a little top and bottom, never more than the room has, worm rows whole.
+        XCTAssertLessThanOrEqual(OnboardingRoomLayout.cropTopRows + OnboardingRoomLayout.cropRows, RoomLattice.rows)
+        XCTAssertLessThanOrEqual(OnboardingRoomLayout.cropTopRows, 64 - (DeskScene.wormCell.y + 48))
+        XCTAssertLessThanOrEqual(RoomLattice.rows - OnboardingRoomLayout.cropTopRows - OnboardingRoomLayout.cropRows, DeskScene.wormCell.y)
         XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 800), 5)
         XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 960), 6, "960 × 384 over the 960 pt card")
         XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 2000), 6)
@@ -69,7 +73,6 @@ final class OnboardingPagesTests: XCTestCase {
     func testOnboardingRowsShareOneMarkBoxAndTheWallRepeatsItsPeriod() {
         XCTAssertEqual(LogoTile.tileSide(.roomy), CicadaTheme.scaled(48))
         XCTAssertEqual(LogoTile.markSide(.roomy), CicadaTheme.scaled(36))
-        XCTAssertEqual(OnboardingRoom.wallPeriodRows, 9, "the backdrop's dashes sit every nine rows from its top")
     }
 
     /// Paint is retired from onboarding: the frame draws the room, never a painting (owner 2026-10-16).
