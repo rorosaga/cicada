@@ -82,7 +82,7 @@ final class NavRailTests: XCTestCase {
         XCTAssertFalse(ShellChrome().itemsDisabled)
         XCTAssertTrue(ShellChrome(welcomeShowing: true).itemsHidden)
         XCTAssertEqual(ShellChrome(welcomeShowing: true).itemOpacity, 0)
-        XCTAssertEqual(ShellChrome(settingsOpen: true).itemOpacity, 0.4)
+        XCTAssertEqual(ShellChrome(settingsOpen: true).itemOpacity, 0)
         XCTAssertTrue(ShellChrome(settingsOpen: true).itemsDisabled)
         XCTAssertFalse(ShellChrome(settingsOpen: true).itemsHidden)
     }

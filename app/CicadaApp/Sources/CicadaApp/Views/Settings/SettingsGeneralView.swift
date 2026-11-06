@@ -72,27 +72,31 @@ struct SettingsGeneralView: View {
                 }
                 SettingsDivider()
                 SettingsRow(.textSize, title: Copy.textSize) {
+                    // Round 4 (ROR-118): the readout ends on the card's trailing edge, like every switch below it;
+                    // "Actual size" (only while the size is not 100%) sits in the free space to the slider's left,
+                    // so it never moves the slider under the pointer.
                     HStack(spacing: CicadaTheme.spacingSM) {
-                        Image(systemName: "textformat.size.smaller")
-                            .font(CicadaTheme.icon(.sidebar))
+                        Text("A")
+                            .font(CicadaTheme.captionFont)
                             .foregroundStyle(CicadaTheme.textSecondary)
                             .accessibilityHidden(true)
                         Slider(value: scale, in: ThemeStore.scaleRange, step: ThemeStore.scaleStep)
-                            .frame(width: CicadaTheme.scaled(150))
-                        Image(systemName: "textformat.size.larger")
-                            .font(CicadaTheme.icon(.sidebar))
+                            .frame(width: CicadaTheme.scaled(180))
+                        Text("A")
+                            .font(CicadaTheme.font(size: 19, weight: .medium))
                             .foregroundStyle(CicadaTheme.textSecondary)
                             .accessibilityHidden(true)
                         Text("\(Int((CicadaTheme.uiScale * 100).rounded()))%")
                             .font(CicadaTheme.rowFont.monospacedDigit())
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .frame(width: CicadaTheme.scaled(48), alignment: .trailing)
-                        // Round 2 (ROR-118): at 100% there is nothing to reset, so the button keeps its slot and goes
-                        // quiet instead of drawing as a disabled control.
-                        NeutralButton(title: Copy.actualSize, size: .compact,
-                                      isDisabled: CicadaTheme.uiScale == 1.0) { CicadaTheme.resetZoom() }
-                            .opacity(CicadaTheme.uiScale == 1.0 ? 0 : 1)
-                            .accessibilityHidden(CicadaTheme.uiScale == 1.0)
+                    }
+                    .overlay(alignment: .leading) {
+                        if CicadaTheme.uiScale != 1.0 {
+                            NeutralButton(title: Copy.actualSize, size: .compact) { CicadaTheme.resetZoom() }
+                                .fixedSize()
+                                .alignmentGuide(.leading) { $0[.trailing] + CicadaTheme.spacingMD }
+                        }
                     }
                 }
             }
@@ -157,7 +161,6 @@ struct SettingsGeneralView: View {
             // Hyrum audit B12: setup, the tour and the demo are one job, so one strip. The command-line tool left for
             // Agents (B11).
             SettingsDemoTourGroup()
-                .padding(.top, CicadaTheme.spacingSM)
             // G182 — the version a tester reports; the backend's only when it differs (an updated app beside a
             // background service still running the old one). Plain text, monospaced digits (DR-21). An update that
             // couldn't be installed while Cicada was closed is said here, once, for this session (phase 5). Round 1:
@@ -166,13 +169,13 @@ struct SettingsGeneralView: View {
                 HStack(spacing: CicadaTheme.spacingMD) {
                     Text(Copy.versionLine(appVersion))
                         .font(CicadaTheme.metaFont.monospacedDigit())
-                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .foregroundStyle(CicadaTheme.textTertiary)
                         .textSelection(.enabled)
                         .settingsRow(.appVersion)
                     Spacer(minLength: CicadaTheme.spacingSM)
                     // Tester readiness (2026-10-26) — beside the version a report quotes; the same sheet as Help's item.
-                    NeutralButton(title: Copy.ReportProblem.settingsButton, size: .compact,
-                                  help: Copy.ReportProblem.settingsDetail) {
+                    // Round 4 (ROR-118): the quietest control on the page, a text button on the footer line.
+                    TextButton(title: Copy.ReportProblem.settingsButton, help: Copy.ReportProblem.settingsDetail) {
                         router.openReportProblem()
                     }
                     .settingsRow(.reportProblem)
@@ -186,8 +189,8 @@ struct SettingsGeneralView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.horizontal, CicadaTheme.spacingXS)
-            .padding(.top, CicadaTheme.spacingXS)
+            .padding(.leading, CicadaTheme.spacingMD)
+            .padding(.trailing, max(0, CicadaTheme.spacingMD - TextButton.inset(inline: false)))
             .task(id: store.isConnected) {
                 if let health = try? await APIClient.shared.fetchHealth() { backendVersion = health.version }
             }
@@ -210,6 +213,11 @@ struct BackgroundServiceButton: View {
         }
     }
 
+    /// A native switch's height, so a row with a word in its place stands as tall as its neighbours.
+    private static let switchHeight: CGFloat = 28
+    /// The switch's track ends a little inside its frame; the word ends on the track's edge.
+    private static let switchTrailingInset: CGFloat = 2
+
     var body: some View {
         switch backendAgent.state {
         case .missing, .stopped, .failed:
@@ -227,20 +235,15 @@ struct BackgroundServiceButton: View {
         case .checking, .installing:
             ProgressView().controlSize(.small)
         case .running:
-            // The row said nothing at all while it worked (looks pass 2026-10-23): a dot and one word, like Devices.
-            // Round 3 (ROR-118): it has no off switch here (the service is installed, not toggled), so it is a status
-            // and nothing more: a dot and a word at the switches' trailing edge, no pill that could pass for a control.
-            HStack(spacing: CicadaTheme.scaled(6)) {
-                Circle().fill(CicadaTheme.success)
-                    .frame(width: CicadaTheme.scaled(8), height: CicadaTheme.scaled(8))
-                Text(Copy.Status.on)
-                    .font(CicadaTheme.rowFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-            }
-            .padding(.trailing, CicadaTheme.scaled(4))
-            .fixedSize()
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Copy.Status.on)
+            // Round 4 (ROR-118): it has no off switch here (the service is installed, not toggled), so it is a plain
+            // word where the switches sit, at their height and on their trailing edge. The green dot, a pattern no
+            // other row had, is gone.
+            Text(Copy.Status.on)
+                .font(CicadaTheme.rowFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .frame(minHeight: CicadaTheme.scaled(Self.switchHeight))
+                .padding(.trailing, CicadaTheme.scaled(Self.switchTrailingInset))
+                .fixedSize()
         }
     }
 }

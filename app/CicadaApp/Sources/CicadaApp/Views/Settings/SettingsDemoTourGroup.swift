@@ -23,9 +23,10 @@ struct SettingsDemoTourGroup: View {
     /// Round 1 (ROR-118): four action tiles in one strip, each a glyph over its own words, instead of three rows of
     /// plain text (the row titles repeated their buttons). Each tile is its row's landing anchor.
     var body: some View {
-        // Round 3 (ROR-118): four equal buttons in one low row (a strip of wide tiles competed with the real settings):
-        // neutral fill and a resting ring so each reads as clickable, one outline glyph weight, secondary to the cards.
-        HStack(spacing: CicadaTheme.spacingSM) {
+        // Round 4 (ROR-118): one low bar of four equal cells on the cards' own fill and ring, hairlines between them,
+        // as wide as the cards above it. Round 2's cells were tall and outweighed the settings; round 3's four loose
+        // buttons had no edge to line up with. Neutral, no primary (DR-40).
+        HStack(spacing: 0) {
             // DR-40 — neutral, no primary.
             SetupTile(systemImage: "arrow.counterclockwise", title: Copy.runSetupAgain) {
                 OnboardingState.reset(bank: store.bank)
@@ -41,18 +42,23 @@ struct SettingsDemoTourGroup: View {
                 router.pendingTab = .home
                 router.activateMainWindow()
             }
+            .columnEdge(.leading)
             SetupTile(systemImage: "map", title: Copy.Tour.offerTake) {
                 router.closeSettings()
                 tour.requestStart()
             }
+            .columnEdge(.leading)
             .settingsRow(.guidedTour)
             SetupTile(systemImage: "play.circle", title: inDemo ? Copy.Demo.leaveDemo : Copy.Demo.exploreDemo,
                       isDisabled: busy) {
                 inDemo ? leave() : enter()
             }
+            .columnEdge(.leading)
             .settingsRow(.demoMemory)
-            Spacer(minLength: 0)
         }
+        .frame(height: CicadaTheme.scaled(44))
+        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .settingsCardSurface()
     }
 
     /// `GettingStartedCard`'s effects, with Home as the landing — the demo plan ends on `.showHome`.
@@ -90,7 +96,8 @@ struct SettingsDemoTourGroup: View {
     }
 }
 
-/// One button of the Getting started row: a glyph beside its words on the neutral button fill and ring (DR-40, DR-48).
+/// One cell of the Getting started bar: a glyph beside its words, filling its quarter; the pointer lights the cell
+/// (`bgButtonHover`), and the bar's own fill and ring are the cards' (DR-40, DR-48); its hairlines are `columnEdge`s (DR-11).
 private struct SetupTile: View {
     let systemImage: String
     let title: String
@@ -109,13 +116,11 @@ private struct SetupTile: View {
                     .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
-                    .fixedSize()
+                    .minimumScaleFactor(0.85)
             }
-            .padding(.horizontal, CicadaTheme.scaled(14))
-            .frame(minHeight: CicadaTheme.scaled(40))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(hovering && !isDisabled ? CicadaTheme.bgButtonHover : CicadaTheme.bgButton))
-            .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+            .padding(.horizontal, CicadaTheme.scaled(8))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(hovering && !isDisabled ? CicadaTheme.bgButtonHover : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
