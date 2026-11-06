@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import time
 from datetime import date, datetime
 from pathlib import Path
 
@@ -928,6 +929,12 @@ def _device_of(fm: dict) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+#: ``(bank, sort)`` -> ``(etag, the built list, when)``: one answer per bank and sort, kept under the ETag it was built for.
+_SOURCE_LIST_MEMO: dict[tuple[str, str], tuple[str, "SourceListResponse", float]] = {}
+#: Relevance decays with the day, which no ETag input carries, so a kept answer ends after five minutes.
+_SOURCE_LIST_MEMO_TTL_S = 300.0
+
+
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
     request: Request,
@@ -952,189 +959,202 @@ async def list_sources(
                                  extra=f"{sort}|{SHAPE}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
-    idx = media_ingestor.load_url_index(memory_path)
-    reading_enabled = reading_settings.agent_enabled()
-    reading_allowed = tuple(reading_settings.allowed_sites())
-    try:
-        ask_rows = {r["url_hash"]: r for r in reading_asks.all_rows(memory_path)}
-    except ValueError:
-        ask_rows = {}
-    reading_paused = reading_queue.paused_sites(list(ask_rows.values()))
-    # G191: the person's answer lives on the link's episode; one cached listing of `episodes/` answers every row.
-    episode_fm = {f.stem: f.frontmatter for f in bank_index.files(memory_path, "episodes")}
-    capture_thumbs = _capture_thumbs(memory_path)
-    # G191 v4: the links that left a browser ride the bookmark seen-set (`sources/`, already an input of the ETag).
-    left_by_hash = bookmark_seen.left_by_hash(memory_path)
+    memo_key = (str(memory_path), sort)
+    held = _SOURCE_LIST_MEMO.get(memo_key)
+    if held is not None and held[0] == etag and time.monotonic() - held[2] < _SOURCE_LIST_MEMO_TTL_S:
+        return held[1]
 
-    items = []
-    for raw_key, entry in idx.items():
-        # R-LS14: a paper's second canonical URL is an alias of its first; one
-        # paper is one Feed row.
-        if isinstance(entry, dict) and entry.get("alias_of"):
-            continue
-        entity_id = entry.get("media_entity_id", "")
-        related_count = 0
-        status = "active"
-        enrichment_status = ""
-        tags: list[str] = []
-        relevance = 0.0
-        personal_relevance = None
-        site = None
-        channel = None
-        description: str | None = None
-        about: list[str] = []
-        origin: str | None = None
-        folder: str | None = None
-        provider: str | None = None
-        duration_s: int | None = None
-        kind: str | None = None
-        paper: PaperSummary | None = None
-        preview: str | None = None
-        fm_read = None
-        wall_page = None
-        saved_page = False
-        entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
-        if entity_path.exists():
-            try:
-                from api.services import markdown_parser
+    def _build() -> SourceListResponse:
+        idx = media_ingestor.load_url_index(memory_path)
+        reading_enabled = reading_settings.agent_enabled()
+        reading_allowed = tuple(reading_settings.allowed_sites())
+        try:
+            ask_rows = {r["url_hash"]: r for r in reading_asks.all_rows(memory_path)}
+        except ValueError:
+            ask_rows = {}
+        reading_paused = reading_queue.paused_sites(list(ask_rows.values()))
+        # G191: the person's answer lives on the link's episode; one cached listing of `episodes/` answers every row.
+        episode_fm = {f.stem: f.frontmatter for f in bank_index.files(memory_path, "episodes")}
+        capture_thumbs = _capture_thumbs(memory_path)
+        # G191 v4: the links that left a browser ride the bookmark seen-set (`sources/`, already an input of the ETag).
+        left_by_hash = bookmark_seen.left_by_hash(memory_path)
 
-                parsed = markdown_parser.parse(entity_path)
-                fm = parsed.frontmatter or {}
-                # Review of #372: a site key only where the media icon route would answer (one predicate).
-                saved_page = channel_items.is_saved_link_page(fm)
-                # G102 R12 — read the excerpt + `about` ids straight after the
-                # parse, before any later field: this block is one `try` whose
-                # `except: pass` would otherwise drop them if relevance or
-                # `media` raised on an odd page.
-                description = _description_excerpt(parsed.body)
-                # The page's own picture as Cicada stores it (the person's upload, else the stored preview) — the
-                # row never loads a provider's URL itself.
-                preview = entity_picture.media_picture(entity_id, fm)
-                about = [str(r) for r in (fm.get("related") or []) if str(r).strip()]
-                # G124 R6 — the Sources page filters these items by source and
-                # groups them by folder/board/device, straight from the page.
-                origin = str(fm.get("origin") or "").strip() or None
-                folder = str(fm.get("folder") or "").strip() or None
-                related_count = len(fm.get("related") or [])
-                status = fm.get("status", "active")
-                fm_read = fm.get("read")
-                # G166: is this a page Cicada's own reader could not read (and that holds no
-                # words)? Decided from the page this loop already parsed — no second read.
+        items = []
+        for raw_key, entry in idx.items():
+            # R-LS14: a paper's second canonical URL is an alias of its first; one
+            # paper is one Feed row.
+            if isinstance(entry, dict) and entry.get("alias_of"):
+                continue
+            entity_id = entry.get("media_entity_id", "")
+            related_count = 0
+            status = "active"
+            enrichment_status = ""
+            tags: list[str] = []
+            relevance = 0.0
+            personal_relevance = None
+            site = None
+            channel = None
+            description: str | None = None
+            about: list[str] = []
+            origin: str | None = None
+            folder: str | None = None
+            provider: str | None = None
+            duration_s: int | None = None
+            kind: str | None = None
+            paper: PaperSummary | None = None
+            preview: str | None = None
+            fm_read = None
+            wall_page = None
+            saved_page = False
+            entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
+            if entity_path.exists():
                 try:
-                    st = entity_path.stat()
-                    wall_page = reading_walls.page_for(
-                        memory_path, entity_id, fm, parsed.body, mtime_ns=st.st_mtime_ns, size=st.st_size)
-                except OSError:
-                    wall_page = None
-                # Track P R5 — what the person removed, and what enrichment
-                # retired, must stop rendering. G129 slice 2's `remove`
-                # ARCHIVES the media entity (`inbox_service.py:962-966`) and
-                # never deletes it, so the page is still on disk and this read
-                # path was still emitting a row for it — the answer read as
-                # ignored. `enrichment_status: "junk"` is `link_enrichment`'s
-                # permanent verdict on a consent or login interstitial
-                # (`:886`); until now its only readers were the enrichment
-                # scan (`:670`) and `link_recon` (`:145`), so a retired page
-                # kept a Feed row. Filtered HERE, on the one read path both
-                # the Feed and a source page's item list use, so the two
-                # agree.
-                enrichment_status = str(fm.get("enrichment_status") or "")
-                tags = fm.get("tags") or []
-                relevance = media_ingestor.compute_relevance(fm)
-                pr = fm.get("personal_relevance")
-                personal_relevance = pr if isinstance(pr, str) and pr else None
-                # site/channel live in the entity frontmatter (media.site /
-                # media.channel), not the url_index — read them back so the
-                # FeedRow site line and site search filter actually work.
-                media = fm.get("media") or {}
-                if isinstance(media, dict):
-                    s = media.get("site")
-                    site = s if isinstance(s, str) and s else None
-                    c = media.get("channel")
-                    channel = c if isinstance(c, str) and c else None
-                    # Track V (R15) — same rule as site/channel: the two video
-                    # keys live on the page, never in `url_index.json`, so the
-                    # Feed row can show a play badge and a duration pill
-                    # without a second index to migrate.
-                    pv = media.get("provider")
-                    provider = pv if isinstance(pv, str) and pv else None
-                    d = media.get("duration_s")
-                    duration_s = d if isinstance(d, int) and not isinstance(d, bool) and d > 0 else None
-                    # G133 — a paper page's byline, from its own `paper:`
-                    # block (never the index), so the Feed can show and
-                    # search authors, the arXiv id and the DOI.
-                    k = media.get("kind")
-                    kind = k if isinstance(k, str) and k else None
-                    pp = fm.get("paper")
-                    if kind == "paper" and isinstance(pp, dict):
-                        paper = PaperSummary(
-                            authors=[str(a) for a in (pp.get("authors") or [])][:8],
-                            arxiv_id=pp.get("arxiv_id"), doi=pp.get("doi"),
-                            published=pp.get("published"), venue=pp.get("venue") or pp.get("journal_ref"))
-            except Exception:
-                pass
-        if status in _HIDDEN_STATUSES:
-            continue
-        if enrichment_status == "junk" and wall_page is None and not (
-                isinstance(fm_read, dict) and fm_read.get("by") == "agent"):
-            # Track P R5, amended 2026-09-30 (ruling 14): a retired interstitial stays hidden
-            # unless it is a wall an agent can be asked to read, or an agent already read it —
-            # the person can find it, ask for it, or see what the agent brought back.
-            continue
-        items.append(
-            MediaSourceItem(
-                media_entity_id=entity_id,
-                url=entry.get("url", ""),
-                title=entry.get("title", ""),
-                media_type=entry.get("media_type", "url"),
-                site=site,
-                site_key=reading_hosts.mark_key(str(entry.get("url") or "")) if saved_page else None,
-                channel=channel,
-                thumbnail=entry.get("thumbnail"),
-                preview=preview,
-                saved_at=entry.get("saved_at", ""),
-                content_saved_at=entry.get("content_saved_at"),
-                saved_why=_saved_why_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
-                saved_why_history=_saved_why_history_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
-                last_saved_at=saved_why.last_saved(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
-                capture_thumb=capture_thumbs.get(entity_id),
-                left_browser=_left_browser(left_by_hash, raw_key, entry),
-                device=_device_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
-                tags=tags,
-                status=status,
-                related_count=related_count,
-                relevance=round(relevance, 4),
-                personal_relevance=personal_relevance,
-                description=description,
-                about=about,
-                origin=origin,
-                folder=folder,
-                provider=provider,
-                duration_s=duration_s,
-                kind=kind,
-                paper=paper,
-                read=_read_block(
-                    entry, fm_read, ask_rows, enabled=reading_enabled, allowed=reading_allowed,
-                    wall=wall_page.wall if wall_page is not None and wall_page.waiting else None,
-                    paused=reading_paused),
+                    from api.services import markdown_parser
+
+                    parsed = markdown_parser.parse(entity_path)
+                    fm = parsed.frontmatter or {}
+                    # Review of #372: a site key only where the media icon route would answer (one predicate).
+                    saved_page = channel_items.is_saved_link_page(fm)
+                    # G102 R12 — read the excerpt + `about` ids straight after the
+                    # parse, before any later field: this block is one `try` whose
+                    # `except: pass` would otherwise drop them if relevance or
+                    # `media` raised on an odd page.
+                    description = _description_excerpt(parsed.body)
+                    # The page's own picture as Cicada stores it (the person's upload, else the stored preview) — the
+                    # row never loads a provider's URL itself.
+                    preview = entity_picture.media_picture(entity_id, fm)
+                    about = [str(r) for r in (fm.get("related") or []) if str(r).strip()]
+                    # G124 R6 — the Sources page filters these items by source and
+                    # groups them by folder/board/device, straight from the page.
+                    origin = str(fm.get("origin") or "").strip() or None
+                    folder = str(fm.get("folder") or "").strip() or None
+                    related_count = len(fm.get("related") or [])
+                    status = fm.get("status", "active")
+                    fm_read = fm.get("read")
+                    # G166: is this a page Cicada's own reader could not read (and that holds no
+                    # words)? Decided from the page this loop already parsed — no second read.
+                    try:
+                        st = entity_path.stat()
+                        wall_page = reading_walls.page_for(
+                            memory_path, entity_id, fm, parsed.body, mtime_ns=st.st_mtime_ns, size=st.st_size)
+                    except OSError:
+                        wall_page = None
+                    # Track P R5 — what the person removed, and what enrichment
+                    # retired, must stop rendering. G129 slice 2's `remove`
+                    # ARCHIVES the media entity (`inbox_service.py:962-966`) and
+                    # never deletes it, so the page is still on disk and this read
+                    # path was still emitting a row for it — the answer read as
+                    # ignored. `enrichment_status: "junk"` is `link_enrichment`'s
+                    # permanent verdict on a consent or login interstitial
+                    # (`:886`); until now its only readers were the enrichment
+                    # scan (`:670`) and `link_recon` (`:145`), so a retired page
+                    # kept a Feed row. Filtered HERE, on the one read path both
+                    # the Feed and a source page's item list use, so the two
+                    # agree.
+                    enrichment_status = str(fm.get("enrichment_status") or "")
+                    tags = fm.get("tags") or []
+                    relevance = media_ingestor.compute_relevance(fm)
+                    pr = fm.get("personal_relevance")
+                    personal_relevance = pr if isinstance(pr, str) and pr else None
+                    # site/channel live in the entity frontmatter (media.site /
+                    # media.channel), not the url_index — read them back so the
+                    # FeedRow site line and site search filter actually work.
+                    media = fm.get("media") or {}
+                    if isinstance(media, dict):
+                        s = media.get("site")
+                        site = s if isinstance(s, str) and s else None
+                        c = media.get("channel")
+                        channel = c if isinstance(c, str) and c else None
+                        # Track V (R15) — same rule as site/channel: the two video
+                        # keys live on the page, never in `url_index.json`, so the
+                        # Feed row can show a play badge and a duration pill
+                        # without a second index to migrate.
+                        pv = media.get("provider")
+                        provider = pv if isinstance(pv, str) and pv else None
+                        d = media.get("duration_s")
+                        duration_s = d if isinstance(d, int) and not isinstance(d, bool) and d > 0 else None
+                        # G133 — a paper page's byline, from its own `paper:`
+                        # block (never the index), so the Feed can show and
+                        # search authors, the arXiv id and the DOI.
+                        k = media.get("kind")
+                        kind = k if isinstance(k, str) and k else None
+                        pp = fm.get("paper")
+                        if kind == "paper" and isinstance(pp, dict):
+                            paper = PaperSummary(
+                                authors=[str(a) for a in (pp.get("authors") or [])][:8],
+                                arxiv_id=pp.get("arxiv_id"), doi=pp.get("doi"),
+                                published=pp.get("published"), venue=pp.get("venue") or pp.get("journal_ref"))
+                except Exception:
+                    pass
+            if status in _HIDDEN_STATUSES:
+                continue
+            if enrichment_status == "junk" and wall_page is None and not (
+                    isinstance(fm_read, dict) and fm_read.get("by") == "agent"):
+                # Track P R5, amended 2026-09-30 (ruling 14): a retired interstitial stays hidden
+                # unless it is a wall an agent can be asked to read, or an agent already read it —
+                # the person can find it, ask for it, or see what the agent brought back.
+                continue
+            items.append(
+                MediaSourceItem(
+                    media_entity_id=entity_id,
+                    url=entry.get("url", ""),
+                    title=entry.get("title", ""),
+                    media_type=entry.get("media_type", "url"),
+                    site=site,
+                    site_key=reading_hosts.mark_key(str(entry.get("url") or "")) if saved_page else None,
+                    channel=channel,
+                    thumbnail=entry.get("thumbnail"),
+                    preview=preview,
+                    saved_at=entry.get("saved_at", ""),
+                    content_saved_at=entry.get("content_saved_at"),
+                    saved_why=_saved_why_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                    saved_why_history=_saved_why_history_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                    last_saved_at=saved_why.last_saved(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                    capture_thumb=capture_thumbs.get(entity_id),
+                    left_browser=_left_browser(left_by_hash, raw_key, entry),
+                    device=_device_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                    tags=tags,
+                    status=status,
+                    related_count=related_count,
+                    relevance=round(relevance, 4),
+                    personal_relevance=personal_relevance,
+                    description=description,
+                    about=about,
+                    origin=origin,
+                    folder=folder,
+                    provider=provider,
+                    duration_s=duration_s,
+                    kind=kind,
+                    paper=paper,
+                    read=_read_block(
+                        entry, fm_read, ask_rows, enabled=reading_enabled, allowed=reading_allowed,
+                        wall=wall_page.wall if wall_page is not None and wall_page.waiting else None,
+                        paused=reading_paused),
+                )
             )
-        )
 
-    # G99d — recency prefers the recovered true save date, falling back to
-    # the ingest timestamp only when no source date was recoverable. This
-    # deliberately reorders the Feed relative to the old ingest-only sort.
-    # Parsed to a real instant (review finding) rather than compared as raw
-    # strings — a bare content_saved_at date and a full saved_at timestamp
-    # otherwise mix formats and tie-break by string length, not by time. See
-    # `saved_at.sort_instant`'s docstring for the exact same-day rule.
-    def _recency_key(i: MediaSourceItem) -> datetime:
-        return saved_at_service.sort_instant(i.content_saved_at or i.saved_at)
+        # G99d — recency prefers the recovered true save date, falling back to
+        # the ingest timestamp only when no source date was recoverable. This
+        # deliberately reorders the Feed relative to the old ingest-only sort.
+        # Parsed to a real instant (review finding) rather than compared as raw
+        # strings — a bare content_saved_at date and a full saved_at timestamp
+        # otherwise mix formats and tie-break by string length, not by time. See
+        # `saved_at.sort_instant`'s docstring for the exact same-day rule.
+        def _recency_key(i: MediaSourceItem) -> datetime:
+            return saved_at_service.sort_instant(i.content_saved_at or i.saved_at)
 
-    if sort == "relevance":
-        items.sort(key=lambda i: (i.relevance, _recency_key(i)), reverse=True)
-    else:
-        items.sort(key=_recency_key, reverse=True)
-    return SourceListResponse(items=items, total=len(items))
+        if sort == "relevance":
+            items.sort(key=lambda i: (i.relevance, _recency_key(i)), reverse=True)
+        else:
+            items.sort(key=_recency_key, reverse=True)
+        return SourceListResponse(items=items, total=len(items))
+
+    # Speed 2026-11-06 (ROR snappy): the build reads and parses every saved page (~2 s at 4,400 links) and was an
+    # `async def` running on the event loop, so a page read waited behind it (2.6 s measured on a 9,000-page memory).
+    # It runs on a worker thread now, and the answer is kept under the very ETag a 304 already trusts.
+    result = await run_in_threadpool(_build)
+    _SOURCE_LIST_MEMO[memo_key] = (etag, result, time.monotonic())
+    return result
 
 
 @router.get("/sources/due")

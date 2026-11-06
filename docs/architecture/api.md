@@ -1067,3 +1067,9 @@ it leniently; `/sleep/queue` has no ETag and is not a Store domain. Neither list
 aggregate and the HEAD it was folded at, per bank, in the process; a new HEAD costs `git log <old>..HEAD` (when the old
 HEAD is still an ancestor, else the whole walk) and the same HEAD costs nothing. Warm 200 on a 9,000-page memory
 1,415–1,929 → ~180 ms; the first call of a process still walks the history once (~6 s there).
+
+**`GET /sources` is built off the event loop and kept under its ETag (speed, 2026-11-06).** The list parses every saved
+page (~2 s at 4,400 links on a 9,000-page memory) and was an `async def` doing that work on the loop, so a page read
+waited behind it (2.6 s measured). The build runs in `run_in_threadpool` and the built list is kept per `(bank, sort)`
+under the ETag it was built for (the one a 304 already trusts), for five minutes at most because relevance decays with
+the day. Warm `?sort=relevance` 1,938 → 128 ms; a page read during a rebuild waits ≤ 565 ms, not 2.6 s.
