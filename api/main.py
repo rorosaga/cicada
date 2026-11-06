@@ -71,6 +71,7 @@ from api.routers import (
 )
 from api.services import bank_binding, bank_registry, response_compression, search_index, sleep_refusal, sleep_scheduler
 from api.services import question_order, sensitive_hold
+from api.services import bank_index
 from api.services.providers import warm_query_embedder
 from api.services.auth import auth_enabled, get_token, require_token
 from api.services.bank_migrations import run_bank_migrations
@@ -152,6 +153,29 @@ price_supplement.apply(litellm)
 SHUTDOWN_DRAIN_S = 30.0
 
 
+def _warm_page_headers(memory_path) -> None:
+    """The page and conversation headers, read once and alone (``bank_index``); never raises."""
+    try:
+        for subdir in ("entities", "episodes"):
+            bank_index.files(memory_path, subdir)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"start-up warm: page headers skipped ({type(exc).__name__})")
+
+
+async def _staged_warm(memory_path) -> None:
+    """Speed 2026-11-06: the launch warm-ups ran together and the app's first requests with them, every one wanting the
+    page headers (9,000-page memory, backend just started: first `/status` 22 s, first `/graph` 45 s, past the app's
+    30 s refresh timeout). The headers are read first, alone; then the rest start: the search model and index (G136),
+    the sensitive hold (G235, the door to every engine) and the question order (ruling 70: the first hook after launch
+    finds its tables warm). The app's own first requests wait on the same read (``bank_index``'s per-folder guard)."""
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _warm_page_headers, memory_path)
+    loop.run_in_executor(None, warm_query_embedder, memory_path)
+    search_index.warm_in_background(memory_path)
+    loop.run_in_executor(None, sensitive_hold.warm, memory_path)
+    loop.run_in_executor(None, question_order.warm, memory_path)
+
+
 @asynccontextmanager
 async def _replica_lifespan(app: FastAPI, settings):
     """A replica's start and stop (G132 phase 1 B): the follower (first copy, then fast-forwards) and nothing that
@@ -160,11 +184,7 @@ async def _replica_lifespan(app: FastAPI, settings):
 
     logger.info("This computer keeps a copy of a memory held elsewhere (replica mode)")
     app.state.scheduler = None
-    asyncio.get_running_loop().run_in_executor(None, warm_query_embedder, settings.memory_path)
-    search_index.warm_in_background(settings.memory_path)
-    asyncio.get_running_loop().run_in_executor(None, sensitive_hold.warm, settings.memory_path)
-    # Ruling 70: the first hook after launch (a 300 ms budget) finds the order's tables warm, not a page-by-page read.
-    asyncio.get_running_loop().run_in_executor(None, question_order.warm, settings.memory_path)
+    asyncio.get_running_loop().create_task(_staged_warm(settings.memory_path))
     # G132 phase 3b: the relay link (when the person set a relay) before the follower, so its first ask can take
     # either path; the direct listener when CICADA_DEVICE_URL names this computer's private address.
     from api.services import sync_net
@@ -222,11 +242,8 @@ async def lifespan(app: FastAPI):
 
     _replica.leave_copy(settings.memory_root)
 
-    # Preload the query embedder recorded in the bank's index in the
-    # background so the first /search request doesn't pay the model-load
-    # cost. Never awaited — must not block startup — and warm_query_embedder
-    # swallows its own errors so a slow/missing index can't crash boot.
-    asyncio.get_running_loop().run_in_executor(None, warm_query_embedder, settings.memory_path)
+    # The query embedder is preloaded (so the first /search request doesn't pay the model-load cost) by `_staged_warm`,
+    # after the page headers: never awaited here, and `warm_query_embedder` swallows its own errors.
     # A search-model change that hasn't reached every table yet (a download that landed while the backend was
     # down, an interrupted re-embed) resumes in the background; it never runs while Sleep does.
     from api.services import embedding_models
@@ -297,11 +314,8 @@ async def lifespan(app: FastAPI):
     # the first keystroke after launch finds it warm. Never blocks startup,
     # never raises (a cold build takes a few seconds; until it lands, /search
     # serves the frontmatter fallback and says `indexState: building`).
-    search_index.warm_in_background(settings.memory_path)
-    # G235: the door to every engine reads the bank once, so the first model call after launch does not wait for it.
-    asyncio.get_running_loop().run_in_executor(None, sensitive_hold.warm, settings.memory_path)
-    # Ruling 70: the first hook after launch (a 300 ms budget) finds the order's tables warm, not a page-by-page read.
-    asyncio.get_running_loop().run_in_executor(None, question_order.warm, settings.memory_path)
+    # G235 (sensitive hold) and ruling 70 (question order) warm in the same staged pass.
+    asyncio.get_running_loop().create_task(_staged_warm(settings.memory_path))
 
     entities_count = len(list((settings.memory_path / "entities").glob("*.md")))
     episodes_count = len(list((settings.memory_path / "episodes").glob("*.md")))
