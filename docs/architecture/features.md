@@ -183,7 +183,10 @@ shims (they set `Deprecation: true`) kept only for external callers — the app 
 409 while Sleep holds the pages (`inbox_service.resolve`, G177/G183(a)), asked under the bank's write admission and held
 through the answer's commit, so a window waits for the answer (`storage.md`, "Write admission"); a conflict answer's
 prose rewrite is a model call made before admission and used only when the item, the pick and the page are what it
-was made for. Between a
+was made for. A conflict's new value lives only in the question until it is answered (`claim_reconciler._place_claim`), so
+an answer that keeps a value writes it (`inbox_service._hold_offered_value`): "both", a pick, and a dismissal on a
+multi-valued predicate. It is dated when it was said, carries its conversation, and is the person's only on their own
+answer. A value they picked against is not written. Between a
 drain's batches it commits alone.
 
 **The order is the person's use (vision item 10, 2026-10-28).** `load_inbox` sorts pending first, then

@@ -823,6 +823,8 @@ def _merge_manifest(paths: list[str], *, removed: str) -> list[str]:
 # Option keys that carry their own meaning rather than pointing at one option:
 # "both" keeps every competing claim open, "neither" closes them all.
 _SPECIAL_KEYS = {"both", "neither"}
+#: The rows of a question that are not values anyone said.
+_NOT_A_VALUE = _SPECIAL_KEYS | {"other", "remind_later"}
 
 
 def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) -> str:
@@ -2039,6 +2041,137 @@ def _close_today(old, *, by, today: str) -> None:
     old.valid_to = today
 
 
+def _page_claims_or_409(entity, path, entity_id: str, entity_path) -> list:
+    """The page's claims, strictly. A corrupt claims block must never be silently overwritten — the answer rewrites the
+    page (an LLM body synthesis on a body whose machine layer we could not read) and then deletes the question. So the
+    whole resolve aborts: the entity stays byte-identical, the inbox item stays pending, and the user is told why."""
+    from api.services.claims import MalformedClaimsBlockError, parse_claims
+
+    try:
+        return parse_claims(entity.body, strict=True)
+    except MalformedClaimsBlockError as exc:
+        logger.error(f"inbox resolve aborted — unparseable claims in {entity_path.name}: {exc}")
+        raise HTTPException(
+            409,
+            f"Cannot resolve {path.stem}: the ```claims block in "
+            f"entities/{entity_id}.md is malformed ({exc}). Fix the page by hand; "
+            "the question has been kept.",
+        ) from exc
+
+
+_OPTION_EPISODE = re.compile(r"\bep_\d{4}-\d{2}-\d{2}_\d+\b")
+
+
+def _option_episodes(option: dict, fm_item: dict) -> list[str]:
+    """The conversation an offered value came from: the option's own, else the one an older option's description
+    names, else the question's when this option is the value that raised it."""
+    named = str(option.get("source_episode") or "")
+    if not named:
+        found = _OPTION_EPISODE.search(str(option.get("description") or ""))
+        named = found.group(0) if found else ""
+    if not named and str(option.get("claim_id") or "") == str(fm_item.get("claim_id") or ""):
+        named = str(fm_item.get("source_episode") or "")
+    return [named] if named else []
+
+
+def _option_said_on(option: dict, today: str) -> str:
+    """The day an offered value was said, which is when it is true from, never the day it was answered."""
+    observed = str(option.get("observed_at") or "")[:10]
+    try:
+        return date.fromisoformat(observed).isoformat()
+    except ValueError:
+        return said_on(today)
+
+
+def _hold_offered_value(option: dict, *, fm_item: dict, entity_id: str, name: str, predicate: str, claim_list: list,
+                        settings, today: str, confirmed: bool, holds_now: bool = True):
+    """The claim holding an offered value, written to ``claim_list`` if the page has none.
+
+    The reconciler's ``CONFLICT_NUDGE`` leaves a new value only in the question (`claim_reconciler._place_claim`), so an
+    answer that keeps it is what writes it. An open claim already saying that value is that claim, whatever its id. A
+    value only offered, with no claim id, is prose: None.
+
+    ``confirmed`` is the person's own answer. A value Sleep settled or the person only dismissed past stays as read, an
+    extraction, and is never written as their act. ``holds_now`` is an answer saying the value is current, which a
+    closed claim cannot carry; a dismissal says no such thing, so a closed claim of that value is enough there and
+    nothing closed is reopened."""
+    from api.services.claims import Claim
+
+    claim_id = str(option.get("claim_id") or "")
+    label = str(option.get("label") or "").strip()
+    if not claim_id or not label:
+        return None
+    for claim in claim_list:
+        if claim.id == claim_id:
+            return claim
+    for claim in claim_list:
+        if (claim.predicate == predicate and (claim.valid_to is None or not holds_now)
+                and str(claim.object or "").strip().casefold() == label.casefold()):
+            return claim
+    siblings = [c for c in claim_list if c.predicate == predicate and c.valid_to is None]
+    held = Claim(
+        id=claim_id,
+        text=f"{predicates.predicate_phrase(predicate, name, label)}.",
+        subject=entity_id,
+        predicate=predicate,
+        object=label,
+        # The same belief slot as what it stands beside, so reconciliation sees one lineage.
+        observer=siblings[0].observer if siblings else _owner_observer(settings, settings.memory_path),
+        context=siblings[0].context if siblings else "general",
+        source_trust="user_stated" if confirmed else "agent_extracted",
+        origin=inbox_actor.claim_origin(),
+        authored_by=inbox_actor.claim_author(),
+        confidence=0.95 if confirmed else 0.6,
+        valid_from=_option_said_on(option, today),
+        recorded_at=today,
+        source_episodes=_option_episodes(option, fm_item),
+        evidence=_quote_spans(settings.memory_path),
+    )
+    claim_list.append(held)
+    return held
+
+
+def _kept_values_sentence(labels: list[str], predicate: str, name: str, today: str) -> str:
+    """The sentence the prose is rewritten from when every answer stands. It names each one."""
+    distinct = list({label.strip().casefold(): label.strip() for label in labels if label.strip()}.values())
+    by = f"(confirmed by {inbox_actor.confirmed_by()} on {today})"
+    if not distinct:
+        return ""
+    if len(distinct) == 1:
+        return f"{predicates.predicate_phrase(predicate, name, distinct[0])} {by}."
+    lead = "Both are true" if len(distinct) == 2 else "All are true"
+    return f"{lead}: {', '.join(distinct[:-1])} and {distinct[-1]} {by}."
+
+
+def _dismiss_informational(path, fm_item: dict, entity_id: str, settings) -> "_ConflictPlan":
+    """Dismissing a question on a multi-valued predicate (G98/G115 R4): there is no winner to pick, so every value
+    stands. Stage 3 keeps them open when the predicate was already multi; one raised while it was single-valued has
+    its second value only in the question, and that value is written here. With none to write, no page is touched.
+    Its G113 R3 grade is ``overruled``: the belief overruled is the extractor's "these values conflict"."""
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        return _ConflictPlan(entity_id, unlink=True)
+    entity = markdown_parser.parse(entity_path)
+    claim_list = _page_claims_or_409(entity, path, entity_id, entity_path)
+    predicate_raw = str(fm_item.get("predicate", "") or "description")
+    predicate = predicates.load_normalizer(settings.memory_path)(predicate_raw) or predicate_raw
+    name = str(entity.frontmatter.get("name", entity_id) or entity_id)
+    held = len(claim_list)
+    today = str(date.today())
+    for option in inbox_questions.normalize_options(fm_item.get("options")):
+        if str(option.get("key")) not in _NOT_A_VALUE:
+            _hold_offered_value(option, fm_item=fm_item, entity_id=entity_id, name=name, predicate=predicate,
+                                claim_list=claim_list, settings=settings, today=today, confirmed=False,
+                                holds_now=False)
+    if len(claim_list) == held:
+        return _ConflictPlan(entity_id, unlink=True)
+    from api.services.claims import write_claims
+
+    entity.body = write_claims(entity.body, claim_list)
+    return _ConflictPlan(entity_id, entity_path=entity_path, entity=entity, claim_list=claim_list, sentence="",
+                         name=name, today=today)
+
+
 def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     """Claim-aware conflict adjudication (§2.4).
 
@@ -2046,7 +2179,8 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     winning claim is reinforced and every loser is bi-temporally closed, "both"
     keeps them all open with a context qualifier, and "neither"/free text writes
     a ``user_stated`` claim that closes them. Only then is a full sentence (not
-    a raw button label — the old bug) fed to the LLM body rewrite.
+    a raw button label — the old bug) fed to the LLM body rewrite. A value the answer keeps and only the question held
+    is written then (:func:`_hold_offered_value`).
 
     Two requests are refused outright rather than interpreted: an ``option_key``
     that matches no option (400) and a resolve carrying neither a pick nor free
@@ -2054,7 +2188,7 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     competing claim. A claims block that will not parse aborts the resolve
     (409) with the page untouched and the question kept.
     """
-    from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
+    from api.services.claims import Claim, write_claims
 
     fm_item = parsed.frontmatter
     entity_id = str(fm_item.get("entity_id", "") or "")
@@ -2070,23 +2204,16 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     # action="dismiss" with no key and no answer for such an item. Honor it the
     # old way: remove the item, touch no claims. A modern question item (has
     # `options` and/or a `question`) still gets the strict 400 below.
-    informational = (
-        predicates.cardinality(settings.memory_path, str(fm_item.get("predicate", "") or "")) == "multi"
-    )
     if request.action == "dismiss" and (
-        informational
-        or (
-            not fm_item.get("options")
-            and not str(fm_item.get("question", "") or "").strip()
-            and not (request.option_key or "").strip()
-            and not (request.answer or "").strip()
-        )
+        predicates.cardinality(settings.memory_path, str(fm_item.get("predicate", "") or "")) == "multi"
     ):
-        # Legacy pre-G60 items (above) AND G98/G115 R4 informational items: a
-        # conflict on a multi-valued predicate asked for a winner that does not
-        # exist — Stage 3 already kept every value open, so dismissing touches
-        # no claim. Its G113 R3 grade is `overruled`, and that is right: the
-        # belief overruled is the extractor's "these values conflict".
+        return _dismiss_informational(path, fm_item, entity_id, settings)
+    if request.action == "dismiss" and (
+        not fm_item.get("options")
+        and not str(fm_item.get("question", "") or "").strip()
+        and not (request.option_key or "").strip()
+        and not (request.answer or "").strip()
+    ):
         return _ConflictPlan(entity_id, unlink=True)
 
     predicate_raw = str(fm_item.get("predicate", "") or "description")
@@ -2126,21 +2253,7 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     normalize_predicate = predicates.load_normalizer(settings.memory_path)
     predicate = normalize_predicate(predicate_raw) or predicate_raw
 
-    try:
-        claim_list = parse_claims(entity.body, strict=True)
-    except MalformedClaimsBlockError as exc:
-        # A corrupt claims block must never be silently overwritten — and the
-        # rest of this function rewrites the page (an LLM body synthesis on a
-        # body whose machine layer we could not read) and then deletes the
-        # question. Abort the whole resolve: the entity stays byte-identical,
-        # the inbox item stays pending, and the user is told why.
-        logger.error(f"inbox resolve aborted — unparseable claims in {entity_path.name}: {exc}")
-        raise HTTPException(
-            409,
-            f"Cannot resolve {path.stem}: the ```claims block in "
-            f"entities/{entity_id}.md is malformed ({exc}). Fix the page by hand; "
-            "the question has been kept.",
-        ) from exc
+    claim_list = _page_claims_or_409(entity, path, entity_id, entity_path)
 
     by_id = {c.id: c for c in claim_list}
     option_claims = [
@@ -2158,8 +2271,13 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     # on all options; requiring a claim id here used to drop those picks into
     # the neither/free-text branch below, which stamped "none of these are
     # current" onto the page — the exact opposite of what the user said.
+    def hold(option: dict):
+        return _hold_offered_value(option, fm_item=fm_item, entity_id=entity_id, name=name, predicate=predicate,
+                                   claim_list=claim_list, settings=settings, today=today,
+                                   confirmed=not inbox_actor.is_sleep())
+
     if chosen is not None and option_key not in ("both", "neither"):
-        winner = by_id.get(str(chosen.get("claim_id") or ""))
+        winner = hold(chosen)
         if winner is not None:
             winner.confidence = max(winner.confidence, 0.9)
             # The person's words that picked it, when they came from a conversation (owner, 2026-10-14).
@@ -2196,14 +2314,18 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     else:
         if option_key == "both":
             labels = []
-            for claim in option_claims:
-                if claim.context == "general":
+            for option in options:
+                if str(option.get("key")) in _NOT_A_VALUE:
+                    continue
+                claim = hold(option)
+                if claim is None:
+                    labels.append(str(option.get("label") or ""))
+                    continue
+                # A value just written copied the slot of what it stands beside: it takes its own, so the two coexist.
+                if claim.context == "general" or claim.id not in by_id:
                     claim.context = f"as of {claim.valid_from or today}"
-                labels.append(claim.object)
-            sentence = (
-                f"Both are true: {' and '.join(labels)} (confirmed by {inbox_actor.confirmed_by()} on {today})."
-                if labels else sentence
-            )
+                labels.append(str(claim.object))
+            sentence = _kept_values_sentence(labels, predicate, name, today) or sentence
 
         else:
             # `neither`, or free text with no option key.
