@@ -335,3 +335,14 @@ def test_a_read_where_no_row_was_a_post_is_a_failed_read_not_a_healthy_one(readi
     assert last["outcome"] == "failed" and not last.get("read_at")
     assert saved_lists.status(memory)["lists"]["x"]["state"] == "couldnt_read"
     assert saved_lists.reads_today(memory) == 0
+
+
+def test_an_empty_list_is_recorded_as_read_empty_not_as_a_failure(reading):
+    """sources-truth: a list that is there with nothing in it is a read; only an unreadable page is `failed`."""
+    server, memory = reading
+    _on("x")
+    out = _record(server, "x", items=[])
+    assert "is empty" in out
+    last = saved_lists.last(memory, "x")
+    assert last["outcome"] == "read" and last["items"] == 0 and last.get("read_at")
+    assert saved_lists.status(memory)["lists"]["x"]["state"] == "read"
