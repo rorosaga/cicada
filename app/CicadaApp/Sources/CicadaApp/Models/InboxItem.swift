@@ -476,6 +476,9 @@ struct InboxItem: Identifiable, Codable {
     var entityDisplayName: String? = nil
     var mergeTargetDisplayName: String? = nil
     var sameTitle: [String]? = nil
+    /// Ruling 71 — this question's place in the list the server served (0 first), derived there from the expected change
+    /// in what gets read. It carries no magnitude and is never compared with `priority`; nil from an older server.
+    var orderIndex: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, kind, requiredInput, status, priority
@@ -486,7 +489,7 @@ struct InboxItem: Identifiable, Codable {
         case extractorConfidence, extractorModel, recommendedKey, informational, checks
         case subject, fold, request, rows, review, spokenQuestion, spokenReason, sensitiveRows, replaced
         case chain, chainQuestion, chainReason, chainPairs
-        case entityDisplayName, mergeTargetDisplayName, sameTitle
+        case entityDisplayName, mergeTargetDisplayName, sameTitle, orderIndex
     }
 
     init(from decoder: Decoder) throws {
@@ -556,6 +559,7 @@ struct InboxItem: Identifiable, Codable {
         entityDisplayName = (try? c.decodeIfPresent(String.self, forKey: .entityDisplayName)) ?? nil
         mergeTargetDisplayName = (try? c.decodeIfPresent(String.self, forKey: .mergeTargetDisplayName)) ?? nil
         sameTitle = (try? c.decodeIfPresent([String].self, forKey: .sameTitle)) ?? nil
+        orderIndex = (try? c.decodeIfPresent(Int.self, forKey: .orderIndex)) ?? nil
     }
 
     /// G61 — the one grouped "Confirm N links" review, drawn as its own card above the questions.

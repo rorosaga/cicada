@@ -1,6 +1,7 @@
 """The in-app catch-up chat (ruling 48 (8), vision item 10): a conversation, not an interrogation.
 
-The questions come from the inbox, most-used page first (``page_use``, already the order ``GET /inbox`` serves), in
+The questions come from the inbox, the biggest expected change in what gets read first (``question_order``, already the
+order ``GET /inbox`` serves), in
 their plain words (``inbox_wording``). The person may answer with a tap — the inbox's own resolver, held for Undo in
 the app — or in their own words. Words go through :func:`turn`: ONE model call on the person's chosen engine (the Ask
 path's seam, ``engine_select.resolve_settings(user_triggered=True)``: rulings 4/31/46 — a person asking is a person

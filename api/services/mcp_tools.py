@@ -2200,7 +2200,7 @@ def _recall(ctx: ToolContext, query: str) -> str:
     # its owner (G135) decides — see the finding in the G180 report.
     inbox_blurbs = _relevant_inbox(memory_path, query, raw_excerpts=ctx.raw_excerpts,
                                    can_answer=ctx.is_remote or ctx.can("cicada_resolve_inbox"),
-                                   skipped=frozenset(ctx.skipped_inbox_ids))
+                                   skipped=frozenset(ctx.skipped_inbox_ids), remote=ctx.is_remote)
     if inbox_blurbs:
         more_questions = len(inbox_blurbs) - RECALL_INBOX_SHOWN
         if more_questions > 0:   # bounded (2026-10-22); the rest stay in the inbox, said in words
@@ -2239,7 +2239,7 @@ def _recall(ctx: ToolContext, query: str) -> str:
     ]
     from api.services import telemetry  # G124 R11: a suggested page is a read (ids only)
     for _eid in suggested:
-        telemetry.record_read(_eid, surface=f"{ctx.read_surface}-recall", bank=memory_path.name)
+        telemetry.record_read(_eid, surface=f"{ctx.read_surface}-recall", bank=memory_path.name, memory_path=memory_path)
     if not suggested and hub_member_ids:
         suggested = [h["entity_id"] for h in live([{"entity_id": m} for m in hub_member_ids])][:7]
     # G53/G75 (R13): the now-view cursor rides in the FIRST hints block this
@@ -2908,7 +2908,7 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             path = on_disk(path)
             cid = path.stem
             from api.services import telemetry  # G124 R11: ids only, never the page text
-            telemetry.record_read(cid, surface=ctx.read_surface, bank=memory_path.name)
+            telemetry.record_read(cid, surface=ctx.read_surface, bank=memory_path.name, memory_path=memory_path)
             page_text = path.read_text(encoding="utf-8")
             fm = parse_frontmatter(page_text)[0]
             text = _with_ledger(path, _without_plumbing(page_text))
@@ -3155,7 +3155,8 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
             return Reply.framed([("data", said), ("own", f"\n{offer}")], code="not_found")
         return Reply(said, code="not_found")
     state = project_state.timeline_state(project_state.input_from_timeline(timeline), today)
-    telemetry.record_read(timeline.project.id, surface=f"{ctx.read_surface}-project", bank=memory_path.name)
+    telemetry.record_read(timeline.project.id, surface=f"{ctx.read_surface}-project", bank=memory_path.name,
+                          memory_path=memory_path)
     # G150 (R-B16): the open backlog, from frontmatter alone — never a body.
     from api.services import backlog as backlog_store
 
@@ -3605,7 +3606,7 @@ def backlog(ctx: ToolContext, project: str, status=None, item=None) -> str:
         it = store.get_item(memory_path, stem, iid)
         if it is None:
             return Reply(f"No {iid} on {stem}'s backlog.", code="not_found")
-        telemetry.record_read(stem, surface=f"{ctx.read_surface}-backlog", bank=memory_path.name)
+        telemetry.record_read(stem, surface=f"{ctx.read_surface}-backlog", bank=memory_path.name, memory_path=memory_path)
         return _backlog_item_text(ctx, it)
     if not ref:
         return Reply("project is required — a project's id or name.", code="invalid_arguments")
@@ -3635,7 +3636,7 @@ def backlog(ctx: ToolContext, project: str, status=None, item=None) -> str:
     if ctx.can("cicada_add_backlog_note"):
         lines.append("Add findings to an item with cicada_add_backlog_note(item, note) — never a second item "
                      "for the same idea.")
-    telemetry.record_read(stem, surface=f"{ctx.read_surface}-backlog", bank=memory_path.name)
+    telemetry.record_read(stem, surface=f"{ctx.read_surface}-backlog", bank=memory_path.name, memory_path=memory_path)
     return "\n".join(lines)
 
 
@@ -6096,7 +6097,7 @@ def _inbox_kind(ctx: ToolContext, item_id: str) -> str | None:
 
 
 def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True,
-                    can_answer: bool = True, skipped=frozenset()) -> list[str]:
+                    can_answer: bool = True, skipped=frozenset(), remote: bool = False) -> list[str]:
     """Recall's proactive inbox block. ``raw_excerpts`` is the caller's
     ``ctx.raw_excerpts`` — False keeps the person's words out of each item's
     ``Cause:`` line for a remote connector without ``sources`` (R-R22).
@@ -6125,13 +6126,20 @@ def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True,
         # resolves the subject's page, and most items are not about the query at all.
         if not nudge_visible(fm, wanted=frozenset(), today=today, memory_path=memory_path):
             continue
+        stored = fm
         fm, cause, rec = _agent_question(memory_path, fm, today, ctx=ctx, verbatim_ok=raw_excerpts)
         full = {**fm, "aliases": named.get("aliases") or []}
         if not inbox_ask_gate.relevant(full, query, everyday=inbox_ask_gate.everyday(memory_path, full))[0]:
             continue
-        blurbs.append(_format_inbox_blurb(
-            fm, body_of(), cause=cause, recommended_key=rec, raw_excerpts=raw_excerpts, can_answer=can_answer))
-    return blurbs
+        blurbs.append((filepath.stem, stored, _format_inbox_blurb(
+            fm, body_of(), cause=cause, recommended_key=rec, raw_excerpts=raw_excerpts, can_answer=can_answer)))
+    if len(blurbs) > RECALL_INBOX_SHOWN:
+        from api.services import question_order
+
+        place = {ident: n for n, ident in enumerate(
+            question_order.ranked(memory_path, [(i, st) for i, st, _b in blurbs], reads=not remote))}
+        blurbs.sort(key=lambda row: place[row[0]])
+    return [b for _i, _st, b in blurbs]
 
 
 def _inbox_header(filepath: Path):
@@ -6329,6 +6337,8 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
     today = str(date.today())
     inbox_ctx = _inbox_ctx(memory_path, today)
     check_index = _check_index(ctx, memory_path)
+    stored: dict[str, dict] = {}   # id -> the item as stored, for the order below
+    ids: list[str] = []            # the id of each entry of `results`, in file order
 
     for filepath in _inbox_files(memory_path):
         if filepath.stem in ctx.skipped_inbox_ids:
@@ -6353,6 +6363,7 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
         # Decay becomes a question object here, and every question object gains
         # its cause + `(Recommended)` marker, so the agent reads the same card
         # the app shows (G115 Phase 1, R9).
+        stored[filepath.stem] = fm
         fm, cause, rec = _agent_question(memory_path, fm, today, ctx=inbox_ctx, verbatim_ok=ctx.raw_excerpts)
 
         kind = str(fm.get("kind", fm.get("type", "")) or "")
@@ -6374,9 +6385,18 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
         else:
             title = fm.get("title", fm.get("short_description", ""))
             results.append([("data", f"**{kind or 'Item'}** `{filepath.stem}`: {ename} — {title}\n  {body[:200]}")])
+        ids.append(filepath.stem)
 
     if not results:
         return "No pending inbox items" + (f" related to '{topic}'" if topic else "") + "."
+    if len(results) > 1:
+        # The order the app serves (`question_order`, ruling 71), not the file order. The remote door's is computed
+        # WITHOUT the read counter, so nothing derived from it crosses that door.
+        from api.services import question_order
+
+        place = {ident: n for n, ident in enumerate(
+            question_order.ranked(memory_path, [(i, stored[i]) for i in ids], reads=not ctx.is_remote))}
+        results = [r for _n, r in sorted(zip((place[i] for i in ids), results), key=lambda pair: pair[0])]
 
     segments: list[tuple[str, str]] = [("own", f"Found {len(results)} pending inbox items:")]
     for item in results:
@@ -6396,7 +6416,7 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
     Every visibility rule of the list path still holds (skipped this session, deferred, ``normalization``); then
     the gate keeps an item only when the conversation is about the question's own subject — its page in scope AND
     its predicate, options or question words in what the person said. "Recall touched the page" alone is never
-    enough. At most :data:`ASK_LIMIT`, highest priority first.
+    enough. At most :data:`ASK_LIMIT`, the biggest expected change in what gets read first (``question_order``).
 
     The rendering is written for an agent to weave a question in, not to read one out: the question, the
     possible answers in words, Cicada's current guess said once, and why it is open marked as context. No
@@ -6411,9 +6431,10 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
     wanted = {str(e).strip() for e in (entity_ids or []) if str(e).strip()}
     today = str(date.today())
     inbox_ctx = _inbox_ctx(memory_path, today)
-    from api.services import page_use
+    from api.services import inbox_service, question_order
 
-    use_table = page_use.scores(memory_path)
+    # The remote door's order is computed WITHOUT the read counter, so nothing derived from it crosses that door.
+    order = question_order.tables(memory_path, reads=not ctx.is_remote)
     passed: list[tuple[float, str, dict, dict | None, str | None]] = []
     for filepath in _inbox_files(memory_path):
         if filepath.stem in ctx.skipped_inbox_ids:
@@ -6432,14 +6453,17 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
         full = {**fm, "aliases": named.get("aliases") or []}
         ok, _reason = inbox_ask_gate.relevant(full, topic, wanted, everyday=inbox_ask_gate.everyday(memory_path, full))
         if ok:
-            passed.append((-page_use.rank(fm.get("priority"), page_use.item_use(use_table, fm)), filepath.stem, fm,
-                           cause, rec))
+            shown_only = order.informational(fm)
+            passed.append((-order.score(fm, informational=shown_only), filepath.stem, fm, cause, rec,
+                           question_order.family(fm, informational=shown_only)))
     if not passed:
         return ("No open question is about what the person is talking about now — ask nothing. "
                 "(If they ask what is in their inbox, mode=\"list\" lists it.)")
-    passed.sort(key=lambda row: (row[0], row[1]))
+    # The key `load_inbox` sorts by, so two picked from a tie are the two the inbox would show first.
+    passed.sort(key=lambda row: (row[0], inbox_service._neg_date_key(str(row[2].get("created_date") or "")), row[1]))
+    passed = question_order.spaced(passed, lambda row: row[5])
     blocks = []
-    for _p, item_id, fm, cause, rec in passed[:ASK_LIMIT]:
+    for _p, item_id, fm, cause, rec, _family in passed[:ASK_LIMIT]:
         options = inbox_questions.normalize_options(fm.get("options"))
         lines = [f"`{item_id}` · {fm.get('kind') or 'question'} · about {fm.get('entity_name') or fm.get('entity_id')}"
                  f" (entity_id={fm.get('entity_id') or ''})",
@@ -6506,7 +6530,8 @@ CATCHUP_REMOTE = ("Catching up is a conversation on the person's own machine: a 
 def catchup_nudges(ctx: ToolContext) -> str:
     """``cicada_check_nudges(mode="catchup")`` — the person asked to catch Cicada up (vision item 10, owner 2026-10-28).
 
-    The next few open questions (``inbox_catchup.LIMIT``), the most-used pages first (``page_use``), each said the
+    The next few open questions (``inbox_catchup.LIMIT``), the biggest expected change in what gets read first
+    (``question_order``), each said the
     way a person would ask it, with its human reason (``inbox_wording``), and how to record the answer with the
     answer keys every other door uses. A session cursor (``inbox_catchup.Cursor``) means a second call moves on —
     nothing repeats — and what the agent ``skip``ped stays out. A chain of same-person questions comes as ONE

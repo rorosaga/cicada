@@ -434,7 +434,22 @@ def _open_question(reader: search_index.Reader, pages: list[PageNote], today: st
              if mcp_tools.nudge_visible(d.meta, wanted=frozenset(names), today=today, memory_path=memory_path)]
     if not items:
         return None, None
-    items.sort(key=lambda d: (-float(d.meta.get("priority") or 0.0), d.ref))
+    # The same order the app and the agent's ask mode serve (`question_order`, ruling 71), never the stored priority. The
+    # tables are built only when there is more than one item to choose between.
+    from api.services import question_order
+
+    if len(items) > 1 and memory_path is not None:
+        by_ref = {d.ref: d for d in items}
+        rows = []
+        for d in items:
+            fm = dict(d.meta)
+            entry = bank_index.file(memory_path, "inbox", f"{d.ref}.md")
+            if entry is not None:
+                fm = {**entry.frontmatter, **{k: v for k, v in fm.items() if v not in (None, "")}}
+            rows.append((d.ref, fm))
+        items = [by_ref[ref] for ref in question_order.ranked(memory_path, rows)]
+    else:
+        items.sort(key=lambda d: d.ref)
     for item in items:
         if item.meta.get("kind") == "followup":
             continue

@@ -248,7 +248,7 @@ def record_audit(
             continue
 
 
-def record_read(entity_id: str, *, surface: str, bank: str | None) -> None:
+def record_read(entity_id: str, *, surface: str, bank: str | None, memory_path=None) -> None:
     """One ``read`` event: an entity page was looked at (G124 R11).
 
     ``refs`` carries the entity id and a surface enum (``app`` — a card opened
@@ -257,6 +257,11 @@ def record_read(entity_id: str, *, surface: str, bank: str | None) -> None:
     the query, never the page. The ledger is machine-global and outside the
     bank, so this is the same privacy line the G113 feedback rows draw. An
     empty id is ignored; nothing here can raise into a recall or a card open.
+
+    This is also the one choke point of the read counter (``page_reads``, ruling 71): when the caller names the
+    ``memory_path`` the read is counted there too, by the surface's suffix (``-recall`` shown; plain, ``-project`` and
+    the app's opened; ``-backlog`` not counted). The counter is a separate store with its own gates - the ledger's
+    rail ("nothing learned from it is auto-applied") is untouched.
     """
     if not (entity_id or "").strip():
         return
@@ -264,6 +269,10 @@ def record_read(entity_id: str, *, surface: str, bank: str | None) -> None:
         kind="read", stage="recall", bank=bank, invocations=0, billing="free",
         refs={"entity_id": entity_id, "surface": surface},
     ))
+    if memory_path is not None:
+        from api.services import page_reads
+
+        page_reads.count(memory_path, entity_id, surface)
 
 
 def read_events(start: date | None = None, end: date | None = None) -> list[UsageEvent]:

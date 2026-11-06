@@ -957,7 +957,9 @@ same way.
   prompt gets at most three pages it **names**: a whole name or alias, and one word only for a person, project,
   company, tool or place. Each page comes with its summary and at most two current claims with their dates —
   only claims about what the message is about (2026-10-27, below) —
-  plus at most one open inbox question — only one the message is ABOUT (the ask gate below), worded as a statement
+  plus at most one open inbox question — only one the message is ABOUT (the ask gate below), the first in the app's
+  order (`question_order`, ruling 71; never the stored priority; ordered only when more than one passes the visibility
+  rule, its tables warmed at launch), worded as a statement
   the agent can act on naturally ("if the message already answers it, it is recorded … and not asked"), with a
   pointer to `cicada_check_nudges(mode="list")`. A follow-up never rides a note. The note is ≤ 400 tokens or
   nothing, produced within a hard 300 ms.
@@ -1248,7 +1250,8 @@ recall's own inbox block was a body-text token match (a recall for "alpha projec
   G170). The ledger row says `answered_in: conversation` (an enum). A refused answer leaves no episode. A remote
   connection never sends `quote` (R-R22), and a demo bank never receives it — dropped by the tool and by the backend
   (review B2). Never a guess: only what the person said resolves an item.
-- **On request:** `mode="list"` (the default) lists every visible item plainly — "what is in my inbox", "what
+- **On request:** `mode="list"` (the default) lists every visible item plainly, in the app's order (`question_order`;
+  a remote connection's without the read counter) — "what is in my inbox", "what
   conflicts do I have". Every inbox reader in `mcp_tools` now reads an item as YAML (`read_inbox_item`); the line
   parser flattened a question's `options` into strings ("0) key: a").
 - **Relation to G115/G98.** This is G115 item 6's relevance half (`inbox_ask_gate`, the `mode` argument) without its
@@ -1262,8 +1265,9 @@ concrete format". `cicada_check_nudges(mode="catchup")` is that chat's read (`mc
 `inbox_catchup`):
 - **What comes back:** the next `inbox_catchup.LIMIT` (3) questions the person can answer in conversation — every
   visible kind but `normalization`, `page_edit`, an agent request and the grouped "Confirm N links" review, and never a
-  multi-valued conflict (G98: shown, never asked) — ordered by `page_use.rank` (Sleep's priority + 0.5 × how much the
-  person's life uses the page, below). Each block has `Ask:` (the question in a person's words), `Why you are asking`
+  multi-valued conflict (G98: shown, never asked) — ordered by `question_order` (the expected change in what gets
+  read: what the answer changes × how much of that page is being read, at most one of a type in a row, ruling 71; `features.md`, "The order is the expected
+  change in what gets read"; a chain of same-person questions takes its best member's place). Each block has `Ask:` (the question in a person's words), `Why you are asking`
   (its reason, from the record), the answers with their unchanged keys, Cicada's guess once, and the call that records
   it on this door (`cicada_resolve_inbox(…)` on MCP, a `cicada inbox resolve …` line from `cli_map.spell` on the CLI).
   Decay is included here — it never comes up uninvited (`mode="ask"`), but a catch-up is the person asking.
@@ -1285,12 +1289,21 @@ concrete format". `cicada_check_nudges(mode="catchup")` is that chat's read (`mc
   true about X (predicate)?" as "Which is right about X: a or b?", with both sides' ages; a clarification as "Who is X
   to you?" or "Who or what is X?" with when it was said; a "still?" question with its source cue ("…and your LinkedIn
   seems a bit stale, so I wasn't sure you still are"). Every question ends in `?` within 160 characters.
-- **Use, derived (S1).** `page_use.scores`: per page, log₂(1 + conversations) × ½^(days since last said / 90) plus a
-  0.25 lift for its links, scaled to the busiest page; the owner's page is 1.0. From frontmatter only (`bank_index`),
-  cached per bank on the entities directory's mtime (every page write is atomic, so a write moves it) and reused for a
-  minute after a write (91 ms p50 to rebuild at 8,028 pages). The telemetry ledger is never read for it: it is
-  machine-global and its rail is "nothing learned from it is auto-applied". `load_inbox` (so `GET /inbox` and the
-  Home's "Needs you") and `mode="ask"` sort by the same rank; the recall hook never loads the inbox.
+- **Use, derived (S1) - now one input of the order.** `page_use.scores`: per page, log₂(1 + conversations) × ½^(days since
+  last said / 90) plus a 0.25 lift for its links, scaled to the busiest page; the owner's page is 1.0. From frontmatter
+  only (`bank_index`), cached per bank on the entities directory's mtime (every page write is atomic, so a write moves
+  it) and reused for a minute after a write (91 ms p50 to rebuild at 8,028 pages). It is the `use` half of
+  `question_order`'s `exposure`; the other half is the page-read counter (`page_reads`, `storage.md`, "Page-read counter"),
+  which is **not** the telemetry ledger: the ledger is machine-global and its rail is "nothing learned from it is
+  auto-applied", so the order never reads it. `load_inbox` (so `GET /inbox` and the Home's "Needs you"), the catch-up
+  and `mode="ask"` sort by the same score (derived on read, never stored). `mode="list"`, recall's open-question block
+  (only when more than the five it shows pass the gate) and the recall hook's one pointer (only among more than one
+  candidate) put their questions in the same order through `question_order.ranked`; the hook never loads the inbox.
+- **The remote door's order carries nothing from the counter.** `mode="ask"` on a remote connection computes its order
+  with `reads=False`: the counter's counts feed the home's own order, but nothing derived from them crosses that door.
+  A remote connector's own reads do count at the home (they are the person's agents' reads: its surface is `remote`, and a
+  remote `cicada_recall_detail` is an opened page), by the same surface
+  suffixes as a local call (`-recall` shown, a page read in full opened, `cicada_backlog` not counted).
 - **A conversation, not an interrogation (ruling 48 (8), owner 2026-10-28).** Each block also carries "What Cicada has
   on it" (`catchup_chat.context_lines` — the page's type, when last said, in how many conversations, a few current
   beliefs: the same lines the app's own turn gives its model), so a follow-up or a rephrase rests on the record; the

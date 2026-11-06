@@ -1,8 +1,14 @@
-"""How much the person's life uses each page — a derived signal that orders the inbox (vision item 10, S1).
+"""How much the person's life uses each page — a derived signal, one input of the inbox order (vision item 10, S1).
+
+**Since ruling 71 (2026-11-06) this is an input, not the order.** The inbox is ordered by the expected change in what
+gets read (``question_order``), whose ``exposure`` term combines this table (what was *said*) with the read counter
+(``page_reads``, what was *read*); an empty or absent counter leaves exactly this signal. ``rank`` and ``USE_WEIGHT``
+(priority + 0.5 x use) are gone; ``scores``, ``item_use`` and ``bucket`` stay (``still_questions``, the nickname
+proposer, the ``page_use`` bucket on resolution rows).
 
 The owner (2026-10-28): "just have the user answer at first those things linked to more accessed entities". No
-per-page view counter exists, and the one place card opens and recall hits are counted — the telemetry ledger — is
-machine-global, holds no bank, and carries the rail "nothing learned from it is auto-applied", so an order learned
+per-page view counter existed (``page_reads`` now adds one, apart from the ledger), and the one place card opens and recall
+hits were counted — the telemetry ledger — is machine-global, holds no bank, and carries the rail "nothing learned from it is auto-applied", so an order learned
 from it would be exactly that. The signal is therefore **derived from the record**, on read, from each page's own
 frontmatter through ``bank_index`` (no body, no claims, no model, nothing stored):
 
@@ -14,10 +20,6 @@ frontmatter through ``bank_index`` (no body, no claims, no model, nothing stored
 
 The person's own page is always the most used (1.0); every other score is scaled into ``[0, 1]`` against the
 busiest page. A question about two pages (a duplicate pair) takes the busier side's score.
-
-:data:`USE_WEIGHT` is how far use moves a question against Sleep's own priority (``rank``): at 0.5 a question on the
-busiest page outranks an equally-prioritised one on a forgotten page by half a priority point, and a high-priority
-question on a quiet page still comes first. A default, flagged as one; the owner tunes it, never a setting.
 """
 from __future__ import annotations
 
@@ -32,7 +34,6 @@ from api.services import bank_index
 
 HALF_LIFE_DAYS = 90
 LINK_WEIGHT = 0.25
-USE_WEIGHT = 0.5
 #: The ledger's enum for a score (G113: ids and enums only, never a number that could fingerprint a page).
 BUCKETS = (("high", 0.5), ("mid", 0.15), ("low", 0.0))
 
@@ -115,15 +116,6 @@ def item_use(table: dict[str, float], fm: dict) -> float:
     own, so its proposed page speaks for it)."""
     ids = [str(fm.get("entity_id") or ""), str(fm.get("merge_target_hint") or "")]
     return max((table.get(i, 0.0) for i in ids if i), default=0.0)
-
-
-def rank(priority, use: float) -> float:
-    """Sleep's priority, moved by use (:data:`USE_WEIGHT`). Higher asks first."""
-    try:
-        p = float(priority or 0.0)
-    except (TypeError, ValueError):
-        p = 0.0
-    return p + USE_WEIGHT * max(0.0, min(1.0, use))
 
 
 def bucket(use: float | None) -> str | None:

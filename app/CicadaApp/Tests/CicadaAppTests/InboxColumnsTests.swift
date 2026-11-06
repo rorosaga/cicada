@@ -6,15 +6,40 @@ import XCTest
 @MainActor
 final class InboxColumnsTests: XCTestCase {
     private func item(_ id: String, kind: String = "conflict", priority: Double = 0.5, created: String = "2026-09-01",
-                      episode: String? = nil) throws -> InboxItem {
+                      episode: String? = nil, index: Int? = nil) throws -> InboxItem {
+        let order = index.map { #","orderIndex":\#($0)"# } ?? ""
         let cause = episode.map { #","cause":{"episodeId":"\#($0)","excerpt":"x","mentionOffsets":[[0,1]],"start":0,"tier":"claim"}"# } ?? ""
-        return try JSONDecoder().decode(InboxItem.self, from: Data(#"{"id":"\#(id)","kind":"\#(kind)","requiredInput":"choice","title":"\#(id)","priority":\#(priority),"createdDate":"\#(created)","entityId":"alpha-project"\#(cause)}"#.utf8))
+        return try JSONDecoder().decode(InboxItem.self, from: Data(#"{"id":"\#(id)","kind":"\#(kind)","requiredInput":"choice","title":"\#(id)","priority":\#(priority),"createdDate":"\#(created)","entityId":"alpha-project"\#(cause)\#(order)}"#.utf8))
     }
 
-    func testTheOrderIsPriorityThenNewest() throws {
+    /// An older server sends no `orderIndex`: the G115 fallback, priority then newest.
+    func testWithoutAServedOrderTheOrderIsPriorityThenNewest() throws {
         let a = try item("a", priority: 0.2), b = try item("b", priority: 0.9), c = try item("c", priority: 0.2, created: "2026-09-10")
+        XCTAssertFalse(InboxColumns.usesServedOrder([a, b, c]))
         XCTAssertEqual(InboxColumns.visible([a, b, c], filter: nil).map(\.id), ["b", "c", "a"])
         XCTAssertEqual(InboxColumns.visible([a, b, try item("d", kind: "decay")], filter: .decay).map(\.id), ["d"])
+    }
+
+    /// Ruling 71 — every question carries `orderIndex`: the server's order stands, whatever the priorities say, and
+    /// a tab shows its kind in that same order.
+    func testTheServedOrderStandsOverPriority() throws {
+        let a = try item("a", priority: 0.9, index: 2), b = try item("b", priority: 0.1, index: 0),
+            c = try item("c", priority: 0.5, index: 1), d = try item("d", kind: "decay", priority: 0.9, index: 3)
+        XCTAssertTrue(InboxColumns.usesServedOrder([a, b, c, d]))
+        XCTAssertEqual(InboxColumns.visible([a, b, c, d], filter: nil).map(\.id), ["b", "c", "a", "d"])
+        XCTAssertEqual(InboxColumns.visible([a, b, c, d], filter: .conflict).map(\.id), ["b", "c", "a"])
+    }
+
+    /// One question without an index sends the WHOLE list to the fallback: a per-pair "index when both have one" is not
+    /// transitive, and the same list must sort the same on every path (tab, groups, review).
+    func testOneUnindexedQuestionSendsTheWholeListToThePriorityOrder() throws {
+        let a = try item("a", priority: 0.9, index: 2), b = try item("b", priority: 0.1, index: 0), c = try item("c", priority: 0.5)
+        XCTAssertFalse(InboxColumns.usesServedOrder([a, b, c]))
+        XCTAssertEqual(InboxColumns.visible([a, b, c], filter: nil).map(\.id), ["a", "c", "b"])
+        // The decision is the list's, not the tab's: the conflict tab holds only indexed questions yet still sorts by priority.
+        let d = try item("d", kind: "decay", priority: 0.2)
+        XCTAssertEqual(InboxColumns.visible([a, b, d], filter: .conflict).map(\.id), ["a", "b"])
+        XCTAssertEqual(InboxColumns.visible([a, b, try item("e", kind: "decay", index: 5)], filter: .conflict).map(\.id), ["b", "a"])
     }
 
     /// DR-29 — the Reader closes on a swap unless the new question cites the same conversation.
@@ -119,6 +144,19 @@ final class InboxColumnsTests: XCTestCase {
         XCTAssertEqual(InboxRows.entries(visible: [a, c], held: held, snapshot: [a, b, c], filter: nil).map(\.id), ["a", "b", "c"])
         XCTAssertEqual(InboxRows.entries(visible: [a, c], held: held, snapshot: [a, b, c], filter: .decay).map(\.id), ["a", "c"])
         XCTAssertEqual(InboxRows.entries(visible: [a, c], held: nil, snapshot: [a, b, c], filter: nil).map(\.id), ["a", "c"])
+    }
+
+    /// Ruling 71 — with a served order the Undo row sits at its question's place in the SNAPSHOT's order, not where
+    /// priority would put it (the answered question here has the lowest priority and the first place).
+    func testTheUndoRowFollowsTheServedOrder() throws {
+        let a = try item("a", priority: 0.9, index: 1), b = try item("b", priority: 0.1, index: 0), c = try item("c", priority: 0.5, index: 2)
+        let held = ResolveGrace(resolve: InboxResolve(id: "b", action: "resolve", optionKey: "x"), label: "Answered · x",
+                                shortLabel: "Answered", question: "b", kind: .conflict, channel: nil, bank: "demo", token: 1)
+        XCTAssertEqual(InboxRows.entries(visible: [a, c], held: held, snapshot: [c, a, b], filter: nil).map(\.id), ["b", "a", "c"])
+        let last = try item("z", priority: 0.9, index: 9)
+        let heldLast = ResolveGrace(resolve: InboxResolve(id: "z", action: "resolve", optionKey: "x"), label: "Answered · x",
+                                    shortLabel: "Answered", question: "z", kind: .conflict, channel: nil, bank: "demo", token: 2)
+        XCTAssertEqual(InboxRows.entries(visible: [a, c], held: heldLast, snapshot: [a, c, last], filter: nil).map(\.id), ["a", "c", "z"])
     }
 
     /// R-DI26 / DR-31 — a one-line row's fixed slots go before they would overflow the column.

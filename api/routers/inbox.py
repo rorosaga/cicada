@@ -7,7 +7,8 @@ from loguru import logger
 from api.config import Settings, get_settings
 from api.models.schemas import (CatchupRecordRequest, CatchupTurnRequest, CheckCensus, InboxItem,
                                 InboxResolveRequest, SettledCheck)
-from api.services import inbox_service, same_name, same_name_pick, source_check, sync_service, sync_ticker
+from api.services import (inbox_service, question_order, same_name, same_name_pick, source_check, sync_service,
+                          sync_ticker)
 
 router = APIRouter()
 
@@ -42,7 +43,10 @@ async def list_inbox(
         # derived from the entity files this ETag already covers; the bump makes every client take one 200.
         # `same_name_pick.SHAPE`: a same-title question is served with one option per page plus "none" (2026-10-29).
         etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes",
-                                     extra=f"{kind or ''}|{_served_day()}|{same_name.SHAPE}|{same_name_pick.SHAPE}")
+                                     extra=f"{kind or ''}|{_served_day()}|{same_name.SHAPE}|{same_name_pick.SHAPE}"
+                                           # Ruling 71: the order's one non-bank input, the day-cut read counts (today's
+                                           # reads count from tomorrow, so it moves at most with the day), and the wire shape.
+                                           f"|{question_order.SHAPE}|{question_order.stamp(settings.memory_path)}")
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early
         # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a
@@ -50,6 +54,9 @@ async def list_inbox(
         items = await asyncio.to_thread(inbox_service.load_inbox, settings.memory_path)
     # G205: requests sit above the questions.
     items = await asyncio.to_thread(inbox_service.agent_request_items, settings.memory_path) + items
+    # Ruling 71: each item's place in the served list, so a client never re-derives the order from `priority`. A copy
+    # per item: `load_inbox` hands out its cached objects, which no caller edits.
+    items = [i.model_copy(update={"order_index": n}) for n, i in enumerate(items)]
     if kind:
         wanted = {k.strip() for k in kind.split(",") if k.strip()}
         items = [i for i in items if i.kind.value in wanted]

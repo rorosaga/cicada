@@ -132,7 +132,7 @@ async def _project_timeline(project_id: str, request: Request, response: Respons
         raise HTTPException(404, f"{stem!r} is not a project")
     _unpin_degraded(response, index_state, result)
     # A 200 is an open (a 304 revalidation is not): ids and an enum only (G124 R11).
-    telemetry.record_read(stem, surface="project", bank=telemetry.bank_name(settings))
+    telemetry.record_read(stem, surface="project", bank=telemetry.bank_name(settings), memory_path=mp)
     return result
 
 

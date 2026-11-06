@@ -189,15 +189,19 @@ extension QuickIndex {
         }
     }
 
+    /// A tie in the palette goes to the question the server asks first (`orderIndex`, ruling 71), for the whole list or
+    /// not at all; an older server that serves none keeps the stored priority, as it always did.
     static func inboxDocs(_ items: [InboxItem]) -> [Doc] {
-        items.map { item in
+        let served = items.allSatisfy { $0.orderIndex != nil }
+        return items.map { item in
             let row = FindRow(key: FindRowKey(kind: .inbox, id: item.id), group: .inbox, title: InboxSearch.title(item),
                               // Say it once — no page name under a question that already names it.
                               detail: item.entityName.isEmpty
                                   || InboxRowWords.repeats(name: item.entityName, in: InboxSearch.title(item))
                                   ? nil : item.entityName,
                               badge: item.kind.label,
-                              mark: .symbol(item.kind.icon), tieBreak: item.priority, destination: .inbox(id: item.id))
+                              mark: .symbol(item.kind.icon), tieBreak: served ? -Double(item.orderIndex ?? 0) : item.priority,
+                              destination: .inbox(id: item.id))
             return Doc(row: row, fields: InboxSearch.fields(item))
         }
     }

@@ -82,7 +82,9 @@ def _required_input_for(kind: str) -> str:
 
 
 def _item_from_file(
-    filepath: Path, *, today: str | None = None, context: "inbox_context.InboxContext | None" = None
+    filepath: Path, *, today: str | None = None, context: "inbox_context.InboxContext | None" = None,
+    order: "question_order.Tables | None" = None, scores: dict[str, float] | None = None,
+    families: dict[str, str | None] | None = None,
 ) -> InboxItem:
     """One inbox file → ``InboxItem``.
 
@@ -244,6 +246,14 @@ def _item_from_file(
             )
         )
 
+    if order is not None and scores is not None:
+        # The order's score, from the PROJECTED frontmatter (a normalization item is served on its live page) and the
+        # derived `informational`; kept beside the item, never on the wire (`question_order`). It never raises.
+        scores[filepath.stem] = order.score(fm, informational=bool(extra.get("informational")))
+        if families is not None:
+            from api.services import question_order
+
+            families[filepath.stem] = question_order.family(fm, informational=bool(extra.get("informational")))
     findings = _check_findings(fm)
     return InboxItem(
         checks=findings, last_checked_at=findings[0].at if findings else None,
@@ -577,7 +587,7 @@ def agent_request_items(memory_path: Path) -> list[InboxItem]:
 
 
 def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[InboxItem]:
-    """Load inbox items, sorted: pending first, then priority moved by page use (``page_use.rank``), date desc.
+    """Load inbox items, sorted: pending first, then the expected change in what gets read (``question_order``), date desc.
 
     Deferred items (``remind_after`` still in the future, §2.3-4) are hidden by
     default — the file stays on disk and the card returns on its own the day the
@@ -631,11 +641,13 @@ def _built_inputs(memory_path: Path, today: str) -> tuple:
     ledger, every episode (subjects, causes, claims, quiet pages, page use — fingerprints of name, size and nanosecond
     mtime, the ETag's own), and the files beside them (``inbox_inputs.side_stamps``: the predicate map, the held names,
     the owner's id). The seed vocabulary ships with the code."""
-    from api.services import graph_builder, inbox_inputs
+    from api.services import graph_builder, inbox_inputs, question_order
 
     mp = Path(memory_path)
     return (
         today,
+        # The day-cut read counts (today's reads count from tomorrow, so this moves at most with the day).
+        question_order.stamp(mp, today=date.fromisoformat(today)),
         graph_builder.inbox_stamp(mp),
         bank_index.dir_fingerprint(mp / "entities"),
         bank_index.ledger_fingerprint(mp / "entities"),
@@ -665,10 +677,15 @@ def _build_inbox(memory_path: Path, *, today: str, include_deferred: bool) -> li
     # G115 R2: one read cache for the whole inbox — episode + entity frontmatter
     # through bank_index, claim blocks parsed once per subject.
     context = inbox_context.InboxContext(memory_path, today=today)
+    from api.services import question_order
+
+    order = question_order.tables(memory_path, today=date.fromisoformat(today), prune=True)
+    scores: dict[str, float] = {}
+    families: dict[str, str | None] = {}
     items: list[InboxItem] = []
     for filepath in sorted(inbox_dir.glob("inbox-*.md")):
         try:
-            item = _item_from_file(filepath, today=today, context=context)
+            item = _item_from_file(filepath, today=today, context=context, order=order, scores=scores, families=families)
         except Exception as exc:
             logger.warning(f"skipping unparseable inbox item {filepath.name}: {exc}")
             continue
@@ -678,19 +695,18 @@ def _build_inbox(memory_path: Path, *, today: str, include_deferred: bool) -> li
         ):
             continue
         items.append(item)
-    # Pending first, then Sleep's priority moved by how much the person's life uses the page (`page_use`, vision
-    # item 10: the questions on the pages they use most come first), then newest.
-    from api.services import page_use
-
-    use = page_use.scores(memory_path)
+    # Pending first, then the expected change in what gets read (`question_order`, ruling 71), then newest; a tie
+    # keeps the file order (ids ascend), as the stable sort does.
     items.sort(
         key=lambda i: (
             0 if i.status == "pending" else 1,
-            -page_use.rank(i.priority, page_use.item_use(use, {"entity_id": i.entity_id,
-                                                                 "merge_target_hint": i.merge_target_hint})),
+            -scores.get(i.id, i.priority),
             _neg_date_key(i.created_date),
         )
     )
+    # Never a wall of one type (`question_order.spaced`); a resolved item keeps its place behind the open ones.
+    open_count = sum(1 for i in items if i.status == "pending")
+    items[:open_count] = question_order.spaced(items[:open_count], lambda i: families.get(i.id, i.kind.value))
     try:
         _mark_chains(memory_path, items, context)
     except Exception as exc:  # noqa: BLE001 — a derived field never costs the inbox
@@ -1226,6 +1242,21 @@ def _use_bucket(settings, fm: dict) -> str | None:
         return None
 
 
+def _impact_bucket(settings, fm: dict) -> str | None:
+    """``question_order``'s enum (high|mid|low) for the question as it stood when the person answered, or None when it
+    cannot be scored. Computed at admission - before the resolver writes - because a merge removes the page it
+    scored (``_use_bucket`` below reads after the write and has that flaw; it is left as it was)."""
+    try:
+        from api.services import predicates, question_order
+
+        informational = (str(fm.get("kind") or "") == "conflict" and str(fm.get("asks") or "") != "still"
+                         and predicates.cardinality(settings.memory_path, str(fm.get("predicate") or "")) == "multi")
+        order = question_order.tables(settings.memory_path)
+        return question_order.bucket(order.score(fm, informational=informational))
+    except Exception:  # noqa: BLE001 - bookkeeping never blocks an answer
+        return None
+
+
 def _emit_resolution(
     fm: dict,
     item_id: str,
@@ -1240,6 +1271,7 @@ def _emit_resolution(
     extractor_model: str | None = None,
     verdict_override: str | None = None,
     extra_refs: dict | None = None,
+    impact: str | None = None,
 ) -> None:
     """Append one ``resolution`` ledger row. Ids/enums/numbers only. Never raises.
 
@@ -1284,6 +1316,9 @@ def _emit_resolution(
                     # the reward can say whether the use-weighted order asks what the person answers.
                     "asks": _opt_str(fm.get("asks")),
                     "page_use": _use_bucket(settings, fm),
+                    # Ruling 71: the question_order bucket (high|mid|low) at admission, so a later human reading of
+                    # `GET /consumption/feedback` can check the order's constants. Nothing is auto-applied.
+                    "impact": impact,
                     # G141 PJ-6 (R-PJB24): ids and enums only — never the sentence.
                     **(extra_refs or {}),
                     # Ruling 29: Sleep's settle is recorded as Sleep's (`by: sleep` + its rule), never the person's.
@@ -1450,7 +1485,8 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
     label = _action_label(
         kind, request, inbox_questions.normalize_options(parsed.frontmatter.get("options") or [])
     )
-    feedback = _feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path)
+    feedback = {**_feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path),
+                "impact": _impact_bucket(settings, parsed.frontmatter)}
 
     # Audit 2026-10-05 P1-3: what the uncommitted pages and items hold BEFORE the
     # answer writes, so an edit already on a page the answer rewrites is
@@ -1626,7 +1662,8 @@ async def _defer(path, parsed, request, settings, item_id: str, *, label: str = 
     from api.services import git_service
 
     kind = str(parsed.frontmatter.get("kind", "decay"))
-    feedback = _feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path)
+    feedback = {**_feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path),
+                "impact": _impact_bucket(settings, parsed.frontmatter)}
 
     days = request.remind_days
     if days is None:

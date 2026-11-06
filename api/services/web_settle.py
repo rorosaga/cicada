@@ -838,23 +838,23 @@ KIND_ORDER = {"clarification": 0, PAIR: 1, "conflict": 2}
 
 
 def candidates(memory_path: Path, *, scope: str = "public", facts: BankFacts | None = None) -> list[Candidate]:
-    """Pending questions of ``scope``: clarifications before conflicts, then highest priority first (then oldest),
-    deferred ones left out. ``web_lookup`` refines the conflicts' order by their local context."""
+    """Pending questions of ``scope``: clarifications before conflicts (what a lookup can answer), and within a kind the
+    order the inbox serves (``question_order``, ruling 71: the expected change in what gets read), deferred ones left out.
+    ``web_lookup`` refines the conflicts' order by their local context."""
     from api.services import inbox_service
 
     memory_path = Path(memory_path)
     facts = facts or bank_facts(memory_path)
-    visible = {i.id for i in inbox_service.load_inbox(memory_path)}
-    out: list[tuple[float, str, Candidate]] = []
+    served = {i.id: n for n, i in enumerate(inbox_service.load_inbox(memory_path))}
+    out: list[tuple[int, Candidate]] = []
     for path in sorted((memory_path / "inbox").glob("inbox-*.md")):
-        if path.stem not in visible:
+        if path.stem not in served:
             continue
         c = candidate(memory_path, path, facts)
         if c is not None and c.scope == scope:
-            fm = markdown_parser.parse(path).frontmatter
-            out.append((-float(fm.get("priority") or 0.0), str(fm.get("created_date") or ""), c))
-    out.sort(key=lambda t: (KIND_ORDER.get(t[2].kind, 2), t[0], t[1]))
-    return [c for _, _, c in out]
+            out.append((served[path.stem], c))
+    out.sort(key=lambda t: (KIND_ORDER.get(t[1].kind, 2), t[0]))
+    return [c for _, c in out]
 
 
 def census(memory_path: Path, facts: BankFacts | None = None) -> dict:

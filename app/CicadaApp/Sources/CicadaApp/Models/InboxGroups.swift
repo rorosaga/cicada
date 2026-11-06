@@ -8,8 +8,9 @@ import Foundation
 /// the server — a group only decides where a question is drawn. The order a group draws is the order ↑/↓ walk and the
 /// order the next question opens after an answer (`InboxViewModel.visible`), so the keys never jump around the screen.
 ///
-/// Order: a section sits where its most urgent question would (the G115 order — priority, then newest —
-/// `InboxColumns.precedes`); a page's questions sit where their most urgent one would; inside, the G115 order.
+/// Order: a section sits where its most urgent question would (the list's order — the server's `orderIndex`, ruling 71,
+/// else G115's priority then newest; `InboxColumns.ordered`); a page's questions sit where their most urgent one would;
+/// inside, the same order.
 enum InboxGroups {
     /// The questions about one page (or one question with no page): drawn under a header only when there are two or
     /// more, so a page asked about once reads as before.
@@ -50,7 +51,7 @@ enum InboxGroups {
         sections(items, byKind: byKind).flatMap(\.items)
     }
 
-    /// `ordered` (already in the G115 order) grouped by page, each page where its first question is.
+    /// `ordered` (already in the list's order) grouped by page, each page where its first question is.
     private static func pages(_ ordered: [InboxItem]) -> [PageGroup] {
         var keys: [String] = []
         var groups: [String: [InboxItem]] = [:]

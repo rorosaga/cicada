@@ -160,7 +160,7 @@ struct InboxReview: Equatable {
     private(set) var queue: [String]
     private(set) var history: [Step] = []
 
-    /// The kind's reviewable questions in the Inbox's one order (priority, then newest — `InboxColumns.precedes`).
+    /// The kind's reviewable questions in the Inbox's order (the server's `orderIndex`, ruling 71; else priority, then newest).
     init(kind: ReviewKind, items: [InboxItem]) {
         self.kind = kind
         queue = InboxColumns.visible(items, filter: kind.inboxKind).filter(ReviewCard.reviewable).map(\.id)

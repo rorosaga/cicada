@@ -304,7 +304,8 @@ async def record_entity_read(
     fail the card open (``telemetry.record`` never raises)."""
     if not (settings.memory_path / "entities" / f"{entity_id}.md").is_file():
         raise HTTPException(status_code=404, detail="Entity not found")
-    telemetry.record_read(entity_id, surface=body.surface, bank=telemetry.bank_name(settings))
+    telemetry.record_read(entity_id, surface=body.surface, bank=telemetry.bank_name(settings),
+                          memory_path=settings.memory_path)
     return EntityReadResponse(recorded=telemetry.enabled())
 
 
