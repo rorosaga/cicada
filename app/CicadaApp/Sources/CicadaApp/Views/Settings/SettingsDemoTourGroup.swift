@@ -23,8 +23,9 @@ struct SettingsDemoTourGroup: View {
     /// Round 1 (ROR-118): four action tiles in one strip, each a glyph over its own words, instead of three rows of
     /// plain text (the row titles repeated their buttons). Each tile is its row's landing anchor.
     var body: some View {
-        // Round 2 (ROR-118): one card of four cells divided by hairlines, not four floating tiles of equal weight.
-        HStack(spacing: 0) {
+        // Round 3 (ROR-118): four equal buttons in one low row (a strip of wide tiles competed with the real settings):
+        // neutral fill and a resting ring so each reads as clickable, one outline glyph weight, secondary to the cards.
+        HStack(spacing: CicadaTheme.spacingSM) {
             // DR-40 — neutral, no primary.
             SetupTile(systemImage: "arrow.counterclockwise", title: Copy.runSetupAgain) {
                 OnboardingState.reset(bank: store.bank)
@@ -40,21 +41,17 @@ struct SettingsDemoTourGroup: View {
                 router.pendingTab = .home
                 router.activateMainWindow()
             }
-            .columnEdge()
             SetupTile(systemImage: "map", title: Copy.Tour.offerTake) {
                 router.closeSettings()
                 tour.requestStart()
             }
-            .columnEdge()
             .settingsRow(.guidedTour)
-            SetupTile(systemImage: "sparkles", title: inDemo ? Copy.Demo.leaveDemo : Copy.Demo.exploreDemo,
+            SetupTile(systemImage: "play.circle", title: inDemo ? Copy.Demo.leaveDemo : Copy.Demo.exploreDemo,
                       isDisabled: busy) {
                 inDemo ? leave() : enter()
             }
-            .columnEdge()
             .settingsRow(.demoMemory)
         }
-        .settingsCardSurface()
     }
 
     /// `GettingStartedCard`'s effects, with Home as the landing — the demo plan ends on `.showHome`.
@@ -92,8 +89,7 @@ struct SettingsDemoTourGroup: View {
     }
 }
 
-/// One cell of the Getting started card: a glyph over its words; the pointer lights its own cell (DR-48); neutral like
-/// every Settings button (DR-40).
+/// One button of the Getting started row: a glyph beside its words on the neutral button fill and ring (DR-40, DR-48).
 private struct SetupTile: View {
     let systemImage: String
     let title: String
@@ -104,20 +100,21 @@ private struct SetupTile: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: CicadaTheme.scaled(10)) {
+            HStack(spacing: CicadaTheme.scaled(6)) {
                 Image(systemName: systemImage)
-                    .font(CicadaTheme.font(size: 22, weight: .medium))
-                    .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .foregroundStyle(CicadaTheme.textSecondary)
                 Text(title)
-                    .font(CicadaTheme.rowFont)
+                    .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .padding(.horizontal, CicadaTheme.spacingSM)
-            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(108))
-            .rowHoverFill(hovering: hovering, cornerRadius: CicadaTheme.cornerRadius)
+            .padding(.horizontal, CicadaTheme.scaled(8))
+            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(36))
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                .fill(hovering && !isDisabled ? CicadaTheme.bgButtonHover : CicadaTheme.bgButton))
+            .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

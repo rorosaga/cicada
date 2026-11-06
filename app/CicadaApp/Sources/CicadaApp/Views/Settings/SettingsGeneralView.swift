@@ -75,18 +75,18 @@ struct SettingsGeneralView: View {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Image(systemName: "textformat.size.smaller")
                             .font(CicadaTheme.icon(.sidebar))
-                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .foregroundStyle(CicadaTheme.textSecondary)
                             .accessibilityHidden(true)
                         Slider(value: scale, in: ThemeStore.scaleRange, step: ThemeStore.scaleStep)
                             .frame(width: CicadaTheme.scaled(150))
                         Image(systemName: "textformat.size.larger")
                             .font(CicadaTheme.icon(.sidebar))
-                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .foregroundStyle(CicadaTheme.textSecondary)
                             .accessibilityHidden(true)
                         Text("\(Int((CicadaTheme.uiScale * 100).rounded()))%")
-                            .font(CicadaTheme.metaFont.monospacedDigit())
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                            .frame(width: CicadaTheme.scaled(44), alignment: .trailing)
+                            .font(CicadaTheme.rowFont.monospacedDigit())
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .frame(width: CicadaTheme.scaled(48), alignment: .trailing)
                         // Round 2 (ROR-118): at 100% there is nothing to reset, so the button keeps its slot and goes
                         // quiet instead of drawing as a disabled control.
                         NeutralButton(title: Copy.actualSize, size: .compact,
@@ -165,8 +165,8 @@ struct SettingsGeneralView: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 HStack(spacing: CicadaTheme.spacingMD) {
                     Text(Copy.versionLine(appVersion))
-                        .font(CicadaTheme.captionFont.monospacedDigit())
-                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .font(CicadaTheme.metaFont.monospacedDigit())
+                        .foregroundStyle(CicadaTheme.textSecondary)
                         .textSelection(.enabled)
                         .settingsRow(.appVersion)
                     Spacer(minLength: CicadaTheme.spacingSM)
@@ -228,13 +228,19 @@ struct BackgroundServiceButton: View {
             ProgressView().controlSize(.small)
         case .running:
             // The row said nothing at all while it worked (looks pass 2026-10-23): a dot and one word, like Devices.
-            // Round 2 (ROR-118): it has no off switch here (the service is installed, not toggled), so it reads as a
-            // deliberate status: a ringed badge at a switch's height, never a switch that lost its knob.
-            StatusDot(word: Copy.Status.on, on: true)
-                .padding(.horizontal, CicadaTheme.spacingMD)
-                .frame(height: CicadaTheme.scaled(26))
-                .background(CicadaTheme.shape(CicadaTheme.radiusLarge).fill(CicadaTheme.success.opacity(0.12)))
-                .ringed(.strong, in: CicadaTheme.shape(CicadaTheme.radiusLarge))
+            // Round 3 (ROR-118): it has no off switch here (the service is installed, not toggled), so it is a status
+            // and nothing more: a dot and a word at the switches' trailing edge, no pill that could pass for a control.
+            HStack(spacing: CicadaTheme.scaled(6)) {
+                Circle().fill(CicadaTheme.success)
+                    .frame(width: CicadaTheme.scaled(8), height: CicadaTheme.scaled(8))
+                Text(Copy.Status.on)
+                    .font(CicadaTheme.rowFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+            }
+            .padding(.trailing, CicadaTheme.scaled(4))
+            .fixedSize()
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Copy.Status.on)
         }
     }
 }

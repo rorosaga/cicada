@@ -284,8 +284,8 @@ private struct SettingsSidebarRow: View {
             HStack(spacing: CicadaTheme.scaled(10)) {
                 Image(systemName: section.icon)
                     // Round 2 (ROR-118): one size and one weight, plain outline glyphs, a little larger than the rail's rows.
-                    .font(CicadaTheme.font(size: 17, weight: .medium))
-                    .frame(width: CicadaTheme.scaled(22))
+                    .font(CicadaTheme.font(size: 18, weight: .medium))
+                    .frame(width: CicadaTheme.scaled(24))
                     .iconHover(hovering: hovering)
                 Text(section.title)
                     .font(CicadaTheme.rowFont)

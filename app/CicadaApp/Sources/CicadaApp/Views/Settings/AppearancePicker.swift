@@ -65,10 +65,20 @@ private struct AppearanceTile: View {
                         CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                             .strokeBorder(selected ? CicadaTheme.accent
                                           : CicadaTheme.ring(hovering ? .strong : .resting),
-                                          lineWidth: selected ? 1.5 : 1)
+                                          lineWidth: selected ? 2 : 1)
+                    }
+                    // Round 3 (ROR-118): the chosen tile also wears a check, so selection is not a thin outline alone.
+                    .overlay(alignment: .topTrailing) {
+                        if selected {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(CicadaTheme.font(size: 16, weight: .semibold))
+                                .foregroundStyle(Color.white, CicadaTheme.accent)
+                                .padding(CicadaTheme.scaled(6))
+                                .accessibilityHidden(true)
+                        }
                     }
                 Text(choice.label)
-                    .font(selected ? CicadaTheme.metaMediumFont : CicadaTheme.metaFont)
+                    .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(selected || hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             }
             .contentShape(Rectangle())
@@ -92,7 +102,7 @@ struct AppearanceMiniature: View {
     static let width: CGFloat = 132
     static let height: CGFloat = 84
     /// Round 1 (ROR-118): the Settings picker draws them 1.4 times the size.
-    static let pickerScale: CGFloat = 1.4
+    static let pickerScale: CGFloat = 1.45
 
     var body: some View {
         switch choice {
@@ -132,6 +142,8 @@ struct AppearanceMiniature: View {
                         HStack(spacing: 4 * k) {
                             Circle().fill(palette.accent).frame(width: 4 * k, height: 4 * k)
                             CicadaTheme.shape(k).fill(palette.text.opacity(0.8)).frame(width: 46 * k, height: 3 * k)
+                            Spacer(minLength: 0)
+                            Capsule().fill(palette.accent).frame(width: 8 * k, height: 4 * k)
                         }
                         .padding(.horizontal, 4 * k)
                         .frame(maxWidth: .infinity, minHeight: 9 * k, alignment: .leading)
