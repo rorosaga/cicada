@@ -2357,10 +2357,18 @@ def _recall(ctx: ToolContext, query: str) -> str:
     # G207: by meaning (the vector leg, which step 0 fills right after capture) and by words (the FTS passages, fresh
     # on read), rank-fused; a conversation Sleep hasn't read yet says so.
     if ctx.raw_excerpts:
-        episode_hits = _fuse_episode_hits(_leann_search_episodes(memory_path, query, top_k=3),
-                                          _lexical_search_episodes(memory_path, query, top_k=3), top_k=3)
         ep_lines = ["**Related conversation excerpts:**"]
         quoted: set[str] = set()
+        # 2026-11-06: the turn that says it comes first (Ask's search leg, `_turn_excerpts`), then the fused passages.
+        for excerpt in _turn_excerpts(memory_path, query):
+            if len(ep_lines) > RECALL_TURNS:
+                break
+            who = episode_actor.actor_for(memory_path, excerpt.episode)
+            text = " ".join(excerpt.text.split())
+            ep_lines.append(f"- [{excerpt.episode}]{_unread_label(memory_path, excerpt.episode)}"
+                            + (f" with {who}:" if who else "") + f" {excerpt.who}: {text}")
+        episode_hits = _fuse_episode_hits(_leann_search_episodes(memory_path, query, top_k=3),
+                                          _lexical_search_episodes(memory_path, query, top_k=3), top_k=3)
         for ep in episode_hits:
             meta = ep.get("metadata", {}) or {}
             ep_id = meta.get("episode_id", "unknown")
@@ -5055,6 +5063,25 @@ def _leann_search_entities(memory_path: Path, query: str, top_k: int) -> list[di
     return out
 
 
+def _turn_excerpts(memory_path: Path, query: str) -> list:
+    """The turns that say what ``query`` asks, by Ask's own search leg (``ask_sources``: words by rarity and the
+    vector leg, whose turn tells it, index-only records skipped by the same check Ask uses). A conversation's passage
+    is rarely the line that answers, and before Sleep there is no page to fall back on. Never raises."""
+    from api.services import ask_sources, owner_identity
+
+    try:
+        owner = owner_identity.owner_name(memory_path)
+        found = ask_sources.search(memory_path, query)
+        return ask_sources.gather_search(memory_path, query, found, owner_name=owner, max_episodes=RECALL_TURN_EPISODES,
+                                         max_excerpts=RECALL_TURNS, total_chars=RECALL_TURNS * RECALL_EXCERPT_CHARS,
+                                         deep={"left": 0}, excerpt_chars=RECALL_EXCERPT_CHARS)
+    except Exception as exc:  # noqa: BLE001 — a leg fewer; the passages below still answer (no query logged)
+        from loguru import logger
+
+        logger.debug(f"recall: turn leg unavailable ({type(exc).__name__})")
+        return []
+
+
 def _leann_search_episodes(memory_path: Path, query: str, top_k: int) -> list[dict]:
     try:
         from api.services.vector_index import SqliteVecIndexer
@@ -5234,6 +5261,8 @@ RECALL_TOP_BODY = 1_800          # the best page's body: Summary, then its disti
 RECALL_OTHER_BODY = 700          # every other page's body
 RECALL_HOP_CHARS = 160           # one one-hop head (shown only when a single page passed the floor)
 RECALL_EXCERPT_CHARS = 400       # one conversation excerpt (unchanged)
+RECALL_TURNS = 4                 # 2026-11-06: turns from Ask's search leg, before the fused passages (LongMemEval_S: 74 of 88 reach an answer turn)
+RECALL_TURN_EPISODES = 6         # the conversations they are read from
 
 
 def _clip_lines(text: str, limit: int, marker: str) -> str:

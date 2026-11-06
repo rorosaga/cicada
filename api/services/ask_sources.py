@@ -1636,7 +1636,7 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
 def gather_search(memory_path: Path, question: str, found: Searched, *, owner_name: str | None = None,
                   taken: set[tuple[str, int]] | None = None, max_episodes: int = SEARCH_EPISODES,
                   max_excerpts: int = SEARCH_EXCERPTS, total_chars: int = SEARCH_CHARS,
-                  deep: dict | None = None) -> list[Excerpt]:
+                  deep: dict | None = None, excerpt_chars: int = EXCERPT_CHARS) -> list[Excerpt]:
     """The turns of the best :func:`search` conversations that hold the question's words, the rarer words counting
     more, oldest first. A conversation kept for its day (the newest on the subject, a day the question names) shows
     its best turn before the others fill the budget by score, so the one that settled the subject is never crowded out.
@@ -1725,7 +1725,8 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
     # G207: one budget for everything read past the usual excerpt — the caller's when the page leg drew on it too.
     deep = deep if deep is not None else {"left": UNREAD_EXTRA_CHARS}
     chosen = _take(lead + [c for c in candidates if id(c) not in led], docs, terms, owner_name,
-                   max_excerpts=max_excerpts, total_chars=total_chars, taken=taken, deep=deep)
+                   max_excerpts=max_excerpts, total_chars=total_chars, taken=taken, deep=deep,
+                   excerpt_chars=excerpt_chars)
     if enumerate_:
         taken |= shown_turns(chosen)
         # The window's conversations the budget left without a line, then the further ones on the subject.
