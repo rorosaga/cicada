@@ -390,6 +390,11 @@ SEARCH_CHARS = 3000
 ENUM_EPISODES = 16
 ENUM_EXCERPT_CHARS = 300
 ENUM_CHARS = 3600
+#: What Ask reads of the search leg, for every question in every language (2026-11-06, G148): no shape decides it, since the
+#: shapes are word lists. Twice as much as one fact takes; measured in `mcp.md`. A caller with a budget of its own (recall) passes its own.
+ASK_WINDOW_EPISODES = 8
+ASK_WINDOW_EXCERPTS = 12
+ASK_WINDOW_CHARS = 6_000
 #: A count or a list about one speaker ("how many … have I …", "what books has <name> read"): another speaker's turn
 #: counts this share of its words' weight — the other side of a chat repeats the words ("did you enjoy the wedding?")
 #: but never did the thing.
@@ -1755,10 +1760,17 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
     return Searched(episodes=order, weights=weights, shape=shape, kept=kept, more=more, similar=similar, **by)
 
 
+def window_limits() -> dict:
+    """``gather_search``'s limits for Ask."""
+    return {"max_episodes": ASK_WINDOW_EPISODES, "max_excerpts": ASK_WINDOW_EXCERPTS, "total_chars": ASK_WINDOW_CHARS,
+            "person_first": True}
+
+
 def gather_search(memory_path: Path, question: str, found: Searched, *, owner_name: str | None = None,
                   taken: set[tuple[str, int]] | None = None, max_episodes: int = SEARCH_EPISODES,
                   max_excerpts: int = SEARCH_EXCERPTS, total_chars: int = SEARCH_CHARS,
-                  deep: dict | None = None, excerpt_chars: int = EXCERPT_CHARS) -> list[Excerpt]:
+                  deep: dict | None = None, excerpt_chars: int = EXCERPT_CHARS,
+                  person_first: bool = False) -> list[Excerpt]:
     """The turns of the best :func:`search` conversations that hold the question's words, the rarer words counting
     more, oldest first. A conversation kept for its day (the newest on the subject, a day the question names) shows
     its best turn before the others fill the budget by score, so the one that settled the subject is never crowded out.
@@ -1842,6 +1854,10 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         # gives every other conversation its line.
         asked = asked_about(question, owner_name)
         candidates = _about_first(candidates, docs, asked, weights, owner_name)
+    if person_first:
+        # An agent's turn repeats the words of a question and rarely did the thing, so it only fills what the people's
+        # turns leave. It comes from a turn's role, so no language decides it.
+        candidates = sorted(candidates, key=lambda c: c[4].role == "assistant")
     led = {id(c) for c in lead}
     # G207: one budget for everything read past the usual excerpt — the caller's when the page leg drew on it too.
     deep = deep if deep is not None else {"left": UNREAD_EXTRA_CHARS}

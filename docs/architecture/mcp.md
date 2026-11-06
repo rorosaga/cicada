@@ -1398,6 +1398,19 @@ The detector over 150 questions translated into 11 languages finds 16 to 26 of 3
 questions it fires falsely on 12. A question recalling a recommendation already given ("what advice did she give him?") is a
 question of fact, so the "other" examples hold those; without them it fired on 42, most of that shape. The note on such a
 question invites invention, so that is the failure to watch.
+**Ask reads a wider window, on every question (G148, 2026-11-06).** A count needs every conversation holding one, and the window
+was built for one fact: LongMemEval_S multi-session answered 5 of 20. `window_limits` gives every question 8 conversations, 12 lines
+and 6,000 characters instead of 4, 6 and 3,000 (`SEARCH_*`). No shape decides it, since the shapes are word lists. `person_first`: an
+agent's turn only fills what the people's turns leave, by a turn's role. Nothing slept, haiku, 100 questions, one run each:
+
+| Window | Right | Multi-session of 20 | Tokens per question | Per right answer | Prompt chars p50 |
+|---|---|---|---|---|---|
+| 4 / 6 / 3,000 | 74 | 5 | 6,349 | 8,580 | 8,220 |
+| **8 / 12 / 6,000** | **77** | **8** | **7,545** | **9,799** | **11,846** |
+| 12 / 20 / 10,000 | 77 | 8 | 9,547 | 12,399 | 17,534 |
+
+So it costs 19% more tokens a question and 14% more per right answer, for 3 more right of 100 (sign p = .58). Wider adds cost and
+nothing else. The score's other part: knowledge-update +2, preference +1, assistant -1, temporal -1, abstention -1.
 
 **Ask reads pages item by item, and the conversations' own words behind them (G148/G118, 2026-10-17).** LoCoMo conv-26
 through Cicada scored J 52.5 against 95.0 for the same reader given the raw conversation; 17 of 19 wrong answers said
