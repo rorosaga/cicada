@@ -2412,13 +2412,13 @@ def _recall(ctx: ToolContext, query: str) -> str:
         ep_lines = ["**Related conversation excerpts:**"]
         quoted: set[str] = set()
         # 2026-11-06: the turn that says it comes first (Ask's search leg, `_turn_excerpts`), then the fused passages.
+        turns_shown: dict[str, list[str]] = {}
         for excerpt in _turn_excerpts(memory_path, query):
-            if len(ep_lines) > RECALL_TURNS:
-                break
             who = episode_actor.actor_for(memory_path, excerpt.episode)
             text = " ".join(excerpt.text.split())
+            turns_shown.setdefault(excerpt.episode, []).append(text)
             ep_lines.append(f"- [{excerpt.episode}]{_unread_label(memory_path, excerpt.episode)}"
-                            + (f" with {who}:" if who else "") + f" {excerpt.who}: {text}")
+                            + (f" with {who}:" if who else "") + f" {_speaker_word(excerpt)}: {text}")
         episode_hits = _fuse_episode_hits(_leann_search_episodes(memory_path, query, top_k=3),
                                           _lexical_search_episodes(memory_path, query, top_k=3), top_k=3)
         for ep in episode_hits:
@@ -2429,9 +2429,11 @@ def _recall(ctx: ToolContext, query: str) -> str:
             quoted.add(ep_id)
             if _is_bare_save(memory_path, ep_id):
                 continue   # ruling 62: a saved link is no conversation; its line above says what it is
-            snippet = (ep.get("text") or "")[:RECALL_EXCERPT_CHARS].strip().replace("\n", " ")
+            snippet = (ep.get("text") or "")[:RECALL_PASSAGE_CHARS].strip().replace("\n", " ")
             if _mostly_links(snippet):
                 continue   # 2026-10-27: a bare link (a mail client's wrapped URL) says nothing an agent can use
+            if _repeats_a_turn(snippet, turns_shown.get(ep_id, ())):
+                continue   # ROR-133: the turn above already said it
             # 2026-10-27: who the person was talking to, from the episode's own fields (`episode_actor`).
             who = episode_actor.actor_for(memory_path, ep_id)
             ep_lines.append(f"- [{ep_id}]{_unread_label(memory_path, ep_id)}" + (f" with {who}:" if who else "")
@@ -5115,18 +5117,34 @@ def _leann_search_entities(memory_path: Path, query: str, top_k: int) -> list[di
     return out
 
 
+def _speaker_word(excerpt) -> str:
+    """Who said a quoted turn, in the fewest words that stay true: an agent's turn is never the person's."""
+    return {"user": "the person", "assistant": "an agent"}.get(excerpt.role) or excerpt.who
+
+
+def _repeats_a_turn(snippet: str, turns: "list[str] | tuple") -> bool:
+    """Whether ``snippet`` holds a stretch of a turn quoted above from the same conversation: one thing, said twice."""
+    plain = " ".join(snippet.split())
+    return any(any(turn[i:i + RECALL_REPEAT_CHARS] in plain
+                   for i in range(0, max(len(turn) - RECALL_REPEAT_CHARS, 0) + 1, RECALL_REPEAT_CHARS))
+               for turn in turns if len(turn) >= RECALL_REPEAT_CHARS)
+
+
 def _turn_excerpts(memory_path: Path, query: str) -> list:
     """The turns that say what ``query`` asks, by Ask's own search leg (``ask_sources``: words by rarity and the
     vector leg, whose turn tells it, index-only records skipped by the same check Ask uses). A conversation's passage
-    is rarely the line that answers, and before Sleep there is no page to fall back on. Never raises."""
+    is rarely the line that answers, and before Sleep there is no page to fall back on. The person's own turns come
+    first and an agent's fill what is left, in any language, so no word list decides who a question is about. Never
+    raises."""
     from api.services import ask_sources, owner_identity
 
     try:
         owner = owner_identity.owner_name(memory_path)
         found = ask_sources.search(memory_path, query)
-        return ask_sources.gather_search(memory_path, query, found, owner_name=owner, max_episodes=RECALL_TURN_EPISODES,
-                                         max_excerpts=RECALL_TURNS, total_chars=RECALL_TURNS * RECALL_EXCERPT_CHARS,
-                                         deep={"left": 0}, excerpt_chars=RECALL_EXCERPT_CHARS)
+        pool = ask_sources.gather_search(memory_path, query, found, owner_name=owner, max_episodes=RECALL_TURN_EPISODES,
+                                         max_excerpts=RECALL_TURNS * 2, total_chars=RECALL_TURNS * 2 * RECALL_TURN_CHARS,
+                                         deep={"left": 0}, excerpt_chars=RECALL_TURN_CHARS)
+        return sorted(sorted(pool, key=lambda e: e.role == "assistant")[:RECALL_TURNS], key=lambda e: e.order)
     except Exception as exc:  # noqa: BLE001 — a leg fewer; the passages below still answer (no query logged)
         from loguru import logger
 
@@ -5315,6 +5333,9 @@ RECALL_HOP_CHARS = 160           # one one-hop head (shown only when a single pa
 RECALL_EXCERPT_CHARS = 400       # one conversation excerpt (unchanged)
 RECALL_TURNS = 4                 # 2026-11-06: turns from Ask's search leg, before the fused passages (LongMemEval_S: 74 of 88 reach an answer turn)
 RECALL_TURN_EPISODES = 6         # the conversations they are read from
+RECALL_TURN_CHARS = 400          # one such turn
+RECALL_PASSAGE_CHARS = 400       # one fused passage
+RECALL_REPEAT_CHARS = 60         # a passage holding this much of a turn above says it twice
 
 
 def _clip_lines(text: str, limit: int, marker: str) -> str:
