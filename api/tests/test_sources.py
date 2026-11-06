@@ -1573,3 +1573,22 @@ def test_saving_a_url_stamps_the_saved_link_origin(tmp_path, monkeypatch):
 
     fm = markdown_parser.parse(memory / "entities" / f"{entity_id}.md").frontmatter
     assert fm["origin"] == "saved-link"
+
+
+def test_source_list_is_kept_under_its_etag_and_rebuilt_when_the_bank_moves(tmp_path, monkeypatch):
+    """Speed 2026-11-06: the list is built off the event loop and kept under the ETag it was built for — the same
+    ETag answers the kept list, a bank change (a new link) builds it again."""
+    from api.routers import sources as sources_router
+
+    client, _ = _make_client(tmp_path, monkeypatch)
+    sources_router._SOURCE_LIST_MEMO.clear()
+    assert client.post("/sources/rss", json={"feedXml": RSS_FEED}).status_code == 200
+    first = client.get("/sources?sort=relevance")
+    assert first.status_code == 200 and first.json()["total"] == 3
+    kept = next(iter(sources_router._SOURCE_LIST_MEMO.values()))
+    assert kept[0] == first.headers["etag"]
+    assert client.get("/sources?sort=relevance").json() == first.json()
+    assert next(iter(sources_router._SOURCE_LIST_MEMO.values()))[1] is kept[1]  # the kept answer, not a rebuild
+    feed = RSS_FEED.replace("</channel>", "<item><title>New</title><link>https://new.example.com/n</link></item></channel>")
+    assert client.post("/sources/rss", json={"feedXml": feed}).status_code == 200
+    assert client.get("/sources?sort=relevance").json()["total"] == 4
