@@ -1171,7 +1171,7 @@ struct SleepView: View {
 
         return VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             if beside {
-                // Rodrigo asked for it (2026-11-06): the title, the headline and the buttons are one block exactly
+                // The owner asked for it (2026-11-06): the title, the headline and the buttons are one block exactly
                 // as tall as the room (`fillHeight`), so their top and bottom edges are the room's whatever the
                 // state; the run's instrument runs under the pair at full width.
                 VStack(alignment: .leading, spacing: 0) {

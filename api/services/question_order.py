@@ -1,12 +1,12 @@
 """The order of the inbox: the expected change in what actually gets read (TODO ruling 70, 2026-11-06).
 
-Rodrigo (2026-11-06): "the questions should have in order the impact they might have on current accesses knowledge,
+Owner (2026-11-06): "the questions should have in order the impact they might have on current accesses knowledge,
 and things that might have big impact." One function, ``Tables.score``, orders all three places a person meets the
 list - ``load_inbox`` (so ``GET /inbox`` and Home), ``inbox_catchup.select`` (the catch-up chat) and
 ``cicada_check_nudges(mode="ask")`` - and the order is **derived on read from the record, never stored** (the stored
 ``priority`` no longer moves it; it stays on disk and on the wire for older clients).
 
-**One order everywhere** (Rodrigo, 2026-11-06: "The same score orders every queue ... A page's queue must not fall back
+**One order everywhere** (owner, 2026-11-06: "The same score orders every queue ... A page's queue must not fall back
 to raw priority"). Every other place that lists or picks questions goes through :func:`ranked` (``cicada_check_nudges``
 ``list`` mode, recall's open-question block, the recall hook's pointer) or the served order (``web_settle.candidates``,
 the app's ``orderIndex``); ``search_service`` drops priority from its tie-break. ``test_question_order_gate.py`` fails on
@@ -28,9 +28,9 @@ a new sort keyed on a question's raw priority.
   ``reach`` is what the resolver changes (claims a merge moves, the contested claims of a conflict, the claims a
   decay covers; a plain clarification adds one claim, so 1). ``visibility(N) = min(1, sqrt(SHOWN / N))`` for the ``N``
   claims on the page they live on: a read shows about :data:`SHOWN` claims, and is aimed by words, so dilution is the
-  square root of the share, not the share. **The owner's own page does not dilute** (Rodrigo, 2026-11-06, judging the
+  square root of the share, not the share. **The owner's own page does not dilute** (owner, 2026-11-06, judging the
   real top 10: facts about the person matter most, and a recent one fell to 298th under their page's size).
-* ``freshness`` - a fact said long ago asks less (Rodrigo, 2026-11-06: "the questions in regards to the amounts of <a-payment> are extremely old and in this case shouldn't they be lower impact? The impact formulation should
+* ``freshness`` - a fact said long ago asks less (owner, 2026-11-06: "the questions in regards to the amounts of <a-payment> are extremely old and in this case shouldn't they be lower impact? The impact formulation should
   apply to the question queues in all entities."). ``freshness = relief + (1 - relief) x fade`` and
   ``fade = max(FADE_FLOOR, 0.5 ** (age / half_life))``. The **age** counts from when the thing was SAID. For a conflict,
   the freshest of its contested options: an option on a claim the page holds, :func:`source_refresh.said_on` of that
@@ -49,18 +49,18 @@ a new sort keyed on a question's raw priority.
   daily is read, but opening a huge hub daily does not rescue every old fact on it, the owner's page included: there the
   size only stops diluting the facts an answer changes, or a daily look at that page would exempt everything on it. An
   empty or absent counter is relief 0.
-  ``asks: still`` fades (Rodrigo, 2026-11-06), from its claim's last saying, at the holding page's rate, relieved by its
+  ``asks: still`` fades (owner, 2026-11-06), from its claim's last saying, at the holding page's rate, relieved by its
   topic page's reads. What does **not** fade: who someone is (``merge_suggestion``, ``asks: name``, a held-name release,
-  Rodrigo, 2026-11-06), ``decay`` (age is what it asks about, and its ``p`` already accounts for it), and a removal,
+  owner, 2026-11-06), ``decay`` (age is what it asks about, and its ``p`` already accounts for it), and a removal,
   normalization, page edit, ``asks: sources`` review or ``sensitive`` hold (not a fact someone said).
 
-* ``lift`` - what has come up lately (Rodrigo, 2026-11-06: "<a-person> and <another> have come up a lot lately. Thats why
+* ``lift`` - what has come up lately (owner, 2026-11-06: "<a-person> and <another> have come up a lot lately. Thats why
   recency is important"; a question on a page mentioned this week outranks one on a quiet page). A "same as?" question
   has :meth:`Tables.recency` instead. ``1 + LATELY_WEIGHT x lately`` of the question's page said most lately (:func:`page_use.lately`,
   by the days its conversations were said); on the owner's own page, always said, how lately the fact in question was. A factor, not part of ``exposure``: inside that
   complement a page already busy has no room to rise, and measured on a real memory the most-said pages fell.
 
-**One type at a time** (Rodrigo, 2026-11-06: the top was a wall of "same as?", 9 of 10). The score stays what it is;
+**One type at a time** (owner, 2026-11-06: the top was a wall of "same as?", 9 of 10). The score stays what it is;
 :func:`spaced` takes the list in score order and lets at most :data:`RUN_LIMIT` questions of one :func:`family` run in a
 row, bringing the best question of another family forward when a run reaches it. The first place is always the top
 score, a family's own order never changes, and a family runs on when nothing else is left. A question shown, never asked
@@ -94,7 +94,7 @@ from api.services import bank_index, decay_policy, entity_types, episode_ids, ep
 
 SHOWN = 30
 FLOOR = 0.1
-#: A duplicate question about pages spoken of lately asks first (Rodrigo, 2026-11-06: two names that "have come up a lot
+#: A duplicate question about pages spoken of lately asks first (owner, 2026-11-06: two names that "have come up a lot
 #: lately ... that's why recency is important"): the score is multiplied by ``1 + RECENT_BOOST x 0.5^(days / RECENT_DAYS)``
 #: for the newest conversation BOTH pages appear in (the older of the two) - up to 3x today, 1.5x after two weeks, back to 1 in time. It only
 #: raises: an old pair is not lowered, since who someone is does not fade (ruling 70).
@@ -105,7 +105,7 @@ RECENT_DAYS = 14.0
 SENSITIVE_SCORE = 3.0
 #: A fact said long ago still asks a little: the fade never goes below this (judgment, like the rest).
 FADE_FLOOR = 0.05
-#: How much more the page said most lately asks than a quiet one (Rodrigo, 2026-11-06). Judgment, with the table in
+#: How much more the page said most lately asks than a quiet one (owner, 2026-11-06). Judgment, with the table in
 #: ``features.md``.
 LATELY_WEIGHT = 2.0
 #: At most this many questions of one family in a row. Measured on a real memory, 659 open questions: two left "same as?"

@@ -122,6 +122,8 @@ class Excerpt:
     stamp: str = ""
     #: Its conversation is still ``processed: false`` — Sleep has not read it (G207): the line says so.
     unread: bool = False
+    #: The turn's role, for a reader that says who spoke in its own words.
+    role: str = ""
 
 
 def local_day(raw):
@@ -286,7 +288,7 @@ def _take(candidates: list[tuple], docs: dict[str, tuple], terms: set[str], owne
         day = said.isoformat() if said is not None else episode_day(ep)
         excerpt = Excerpt(episode=ep, day=day, who=_who(turn, fm, owner_name), text=text_shown,
                           order=(day, ep, i), title=str(fm.get("title") or "").strip(),
-                          stamp=str(turn.ts or fm.get("timestamp") or "") or day, unread=unread)
+                          stamp=str(turn.ts or fm.get("timestamp") or "") or day, unread=unread, role=turn.role)
         taken.add((ep, i))
         used += len(clipped)
 

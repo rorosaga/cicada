@@ -327,13 +327,13 @@
     {
       "function": "_write_sleep_findings",
       "method": "write",
-      "frontmatter": "{'kind': 'divergence', 'required_input': 'choice', 'status': 'pending', 'priority': 0.5, 'entity_id': 'grace-example', 'entity_name': 'Grace Example', 'title': \"I'm reading something different about Grace Example\", 'created_date': day, 'options': ['Keep my statement (Acme Example)', 'Update to Initech Example', 'Both true \u2014 different context'], 'predicate': None, 'question': None, 'allow_other': False, 'allow_defer': False, 'claim_id': agent['claim_id'], 'existing_claim_id': owner.id, 'source_episode': capture, 'trigger': 'sleep/conflict_resolution', 'raw_predicate': None, 'canonical_predicate': None}",
+      "frontmatter": "{'kind': 'divergence', 'required_input': 'choice', 'status': 'pending', 'priority': 0.5, 'entity_id': 'grace-example', 'entity_name': 'Grace Example', 'title': \"I'm reading something different about Grace Example\", 'created_date': day, 'options': ['Keep my statement (Acme Example)', 'Update to Initech Example', 'Both true — different context'], 'predicate': None, 'question': None, 'allow_other': False, 'allow_defer': False, 'claim_id': agent['claim_id'], 'existing_claim_id': owner.id, 'source_episode': capture, 'trigger': 'sleep/conflict_resolution', 'raw_predicate': None, 'canonical_predicate': None}",
       "disposition": "fresh_frontmatter_untracked"
     },
     {
       "function": "_write_sleep_findings",
       "method": "write",
-      "frontmatter": "{'kind': 'normalization', 'required_input': 'choice', 'status': 'pending', 'priority': 0.3, 'entity_id': 'nina-example', 'entity_name': 'Nina Example', 'title': 'Confirm a predicate fold for Nina Example', 'created_date': day, 'options': ['Correct fold', 'Wrong fold \u2014 keep separate'], 'predicate': None, 'question': None, 'allow_other': False, 'allow_defer': False, 'claim_id': nina['claim_id'], 'existing_claim_id': None, 'source_episode': capture, 'trigger': 'sleep/conflict_resolution', 'raw_predicate': 'is employed by', 'canonical_predicate': 'works-at'}",
+      "frontmatter": "{'kind': 'normalization', 'required_input': 'choice', 'status': 'pending', 'priority': 0.3, 'entity_id': 'nina-example', 'entity_name': 'Nina Example', 'title': 'Confirm a predicate fold for Nina Example', 'created_date': day, 'options': ['Correct fold', 'Wrong fold — keep separate'], 'predicate': None, 'question': None, 'allow_other': False, 'allow_defer': False, 'claim_id': nina['claim_id'], 'existing_claim_id': None, 'source_episode': capture, 'trigger': 'sleep/conflict_resolution', 'raw_predicate': 'is employed by', 'canonical_predicate': 'works-at'}",
       "disposition": "fresh_frontmatter_untracked"
     },
     {
@@ -1057,7 +1057,7 @@
     {
       "function": "_ask",
       "method": "write",
-      "frontmatter": "{'kind': 'divergence', 'required_input': 'choice', 'status': 'pending', 'priority': 0.6, 'entity_id': entity_id, 'entity_name': name, 'title': f'{host} says something different about {name}', 'created_date': date.today().isoformat(), 'options': [f'Keep {existing.object} ({when})', f'It ended ({host}, {captured})' if ending else f'Update to {new.object} ({host}, {captured})', 'Both true \u2014 different context'], 'predicate': predicate, 'question': f\"Which is current for {name}'s {_words(predicate)}?\", 'allow_other': False, 'allow_defer': True, 'claim_id': new.id, 'existing_claim_id': existing.id, 'source_episode': episode_id, 'trigger': TRIGGER}",
+      "frontmatter": "{'kind': 'divergence', 'required_input': 'choice', 'status': 'pending', 'priority': 0.6, 'entity_id': entity_id, 'entity_name': name, 'title': f'{host} says something different about {name}', 'created_date': date.today().isoformat(), 'options': [f'Keep {existing.object} ({when})', f'It ended ({host}, {captured})' if ending else f'Update to {new.object} ({host}, {captured})', 'Both true — different context'], 'predicate': predicate, 'question': f\"Which is current for {name}'s {_words(predicate)}?\", 'allow_other': False, 'allow_defer': True, 'claim_id': new.id, 'existing_claim_id': existing.id, 'source_episode': episode_id, 'trigger': TRIGGER}",
       "disposition": "fresh_frontmatter_untracked"
     },
     {
@@ -1673,6 +1673,18 @@
       "disposition": "preserve_frontmatter_guarded"
     },
     {
+      "function": "apply_title_matches",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, 'book': new}",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "not_this_book",
+      "method": "write",
+      "frontmatter": "{**fm, 'book': book}",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
       "function": "_stamp_local_covers",
       "method": "write",
       "frontmatter": "{**parsed.frontmatter, 'book': {**book, 'local_cover': sha}}",
@@ -1757,6 +1769,30 @@
       "method": "write",
       "frontmatter": "parsed.frontmatter",
       "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/book_why.py": [
+    {
+      "function": "run",
+      "method": "write",
+      "frontmatter": "{**fresh.frontmatter, 'book': book}",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/merge_rejections.py": [
+    {
+      "function": "uncross_aliases",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/person_duplicates.py": [
+    {
+      "function": "propose",
+      "method": "write",
+      "frontmatter": "{'kind': 'merge_suggestion', 'required_input': 'merge', 'status': 'pending', 'priority': guess, 'entity_id': asked, 'entity_name': name_a, 'title': f'Is {name_a} the same as {name_b}?', 'uncertainty_type': f'Possible duplicate of {name_b}', 'suggested_classification': 'person', 'suggested_confidence': guess, 'created_date': today.isoformat(), 'merge_target_hint': target, 'detected': 'person_duplicate', 'signals': pair.signals, **({'source_episode': verdict.episode} if verdict.episode else {})}",
+      "disposition": "fresh_frontmatter_untracked"
     }
   ]
 }

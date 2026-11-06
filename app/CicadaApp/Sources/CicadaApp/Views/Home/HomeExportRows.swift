@@ -96,7 +96,7 @@ struct HomeWalkthroughLayer: View {
     }
 }
 
-/// ROR-126 (Rodrigo: "the little worm on Home shows it's waiting on the export, per provider") — one quiet line a
+/// ROR-126 (owner: "the little worm on Home shows it's waiting on the export, per provider") — one quiet line a
 /// provider while an export is on its way, whether the person asked for it by hand or their agent did. The worm is the
 /// small mood sprite, not the study room's illustration (DR-13), and the row is the wait's own: the provider's name,
 /// when it was asked, *Choose a file…* once it arrives and the ✕. A request the agent could not carry out is not a wait
