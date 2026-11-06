@@ -289,7 +289,7 @@ decaying classes; `evergreen` pins its rate to `0.0` unconditionally.
 
 | Class | Base entity rate/wk | Claim multiplier | Meaning |
 |---|---|---|---|
-| `evergreen` | 0.0 | 0.0 | Never fades — the *page*. Artifacts (media/bookmarks) + anything the user pins. Its facts fade by their own class, except on media (ruling 70). |
+| `evergreen` | 0.0 | 0.0 | Never fades — the *page*. Artifacts (media/bookmarks) + anything the user pins. Its facts fade by their own class, except on media (ruling 74). |
 | `durable` | 0.02 | 0.5 | Stable preferences, skills, long-lived concepts. |
 | `active` | 0.05 | 1.0 | Default for a belief about the user's life. |
 | `volatile` | 0.15 | 2.0 | Expected to change within weeks (role, status, current focus). |
@@ -299,7 +299,7 @@ decaying classes; `evergreen` pins its rate to `0.0` unconditionally.
 extraction AND again in the create branch). Evergreen is reserved for ingest writers and the user,
 so an over-eager extractor can never stop the graph from archiving.
 
-**A fact has its own class (ruling 70, ROR-129).** `Claim.decay_class` (`evergreen|durable|active|volatile`, omitted when
+**A fact has its own class (ruling 74, ROR-129).** `Claim.decay_class` (`evergreen|durable|active|volatile`, omitted when
 unset) and `Claim.class_by` (`model|user`). The extraction model proposes one per relationship and per value (`fact_class`,
 any language, no word list; `decay_policy.fact_class_proposal`) and **may say evergreen for a fact**; a restatement carrying
 a class replaces a model's, never a person's (`claim_reconciler._merge_fact_class`). One resolver, `decay_policy.fact_class`:
