@@ -111,7 +111,7 @@ private struct SetupTile: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, CicadaTheme.spacingSM)
-            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(76))
+            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(88))
             .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
             .rowHoverFill(hovering: hovering, cornerRadius: CicadaTheme.cornerRadius)
             .ringed(hovering ? .strong : .resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))

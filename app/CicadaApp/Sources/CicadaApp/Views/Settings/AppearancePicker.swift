@@ -91,8 +91,8 @@ struct AppearanceMiniature: View {
     var k: CGFloat = 1
     static let width: CGFloat = 132
     static let height: CGFloat = 84
-    /// Round 1 (ROR-118): the Settings picker draws them 1.3 times the size.
-    static let pickerScale: CGFloat = 1.3
+    /// Round 1 (ROR-118): the Settings picker draws them 1.4 times the size.
+    static let pickerScale: CGFloat = 1.4
 
     var body: some View {
         switch choice {
