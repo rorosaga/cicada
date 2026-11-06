@@ -383,7 +383,6 @@ def _claim_option(key: str, claim: Claim, today: str) -> dict:
         "claim_id": claim.id,
         "observed_at": observed,
         "last_referenced": observed,
-        "source_episode": episode or None,
     }
     episode = (claim.source_episodes or [""])[0]
     if episode:
