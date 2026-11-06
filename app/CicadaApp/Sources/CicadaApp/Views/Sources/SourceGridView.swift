@@ -21,8 +21,6 @@ struct SourceGridSearch: Equatable {
 struct SourceAppTile: View {
     let row: SourceCatalogRow
     var highlighted = false
-    /// It sits under a section's heading, not in search results.
-    var headed = false
     let now: Date
     let open: () -> Void
 
@@ -39,7 +37,7 @@ struct SourceAppTile: View {
                         .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
-                    if let line = SourceGrid.line(row, now: now, headed: headed) {
+                    if let line = SourceGrid.line(row, now: now) {
                         StatusWord(word: line.word, tone: line.tone).monospacedDigit()
                     }
                 }
@@ -61,8 +59,8 @@ struct SourceAppTile: View {
     }
 }
 
-/// The root: *Needs you*, *Connected*, *Suggested*, then what could be added by what it is; or, with words in the field,
-/// what they find, best first, with no headings. A window of any width takes as many columns as fit (DR-70: scaled).
+/// What the typed words find, best first, with no headings. A window of any width takes as many columns as fit (DR-70:
+/// scaled). With nothing typed the root is `SourceShelvesView`.
 struct SourceGridView: View {
     let rows: [SourceCatalogRow]
     let search: SourceGridSearch
@@ -77,18 +75,7 @@ struct SourceGridView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
-            if SourceGrid.isSearching(search.text) {
-                results(now: context.date)
-            } else {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
-                    ForEach(SourceGrid.sections(rows), id: \.section) { group in
-                        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                            SectionLabel(group.section.title)
-                            grid(group.rows, highlighted: nil, headed: true, now: context.date)
-                        }
-                    }
-                }
-            }
+            results(now: context.date)
         }
     }
 
@@ -99,15 +86,14 @@ struct SourceGridView: View {
             EmptyStateView(title: Copy.Catalog.noMatch(search.text.trimmingCharacters(in: .whitespacesAndNewlines)),
                            message: "", actionLabel: Copy.Catalog.importChatsOrFiles, action: importFiles)
         } else {
-            grid(found, highlighted: SourceGrid.highlighted(found, cursor: search.cursor), headed: false,
-                 now: now)
+            grid(found, highlighted: SourceGrid.highlighted(found, cursor: search.cursor), now: now)
         }
     }
 
-    private func grid(_ rows: [SourceCatalogRow], highlighted: String?, headed: Bool, now: Date) -> some View {
+    private func grid(_ rows: [SourceCatalogRow], highlighted: String?, now: Date) -> some View {
         LazyVGrid(columns: Self.columns, alignment: .leading, spacing: CicadaTheme.spacingSM) {
             ForEach(rows) { row in
-                SourceAppTile(row: row, highlighted: row.id == highlighted, headed: headed, now: now) {
+                SourceAppTile(row: row, highlighted: row.id == highlighted, now: now) {
                     open(.entry(row.id))
                 }
                     .id(SourcesSelection.entry(row.id))

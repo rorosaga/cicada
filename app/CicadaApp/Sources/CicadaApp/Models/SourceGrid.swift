@@ -28,26 +28,23 @@ enum SourceCategory: String, CaseIterable, Identifiable {
     }
 }
 
-/// A tile's place on the page. A source sits in exactly one, so the arrow keys and `ForEach` never meet it twice.
+/// A row's place on the page. A source sits in exactly one, so the arrow keys and `ForEach` never meet it twice.
+/// ROR-118 (owner: "group by kind of information, never by vendor"): what waits on the person, then the six shelves.
 enum SourceGridSection: Hashable, Identifiable {
-    case needsYou, connected, suggested
-    case category(SourceCategory)
+    case needsYou
+    case shelf(SourceShelf)
 
     var id: String {
         switch self {
         case .needsYou: "needs-you"
-        case .connected: "connected"
-        case .suggested: "suggested"
-        case .category(let category): category.rawValue
+        case .shelf(let shelf): shelf.rawValue
         }
     }
 
     var title: String {
         switch self {
         case .needsYou: Copy.Catalog.needsYou
-        case .connected: Copy.Catalog.connected
-        case .suggested: Copy.Catalog.suggested
-        case .category(let category): category.title
+        case .shelf(let shelf): shelf.title
         }
     }
 }
@@ -63,12 +60,7 @@ extension SourceCatalogRow {
     /// only through a reader another row holds keeps its green dot in its own category.
     var isConnectedHere: Bool { status == .connected && countsAsConnected && !needsYou }
 
-    var section: SourceGridSection {
-        if needsYou { return .needsYou }
-        if isConnectedHere { return .connected }
-        if suggested, status == .off, !notInstalled { return .suggested }
-        return .category(entry.category)
-    }
+    var section: SourceGridSection { needsYou ? .needsYou : .shelf(entry.shelf) }
 
     /// The word and dot for a row or a tile. A permission taken away reads Needs access over Off or Connected.
     var word: String {
@@ -96,15 +88,15 @@ enum SourceGrid {
     static let tileMinWidth: CGFloat = 210
     static let searchMaxWidth: CGFloat = 320
 
-    /// The sections in the page's order; an empty one is not drawn. Inside a section the categories' order, then the
-    /// catalogue's, so a tile never moves unless its status did.
+    /// The sections in the page's order; an empty one is not drawn. Inside a shelf what is connected leads, then the
+    /// catalogue's own order (category, then entry), so a row never moves unless its status did.
     static func sections(_ rows: [SourceCatalogRow]) -> [(section: SourceGridSection, rows: [SourceCatalogRow])] {
         let ordered = SourceCategory.allCases.flatMap { category in rows.filter { $0.entry.category == category } }
-        let all: [SourceGridSection] = [.needsYou, .connected, .suggested]
-            + SourceCategory.allCases.map(SourceGridSection.category)
+        let all: [SourceGridSection] = [.needsYou] + SourceShelf.allCases.map(SourceGridSection.shelf)
         return all.compactMap { section in
             let inSection = ordered.filter { $0.section == section }
-            return inSection.isEmpty ? nil : (section, inSection)
+            let lead = inSection.filter(\.isConnectedHere) + inSection.filter { !$0.isConnectedHere }
+            return lead.isEmpty ? nil : (section, lead)
         }
     }
 
@@ -118,11 +110,9 @@ enum SourceGrid {
         let tone: StatusWord.Tone
     }
 
-    /// The one line under a tile's name, only when it says something. A connected tile says when it last read, and
-    /// `headed` (it sits under the Connected heading) drops the word that would repeat it; an off tile says nothing at
-    /// all: no dot is the word.
-    static func line(_ row: SourceCatalogRow, now: Date, headed: Bool = false,
-                     locale: Locale = .autoupdatingCurrent) -> Line? {
+    /// The one line under a tile's name, only when it says something. A connected tile says when it last read; an
+    /// off tile says nothing at all: no dot is the word.
+    static func line(_ row: SourceCatalogRow, now: Date, locale: Locale = .autoupdatingCurrent) -> Line? {
         if row.notInstalled { return Line(word: Copy.SourcePage.notInstalledRow, tone: .off) }
         if row.status == .waitingForAgent { return Line(word: Copy.Catalog.waitsForAgent, tone: .off) }
         if row.needsYou { return Line(word: row.word, tone: row.tone) }
@@ -130,7 +120,7 @@ enum SourceGrid {
         if row.browser != nil, row.status == .connected { return Line(word: row.word, tone: row.tone) }
         guard row.status == .connected else { return nil }
         if let lastSync = row.lastSync { return Line(word: SourceCatalog.ago(lastSync, now: now, locale: locale), tone: .on) }
-        return headed && row.section == .connected ? nil : Line(word: row.status.word, tone: .on)
+        return Line(word: row.status.word, tone: .on)
     }
 
     // MARK: - Search
@@ -152,7 +142,7 @@ enum SourceGrid {
         [QuickMatch.Field(row.entry.title, weight: QuickMatch.Weight.name)]
             + (alsoKnownAs[row.id] ?? []).map { QuickMatch.Field($0, weight: QuickMatch.Weight.intent) }
             + [QuickMatch.Field(row.entry.category.title, weight: QuickMatch.Weight.keyword),
-               QuickMatch.Field(row.section.title, weight: QuickMatch.Weight.keyword)]
+               QuickMatch.Field(row.entry.shelf.title, weight: QuickMatch.Weight.keyword)]
     }
 
     /// The tile a key press lands on: the one the arrows moved to while it is still found, else the best result.

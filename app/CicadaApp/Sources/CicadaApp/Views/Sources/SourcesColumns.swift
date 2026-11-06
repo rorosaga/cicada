@@ -110,6 +110,8 @@ struct SourcesOverviewColumn: View {
     var search: Binding<SourceGridSearch> = .constant(SourceGridSearch())
     /// ⏎ in the field: opens with no animation (DR-60); the pointer's `onOpen` keeps its drawer curve.
     var onOpenByKey: (SourcesSelection) -> Void = { _ in }
+    /// ROR-118 — a shelf's add line: the add overlay, on that kind.
+    var onAdd: (SourceShelf?) -> Void = { _ in }
 
     @Environment(UsageViewModel.self) private var usageVM
     @Environment(ExploreCache.self) private var exploreCache
@@ -135,8 +137,12 @@ struct SourcesOverviewColumn: View {
                         } else {
                             // G217 — every way in, on or off, so the page is never empty (a dropped export lands on the
                             // window's own intake, and on Files and links).
-                            SourceGridView(rows: catalog, search: search.wrappedValue, open: onOpen,
-                                           importFiles: { intake.present(from: .emptyState(.sources)) })
+                            if searching {
+                                SourceGridView(rows: catalog, search: search.wrappedValue, open: onOpen,
+                                               importFiles: { intake.present(from: .emptyState(.sources)) })
+                            } else {
+                                SourceShelvesView(rows: catalog, open: onOpen, add: onAdd)
+                            }
                         }
                         if !searching { statistics.frame(maxWidth: textCap, alignment: .leading) }
                     }
