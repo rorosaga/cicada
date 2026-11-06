@@ -533,6 +533,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /sources/apple-books/settings": (REGISTRY, None),
     # Ruling 61: covers kept outside every bank, each page's stamp by the same apply; a take-back inside admission.
     "POST /sources/apple-books/covers": (HELD, "api.services.book_jobs.apply_admitted"),
+    "POST /entities/{entity_id}/book/not-this-book": (ADMITTED, None),   # ruling 71: takes back what a title match wrote
     "POST /entities/{entity_id}/book-status/undo": (HELD, "api.services.write_admission.run_admitted"),
     "POST /sources/goodreads/preview": (NONE, None),
     "POST /capture/note": (CAPTURE, None),   # G212: a note a device sent, staged like every source-keyed capture
