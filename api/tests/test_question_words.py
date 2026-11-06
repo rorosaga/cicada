@@ -246,7 +246,7 @@ def test_a_value_answer_is_never_turned_into_a_page_name():
     ("Have I moved to the new office?", "Have you moved to the new office?"),
     ("Am I still on the platform team?", "Are you still on the platform team?"),
     ("Was I told about my review?", "Were you told about your review?"),
-    ("I'm unsure: is it mine or the team's?", "You're unsure: is it yours or the team's?"),
+    ("I'm unsure: is it mine or the team's?", "I'm unsure: is it mine or the team's?"),
 ])
 def test_a_first_person_question_is_said_to_the_person(stored, expected):
     assert inbox_wording.stored_in_your_voice(stored) == expected

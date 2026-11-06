@@ -92,7 +92,8 @@ _SYNTHETIC = ("neither", "both")
 #: last mentioned …", "New record: …"): the check's own working words, never the person's.
 _BOOKKEEPING = re.compile(
     r"^(?:from\s+(?:the\s+)?)?(?:existing|new|older|newer|current)(?:\s+undated)?\s+"
-    r"(?:description|record|note|notes|article|claim|page|text|summary)\b\s*[,:]\s*", re.IGNORECASE)
+    r"(?:description|record|note|notes|article|claim|page|text|summary)\b"
+    r"(?:\s*[,:]\s*|\s+(?=(?:from|undated|dated|says?|saying|calls?|describes?)\b))", re.IGNORECASE)
 _PAGE_ASOF = re.compile(r"^described on the page as of\b.*$", re.IGNORECASE)
 _EXTRACTED = re.compile(r"extracted from (ep_[\w-]+)")
 _PAGE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -110,6 +111,11 @@ def episode_of(option: dict) -> str | None:
 
 def _cap(text: str) -> str:
     return text[:1].upper() + text[1:]
+
+
+def _opening(name: str) -> str:
+    """A page's name at the start of a sentence: "your partner" takes a capital, a name keeps its own ("iPhone")."""
+    return _cap(name) if name.startswith("your ") else name
 
 
 def _clean_description(text) -> str | None:
@@ -379,7 +385,7 @@ def _pair(fm: dict, today: str, name: str, page_fm: dict | None, other_fm: dict 
         reason = "They could be one person, and I only join people on your word."
     else:
         when = _ago(fm.get("source_episode_timestamp") or fm.get("created_date"), today)
-        reason = (f"{_cap(name)} came up {when}, and it may be {other}; I'd rather ask than join them by mistake."
+        reason = (f"{_opening(name)} came up {when}, and it may be {other}; I'd rather ask than join them by mistake."
                   if when else "I'd rather ask than join them by mistake.")
     return Spoken(question, reason)
 
@@ -428,7 +434,7 @@ def _same_name(fm: dict, today: str, name: str, other_fm: dict | None, same: dic
         if len(question) >= MAX_QUESTION:
             question = _ask(f"Which {name} is this")
         when = _ago(fm.get("source_episode_timestamp") or fm.get("created_date"), today)
-        said = f"{_cap(name)} came up {when}" if when else f"{_cap(name)} came up"
+        said = f"{_opening(name)} came up {when}" if when else f"{_opening(name)} came up"
         reason = (f"{said}, and {len(pages)} things are called {name}; if it's another one, say so and I'll keep it "
                   "as its own.")
         return Spoken(question, reason)
@@ -440,7 +446,7 @@ def _same_name(fm: dict, today: str, name: str, other_fm: dict | None, same: dic
         return None
     question = _ask(f"Is this {_thing(name, page)}")
     when = _ago(fm.get("source_episode_timestamp") or fm.get("created_date"), today)
-    said = f"{_cap(name)} came up {when}" if when else f"{_cap(name)} came up"
+    said = f"{_opening(name)} came up {when}" if when else f"{_opening(name)} came up"
     others = len({str(p.get("id")) for p in pages}) - 1
     if others >= 1:
         reason = (f"{said}, and {others + 1} things are called {name}; if it's not this one, say no and I'll keep it "
@@ -515,7 +521,10 @@ def _still(fm: dict, today: str, name: str, page_fm: dict | None, *, own: bool) 
 # --------------------------------------------------------------------------- the voice of a stored question
 
 _YOU = re.compile(r"\b(?:you|your|yours|yourself|you're|you've|you'd|you'll)\b", re.IGNORECASE)
-_FIRST = re.compile(r"\b(?:I'm|I've|I'd|I'll|I|me|my|mine|myself)\b")
+_FIRST = re.compile(r"\b(?:I'm|I've|I'd|I'll|I|me|my|myself)\b")
+#: "Phase I", "Series I": a capitalised word before a bare "I" that no question opens with. The question stays as written.
+_NUMERAL_I = re.compile(r"\b(?!(?:Am|Was|Were|Have|Had|Did|Do|Should|Can|Could|Would|Will|Is|Has|When|Where|What|Why|How|"
+                        r"Which|Who|If|And|But|Or|So|Then|Now)\b)[A-Z][\w-]* I\b")
 #: Ordered: the frames whose verb turns with the pronoun first, then the bare words.
 _TURNS = (
     (re.compile(r"\b(Am|am) I\b"), lambda m: ("Are" if m.group(1) == "Am" else "are") + " you"),
@@ -528,7 +537,6 @@ _TURNS = (
     (re.compile(r"\bI'll\b"), lambda m: "you'll"),
     (re.compile(r"\bI\b"), lambda m: "you"),
     (re.compile(r"\bmyself\b"), lambda m: "yourself"),
-    (re.compile(r"\bmine\b"), lambda m: "yours"),
     (re.compile(r"\bmy\b"), lambda m: "your"),
     (re.compile(r"\bme\b"), lambda m: "you"),
 )
@@ -537,18 +545,23 @@ _OWNER_FRAMES = {"Did": "Did you", "Will": "Will you", "Can": "Can you", "Should
                  "Could": "Could you", "Does": "Do you", "Is": "Are you", "Has": "Have you"}
 
 
+def _open_capital(text: str) -> str:
+    """A sentence that now opens with the pronoun opens with a capital."""
+    return re.sub(r"(^|[.?!]\s+)(you|your)\b", lambda m: m.group(1) + _cap(m.group(2)), text)
+
+
 def _second_person(text: str) -> str:
     """Every first-person word of a stored question said to the person, or the question unchanged when it quotes
     words (a first-person word inside quotation marks is somebody's, not the question's) — all or none: a
     half-turned sentence is worse than the stored one."""
     if not _FIRST.search(text):
         return text
-    if any(q in text for q in _QUOTES):
+    # "mine" may be a noun, and turning the rest around it would leave half a sentence turned.
+    if any(q in text for q in _QUOTES) or _NUMERAL_I.search(text) or re.search(r"\bmine\b", text):
         return text
     for pattern, repl in _TURNS:
         text = pattern.sub(repl, text)
-    # A sentence that now opens with the pronoun opens with a capital.
-    return re.sub(r"(^|[.?!]\s+)you\b", lambda m: m.group(1) + "You", text)
+    return _open_capital(text)
 
 
 def _owner_voice(text: str, names: list[str]) -> str:
@@ -563,7 +576,7 @@ def _owner_voice(text: str, names: list[str]) -> str:
     bare = re.compile(rf"(?i:\b(?:{alt})\b)")
     turned = possessive.sub("your", text)
     turned = frame.sub(lambda m: _OWNER_FRAMES[m.group(1)], turned)
-    return text if bare.search(turned) else turned
+    return text if bare.search(turned) else _open_capital(turned)
 
 
 def stored_in_your_voice(question: str, *, owner_names: list[str] | None = None) -> str:
@@ -632,17 +645,20 @@ def _conflict(fm: dict, today: str, name: str, *, own: bool, page_type: str = ""
     real = [(options[i], days[i]) for i in real_at]
     who = "you" if own else name
     if len(real) < 2:
-        return Spoken(question, f"Two things I have about {who} disagree, and I can't tell which is right.")
+        count = "Two things" if len(options) <= 2 else "Several things"
+        return Spoken(question, f"{count} I have about {who} disagree, and I can't tell which is right.")
     episodes = [list(o.get("_said_in") or ([e] if (e := episode_of(o)) else [])) for o, _ in real]
     dated = [str(d)[:10] for _, d in real if d]
-    if all(len(e) == 1 for e in episodes) and len({e[0] for e in episodes}) == 1:
+    whole = len(real) == len(options)   # "same conversation" and "same day" must be true of every answer offered
+    if whole and all(len(e) == 1 for e in episodes) and len({e[0] for e in episodes}) == 1:
         reason = ("Both came up in the same conversation, so I can't tell whether one replaces the other."
                   if len(real) == 2 else
                   "They all came up in the same conversation, so I can't tell whether one replaces the other.")
-    elif len(dated) == len(real) and len(set(dated)) == 1:
+    elif whole and len(dated) == len(real) and len(set(dated)) == 1:
         ago = _ago(dated[0], today)
-        reason = (f"Both were said the same day ({ago}), so I can't tell which is current." if len(real) == 2 else
-                  f"They were all said the same day ({ago}), so I can't tell which is current.")
+        day = f"the same day ({ago})" if ago else "the same day"
+        reason = (f"Both were said {day}, so I can't tell which is current." if len(real) == 2 else
+                  f"They were all said {day}, so I can't tell which is current.")
     elif len(real) >= 3:
         latest = _ago(max(dated), today) if dated else None
         reason = (f"I have {len(real)} different answers, the latest {latest}, and I can't tell which is current."
@@ -682,8 +698,8 @@ def _clarification(fm: dict, today: str, name: str, page_type: str) -> Spoken:
     why_asked = f"{why_asked[0].upper()}{why_asked[1:]}." if why_asked else ""
     if "relationship" in uncertainty or guess == "person":
         return Spoken(_ask(f"Who is {name} to you"),
-                      why_asked or (f"{_cap(name)} came up {when}, but not how you know them." if when
-                                    else f"{_cap(name)} came up, but not how you know them."))
+                      why_asked or (f"{_opening(name)} came up {when}, but not how you know them." if when
+                                    else f"{_opening(name)} came up, but not how you know them."))
     return Spoken(_ask(str(fm.get("question") or f"Who or what is {name}")),
-                  why_asked or (f"{_cap(name)} came up {when}, and I couldn't tell who or what it is." if when
-                                else f"{_cap(name)} came up, and I couldn't tell who or what it is."))
+                  why_asked or (f"{_opening(name)} came up {when}, and I couldn't tell who or what it is." if when
+                                else f"{_opening(name)} came up, and I couldn't tell who or what it is."))
