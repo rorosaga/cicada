@@ -170,15 +170,20 @@ struct OnboardingView: View {
     /// The room in the working pages' pane, centred on a `bgPane` ground (one lightness step from the column, P-b).
     /// Art only: it rests while See how covers it, and no word sits on it (DR-13).
     private func pane(width: CGFloat, height: CGFloat) -> some View {
-        OnboardingRoom(mood: page.roomMood, cell: OnboardingRoomLayout.paneCell(paneWidth: width))
-            .frame(width: width, height: height)
+        // The room is centred on the same band the column's step is (below the topbar, above the foot's margin), so the
+        // picture and the step share one centre line instead of floating unaligned (ROR-118).
+        let band = height - CicadaTheme.scaled(OnboardingLayout.topbarHeight) - CicadaTheme.scaled(OnboardingLayout.footBottom)
+        return OnboardingRoom(mood: page.roomMood, cell: OnboardingRoomLayout.paneCell(paneWidth: width))
+            .frame(width: width, height: max(0, band))
+            .padding(.bottom, CicadaTheme.scaled(OnboardingLayout.footBottom))
+            .frame(width: width, height: height, alignment: .bottom)
             .background(CicadaTheme.bgPane.ignoresSafeArea())
             .environment(\.scenePaused, seeHow != nil)
     }
 
-    /// The column (ROR-118): the topbar, then the step and its foot as ONE block that sits at an optical third of the
-    /// window rather than the foot stranded at the bottom edge, far from the choice it acts on. A short step keeps its
-    /// foot right under its last row; a long one scrolls inside its own height and the foot stays pinned (the G130
+    /// The column (ROR-118): the topbar, then the step and its foot as ONE block centred in what is left, on the
+    /// same centre line as the room, rather than the foot stranded at the bottom edge, far from the choice it acts
+    /// on. A short step keeps its foot right under its last row; a long one scrolls inside its own height and the foot stays pinned (the G130
     /// lesson: the way forward is never the first thing to clip).
     private func column(width: CGFloat) -> some View {
         let s = snapshots
@@ -214,10 +219,9 @@ struct OnboardingView: View {
             .id(page)
             foot
                 .padding(.horizontal, CicadaTheme.scaled(OnboardingLayout.columnPadding))
-                .padding(.bottom, CicadaTheme.scaled(OnboardingLayout.footBottom))
-            Spacer(minLength: 0)
             Spacer(minLength: 0)
         }
+        .padding(.bottom, CicadaTheme.scaled(OnboardingLayout.footBottom))
     }
 
     @ViewBuilder

@@ -54,10 +54,4 @@ enum OnboardingRoomLayout {
     static func heroCell(cardWidth: CGFloat) -> CGFloat {
         cell(fitting: cardWidth, maxCell: 5)
     }
-
-    /// Welcome and You're set: the room above the card, as wide as the card allows, up to 4 pt per cell (640 × 256
-    /// over the 640 pt card).
-    static func cardCell(cardWidth: CGFloat) -> CGFloat {
-        cell(fitting: cardWidth, maxCell: 4)
-    }
 }

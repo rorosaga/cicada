@@ -669,13 +669,21 @@ up*): **Welcome · Intelligence · Agents · Sources · Meet your bookworm · Do
 2026-10-23, below). Welcome (and, until v3, Done — now the menu-bar worm over its card) is the study room over a
 card (`OnboardingRoom`, the one illustration, DR-13; the worm's mood per step); the three working steps are the split
 frame — the room in its `bgPane` pane, the column with "Step n of 6 · k still coming in", *Set up later*, and a foot of
-Back, a visible **Skip** and the one primary Continue (⏎ never animates). What each step shows is pure data in
+Back, a visible **Skip** and the one primary Continue (⏎ never animates).
+**UI climb round 1 (ROR-118):** the pane is the room edge to edge — `OnboardingLayout.paneWidth` is always a whole number
+of 160-column cells (640 pt at a 1440 window, 4 pt a cell), so there is no ground beside it — and the room and the
+column's step share one centre line (below the topbar, above the foot's margin). The column is the step and its foot as
+one block centred there (`OnboardingView.column`: the scroll is as tall as its step, so a short step's foot sits under
+its last row, a tall one scrolls and the foot stays pinned). Welcome is wider: an 800 pt card under a 5 pt-a-cell room
+(`OnboardingRoomLayout.heroCell`), the room framed in a ring and the card's radius so its own trim reads as a picture's
+edge; its greeting is 52 pt, its line 24. Headlines are 36 pt over a 17 pt line; the topbar's segments are 32 × 5, a
+reached step in `textSecondary`, the count in `metaMediumFont` `textPrimary`. What each step shows is pure data in
 `Support/OnboardingSteps.swift` (`OnboardingStepsTests`), each step's fixed words under 40.
 *Welcome*: the greeting (saved name, else the Mac account's, *Not you?* corrects it), one sentence, Continue — the owner
 PUT alone and first (G117 R1; a file dropped here waits for it) — *Try the demo* and *Set up later*.
 *Intelligence* (`IntelligenceStep`, ruling 36 D1): `IntelligenceStepState` — a signed-in plan (Auto resolving to it, or
 chosen) is pre-selected, the plan said once ("Using your Claude plan" / "Cicada runs your own Claude Code.", ruling 39,
-2026-10-24 — Settings' own headline keeps "— you're signed in."), *Use an API key* opens Settings → Intelligence's own `IntelligenceRow`s for four keys (`featuredKeys`;
+2026-10-24 — Settings' own headline keeps "— you're signed in.") as the first of two equal rows (`OnboardingChoice`: a `textPrimary` ring and a filled check on the chosen one, DR-5; ROR-118), *Use an API key* the second, which opens Settings → Intelligence's own `IntelligenceRow`s for four keys (`featuredKeys`;
 paste → Verify, the 422/503 sentences) with "More keys in Settings → Intelligence"; with nothing that can read, the plans
 and those keys show side by side. A local model is never offered. The step writes only from a row's click (Sign in,
 Verify, *Use* through `IntelligenceView.write(using:)`); Continue and Skip change nothing.
@@ -684,7 +692,7 @@ as the Agents page lists them) holding the products of it found on this machine 
 says installed, Claude Desktop is present, or `/agents/live` saw it; `umbrellas` groups them) — Anthropic: Claude Code ·
 Claude Desktop; OpenAI: Codex. The umbrella's own mark in a `LogoTile`, never a product badge (a product no umbrella claims
 wears its vendor's mark, `umbrellaLogo`); a dot and one word (Not connected → Waiting → Connected, green when any product
-first calls, polled every 3 s; the Agents page's vocabulary, never "Found"). One *Connect* opens each found product's own
+first calls, polled every 3 s; the Agents page's vocabulary, never "Found"; a row not yet connected shows no dot or word at all, ROR-118: four of them each saying *Not connected* was the repetition; the prerequisite sentence sits under the rows and the *Then try it* chip appears only once something is connected). One *Connect* opens each found product's own
 action, Settings' paths: Connect for me plus
 Remembers automatically (R-OB12) through `AgentConnect.run` with the wiring answer's binaries — "Cicada runs exactly these
 commands…" and *Run these*, the commands behind a collapsed *Show commands* (spec decision 14); *Set up Claude Desktop*'s merge;
