@@ -39,6 +39,14 @@ enum MediaViewerModel {
         controller?.stop()
     }
 
+    /// ROR-131 — a viewer's size: 70% of the screen's width and 75% of its height, no smaller than `minimum`, no larger
+    /// than 1,600 × 1,000 (a sheet that fills a big display is no longer a sheet). No screen: the minimum.
+    static func sheetSize(screen: CGSize?, minimum: CGSize) -> CGSize {
+        guard let screen, screen.width.isFinite, screen.height.isFinite else { return minimum }
+        return CGSize(width: min(1600, max(minimum.width, (screen.width * 0.7).rounded())),
+                      height: min(1000, max(minimum.height, (screen.height * 0.75).rounded())))
+    }
+
     /// `m:ss`, or `h:mm:ss` from an hour (the clock the search hit's subtitle shows).
     static func clock(_ seconds: Double) -> String {
         let total = seconds.isFinite ? max(0, Int(seconds)) : 0

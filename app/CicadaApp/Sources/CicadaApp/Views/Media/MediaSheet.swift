@@ -17,6 +17,12 @@ struct MediaSheet: View {
     var places = MediaFileIndexer.shared.places
     let close: () -> Void
 
+    /// ROR-131 — the sheet grows with the screen (a video wants room), never below its old 880 × 600.
+    private var size: CGSize {
+        MediaViewerModel.sheetSize(screen: NSScreen.main?.visibleFrame.size,
+                                   minimum: CGSize(width: CicadaTheme.scaled(880), height: CicadaTheme.scaled(600)))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             switch route {
@@ -32,7 +38,7 @@ struct MediaSheet: View {
                     .id(id)
             }
         }
-        .frame(width: CicadaTheme.scaled(880), height: CicadaTheme.scaled(600))
+        .frame(width: size.width, height: size.height)
         .background(CicadaTheme.bgBase)
         .onExitCommand { close() }
     }
@@ -163,12 +169,12 @@ struct MediaPlayerPane: View {
             controller = nil
             onController(nil)
         }
-        .focusable()
-        .onKeyPress(.space) { VideoPlayerModel.handleSpace(controller) ? .handled : .ignored }
+        .playerKeys(controller)
     }
 }
 
-/// An audio file's surface: the time, a scrubber, play and pause — not an empty video box.
+/// An audio file's player (ROR-131): the time and the time left, a scrubber that follows the finger, back 10 / play /
+/// forward 10, a speed menu and mute. Keys are the pane's (`PlayerKeys`). Never an empty video box.
 struct AudioSurface: View {
     let controller: VideoPlaybackController
 
@@ -176,13 +182,15 @@ struct AudioSurface: View {
     @State private var length: Double?
     @State private var playing = false
     @State private var scrubbing = false
+    @State private var speed: Double = 1
+    @State private var muted = false
 
     var body: some View {
         VStack(spacing: CicadaTheme.spacingLG) {
             Spacer(minLength: 0)
             Image(systemName: "waveform")
                 .font(CicadaTheme.font(size: 56))
-                .foregroundStyle(CicadaTheme.textTertiary)
+                .foregroundStyle(playing ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
                 .accessibilityHidden(true)
             HStack(spacing: CicadaTheme.spacingSM) {
                 Text(MediaViewerModel.clock(time))
@@ -197,28 +205,62 @@ struct AudioSurface: View {
                 .tint(CicadaTheme.textSecondary)
                 .disabled(length == nil)
                 .accessibilityLabel(Copy.mediaPosition)
-                Text(length.map(MediaViewerModel.clock) ?? "")
+                .accessibilityValue(MediaViewerModel.clock(time))
+                Text(length.map { "-" + MediaViewerModel.clock(max(0, $0 - time)) } ?? "")
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .monospacedDigit()
                     .frame(width: CicadaTheme.scaled(56), alignment: .leading)
             }
             .padding(.horizontal, CicadaTheme.spacingXL)
-            IconButton(systemName: playing ? "pause.fill" : "play.fill", help: playing ? Copy.mediaPause : Copy.mediaPlay) {
-                controller.toggle()
-                playing = controller.isPlaying
+            HStack(spacing: CicadaTheme.spacingMD) {
+                IconButton(systemName: "gobackward.10", help: Copy.mediaSkipBack) {
+                    PlayerKeys.perform(.skip(-PlayerKeys.longStep), on: controller)
+                }
+                IconButton(systemName: playing ? "pause.fill" : "play.fill", help: playing ? Copy.mediaPause : Copy.mediaPlay) {
+                    controller.toggle()
+                    playing = controller.isPlaying
+                }
+                IconButton(systemName: "goforward.10", help: Copy.mediaSkipForward) {
+                    PlayerKeys.perform(.skip(PlayerKeys.longStep), on: controller)
+                }
+                Menu {
+                    ForEach(PlayerKeys.speeds, id: \.self) { value in
+                        Button(PlayerKeys.speedLabel(value)) {
+                            controller.speed = value
+                            speed = value
+                        }
+                    }
+                } label: {
+                    Text(PlayerKeys.speedLabel(speed))
+                        .font(CicadaTheme.metaMediumFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .monospacedDigit()
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help(Copy.mediaSpeed)
+                .accessibilityLabel(Copy.mediaSpeed)
+                IconButton(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                           help: muted ? Copy.mediaUnmute : Copy.mediaMute, isOn: muted) {
+                    controller.isMuted.toggle()
+                    muted = controller.isMuted
+                }
             }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CicadaTheme.bgPane)
         .task {
-            // The player's own clock, read four times a second; a scrub in hand is never fought.
+            // The player's own clock, read ten times a second; a scrub in hand is never fought.
             while !Task.isCancelled {
                 if !scrubbing { time = controller.currentTime }
                 length = controller.length
                 playing = controller.isPlaying
-                try? await Task.sleep(for: .milliseconds(250))
+                speed = controller.speed
+                muted = controller.isMuted
+                try? await Task.sleep(for: .milliseconds(100))
             }
         }
     }
