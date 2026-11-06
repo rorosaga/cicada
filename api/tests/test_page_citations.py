@@ -110,6 +110,41 @@ def test_a_page_whose_prose_cites_nothing_shows_its_beliefs_as_sentences(tmp_pat
     assert "(until 2025-03-01)" in page_citations.belief_words(rows["c-was"])
 
 
+def test_a_faded_fact_is_flagged_and_closes_a_page_whose_prose_cites(tmp_path):
+    """ROR-129: a fact below 0.2 is drawn dimmed in the page's older part, never closed; an agent's block never carries
+    the older part. A kept (evergreen) fact is not faded however low it was."""
+    claims = [
+        Claim(id="c-now", text="Alpha Place is in Beta City.", subject="alpha-place", predicate="located-in",
+              object="beta-city", source_episodes=[cites.EP_OTHER], confidence=0.8),
+        Claim(id="c-old", text="Alpha Place hosted a fair.", subject="alpha-place", predicate="hosted",
+              source_episodes=[cites.EP_SAID], confidence=0.1),
+        Claim(id="c-kept", text="Alpha Place is a market.", subject="alpha-place", predicate="is",
+              source_episodes=[cites.EP_OTHER], confidence=0.1, decay_class="evergreen", class_by="user"),
+    ]
+    # a page whose prose cites nothing: one list, the faded one flagged in place
+    (tmp_path / "entities").mkdir(parents=True)
+    cites.write_episodes(tmp_path)
+    markdown_parser.write(tmp_path / "entities" / "alpha-place.md", dict(FM), write_claims("## Summary\n\nA place.\n",
+                                                                                           claims))
+    parsed = markdown_parser.parse(tmp_path / "entities" / "alpha-place.md", ledger=False)
+    block = _block(tmp_path, parsed, claims)
+    assert {b["claimId"]: b["faded"] for b in block["beliefs"]} == {"c-now": False, "c-old": True, "c-kept": False}
+    assert block["older"] == []
+
+    # a page whose prose cites: the faded facts close it, their sources reachable through the popover
+    parsed = _page(tmp_path / "other", claims=claims)
+    block = _block(tmp_path / "other", parsed, claims)
+    assert block["beliefs"] == [] and [b["claimId"] for b in block["older"]] == ["c-old"]
+    assert block["older"][0]["faded"] is True and block["olderTotal"] == 1
+    n = block["older"][0]["refs"][0]
+    detail = page_citations.detail(tmp_path / "other", "alpha-place", n, claim_id="c-old", fm=parsed.frontmatter,
+                                   body=parsed.body, claims=claims)
+    assert detail["title"] == "Studio plan"
+    seen = page_citations.for_caller(block, verbatim=True)
+    assert "older" not in seen and "olderTotal" not in seen and "older" not in page_citations.for_caller(
+        block, verbatim=False)
+
+
 def test_the_numbering_is_cached_per_page_and_renumbered_when_it_changes(tmp_path, monkeypatch):
     parsed = _page(tmp_path)
     _block(tmp_path, parsed)

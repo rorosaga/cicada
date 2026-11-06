@@ -150,17 +150,20 @@ struct PageBlocks: Codable, Equatable {
             var until: String?
             var inferred: Bool
             var verbatim: Bool
+            /// ROR-129: the fact has faded; the page draws it dimmed, in its older part. Never closed or hidden.
+            var faded: Bool
 
             var id: String { claimId }
 
             init(claimId: String, text: String, refs: [Int] = [], until: String? = nil, inferred: Bool = false,
-                 verbatim: Bool = false) {
+                 verbatim: Bool = false, faded: Bool = false) {
                 self.claimId = claimId
                 self.text = text
                 self.refs = refs
                 self.until = until
                 self.inferred = inferred
                 self.verbatim = verbatim
+                self.faded = faded
             }
 
             init(from decoder: Decoder) throws {
@@ -171,6 +174,7 @@ struct PageBlocks: Codable, Equatable {
                 until = (try? c.decodeIfPresent(String.self, forKey: .until)) ?? nil
                 inferred = (try? c.decodeIfPresent(Bool.self, forKey: .inferred)) ?? false
                 verbatim = (try? c.decodeIfPresent(Bool.self, forKey: .verbatim)) ?? false
+                faded = (try? c.decodeIfPresent(Bool.self, forKey: .faded)) ?? false
             }
         }
 
@@ -184,13 +188,18 @@ struct PageBlocks: Codable, Equatable {
         var beliefs: [Belief]
         /// Nil: part of the page's beliefs is in its claims ledger, which a card read never opens — "more", no count.
         var beliefsTotal: Int?
+        /// ROR-129: on a page whose prose cites, its faded facts (at most five), drawn as quiet text at the end; and how
+        /// many there are (nil: part of them is in the claims ledger a card read never opens).
+        var older: [Belief]
+        var olderTotal: Int?
 
         enum CodingKeys: String, CodingKey {
-            case markers, markersTotal, refs, total, conversations, web, pages, beliefs, beliefsTotal
+            case markers, markersTotal, refs, total, conversations, web, pages, beliefs, beliefsTotal, older, olderTotal
         }
 
         init(markers: [Marker] = [], markersTotal: Int = 0, refs: [Ref] = [], total: Int = 0, conversations: Int = 0,
-             web: Int = 0, pages: Int = 0, beliefs: [Belief] = [], beliefsTotal: Int? = 0) {
+             web: Int = 0, pages: Int = 0, beliefs: [Belief] = [], beliefsTotal: Int? = 0, older: [Belief] = [],
+             olderTotal: Int? = 0) {
             self.markers = markers
             self.markersTotal = markersTotal
             self.refs = refs
@@ -200,6 +209,8 @@ struct PageBlocks: Codable, Equatable {
             self.pages = pages
             self.beliefs = beliefs
             self.beliefsTotal = beliefsTotal
+            self.older = older
+            self.olderTotal = olderTotal
         }
 
         init(from decoder: Decoder) throws {
@@ -219,6 +230,9 @@ struct PageBlocks: Codable, Equatable {
             beliefs = (try? c.decodeIfPresent([Belief].self, forKey: .beliefs)) ?? []
             beliefsTotal = c.contains(.beliefsTotal)
                 ? ((try? c.decodeIfPresent(Int.self, forKey: .beliefsTotal)) ?? nil) : beliefs.count
+            older = (try? c.decodeIfPresent([Belief].self, forKey: .older)) ?? []
+            olderTotal = c.contains(.olderTotal)
+                ? ((try? c.decodeIfPresent(Int.self, forKey: .olderTotal)) ?? nil) : older.count
         }
 
         func encode(to encoder: Encoder) throws {
@@ -232,7 +246,15 @@ struct PageBlocks: Codable, Equatable {
             try c.encode(pages, forKey: .pages)
             try c.encode(beliefs, forKey: .beliefs)
             try c.encode(beliefsTotal, forKey: .beliefsTotal)
+            try c.encode(older, forKey: .older)
+            try c.encode(olderTotal, forKey: .olderTotal)
         }
+
+        /// The facts to draw as the article's sentences, and those that have faded (ROR-129): a page whose prose cites
+        /// nothing carries both among `beliefs` (a faded one is flagged), a page whose prose cites carries its faded
+        /// facts in `older`. A faded fact is dimmed and drawn last; it is never dropped.
+        var currentBeliefs: [Belief] { beliefs.filter { !$0.faded } }
+        var olderFacts: [Belief] { beliefs.filter(\.faded) + older }
 
         /// The markers whose line ends inside `range` (a `WikiRow.source`): a line's own markers, never its neighbour's.
         func markers(endingIn range: Range<Int>) -> [Marker] {

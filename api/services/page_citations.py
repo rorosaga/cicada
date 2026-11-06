@@ -39,6 +39,9 @@ MAX_SHOWN_REFS = 6
 MAX_MARKERS = 3000
 #: Belief sentences drawn on a page whose prose cites nothing yet (DR-81: an open section is short).
 MAX_BELIEFS = 12
+#: Older (faded) facts drawn at the end of a page whose prose already cites (ROR-129 slice 2, DR-81: an open section is
+#: short). A page whose prose cites nothing carries its faded beliefs among ``beliefs`` instead, flagged ``faded``.
+MAX_OLDER = 5
 #: The sections whose lines the card draws in its article and that carry markers. The Summary is the header's lead
 #: (R-DG15) and never carries one.
 CITED_SECTIONS = ("article", "key_facts")
@@ -74,6 +77,10 @@ class _Table:
     #: opens (an owner-sized page's is megabytes): the count would be the fence's alone.
     beliefs_total: int | None
     claim_evidence: dict[str, dict[int, list]]
+    #: Faded facts of a page whose prose cites (ROR-129): at most :data:`MAX_OLDER`, and how many there are (None: part
+    #: of them is in the ledger the card never reads).
+    older: list[dict] = field(default_factory=list)
+    older_total: int | None = 0
 
 
 _TABLES: dict[tuple[str, str], tuple[str, _Table]] = {}
@@ -183,18 +190,21 @@ def inferred(claim) -> bool:
             or str(getattr(claim, "source_trust", "") or "") == "agent_reflected")
 
 
-def _belief_rows(claims, sources: _Sources) -> tuple[list[dict], int, dict[str, dict[int, list]]]:
-    from api.services.claims import Evidence, is_current, is_event, is_mark, is_persons_words, is_record
+def _belief_rows(claims, sources: _Sources, *, faded_only: bool = False,
+                 cap: int = MAX_BELIEFS) -> tuple[list[dict], int, dict[str, dict[int, list]]]:
+    from api.services.claims import Evidence, is_current, is_event, is_faded, is_mark, is_persons_words, is_record
 
     kept = []
     for c in claims or []:
         # A passage the person marked is the `marks` block's (`book_marks`), never a belief of the page.
         if is_record(c) or c.superseded_by or getattr(c, "recovered_by", None) or is_event(c) or is_mark(c):
             continue
+        if faded_only and not (is_current(c) and is_faded(c)):
+            continue
         if is_current(c) or c.valid_to:
             kept.append(c)
     rows, evidence_by = [], {}
-    for c in kept[:MAX_BELIEFS]:
+    for c in kept[:cap]:
         evs = list(c.evidence or [])
         cited = {ev.episode for ev in evs}
         evs += [Evidence(episode=e) for e in (c.source_episodes or []) if e and e not in cited]
@@ -202,7 +212,9 @@ def _belief_rows(claims, sources: _Sources) -> tuple[list[dict], int, dict[str, 
         evidence_by[c.id] = grouped
         rows.append({"claimId": c.id, "text": str(c.text or "").strip(), "refs": list(grouped),
                      "until": str(c.valid_to)[:10] if c.valid_to else None, "inferred": inferred(c),
-                     "verbatim": bool(is_persons_words(c))})
+                     "verbatim": bool(is_persons_words(c)),
+                     # ROR-129: a fact that has faded is drawn dimmed in the page's older part (never hidden).
+                     "faded": bool(is_current(c) and is_faded(c))})
     return rows, len(kept), evidence_by
 
 
@@ -241,7 +253,18 @@ def table(memory_path: Path, entity_id: str, *, fm: dict, body: str, claims) -> 
     except Exception:  # noqa: BLE001 — provenance that cannot be read is a page with no markers, never a failed card
         markers = []
     beliefs, total, claim_evidence = ([], 0, {})
-    if not markers:
+    older, older_total = [], 0
+    if markers:
+        # The prose is the article and cites its own lines, so a fact is not a sentence of it; the facts that have
+        # faded still close the page as quiet text (ROR-129), their sources one marker away.
+        try:
+            older, older_total, older_evidence = _belief_rows(claims, sources, faded_only=True, cap=MAX_OLDER)
+            claim_evidence.update(older_evidence)
+            if older and claims_ledger.STAMP in (fm or {}):
+                older_total = None
+        except Exception:  # noqa: BLE001
+            older, older_total = [], 0
+    else:
         try:
             beliefs, total, claim_evidence = _belief_rows(claims, sources)
         except Exception:  # noqa: BLE001
@@ -249,7 +272,7 @@ def table(memory_path: Path, entity_id: str, *, fm: dict, body: str, claims) -> 
         if beliefs and claims_ledger.STAMP in (fm or {}):
             total = None
     built = _Table(refs=sources.refs, markers=markers, beliefs=beliefs, beliefs_total=total,
-                   claim_evidence=claim_evidence)
+                   claim_evidence=claim_evidence, older=older, older_total=older_total)
     with _LOCK:
         if len(_TABLES) >= _CAPACITY:
             _TABLES.pop(next(iter(_TABLES)))
@@ -270,14 +293,15 @@ def block(memory_path: Path, entity_id: str, *, fm: dict, body: str, claims) -> 
     lines, the counts behind its closing line, and the belief sentences of a page whose prose cites nothing yet.
     ``None`` when the page cites nothing at all."""
     t = table(memory_path, entity_id, fm=fm, body=body, claims=claims)
-    if not t.refs and not t.beliefs:
+    if not t.refs and not t.beliefs and not t.older:
         return None
     kinds = [r.kind for r in t.refs]
     return {"markers": [[at, *ns] for at, ns, _ in t.markers[:MAX_MARKERS]],
             "markersTotal": len(t.markers),
             "refs": [_ref_dict(r) for r in t.refs[:MAX_SHOWN_REFS]],
             "total": len(t.refs), "conversations": kinds.count("conversation"), "web": kinds.count("web"),
-            "pages": kinds.count("page"), "beliefs": t.beliefs, "beliefsTotal": t.beliefs_total}
+            "pages": kinds.count("page"), "beliefs": t.beliefs, "beliefsTotal": t.beliefs_total,
+            "older": t.older, "olderTotal": t.older_total}
 
 
 # ---- the popover ---------------------------------------------------------------------------------------------------
@@ -337,10 +361,13 @@ def for_caller(cites: dict | None, *, verbatim: bool) -> dict | None:
     """The block one agent call may carry: for a caller without ``sources`` (``verbatim=False``) a conversation's title
     (often its first words) and a belief in the person's own sentence are masked, and no reference names a session,
     an episode or a chat partner (`episode_actor.actor_for(ids=False)`'s rule) — `/v1` returns this data as it is. A
-    copy."""
-    if not cites or verbatim:
+    copy. The ``older`` part is the card's own presentation (ROR-129): an agent reads the same facts through the claims,
+    in the same order as before, so it never carries them."""
+    if not cites or (verbatim and "older" not in cites):
         return cites
-    out = dict(cites)
+    out = {k: v for k, v in cites.items() if k not in ("older", "olderTotal")}
+    if verbatim:
+        return out
     out["refs"] = [dict(r, title="(a conversation)" if r.get("kind") == "conversation" else r.get("title"),
                         conversationId=None, episodeId=None, correspondent=None)
                    for r in cites.get("refs") or []]

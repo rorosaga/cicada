@@ -322,9 +322,17 @@ struct EntityDetailCard: View {
                 if let marks = blocks.marks { PageMarks(marks: marks, entityId: entity.id) }
             }
             if !pageBlockIsEmpty { pageBlock }
-            if !isStub, !showRawMarkdown, let cites = blocks?.citations, !cites.beliefs.isEmpty {
-                PageBeliefSentences(entityId: entity.id, beliefs: cites.beliefs, total: cites.beliefsTotal,
+            if !isStub, !showRawMarkdown, let cites = blocks?.citations {
+                // ROR-129: a faded fact dims and closes the article in an older part (never a fold, never hidden); the
+                // link to Perspectives counts what neither part draws.
+                let more = !cites.beliefs.isEmpty
+                    ? PageWords.moreBeliefs(shown: cites.beliefs.count, total: cites.beliefsTotal)
+                    : (cites.older.isEmpty ? nil : PageWords.moreBeliefs(shown: cites.older.count, total: cites.olderTotal))
+                PageBeliefSentences(entityId: entity.id, beliefs: cites.currentBeliefs,
+                                    more: cites.olderFacts.isEmpty ? more : nil,
                                     onMore: { selectedTab = .perspectives })
+                PageOlderFacts(entityId: entity.id, facts: cites.olderFacts, more: more,
+                               onMore: { selectedTab = .perspectives })
             }
             if !isStub, !showRawMarkdown, !(blocks?.looks.isEmpty ?? true), !brandLeads { looksSection }
             if !isStub, !showRawMarkdown, let cites = blocks?.citations {

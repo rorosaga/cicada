@@ -142,6 +142,23 @@ final class PagesV2Tests: XCTestCase {
         XCTAssertEqual(PageWords.sentence(named), "It seems that Bob prefers mornings.", "a name keeps its capital")
     }
 
+    // MARK: Older facts (ROR-129, ruling 70)
+
+    func testAFadedFactMovesToTheOlderPartAndIsNeverDropped() throws {
+        let now = PageBlocks.Citations.Belief(claimId: "a", text: "Alpha Place is in Beta City.")
+        let faded = PageBlocks.Citations.Belief(claimId: "b", text: "Alpha Place hosted a fair.", faded: true)
+        let onProsePage = PageBlocks.Citations.Belief(claimId: "c", text: "Alpha Place sold tea.", faded: true)
+        let cites = PageBlocks.Citations(beliefs: [faded, now], beliefsTotal: 2, older: [onProsePage], olderTotal: 1)
+        XCTAssertEqual(cites.currentBeliefs.map(\.claimId), ["a"])
+        XCTAssertEqual(cites.olderFacts.map(\.claimId), ["b", "c"], "flagged beliefs first, then the prose page's")
+        let wire = #"{"beliefs":[{"claimId":"x","text":"t","faded":true}],"older":[{"claimId":"y","text":"u"}]}"#
+        let decoded = try JSONDecoder().decode(PageBlocks.Citations.self, from: Data(wire.utf8))
+        XCTAssertTrue(decoded.beliefs[0].faded)
+        XCTAssertFalse(decoded.older[0].faded, "an older server that sends no flag draws nothing dimmed")
+        let old = try JSONDecoder().decode(PageBlocks.Citations.self, from: Data(#"{"beliefs":[]}"#.utf8))
+        XCTAssertTrue(old.older.isEmpty && old.olderFacts.isEmpty)
+    }
+
     // MARK: In short, Ongoing, the brand block
 
     func testInShortCarriesWhatTheFactsStripRepeated() {
