@@ -10,7 +10,7 @@ from loguru import logger
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
 from api.services import (bank_index, claim_contexts, decay_policy, entity_picture, fact_sources, logo_service,
-                          predicates, quiet_pages, same_name)
+                          media_kinds, predicates, quiet_pages, same_name)
 from api.services.claims import is_current, parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import load_yaml, load_yaml_file, parse, write_yaml
@@ -292,6 +292,8 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 last_referenced=entity_picture.day(fm.get("last_referenced")),
                 quiet=quiet,
                 byline=book_byline(fm),
+                media_kind=media_kinds.kind_of(fm),
+                origin=media_kinds.origin_of(fm) if media_kinds.kind_of(fm) else None,
             )
         )
         raw_sources = fm.get("sources")
