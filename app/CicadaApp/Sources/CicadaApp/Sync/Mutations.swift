@@ -498,6 +498,7 @@ struct TriggerSleep: Mutation {
     /// flight, and restoring a whole stale snapshot would throw its inbox and
     /// episode counts away too.
     private let memo = MutationMemo<String>()
+    private let refusal = MutationMemo<String>()
     /// Sleep page v5 — resume the paused run instead of starting a fresh one. Only the Sleep page's Continue sets
     /// it (`SleepViewModel.continueRun`); a fresh trigger clears a paused run on the server.
     let continueRun: Bool
@@ -510,7 +511,13 @@ struct TriggerSleep: Mutation {
     }
 
     func request(_ api: any SyncAPI) async throws {
-        _ = continueRun ? try await api.continueSleepRun() : try await api.triggerSleep()
+        do {
+            _ = continueRun ? try await api.continueSleepRun() : try await api.triggerSleep()
+        } catch {
+            // A refusal is the server's own sentence (this memory is moving to another computer); a 5xx body is not.
+            if let answer = ConnectionModelText.detail(error), answer.code == 409 { refusal.value = answer.text }
+            throw error
+        }
     }
 
     func rollback(_ store: Store) async {
@@ -521,7 +528,7 @@ struct TriggerSleep: Mutation {
         }
     }
 
-    var failureMessage: String { continueRun ? Copy.SleepV5.continueFailed : "Couldn't start the sleep cycle — reverted" }
+    var failureMessage: String { refusal.value ?? (continueRun ? Copy.SleepV5.continueFailed : Copy.SleepV5.startFailed) }
     /// Replace the optimistic `running` with the server's own answer as soon
     /// as the trigger returns — a cycle with nothing to do can already be
     /// idle again, and leaving a stale `running` in the Store would make the

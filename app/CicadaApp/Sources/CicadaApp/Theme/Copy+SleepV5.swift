@@ -153,6 +153,10 @@ extension Copy {
 
         static let endRunHelp = "Forgets this pause. Nothing waiting changes, and Consolidate now starts a new run."
         static let continueFailed = "Couldn't continue the run — nothing changed."
+        static let startFailed = "Couldn't start reading. Nothing changed; try again in a moment."
+        static let engineUnread = "Couldn't read which engine is set."
+        static let engineUnsaved = "Couldn't change the engine. Nothing changed."
+        static let engineTryAgain = "Try again"
         static let endRunFailed = "Couldn't end the run — nothing changed."
         static let retryFailed = "Couldn't retry — nothing changed."
         static func runningFor(_ elapsed: String) -> String { "Running \(elapsed)" }

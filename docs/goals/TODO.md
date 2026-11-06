@@ -30,6 +30,7 @@
   which files it left out. **Pick up here:** `swift test --filter FirstEngineAndFileTests`; drop a truncated `.json` and a
   broken `.zip` in a scratch app. Not shown in a verify run: the plan row at "Not installed" (`plan-claude` always answers
   for the Claude plan) — proved by view-state tests. No ruling changed.
+- **2026-11-06 — Sleep's start and the engine pickers fail in words (G92; branch `prod/sleep-words`).** `TriggerSleep` shows a 409's own sentence (this memory is moving) instead of one fixed line; the engine card and chooser no longer print a transport error and had no way to retry short of leaving the page. Run `--filter '(MutationTests|EngineQuickMenuTests|StoreTests|Lint)'`.
 - **2026-11-06 — a conflict answer writes the value only the question held (G98, ROR-31; branch `conflict-off-page-value`).**
   "Both", a pick of the off-page value, "both" on a description question and a multi-valued dismissal each dropped a value;
   each now writes it. No bank write. Still open: a question closed because a later value won drops its off-page rival (G98 row).

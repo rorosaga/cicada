@@ -60,9 +60,14 @@ private struct CompactEngineChooser: View {
             if let response = vm.response {
                 compactContent(for: response)
             } else if let error = vm.errorMessage {
-                Text(error)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(error)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    TextButton(title: Copy.SleepV5.engineTryAgain, inline: true) {
+                        Task { await vm.load(); syncFromResponse() }
+                    }
+                }
             } else {
                 ProgressView()
                     .controlSize(.small)
