@@ -26,6 +26,8 @@ extension Copy {
         static let viewHelp = "Types (shared with the Graph), labels and groups"
         static let typesShared = "Types · shared with the Graph"
         static let showEveryType = "Show every type"
+        static let mediaKindAll = "All"
+        static let mediaKindsLabel = "Kinds of media"
         static let labels = "Labels"
         static let searchLabels = "Search labels…"
         static let noLabels = "No labels yet"

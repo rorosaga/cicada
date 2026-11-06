@@ -189,11 +189,12 @@ def _owner_fm_name(fm: dict) -> str | None:
     return name if (fm or {}).get("owner") is True and name else None
 
 
-def owner_name(memory_path: Path | None, settings=None) -> str | None:
+def owner_name(memory_path: Path | None, settings=None, *, scan: bool = True) -> str | None:
     """The ``name`` on this bank's ``owner: true`` page, or ``None`` without one —
     what Sleep's prompts call the person (G169). The page :func:`resolve_observer`
     names is read first (one file); only when that is not the owner page is the
-    bank scanned."""
+    bank scanned. ``scan=False`` stops at that one file, for a caller that only
+    labels with the name and must stay cheap on a bank whose owner gave none."""
     if memory_path is None:
         return None
     entities_dir = Path(memory_path) / "entities"
@@ -213,6 +214,8 @@ def owner_name(memory_path: Path | None, settings=None) -> str | None:
         name = _name(first)
         if name:
             return name
+    if not scan:
+        return None
     # The stat-cached frontmatter every other scan reads: Sleep asks ~21 times a batch, and a fresh parse of every
     # page each time was 42k parses a batch on a 2,000-page bank (F8, benchmarks/scale).
     from api.services import bank_index
