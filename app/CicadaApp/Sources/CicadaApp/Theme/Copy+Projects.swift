@@ -78,6 +78,11 @@ extension Copy {
             return "\(name), \(standing), \(parts(n))"
         }
 
+        /// A milestone on the lead's plan, read aloud (its mark and day are drawn, never words).
+        static func stepLabel(_ name: String, state: String?, day: String?) -> String {
+            [name, state, day].compactMap { $0 }.joined(separator: ", ")
+        }
+
         // MARK: The summary (Projects v2: what it is, where it stands, what happened last, what's next — once each)
         static let standsLabel = "Where it stands"
         static let lastLabel = "Last"

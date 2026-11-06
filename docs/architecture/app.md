@@ -2699,8 +2699,19 @@ part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page 
   Sleep marked decaying or archived but heard from within its quiet threshold Q (progress logged, a claim's day, a
   repository session, or a conversation tied by hand, by the provider's project id or by the relaying app's word —
   `project_timeline._tied_days`, list and detail alike) is in motion; the status rests it only once it is quiet past Q. `ProjectsModel.entries` is the whole column as `ProjectsEntry` values — rows,
-  the Fading head, Past's year labels and "Show 50 more" — pure, so a test pins it. A row (`ProjectRowView`, 56 pt)
-  is the name over the one-liner and ONE signal (`ProjectsModel.standing`): the next milestone ("Next · First grasp,
+  the Fading head, Past's year labels and "Show 50 more" — pure, so a test pins it. ROR-118 round 4 (DESIGN_RULES §9, 2026-11-06): Current at rest (wide, no project open) draws one lead and a list
+  (`ProjectCardGrid`, `ProjectCards.swift`). The lead (the first project of the first run, never under *Gone quiet*) is a
+  ringed card (`ProjectLeadCard`): its name (24 pt) and one-liner on the left, its plan on the right as the milestones
+  themselves (`ProjectSteps`: a mark, a name and a day a milestone in date order, a check once done, a ring in primary
+  ink for the next, an overdue next day in the warning ink; at most five, the oldest done dropped first; only with a plan,
+  no percentage — R-PJ11; a milestone a sub-project carries by name is left to that sub-project), so a planned lead says nothing else about where it stands; an unplanned one says it once
+  (`ProjectsModel.standing`, a diamond for a next milestone, a clock for last heard); its sub-projects sit beneath on a
+  darker well, each laid out like a list row (name over one-liner, the one signal at the end in the same `ProjectStanding`). Every other project is a row of one ringed list (`ProjectRestList`): name over one-liner, where it stands at
+  the end, sub-projects indented beneath. Round 5 (§9, 2026-11-06): nothing on these cards is smaller than 14 pt (one-liners 15-16, milestone names 15, days and the standing 14; colours unchanged, secondary ink is 11:1 dark and 12:1 light on the card); each milestone is its own VoiceOver element (name, done or next, day; `Copy.Projects.stepLabel`). A project's picture (`EntityPicture`) draws beside its name only when it has one.
+  The Current tab counts cards, not sub-projects, and Past carries no count at zero (`ProjectsModel.counts`, `tabs`). The
+  window below is empty when the person has few projects: nothing is added to fill it. Rounds 1-3's thread and tile grid
+  are retired. Past and the narrowed list keep rows. A row
+  (`ProjectRowView`, 56 pt) is the name over the one-liner and ONE signal (`ProjectsModel.standing`): the next milestone ("Next · First grasp,
   Oct 1", overdue in words; a milestone named after its own project only its day, "Next · Oct 5" —
   `ProjectsModel.milestoneName`), else the plan's count, else "Heard 9 days ago"; Fading "Quiet 30 days"; Past the
   day alone ("Mar 3", `RelativeDay.dayInYear` — the year is the label), nothing under *Nothing heard yet*. Beside an
