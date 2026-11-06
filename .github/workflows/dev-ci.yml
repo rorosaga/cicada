@@ -1,7 +1,7 @@
-# The backend's crucial tier (docs/goals/working-method.md, "Test tiers") on every push to dev and every PR into it,
-# so a background agent's PR shows red before the coordinator reviews it. The same command as `make
-# test-crucial-backend`: `api/tests/crucial.txt` names the tests that guard CLAUDE.md's rails. On a PR, the app's
-# Swift lint tests run too, on a hosted macOS runner (`swift-lint`); the rest of the Swift tier needs the owner's Mac.
+# The backend's crucial tier (docs/goals/working-method.md, "Test tiers") and its whole suite, on every push to dev and
+# every PR into it, so a background agent's PR shows red before the coordinator reviews it. The crucial job is the same
+# command as `make test-crucial-backend`: `api/tests/crucial.txt` names the tests that guard CLAUDE.md's rails, and it
+# answers first. On a PR, the app's Swift lint tests run too, on a hosted macOS runner (`swift-lint`); the rest of the Swift tier needs the owner's Mac.
 # Cost: the repo is public, so standard GitHub-hosted runners, macOS included, are free.
 name: Dev CI
 
@@ -39,9 +39,8 @@ jobs:
       - name: The crucial tier
         run: make test-crucial-backend
 
-  # The rest of the backend suite, split so no shard takes long. A push to dev runs every test file, so a bad merge shows
-  # on dev within minutes. A PR runs only the files naming what it changed (api/tests/_ci_select.py), and a shard with
-  # nothing to do stops before the venv. fetch-depth 2 is what a PR's diff needs: its merge ref's first parent is the base.
+  # The whole backend suite, split so no shard takes long: under 9 minutes, about what a PR waits for swift-lint. A bug
+  # two merges make together shows on the second PR or on the push to dev. The default run leaves out the `bench` budgets.
   backend-shard:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -53,28 +52,22 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          fetch-depth: 2
-
-      - name: This shard's files
-        id: select
-        run: |
-          # MEASURING: every file on a PR too, until this branch has its numbers.
-          python3 api/tests/_ci_select.py --shard ${{ matrix.shard }}/6 --all > "$RUNNER_TEMP/files"
-          wc -l < "$RUNNER_TEMP/files"
-          echo "count=$(wc -l < "$RUNNER_TEMP/files")" >> "$GITHUB_OUTPUT"
 
       - uses: astral-sh/setup-uv@eb1897b8dc4b5d5bfe39a428a8f2304605e0983c # v7.0.0
-        if: steps.select.outputs.count != '0'
         with:
           python-version: "3.12.11"
 
       - name: The backend's venv, from the lock
-        if: steps.select.outputs.count != '0'
         run: cd api && uv sync --frozen
 
+      # A test that makes its own repository commits under the machine's identity. A bank never needs this: it sets its own.
+      - name: A git identity
+        run: |
+          git config --global user.name "Cicada CI"
+          git config --global user.email "ci@cicada.invalid"
+
       - name: The shard's tests
-        if: steps.select.outputs.count != '0'
-        run: xargs api/.venv/bin/python -m pytest -q -p no:cacheprovider --tb=short < "$RUNNER_TEMP/files"
+        run: api/.venv/bin/python -m pytest -q -p no:cacheprovider --tb=short $(python3 api/tests/_ci_shard.py ${{ matrix.shard }}/6)
 
   # The app's lint tier: static checks over the Swift sources (design rules, motion, copy, provenance ids), which #517
   # merged past when only the backend ran here. `swift test --filter Lint` builds the package and runs only the
