@@ -956,7 +956,8 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
     if source_words and memory_path is not None and searched is not None and searched.episodes:
         try:
             more = ask_sources.gather_search(memory_path, query, searched, owner_name=owner_name,
-                                             taken=ask_sources.shown_turns(excerpts), deep=unread_budget)
+                                             taken=ask_sources.shown_turns(excerpts), deep=unread_budget,
+                                             **ask_sources.window_limits())
         except Exception as exc:  # noqa: BLE001 — the words are context; their absence never fails an answer
             logger.debug(f"ask search leg skipped ({type(exc).__name__})")
             more = []
