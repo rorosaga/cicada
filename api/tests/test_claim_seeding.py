@@ -132,7 +132,8 @@ def test_cardinality_fn_reads_single_and_multi_lists(tmp_path):
     predicates.install_predicate_map(tmp_path)
     card = predicates.build_cardinality_fn(tmp_path)
     # from the seed's single_valued list
-    assert card("part-of") is True
+    assert card("takes-place-in") is True
+    assert card("part-of") is False        # 2026-11-06: a part may be in several wholes
     # 2026-10-14: a person holds more than one place at once
     assert card("works-at") is False
     # from the seed's multi_valued list
@@ -151,7 +152,7 @@ def test_cardinality_fn_reads_single_and_multi_lists(tmp_path):
 
 def test_is_single_valued_convenience_and_no_map(tmp_path):
     predicates.install_predicate_map(tmp_path)
-    assert predicates.is_single_valued(tmp_path, "part-of") is True
+    assert predicates.is_single_valued(tmp_path, "takes-place-in") is True
     # with no map at all, default to multi-valued (safe coexist)
     assert predicates.is_single_valued(tmp_path / "nope", "anything") is False
 

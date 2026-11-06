@@ -375,7 +375,7 @@ def test_chained_same_person_questions_are_asked_once_and_other_kinds_never_grou
 def _three_questions(bank):
     for n, pid in enumerate(("alpha", "beta", "gamma", "delta"), start=1):
         page(bank, pid, convs=n * 5, said=-n)
-        item(bank, n, entity_id=pid, entity_name=pid.title(), predicate="runs-on", title="t",
+        item(bank, n, entity_id=pid, entity_name=pid.title(), predicate="takes-place-in", title="t",
              question=f"What does {pid.title()} run on now?",
              options=[{"key": "a", "label": "one"}, {"key": "b", "label": "two"}])
 
