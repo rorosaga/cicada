@@ -415,6 +415,11 @@ final class SourceCatalogTests: XCTestCase {
     func testSignInWordsAreReadFromTheFailure() {
         XCTAssertTrue(SourceCatalog.readsAsSignIn("401 Unauthorized"))
         XCTAssertFalse(SourceCatalog.readsAsSignIn("Timed out"))
+        // sources-truth: a count that happens to hold 403, or an author, is not a refusal.
+        XCTAssertFalse(SourceCatalog.readsAsSignIn("1403 item(s) failed to ingest"))
+        XCTAssertFalse(SourceCatalog.readsAsSignIn("Could not read the author of 3 items"))
+        XCTAssertTrue(SourceCatalog.readsAsSignIn("HTTPStatusError: HTTP 403"))
+        XCTAssertTrue(SourceCatalog.readsAsSignIn("The token was revoked"))
         XCTAssertFalse(SourceCatalog.readsAsSignIn(nil))
     }
 }

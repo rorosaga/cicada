@@ -382,8 +382,12 @@ enum SourceCatalog {
     /// A failure that reads as a lapsed sign-in: the row's one action becomes "Sign in" (design-refs pattern 5).
     static func readsAsSignIn(_ error: String?) -> Bool {
         guard let error = error?.lowercased(), !error.isEmpty else { return false }
-        return ["sign in", "signed in", "log in", "login", "reconnect", "expired", "unauthor", "401", "403",
-                "token", "auth"].contains { error.contains($0) }
+        // Whole words and codes only: "403 item(s) failed to ingest" and "author" are not an account's refusal.
+        if ["sign in", "signed in", "log in", "login", "reconnect", "expired", "unauthor"].contains(where: { error.contains($0) }) {
+            return true
+        }
+        return error.range(of: #"(?<![0-9])(401|403)(?![0-9])|\btokens?\b|\bauth(?!or)"#, options: .regularExpression) != nil
+            && !error.contains("item(s) failed")
     }
 
     /// The channels a person signs in to (`ChannelActions.connectorChannels`). Only these can need a sign-in: a reader

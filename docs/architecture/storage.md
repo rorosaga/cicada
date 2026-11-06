@@ -2848,3 +2848,5 @@ The graph's Store-domain ETag remains tied to its existing version vector.
 person talked about it (`said-the-link`, `said-the-title`, `page-mentioned`). It takes the episode out of the `saved` kind for
 good, so its one real read happens once and says why. A save's page keeps `decay_class: evergreen` and stays quiet
 (`quiet_pages`) until a conversation or the person's words reach it; being indexed writes nothing on it.
+
+**Source rows tell the truth (sources-truth, 2026-11-06).** `files` on `GET /sources/channels` counts the media pages the person saved as a link or file (`source_overview.files_media_count`: no origin or `saved-link`, not hidden) — the set the Files & links page and overview card list — never every `url_index` entry, so a saved-list post, bookmark, pin, feed item or a folder's paper never makes it Connected. A `cicada_record_saved_list` read whose every row was not a post of that site is recorded `failed`, not `read`. Every saved-list platform's origin is named by an overview row (a test pins it).

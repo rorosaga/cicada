@@ -86,7 +86,8 @@ CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
 #: "g219" (2026-10-23): the always-listed Apple Reminders row and the Notion export row.
 #: "book-scan" (2026-11-04): the always-listed Book scans row (G233).
 #: "g89-publications" (2026-11-05): the followed Substack publications count on `substack-feeds`, out of `rss`.
-CHANNELS_SHAPE = "g89-publications"
+#: "sources-truth" (2026-11-06): `files` counts the links the person saved, not every indexed item.
+CHANNELS_SHAPE = "sources-truth-files"
 
 
 # R-S5 — there is deliberately no `_plural` here any more. It baked
