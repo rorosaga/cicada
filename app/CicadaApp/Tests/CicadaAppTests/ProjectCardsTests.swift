@@ -39,4 +39,12 @@ final class ProjectCardsTests: XCTestCase {
         XCTAssertTrue(ProjectThread.marks(open).isEmpty)
         XCTAssertTrue(try ProjectThread.span(row("p", planned: true), today: today).planned)
     }
+
+    func testTheStandingHangsFromTodayWhenThereIsNoNextMilestone() throws {
+        let entries = ProjectsModel.entries([try row("a")], tab: .current, query: "", today: today)
+        let line = try XCTUnwrap(entries.compactMap(\.line).first)
+        let caption = try XCTUnwrap(ProjectThread.caption(line, today: today))
+        XCTAssertEqual(caption.text, ProjectsModel.standing(line, today: today))
+        XCTAssertEqual(caption.fraction, ProjectThread.span(line.row, today: today).fill, accuracy: 0.0001)
+    }
 }
