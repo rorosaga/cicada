@@ -182,10 +182,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   words); Sleep reads a marked book in one bounded chunk for what its marks share; an unmarked entry is never read.
   **Ruling 61:** the person's own located words in a conversation change a status too, judged by Stage 1 in context, never
   by keywords: one clear title or held on the episode, dated as said, undoable, through the same writers (`book_said`).
-  **Ruling 70 (owner 2026-11-06, amends 61/62/64):** a book the person added with no ISBN is found by its title and first
-  author (a door of their own, the same gate, paced, cached, only an exact normalised title and every author on exactly one
-  work, marked, "Not this book" undoes it); its public description, `external` and cited, sits in a box under the head
-  and may be read once by Sleep — never the text, never a question, never a link from co-mention (`book_lookup`).
+  **Ruling 70 (2026-11-06, amends 61/62/64):** a book the person added with no ISBN is found by exact title + author on one work (marked, undoable); its description is `external`, boxed, and Sleep may read it once — never the text, a question, or a co-mention link.
 - **Two ways in for what the person consumes (ruling 47, owner 2026-10-28):** by default their own browser and Mac,
   through the browser and macOS harnesses (G166, G206, G218 rails unchanged); an official API only for a specific source
   where it gives what the harness cannot (history, metadata, reliability) — the person connects each one (off by default,
