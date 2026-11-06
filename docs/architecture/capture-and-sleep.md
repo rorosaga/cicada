@@ -2484,7 +2484,7 @@ of them may read (and no API key was chosen) the resolved copy carries `no_engin
 Stage 1 with that sentence and its fix (reason `engine`, nothing read, nothing spent, the queue intact), and every call
 built from such a copy anywhere (Ask, the link backfill, a rebuild) refuses before it is sent
 (`providers.resolve_llm_fn`) — as does a call from an Auto no caller resolved (its label reads `auto`, never
-`litellm`; the dedup sweep now resolves first). The sentence names the server's command too. A plan limit (`EngineThrottled`/`Exhausted`/`Overage`, the breaker tripped by a swallowed per-episode throttle, or the
+`litellm`; the dedup sweep now resolves first). The sentence names only what the app does (*Connect a plan or choose a key in Settings → Intelligence*; the scheduled form, *Scheduled runs may use my plan* in Settings → Sleep) and no shell command: a Mac app person has no server. `cicada sleep status` adds the server's command to that error (`engine_readiness.cli_fix_for_error`, matched by `NO_ENGINE_LEAD` / `SCHEDULE_DEGRADED_LEAD`), the way the schedule warning already takes `CLI_FIX`. A plan limit (`EngineThrottled`/`Exhausted`/`Overage`, the breaker tripped by a swallowed per-episode throttle, or the
 ChatGPT pre-flight's used-up sentence, whose snapshot `resets_at` rides along via `codex_engine.last_limit_resets_at`) is a **pause, not a failure**: the vendor's own sentence and reset time
 (`agent_engine.breaker_resets_at`) ride `drain.stop`, `error` stays null, and the run does **not** continue itself after the
 reset unless the person switched on *Continue after a plan reset* (off by default, ruling 15, below) — otherwise the person presses Continue. A cancel is the

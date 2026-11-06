@@ -352,6 +352,18 @@ def test_turning_the_schedule_on_prints_the_servers_warning_with_the_cli_fix(env
     assert "cicada engine connect claude-plan" in out["text"]
 
 
+def test_sleep_status_adds_the_server_command_to_a_no_engine_error(env, monkeypatch, capsys):  # noqa: F811
+    from api.services import engine_select
+
+    sentence = engine_select.no_engine_sentence(engine_select.NO_ENGINE)
+    routes = {("GET", "/sleep/status"): (200, {"status": "idle", "error": sentence}),
+              }
+    with _backend(env, monkeypatch, routes):
+        code, out, _ = _cli(["sleep", "status"], capsys)
+    assert code == 0 and "last error: No engine to read with" in out["text"]
+    assert "cicada engine connect claude-plan" in out["text"], "the CLI says the commands the app sentence does not"
+
+
 def test_engine_list_says_no_key_and_whether_scheduled_runs_may_use_the_plan(env, monkeypatch, capsys):  # noqa: F811
     routes = {
         ("GET", "/connections"): (200, {"connections": [
