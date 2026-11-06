@@ -28,6 +28,7 @@ GATED = {
     ("POST", "/sources/apple-books/covers"): "/sources/apple-books/covers",      # ruling 61
     ("POST", "/sources/goodreads/preview"): "/sources/goodreads/preview",        # G233
     ("POST", "/sources/goodreads/import"): "/sources/goodreads/import",
+    ("POST", "/sources/goodreads/waiting/choose"): "/sources/goodreads/waiting/choose",   # ROR-128
     ("POST", "/sources/github/repos/project"): "/sources/github/repos/project",   # G230: a repository's project link
     ("POST", "/sources/github/connect"): "/sources/github/connect",               # G230: connecting by a code
     ("POST", "/sources/github/connect/poll"): "/sources/github/connect/poll",
