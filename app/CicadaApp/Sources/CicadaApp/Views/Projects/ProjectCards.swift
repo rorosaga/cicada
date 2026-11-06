@@ -10,10 +10,12 @@ enum ProjectCardLayout {
     static let gap: CGFloat = 16
     static let maxColumns = 3
 
-    /// Columns for a list this wide (an unmeasured list is drawn as two).
-    static func columns(width: CGFloat) -> Int {
+    /// Columns for a list this wide (an unmeasured list is drawn as two) — never more than the cards there are, and
+    /// never fewer than two when the width holds two, so a lone card stands at half the list, not across it.
+    static func columns(width: CGFloat, count: Int = maxColumns) -> Int {
         guard width > 0 else { return 2 }
-        return min(maxColumns, max(1, Int((width + gap) / (columnMin + gap))))
+        let fit = min(maxColumns, max(1, Int((width + gap) / (columnMin + gap))))
+        return min(fit, max(count, 2))
     }
 
     /// Groups in rows of `columns`; the last row may be short.
@@ -86,7 +88,7 @@ struct ProjectCardGrid: View {
     @State private var width: CGFloat = 0
 
     var body: some View {
-        let columns = ProjectCardLayout.columns(width: width)
+        let columns = ProjectCardLayout.columns(width: width, count: groups.count)
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(ProjectCardLayout.gap)) {
             ForEach(ProjectCardLayout.rows(groups, columns: columns), id: \.first?.id) { row in
                 HStack(alignment: .top, spacing: CicadaTheme.scaled(ProjectCardLayout.gap)) {

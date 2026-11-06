@@ -57,6 +57,8 @@ final class ProjectCardsTests: XCTestCase {
         XCTAssertEqual(ProjectCardLayout.columns(width: 400), 1)
         XCTAssertEqual(ProjectCardLayout.columns(width: 900), 2)
         XCTAssertEqual(ProjectCardLayout.columns(width: 1600), 3)
+        XCTAssertEqual(ProjectCardLayout.columns(width: 1600, count: 2), 2)   // no empty third column
+        XCTAssertEqual(ProjectCardLayout.columns(width: 1600, count: 1), 2)   // a lone card stands at half
         let groups = try ["a", "b", "c"].map { ProjectCardGroup(root: ProjectsModel.entries([try row($0)], tab: .current,
             query: "", today: today).compactMap(\.line)[0], kids: []) }
         XCTAssertEqual(ProjectCardLayout.rows(groups, columns: 2).map { $0.map(\.id) }, [["a", "b"], ["c"]])
