@@ -687,8 +687,9 @@ struct ClusterNameRow: View {
                 .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
         }
         .padding(.horizontal, CicadaTheme.scaled(8))
-        .padding(.vertical, CicadaTheme.scaled(6))
-        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.titleOnly), alignment: .leading)
+        // Every row the height of two lines, so a one-line title and a two-line one share a baseline grid.
+        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(52), maxHeight: CicadaTheme.scaled(52),
+               alignment: .leading)
         .rowHover($hovering)
     }
 }
