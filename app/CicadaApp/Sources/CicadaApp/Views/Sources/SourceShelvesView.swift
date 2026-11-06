@@ -6,9 +6,27 @@ import SwiftUI
 /// as words, not as a section of tiles. DR-9 (a ring, no shadow), DR-47 (labelled groups), DR-48/DR-63 (hover is a
 /// fill), DR-52 (one logo tile), DR-60 (a key never animates).
 enum SourceShelfLayout {
-    /// Shelves holding something lead, in the page's order; the empty ones follow as light blocks of marks, two across.
-    static func split(_ shelves: [SourceShelves.Shelf]) -> (held: [SourceShelves.Shelf], empty: [SourceShelves.Shelf]) {
-        (shelves.filter { !$0.connected.isEmpty }, shelves.filter { $0.connected.isEmpty && !$0.addable.isEmpty })
+    /// A run of shelves in the one fixed kind order, so a kind never moves when a source joins it: each shelf holding
+    /// something stands alone; neighbouring empty ones pair up as light blocks of marks, two across.
+    enum Run: Equatable {
+        case held(SourceShelves.Shelf)
+        case empty([SourceShelves.Shelf])
+    }
+
+    static func runs(_ shelves: [SourceShelves.Shelf]) -> [Run] {
+        var out: [Run] = []
+        for shelf in shelves {
+            if !shelf.connected.isEmpty {
+                out.append(.held(shelf))
+            } else if !shelf.addable.isEmpty {
+                if case .empty(let pending)? = out.last, pending.count < 2 {
+                    out[out.count - 1] = .empty(pending + [shelf])
+                } else {
+                    out.append(.empty([shelf]))
+                }
+            }
+        }
+        return out
     }
 
     /// The marks an add row names: the first few that could be added (an app already here first), the rest as "+N".
@@ -17,7 +35,6 @@ enum SourceShelfLayout {
     }
 
     static let cardMinWidth: CGFloat = 340
-    static let blockMinWidth: CGFloat = 400
 }
 
 struct SourceShelvesView: View {
@@ -27,19 +44,18 @@ struct SourceShelvesView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
-            let split = SourceShelfLayout.split(SourceShelves.shelves(rows))
+            let runs = SourceShelfLayout.runs(SourceShelves.shelves(rows))
             let waiting = rows.filter(\.needsYou)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
                 if !waiting.isEmpty { SourceNeedsYou(rows: waiting, now: context.date, open: open) }
-                ForEach(split.held, id: \.shelf) { shelf in
-                    SourceShelfSection(shelf: shelf, now: context.date, open: open, add: add)
-                }
-                if !split.empty.isEmpty {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(SourceShelfLayout.blockMinWidth)),
-                                                 spacing: CicadaTheme.spacingXL, alignment: .topLeading)],
-                              alignment: .leading, spacing: CicadaTheme.spacingXL) {
-                        ForEach(split.empty, id: \.shelf) { shelf in
-                            SourceEmptyShelf(shelf: shelf, open: open, add: add)
+                ForEach(Array(runs.enumerated()), id: \.offset) { _, run in
+                    switch run {
+                    case .held(let shelf):
+                        SourceShelfSection(shelf: shelf, now: context.date, open: open, add: add)
+                    case .empty(let shelves):
+                        HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
+                            ForEach(shelves, id: \.shelf) { shelf in SourceEmptyShelf(shelf: shelf, open: open, add: add) }
+                            if shelves.count == 1 { Color.clear.frame(maxWidth: .infinity, maxHeight: 0) }
                         }
                     }
                 }
@@ -149,7 +165,7 @@ struct SourceAddChips: View {
                 }
                 if chips.more > 0 {
                     Button { add(shelf.shelf) } label: {
-                        Text("+\(chips.more)").font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                        Text("+" + UsageFormat.count(chips.more)).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
                             .padding(.horizontal, CicadaTheme.scaled(10))
                             .frame(height: CicadaTheme.scaled(32))
                     }

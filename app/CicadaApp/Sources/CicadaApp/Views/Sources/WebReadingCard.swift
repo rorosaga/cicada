@@ -107,7 +107,7 @@ struct WebReadingCard: View {
     }
 
     @ViewBuilder private var appIcon: some View {
-        if let app, let logo = app.mark, LogoImage.exists(name: logo) {
+        if let app, let mark = app.mark, case let logo = (mark == "claude-code" ? "claude" : mark), LogoImage.exists(name: logo) {
             LogoImage(name: logo, size: CicadaTheme.scaled(36))
         } else {
             Image(systemName: app?.symbol ?? "terminal").font(CicadaTheme.font(size: 24)).foregroundStyle(CicadaTheme.textTertiary)

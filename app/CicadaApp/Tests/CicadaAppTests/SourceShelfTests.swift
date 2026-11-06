@@ -46,17 +46,20 @@ final class SourceShelfTests: XCTestCase {
         XCTAssertEqual(found.first, "notion")
     }
 
-    func testShelvesWithSourcesLeadAndEmptyOnesFollowAsMarksByName() {
+    func testShelvesKeepTheirKindOrderAndNeighbouringEmptyOnesPairUp() {
         let all = rows(channels: [channel("reddit"), channel("github")])
-        let split = SourceShelfLayout.split(SourceShelves.shelves(all))
-        XCTAssertEqual(split.held.map(\.shelf), [.work, .saved])
-        XCTAssertEqual(Set(split.held.map(\.shelf)).intersection(split.empty.map(\.shelf)), [])
-        let documents = split.empty.first { $0.shelf == .documents }!
-        let chips = SourceShelfLayout.chips(documents, limit: 3)
-        XCTAssertEqual(chips.shown.count, 3, "names, not a count")
-        XCTAssertEqual(chips.more, documents.addable.count - 3)
+        let runs = SourceShelfLayout.runs(SourceShelves.shelves(all))
+        let flat = runs.flatMap { run -> [SourceShelf] in
+            switch run { case .held(let s): [s.shelf]; case .empty(let s): s.map(\.shelf) }
+        }
+        XCTAssertEqual(flat, SourceShelf.allCases, "one fixed order: a kind never moves when a source joins it")
+        XCTAssertEqual(runs.first, .empty(Array(SourceShelves.shelves(all).prefix(2))), "neighbouring empty kinds pair")
+        let documents = SourceShelves.shelves(all).first { $0.shelf == .documents }!
+        let chips = SourceShelfLayout.chips(documents, limit: 2)
+        XCTAssertEqual(chips.shown.count, 2, "names, not a count")
+        XCTAssertEqual(chips.more, documents.addable.count - 2)
         XCTAssertTrue(documents.addable.contains { $0.id == "notes" }, "Apple Notes is named on the first screen")
-        let events = split.empty.first { $0.shelf == .events }!
+        let events = SourceShelves.shelves(all).first { $0.shelf == .events }!
         XCTAssertTrue(events.addable.contains { $0.id == "calendar" }, "so is Google Calendar")
     }
 

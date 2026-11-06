@@ -964,16 +964,15 @@ replacing ROR-7's Needs you / Connected / Suggested / category tiles; `SourceGri
 the list beside an open source and the arrow keys walk the same order (connected first within a kind). What waits on the person
 leads as amber lines (`SourceNeedsYou`). A connected source is a card (`SourceShelfCard`) that reads its own items through
 `ChannelItemsCache` and draws them for the kind (`SourceShelfItems`: titles; `SourceWeekStrip` for events; marks and titles for
-saved; `SourceCoverStrip` for media), or one count line when it has no titles; an empty shelf is one dashed `SourceAddLine`.
+saved; `SourceCoverStrip` for media), or one count line when it has no titles; cards sit two or three across within a shelf and stretch to the row's height. Round 2: a shelf ends in `SourceAddChips`, the marks of what it could still take by name (`SourceChip`, four and "+N"); an empty shelf is only its heading and those chips, two empty neighbours paired, in the one fixed kind order (`SourceShelfLayout.runs`), so a kind never moves when a source joins it. `SourceLogoTile` draws Claude Code with the plain Claude mark and a source with no mark in the primary ink.
 Search still draws tiles (`SourceGridView`, results only). **Add source** (the page's one header button) opens
-`SourceAddOverlay`: *Yours* (`SourceShelves.yours`), search, kind tabs, then `SourceShelves.addGroups`; a tap closes it and opens
+`SourceAddOverlay`: *Yours* (`SourceShelves.yours`), search, kind tabs (no counts), then `SourceShelves.addGroups` as the same chips, every source on one screen; a tap closes it and opens
 that source's page. The window's drop and ⇧⌘I still open the one intake. The import sheet's rows (`ExportAskRow`) carry one
 labelled button and a bell menu; steps sit on the name's hover unless one vendor is in focus. **The website-reading card**
 (`WebReadingCard`, `WebReadingScene`, shown above the switch for the six saved lists, YouTube and Substack): Cicada, the person's
 first locally connected assistant app (`AgentLiveProbe`, by its icon), their default browser (by its icon) and the site; plays
-once per Mac (`cicada.webReading.seen`), Replay on a click, finished under Reduce Motion, no app yet says so and opens Agents.
-Its four lines were checked against `mcp.md` (G206's 10 reads a day, never posts, never a browser spawned, indexed and never read
-by a model, ruling 62).
+once per Mac (`cicada.webReading.seen`), Replay on a click, finished under Reduce Motion; with no app it says in words that an AI app on this Mac does the reading and offers to connect one.
+Its four lines were checked against `mcp.md` (the offer is due after 20 hours, so "about once a day", on this Mac, in the person's browser, while they use the app; never posts; never a browser spawned; indexed and never read by a model, ruling 62); what it hands back is each post's link and its words (title and description, `saved_lists`), not only a link. Round 2 also gives one read-only line to the sources that read through the person's own sign-in (`WebReadingScene.honestLine`: Notion, Linear, GitHub, Telegram's ticked one-to-one chats; `network.md` ruling 47's table and 47a); a source that needs none has none.
 
 **the Sources page (G126).** A categorized, logo-first page over the existing
 `GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a
