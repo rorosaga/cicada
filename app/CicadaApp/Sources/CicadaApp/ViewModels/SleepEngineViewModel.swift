@@ -73,7 +73,7 @@ final class SleepEngineViewModel {
             response = try await fetch()
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Copy.SleepV5.engineUnread
         }
     }
 
@@ -87,7 +87,7 @@ final class SleepEngineViewModel {
             errorMessage = nil
             writeFailed = false
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Copy.SleepV5.engineUnsaved
             writeFailed = true
         }
     }

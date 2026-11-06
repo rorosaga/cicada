@@ -360,7 +360,7 @@ final class MutationTests: XCTestCase {
         let ok = await inFlight.value
         XCTAssertFalse(ok)
         XCTAssertEqual(store.status.value?.sleep.status, "idle", "a failed trigger restores the status")
-        XCTAssertEqual(store.toast, "Couldn't start the sleep cycle — reverted")
+        XCTAssertEqual(store.toast, Copy.SleepV5.startFailed)
     }
 
     /// Sleep page v5 — Continue reaches the continue call and never the fresh trigger (which clears the pause on the
@@ -373,6 +373,15 @@ final class MutationTests: XCTestCase {
         XCTAssertTrue(ok)
         XCTAssertEqual(api.writes.filter { $0 == "continueSleepRun" }.count, 1)
         XCTAssertFalse(api.writes.contains("triggerSleep"), "Continue must never start a fresh run")
+    }
+
+    func testARefusedTriggerSaysTheServersOwnSentence() async throws {
+        let api = FakeSyncAPI()
+        api.writeError = APIError.httpError(409, #"{"detail": "This memory is moving to another computer."}"#)
+        let store = Store(cache: tempCache(), api: api)
+        let ok = await store.perform(TriggerSleep())
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.toast, "This memory is moving to another computer.")
     }
 
     func testPlainTriggerNeverContinues() async throws {

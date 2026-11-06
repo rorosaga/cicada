@@ -194,6 +194,15 @@ final class EngineQuickMenuTests: XCTestCase {
         XCTAssertNil(SleepEnginePreviewSource.current(chooser: nil, page: nil))
     }
 
+    /// A transport error's own text never reaches the person.
+    func testAFailedReadSaysSoInCicadasOwnWords() async {
+        struct Refused: Error {}
+        let start = response(mode: "auto")
+        let vm = SleepEngineViewModel(fetch: { throw Refused() }, update: { _, _, _, _ in start })
+        await vm.load()
+        XCTAssertEqual(vm.errorMessage, Copy.SleepV5.engineUnread)
+    }
+
     /// A failed write says so in words and changes nothing; the next good one clears it
     /// (the old model never cleared `errorMessage`).
     func testAFailedWriteSaysSoAndTheNextOneClearsIt() async {
