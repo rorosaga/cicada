@@ -3244,6 +3244,13 @@ actor APIClient {
         return try await get("/entities/\(encodedID(entityId))/citations/\(n)\(suffix)")
     }
 
+    /// `POST /entities/{id}/claims/{claim}/keep` (ROR-129, ruling 70): mark one fact evergreen as the person's word, or let
+    /// it fade again (`keep: false`, also the undo of an evergreen the extraction model proposed).
+    func keepFact(entityId: String, claimId: String, keep: Bool) async throws {
+        let escaped = claimId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? claimId
+        let _: Data = try await post("/entities/\(encodedID(entityId))/claims/\(escaped)/keep", body: ["keep": keep])
+    }
+
     // MARK: - RSS feed subscriptions (G9)
 
     /// `GET /sources/feeds` → every subscribed RSS/Atom feed, in subscription order.
