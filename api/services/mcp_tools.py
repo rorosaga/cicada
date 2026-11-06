@@ -5139,7 +5139,8 @@ def _turn_excerpts(memory_path: Path, query: str) -> list:
     from api.services import ask_sources, owner_identity
 
     try:
-        owner = owner_identity.owner_name(memory_path)
+        # One file, never a scan: the name only labels a turn, and a cold recall reads a handful of pages.
+        owner = owner_identity.owner_name(memory_path, scan=False)
         found = ask_sources.search(memory_path, query)
         pool = ask_sources.gather_search(memory_path, query, found, owner_name=owner, max_episodes=RECALL_TURN_EPISODES,
                                          max_excerpts=RECALL_TURNS * 2, total_chars=RECALL_TURNS * 2 * RECALL_TURN_CHARS,
