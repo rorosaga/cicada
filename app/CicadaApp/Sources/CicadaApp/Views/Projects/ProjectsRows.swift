@@ -54,7 +54,7 @@ struct ProjectsListColumn: View {
                     PageFindRow(text: $findText, isOpen: $findOpen, prompt: Copy.Projects.find)
                         .padding(findInsets)
                 }
-                GeometryReader { viewport in
+                GeometryReader { _ in
                 ScrollView {
                     LazyVStack(alignment: .leading,
                                spacing: rowGap) {
@@ -73,7 +73,7 @@ struct ProjectsListColumn: View {
                             note(Copy.Projects.noMatch(query.trimmingCharacters(in: .whitespaces)))
                         case .list:
                             if cards {
-                                cardList(viewport.size.height)
+                                cardList()
                             } else {
                                 ForEach(entries) { entry in
                                     self.entry(entry).id(entry.id)
@@ -107,19 +107,14 @@ struct ProjectsListColumn: View {
     }
 
     @ViewBuilder
-    private func cardList(_ viewport: CGFloat) -> some View {
+    private func cardList() -> some View {
         let blocks = ProjectCardGroup.blocks(entries)
-        let all = blocks.flatMap { block -> [ProjectCardGroup] in
-            if case .cards(let g) = block { g } else { [] }
-        }
-        let height = ProjectCardLayout.height(viewport: viewport, cards: all.count,
-                                              children: all.reduce(0) { $0 + $1.kids.count }, gap: rowGap)
         ForEach(blocks) { block in
             switch block {
             case .quiet: entry(.quiet(count: 0))
             case .cards(let groups):
                 ForEach(groups) { group in
-                    ProjectCard(group: group, today: today, minHeight: height, open: tap)
+                    ProjectCard(group: group, today: today, open: tap)
                 }
             }
         }

@@ -2,22 +2,10 @@ import SwiftUI
 
 /// ROR-118 round 1 (DESIGN_RULES §9, 2026-11-06) — Current's wide list is cards, not bare rows: one ringed card a
 /// project (DR-9, DR-37: it holds a group), its sub-projects inside it on a darker well so the nesting reads at a
-/// glance, and the card stretches to fill the window instead of leaving it black (DR-35: the gaps grow, not the type).
+/// glance. Round 2: a card is as tall as its content, so no card carries a gap another lacks.
 enum ProjectCardLayout {
-    /// A card never gets shorter than this, nor taller than `maxHeight`, whatever the window.
-    static let minHeight: CGFloat = 184
-    static let maxHeight: CGFloat = 212
     /// What one sub-project row adds inside its parent's card.
     static let childHeight: CGFloat = 64
-
-    /// The parent card's resting height so the cards together fill `viewport`: the sub-project rows come off first,
-    /// then the rest is shared, within the card bounds.
-    static func height(viewport: CGFloat, cards: Int, children: Int, gap: CGFloat) -> CGFloat {
-        guard cards > 0, viewport > 0 else { return CicadaTheme.scaled(minHeight) }
-        let free = viewport - CGFloat(children) * CicadaTheme.scaled(childHeight)
-            - CGFloat(cards - 1) * gap - CicadaTheme.scaled(48)
-        return min(max(free / CGFloat(cards), CicadaTheme.scaled(minHeight)), CicadaTheme.scaled(maxHeight))
-    }
 }
 
 /// A root project and the sub-projects that follow it in the list.
@@ -77,7 +65,6 @@ extension ProjectCardGroup {
 struct ProjectCard: View {
     let group: ProjectCardGroup
     let today: ISODay
-    let minHeight: CGFloat
     let open: (ProjectLine) -> Void
 
     @State private var hovering = false
@@ -94,7 +81,7 @@ struct ProjectCard: View {
             if !group.kids.isEmpty { kids }
         }
         .padding(s(20))
-        .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(shape.fill(CicadaTheme.bgFocus))
         .ringed(hovering ? .strong : .resting, in: shape)
         .onHover { hovering = $0 }
@@ -110,8 +97,7 @@ struct ProjectCard: View {
             if let one = ProjectsModel.oneLine(line.row) {
                 Text(one).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(2)
             }
-            Spacer(minLength: s(14))
-            thread
+            thread.padding(.top, s(10))
         }
     }
 
@@ -254,15 +240,13 @@ struct ProjectThread: View {
         }
     }
 
-    /// Left-aligned from its mark, or right-aligned to it past the middle, so it never leaves the well.
+    /// Centred under its mark, nudged in so it never leaves the well.
     private func label(_ c: Caption, width w: CGFloat) -> some View {
-        let x = min(max(w * c.fraction, 6), w - 6)
-        let trailing = c.fraction > 0.55
+        let half = CicadaTheme.scaled(CGFloat(c.text.count) * 3.5)
+        let x = min(max(w * c.fraction, half), max(w - half, half))
         return Text(c.text).font(CicadaTheme.captionFont).monospacedDigit().lineLimit(1).fixedSize()
             .foregroundStyle(CicadaTheme.textSecondary)
-            .frame(width: w, alignment: trailing ? .trailing : .leading)
-            .padding(trailing ? .trailing : .leading, trailing ? max(w - x - 6, 0) : max(x - 6, 0))
-            .offset(y: CicadaTheme.scaled(Self.lineY + 12))
+            .position(x: x, y: CicadaTheme.scaled(Self.lineY + 24))
     }
 
     private func diamond(done: Bool) -> some View {
