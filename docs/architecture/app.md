@@ -3515,7 +3515,7 @@ no page); a page typed there becomes the existing side ("Page you named", found 
 it, so the card always shows what will be sent; every resolution sent is the one it sent before. **Confirm N links** (`WhereToCheckReviewCard`,
 `WhereToCheckWords`): one sentence of what the card is ("Nothing is used until you confirm it"), each page once with its
 picture and name (a click opens it), and under it each waiting link: its label, what it is and where ("GitHub profile ·
-github.com/…"), why it is there ("You mentioned it in a conversation.") and what confirming changes ("their picture and
+github.com/…"), why it is there (`WhereToCheckWords.why`: "You mentioned it in a conversation.", "It's a link you saved.", "It's written on the page.", or for a public listing's site "A public listing gives it as the official site." plus what stopped Cicada trusting it alone — never the person's words for a lookup, ROR-137) and what confirming changes ("their picture and
 updates can come from here" for a person's own profile, "its logo and updates come from here" for a site on any other
 page). **Confirm** (neutral) and *Not theirs* / *Not this one* (text) answer one link, as before; past three pages the
 rest wait under *N more pages*.

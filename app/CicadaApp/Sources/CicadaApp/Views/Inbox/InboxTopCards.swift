@@ -243,10 +243,8 @@ struct WhereToCheckReviewCard: View {
 
     /// Where the link was found, in words (DR-54: never an episode id).
     static func evidenceWords(_ row: WhereToCheckRow) -> String {
-        guard let evidence = row.evidence else { return row.ref }
-        if evidence.page == true { return "\(row.ref)\n\(Copy.WhereToCheck.fromPage)" }
-        let who = (evidence.kind ?? "user") == "user" ? Copy.WhereToCheck.fromYou : Copy.WhereToCheck.fromAgent
-        return "\(row.ref)\n\(who)"
+        guard row.evidence != nil else { return row.ref }
+        return "\(row.ref)\n\(WhereToCheckWords.why(row))"
     }
 
     /// Optimistic: the row leaves at the tap and comes back with a toast if the answer never landed.

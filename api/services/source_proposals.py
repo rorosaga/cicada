@@ -464,6 +464,22 @@ def open_question(memory_path: Path, page_id: str) -> Path | None:
     return None
 
 
+def review_tier(row: dict) -> int:
+    """What confirming a row buys, for the review's order: 0 a site that gives a page its logo, 1 a person's own account
+    (their picture), 2 anything else (a place to check, nothing drawn)."""
+    if row.get("link_kind") == "website" and str(row.get("predicate") or "") == "website":
+        return 0
+    if row.get("page_type") == "person" and row.get("link_kind") in ("github", "x", "instagram", "linkedin"):
+        return 1
+    return 2
+
+
+def review_order(rows: list[dict], pages: dict[str, int]) -> list[dict]:
+    """The review's rows, the ones that put a picture on a page first and, within a tier, the pages named in the most
+    conversations first (the app shows the first pages and opens the rest in a sheet). Stable: ties keep file order."""
+    return sorted(rows, key=lambda r: (review_tier(r), -pages.get(r["page"], 0)))
+
+
 def _review_words(rows: list[dict]) -> tuple[str, list[dict]]:
     n = len(rows)
     title = "Confirm 1 link" if n == 1 else f"Confirm {n} links"
@@ -533,9 +549,11 @@ def sync_items(memory_path: Path, waiting: list[tuple[str, dict, dict]], report:
     memory_path = Path(memory_path)
     rows = {}
     strict = set()
+    pages: dict[str, int] = {}   # page id -> how many conversations name it (the review's order, never stored)
     for page_id, page_fm, source in waiting:
         row = make_row(page_id, page_fm, source)
         rows[row["id"]] = row
+        pages[page_id] = len(page_fm.get("source_episodes") or [])
         if strict_quote(memory_path, page_fm, source) is not None:
             strict.add(row["id"])
     items = _items(memory_path)
@@ -582,7 +600,7 @@ def sync_items(memory_path: Path, waiting: list[tuple[str, dict, dict]], report:
         report.touch(memory_path, path.relative_to(memory_path).as_posix())
         _write_item(path, item, [rows[rid]], review=False)
         report.questions += 1
-    review_rows = [rows[rid] for rid in rows if rid not in strict and rid not in held]
+    review_rows = review_order([rows[rid] for rid in rows if rid not in strict and rid not in held], pages)
     if review_path is not None:
         rel = review_path.relative_to(memory_path).as_posix()
         fm = markdown_parser.parse(review_path).frontmatter

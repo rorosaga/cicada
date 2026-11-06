@@ -43,6 +43,19 @@ final class InboxTopCardsTests: XCTestCase {
         XCTAssertFalse(single.isTopCard, "a one-row item is an ordinary question")
     }
 
+    func testAWaitingLinkSaysWhereItCameFromAndNeverCreditsYouForAPublicListing() {
+        func row(_ evidence: WhereToCheckRow.Evidence?) -> WhereToCheckRow {
+            WhereToCheckRow(id: "r", page: "alpha-project", ref: "https://example.com", evidence: evidence)
+        }
+        XCTAssertEqual(WhereToCheckWords.why(row(.init(lookup: "wikidata", reason: "homepage_unconfirmed"))),
+                       Copy.WhereToCheck.fromListing(doubt: "homepage_unconfirmed"))
+        XCTAssertTrue(Copy.WhereToCheck.fromListing(doubt: "homepage_unconfirmed").contains("homepage"))
+        XCTAssertFalse(WhereToCheckWords.why(row(.init(lookup: "wikidata"))).contains("mentioned"))
+        XCTAssertEqual(WhereToCheckWords.why(row(.init(kind: "save"))), Copy.WhereToCheck.fromSave)
+        XCTAssertEqual(WhereToCheckWords.why(row(.init(kind: "inferred"))), Copy.WhereToCheck.fromAgent)
+        XCTAssertEqual(WhereToCheckWords.why(row(.init(kind: "user"))), Copy.WhereToCheck.fromYou)
+    }
+
     func testAnOlderPayloadStillDecodes() throws {
         let item = try decode("""
         {"id": "inbox-1", "kind": "decay", "requiredInput": "choice", "title": "Still true?"}
