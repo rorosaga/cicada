@@ -1062,3 +1062,8 @@ the saves indexed with no model read, unread until the person talks about one (`
 `capture-and-sleep.md`, *The lean pass*). `SHAPE` `overview-v17` moves the overview's ETag with the field and the app decodes
 it leniently; `/sleep/queue` has no ETag and is not a Store domain. Neither lists a kept save as waiting, and
 `GET /sleep/episodes?processed=false` no longer lists one a run has not retired yet. The hook's `reason` gains `saved`.
+
+**`GET /contributors` folds only new commits (speed, 2026-11-06).** `git_service.get_contributors` keeps the per-author
+aggregate and the HEAD it was folded at, per bank, in the process; a new HEAD costs `git log <old>..HEAD` (when the old
+HEAD is still an ancestor, else the whole walk) and the same HEAD costs nothing. Warm 200 on a 9,000-page memory
+1,415–1,929 → ~180 ms; the first call of a process still walks the history once (~6 s there).
