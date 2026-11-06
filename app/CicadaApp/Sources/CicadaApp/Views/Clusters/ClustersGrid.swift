@@ -10,7 +10,7 @@ enum ClustersGrid {
     static let lists: [EntityType] = [.company, .tool, .concept]
     static let faces = 8
     static let leadCards = 3
-    static let listNames = 6
+    static let listNames = 5
     static let galleryNames = 6
     static let shortLines = 2
 
@@ -19,7 +19,7 @@ enum ClustersGrid {
         case faces([EntityType])
         /// Projects as a row of cards, each with its one line.
         case lead([EntityType])
-        /// Companies, tools, concepts: three wrapping rows of name chips side by side.
+        /// Companies, tools, concepts: flat lists of names side by side.
         case trio([EntityType])
         /// Media: whole titles on up to two lines, a thumbnail only where one exists.
         case gallery([EntityType])
@@ -199,14 +199,14 @@ struct ClustersGridView: View {
                                  open: open, showAll: more)
                 default:
                     ClusterNames(group: group, shown: items, columns: ClustersGrid.leadColumns(width: width, scale: scale),
-                                 open: open, showAll: more)
+                                 lines: 2, open: open, showAll: more)
                 }
             }
         case .trio(let types):
             HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
                 ForEach(types, id: \.self) { type in
                     if let (group, items) = shown(type) {
-                        ClusterChips(group: group, shown: items, open: open,
+                        ClusterNames(group: group, shown: items, columns: 1, open: open,
                                      showAll: items.count < group.entities.count ? { showTab(type) } : nil)
                     }
                 }
@@ -549,101 +549,14 @@ struct ClusterLead: View {
     }
 }
 
-/// ROR-118 — companies, tools and concepts are name chips on a wrapping line (round 3): a chip is a small object, so a
-/// logo inside one is simply how that chip looks and a chip with none is just narrower — no gutter reserved, no indent
-/// that differs row to row, no lone mark in a column of bare text. No glyph is drawn for a page with no picture.
-struct ClusterChips: View {
-    let group: ClustersModel.Group
-    let shown: [Entity]
-    let open: (Entity) -> Void
-    let showAll: (() -> Void)?
-
-    var body: some View {
-        ClusterSection(group: group, showAll: showAll) {
-            ChipFlow(spacing: CicadaTheme.spacingSM) {
-                ForEach(shown) { entity in ClusterChip(entity: entity) { open(entity) }.id(entity.id) }
-            }
-        }
-    }
-}
-
-struct ClusterChip: View {
-    let entity: Entity
-    let open: () -> Void
-    @State private var hovering = false
-    @Environment(Store.self) private var store
-
-    private var hasPicture: Bool {
-        !EntityPictureLayout.isEmpty(entity.type, picture: store.picture(for: entity.id, held: entity.pictureRef))
-    }
-
-    var body: some View {
-        HStack(spacing: CicadaTheme.spacingXS) {
-            EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 20, heldInputs: entity.pictureInputs,
-                          editing: .tile, collapsesWhenEmpty: true)
-                .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
-                .padding(.leading, CicadaTheme.scaled(6))
-            Button(action: open) {
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    Text(entity.name)
-                        .font(CicadaTheme.rowFont)
-                        .foregroundStyle(entity.quiet ? CicadaTheme.quietName : CicadaTheme.textPrimary)
-                        .lineLimit(1)
-                    QualifierTag(qualifier: entity.qualifier)   // G227
-                }
-                .padding(.leading, CicadaTheme.scaled(hasPicture ? 0 : 12))
-                .padding(.trailing, CicadaTheme.scaled(12))
-                .frame(minHeight: CicadaTheme.scaled(32))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.cicadaPlain)
-            .help(ClustersModel.line(entity) ?? "")
-            .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.shownName, open: false))
-            .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
-        }
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgFocus))
-        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-        .rowHover($hovering)
-    }
-}
-
-/// Chips on a line that wraps: left to right, a new line when the next one would pass the width. Each chip keeps its
-/// own width, so the lines are ragged on the right by design.
-struct ChipFlow: Layout {
-    var spacing: CGFloat = 8
-
-    private func place(_ subviews: Subviews, in width: CGFloat) -> (positions: [CGPoint], size: CGSize) {
-        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0, maxX: CGFloat = 0
-        var positions: [CGPoint] = []
-        for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > width { x = 0; y += lineHeight + spacing; lineHeight = 0 }
-            positions.append(CGPoint(x: x, y: y))
-            x += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
-            maxX = max(maxX, x - spacing)
-        }
-        return (positions, CGSize(width: maxX, height: subviews.isEmpty ? 0 : y + lineHeight))
-    }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        place(subviews, in: proposal.width ?? .infinity).size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let laid = place(subviews, in: bounds.width)
-        for (view, point) in zip(subviews, laid.positions) {
-            view.place(at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y), proposal: .unspecified)
-        }
-    }
-}
-
-/// ROR-118 — Media: a ruled list of whole titles, up to two lines each so a title is never cut mid-word (round 3); a
-/// picture rides the trailing edge only where one exists.
+/// ROR-118 — companies, tools, concepts and media: a ruled list of names alone. A picture rides the trailing edge only
+/// where one exists, so the names share one left edge. Media titles are long: they take up to two lines (round 3), so a
+/// title is never cut mid-word, and every row there is two lines tall.
 struct ClusterNames: View {
     let group: ClustersModel.Group
     let shown: [Entity]
     let columns: Int
+    var lines = 1
     let open: (Entity) -> Void
     let showAll: (() -> Void)?
 
@@ -652,7 +565,7 @@ struct ClusterNames: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: CicadaTheme.spacingXL, alignment: .topLeading),
                                      count: max(columns, 1)),
                       alignment: .leading, spacing: 0) {
-                ForEach(shown) { entity in ClusterNameRow(entity: entity) { open(entity) }.id(entity.id) }
+                ForEach(shown) { entity in ClusterNameRow(entity: entity, lines: lines) { open(entity) }.id(entity.id) }
             }
         }
     }
@@ -660,6 +573,7 @@ struct ClusterNames: View {
 
 struct ClusterNameRow: View {
     let entity: Entity
+    var lines = 1
     let open: () -> Void
     @State private var hovering = false
 
@@ -670,7 +584,7 @@ struct ClusterNameRow: View {
                     Text(entity.name)
                         .font(CicadaTheme.rowFont)
                         .foregroundStyle(entity.quiet ? CicadaTheme.quietName : CicadaTheme.textPrimary)
-                        .lineLimit(2)
+                        .lineLimit(lines)
                         .multilineTextAlignment(.leading)
                     QualifierTag(qualifier: entity.qualifier)   // G227
                     Spacer(minLength: 0)
@@ -687,9 +601,9 @@ struct ClusterNameRow: View {
                 .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
         }
         .padding(.horizontal, CicadaTheme.scaled(8))
-        // Every row the height of two lines, so a one-line title and a two-line one share a baseline grid.
-        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(52), maxHeight: CicadaTheme.scaled(52),
-               alignment: .leading)
+        // Media: every row two lines tall, so a one-line title and a two-line one share a grid.
+        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(lines > 1 ? 52 : RowMetrics.titleOnly),
+               maxHeight: CicadaTheme.scaled(lines > 1 ? 52 : RowMetrics.titleOnly), alignment: .leading)
         .rowHover($hovering)
     }
 }
