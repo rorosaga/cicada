@@ -2728,6 +2728,10 @@ class AskResponse(CamelModel):
     used_entities: list[str] = []
     # Additive (2026-10-19): the OTHER CONVERSATIONS the answer used — found by the question's words, cited by no page.
     conversations: list[AskConversation] = []
+    # Additive (2026-11-06, G148): why the engine did not write this answer, one of ``ask_failure.CODES`` (the sentence
+    # is in ``answer``), and the vendor's own reset time when it gave one (unix seconds). Both absent on an answer.
+    failure: Optional[str] = None
+    resets_at: Optional[int] = None
 
 
 # --- Entity context (progressive disclosure) ---

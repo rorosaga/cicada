@@ -87,10 +87,21 @@ struct AskResponse: Codable, Equatable {
     /// Additive (2026-10-19): the conversations the answer used that no page cites. Empty against an older backend
     /// and for an answer cached in history before the field existed; a row without an id is dropped (nothing to open).
     let conversations: [AskConversation]
+    /// Additive (2026-11-06, G148): why the engine did not write this answer (`ask_failure.CODES`: `plan_window`,
+    /// `engine_unavailable`, `timeout`, `no_engine`, … or `unreadable`); the sentence with its fix is `answer`.
+    /// `nil` for an answer, against an older backend, and for an answer cached in history before the field existed.
+    let failure: String?
+    /// The vendor's own reset time (unix seconds) when it gave one. Carried for a client that wants it; the sentence
+    /// already says it.
+    let resetsAt: Int?
 
     enum CodingKeys: String, CodingKey {
-        case answer, confidence, citations, gaps, usedEntities, conversations
+        case answer, confidence, citations, gaps, usedEntities, conversations, failure, resetsAt
     }
+
+    /// The engine did not write this answer and `answer` says why and what to do (a limit, a sign-out, a timeout, no
+    /// engine). Not `unreadable`: that one is a reply Cicada could not read, which still shows as a low-confidence answer.
+    var isEngineFailure: Bool { failure != nil && failure != "unreadable" }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -101,10 +112,14 @@ struct AskResponse: Codable, Equatable {
         usedEntities = try c.decodeIfPresent([String].self, forKey: .usedEntities) ?? []
         conversations = (try? c.decodeIfPresent([AskConversation].self, forKey: .conversations) ?? [])?
             .filter { !$0.episodeId.isEmpty } ?? []
+        failure = try? c.decodeIfPresent(String.self, forKey: .failure)
+        resetsAt = try? c.decodeIfPresent(Int.self, forKey: .resetsAt)
     }
 
     init(answer: String, confidence: Double, citations: [AskCitation] = [], gaps: [String] = [], usedEntities: [String] = [],
-         conversations: [AskConversation] = []) {
+         conversations: [AskConversation] = [], failure: String? = nil, resetsAt: Int? = nil) {
+        self.failure = failure
+        self.resetsAt = resetsAt
         self.answer = answer
         self.confidence = confidence
         self.citations = citations

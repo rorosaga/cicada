@@ -3534,8 +3534,13 @@ actor APIClient {
     /// (`api/routers/ask.py`). `topK` defaults to the same 6 the server uses
     /// when the field is omitted.
     func ask(query: String, topK: Int = 6) async throws -> AskResponse {
-        return try await post("/ask", body: ["query": query, "topK": topK])
+        return try await post("/ask", body: ["query": query, "topK": topK], timeout: Self.askTimeout)
     }
+
+    /// How long Ask waits for one answer. URLSession's 60 s idle default ended a slow plan answer in "The request
+    /// timed out." while the backend kept working; the backend's own clock is 300 s a call and an unreadable reply is
+    /// asked once more (`ask_failure.ASK_WAIT_S`, the same number).
+    static let askTimeout: TimeInterval = 600
 
     /// `GET /sleep/episodes?processed=false` — only the episodes still waiting for Sleep (the Sleep page's Waiting rows,
     /// a source's queue strip), revalidated with its ETag: a 304 keeps the rows held. Not a Store
@@ -4263,8 +4268,9 @@ actor APIClient {
     }
 
     @discardableResult
-    private func post<T: Decodable>(_ path: String, body: [String: Any]? = nil) async throws -> T {
+    private func post<T: Decodable>(_ path: String, body: [String: Any]? = nil, timeout: TimeInterval? = nil) async throws -> T {
         var request = makeRequest(path, method: "POST")
+        if let timeout { request.timeoutInterval = timeout }
         if let body {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }

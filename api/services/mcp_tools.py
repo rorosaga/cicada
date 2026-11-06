@@ -392,7 +392,9 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
             headers=ctx.backend_headers(),
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        from api.services import ask_failure
+
+        with urllib.request.urlopen(req, timeout=ask_failure.ASK_WAIT_S) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         # API serializes camelCase; normalize back to the service dict shape.
         result = {
@@ -415,9 +417,16 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
                  "day": c.get("day", "")}
                 for c in data.get("conversations", []) or []
             ],
+            "failure": data.get("failure"),
+            "resets_at": data.get("resetsAt", data.get("resets_at")),
         }
-    except Exception:
+    except Exception as exc:
         result = None
+        if _backend_still_answering(exc):
+            # The backend took the question and is working on it: answering again here would run the whole job a
+            # second time beside it (and could spend the plan twice). Say so; nothing is lost.
+            return Reply("Ask is taking longer than expected and is still working. Ask again in a moment.",
+                         code="error")
 
     # Path 2: direct service call (backend down). Uses the configured litellm
     # model + local sqlite-vec index via the service defaults.
@@ -425,13 +434,31 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
         try:
             from api.services import ask_service
 
+            # The engine resolved the way the backend's route does (Auto becomes the signed-in plan): with none given,
+            # an unresolved Auto reads as "no engine" for a person whose plan is signed in.
+            from api.config import get_settings
+            from api.services import engine_readiness, engine_select
+
+            resolved, _why = _run_async(lambda: engine_select.resolve_settings(get_settings(), user_triggered=True))
             result = ask_service.answer_query(ctx.memory_path(), query, top_k=top_k,
+                                              llm_fn=ask_service.scoped_llm_fn(resolved),
+                                              no_engine=engine_readiness.key_missing(resolved),
                                               source_words=bool(ctx.raw_excerpts))
         except Exception as e:
             _log_failure("cicada_ask", e)
             return Reply(f"Error: could not answer ({type(e).__name__}).", code="error")
 
     return _render_ask(result, ctx)
+
+
+def _backend_still_answering(exc: BaseException) -> bool:
+    """A backend that took the request and has not answered in time (a read timeout), as opposed to one that is down
+    (refused, unreachable) or answered with an error: only the first is still working on the job."""
+    import socket
+    import urllib.error
+
+    reason = exc.reason if isinstance(exc, urllib.error.URLError) and not isinstance(exc, urllib.error.HTTPError) else exc
+    return isinstance(reason, (TimeoutError, socket.timeout))
 
 
 #: The most "who spoke" lines an Ask reply adds for the conversations its citations name (2026-10-27).

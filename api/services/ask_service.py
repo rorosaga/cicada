@@ -34,7 +34,7 @@ from typing import Callable
 from loguru import logger
 
 from api.config import Settings
-from api.services import ask_sources, json_parse, markdown_parser, section_provenance, text_fold
+from api.services import ask_failure, ask_sources, json_parse, markdown_parser, section_provenance, text_fold
 from api.services.claims import current_day, is_current, is_event, is_record, parse_claims, stated_end, strip_claims_block
 
 RetrieveFn = Callable[[str, int], list[dict]]
@@ -1277,6 +1277,25 @@ def _default_llm_fn(settings: Settings | None = None, *, extra_body: dict | None
     return _call
 
 
+def scoped_llm_fn(resolved: Settings) -> LlmFn:
+    """Ask's model call on the engine a resolved ``Settings`` chose, each call in its OWN self-purging breaker scope.
+
+    The shared ``_unscoped`` bucket is never reset, so once Ask ran on a plan one throttle there (Claude, a Codex usage
+    limit) left every later Ask — and the link backfill sharing that bucket — failing fast without spawning until the
+    backend restarted, even after the window reset (final review H1). A throttle seen here still stops THIS call;
+    ``use_scope`` purges the trip on exit. One body for the router and the MCP tool's direct path, so a door that
+    answers without the backend resolves the engine the same way (`engine_select.resolve_settings`)."""
+    import uuid
+
+    from api.services import agent_engine
+
+    def llm_fn(prompt: str) -> str:
+        with agent_engine.use_scope(f"ask:{uuid.uuid4().hex}"):
+            return _default_llm_fn(resolved)(prompt)
+
+    return llm_fn
+
+
 #: The most pages the question's own names add to Ask's retrieval.
 _NAMED_PAGES = 3
 #: Ruling 62: the most saved links an answer sees.
@@ -1654,21 +1673,49 @@ def answer_query(
             "gaps": ["No engine to answer with on this machine."],
             "used_entities": retrieved_ids,
             "conversations": _conversation_list(conversations, list(conversations)),
+            "failure": ask_failure.NO_ENGINE,
         }
     llm = llm_fn or _default_llm_fn()
     parsed: dict | None = None
+    failed: ask_failure.AskFailure | None = None
     # 2026-11-06: the whole answer was thrown away for a reply that wasn't JSON (1 of 100 on a 15k-character prompt, a
-    # right answer before), so it is asked once more, which spends a call only when the first was lost.
+    # right answer before), so it is asked once more, which spends a call only when the first was lost. A failure the
+    # engine names (a plan limit, a sign-out, a timeout) is not a lost reply: asking again would only spend another
+    # call on the same wall, so it ends the loop and is told to the person with its fix (`ask_failure`).
     for attempt in (prompt, prompt + _JSON_AGAIN):
+        parsed = None
         try:
-            parsed = json_parse.parse_json_object(llm(attempt))
+            raw = llm(attempt)
+        except Exception as exc:  # noqa: BLE001 — a failed call must degrade, not 500
+            failed = ask_failure.failure_for(exc)
+            logger.warning(f"ask synthesis call failed ({type(exc).__name__}"
+                           f"{', ' + failed.code if failed else ', unnamed'})")
+            if failed:
+                break
+            continue
+        try:
+            parsed = json_parse.parse_json_object(raw)
             if not isinstance(parsed, dict):
                 parsed = None
-        except Exception as exc:  # noqa: BLE001 — malformed reply must degrade, not 500
+        except Exception as exc:  # noqa: BLE001 — a malformed reply must degrade, not 500 (and is never a cause)
             logger.warning(f"ask synthesis parse failed ({type(exc).__name__})")
             parsed = None
         if parsed is not None:
             break
+
+    if failed:
+        # The engine did not answer, and the person is told why and what to do; the pages it found are still named.
+        names = _found_names(entities, watched, conversations, saved)
+        return {
+            "answer": f"{failed.sentence} Relevant pages: {names}.",
+            "confidence": 0.0,
+            "citations": _citations_for(entities, retrieved_ids),
+            "gaps": ["The engine did not answer, so nothing here is a written answer."],
+            "used_entities": retrieved_ids,
+            "conversations": _conversation_list(conversations, list(conversations)),
+            "failure": failed.code,
+            "resets_at": failed.resets_at,
+        }
 
     if parsed is None:
         # Degrade to an honest low-confidence answer over the retrieved entities
@@ -1684,6 +1731,7 @@ def answer_query(
             "gaps": ["Could not synthesize a grounded answer from the retrieved context."],
             "used_entities": retrieved_ids,
             "conversations": _conversation_list(conversations, list(conversations)),
+            "failure": ask_failure.UNREADABLE,
         }
 
     answer = str(parsed.get("answer", "")).strip()
