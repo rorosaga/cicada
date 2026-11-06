@@ -92,8 +92,8 @@ struct ClustersPage: View {
                                                                                        label: $0.label, count: $0.count) }
                                          + [TextTab(id: .looks, label: Copy.Looks.tab,
                                                     count: looksCache.board?.refs.count)],
-                                     selection: pageTabs, menuTitle: Copy.Lists.type)
-                    PageFindButton(isOpen: $findOpen).padding(.leading, CicadaTheme.spacingSM)
+                                     selection: pageTabs, menuTitle: Copy.Lists.type, strongCounts: true)
+                    PageFindButton(isOpen: $findOpen).padding(.leading, CicadaTheme.spacingLG)
                     TextButton(title: isFiltered ? Copy.Lists.viewFiltered : Copy.Lists.view,
                                help: Copy.Lists.viewHelp) { viewMenuOpen.toggle() }
                         .popover(isPresented: $viewMenuOpen, arrowEdge: .bottom) {

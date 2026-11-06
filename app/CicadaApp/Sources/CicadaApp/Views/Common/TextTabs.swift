@@ -48,11 +48,13 @@ struct TextTabs<ID: Hashable>: View {
     /// ROR-118 round 4 - the page's own list tabs: 14 pt in a 30 pt pill, the active one semibold, so the row reads as
     /// the page's navigation under a 40 pt headline (DR-45's 12/26 stays everywhere else).
     var large = false
+    /// A page whose tabs carry its only counts (Clusters) sets its inactive counts one step up the text ladder.
+    var strongCounts = false
 
     var body: some View {
         HStack(spacing: CicadaTheme.scaled(2)) {
             ForEach(Array(tabs.enumerated()), id: \.offset) { _, tab in
-                TextTabButton(tab: tab, isActive: tab.id == selection, showsCount: showsCounts, large: large) {
+                TextTabButton(tab: tab, isActive: tab.id == selection, showsCount: showsCounts, large: large, strongCount: strongCounts) {
                     selection = TextTabSelection.next(tapping: tab.id, current: selection)
                 }
             }
@@ -66,6 +68,7 @@ private struct TextTabButton<ID: Hashable>: View {
     let isActive: Bool
     let showsCount: Bool
     var large = false
+    var strongCount = false
     let action: () -> Void
     @State private var hovering = false
 
@@ -77,7 +80,7 @@ private struct TextTabButton<ID: Hashable>: View {
                 if showsCount, let count = tab.count {
                     Text(UsageFormat.count(count))
                         .monospacedDigit()
-                        .foregroundStyle(isActive ? CicadaTheme.textTertiaryOnFill : CicadaTheme.textTertiary)
+                        .foregroundStyle(isActive ? CicadaTheme.textTertiaryOnFill : (strongCount ? CicadaTheme.textSecondary : CicadaTheme.textTertiary))
                 }
             }
             .font(large ? CicadaTheme.font(size: 14, weight: isActive ? .semibold : .medium) : CicadaTheme.metaMediumFont)
@@ -104,10 +107,11 @@ struct AdaptiveTextTabs<ID: Hashable>: View {
     @Binding var selection: ID?
     /// The menu's accessibility name ("Type", "Kind").
     let menuTitle: String
+    var strongCounts = false
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            TextTabs(tabs: tabs, selection: $selection)
+            TextTabs(tabs: tabs, selection: $selection, strongCounts: strongCounts)
             TextTabs(tabs: tabs, selection: $selection, showsCounts: false)
             Menu {
                 ForEach(Array(tabs.enumerated()), id: \.offset) { _, tab in

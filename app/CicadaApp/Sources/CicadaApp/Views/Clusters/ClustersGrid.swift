@@ -156,7 +156,7 @@ struct ClustersGridView: View {
     var body: some View {
         GeometryReader { geo in
             ScrollView {
-                VStack(alignment: .leading, spacing: CicadaTheme.scaled(28)) {
+                VStack(alignment: .leading, spacing: CicadaTheme.scaled(24)) {
                     let columns = ClustersGrid.tabColumns(width: geo.size.width - gutter * 2,
                                                           scale: CGFloat(CicadaTheme.uiScale))
                     if let tab, let group = groups.first(where: { $0.type == tab }) {
@@ -541,7 +541,7 @@ struct ClusterLead: View {
                 .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
         }
         .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(104), maxHeight: CicadaTheme.scaled(104),
+        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(96), maxHeight: CicadaTheme.scaled(96),
                alignment: .topLeading)
         .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
         .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
@@ -562,11 +562,28 @@ struct ClusterNames: View {
 
     var body: some View {
         ClusterSection(group: group, showAll: showAll) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: CicadaTheme.spacingXL, alignment: .topLeading),
-                                     count: max(columns, 1)),
-                      alignment: .leading, spacing: 0) {
-                ForEach(shown) { entity in ClusterNameRow(entity: entity, lines: lines) { open(entity) }.id(entity.id) }
+            // Round 4: where the list mixes talked-about pages with saved-only ones (Media), the dimmed block is its own
+            // group under one caption, so the dimming has a visible reason and never reads as a flicker between neighbours.
+            let split = lines > 1 && shown.contains(where: \.quiet) && shown.contains(where: { !$0.quiet })
+            if split {
+                grid(shown.filter { !$0.quiet })
+                Text(Copy.Lists.quiet)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .padding(.horizontal, CicadaTheme.scaled(8))
+                    .padding(.top, CicadaTheme.spacingXS)
+                grid(shown.filter(\.quiet))
+            } else {
+                grid(shown)
             }
+        }
+    }
+
+    private func grid(_ items: [Entity]) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: CicadaTheme.spacingXL, alignment: .topLeading),
+                                 count: max(columns, 1)),
+                  alignment: .leading, spacing: 0) {
+            ForEach(items) { entity in ClusterNameRow(entity: entity, lines: lines) { open(entity) }.id(entity.id) }
         }
     }
 }
@@ -578,32 +595,35 @@ struct ClusterNameRow: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            Button(action: open) {
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    Text(entity.name)
-                        .font(CicadaTheme.rowFont)
-                        .foregroundStyle(entity.quiet ? CicadaTheme.quietName : CicadaTheme.textPrimary)
-                        .lineLimit(lines)
-                        .multilineTextAlignment(.leading)
-                    QualifierTag(qualifier: entity.qualifier)   // G227
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+        Button(action: open) {
+            // Round 4: a logo sits right after its name, one mark with it, never alone at the far edge; the weight is
+            // regular so a name reads a step under its heading and the cards' titles.
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Text(entity.name)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(entity.quiet ? CicadaTheme.quietName : CicadaTheme.textPrimary)
+                    .lineLimit(lines)
+                    .multilineTextAlignment(.leading)
+                QualifierTag(qualifier: entity.qualifier)   // G227
+                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 18, heldInputs: entity.pictureInputs,
+                              editing: .tile, collapsesWhenEmpty: true)
+                    .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.cicadaPlain)
-            .help(ClustersModel.line(entity) ?? "")
-            .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.shownName, open: false))
-            .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
-            EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 22, heldInputs: entity.pictureInputs,
-                          editing: .tile, collapsesWhenEmpty: true)
-                .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.cicadaPlain)
+        .help(ClustersModel.line(entity) ?? "")
+        .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.shownName, open: false))
+        .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
         .padding(.horizontal, CicadaTheme.scaled(8))
-        // Media: every row two lines tall, so a one-line title and a two-line one share a grid.
-        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(lines > 1 ? 52 : RowMetrics.titleOnly),
-               maxHeight: CicadaTheme.scaled(lines > 1 ? 52 : RowMetrics.titleOnly), alignment: .leading)
+        // Media: every row the same two-line height with its title on the top line, so the first lines of neighbours
+        // share one baseline whether a title wraps or not.
+        .padding(.top, CicadaTheme.scaled(lines > 1 ? 7 : 0))
+        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(lines > 1 ? 50 : RowMetrics.titleOnly),
+               maxHeight: CicadaTheme.scaled(lines > 1 ? 50 : RowMetrics.titleOnly),
+               alignment: lines > 1 ? .topLeading : .leading)
         .rowHover($hovering)
     }
 }
