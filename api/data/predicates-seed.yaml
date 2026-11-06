@@ -221,11 +221,11 @@ inverse_pairs:
 # multi_valued: objects COEXIST; multiple valid objects are normal, never a conflict.
 # ---------------------------------------------------------------------------
 single_valued:
-  - runs-on           # primary runtime/platform
   - takes-place-in    # an event has one primary place/time
-  - part-of           # a part belongs to one primary whole
 
 multi_valued:
+  - runs-on           # a thing runs on several platforms at once (G98, question audit: 7 false conflicts)
+  - part-of           # a part belongs to several wholes at once (G98, question audit: 6 false conflicts)
   - relates-to        # generic association
   - includes          # a whole has many parts
   - contains          # a container has many contents
