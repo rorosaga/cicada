@@ -375,6 +375,15 @@ def speakable(name, page_fm: dict | None = None) -> str:
     return text
 
 
+def _only_a_relation(page_fm: dict | None) -> str:
+    """The relation ("partner") a person page is known by when it has no name yet, else ""."""
+    fm = page_fm or {}
+    roles = fm.get("owner_roles")
+    if fm.get("unnamed") and not fm.get("nickname_title") and isinstance(roles, list) and roles:
+        return str(roles[0]).strip().lower()
+    return ""
+
+
 def _pair(fm: dict, today: str, name: str, page_fm: dict | None, other_fm: dict | None) -> Spoken:
     other = _clip(speakable((other_fm or {}).get("name") or _candidate(fm) or fm.get("merge_target_hint")
                             or "another page", other_fm))
@@ -391,6 +400,14 @@ def _pair(fm: dict, today: str, name: str, page_fm: dict | None, other_fm: dict 
                       f"{other} is in your chats; {said} came up elsewhere. A shared first name is not enough, so "
                       "I only join them on your word.")
     question = _ask(f"Are {name} and {other} the same {noun}")
+    mine, theirs = _only_a_relation(page_fm), _only_a_relation(other_fm)
+    if noun == "person" and bool(mine) != bool(theirs):
+        # One side is a person known only by what they are to the owner: ask that in plain words (owner 2026-11-06,
+        # "Is Poopy your partner?"), never "the same as Partner".
+        named = other if mine else name
+        relation = mine or theirs
+        return Spoken(_ask(f"Is {named} your {relation}"),
+                      f"Your {relation} has no name on record yet, and I only join people on your word.")
     if noun == "person":
         reason = "They could be one person, and I only join people on your word."
     else:

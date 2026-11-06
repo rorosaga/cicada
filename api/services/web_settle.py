@@ -186,6 +186,32 @@ def own_settings(fm: dict) -> bool:
         _TIME_OF_DAY.search(label) for label in labels)
 
 
+#: Cicada's own bookkeeping: a plan's usage, limit or counter, how many questions or conversations or pages the bank
+#: holds, how its tests came out (owner 2026-11-06: "shouldn't lead or be asked at all"). A reading said in passing is
+#: that moment's number, not a fact for the person to referee: Cicada knows its own, and the next reading replaces it.
+_BOOKKEEPING_PLAN = frozenset({"usage", "counter", "limit", "quota", "weekly"})
+_BOOKKEEPING_COUNT = re.compile(
+    r"(?:^|-)(?:open-)?inbox-questions?(?:-|$)|(?:^|-)(?:conversations|episodes|entities|pages|person-pages)-in-(?:the-)?(?:bank|memory)(?:-|$)|"
+    r"(?:^|-)person-pages(?:-|$)")
+_BOOKKEEPING_TESTS = re.compile(r"(?:^|-)(?:tests?|test-suite)(?:-[a-z]+)?-results?$|(?:^|-)tests?-passed$")
+
+
+def own_bookkeeping(entity_id: str, predicate: str) -> bool:
+    """A measured value Cicada keeps about itself, by its predicate's own words (``value-of-<what>``): a plan's usage,
+    limit or counter on any page; a count of what the bank holds; a test result on Cicada's own page. Never a setting
+    (:func:`own_settings`), and nothing the person decided."""
+    predicate = str(predicate or "").strip().lower()
+    if not predicate.startswith("value-of-"):
+        return False
+    slug = predicate[len("value-of-"):]
+    tokens = set(slug.split("-"))
+    if "plan" in tokens and tokens & _BOOKKEEPING_PLAN:
+        return True
+    if _BOOKKEEPING_COUNT.search(slug):
+        return True
+    return str(entity_id or "").strip().lower() == OWN_PAGE_ID and bool(_BOOKKEEPING_TESTS.search(slug))
+
+
 def person_context(description: str) -> bool:
     """Cicada's own description of a page-less subject says it is somebody, or the speaker's own thing. The speaker's
     own reference ("the user mentioned it") is not a cue: it says who spoke, not what the subject is."""
