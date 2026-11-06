@@ -171,7 +171,10 @@ final class BackendWatchTests: XCTestCase {
         for domain in SyncDomain.allCases {
             let words = Copy.Reach.readFailed(domain)
             XCTAssertTrue(words.hasPrefix("Couldn't read "))
-            XCTAssertFalse(words.contains(domain.rawValue), "\(domain.rawValue) leaked into \(words)")
+            // The internal spelling (`sourcesOverview`) is the leak; a plain word that happens to match is just English.
+            if domain.rawValue.contains(where: \.isUppercase) {
+                XCTAssertFalse(words.contains(domain.rawValue), "\(domain.rawValue) leaked into \(words)")
+            }
         }
     }
 

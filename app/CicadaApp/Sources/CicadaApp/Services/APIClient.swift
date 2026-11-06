@@ -2490,7 +2490,12 @@ actor APIClient {
     /// can otherwise disagree depending on install layout (G88 follow-up).
     /// Capped like the refresh path: it's retried with backoff while the
     /// backend comes up, so one attempt must never park for a full minute.
-    func fetchHealth(timeout: TimeInterval = APIClient.refreshTimeout) async throws -> HealthSnapshot {
+    func fetchHealth() async throws -> HealthSnapshot {
+        try await fetchHealth(timeout: Self.refreshTimeout)
+    }
+
+    /// The same look with a bound of the caller's choosing — `BackendWatch` asks every few seconds and waits 5.
+    func fetchHealth(timeout: TimeInterval) async throws -> HealthSnapshot {
         return try await get("/healthz", timeout: timeout)
     }
 
