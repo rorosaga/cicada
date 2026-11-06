@@ -10,7 +10,6 @@ extension Copy {
         static let work = "Work"
         static let saved = "Saved"
         static let media = "Media"
-        static func count(_ n: Int) -> String { "\(n)" }
         /// An empty shelf's one line, and a shelf with sources' add line: "Add Notion, Folders".
         static func add(_ names: [String]) -> String { "Add " + names.joined(separator: ", ") }
         static let addSource = "Add source"
