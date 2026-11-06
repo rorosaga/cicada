@@ -9,6 +9,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
+| [G243](memory-evolution.md#g243) | Keep the Mac awake while Sleep reads, on power (off by default; `keepAwake` on `/sleep/run-options`; no root, drops with the backend). The switch is in the lamp popover beside the schedule. Wake-for-schedule and closed-lid not built (need root, written up in G243) | PR open | — | 2026-11-06 |
 | ROR-132 | Secrets behind an underscored name or in a URL (`DB_PASSWORD=`, `AWS_SECRET_ACCESS_KEY=`, `scheme://user:pw@host`, `sk_live_…`) were stored whole: the scrub's `\b` fails after an underscore. One name rule for every writer, URL passwords, the vendor shapes the finder already knew, placeholders kept; `sensitive_text` agrees. Forward-only | PR #681 | #681 | 2026-11-06 |
 | ROR-127 | A model contributor wears its maker's picture whichever provider served it (read from the id's organisation, else the model's family; unknown maker = the router's mark when it has one, else initials, never a guess); DeepSeek, Qwen, Z.ai, Moonshot, MiniMax and Meta (Llama) marks added (`ModelMaker`, `app.md`) | PR #675 | [#675](https://github.com/rorosaga/cicada/pull/675) | 2026-11-06 |
 | ROR-118 | UI climb round 1, shared parts (ROR-118): a clearer rail, the type ladder up a step with a lighter dark tertiary, the page name leading each list page, stronger scrims, a Settings panel that cues more below, pictures drawn on the first frame | PR open | pending | 2026-11-06 |

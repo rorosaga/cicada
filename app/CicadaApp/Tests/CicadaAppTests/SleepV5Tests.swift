@@ -121,6 +121,8 @@ final class SleepV5WireTests: XCTestCase {
     func test_optionsChangesSendOnlyTheirField() {
         XCTAssertEqual(SleepRunOptionsChange.batchSize(50).body as? [String: Int], ["batchSize": 50])
         XCTAssertEqual(SleepRunOptionsChange.continueAfterReset(true).body as? [String: Bool], ["continueAfterReset": true])
+        XCTAssertEqual(SleepRunOptionsChange.keepAwake(true).body as? [String: Bool], ["keepAwake": true])
+        XCTAssertFalse(SleepRunOptions().keepAwake, "G243: off by default")
         XCTAssertTrue(SleepRunOptionsChange.spendLimitUsd(nil).body["spendLimitUsd"] is NSNull, "off is an explicit null")
         XCTAssertEqual(SleepRunOptionsChange.spendLimitUsd(7.5).body["spendLimitUsd"] as? Double, 7.5)
         XCTAssertTrue(SleepRunOptionsChange.reservePct(nil).body["reservePct"] is NSNull, "off is an explicit null")

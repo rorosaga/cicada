@@ -739,3 +739,11 @@ def test_an_api_key_codex_login_is_not_a_plan(monkeypatch, tmp_path):
     script.write_text("#!/bin/sh\necho 'Logged in using an API key - sk-***'\nexit 0\n")
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
     assert cli_app._signed_in(cli_app.PLAN_SIGN_INS["chatgpt-plan"], str(script)) is False
+
+
+def test_keep_awake_is_off_until_the_person_turns_it_on(server):
+    client, reg, _ = server
+    assert client.get("/sleep/run-options").json()["keepAwake"] is False
+    assert client.put("/sleep/run-options", json={"keepAwake": True}).json()["keepAwake"] is True
+    assert client.put("/sleep/run-options", json={"keepAwake": None}).status_code == 422
+    assert client.put("/sleep/run-options", json={"keepAwake": False}).json()["keepAwake"] is False

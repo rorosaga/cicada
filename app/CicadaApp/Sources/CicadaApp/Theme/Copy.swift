@@ -103,6 +103,10 @@ enum Copy {
     static let lampHint = "Opens the schedule"
     static let readOnSchedule = "Read on a schedule"
     static let rhythmAndTime = "Rhythm and time:"
+    /// G243 — the lamp popover's keep-awake switch, next to the schedule.
+    static let keepAwakeSwitch = "Keep this Mac awake while Sleep reads"
+    static let keepAwakeCaption = "Only on power. It won't wake a sleeping Mac or work with the lid closed."
+    static let keepAwakeWriteFailed = "Couldn't change this — nothing changed."
     static let scheduleWriteFailed = "Couldn't change the schedule — nothing changed."
     static let openInSources = "Open in Sources ›"
     static func moreInDetails(_ n: Int) -> String { "+\(UsageFormat.count(n)) more in Waiting" }

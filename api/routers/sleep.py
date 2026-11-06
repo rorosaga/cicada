@@ -506,6 +506,7 @@ def _run_options_response(settings: Settings) -> SleepRunOptions:
         scheduled_use_plan=opts.scheduled_use_plan,
         spend_limit_usd=opts.spend_limit_usd,
         spend_limit_choices=list(sleep_spend.CHOICES),
+        keep_awake=opts.keep_awake,
     )
 
 
@@ -543,6 +544,10 @@ async def put_run_options(body: SleepRunOptionsUpdate, settings: Settings = Depe
         if body.spend_limit_usd is not None and not sleep_spend.valid(body.spend_limit_usd):
             raise HTTPException(status_code=422, detail=f"spendLimitUsd must be null or above 0, up to {sleep_spend.MAX_USD:g}")
         changes["spend_limit_usd"] = body.spend_limit_usd
+    if "keep_awake" in sent:
+        if body.keep_awake is None:
+            raise HTTPException(status_code=422, detail="keepAwake must be true or false")
+        changes["keep_awake"] = body.keep_awake
     if changes:
         sleep_run_prefs.write(get_registry(settings), **changes)
     return _run_options_response(settings)
