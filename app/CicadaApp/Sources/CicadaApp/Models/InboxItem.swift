@@ -355,6 +355,9 @@ struct WhereToCheckRow: Codable, Equatable, Identifiable {
         var end: Int?
         var kind: String?
         var page: Bool?
+        /// A public listing the proposal came from (`"wikidata"`), and why Cicada did not trust it on its own.
+        var lookup: String?
+        var reason: String?
     }
 
     var id: String

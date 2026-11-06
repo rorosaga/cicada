@@ -516,3 +516,18 @@ def test_never_on_a_person_and_never_a_removed_link(memory):
     _tool_from(memory, ep="ep_2026-09-07_001",
                sources_removed=[{"ref": ARTICLE, "by": "user", "at": "2026-09-08"}])
     assert source_proposals.propose(memory).proposed == 0
+
+
+def test_review_order_puts_logo_sites_first_then_busiest_pages():
+    """Pictures first: a site that gives a page its logo, then a person's own account, then the rest; within a tier the
+    page named in the most conversations leads (the app shows the first pages). Ties keep file order."""
+    rows = [
+        {"id": "a", "page": "p-saved", "page_type": "tool", "predicate": "", "link_kind": "website"},
+        {"id": "b", "page": "p-quiet", "page_type": "tool", "predicate": "website", "link_kind": "website"},
+        {"id": "c", "page": "p-person", "page_type": "person", "predicate": "", "link_kind": "x"},
+        {"id": "d", "page": "p-busy", "page_type": "company", "predicate": "website", "link_kind": "website"},
+        {"id": "e", "page": "p-tie", "page_type": "tool", "predicate": "website", "link_kind": "website"},
+    ]
+    counts = {"p-saved": 9, "p-quiet": 2, "p-person": 5, "p-busy": 30, "p-tie": 2}
+    order = [r["id"] for r in source_proposals.review_order(rows, counts)]
+    assert order == ["d", "b", "e", "c", "a"]

@@ -120,7 +120,13 @@ enum WhereToCheckWords {
     static func why(_ row: WhereToCheckRow) -> String {
         guard let evidence = row.evidence else { return Copy.WhereToCheck.fromAgentNoLine }
         if evidence.page == true { return Copy.WhereToCheck.fromPage }
-        return (evidence.kind ?? "user") == "user" ? Copy.WhereToCheck.fromYou : Copy.WhereToCheck.fromAgent
+        // A public listing (never "you mentioned it"): where it came from and what stopped Cicada trusting it alone.
+        if evidence.lookup != nil { return Copy.WhereToCheck.fromListing(doubt: evidence.reason) }
+        switch evidence.kind ?? "user" {
+        case "user": return Copy.WhereToCheck.fromYou
+        case "save": return Copy.WhereToCheck.fromSave
+        default: return Copy.WhereToCheck.fromAgent
+        }
     }
 
     /// The decline's words: a person's account is "Not theirs", anything else "Not this one".

@@ -24,6 +24,19 @@ extension Copy {
         static let fromAgent = "An agent found it in a conversation."
         static let fromAgentNoLine = "An agent suggested it."
         static let fromPage = "It's written on the page."
+        static let fromSave = "It's a link you saved."
+        /// A public listing named this as the page's official site; `doubt` is why Cicada did not trust it alone.
+        static func fromListing(doubt: String?) -> String {
+            let base = "A public listing gives it as the official site."
+            switch doubt {
+            case "homepage_unconfirmed", "content_unconfirmed": return base + " Its own homepage could not confirm the name."
+            case "ambiguous": return base + " More than one thing shares the name."
+            case "matched_by_alias": return base + " It matched an alias, not the name."
+            case "country_conflict": return base + " The country does not match the page."
+            case "record_names_another_site": return base + " Your conversations name a different site."
+            default: return base
+            }
+        }
         static func effectPersonProfile(_ name: String, _ what: String) -> String {
             "Confirming makes it \(name)'s own \(what): their picture and updates can come from here."
         }
