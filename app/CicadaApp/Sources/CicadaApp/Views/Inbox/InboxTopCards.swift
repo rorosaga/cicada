@@ -154,7 +154,7 @@ struct WhereToCheckReviewCard: View {
         let pages = WhereToCheckWords.byPage(rows)
         if !pages.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-                Text(item.questionText)
+                Text(item.askText)
                     .font(CicadaTheme.metaMediumFont).foregroundStyle(CicadaTheme.textPrimary)
                 Text(Copy.WhereToCheck.explainer)
                     .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
@@ -178,7 +178,7 @@ struct WhereToCheckReviewCard: View {
             .background(CicadaTheme.bgFocus, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
             .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
             .sheet(isPresented: $showAll) {
-                FullListSheet(title: item.questionText) {
+                FullListSheet(title: item.askText) {
                     ForEach(WhereToCheckWords.byPage(rows)) { page in pageView(page) }
                 }
                 .environment(store)

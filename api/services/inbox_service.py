@@ -218,8 +218,20 @@ def _item_from_file(
         except Exception as exc:  # noqa: BLE001 — a derived field never costs the card
             logger.warning(f"wording skipped for {filepath.name}: {type(exc).__name__}")
 
+    # The options as a person reads them (`inbox_wording.present_options`): dated by when each value was said, the
+    # check's bookkeeping words dropped. The verdicts and the recommended key above were judged on the stored ones.
+    shown = raw_options
+    if context is not None and kind in ("conflict", "page_edit"):
+        try:
+            from api.services import inbox_wording
+
+            shown = inbox_wording.present_options(
+                {**fm, "options": raw_options}, now, claims=context.claims(entity_id),
+                page_name=_page_namer(context), untimed=context.untimed())
+        except Exception as exc:  # noqa: BLE001 — a derived field never costs the card
+            logger.warning(f"option wording skipped for {filepath.name}: {type(exc).__name__}")
     options: list[InboxOption] = []
-    for raw in raw_options:
+    for raw in shown:
         observed = _opt_str(raw.get("observed_at"))
         last_ref = _opt_str(raw.get("last_referenced")) or observed
         options.append(
@@ -296,7 +308,16 @@ def _item_from_file(
 
 #: Kinds Cicada asks in plain words (`inbox_wording`); the rest (a removal, a page edit, an agent's request…) are the
 #: person's own housekeeping and keep their stored words.
-_SPOKEN_KINDS = frozenset({"conflict", "decay", "clarification", "merge_suggestion", "followup"})
+_SPOKEN_KINDS = frozenset({"conflict", "decay", "clarification", "merge_suggestion", "followup", "page_edit"})
+
+
+def _page_namer(context: "inbox_context.InboxContext"):
+    """``id -> the page's name`` (None when there is no such page), for a label that is a page's id."""
+    def name_of(pid: str) -> str | None:
+        found = context.entity(str(pid or "")) if pid else None
+        return str((found.frontmatter or {}).get("name") or "") or None if found is not None else None
+
+    return name_of
 
 
 def _spoken(fm: dict, kind: str, question: str | None, entity_id: str,
@@ -314,10 +335,16 @@ def _spoken(fm: dict, kind: str, question: str | None, entity_id: str,
 
     from api.services import same_name
 
+    owner_id = context.owner_id()
+    conflict = kind == "conflict"
     said = inbox_wording.spoken({**fm, "question": question or fm.get("question")}, today,
                                 page_fm=page(entity_id), other_fm=page(fm.get("merge_target_hint")),
-                                owner_id=context.owner_id(), same=same_name.qualifiers(context.memory_path),
-                                titled=_titled_pages(fm, context))
+                                owner_id=owner_id, same=same_name.qualifiers(context.memory_path),
+                                titled=_titled_pages(fm, context),
+                                claims=context.claims(entity_id) if conflict else None,
+                                page_name=_page_namer(context) if conflict else None,
+                                owner_name=(page(owner_id) or {}).get("name") if owner_id else None,
+                                untimed=context.untimed() if conflict else frozenset())
     return {"spoken_question": said.question or None, "spoken_reason": said.reason or None}
 
 

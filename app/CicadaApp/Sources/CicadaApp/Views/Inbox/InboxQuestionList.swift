@@ -228,7 +228,7 @@ struct InboxRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.cicadaPlain)
-            .accessibilityLabel(Copy.Inbox.rowAccessibility(kind: item.kind.label, question: item.questionText,
+            .accessibilityLabel(Copy.Inbox.rowAccessibility(kind: item.kind.label, question: item.askText,
                                                              open: selected))
             .accessibilityAddTraits(selected ? .isSelected : [])
             if style == .wide && showsOpenButton {
@@ -253,7 +253,7 @@ struct InboxRow: View {
     }
 
     private var question: some View {
-        Text(item.questionText)
+        Text(item.askText)
             .font(questionFont)
             .foregroundStyle(questionColor)
             .lineLimit(1)
@@ -344,7 +344,7 @@ struct InboxRow: View {
             KindGlyph(kind: item.kind)
             question
         }
-        .help(item.questionText)
+        .help(item.askText)
     }
 }
 
@@ -375,7 +375,7 @@ struct InboxUndoRow: View {
     }
 
     private var question: some View {
-        Text(item.questionText)
+        Text(item.askText)
             .font(CicadaTheme.metaFont)
             .foregroundStyle(CicadaTheme.textTertiary)
             .lineLimit(1)
@@ -417,7 +417,7 @@ struct InboxUndoRow: View {
 /// doubt the name shows.
 enum InboxRowWords {
     static func namesItsPage(_ item: InboxItem) -> Bool {
-        let (name, text) = (item.displayName, item.questionText)
+        let (name, text) = (item.displayName, item.askText)
         let key = "\(name)\u{1}\(text)"
         lock.lock()
         let kept = memo[key]

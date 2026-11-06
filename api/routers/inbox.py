@@ -7,8 +7,8 @@ from loguru import logger
 from api.config import Settings, get_settings
 from api.models.schemas import (CatchupRecordRequest, CatchupTurnRequest, CheckCensus, InboxItem,
                                 InboxResolveRequest, SettledCheck)
-from api.services import (inbox_service, question_order, same_name, same_name_pick, source_check, sync_service,
-                          sync_ticker)
+from api.services import (inbox_service, inbox_wording, question_order, same_name, same_name_pick, source_check,
+                          sync_service, sync_ticker)
 
 router = APIRouter()
 
@@ -39,11 +39,12 @@ async def list_inbox(
     # Speed 2026-10-29: the ETag and the read share one listing per directory (`shared_scans`; the worker thread
     # copies this context), so the bank is stat-walked once per request, not once for the ETag and again for the read.
     with sync_ticker.request_scans(settings.memory_path):
+        # `inbox_wording.SHAPE`: the options' dates and words, and the questions' voice, are worded at read.
         # G227: `same_name.SHAPE` — items gained `entityDisplayName`, `mergeTargetDisplayName` and `sameTitle`,
         # derived from the entity files this ETag already covers; the bump makes every client take one 200.
         # `same_name_pick.SHAPE`: a same-title question is served with one option per page plus "none" (2026-10-29).
         etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes",
-                                     extra=f"{kind or ''}|{_served_day()}|{same_name.SHAPE}|{same_name_pick.SHAPE}"
+                                     extra=f"{kind or ''}|{_served_day()}|{same_name.SHAPE}|{same_name_pick.SHAPE}|{inbox_wording.SHAPE}"
                                            # Ruling 70: the order's one non-bank input, the day-cut read counts (today's
                                            # reads count from tomorrow, so it moves at most with the day), and the wire shape.
                                            f"|{question_order.SHAPE}|{question_order.stamp(settings.memory_path)}")

@@ -43,7 +43,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import bank_index, inbox_wording, markdown_parser, page_use, question_order, same_name
+from api.services import (bank_index, episode_time, inbox_wording, markdown_parser, page_use, question_order,
+                          same_name)
 
 LIMIT = 3
 CURSOR_HOURS = 12
@@ -454,7 +455,24 @@ def spoken_for(memory_path: Path, entry: Entry, fm: dict, today: str) -> inbox_w
         if isinstance(pid, str) and (p := page(pid)) is not None:
             titled.append({"id": pid, "name": str(p.get("name") or pid), "type": str(p.get("type") or ""),
                            "qualifier": same.get(pid)})
+    owner_id = everyday_names.owner_id(memory_path)
+    conflict = str(fm.get("kind") or "") == "conflict"
+    claims = _claims(memory_path, str(fm.get("entity_id") or "")) if conflict else None
     return inbox_wording.spoken(fm, today, page_fm=page(str(fm.get("entity_id") or "")),
                                 other_fm=page(str(fm.get("merge_target_hint") or "")),
-                                owner_id=everyday_names.owner_id(memory_path),
-                                group=entry.group_names or None, same=same, titled=titled)
+                                owner_id=owner_id, group=entry.group_names or None, same=same, titled=titled,
+                                claims=claims,
+                                page_name=(lambda pid: (page(pid) or {}).get("name") or None) if conflict else None,
+                                owner_name=(page(owner_id) or {}).get("name") if owner_id else None,
+                                untimed=episode_time.untimed_ids(memory_path) if conflict else frozenset())
+
+
+def _claims(memory_path: Path, entity_id: str) -> list:
+    """A page's claims, from the cached page (a few pages per catch-up, never the bank)."""
+    from api.services.claims import parse_claims
+
+    found = bank_index.file(memory_path, "entities", f"{entity_id}.md") if entity_id else None
+    try:
+        return parse_claims(found.body()) if found is not None else []
+    except Exception:  # noqa: BLE001 — an unreadable page dates nothing
+        return []

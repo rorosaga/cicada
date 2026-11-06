@@ -3551,7 +3551,7 @@ order; the card on screen is the first undecided one, so Undo puts a card back e
 elsewhere leaves the queue, and an answer the server refused comes back at the END of it — after the card being read,
 never in front of it (`reconcile`). Every answer and skip names the card it was drawn for (`reviewAnswer(itemId:)`): one
 for a card no longer on screen is a no-op, so a key or click never lands on a card that swapped in under it. The Inbox's
-own decay card has the same order (1 = Keep active, 2 = Archive, served fixed by `decay_question`; Recommended marks
+own decay card has the same order (1 = "Yes, keep it", 2 = "No, archive it" since 2026-11-06 — answers to "Still tracking X?"; the "noted" copy still says Keep active / Archive, served fixed by `decay_question`; Recommended marks
 Archive, it no longer moves it first), so one key never means opposite things in the two views. A legacy decay with no options,
 a multi-valued conflict (G98) and the other kinds stay in the Inbox's full card ("Open in Inbox" on every card lands
 there too). A bank switch ends the review. Tests: `InboxReviewTests`. Every other

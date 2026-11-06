@@ -36,7 +36,7 @@ from typing import Callable
 from loguru import logger
 
 from api.models.schemas import DecayClass
-from api.services import decay_policy, episode_time, inbox_questions, phone_numbers, predicates
+from api.services import decay_policy, episode_time, phone_numbers, predicates
 from api.services.claims import (HAPPENED, MILESTONE, Claim, Evidence, event_cardinality, is_event, is_record,
                                  is_value_claim, same_value_attribute, stated_end)
 
@@ -368,21 +368,27 @@ def _entity_name(claim: Claim) -> str:
 
 
 def _claim_option(key: str, claim: Claim, today: str) -> dict:
-    """One question option backed by a claim, description led by its age."""
+    """One question option backed by a claim, described by the day it was last said.
+
+    The description is the one clause ``Last mentioned <day>``: no age (it would freeze, ``inbox_wording`` words the
+    age at read) and no conversation id (the person never needs one). The conversation it came from rides beside it
+    as ``source_episode``, which the reader uses to date and compare the two sides. ``observed_at`` and
+    ``last_referenced`` keep their stored meaning."""
     observed = claim.valid_from or claim.recorded_at
-    parts = [f"Last mentioned {observed or 'unknown'}", inbox_questions.humanize_age(observed, today)]
-    episode = (claim.source_episodes or [""])[0]
-    if episode:
-        parts.append(f"extracted from {episode}")
-    return {
+    said = _said(claim) or str(observed or "")[:10]
+    option = {
         "key": key,
         "label": claim.object,
-        "description": " · ".join(parts),
+        "description": f"Last mentioned {said or 'unknown'}",
         "claim_id": claim.id,
         "observed_at": observed,
         "last_referenced": observed,
         "source_episode": episode or None,
     }
+    episode = (claim.source_episodes or [""])[0]
+    if episode:
+        option["source_episode"] = episode
+    return option
 
 
 def _conflict_nudge(existing: Claim, new: Claim, today: str) -> dict:

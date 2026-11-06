@@ -363,7 +363,33 @@ question is never `informational`, whatever its predicate's cardinality.
 conflict, decay, clarification, duplicate and follow-up with `spokenQuestion` / `spokenReason` — `inbox_wording.spoken`
 over the pages the read already holds (`InboxContext`, the owner's id once per read), derived and never stored;
 additive, so an older app draws `question` as before. Because those words carry relative ages, `GET /inbox`'s ETag folds in today's date (`_served_day`):
-a new day is a new tag, never a 304 holding yesterday's "yesterday" (DR-58). The app's catch-up chat (`app.md`, "Catch me up") adds two
+a new day is a new tag, never a 304 holding yesterday's "yesterday" (DR-58). **Question words (2026-11-06):** the same
+read words a conflict's answers and a few stored questions (`inbox_wording`, nothing stored, no sweep; keys, labels as
+stored and claim ids untouched), and `inbox_wording.SHAPE` rides the ETag so every client takes one fresh 200.
+`present_options(fm, today, claims=, page_name=, untimed=)` is pure and idempotent and is called by all three doors: the
+served list (`inbox_service._item_from_file`; the recommended key, the cause and the verdicts keep the stored options),
+the catch-up (`inbox_catchup.spoken_for`) and the MCP readers (`mcp_tools._agent_question`). A claim-backed side is dated
+by when it was *said* (`source_refresh.said_on` for a claim on the page, else the day of the conversation the option
+names), on both `observed_at` and `last_referenced`, never by `valid_from` or by when Sleep read it; with no
+conversation it is undated, and a rebuilt `Last mentioned <day> · <age>` carries no stored age and no `ep_` id. A
+description conflict's sides hold only the day the question was raised: no date, and the contradiction check's working
+words ("Existing description, …") dropped. On a relation predicate a label that is exactly a page's id reads as its
+name. The conflict's reason says "same conversation" only when every side has exactly one conversation and it is the
+same, "same day" only when every side is dated alike, counts three or more, and with fewer than two dated sides names
+no date. A stored question is said to the person (a first-person question turned all or none; the owner named only in a
+safe verb frame, from the bank's own name, never on another person's page), a bare `value-of-<noun>` question names the
+noun, "You mentioned X" became "X came up" where Cicada cannot know who said it, a decay question's answers are "Yes,
+keep it" / "No, archive it" (keys `keep` / `archive` unchanged, served and never stored), and the one page edit Cicada
+proposes itself, dropping an alias another thing owns (`wrong_aliases`), is asked "Should “X” stop being another name
+for Y?" with its why as the reason and "Yes, stop using that name" / "No, keep the name" as its answers (keys `apply` /
+`dismiss` unchanged); every other page edit serves its stored question and no reason. A generic conflict question names
+its answers only when there are exactly two and neither is clipped; with three or more, `both` reads "All of these are
+true" (key and what answering it does unchanged). A decay answer shows no confidence number. The Inbox draws
+`askText`/`askReason` everywhere it shows the question. Forward writers: `inbox_questions.refresh_open_questions` bumps
+an option by when its claim was last said (a late read does not bump; a later re-saying does), `claim_reconciler`
+writes `Last mentioned <day>` plus `source_episode`, and the contradiction prompts ask for a question to "you" and a
+label of what the statement says. The built-list cache (`inbox_service._BUILT`) is in memory only, so a new release
+never serves old words from it. The app's catch-up chat (`app.md`, "Catch me up") adds two
 routes. `POST /inbox/catchup/turn` `{itemId, message, history, upcoming}` is one turn of the conversation
 (`catchup_chat.turn`): the engine is resolved as Ask's is — `engine_select.resolve_settings(user_triggered=True)`, a
 person asking is a person present (rulings 4/31/46: never a metered key nobody chose) — and with no engine to call it

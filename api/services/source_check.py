@@ -219,7 +219,7 @@ def _rungs(targets: tuple[Target, ...]) -> tuple[str, ...]:
 
 
 def _settle_block(options: list[dict], option_claims: dict, targets: tuple[Target, ...], *, locus: str,
-                  owner: bool, entity_path: bool, today: str) -> str:
+                  owner: bool, entity_path: bool, today: str, predicate: str | None = None) -> str:
     """The first reason a checkable conflict may NOT settle, else ``settle_eligible``
     (plan R-AC34; spec §4.2 clamps 1–4, §4.3 eligibility; clamp 5 is S7's, R-AC37)."""
     if entity_path:
@@ -233,6 +233,8 @@ def _settle_block(options: list[dict], option_claims: dict, targets: tuple[Targe
     for option in options:
         if str(option.get("key")) in _SYNTHETIC_KEYS:
             continue
+        if predicate == ENTITY_PATH_KEY and not option.get("claim_id"):
+            continue      # a description option's dates are the day it was raised, never when it was said
         age = inbox_questions.age_days(option.get("last_referenced") or option.get("observed_at"), today)
         if age is not None and age <= RECENT_SPEECH_DAYS:
             return "recent_speech"
@@ -280,7 +282,7 @@ def checkability(item_fm: dict, *, options: list[dict], option_claims: dict, sub
     if all(t.own_session_only for t in targets):
         return Checkability(INFORM_ONLY, "refused_host_only", locus, targets, rungs)
     reason = _settle_block(options, option_claims, targets, locus=locus, owner=owner,
-                           entity_path=not item_fm.get("claim_id"), today=today)
+                           entity_path=not item_fm.get("claim_id"), today=today, predicate=predicate)
     return Checkability(CHECKABLE, reason, locus, targets, rungs, settle_eligible=reason == "settle_eligible")
 
 

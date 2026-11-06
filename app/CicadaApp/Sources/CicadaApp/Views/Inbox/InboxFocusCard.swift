@@ -53,7 +53,7 @@ struct InboxFocusCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Text(item.questionText)
+            Text(item.askText)
                 .font(CicadaTheme.displayFont(size: 22))
                 .tracking(CicadaTheme.displayTracking(size: 22))
                 .foregroundStyle(CicadaTheme.textPrimary)

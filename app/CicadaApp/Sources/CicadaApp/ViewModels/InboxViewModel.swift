@@ -248,7 +248,7 @@ final class InboxViewModel {
         let words = UndoLabel.of(resolution, item: item, names: store.entityNames)
         let held = store.hold(Self.inboxResolve(item, resolution),
                               also: parts.dropFirst().map { Self.inboxResolve($0.item, $0.resolution) },
-                              label: words.full, shortLabel: words.short, question: item.questionText,
+                              label: words.full, shortLabel: words.short, question: item.askText,
                               kind: item.kind, channel: item.channel)
         guard held else { return false }   // a bank switch is in flight: the question stays open (G183(d))
         // DR-29 — the next row opens at once (`visible` already leaves the held one out).
