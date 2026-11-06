@@ -40,7 +40,7 @@ extension Copy {
     }
     /// ROR-118 round 3 — the figure alone beside "captured today": the two share one line.
     static let homeCapturedWords = "captured today"
-    static let homeWaitingWords = "waiting"
+    static let homeWaitingWords = "waiting to read"
     static func homeWaiting(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "\(UsageFormat.count(n, locale: locale)) \(homeWaitingWords)"
     }
