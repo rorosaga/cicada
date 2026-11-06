@@ -34,8 +34,6 @@ struct OnboardingRoom: View {
 
 /// The room's geometry in onboarding, pure (`OnboardingRoomTests`).
 enum OnboardingRoomLayout {
-    /// Space kept clear on each side of the room inside the pane.
-    static let paneMargin: CGFloat = 24
     /// Gap between the room and the Welcome / You're set card.
     static let cardGap: CGFloat = 24
 
@@ -46,9 +44,15 @@ enum OnboardingRoomLayout {
         return max(1, min(maxCell, (width / CGFloat(RoomLattice.cols)).rounded(.down)))
     }
 
-    /// The working pages' pane: the room centred in it, up to 3 pt per cell (480 × 192 in the 540 pt pane).
+    /// The working pages' pane: the room edge to edge, centred on the window's height (640 × 256 in the 640 pt pane,
+    /// `OnboardingLayout.paneWidth` always a whole number of cells).
     static func paneCell(paneWidth: CGFloat) -> CGFloat {
-        cell(fitting: paneWidth - 2 * paneMargin, maxCell: 3)
+        cell(fitting: paneWidth, maxCell: 6)
+    }
+
+    /// Welcome: the room over its card, 800 × 320 over the 800 pt card (ROR-118).
+    static func heroCell(cardWidth: CGFloat) -> CGFloat {
+        cell(fitting: cardWidth, maxCell: 5)
     }
 
     /// Welcome and You're set: the room above the card, as wide as the card allows, up to 4 pt per cell (640 × 256

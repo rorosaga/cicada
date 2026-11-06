@@ -29,8 +29,8 @@ struct WelcomePage: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             if editingName && fromMacAccount {
                 Text(Copy.welcomeHelloNoName)
-                    .font(CicadaTheme.displayFont(size: 40))
-                    .tracking(CicadaTheme.displayTracking(size: 40))
+                    .font(CicadaTheme.displayFont(size: 52))
+                    .tracking(CicadaTheme.displayTracking(size: 52))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .accessibilityAddTraits(.isHeader)
                 Text(Copy.welcomeNameFromMac)
@@ -47,18 +47,19 @@ struct WelcomePage: View {
                     .accessibilityLabel(Copy.welcomeYourName)
             } else {
                 Text(first.isEmpty ? Copy.welcomeHelloNoName : Copy.welcomeHello(first))
-                    .font(CicadaTheme.displayFont(size: 40))
-                    .tracking(CicadaTheme.displayTracking(size: 40))
+                    .font(CicadaTheme.displayFont(size: 52))
+                    .tracking(CicadaTheme.displayTracking(size: 52))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .accessibilityAddTraits(.isHeader)
             }
             Text(Copy.welcomeLine)
-                .font(CicadaTheme.displayFont(size: 22))
-                .tracking(CicadaTheme.displayTracking(size: 22))
+                .font(CicadaTheme.displayFont(size: 24))
+                .tracking(CicadaTheme.displayTracking(size: 24))
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             if !first.isEmpty && !editingName {
-                TextButton(title: Copy.welcomeNotYou(first), inline: true, flushLeading: true) { editingName = true }
+                // ROR-118: the row's own size (14), not the inline chip's 13 medium on a 22 pt line: it is read, not hunted.
+                TextButton(title: Copy.welcomeNotYou(first), flushLeading: true) { editingName = true }
             }
             if let failure {
                 Text(failure).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)

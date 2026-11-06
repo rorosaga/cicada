@@ -90,13 +90,17 @@ enum OnboardingNav {
 
 /// R-OB1 — the frame's geometry (F-02's board: pane 540, column padding 64, topbar 52, foot 36 from the bottom).
 enum OnboardingLayout {
-    static let pane: CGFloat = 540
+    /// The pane is the room edge to edge (ROR-118): 640 pt at 1x is 160 lattice columns at 4 pt, so the room is never a
+    /// small picture floating in a wide ground.
+    static let pane: CGFloat = 640
     static let minColumn: CGFloat = 620
     static let minPane: CGFloat = 240
     static let columnPadding: CGFloat = 64
     static let topbarHeight: CGFloat = 52
     static let footBottom: CGFloat = 36
     static let cardMaxWidth: CGFloat = 640
+    /// Welcome alone is wider (ROR-118): the room is its picture, 800 pt wide at 5 pt a cell, over a card of the same width.
+    static let welcomeMaxWidth: CGFloat = 800
     static let cardBottom: CGFloat = 48
     static let gutter: CGFloat = 16
     /// The Sources grid's tile: wide enough for its two-line consent caption at 1×, so a 532 pt column holds 3.
@@ -106,14 +110,20 @@ enum OnboardingLayout {
     static let sourceTileHeight: CGFloat = 128
 
     /// The room's pane gives way before the column does, and goes rather than become a sliver: it is art only
-    /// (DR-13), so losing it loses no word.
+    /// (DR-13), so losing it loses no word. Always a whole number of cells wide (160 columns each), so the room runs
+    /// edge to edge with no ground showing beside it (ROR-118).
     static func paneWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {
         guard w > 0, scale > 0 else { return 0 }
-        let width = min(pane * scale, w - minColumn * scale)
+        let raw = min(pane * scale, w - minColumn * scale)
+        let width = (raw / CGFloat(RoomLattice.cols)).rounded(.down) * CGFloat(RoomLattice.cols)
         return width < minPane * scale ? 0 : width
     }
 
     static func cardWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {
         max(0, min(cardMaxWidth * scale, w - 2 * gutter * scale))
+    }
+
+    static func welcomeWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {
+        max(0, min(welcomeMaxWidth * scale, w - 2 * gutter * scale))
     }
 }
