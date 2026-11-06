@@ -42,7 +42,7 @@ private struct MediaKindChip: View {
                 Text(label).font(CicadaTheme.metaFont.weight(on ? .semibold : .regular))
                     .foregroundStyle(on ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
                 if let count {
-                    Text("\(count)").font(CicadaTheme.metaFont).monospacedDigit().foregroundStyle(CicadaTheme.textTertiary)
+                    Text(UsageFormat.count(count)).font(CicadaTheme.metaFont).monospacedDigit().foregroundStyle(CicadaTheme.textTertiary)
                 }
             }
             .padding(.horizontal, CicadaTheme.scaled(10))
