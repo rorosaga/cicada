@@ -412,6 +412,13 @@ def test_a_watch_hears_each_new_commit(live, tmp_path):
     conn.close()
 
 
+def test_stopping_the_door_never_waits_for_a_session_still_open(live):
+    """The proof is the fixture's teardown: `server.stop()` has 5 seconds, with this device connected and silent."""
+    server, target, ident = live
+    server.still_open = sync_door.connect("127.0.0.1", server.port, target, ident)  # kept alive past this test's end
+    assert not server.still_open.broken
+
+
 def test_a_device_not_yet_in_the_group_is_let_in_only_with_the_qrs_secret(keys):
     phone = Key()
     ident = sync_door.Identity("", phone.jwk, phone.sign)
