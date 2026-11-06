@@ -28,6 +28,9 @@ struct NeutralButton: View {
     var isDisabled = false
     var help: String? = nil
     var disabledHelp: String? = nil
+    /// ROR-118 — a secondary beside a primary: no fill and no ring at rest, `textSecondary` → `textPrimary` and the
+    /// hover fill, as DR-40's text button, at this button's height and type.
+    var quiet = false
     let action: () -> Void
 
     @State private var hovering = false
@@ -66,12 +69,13 @@ struct NeutralButton: View {
             }
         }
         .font(CicadaTheme.font(size: size == .compact ? 12 : 13, weight: .medium))
-        .foregroundStyle(CicadaTheme.textPrimary)
+        .foregroundStyle(quiet && !hovering ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
         .padding(.horizontal, CicadaTheme.scaled(size == .compact ? 10 : 12))
         .frame(height: CicadaTheme.scaled(size.height))
         .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-            .fill(hovering && !isDisabled ? CicadaTheme.bgButtonHover : CicadaTheme.bgButton))
-        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+            .fill(quiet ? (hovering && !isDisabled ? CicadaTheme.bgSelected : Color.clear)
+                        : (hovering && !isDisabled ? CicadaTheme.bgButtonHover : CicadaTheme.bgButton)))
+        .ringedUnless(quiet, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
     }
 }
 
@@ -95,5 +99,13 @@ struct HugWidth: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}
+
+private extension View {
+    /// The resting ring, unless the button is quiet (`NeutralButton.quiet`).
+    @ViewBuilder
+    func ringedUnless(_ quiet: Bool, in shape: some InsettableShape) -> some View {
+        if quiet { self } else { self.ringed(in: shape) }
     }
 }

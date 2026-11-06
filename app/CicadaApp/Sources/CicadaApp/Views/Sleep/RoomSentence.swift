@@ -513,6 +513,9 @@ struct RoomSentenceView: View {
     /// one (`.whatChanged`), so a tail with an action always renders as a
     /// link — Z-P5's `canPerform` seam existed only while some did not.
     var perform: (SentenceAction) -> Void = { _ in }
+    /// ROR-118 — the page sets the sentence on the leading edge beside the room's rectangle; the offscreen layouts keep
+    /// the centred column.
+    var leading = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(IntakeRouter.self) private var intake
@@ -545,11 +548,11 @@ struct RoomSentenceView: View {
         let slot = slot
         let shown = line(for: slot)
         ZStack {
-            VStack(spacing: CicadaTheme.spacingXS) {
+            VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingXS) {
                 leadText(shown)
                     .font(CicadaTheme.displayFont(size: Self.leadSize))
                     .tracking(CicadaTheme.displayTracking(size: Self.leadSize))
-                    .lineLimit(1)
+                    .lineLimit(leading ? 2 : 1)
                     .minimumScaleFactor(Self.leadMinimumScale)
                 // A line with no tail is the lead alone: no empty line is held under the headline (owner QA
                 // 2026-10-17, amending R-Z5's one reserved tail line). A tail the worm adds on a poke takes its line
@@ -563,8 +566,8 @@ struct RoomSentenceView: View {
             .transition(.opacity)
         }
         .animation(SleepMotion.sentence(reduceMotion: reduceMotion), value: slot)
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
+        .multilineTextAlignment(leading ? .leading : .center)
+        .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
         .onHover { room?.pointerInSentence = $0 }
         // Every read below is `shown`, never `line`: VoiceOver reads what is
         // on screen, and the action follows the link that is on screen.

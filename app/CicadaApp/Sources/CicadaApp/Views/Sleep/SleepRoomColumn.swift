@@ -28,12 +28,17 @@ struct SleepRoomColumn: View {
     var ownerEntityId: String? = nil
     var onSelectEntity: ((String) -> Void)? = nil
     var openDetails: (DetailsSection) -> Void = { _ in }
+    /// ROR-118 — the page sets the group on the leading edge, beside the room's rectangle (DR-36 amended in §9); the
+    /// offscreen layouts keep the centred column.
+    var leading = false
 
     var body: some View {
-        VStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
+        VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingMD) {
             // R-Z5 — the one slot the worm speaks in; an answer replaces the status here (R-Z7).
-            RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform)
-            SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount, page: page)
+            RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform,
+                             leading: leading)
+            SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount, page: page,
+                            leading: leading)
                 .accessibilitySortPriority(RoomA11yOrder.control)
                 .tourAnchor(.consolidate)
             notes
@@ -56,7 +61,7 @@ struct SleepRoomColumn: View {
             Text(Copy.SleepV5.willContinueBySelf(when))
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
-                .multilineTextAlignment(.center)
+                .multilineTextAlignment(leading ? .leading : .center)
         }
         if !page.isRunning, page.paused == nil, page.parkedCount > 0 {
             Button { openDetails(.waiting) } label: {
@@ -86,7 +91,7 @@ struct SleepRoomColumn: View {
                                  lampLit: page.lampLit))
                     .font(CicadaTheme.captionFont)
             }
-            .foregroundStyle(CicadaTheme.textTertiary)
+            .foregroundStyle(leading ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
@@ -98,7 +103,7 @@ struct SleepRoomColumn: View {
         .popover(isPresented: Binding(get: { room.lampPopover == .whisper },
                                       set: { if !$0 { room.lampPopover = nil } }),
                  arrowEdge: .bottom) { LampPopover(page: page) }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
     }
 }
 

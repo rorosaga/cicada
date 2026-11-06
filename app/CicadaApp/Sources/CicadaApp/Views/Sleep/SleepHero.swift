@@ -422,6 +422,9 @@ struct SleepControlRow: View {
     /// Sleep page v5 — the page's own reading (`SleepPageModel`), for Pause / Continue / End this run, the elapsed
     /// time, the Reading options link and the arrivals reason. `nil` keeps the pre-v5 row.
     var page: SleepPageModel? = nil
+    /// ROR-118 — set on the leading edge beside the room's rectangle, the engine and Options as quiet text beside the
+    /// one primary; the offscreen layouts keep the centred group.
+    var leading = false
 
     @State private var optionsOpen = false
 
@@ -435,8 +438,8 @@ struct SleepControlRow: View {
     }
 
     var body: some View {
-        VStack(spacing: CicadaTheme.spacingSM) {
-            HStack(spacing: CicadaTheme.spacingSM) {
+        VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingSM) {
+            HStack(spacing: leading ? CicadaTheme.spacingXS : CicadaTheme.spacingSM) {
                 if sleepVM.isRunning {
                     if draining { pauseButton } else { cancelButton }
                 } else if let paused {
@@ -444,14 +447,15 @@ struct SleepControlRow: View {
                 } else {
                     consolidateButton
                 }
+                if leading { Color.clear.frame(width: CicadaTheme.spacingSM, height: 1) }
                 // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
                 // applies to the next one (G80). It names the person's own engine and model — never another.
-                EngineLabelButton(size: .compact)   // D6: a label that opens Settings → Intelligence (UI-A)
+                EngineLabelButton(size: .compact, quiet: leading)   // D6: a label that opens Settings → Intelligence (UI-A)
                 // The owner's at-rest row (2026-10-16): Consolidate · engine · Options, one height. Options opens the
                 // same reading options the floating "Reading options…" link did, on this row instead of its own line.
                 if showsOptionsLink {
                     NeutralButton(title: Copy.SleepV5.options, size: .compact,
-                                  help: Copy.SleepV5.optionsHelp) { optionsOpen = true }
+                                  help: Copy.SleepV5.optionsHelp, quiet: leading) { optionsOpen = true }
                 }
                 if paused != nil, !sleepVM.isRunning {
                     TextButton(title: Copy.SleepV5.endRun, help: Copy.SleepV5.endRunHelp) {
@@ -466,7 +470,7 @@ struct SleepControlRow: View {
                     .font(CicadaTheme.captionFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textTertiary)
-                    .multilineTextAlignment(.center)
+                    .multilineTextAlignment(leading ? .leading : .center)
                     .fixedSize(horizontal: false, vertical: true)
             }
             // A choice made while a run reads (here, in Settings, or by an agent) waits for the next start or
@@ -475,11 +479,11 @@ struct SleepControlRow: View {
                 Text(Copy.EngineMenu.runKeepsEngine)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
-                    .multilineTextAlignment(.center)
+                    .multilineTextAlignment(leading ? .leading : .center)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
         .sheet(isPresented: $optionsOpen) {
             ReadingOptionsSheet(waiting: page?.readable ?? queuedCount,
                                 onClose: { optionsOpen = false },

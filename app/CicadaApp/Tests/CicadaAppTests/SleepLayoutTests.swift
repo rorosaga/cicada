@@ -6,6 +6,15 @@ import XCTest
 /// whisper keep the 760 pt text column; the art left its card and takes a WHOLE number of points per lattice cell,
 /// chosen by the width it may take (5 from 880, 4 from 720, else 3), so a pixel is never resampled (ruling R3).
 final class SleepLayoutTests: XCTestCase {
+    /// ROR-118 — the room's corner rectangle: 3 pt a cell (480 wide) while the words can sit beside it, else 2 pt (320).
+    func test_theCornerRoomIsWholePointsAndBesideFromTheNarrowStep() {
+        XCTAssertEqual(SleepLayout.cornerScale(columnWidth: 1_000), 3)
+        XCTAssertEqual(SleepLayout.cornerScale(columnWidth: 959), 2)
+        XCTAssertTrue(SleepLayout.roomBeside(columnWidth: 720))
+        XCTAssertFalse(SleepLayout.roomBeside(columnWidth: 719))
+        XCTAssertLessThanOrEqual(CGFloat(RoomLattice.cols) * 3, SleepLayout.pageWidth / 2.1)
+    }
+
 
     func test_theColumnIsSevenSixty() {
         XCTAssertEqual(SleepLayout.contentWidth, 760)

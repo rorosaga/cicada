@@ -199,6 +199,8 @@ struct EngineLabelButton: View {
     @Environment(SleepEngineViewModel.self) private var engineVM
     @Environment(AppRouter.self) private var router
     var size: NeutralButton.Size = .regular
+    /// ROR-118 — beside a primary on the Sleep page: the label without its fill and ring.
+    var quiet = false
 
     var body: some View {
         if let response = engineVM.response, let label = EngineQuickMenuModel.buttonLabel(response) {
@@ -207,7 +209,7 @@ struct EngineLabelButton: View {
                               leading: AnyView(EngineMark(engine: response.preview?.manual.engine ?? "",
                                                           size: CicadaTheme.scaled(14),
                                                           model: response.preview?.manual.model)),
-                              size: size, help: Copy.EngineMenu.moreInSettings) {
+                              size: size, help: Copy.EngineMenu.moreInSettings, quiet: quiet) {
                     router.openSettings(.intelligence, row: .engineChoice)
                 }
                 .accessibilityLabel(Copy.EngineMenu.buttonAccessibility(label))

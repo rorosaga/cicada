@@ -292,19 +292,22 @@ struct StudyListCard: View {
                     // chat on hover; the row's own click still discloses its episodes.
                     MessageBubbleStack(size: 18, interactive: false)
                 }
-                if let age = row.oldestAge {
-                    Text("oldest \(age)")
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .lineLimit(1)
-                }
+                Spacer(minLength: CicadaTheme.spacingMD)
 
-                Spacer()
+                // ROR-118 — the age and the count are one right-hand cluster of two fixed columns, so a name is
+                // never run into its age and the counts line up down the list (the age says "old": it is the
+                // oldest item's).
+                Text(row.oldestAge.map { "\($0) old" } ?? "")
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .lineLimit(1)
+                    .frame(width: CicadaTheme.scaled(76), alignment: .trailing)
 
                 trailing(row)
+                    .frame(minWidth: CicadaTheme.scaled(56), alignment: .trailing)
             }
             .padding(.horizontal, CicadaTheme.scaled(10))
-            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 6))
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
@@ -367,7 +370,7 @@ struct StudyListCard: View {
 
     private func countText(_ value: String) -> some View {
         Text(value)
-            .font(CicadaTheme.metaFont)
+            .font(CicadaTheme.bodyFont)
             .monospacedDigit()
             .foregroundStyle(CicadaTheme.textSecondary)
     }

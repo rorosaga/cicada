@@ -479,7 +479,7 @@ struct SleepView: View {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     eyebrowRow(page, gutter: plan.gutter)
                         .id(Self.topAnchor)
-                    roomBlock(page, columnWidth: plan.list - 2 * plan.gutter)
+                    roomBlock(page, columnWidth: min(plan.list, SleepLayout.pageWidth) - 2 * plan.gutter)
                         .padding(.horizontal, plan.gutter)
                         .padding(.bottom, CicadaTheme.spacingXL)
                         // R-A12: `.saturation` is UNCONDITIONAL, at the identity 1.0 while live — an `if` around it
@@ -493,6 +493,9 @@ struct SleepView: View {
                     }
                 }
                 .padding(.bottom, CicadaTheme.scaled(72))
+                // ROR-118 — one column, centred: the hero, the tabs and the lists share it.
+                .frame(maxWidth: SleepLayout.pageWidth)
+                .frame(maxWidth: .infinity)
             }
             // A tail link, a spine or a hand-off asked for the lists: once they are drawn, bring the tab row to the
             // top in one frame (DESIGN §3.5 — "opening a row scrolls the tab row to the top in one frame").
@@ -1120,36 +1123,21 @@ struct SleepView: View {
         let context = page.roomContext(recentCycleCommit: room.recentCycleCommit)
         let status = roomSentence(context)
         let answers = wormAnswers(context)
-        let cell = SleepLayout.artScale(columnWidth: min(columnWidth, SleepLayout.artMaxWidth))
+        let cell = SleepLayout.cornerScale(columnWidth: columnWidth)
+        let beside = SleepLayout.roomBeside(columnWidth: columnWidth)
 
-        return VStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
-            // Track Z Z5 (R-Z8): the room is its own view — the inert art,
-            // the worm on its lattice, the real pile, and a hotspot layer
-            // derived from the same pure layout. The bracket line (P8) moved
-            // from this group's label onto the worm's own element as its value.
-            StudyRoom(page: page, statusLine: status, answers: answers, room: room,
-                      episodes: sleepVM.queuedEpisodes, onOpenDetails: openDetails,
-                      onWhatChanged: room.recentCycleCommit == nil ? nil : { showWhatChanged() },
-                      reachable: liveness == .live, cell: cell)
-                .accessibilitySortPriority(RoomA11yOrder.room)
-
-            // G212 — each machine by its own name, how it connects and what waits; a click opens its queue below.
-            MachinesStripView(machines: sleepVM.machines, selected: openMachine) { machine in
-                Instant.run {
-                    openMachine = machine?.id
-                    if machine != nil { selectTab(.waiting) }
-                }
-            }
-
-            // G229 — right under the strip that says what waits: what each machine is still syncing after it was closed.
-            AwaySyncLines(entries: AwaySyncWords.machines(own: awaySync?.view, rows: sleepVM.machines),
-                          openSources: { selectedTab = .sources })
-
-            // G132 phase 2 — the device that runs consolidation, every other device's lag, and moving it (shared only).
-            HomeStripView(model: sleepVM.homeStrip)
-
-            // Everything under the room, one centred group in the 760 pt column (2026-10-16).
-            SleepRoomColumn(page: page, status: status, answers: answers, room: room,
+        // ROR-118 — the room is a rectangle in the page's top-right corner (§9 2026-11-06): the worm, the pile and the
+        // lamp keep every hotspot, at 3 pt a cell (480 × 192) or 2 pt (320 × 128) in a narrower column; the sentence,
+        // the one control and the lamp's line sit on its left. Beneath a width that cannot hold both, the rectangle
+        // goes above them, still at 2 pt.
+        let corner = StudyRoom(page: page, statusLine: status, answers: answers, room: room,
+                             episodes: sleepVM.queuedEpisodes, onOpenDetails: openDetails,
+                             onWhatChanged: room.recentCycleCommit == nil ? nil : { showWhatChanged() },
+                             reachable: liveness == .live, cell: cell)
+            .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
+            .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+            .accessibilitySortPriority(RoomA11yOrder.room)
+        let words = SleepRoomColumn(page: page, status: status, answers: answers, room: room,
                             feedAsleep: feedIsAsleep(page.mood),
                             perform: { action in
                                 switch action {
@@ -1163,10 +1151,40 @@ struct SleepView: View {
                                 }
                             },
                             ownerEntityId: ownerEntityId, onSelectEntity: onSelectEntity,
-                            openDetails: openDetails)
+                            openDetails: openDetails, leading: true)
+
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            if beside {
+                HStack(alignment: .center, spacing: CicadaTheme.spacingXL) {
+                    words.frame(maxWidth: .infinity, alignment: .leading)
+                    corner
+                }
+            } else {
+                corner
+                words
+            }
+
+            // G212 — each machine by its own name, how it connects and what waits; a click opens its queue below.
+            // One machine has nothing to choose between (its count is the headline's and the Waiting tab's), so the
+            // strip appears with a second.
+            if sleepVM.machines.count > 1 {
+                MachinesStripView(machines: sleepVM.machines, selected: openMachine) { machine in
+                    Instant.run {
+                        openMachine = machine?.id
+                        if machine != nil { selectTab(.waiting) }
+                    }
+                }
+            }
+
+            // G229 — right under the strip that says what waits: what each machine is still syncing after it was closed.
+            AwaySyncLines(entries: AwaySyncWords.machines(own: awaySync?.view, rows: sleepVM.machines),
+                          openSources: { selectedTab = .sources })
+
+            // G132 phase 2 — the device that runs consolidation, every other device's lag, and moving it (shared only).
+            HomeStripView(model: sleepVM.homeStrip)
         }
         .accessibilityElement(children: .contain)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Sleep page v5 (A7) — the run whose detail the lists read: the running or finished drain, else the paused run.
