@@ -155,6 +155,10 @@ Return ONLY a JSON object with exactly these keys:
 }"""
 
 
+#: Said to the model when its reply could not be read: the same question, nothing else changes.
+_JSON_AGAIN = "\n\nYour last reply to this could not be read. Return ONLY the JSON object the instructions describe."
+
+
 def _snippet(body: str, limit: int = _SNIPPET_CHARS) -> str:
     text = " ".join((body or "").split())
     return (text[:limit] + "…") if len(text) > limit else text
@@ -1640,14 +1644,18 @@ def answer_query(
         }
     llm = llm_fn or _default_llm_fn()
     parsed: dict | None = None
-    try:
-        raw = llm(prompt)
-        parsed = json_parse.parse_json_object(raw)
-        if not isinstance(parsed, dict):
+    # 2026-11-06: the whole answer was thrown away for a reply that wasn't JSON (1 of 100 on a 15k-character prompt, a
+    # right answer before), so it is asked once more, which spends a call only when the first was lost.
+    for attempt in (prompt, prompt + _JSON_AGAIN):
+        try:
+            parsed = json_parse.parse_json_object(llm(attempt))
+            if not isinstance(parsed, dict):
+                parsed = None
+        except Exception as exc:  # noqa: BLE001 — malformed reply must degrade, not 500
+            logger.warning(f"ask synthesis parse failed ({type(exc).__name__})")
             parsed = None
-    except Exception as exc:  # noqa: BLE001 — malformed reply must degrade, not 500
-        logger.warning(f"ask synthesis parse failed: {exc}")
-        parsed = None
+        if parsed is not None:
+            break
 
     if parsed is None:
         # Degrade to an honest low-confidence answer over the retrieved entities
