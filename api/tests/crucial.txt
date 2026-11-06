@@ -193,6 +193,11 @@ test_auth.py::test_healthz_is_open_but_status_requires_token
 test_auth.py::test_wrong_token_rejected
 test_auth.py::test_cors_allows_loopback_origins_only
 
+## A read stays cheap: a cold recall reads a handful of pages, never the bank (G148)
+test_cold_recall.py::test_a_cold_recall_reads_a_handful_of_pages_not_the_bank
+test_cold_recall.py::test_a_cold_recall_never_scans_for_an_owner_who_gave_no_name
+test_cold_recall.py::test_importing_the_recall_path_never_imports_litellm
+
 ## Portability: no owner name primes a prompt
 test_owner_name_portability.py::test_no_llm_prompt_is_primed_with_a_person
 
