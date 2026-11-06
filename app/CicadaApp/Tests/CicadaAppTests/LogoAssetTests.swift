@@ -40,7 +40,7 @@ final class LogoAssetTests: XCTestCase {
     /// accepted the rasterized llama. Membership here is therefore always
     /// decided by the tool; nothing is added to this set by eye.
     /// G217: the set flags its black-on-transparent marks (`dark_variant` in its manifest).
-    static let needsDarkVariant: Set<String> = ["openai", "ollama", "zed", "devin", "copilot", "github"]
+    static let needsDarkVariant: Set<String> = ["openai", "ollama", "zed", "devin", "copilot", "github", "zai", "moonshot"]
 
     private func logoURLs() throws -> [URL] {
         let urls = Bundle.cicadaResources.cicadaResources(ext: "png", in: "logos")
