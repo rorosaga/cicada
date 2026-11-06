@@ -190,6 +190,18 @@ and ask lines show "Which <name> is this?" and each page by name, qualifier and 
 "Another one" (`option_key="another"`, its own thing);
 catch-up mode lists them as its answers and records the pick with `cicada_resolve_inbox(id, option_key, quote)`.
 
+**What has come up lately weighs more on recall and search (owner 2026-11-06).** The fused page order is multiplied by
+`1 + .3 x page_use.lately` (`search_service.rrf_fuse`, `LATELY_WEIGHT`); it reorders what the legs found and adds nothing.
+A page the query names counts a full lift above its own (`lately_lift`), so nothing unnamed overtakes it and, of two pages
+sharing a name, the one said lately leads. The hook's tie-break after name strength and type is `lately` too, from the
+last table with no rebuild (`lately_cached`), never confidence, which ranks no recall. Ask's conversation order is not
+lifted: on 100 questions `x (1 + w x 0.5^(age/14))` took it 71→66 at w=.3 and left it at 71 with temporal 19→17 at w=.1;
+it keeps its reserved newest slot. Measured on a clone of a real bank, counts only: 25 topic queries, pages said lately in
+the top five 14→34 of 125, a query's first page changed on 16; 150 page names, first 124→126 (5 gained, 3 lost, each to
+a page of the same name or alias said more lately). `lately` builds in 3.6 s once on 8,979 pages, then from its cache.
+On slept LoCoMo (5 conversations, 200 questions, `--banks-from`) recency changed recall's words on 24; recall graded on
+those 24 went 15→18 right, one run each. A public bank has only 3 to 11 pages, so it can show no loss, not a win.
+
 **Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the
 FTS lexical leg (names, aliases and prose, word by word), and current claims mapped to their
 subject — so an alias or a relationship label reaches its page. Each leg is filtered against the pages as their

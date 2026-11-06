@@ -39,8 +39,8 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (
-    bank_registry, continuity, continuity_sessions, episode_ids, handshake, mcp_tools, recall_text, saved_lookup,
-    search_index, state_dictionary, telemetry, text_fold,
+    bank_registry, continuity, continuity_sessions, episode_ids, handshake, mcp_tools, page_use, recall_text,
+    saved_lookup, search_index, state_dictionary, telemetry, text_fold,
 )
 from api.services.claims import is_current, is_record, parse_claims
 
@@ -294,11 +294,10 @@ def _eligible(doc: search_index.Doc, owner: str | None) -> bool:
             and str(meta.get("type") or "concept") not in SKIP_TYPES)
 
 
-def _rank_key(meta: dict, strength: int, bm25: float) -> tuple:
-    """The longer name said first, then a one-word-nameable type, then the
-    page's confidence, then FTS's own bm25 (lower is better)."""
-    return (-strength, 0 if meta.get("type") in SINGLE_WORD_TYPES else 1,
-            -float(meta.get("confidence") or 0.0), bm25)
+def _rank_key(meta: dict, strength: int, bm25: float, lately: float = 0.0) -> tuple:
+    """The longer name said first, then a one-word-nameable type, then what has come up lately (never confidence, which
+    ranks no recall), then FTS's own bm25 (lower is better)."""
+    return (-strength, 0 if meta.get("type") in SINGLE_WORD_TYPES else 1, -lately, bm25)
 
 
 #: Subject words a claim must share with the message, beyond its page's own name, to ride the note on words alone.
@@ -855,13 +854,14 @@ def _named_or_topic_note(memory_path: Path, prompt: str, *, recent: frozenset[st
         docs = reader.docs([d for d, _ in rows])
         common = common_name_words(reader, memory_path)
         ranked: list[tuple[tuple, int, search_index.Doc]] = []
+        lately = page_use.lately_cached(memory_path)
         for doc_id, bm25 in rows:
             doc = docs.get(doc_id)
             if doc is None or not _eligible(doc, owner):
                 continue
             strength = mention_strength(words, positions, doc.meta, common)
             if strength:
-                ranked.append((_rank_key(doc.meta, strength, bm25), strength, doc))
+                ranked.append((_rank_key(doc.meta, strength, bm25, lately.get(doc.ref, 0.0)), strength, doc))
         if not ranked:
             # Nothing named: the topic leg — a few current claims the message's words find (2026-10-29).
             return _with_saved(reader, memory_path, prompt, _topic_injection(
