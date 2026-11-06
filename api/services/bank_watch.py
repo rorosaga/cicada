@@ -54,7 +54,10 @@ class BankWatch:
     def __init__(self, bank: Path, extra: list[Path] | None = None) -> None:
         self.bank = Path(os.path.realpath(bank))
         self.roots = [self.bank, *[Path(p) for p in (extra or []) if Path(p).is_dir()]]
-        st = os.stat(self.bank)
+        # Held for the watcher's life: while it's open the system can't give this inode to a new directory, so a bank
+        # deleted and made again never looks like the one being watched. Linux reuses an inode at once.
+        self._root_fd = os.open(self.bank, os.O_RDONLY)
+        st = os.fstat(self._root_fd)
         self.identity = (st.st_dev, st.st_ino)
         self.seq = 0
         self.generation = next(_GENERATIONS)
@@ -96,6 +99,12 @@ class BankWatch:
         return True
 
     def _run(self) -> None:
+        try:
+            self._watch()
+        finally:
+            os.close(self._root_fd)
+
+    def _watch(self) -> None:
         try:
             from watchfiles._rust_notify import RustNotify
 
