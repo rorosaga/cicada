@@ -185,7 +185,7 @@ struct WebReadingCard: View {
         return VStack(alignment: .leading, spacing: CicadaTheme.scaled(8)) {
             ForEach(Array(sentences.enumerated()), id: \.offset) { index, text in
                 HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.scaled(10)) {
-                    Text("\(index + 1)").font(CicadaTheme.metaFont.weight(.semibold))
+                    Text("\(index + 1)").font(CicadaTheme.metaFont.weight(.semibold))   // count-lint:ok — a step number, one to four
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .frame(width: CicadaTheme.scaled(18), height: CicadaTheme.scaled(18))
                         .background(Circle().fill(CicadaTheme.surfaceElevated))
