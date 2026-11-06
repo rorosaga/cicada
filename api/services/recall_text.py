@@ -33,6 +33,12 @@ SAVED_HEADER = (INJECTION_PREFIX + " by Cicada's hook, not typed by them) — li
 SAVED_FOOTER = "Each is the page's words, not the person's. Following a link is how to look further."
 
 
+#: G207 (2026-11-06): lines from conversations Sleep has not read. Words as said, nothing confirmed yet.
+UNREAD_HEADER = (INJECTION_PREFIX + " by Cicada's hook, not typed by them) — what the person said in conversations Sleep "
+                 "has not read yet, sharing this message's words, unconfirmed:")
+UNREAD_FOOTER = "Read one whole: `cicada_sources(entity_id=\"<episode id>\")`; more: `cicada_recall(query)`."
+
+
 def is_injection(text: str | None) -> bool:
     """True when ``text`` is one of Cicada's own notes (either header)."""
     return (text or "").lstrip().startswith(INJECTION_PREFIX)

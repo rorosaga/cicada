@@ -81,7 +81,7 @@ SEMANTIC_K = 30
 SEMANTIC_CHARS = 2_000
 
 REASONS = ("injected", "primer", "no_terms", "no_match", "recently_shown", "index_not_ready", "no_bank",
-           "timeout", "error", "reading", "topic", "saved")
+           "timeout", "error", "reading", "topic", "saved", "unread")
 # The topic leg (2026-10-29): a message that names no page gets at most TOPIC_LINES current claims its words find.
 TOPIC_LINES = 3
 TOPIC_PER_PAGE = 2
@@ -774,8 +774,66 @@ def shown_line(note: Injection) -> str | None:
     return f"◪ Cicada added {' and '.join(parts)} to this message: {', '.join(str(i) for i in note.injected)}"
 
 
+#: Before Sleep (G207, 2026-11-06): conversations not yet read whose turns hold this message's rare words together.
+UNREAD_LINES = 2
+UNREAD_LINE_CHARS = 280
+UNREAD_RESERVE_S = 0.06
+UNREAD_POOL = 12
+
+
+def _unread_turn_lines(memory_path: Path, prompt: str, *, recent: frozenset[str],
+                       session_id: str | None) -> list[tuple[str, str]]:
+    """``[(episode, line)]`` from conversations Sleep has not read yet: the person's own turn holding the message's rare
+    words together (``ask_sources.rare_word_turns``, engine-free). Never this session's own conversation (it would hand
+    the agent its own turn back), a save with no reason (ruling 62) or a record no one said. Retrieval, not belief: no
+    claim, no question."""
+    from api.services import ask_sources
+
+    window = prompt_window(prompt)
+    if len(topic_stems(window)) < TOPIC_MIN_SHARED:
+        return []
+
+    out: list[tuple[str, str]] = []
+    for ep, turn, fm, text in ask_sources.rare_word_turns(memory_path, window, UNREAD_LINES, recent=recent,
+                                                          session_id=session_id, pool=UNREAD_POOL):
+        said = clip(" ".join(text[turn.content_start:turn.end].split()), UNREAD_LINE_CHARS)
+        day = str(fm.get("timestamp") or "")[:10] or ep[3:13]
+        out.append((ep, f"- [{ep}] ({day}, not yet read by Sleep): {said}"))
+    return out
+
+
+def _with_unread(memory_path: Path, prompt: str, note: Injection, *, recent: frozenset[str], session_id: str | None,
+                 deadline: float | None, clock) -> Injection:
+    """A conversation waiting for Sleep helps here too: at most :data:`UNREAD_LINES` of its own lines below whatever
+    else the note says, inside the same token cap; the note's own lines are never dropped for one."""
+    if deadline is not None and deadline - clock() < UNREAD_RESERVE_S:
+        return note
+    try:
+        hits = _unread_turn_lines(memory_path, prompt, recent=recent | frozenset(note.injected), session_id=session_id)
+    except Exception as exc:  # noqa: BLE001 — K9: the class, never the message
+        logger.warning(f"hook-context: unread leg failed ({type(exc).__name__})")
+        return note
+    while hits:
+        block = "\n".join([recall_text.UNREAD_HEADER, *(line for _ep, line in hits), recall_text.UNREAD_FOOTER])
+        text = f"{note.text}\n\n{block}" if note.text else block
+        if len(text) // 4 <= MAX_TOKENS:
+            return replace(note, text=text, injected=(*note.injected, *(ep for ep, _line in hits)),
+                           reason=note.reason if note.text else "unread")
+        hits.pop()
+    return note
+
+
 def prompt_context(memory_path: Path, prompt: str, *, recent: frozenset[str] = frozenset(),
-                   deadline: float | None = None, clock=time.monotonic) -> Injection:
+                   deadline: float | None = None, clock=time.monotonic, session_id: str | None = None) -> Injection:
+    """The note for one message: :func:`_named_or_topic_note`, plus any conversation still waiting for Sleep."""
+    note = _named_or_topic_note(memory_path, prompt, recent=recent, deadline=deadline, clock=clock)
+    if note.reason in ("no_terms", "index_not_ready"):
+        return note
+    return _with_unread(memory_path, prompt, note, recent=recent, session_id=session_id, deadline=deadline, clock=clock)
+
+
+def _named_or_topic_note(memory_path: Path, prompt: str, *, recent: frozenset[str] = frozenset(),
+                         deadline: float | None = None, clock=time.monotonic) -> Injection:
     """The UserPromptSubmit note for one message, or ``Injection.none(reason)``.
 
     ``recent`` is the session's window (R-H7): pages named again within it step
@@ -1106,7 +1164,8 @@ def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: st
     registry = continuity_sessions.apply(target.path, bank_paths=bank_paths, harness=harness, session_id=session_id,
                                          events={"last_prompt_at": start, **workspace_event},
                                          deadline=_slice(deadline, REGISTRY_SLICE_S))
-    note = prompt_context(target.path, prompt, recent=RECENT.recent(session_id), deadline=deadline)
+    note = prompt_context(target.path, prompt, recent=RECENT.recent(session_id), deadline=deadline,
+                          session_id=session_id)
     note = with_reading_note(note, target.path, session_id, event=event, deadline=deadline)
     return replace(note, registry=registry), target.name
 

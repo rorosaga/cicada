@@ -1023,6 +1023,18 @@ same way.
 - **What the person sees (2026-11-06).** The note is between Cicada and the agent; the person now gets one line when it
   shaped a message ("◪ Cicada added 1 page to this message: <ids>", `hook_recall.shown_line`, `systemMessage`, Claude
   Code only until Codex's parser is checked). Counts and ids, never the words; never for the session's primer.
+- **A conversation waiting for Sleep (G207, 2026-11-06).** The page and topic notes read pages and claims, so the hook
+  held nothing from a conversation Sleep had not read. Now `hook_recall._with_unread` adds at most two lines below whatever
+  else the note says, inside the same token cap: the person's own turn from an unread conversation
+  (`ask_sources.rare_word_turns`), marked "not yet read by Sleep" and quoted as said, never a claim. The bar is strict
+  because a wrong line in every message costs more than a missed one: the message's words must be rare (in at most 1% of
+  passages), at least two held within 240 characters, covering 60% of the message's rare-word weight, in a turn of at most
+  1,500 characters said by the person. Never this session's own conversation, an index-only record or a save with no reason
+  (ruling 62). `docs.meta` carries `unread` (`Reader.unread_episodes`), which is why the search schema moved to 10 and every
+  index rebuilds once. Ledger reason `unread`. Measured with no model on banks with nothing slept: LongMemEval_S 0 → 16 of 88
+  questions with an answer turn in the note, 1 note with none among 17, 0 of 14 abstention questions spoke; LoCoMo 0 → 37 of
+  375. Everyday coding asks on clones of two real banks: 0 of 36 got a line (an earlier, looser version got 16 of 36 on the
+  bank with 713 unread); p50 45 / p95 62 ms on the largest. Personal-topic reach on a real bank was not measured.
 - **The vectors.** They only re-order pages already named, and only when the on-device embedder is already
   loaded. A hosted embedder is never sent a prompt.
 - **Repeats.** A per-session window keeps a page from being re-sent on consecutive turns.

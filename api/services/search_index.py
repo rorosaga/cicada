@@ -80,7 +80,7 @@ DB_FILE = "search_index.db"
 # description is the page's words, never the person's; the bump rebuilds every index once.
 # "9": an agent's saved note's `docs.meta` carries `evidence_kind: agent` (ruling 50, `authorship.of`), so a hit in it
 # is the agent's words, never the person's; the bump rebuilds every index once.
-SCHEMA_VERSION = "9"
+SCHEMA_VERSION = "10"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
@@ -561,6 +561,8 @@ def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
         # same `evidence.kind_for` answer a stored span carries.
         "evidence_kind": authorship.of(fm) or "",
     }
+    if not fm.get("processed") and not history_index.is_index_only(fm):
+        meta["unread"] = True   # G207: waiting for Sleep, `Reader.unread_episodes`
     if history_index.is_index_only(fm):
         meta["index_only"] = True   # ruling 30: a record to look up — Ask's search leg neither counts nor shows it
     if history_index.is_unread_save(fm) and not fm.get("media_entity_id"):
@@ -1350,6 +1352,11 @@ class Reader:
         marks = ",".join("?" * len(ids))
         rows = self.conn.execute(f"SELECT id, kind, ref, meta, mtime_ns, size FROM docs WHERE id IN ({marks})", list(ids))
         return {int(i): Doc(int(i), k, r, json.loads(m or "{}"), (mt, sz)) for i, k, r, m, mt, sz in rows}
+
+    def unread_episodes(self) -> dict[int, str]:
+        """``{doc id: episode id}`` of the conversations Sleep has not read (G207): the hook's leg reads only these."""
+        rows = self.conn.execute("SELECT id, ref FROM docs WHERE kind = 'episode' AND instr(meta, '\"unread\"') > 0")
+        return {int(i): str(r) for i, r in rows}
 
     def name_candidates(self, terms: list[str], limit: int, *, statuses: frozenset[str] | None = None,
                         skip_types: frozenset[str] = frozenset(),
