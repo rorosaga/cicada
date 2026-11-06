@@ -188,7 +188,7 @@ struct ProjectRestList: View {
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(groups.enumerated()), id: \.element.id) { i, group in
-                if i > 0 { Rectangle().fill(CicadaTheme.border).frame(height: 1).padding(.horizontal, CicadaTheme.scaled(20)) }
+                if i > 0 { Rectangle().fill(CicadaTheme.border).frame(height: 1).padding(.horizontal, CicadaTheme.scaled(24)) }
                 ProjectListRow(group: group, today: today, open: open)
             }
         }
@@ -223,7 +223,7 @@ private struct ProjectListRow: View {
                     Spacer(minLength: s(16))
                     ProjectStanding(line: line, today: today)
                 }
-                .padding(.horizontal, s(20)).padding(.vertical, s(14))
+                .padding(.horizontal, s(24)).padding(.vertical, s(14))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }

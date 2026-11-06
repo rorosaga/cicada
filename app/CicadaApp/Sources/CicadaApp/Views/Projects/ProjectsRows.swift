@@ -81,7 +81,7 @@ struct ProjectsListColumn: View {
                             }
                         }
                     }
-                    .padding(ListInsets.of(style))
+                    .padding(listInsets)
                 }
                 }
                 .onChange(of: openId) { _, id in
@@ -116,6 +116,17 @@ struct ProjectsListColumn: View {
                 ProjectCardGrid(groups: groups, today: today, leads: block.id == blocks.first?.id, open: tap)
             }
         }
+    }
+
+    /// The cards stand under the eyebrow, whose text starts at the page gutter (40): the list's own 30 left them 10 pt
+    /// outside the heading. Past and the narrow styles keep the list insets.
+    private var listInsets: EdgeInsets {
+        var insets = ListInsets.of(style)
+        if cards {
+            insets.leading = CicadaTheme.scaled(ColumnLayout.gutterWide)
+            insets.trailing = CicadaTheme.scaled(ColumnLayout.gutterWide)
+        }
+        return insets
     }
 
     private var findInsets: EdgeInsets {
