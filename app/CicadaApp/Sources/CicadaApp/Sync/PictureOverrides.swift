@@ -25,6 +25,12 @@ extension Store {
         return index
     }
 
+    /// ROR snappy — hands the graph's pictures to `PicturePrefetch` (disk into memory, off the main thread).
+    func prefetchPictures() {
+        let pictures = pictureIndex.compactMap { entry in entry.value.map { (id: entry.key, picture: $0) } }
+        PicturePrefetch.run(pictures, bank: bank)
+    }
+
     /// A write in flight always shows. A settled one shows until a NEWER snapshot disagrees with it — someone else
     /// moved the picture since — so an agreeing snapshot never throws away the override's fresher inputs.
     func pictureOverride(for id: String) -> PictureOverride? {

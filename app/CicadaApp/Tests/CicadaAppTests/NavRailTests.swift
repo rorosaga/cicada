@@ -98,7 +98,10 @@ final class NavRailTests: XCTestCase {
         XCTAssertNil(text.range(of: #"iconHover\([^)]*selected:"#, options: .regularExpression),
                      "DR-64: no bounce on selection — a keyboard switch never animates")
         XCTAssertFalse(text.contains("Text(\"Cicada\")"), "DR-22: no wordmark")
-        XCTAssertFalse(text.contains("withAnimation"), "DR-60/61: a page switch is instant")
+        // ROR snappy (2026-11-06, DESIGN_RULES §9): a click fades the page by `pageFade`; the key (⌘ held) is `Instant`.
+        XCTAssertEqual(text.components(separatedBy: "withAnimation").count - 1, 1, "one animated path: the click's page fade")
+        XCTAssertTrue(text.contains("withAnimation(CicadaMotion.pageFade(reduceMotion: reduceMotion))"), "the fade is a CicadaMotion token")
+        XCTAssertTrue(text.contains("Instant.run { selectedTab = tab }"), "DR-60: a keyboard page switch never animates")
         XCTAssertTrue(text.contains("router.openSettings()"), "the gear opens the panel through the one door (R-DS22)")
     }
 

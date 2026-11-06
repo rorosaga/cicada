@@ -3957,3 +3957,9 @@ the idle/on-power pause — none is rendered until something computes it.
 ---
 
 **Sources count what really connected (sources-truth, owner 2026-11-06).** "Sources · N connected" and the Connected rows count a list read through the person's browser only once it has read (`SourceCatalogRow.isConnectedHere`); a list turned on with nothing read yet stays an addable tile in its own words ("Not read yet" under the name), one that could not read is under Needs you with Try again, and a refused account is told from a rate limit by `lastErrorCode`.
+
+**Page switches and pictures (ROR snappy, 2026-11-06).** The rail's click animates the page change by `CicadaMotion.pageFade`
+(0.12 s; `ContentView` gives the page `.transition(.opacity)`); the ⌘ key runs the same action in `Instant`. `PicturePrefetch`
+(`ImageMemory.swift`) reads the pictures already on disk (`PictureStore.warm`, `LogoStore.warm`: nonisolated, no network, no
+actor hop) into `ImageMemory` after `Store.hydrate` and each graph refresh, on a utility task, ≤ 800 a pass; a picture
+not on disk still loads through the avatar's own `.task`. Recorded with `capture-cicada-motion.sh` (see the snappy report).
