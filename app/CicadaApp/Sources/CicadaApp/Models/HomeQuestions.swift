@@ -22,8 +22,9 @@ enum HomeQuestions {
         }
     }
 
-    /// The kinds Cicada asks in plain words (`inbox_service._SPOKEN_KINDS`, the catch-up's set). A divergence, a
-    /// predicate fold, a removal or a page edit is the person's housekeeping: it waits in the full list.
+    /// The kinds Home asks about, the catch-up's set: `inbox_service._SPOKEN_KINDS` is that set plus `page_edit`, whose
+    /// one Cicada-made shape (drop a name another thing owns) is worded for the full list. A divergence, a predicate
+    /// fold, a removal or a page edit is the person's housekeeping: it waits in the full list.
     static let spokenKinds: Set<InboxKind> = [.conflict, .decay, .clarification, .mergeSuggestion, .followup]
 
     struct Row: Identifiable, Equatable {
@@ -226,9 +227,9 @@ enum CatchupAnswers {
                        CatchupChip(id: "different", label: Copy.Catchup.different, role: .answer, resolution: different)]
             }
         case .legacyDecay:
-            out = [CatchupChip(id: "keep", label: Copy.Inbox.keepActive, role: .answer,
+            out = [CatchupChip(id: "keep", label: Copy.Inbox.decayYes, role: .answer,
                                resolution: QuestionResolution(action: "keep_active")),
-                   CatchupChip(id: "archive", label: Copy.Inbox.archive, role: .answer,
+                   CatchupChip(id: "archive", label: Copy.Inbox.decayNo, role: .answer,
                                resolution: QuestionResolution(action: "archive"))]
         case .freeText, .informational, .dismissOnly:
             break

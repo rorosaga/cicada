@@ -19,8 +19,8 @@ final class InboxPresentationTests: XCTestCase {
                   "conversationId":"ses_x","harness":"claude-code","origin":"claude-code",
                   "conversationTitle":"Parser planning","excerpt":"user: alpha-project is the parser",
                   "mentionOffsets":[[6,19]],"start":0,"end":33,"tier":"entity","spanKind":"derived"},
-         "options":[{"key":"archive","label":"Archive","recommended":true,"verdict":"agreed"},
-                    {"key":"keep","label":"Keep active","verdict":"overruled"}]}
+         "options":[{"key":"archive","label":"No, archive it","recommended":true,"verdict":"agreed"},
+                    {"key":"keep","label":"Yes, keep it","verdict":"overruled"}]}
         """)
         XCTAssertEqual(item.entityType, "project")
         XCTAssertEqual(item.cause?.tier, "entity")

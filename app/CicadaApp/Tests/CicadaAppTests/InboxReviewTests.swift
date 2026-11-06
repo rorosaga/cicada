@@ -11,13 +11,13 @@ final class InboxReviewTests: XCTestCase {
     [{"id":"inbox-001","kind":"decay","requiredInput":"choice","priority":0.31,"entityId":"alpha-project",
       "entityName":"Alpha Project","title":"No recent mentions of Alpha Project","question":"Still tracking Alpha Project?",
       "createdDate":"2026-10-01","recommendedKey":"archive",
-      "options":[{"key":"archive","label":"Archive","recommended":true,"lastReferenced":"2026-03-02"},
-                 {"key":"keep","label":"Keep active","lastReferenced":"2026-03-02"}],
+      "options":[{"key":"archive","label":"No, archive it","recommended":true,"lastReferenced":"2026-03-02"},
+                 {"key":"keep","label":"Yes, keep it","lastReferenced":"2026-03-02"}],
       "subject":{"summary":"A synthetic side project.","conversations":3,"lastSaid":"2026-03-02"}},
      {"id":"inbox-002","kind":"decay","requiredInput":"choice","priority":0.35,"entityId":"beta-project",
       "entityName":"Beta Project","title":"No recent mentions of Beta Project","question":"Still tracking Beta Project?",
       "createdDate":"2026-10-02",
-      "options":[{"key":"archive","label":"Archive","recommended":true},{"key":"keep","label":"Keep active"}]},
+      "options":[{"key":"archive","label":"No, archive it","recommended":true},{"key":"keep","label":"Yes, keep it"}]},
      {"id":"inbox-003","kind":"decay","requiredInput":"choice","priority":0.2,"entityId":"gamma-project",
       "entityName":"Gamma Project","title":"No recent mentions of Gamma Project","createdDate":"2026-10-03"},
      {"id":"inbox-004","kind":"normalization","requiredInput":"choice","priority":0.3,"entityId":"beta-library",
@@ -224,9 +224,9 @@ final class InboxReviewTests: XCTestCase {
     func testARefusedAnswerNeverDisplacesTheCardBeingRead() throws {
         let three = try decoded().filter { $0.kind == .decay }.map { item -> InboxItem in
             var copy = item
-            copy.options = [InboxOption(key: "keep", label: "Keep active", description: nil, claimId: nil,
+            copy.options = [InboxOption(key: "keep", label: "Yes, keep it", description: nil, claimId: nil,
                                         observedAt: nil, lastReferenced: nil, ageDays: nil),
-                            InboxOption(key: "archive", label: "Archive", description: nil, claimId: nil,
+                            InboxOption(key: "archive", label: "No, archive it", description: nil, claimId: nil,
                                         observedAt: nil, lastReferenced: nil, ageDays: nil)]
             return copy
         }

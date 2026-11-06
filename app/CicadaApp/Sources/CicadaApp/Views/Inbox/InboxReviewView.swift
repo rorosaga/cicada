@@ -295,7 +295,7 @@ enum ReviewContext {
         if item.kind == .normalization, let fold = item.fold {
             return Copy.Inbox.Review.foldQuestion(fold.raw, fold.canonical)
         }
-        return item.questionText
+        return item.askText
     }
 
     /// Decay: when it was last said and in how many conversations. Fold: what it covers.

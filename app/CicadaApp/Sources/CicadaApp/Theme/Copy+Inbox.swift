@@ -145,6 +145,10 @@ extension Copy {
         static let dismiss = "Dismiss"
         static let keepActive = "Keep active"
         static let archive = "Archive"
+        /// The two answers to "Still tracking X?" (a yes/no question answers yes/no); `keepActive`/`archive` say what
+        /// happened once it is answered.
+        static let decayYes = "Yes, keep it"
+        static let decayNo = "No, archive it"
         static func questions(_ n: Int) -> String { n == 1 ? "‹ 1 question" : "‹ \(UsageFormat.count(n)) questions" }
         static let showQuestions = "Show the questions"
         static let showFewer = "Show fewer"

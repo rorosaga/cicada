@@ -352,8 +352,8 @@ struct LegacyDecayBody: View {
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            NeutralButton(title: Copy.Inbox.keepActive) { onAnswer(QuestionResolution(action: "keep_active")) }
-            NeutralButton(title: Copy.Inbox.archive) { onAnswer(QuestionResolution(action: "archive")) }
+            NeutralButton(title: Copy.Inbox.decayYes) { onAnswer(QuestionResolution(action: "keep_active")) }
+            NeutralButton(title: Copy.Inbox.decayNo) { onAnswer(QuestionResolution(action: "archive")) }
             NeutralButton(title: Copy.Inbox.notNow, help: Copy.Inbox.notNowHelp) {
                 onAnswer(QuestionResolution(action: "defer", remindDays: 7))
             }

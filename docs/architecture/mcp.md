@@ -1299,7 +1299,8 @@ concrete format". `cicada_check_nudges(mode="catchup")` is that chat's read (`mc
 - **Local doors only:** stdio, the CLI and a client machine's tool door. A remote connection is refused
   (`CATCHUP_REMOTE`) and its schema keeps `["ask", "list"]` (Needs the owner: remote access).
 - **The wording layer** (`inbox_wording.spoken`, template-only, at read, never written; option keys, labels and the
-  stored question unchanged — Hyrum) also adds `Ask it like:` / `The reason, if you ask it:` lines to `mode="ask"`.
+  stored question unchanged — Hyrum; a conflict's options reach the reader through `present_options`, dated by when each
+  value was said, `features.md`) also adds `Ask it like:` / `The reason, if you ask it:` lines to `mode="ask"`.
   Per kind: decay by the page's type ("Are you still interested in X?", "Do you still use X?", "Are you still in touch
   with X?") with "You mentioned it once, about two months ago, and I don't want to push you on it" for a one-off
   concept or skill; a duplicate pair or group as "the same person/tool/…?" ("your partner" for a relation-titled page
