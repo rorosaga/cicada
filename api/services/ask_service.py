@@ -144,6 +144,12 @@ Sleep has not consolidated: it is the person's record word for word, shown whole
 matching passages when long (``…`` marks where text was left out, not that memory is cut). Answer from it \
 as from any line; when the answer rests on such a line, say it is not yet confirmed by Sleep. A line of \
 WHAT WAS SAID carries the same mark and means the same.
+13. A request for a recommendation or advice for the person, in any language, is not a question of fact. Rule 1's \
+"never guess" and the first paragraph's "no outside knowledge" cover facts about them; the advice itself may use general \
+knowledge. Tailor it to what the lines show they use, own, like, avoid, are working on or have already tried: name those \
+things, prefer what fits them, and build on what they already do rather than repeating it. Say which lines you took that \
+from and that the suggestions themselves are yours. Never decline for want of a stated taste. Only when nothing in the \
+context bears on it, say so in one line and give general advice. Keep confidence below 0.7.
 
 Return ONLY a JSON object with exactly these keys:
 {
@@ -815,16 +821,6 @@ _IMPLIED_NOTE = (
     "When the lines only touch the subject loosely, or not at all, say what memory does not hold, as rule 1 says. "
     "Keep confidence below 0.7 for an inference.")
 
-#: 2026-11-06 (G148): a request for a recommendation answered as if it were a fact on the record, for want of a stated
-#: taste, although what the person uses and likes was in the lines. Only for such a request (ask_sources.asks_advice).
-_ADVICE_NOTE = (
-    "THIS QUESTION ASKS FOR A RECOMMENDATION OR ADVICE FOR THE PERSON, not for a recorded fact. Rule 1's \"never guess\" "
-    "is about facts on the record; the advice itself may use general knowledge. Tailor it to what the lines show they "
-    "use, own, like, avoid, are working on or have already tried: name those things, prefer what fits them, and build "
-    "on what they already do rather than repeating it. Say which lines you took that from and that the suggestions "
-    "themselves are yours. Never decline for want of a stated taste. Only when nothing in the context bears on it, say "
-    "so in one line and give general advice. Keep confidence below 0.7.")
-
 #: 2026-10-20 (G148): the owner's Spanish questions answered half as often as their English counterparts.
 _SPANISH_NOTE = (
     "The question is in Spanish; the memory may record its subject in English, in Spanish or in both. A line answers "
@@ -991,9 +987,7 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
     elif getattr(searched, "record_lang", ""):
         language = _LANGUAGE_NAMES.get(searched.record_lang, "another language")
         notes += _RECORD_LANGUAGE_NOTE.format(language=language) + "\n\n"
-    if ask_sources.asks_advice(query):
-        notes += _ADVICE_NOTE + "\n\n"
-    elif inference:
+    if inference:
         notes += _INFERENCE_NOTE + "\n\n"
     elif implied:
         notes += _IMPLIED_NOTE + "\n\n"

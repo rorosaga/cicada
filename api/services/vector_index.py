@@ -933,6 +933,34 @@ class SqliteVecIndexer:
         norms[norms == 0] = 1.0
         return [float(x) for x in (docs @ qvec) / norms]
 
+    def nearness(self, query: str, passages: "dict[str, list[str]]", *, kind: str = "episodes") -> dict[str, np.ndarray]:
+        """Per group of fixed ``passages``, each one's cosine to ``query``, under :meth:`similarity`'s rule (a model on
+        this machine, or :class:`SimilarityUnavailable`). The passages are embedded once per model, so a caller with
+        fixed texts pays for one query. Never stored."""
+        info = self.index_info(kind)
+        recorded = (info or {}).get("model")
+        if not _named(recorded) or not runs_on_device(recorded):
+            raise SimilarityUnavailable("no on-device model for this table")
+        embed_fn, _model = self._query_embed_fn(kind, info)
+        qvec = self._query_vector(query, kind)
+        qvec = qvec / (float(np.linalg.norm(qvec)) or 1.0)
+        out: dict[str, np.ndarray] = {}
+        for group, texts in passages.items():
+            key = (str(recorded), group, tuple(texts))
+            vectors = _FIXED_PASSAGES.get(key)
+            if vectors is None:
+                fn = embed_fn
+                load = getattr(fn, "passages", None)
+                if callable(load):
+                    fn = load(wait=PASSAGE_LOAD_WAIT_S)
+                vectors = self._checked(fn(list(texts), is_query=False), len(texts))
+                norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+                norms[norms == 0] = 1.0
+                vectors = vectors / norms
+                _FIXED_PASSAGES[key] = vectors
+            out[group] = vectors @ qvec
+        return out
+
     def search_episodes(self, query: str, top_k: int = 3) -> list[dict]:
         return self._search_kind("episodes", query, top_k)
 
@@ -1186,6 +1214,10 @@ class SqliteVecIndexer:
                         "metadata": {**meta, **claim.to_dict(), "claim_id": claim.id,
                                      "file_path": str(page)}})
         return out
+
+
+#: Fixed texts' vectors, per model (:meth:`SqliteVecIndexer.nearness`). A few dozen short lines; derived, in memory only.
+_FIXED_PASSAGES: dict[tuple, np.ndarray] = {}
 
 
 class SimilarityUnavailable(RuntimeError):

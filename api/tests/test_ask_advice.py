@@ -1,36 +1,47 @@
-"""Ask: a request for advice is tailored to what the person's own words show, never declined for want of a stated taste
-(2026-11-06, G148). LongMemEval_S preference, nothing slept, haiku: 12.5 → 75.0 of 8 questions. Synthetic bank (alice-
-example; the word index alone, no network; the model is a stub that records its prompt)."""
+"""Ask: a request for advice is tailored to what the person's own words show, in any language, with no word list (G148,
+2026-11-06). Synthetic bank (alice-example; the word index alone, no network)."""
 from __future__ import annotations
 
-import json
-
+import numpy as np
 import pytest
 
-from api.services import ask_service, ask_sources, bank_index, evidence, markdown_parser, search_index
+from api.services import (ask_service, ask_sources, bank_index, evidence, markdown_parser, question_intent,
+                          search_index)
 
 
-@pytest.mark.parametrize("question", [
-    "Can you suggest a hotel for my upcoming trip to Lisbon?",
-    "Can you recommend a show or movie for me to watch tonight?",
-    "My kitchen's becoming a bit of a mess again. Any tips for keeping it clean?",
-    "What should I cook this weekend?",
-    "¿Me puedes recomendar un libro?",
-    "¿Qué me sugieres para la cena?",
-])
-def test_a_request_for_advice_is_told_apart(question):
-    assert ask_sources.asks_advice(question)
+class _Index:
+    """A search model of one dimension per kind: a question leans the way its marker says, in whatever words."""
+
+    def __init__(self, lean: str | None):
+        self.lean = lean
+
+    def nearness(self, question, passages):
+        if self.lean is None:
+            raise RuntimeError("no model on this machine")
+        return {k: np.full(len(v), 0.9 if k == self.lean else 0.5) for k, v in passages.items()}
 
 
-@pytest.mark.parametrize("question", [
-    "How many hotels did I stay at in Lisbon?",
-    "What did you recommend last time?",
-    "Which database was chosen for alpha-project?",
-    "When did I last watch a movie?",
-    "¿Cuántos libros leí este año?",
-])
-def test_a_question_of_fact_is_not_advice(question):
-    assert not ask_sources.asks_advice(question)
+def test_a_question_leaning_to_the_advice_examples_asks_advice():
+    assert question_intent.asks_advice(_Index("advice"), "¿Me recomiendas un libro?")
+
+
+def test_a_question_of_another_kind_does_not():
+    assert not question_intent.asks_advice(_Index("other"), "When did I read it?")
+    assert not question_intent.asks_advice(_Index("count"), "How many did I read?")
+
+
+def test_with_no_model_on_this_machine_it_says_no_and_never_raises():
+    assert not question_intent.asks_advice(None, "Can you recommend a book?")
+    assert not question_intent.asks_advice(_Index(None), "Can you recommend a book?")
+
+
+def test_the_examples_name_no_language_list_in_the_code():
+    """One set of examples; the search model carries them across languages. A second set would be a word list again."""
+    assert set(question_intent.EXAMPLES) == {"advice", "count", "other"}
+
+
+def test_the_answer_rule_holds_for_every_question_in_any_language():
+    assert "13. A request for a recommendation or advice for the person, in any language" in ask_service.ASK_SYSTEM_PROMPT
 
 
 @pytest.fixture
@@ -53,23 +64,9 @@ def bank(tmp_path):
     bank_index.invalidate()
 
 
-def _prompt(bank, question: str) -> str:
-    seen: list[str] = []
-
-    def model(prompt: str) -> str:
-        seen.append(prompt)
-        return json.dumps({"answer": "stub", "confidence": 0.5, "used_entities": [], "gaps": []})
-
-    ask_service.answer_query(bank, question, retrieve_fn=lambda q, k: [], llm_fn=model, no_engine=False)
-    return seen[0] if seen else ""
-
-
-def test_advice_gets_its_note_and_the_persons_words(bank):
-    prompt = _prompt(bank, "Can you recommend some videos tutorials about editing?")
-    assert "ASKS FOR A RECOMMENDATION OR ADVICE" in prompt
-    assert "alpha-editor" in prompt
-
-
-def test_a_question_of_fact_gets_no_such_note(bank):
-    prompt = _prompt(bank, "Which editor do I use for my videos?")
-    assert "ASKS FOR A RECOMMENDATION OR ADVICE" not in prompt
+def test_more_lines_by_meaning_for_advice(bank, monkeypatch):
+    """Asked for advice, the meaning leg may add its larger allowance; the question's own words still find the turn."""
+    monkeypatch.setattr(question_intent, "asks_advice", lambda indexer, question: True)
+    found = ask_sources.search(bank, "Can you recommend some videos tutorials about editing?")
+    shown = ask_sources.gather_search(bank, "Can you recommend some videos tutorials about editing?", found)
+    assert any("alpha-editor" in e.text for e in shown)

@@ -31,7 +31,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import authorship, evidence, text_fold
+from api.services import authorship, evidence, question_intent, text_fold
 
 MAX_EPISODES = 8
 MAX_EXCERPTS = 10
@@ -923,24 +923,6 @@ def asks_implied(question: str, people: set[str] | None = None) -> bool:
     return bool(_WHO_IS.match(" ".join(text.replace("¿", " ").split())))
 
 
-#: A request for advice or a recommendation for the person themselves (2026-11-06, G148): the answer is shaped by what
-#: they use and like, and the record rarely says so in the question's words. Measured with no model: 23 of LongMemEval_S's
-#: 30 preference questions, 0 of its other 470, 0 of LoCoMo's 1,986.
-_ADVICE = re.compile(
-    r"\b(?:(?:can|could|would|will) you (?:please )?(?:recommend|suggest|give me (?:some |any )?(?:tips|advice|ideas))"
-    r"|any (?:tips|advice|suggestions|recommendations|ideas)\b"
-    r"|do you have (?:any |some )?(?:tips|advice|suggestions|recommendations|ideas)\b"
-    r"|what (?:would|do) you (?:recommend|suggest)|(?:recommend|suggest) (?:me|some|a|an)\b"
-    r"|what should i (?:do|try|read|watch|buy|get|cook|eat|use)\b"
-    r"|(?:me )?(?:puedes|podrias|podr[ií]as) (?:recomendar|sugerir|aconsejar)|me (?:recomiendas|sugieres|aconsejas)"
-    r"|alg[uú]n consejo|alguna (?:recomendaci[oó]n|sugerencia|idea)|qu[eé] me (?:recomiendas|sugieres))")
-
-
-def asks_advice(question: str) -> bool:
-    """The person asks for a recommendation or advice for themselves, not a recorded fact. No model."""
-    return bool(_ADVICE.search(" ".join((question or "").lower().replace("¿", " ").split())))
-
-
 #: Function words that tell a Spanish question from an English one (folded; none is a word of the other language
 #: a question would use — "a", "me", "no" are both and count for neither).
 _ES_WORDS = frozenset("que cual cuales quien quienes cuando donde como cuanto cuanta cuantos cuantas por para del "
@@ -1036,8 +1018,8 @@ class Searched:
     #: An English question whose nearest conversations include some in another language (:func:`record_language`):
     #: that language, else ``""``.
     record_lang: str = ""
-    #: The person asks for advice (:func:`asks_advice`): the meaning leg adds more, since their taste is rarely said in
-    #: the question's words.
+    #: The person asks for advice (:func:`question_intent.asks_advice`): the meaning leg adds more, since their taste is
+    #: rarely said in the question's words.
     advice: bool = False
 
 
@@ -1583,7 +1565,7 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
             first += [ep for ep in _episodes_on(memory_path, named_m) if ep not in passages]
             passages = {ep: passages.get(ep, []) for ep in first} | {ep: v for ep, v in passages.items()
                                                                        if ep not in first}
-    advice = asks_advice(question)
+    advice = question_intent.asks_advice(indexer, question)
     similar = None
     if indexer is not None and (shape == SHAPE_ENUMERATE or meaning or asks_inference(question)
                                 or asks_implied(question) or advice):
