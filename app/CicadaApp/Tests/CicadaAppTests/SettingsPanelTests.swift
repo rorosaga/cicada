@@ -7,6 +7,13 @@ import XCTest
 final class SettingsPanelTests: XCTestCase {
     override func tearDown() { CicadaTheme.uiScale = 1.0; super.tearDown() }
 
+    func testThePanelSitsOverTheDimmedAppNotASolidField() throws {
+        XCTAssertGreaterThanOrEqual(SettingsPanelLayout.backdropDim, 0.9, "dark enough that page text cannot be read")
+        let panel = try source("Views/Settings/SettingsPanel.swift")
+        XCTAssertTrue(panel.contains("Color.black.opacity(SettingsPanelLayout.backdropDim)"))
+        XCTAssertFalse(panel.contains("settingsBackdrop"))
+    }
+
     private func source(_ path: String) throws -> String {
         let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix(path) }, path)
         return try String(contentsOf: file, encoding: .utf8)

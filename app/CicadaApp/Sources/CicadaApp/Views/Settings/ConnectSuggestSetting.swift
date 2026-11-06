@@ -44,5 +44,7 @@ struct ConnectSuggestSettingRow: View {
                 }
             }
         }
+        // The old sentence on the whole row, not only on the switch.
+        .help(Copy.ConnectSuggest.settingDetail)
     }
 }

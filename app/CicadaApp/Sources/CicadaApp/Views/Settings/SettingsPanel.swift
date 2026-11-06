@@ -59,9 +59,12 @@ struct SettingsPanel: View {
         GeometryReader { geo in
             let size = SettingsPanelLayout.size(container: geo.size)
             ZStack {
-                // Round 4 (ROR-118): behind the panel is a flat, opaque field, not the dimmed app. Two rounds of
-                // darker dims still let page text read through; an opaque one cannot.
-                CicadaTheme.settingsBackdrop
+                // Round 6 (ROR-118): the app stays behind the panel (an in-app panel, not a solid field), dimmed far
+                // past legibility: 0.96 black over the scrim leaves page text unreadable in both modes.
+                ZStack {
+                    CicadaTheme.scrimPanel
+                    Color.black.opacity(SettingsPanelLayout.backdropDim)
+                }
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture { router.closeSettings() }
@@ -232,6 +235,8 @@ struct SettingsPanel: View {
 /// DR-33 — the panel's geometry, pure.
 enum SettingsPanelLayout {
     static let width: CGFloat = 1080
+    /// Black over the scrim behind the panel: dark enough that no page text reads through (round 6).
+    static let backdropDim: Double = 0.96
     static let height: CGFloat = 780
     static let sidebarWidth: CGFloat = 220
     static let minimumInset: CGFloat = 36
