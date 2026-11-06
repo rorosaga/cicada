@@ -317,8 +317,8 @@ on the rail's surface (owner 2026-10-07): `CicadaTheme.titlebarBackground(for:)`
 (`shellContentPanel()`, `ShellContentPanel`) whose top-leading corner alone is rounded at
 `CicadaTheme.contentCornerRadius` (`radiusLarge`, fixed) and clips what scrolls up into the band.
 `RailCornerSnapshotTests` writes it offscreen on request. **Settings is a panel inside this window (DR-33)**: ⌘,
-(`ShellCommands`, which opens the window first if none is) and the gear open it over a flat opaque backdrop (`settingsBackdrop`, ROR-118 round 4: no page text can read behind it; the titlebar's items hide) — 920 × 740 at 1×,
-inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
+(`ShellCommands`, which opens the window first if none is) and the gear open it over a flat opaque backdrop (`settingsBackdrop`, ROR-118 round 4: no page text can read behind it; the titlebar's items hide; round 5: the rail's graphite in dark, a light grey in light) — 1080 × 780 at 1×,
+inset ≥ 36 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
 Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Search & memory · Sleep;
 Customize: Integrations · Reading the web · Agents · Devices & access · Skills; Engines & keys: Engines — and each
 page's own header with a close × (the `esc` keycap beside it retired, ROR-118 round 1; the × carries Esc). It is modal: the shell under it is inert, ⌘K waits, Esc and a
@@ -333,7 +333,7 @@ under the anchor its header had (`SettingsRowID.memoryGroup` = `page:memory`, `.
 three old raw values onto their new section and group: a saved `cicada.settingsSection`, the R-O11 `agentsMode`
 hand-off (now Devices & access) and a ⌘K recent (the group keeps its page's palette key) all open there, never
 General. Search still finds each by its old name (`SettingsIndex.formerNames`, the groups' own entries). General's
-Setup row joined the tour and the demo in one *Getting started* card (B12); the command-line tool moved to Agents' last
+Setup row joined the tour and the demo in one *Getting started* row (B12; ROR-118 round 5: a menu row whose items are the four actions, in General's last card beside Keep memory working's word, never a bar of buttons); the command-line tool moved to Agents' last
 card (B11); Reading's two method groups wait under *How your agent reads and watches* while its switch is off, and a
 landing on any of them opens the fold for that view only, never stored (B23, `ReadingMethodsFold`; Plans & keys' key
 fold the same; both draw through `DisclosureHeader`, DR-39). A saved retired value lands on its group
