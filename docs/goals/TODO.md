@@ -3703,7 +3703,7 @@ A whole row moves to DONE only after its remaining implementation and required a
    (`episode_staging`); the table is in `capture-and-sleep.md` ("A rename at the source").
    **Trigger to revisit:** a person's name overwritten by a source (a mark missed), or a rename flip-flopping between doors.
 
-70. **A book the person added may be read for what it is, and found by its title (owner, 2026-11-06; G233, G39; amends 61, 62, 64).** The
+71. **A book the person added may be read for what it is, and found by its title (owner, 2026-11-06; G233, G39; amends 61, 62, 64).** The
     owner's words: "I think the ruling change should be applied for books because reading the description of a added book is
     important for memory. Like it's the bare minimum in terms of relevance for why it's there in the first place. And to be able
     to surface it in the future." and "if we only get the title from Apple Books, for example, or the ISBN, we should be able to

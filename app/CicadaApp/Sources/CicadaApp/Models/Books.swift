@@ -68,7 +68,7 @@ struct BookCard: Decodable, Equatable, Sendable {
     var descriptionUrl: String? = nil
     /// A title found this book (ruling 61, amended 2026-11-06): the box says so and offers "Not this book".
     var matchedByTitle: Bool = false
-    /// One sentence Sleep read from the description: what the book is about (ruling 70 a); public knowledge, not the person's.
+    /// One sentence Sleep read from the description: what the book is about (ruling 71 a); public knowledge, not the person's.
     var why: String? = nil
     var ways: [Way] = []
 

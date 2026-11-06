@@ -1621,14 +1621,14 @@ Not built: a project's name from its repository (the person's, ruling 56); Apple
 
 #### Books: a scanned ISBN, Apple Books, a Goodreads export (G39, G233, 2026-11-04)
 
-**A title finds the book (ruling 70, 2026-11-06).** `book_jobs.lookup_waiting` also asks about `books.title_candidates`: a
+**A title finds the book (ruling 71, 2026-11-06).** `book_jobs.lookup_waiting` also asks about `books.title_candidates`: a
 page from Apple Books or Goodreads with no ISBN, a real title, an author, no description and no "not this book". One
 Open Library search (title and first author only, behind the connector gate, one request a second) per candidate, cached
 outside every bank under `title:<hash>` in the ISBN cache; a match is one exact-normalised title and every page author on
 exactly one work (`book_lookup.confident_match`), then the normal ISBN lookup fills the description. `books.apply_title_matches`
 writes description, year, pages, publisher, subjects and a cover id (never title, authors or ISBNs) and marks `book.title_match`;
 `POST /entities/{id}/book/not-this-book` takes it back for good. `GET /sources/books/backfill-plan` is a counts-only dry run.
-Not built: the one bounded Sleep read of a description (ruling 70 (a)); a tiebreak among duplicate work records (14 of 40
+Not built: the one bounded Sleep read of a description (ruling 71 (a)); a tiebreak among duplicate work records (14 of 40
 public titles were held back as ambiguous).
 
 Three doors, one writer. Each door stages episodes through `episode_staging` (scrub, one id rule, both dates, the demo

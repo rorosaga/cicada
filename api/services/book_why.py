@@ -1,4 +1,4 @@
-"""Why a described book may matter: one bounded model read of its public description (ruling 70 (a), G233).
+"""Why a described book may matter: one bounded model read of its public description (ruling 71 (a), G233).
 
 A book the person added carries a description from a public source (`books._description_body`). Sleep reads that
 description once, never the book's text, and keeps one short sentence on the page's record (`book.why`, with the day

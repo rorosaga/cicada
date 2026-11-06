@@ -1528,7 +1528,7 @@ copy, read by the app from Apple Books' cache and kept at `$CICADA_HOME/books/co
 (asset id → sha; `book_covers`), stamped on the page by `books.apply_pending` so a picture arriving moves its ETag; (2)
 Open Library's by `book.cover_id`; (3) by the page's first ISBN. Neither: no picture, and nothing is drawn in its place
 (owner 2026-10-28). **Never a title for a cover**: a title search is a guess at a work (the reason title and author never join two
-pages, B1). *Amended by ruling 70 (2026-11-06):* a book the person added with no ISBN may be searched by title and first
+pages, B1). *Amended by ruling 71 (2026-11-06):* a book the person added with no ISBN may be searched by title and first
 author for its description alone, only on an exact, single-work match (`book_lookup.confident_match`; `capture-and-sleep.md`, "Books"); a cover id it finds fills only a page with no cover of its own. A page whose kept cover is not on this
 computer (a bank moved) falls back to (2) and (3). What was fetched is stored and served like every preview
 (`$CICADA_HOME/previews/<bank>/`, outside every bank; `network.md`).

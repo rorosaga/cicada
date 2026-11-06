@@ -676,7 +676,7 @@ async def _resolve_books_safely(memory_path: Path, settings: Settings | None = N
         # (a merge, an alias), a cover the app posted during the window waits for its stamp.
         await book_jobs.lookup_waiting(memory_path)
         report = await asyncio.to_thread(books.apply_pending, memory_path)
-        # Ruling 70 (a): one bounded read of each described book's public description (`book_why`), after the apply.
+        # Ruling 71 (a): one bounded read of each described book's public description (`book_why`), after the apply.
         if settings is not None:
             from api.services import book_why
             report["cicada_paths"] = list(report["cicada_paths"]) + await book_why.run(
