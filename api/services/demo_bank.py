@@ -753,6 +753,7 @@ def _write_scenario(bank_dir: Path, today: date) -> dict:
               **decay_policy.frontmatter_fields(cls),
               "source_episodes": [], "tags": [], "related": [], "version": 1, "layout_version": 2}
         if etype == "media":
+            fm["origin"] = "chrome-bookmark"      # ROR-138: a saved page names where it came from, so its row shows a mark
             fm["media"] = {"url": _GUIDE_URL, "media_type": "document", "site": "example.com", "channel": None,
                            "thumbnail": None, "saved_at": f"{today + timedelta(days=created)}T15:00:00+00:00",
                            "url_hash": media_ingestor.url_hash(_GUIDE_URL)}

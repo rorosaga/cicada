@@ -27,6 +27,9 @@ struct EntityPicture: View {
     /// With nothing to draw (`EntityPictureLayout.isEmpty`), take no space at all instead of an empty slot: for a lone
     /// picture beside a title, or a list where no row has a picture. A row in a list that has some keeps the slot.
     var collapsesWhenEmpty = false
+    /// Whether an image really arrived: a picture reference whose file is missing or never fetched draws nothing, and a
+    /// caller that has something else to show in that slot (a media row's source mark) asks to be told.
+    var imageArrived: Binding<Bool>? = nil
 
     @Environment(Store.self) private var store
     @State private var image: NSImage?
@@ -58,7 +61,11 @@ struct EntityPicture: View {
 
     private var drawn: some View {
         content
-            .task(id: loadKey) { image = await load() }
+            .task(id: loadKey) {
+                image = await load()
+                imageArrived?.wrappedValue = image != nil
+            }
+            .onAppear { if shownImage != nil { imageArrived?.wrappedValue = true } }
             .help(editable ? Copy.People.changeHelp(name, source: picture?.source) : Copy.People.sourceLine(picture?.source))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(editable ? Copy.People.changePictureLabel(name) : name)

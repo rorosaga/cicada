@@ -287,6 +287,7 @@ struct ClusterCard: View {
                                      count: max(columns, 1)),
                       alignment: .leading, spacing: CicadaTheme.scaled(4)) {
                 let reserves = EntityPictureLayout.anyDrawn(shown, store: store)
+                    || (group.type == .media && shown.contains { MediaLeadingSlot.markOrigin($0) != nil })
                 ForEach(shown) { entity in
                     ClusterTile(entity: entity, reservesPicture: reserves) { open(entity) }.id(entity.id)
                 }
@@ -355,10 +356,18 @@ struct ClusterTile: View {
 
     var body: some View {
         Button(action: open) {
-            HStack(spacing: CicadaTheme.spacingMD) {
-                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 32, heldInputs: entity.pictureInputs,
-                              collapsesWhenEmpty: !reservesPicture)
-                    .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
+            // Media: one aligned leading slot (the picture, or its source's mark) and the title on the slot's top line
+            // whether or not a line follows it, so every row is the same height with the same alignment. Everything
+            // else keeps its picture beside a centred name.
+            let isMedia = entity.type == .media
+            HStack(alignment: isMedia ? .top : .center, spacing: isMedia ? 0 : CicadaTheme.spacingMD) {
+                if isMedia {
+                    MediaLeadingSlot(entity: entity, reserves: reservesPicture)
+                } else {
+                    EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 32, heldInputs: entity.pictureInputs,
+                                  collapsesWhenEmpty: !reservesPicture)
+                        .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
+                }
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         Text(entity.name)
@@ -367,12 +376,15 @@ struct ClusterTile: View {
                             .lineLimit(1)
                         QualifierTag(qualifier: entity.qualifier)   // G227
                     }
-                    if let line = ClustersModel.line(entity) {
+                    if let line = ClustersModel.tileLine(entity) {
                         Text(line).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // A media row's content is one fixed height whether or not a line follows the title, so the title's top
+            // never moves with it (the row below centres this block in the same frame as every other).
+            .frame(height: isMedia ? CicadaTheme.scaled(36) : nil, alignment: .topLeading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
