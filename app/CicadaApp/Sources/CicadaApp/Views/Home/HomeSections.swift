@@ -627,6 +627,9 @@ struct LastReadSegment: View {
         } label: {
             EntityPicture(id: chip.id, name: chip.name, type: chip.type, size: HomeLayout.chipPicture,
                           collapsesWhenEmpty: true)
+                // A 24 pt hit frame in height only, so a page with no picture still takes no width.
+                .frame(minHeight: CicadaTheme.scaled(HomeTargets.tagHitHeight))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
         .help(Copy.homeShowOnGraph(chip.name))
