@@ -3713,8 +3713,10 @@ A whole row moves to DONE only after its remaining implementation and required a
     anything the person's own words (a description is `external`, cited, never their opinion or a sign they read it); a
     question about it (a quiet page stays quiet until mentioned); a link from co-mention; a metered key nobody chose (ruling 31).
     Marks work as ruling 64 says. **Built here:** the description reaches the page (G233) and is found by recall and Ask by
-    words and meaning with no model; **not built:** the one bounded Sleep read that adds "why it may matter" (G233 row; it
-    needs its own measured cost per book). **(b) What relevance can do at linking:** nothing by itself. Under ruling 56 a link
+    words and meaning with no model; **also built (`book_why`):** one bounded Sleep read per described book, once (`book.why_at`), the
+    description cut at 700 characters, 20 books a run, one call of about 253 input and 45 output tokens (counted by
+    characters / 4, not yet billed on a live run; the owner reads the figure before any backfill), one sentence on
+    `book.why` that "not this book" also removes; a cover from a title match is drawn by the catalogue's cover id, never a title. **(b) What relevance can do at linking:** nothing by itself. Under ruling 56 a link
     needs a recorded fact or an agent's stated reason; the description is what makes either findable and checkable (an agent that
     recalls the book by its topic can cite its words as the reason), never a link made because two things sit near each other.
     **(c) A title can find the book** (amends 61's "never a title", which gave two reasons): the second ("sends the reading list

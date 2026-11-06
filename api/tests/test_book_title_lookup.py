@@ -144,3 +144,34 @@ def test_the_backfill_plan_counts_and_asks_nothing(env):
     plan = c.get("/sources/books/backfill-plan").json()
     assert plan["books"] == 3 and plan["title_searches"] == 1 and plan["isbn_lookups"] == 1 and plan["cannot"] == 1
     assert calls == []
+
+
+def test_a_described_book_is_read_once_for_why_and_not_this_book_takes_it_back(env):
+    import asyncio
+    from types import SimpleNamespace
+
+    from api.services import book_why
+    c, memory, calls, docs = env
+    docs += [_doc("OL9W", "Quiet Engines", ["Bea Sample"])]
+    _sync(c, _ab_book("A2", "Quiet Engines", "Bea Sample"))
+    _run(memory)
+    sent = []
+
+    async def llm(messages, max_tokens, temperature):
+        sent.append(messages[0]["content"])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="A study of machines that learn."))])
+
+    assert asyncio.run(book_why.run(memory, None, llm_fn=llm, today="2026-11-06")) == ["entities/quiet-engines.md"]
+    assert asyncio.run(book_why.run(memory, None, llm_fn=llm, today="2026-11-06")) == []   # once
+    assert len(sent) == 1 and "engines that learn" in sent[0].lower() and len(sent[0]) < 1200
+    assert c.get("/entities/quiet-engines/book").json()["why"] == "A study of machines that learn."
+    c.post("/entities/quiet-engines/book/not-this-book")
+    assert c.get("/entities/quiet-engines/book").json()["why"] is None
+
+
+def test_a_title_matched_book_draws_its_cover_by_the_catalogue_id_never_by_title():
+    from api.services import media_preview
+    src = media_preview._book_source({"book": {"title": "Quiet Engines", "isbns": [], "cover_id": 1234,
+                                               "title_match": {"isbn": ISBN}}})
+    assert src is not None and "1234" in src.url and "Quiet" not in src.url
+    assert media_preview._book_source({"book": {"title": "Quiet Engines", "isbns": []}}) is None

@@ -852,7 +852,7 @@ def book_card(memory_path: Path, entity_id: str) -> dict | None:
     source = str(book.get("description_source") or "")
     return {"subtitle": book.get("subtitle") or None, "authors": [str(a) for a in book.get("authors") or []][:3],
             "published": str(book.get("published") or "") or None, "pages": book.get("pages") or None,
-            "publisher": book.get("publisher") or None, "subjects": book_lookup.readable_subjects(book.get("subjects")),
+            "why": book.get("why") or None, "publisher": book.get("publisher") or None, "subjects": book_lookup.readable_subjects(book.get("subjects")),
             "descriptionSource": SOURCE_NAMES.get(source) if book.get("description_at") else None,
             "descriptionAt": book.get("description_at") or None, "descriptionUrl": book.get("description_url") or None,
             "description": _summary_text(Path(memory_path), entity_id) if book.get("description_at") else None,
@@ -1145,7 +1145,8 @@ def not_this_book(memory_path: Path, entity_id: str, *, today: str | None = None
     if prose.startswith("## Summary") and book.get("description_at"):   # the machine's paragraph, nothing of anyone's
         body = preserve_claims_blocks(body, "")
     match = book["title_match"] if isinstance(book["title_match"], dict) else {}
-    for field in (*(match.get("set") or []), "description_at", "description_source", "description_url", "title_match"):
+    for field in (*(match.get("set") or []), "description_at", "description_source", "description_url", "title_match",
+                  "why", "why_at"):
         book.pop(field, None)
     book["title_match_declined"] = True
     markdown_parser.write(path, {**fm, "book": book}, body)

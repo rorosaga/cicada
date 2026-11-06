@@ -662,7 +662,7 @@ async def _resolve_papers_safely(memory_path: Path) -> None:
         logger.warning(f"Paper details failed: {type(e).__name__}: {e}")
 
 
-async def _resolve_books_safely(memory_path: Path) -> None:
+async def _resolve_books_safely(memory_path: Path, settings: Settings | None = None) -> None:
     """G233/G39: the book episodes a door staged while this cycle held the pages, and the scans whose ISBN waited for
     its lookup, made pages. The lookup (Open Library, then Google Books) is the unattended background call
     ``CICADA_ALLOW_CONNECTOR_FETCH`` gates (``book_jobs.lookup_waiting`` records a gated skip); the apply is
@@ -676,6 +676,11 @@ async def _resolve_books_safely(memory_path: Path) -> None:
         # (a merge, an alias), a cover the app posted during the window waits for its stamp.
         await book_jobs.lookup_waiting(memory_path)
         report = await asyncio.to_thread(books.apply_pending, memory_path)
+        # Ruling 70 (a): one bounded read of each described book's public description (`book_why`), after the apply.
+        if settings is not None:
+            from api.services import book_why
+            report["cicada_paths"] = list(report["cicada_paths"]) + await book_why.run(
+                memory_path, settings, today=date.today().isoformat())
         if report["paths"] or report["cicada_paths"]:
             await folder_source.commit_paths_for(memory_path, report["paths"] + report["cicada_paths"],
                                                  subject="Books", trigger="books/apply",
@@ -1730,7 +1735,7 @@ async def _run_engine_independent_tail(
             else:
                 await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
             await _resolve_papers_safely(memory_path)
-            await _resolve_books_safely(memory_path)
+            await _resolve_books_safely(memory_path, None if skip_links else settings)
             await _replay_wispr_todos_safely(memory_path)
     else:
         logger.warning(
