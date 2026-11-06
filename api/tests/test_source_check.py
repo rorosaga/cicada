@@ -109,7 +109,13 @@ def test_each_clamp_alone_turns_settling_off(kwargs, reason):
 
 def test_recent_speech_and_an_artifact_and_the_entity_path_recommend_only():
     recent = _check(_conflict(b_seen="2026-09-20"), sources=[_src(access="public")])
-    artifact = _check(_conflict("runs-on"), sources=[_src(predicate="runs-on", access="public")])
+    # No seed predicate is both single-valued and artifact-located since 2026-11-06 (`runs-on`, `part-of` are sets):
+    # the clamp is exercised with a vocabulary that says so.
+    artifact_vocab = source_check.Vocab(cardinality=lambda p: "single", locus=lambda p: "artifact")
+    fm = _conflict("runs-on")
+    artifact = source_check.checkability(fm, options=fm["options"], option_claims={}, vocab=artifact_vocab, today=TODAY,
+                                         subject_fm={"name": "Bob Example", "type": "person",
+                                                     "sources": [_src(predicate="runs-on", access="public")]})
     entity = _check(_conflict("description", claim_id=None), sources=[_src(predicate=None, access="public")])
     assert [(x.state, x.reason) for x in (recent, artifact, entity)] == [
         ("checkable", "recent_speech"), ("checkable", "artifact_locus"), ("checkable", "entity_path")]
