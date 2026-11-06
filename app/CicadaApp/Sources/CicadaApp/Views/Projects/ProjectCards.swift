@@ -5,8 +5,8 @@ import SwiftUI
 /// glance, and the card stretches to fill the window instead of leaving it black (DR-35: the gaps grow, not the type).
 enum ProjectCardLayout {
     /// A card never gets shorter than this, nor taller than `maxHeight`, whatever the window.
-    static let minHeight: CGFloat = 168
-    static let maxHeight: CGFloat = 272
+    static let minHeight: CGFloat = 176
+    static let maxHeight: CGFloat = 232
     /// What one sub-project row adds inside its parent's card.
     static let childHeight: CGFloat = 64
 
@@ -104,7 +104,7 @@ struct ProjectCard: View {
         VStack(alignment: .leading, spacing: s(6)) {
             HStack(alignment: .firstTextBaseline, spacing: s(12)) {
                 Text(line.row.name)
-                    .font(CicadaTheme.font(size: 17, weight: .medium))
+                    .font(CicadaTheme.font(size: 20, weight: .medium))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
                     .help(line.row.name)
@@ -112,11 +112,11 @@ struct ProjectCard: View {
                 standing(line)
             }
             if let one = ProjectsModel.oneLine(line.row) {
-                Text(one).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(2)
+                Text(one).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(2)
             }
             Spacer(minLength: s(16))
             ProjectThread(span: ProjectThread.span(line.row, today: today), marks: ProjectThread.marks(line.row))
-                .frame(height: s(26))
+                .frame(height: s(32))
                 .accessibilityHidden(true)
         }
     }
@@ -152,7 +152,7 @@ private struct ProjectKidRow: View {
                 Elbow().stroke(CicadaTheme.textTertiary, lineWidth: 1).frame(width: s(14), height: s(22))
                     .padding(.leading, s(4)).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: s(2)) {
-                    Text(line.row.name).font(CicadaTheme.font(size: 13, weight: .medium))
+                    Text(line.row.name).font(CicadaTheme.metaMediumFont)
                         .foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
                     if let one = ProjectsModel.oneLine(line.row) {
                         Text(one).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
@@ -214,17 +214,17 @@ struct ProjectThread: View {
             let today = min(max(w * span.fill, 0), w)
             ZStack(alignment: .leading) {
                 if span.planned {
-                    Capsule().fill(CicadaTheme.bgBadge).frame(width: w, height: 3).position(x: w / 2, y: y)
+                    Capsule().fill(CicadaTheme.bgBadge).frame(width: w, height: 4).position(x: w / 2, y: y)
                 } else {
                     MidLine().stroke(CicadaTheme.progressOpenEnd, style: StrokeStyle(lineWidth: 2, dash: [3, 4]))
                         .frame(width: max(w - today, 0), height: 3).position(x: today + max(w - today, 0) / 2, y: y)
                 }
-                Capsule().fill(CicadaTheme.textSecondary).frame(width: max(today, 3), height: 3)
+                Capsule().fill(CicadaTheme.textSecondary).frame(width: max(today, 3), height: 4)
                     .position(x: max(today, 3) / 2, y: y)
                 ForEach(Array(marks.enumerated()), id: \.offset) { _, mark in
                     diamond(done: mark.done).position(x: min(max(w * span.fraction(mark.day), 5), w - 5), y: y)
                 }
-                Circle().fill(CicadaTheme.textPrimary).frame(width: 9, height: 9)
+                Circle().fill(CicadaTheme.textPrimary).frame(width: 11, height: 11)
                     .background(Circle().fill(CicadaTheme.bgFocus).padding(-2.5))
                     .position(x: min(max(today, 5), w - 5), y: y)
             }
@@ -235,7 +235,7 @@ struct ProjectThread: View {
         let shape = CicadaTheme.shape(2)
         return shape.fill(done ? CicadaTheme.textPrimary : CicadaTheme.bgFocus)
             .overlay { if !done { shape.strokeBorder(CicadaTheme.textSecondary, lineWidth: 1.5) } }
-            .frame(width: 9, height: 9)
+            .frame(width: 10, height: 10)
             .background(shape.fill(CicadaTheme.bgFocus).padding(-2.5))
             .rotationEffect(.degrees(45))
     }

@@ -1,0 +1,42 @@
+import XCTest
+@testable import CicadaApp
+
+/// ROR-118 round 1 — Current's cards: a sub-project joins its parent's card, the card sizes share the window within
+/// their bounds, and the thread draws no remainder without a plan (R-PJ11). Synthetic rows only.
+@MainActor
+final class ProjectCardsTests: XCTestCase {
+    private let today = ISODay(year: 2026, month: 9, day: 23)
+
+    private func row(_ id: String, parent: String? = nil, planned: Bool = false) throws -> ProjectRow {
+        var object: [String: Any] = ["id": id, "name": "Example \(id)", "status": "active", "planned": planned,
+                                     "lastMomentDay": today.adding(-2).description,
+                                     "created": today.adding(-20).description]
+        if let parent { object["parent"] = parent }
+        return try JSONDecoder().decode(ProjectRow.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+
+    func testASubProjectJoinsItsParentsCard() throws {
+        let rows = [try row("a"), try row("b", parent: "a"), try row("c")]
+        let entries = ProjectsModel.entries(rows, tab: .current, query: "", today: today)
+        let groups = ProjectCardGroup.groups(entries.compactMap(\.line))
+        XCTAssertEqual(groups.map(\.id), ["a", "c"])
+        XCTAssertEqual(groups[0].kids.map(\.id), ["b"])
+        XCTAssertEqual(ProjectCardGroup.blocks(entries).count, 1)
+    }
+
+    func testCardHeightSharesTheWindowWithinItsBounds() {
+        let tall = ProjectCardLayout.height(viewport: 2000, cards: 2, children: 0, gap: 12)
+        XCTAssertEqual(tall, CicadaTheme.scaled(ProjectCardLayout.maxHeight))
+        let short = ProjectCardLayout.height(viewport: 300, cards: 6, children: 2, gap: 12)
+        XCTAssertEqual(short, CicadaTheme.scaled(ProjectCardLayout.minHeight))
+        XCTAssertEqual(ProjectCardLayout.height(viewport: 0, cards: 3, children: 0, gap: 12),
+                       CicadaTheme.scaled(ProjectCardLayout.minHeight))
+    }
+
+    func testTheThreadHasOnlyThePlansMilestonesAndNoRemainderWithoutAPlan() throws {
+        let open = try row("a")
+        XCTAssertFalse(ProjectThread.span(open, today: today).planned)
+        XCTAssertTrue(ProjectThread.marks(open).isEmpty)
+        XCTAssertTrue(try ProjectThread.span(row("p", planned: true), today: today).planned)
+    }
+}

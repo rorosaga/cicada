@@ -2699,8 +2699,11 @@ part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page 
   Sleep marked decaying or archived but heard from within its quiet threshold Q (progress logged, a claim's day, a
   repository session, or a conversation tied by hand, by the provider's project id or by the relaying app's word —
   `project_timeline._tied_days`, list and detail alike) is in motion; the status rests it only once it is quiet past Q. `ProjectsModel.entries` is the whole column as `ProjectsEntry` values — rows,
-  the Fading head, Past's year labels and "Show 50 more" — pure, so a test pins it. A row (`ProjectRowView`, 56 pt)
-  is the name over the one-liner and ONE signal (`ProjectsModel.standing`): the next milestone ("Next · First grasp,
+  the Fading head, Past's year labels and "Show 50 more" — pure, so a test pins it. ROR-118 round 1 (DESIGN_RULES §9, 2026-11-06): Current at rest (wide, no project open) draws
+  `ProjectCard`s (`ProjectCards.swift`) — one ringed card a root project, its sub-projects inside on a darker well, the
+  standing as a `Tag` pill, and `ProjectThread` (the band in miniature, neutral ink, no percentage, no track without
+  a plan) — sized by `ProjectCardLayout.height` to share the window; Past and the narrowed list keep rows. A row
+  (`ProjectRowView`, 56 pt) is the name over the one-liner and ONE signal (`ProjectsModel.standing`): the next milestone ("Next · First grasp,
   Oct 1", overdue in words; a milestone named after its own project only its day, "Next · Oct 5" —
   `ProjectsModel.milestoneName`), else the plan's count, else "Heard 9 days ago"; Fading "Quiet 30 days"; Past the
   day alone ("Mar 3", `RelativeDay.dayInYear` — the year is the label), nothing under *Nothing heard yet*. Beside an
