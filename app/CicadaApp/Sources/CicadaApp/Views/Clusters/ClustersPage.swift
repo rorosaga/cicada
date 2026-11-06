@@ -75,6 +75,11 @@ struct ClustersPage: View {
 
     private var looksCache: LooksCache { .shared }
 
+    /// Media entities by kind, for the chips and the View menu.
+    private var mediaKindCounts: [String: Int] {
+        Dictionary(graphVM.entities.compactMap(\.mediaKind).map { ($0, 1) }, uniquingKeysWith: +)
+    }
+
     private var isFiltered: Bool {
         !labels.isEmpty || onlyWithLooks || !mediaKinds.isEmpty || groupByChannel || graphVM.filter.types.count < EntityType.selectableCases.count
     }
@@ -108,8 +113,7 @@ struct ClustersPage: View {
                                              expandAll: $expandAll, onlyWithLooks: $onlyWithLooks,
                                              looksCount: LooksCache.shared.pagesWithLooks.count,
                                              mediaKinds: $mediaKinds,
-                                             kindCounts: Dictionary(graphVM.entities.compactMap(\.mediaKind).map { ($0, 1) },
-                                                                      uniquingKeysWith: +),
+                                             kindCounts: mediaKindCounts,
                                              groupByChannel: $groupByChannel)
                         }
                 }
@@ -117,6 +121,11 @@ struct ClustersPage: View {
         } list: { plan in
             let state = ClustersListState.of(hasEntities: !graphVM.entities.hasNoContentBeyondOwner, isLoading: graphVM.isLoading,
                                              groupsEmpty: groups.isEmpty, matches: found)
+            VStack(spacing: 0) {
+                if tab == .media, !showLooks, !mediaKindCounts.isEmpty {
+                    MediaKindChips(selected: $mediaKinds, counts: mediaKindCounts, gutter: plan.gutter)
+                }
+                Group {
             if showLooks {
                 LooksGallery(refs: looksCache.visible, total: looksCache.board?.refs.count ?? 0, phase: looksCache.phase,
                              names: Dictionary(graphVM.entities.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }),
@@ -164,6 +173,9 @@ struct ClustersPage: View {
                     // G152 — this list replaces the cards whenever a card or find is open; without its own anchor
                     // the person stop would lose its hole in a real bank.
                     .tourAnchor(.clusters)
+            }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } detail: { plan in
             if let entity = open {
