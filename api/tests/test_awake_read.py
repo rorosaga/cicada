@@ -474,3 +474,12 @@ def test_provisional_lines_put_the_querys_own_words_first(bank):
                                                           "read_at": "x", "claims": [*filler, wanted], "held": []})
     lines = awake_read.provisional_lines(bank, "When is the Alpha deadline?", ["verify-person", "alpha-project"])
     assert len(lines) == 12 and "clm_dl" in lines[0]
+
+
+def test_recall_quotes_the_turn_that_says_it_not_the_top_of_the_passage(bank, monkeypatch):
+    """Before Sleep there is no page: a passage's head is rarely the answer. The turn holding the words comes first."""
+    _episode(bank, "ep_2026-10-22_002", "\n\n".join(
+        [f"user: some long preamble about the garden number {i} that says nothing much" for i in range(12)]
+        + ["agent: noted", "user: the plumber named Ortega comes on the ninth"]))
+    out = _recall(monkeypatch, bank, "when does the plumber come?")
+    assert "the plumber named Ortega comes on the ninth" in out and "not yet read by Sleep" in out

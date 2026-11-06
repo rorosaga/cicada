@@ -351,3 +351,21 @@ def test_a_wide_list_still_gets_a_line_from_every_conversation_inside_one_budget
     assert deep["left"] >= 0
     assert "A line of WHAT WAS SAID carries the same mark" in ask_service.ASK_SYSTEM_PROMPT
     assert "not yet read by Sleep" in ask_sources.render(shown)
+
+
+def test_recall_quotes_no_index_only_save_and_no_locked_note_as_a_conversation(bank):
+    """Ruling 62 and G234 hold on recall's turn leg: it reads through the same check Ask does."""
+    from api.services import mcp_tools
+
+    _episode(bank, "ep_2026-11-02_001", ["A saved link about the garden project ideas.\n"
+                                         + "Distinctive-body-sentence-zebra " * 40],
+             title="Garden saved link", source="chrome", origin="chrome-bookmark", url="https://example.com/garden")
+    _episode(bank, "ep_2026-11-03_001", [NOTE])
+    _reindex(bank)
+    ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="s", harness="test")
+    out = mcp_tools.recall(ctx, QUESTION)
+    assert "Distinctive-body-sentence-zebra" not in out
+    assert "ep_2026-11-03_001" in out and "not yet read by Sleep" in out
+
+    remote = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="s", harness="test", raw_excerpts=False)
+    assert "Idea 1: build the compost" not in mcp_tools.recall(remote, QUESTION), "no `sources` scope, no words"

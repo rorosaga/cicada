@@ -100,6 +100,15 @@ first" and names `cicada_sources(entity_id)` for an `ep_…` conversation; the r
 says the same, each tool only where the connection holds it (R12). The empty-state primer is ~1,381 proxy tokens (was
 ~1,368), inside the 1,800 budget.
 
+**The turn that says it comes first (G207, 2026-11-06).** A conversation's passage is rarely the line that answers, and
+before Sleep there is no page to fall back on. Recall's excerpts now lead with up to 4 turns from Ask's own search leg
+(`_turn_excerpts` → `ask_sources.search` and `gather_search`, read from up to 6 conversations, 400 characters each, nothing
+read past the clip, index-only records skipped by Ask's own check), then the fused passages below, still one per
+conversation. A passage stays even when a turn of its conversation was quoted: dropping it took preference questions from 4
+of 8 to 1 of 8. Measured with no model, nothing slept: LongMemEval_S questions with an answer turn in recall 45 → 74 of 88,
+answer turns 67 → 116 of 188. The cost is size, against the lean read of 2026-10-27: LongMemEval_S p50 1,054 → 2,785
+characters, p50 21 → 54 ms.
+
 **Before Sleep (G207, 2026-10-22).** Recall's "Related conversation excerpts" (under the `sources` scope, R-R22)
 rank-fuse two legs, keeping 3: the vector leg (`_leann_search_episodes`), which step 0 fills right after capture
 (`capture-and-sleep.md`, "After capture"), and a word leg over the FTS passages (`_lexical_search_episodes`:
