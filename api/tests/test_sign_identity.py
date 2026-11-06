@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import stat
 import subprocess
+import sys
+
+import pytest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -214,6 +217,7 @@ def _run_make_identity(tmp_path: Path, **fakes):
     return done, log.read_text().splitlines() if log.exists() else [], bin_dir, keychain
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="reads the PKCS#12 with the Mac's own /usr/bin/openssl")
 def test_make_signing_identity_creates_authorises_and_proves_the_key(tmp_path):
     done, calls, bin_dir, keychain = _run_make_identity(tmp_path, has_identity=False)
     assert done.returncode == 0, done.stderr
