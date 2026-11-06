@@ -135,9 +135,10 @@ struct NavRailCell: View {
         .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(fill))
         .overlay(alignment: .topTrailing) {
             if !labelled, badge > 0 {
+                // Owner 2026-11-06: a three-digit count sat on the icon. The capsule hangs off the cell's corner
+                // (the rail has 10 pt each side) so the glyph is never covered, whatever the count.
                 RailBadge(count: badge, style: .corner)
-                    .padding(.top, CicadaTheme.scaled(3))
-                    .padding(.trailing, CicadaTheme.scaled(2))
+                    .offset(x: CicadaTheme.scaled(RailBadge.cornerHang), y: CicadaTheme.scaled(-5))
             }
         }
         .contentShape(Rectangle())
@@ -167,9 +168,16 @@ struct RailBadge: View {
     let count: Int
     let style: Style
 
+    /// How far the corner capsule's trailing edge hangs past the cell's (points, before scaling): "99+" is ~26 pt wide
+    /// and the glyph centres in a 36 pt cell, so this keeps the capsule off the icon; the rail's 10 pt margin takes it.
+    static let cornerHang: CGFloat = 10
+
+    /// The count up to 99, then "99+" (the menu-bar worm's rule, owner 2026-10-14): a long count never grows the capsule.
+    static func text(_ count: Int) -> String { count > 99 ? "99+" : UsageFormat.count(count) }
+
     var body: some View {
         let corner = style == .corner
-        Text(UsageFormat.count(count))
+        Text(Self.text(count))
             .font(corner ? CicadaTheme.badgeFont : CicadaTheme.font(size: 12, weight: .semibold))
             .monospacedDigit()
             .foregroundStyle(CicadaTheme.textPrimary)

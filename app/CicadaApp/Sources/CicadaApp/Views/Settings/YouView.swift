@@ -23,7 +23,9 @@ struct YouView: View {
             SettingsGroupCard {
                 HStack(spacing: CicadaTheme.spacingMD) {
                     if let id = saved?.entityId {
-                        EntityPicture(id: id, name: saved?.name ?? "", type: .person, size: 44, editing: .tile)
+                        EntityPicture(id: id, name: saved?.name ?? "", type: .person, size: 44)
+                            .contentShape(Rectangle())
+                            .onTapGesture { router.routeToEntity(id) }   // owner 2026-11-06: changed only inside the page
                             .settingsRow(.ownerPhoto)
                     }
                     SettingsRow(.ownerName, title: Copy.ownerNameTitle, detail: problem) {

@@ -58,7 +58,7 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   click only (`SleepEngineViewModel.refreshModels`; a failure keeps the list and says so). The only drop-down left in
   the menu is the reserve's (DR-81). Every engine card keeps its own bundled mark (all `same` in the 2026-10-28
   freshness check); Cursor and Grok are not merged under a parent mark — they stay two tools with two sign-ins.
-- **You:** the name and photo (`EntityPicture`, editable), the email the photo ladder hashes, and *Your profiles* — any
+- **You:** the name and photo (`EntityPicture`, plain; a click opens the owner's page, where it is changed, 2026-11-06), the email the photo ladder hashes, and *Your profiles* — any
   profile link pasted as-is, stored as the owner page's sources (`/entities/{owner}/sources`, G61); a pre-D6 GitHub
   handle shows as its profile link. *Connect* only for a service read through a connection (X, Reddit, Pinterest),
   which opens the Sources page.

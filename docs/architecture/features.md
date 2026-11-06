@@ -157,7 +157,11 @@ initials instead*, *Use the logo*…); a saved item's picker also takes a PDF (t
 camera with a link cursor on hover, and is a button VoiceOver names "Change picture for <name>". Nothing stands under a
 page's name about its picture: no blue words and no source caption — where it came from is the picture's hover, its
 VoiceOver value and the quiet first line of its menu ("Picture you added", "Photo from your Contacts"); a non-person
-page that draws none is given *Add a picture…* in its page menu (•••), never an empty spot. The app shrinks the
+page that draws none is given *Add a picture…* in its page menu (•••), never an empty spot. **Only inside the entity page
+(owner 2026-11-06, on the Clusters People strip: "i dont like that clicking in the pfp bubbles takes me to change the
+pfp. Have that only inside the entity page"):** `EntityPicture(editing:)` is passed only by the page's own header
+(`PersonHero` `.hero`, `EntityCardHeader` `.tile`); the Clusters tile, face, lead and name row and Settings → You draw it
+plain — no camera, no menu, and a click anywhere on the cell, the picture included, opens the page. The app shrinks the
 picture (ImageIO, ≤ 512 px) and `EntityPictureWrite` paints the answer before the server gives it. A `person` opens
 with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a two-line standfirst (a click unfolds it and the header grows; *Show less* folds it —
 a capped Summary or name is never selectable, since a selectable field opens over its neighbours on a click), the
