@@ -73,11 +73,10 @@ struct WebReadingCard: View {
             }
             .frame(width: side, height: side)
             .ringed(in: shape)
-            Text(name).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                .lineLimit(2).multilineTextAlignment(.center).frame(width: CicadaTheme.scaled(96))
         }
         .opacity(lit ? 1 : 0.35)
         .frame(width: CicadaTheme.scaled(96))
+        .help(name)
     }
 
     /// The two lanes between nodes: the way out (a line drawn left to right) and the way back (right to left).
