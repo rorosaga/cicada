@@ -188,7 +188,9 @@
       "web": 1,
       "pages": 0,
       "beliefs": [],
-      "beliefsTotal": 0
+      "beliefsTotal": 0,
+      "older": [],
+      "olderTotal": 0
     },
     "history": {
       "changes": 3,

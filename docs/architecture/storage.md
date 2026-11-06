@@ -309,7 +309,8 @@ day is never stamped), so letting it fade later charges its real age. **"Keep th
 `POST /entities/{id}/claims/{claim_id}/keep`, `{keep: bool}`): evergreen as the person's word, confidence at least 0.6, one
 commit as `user`; `keep: false` undoes it (or a model's evergreen) and the model cannot propose it again. A kept fact never
 holds its page up. **Fading never closes a fact:** `ClaimModel.faded` (`claims.is_faded`, below 0.2, not evergreen, not an
-event) is the page's cue to dim it and fold it under "older"; `cicada_get_perspective` lists it last under "Older, faded".
+event) is the page's cue to dim it and move it to the page's older part (quiet text at the end of the article, never a fold,
+`app.md`; `page_citations` flags `faded` and carries `older`); `cicada_get_perspective` lists it last under "Older, faded".
 A page that never fades raises no page-level "No recent mentions" item; a fact on it is charged **weekly**, not nightly
 (`FACT_CHARGE_MIN_DAYS`, measured: 1.5 MB against 9.8 MB packed a quarter on a 8.7k-line ledger). The one-time reset by real
 age is `api/scripts/reset_fact_clocks.py` (`fact_clock_reset`; dry run by default; marks a page `fact_clocks_reset`).

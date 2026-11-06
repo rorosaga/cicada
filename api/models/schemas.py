@@ -739,6 +739,8 @@ class PageCitationBelief(CamelModel):
     until: Optional[str] = None
     inferred: bool = False
     verbatim: bool = False
+    #: ROR-129: the fact has faded; the page draws it dimmed in its older part. It is never closed or hidden.
+    faded: bool = False
 
 
 class PageBlockCitations(CamelModel):
@@ -756,6 +758,10 @@ class PageBlockCitations(CamelModel):
     beliefs: list[PageCitationBelief] = []
     #: None: the page keeps part of its beliefs in its claims ledger, which the card never reads — "more" without a count.
     beliefs_total: Optional[int] = 0
+    #: ROR-129: on a page whose prose cites, the facts that have faded (at most five), drawn as quiet text at the end;
+    #: ``older_total`` counts them (None: part of them is in the claims ledger).
+    older: list[PageCitationBelief] = []
+    older_total: Optional[int] = 0
 
 
 PageBlocks.model_rebuild()
