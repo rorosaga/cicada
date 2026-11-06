@@ -776,7 +776,7 @@ current" and one line: their own agent, their signed-in browser, at most 10 time
 discourage automated access. The foot's primary reads *Keep them current* (*Continue* with nothing ticked) and is the
 consent: one `PUT /reading/settings` (`SavedListsStepModel.write`) with the ticked lists on, `agentEnabled` and
 `acknowledge` when anything is ticked, every unticked list `false` (recorded off, so no later default turns it on);
-a failure stays on the step with its sentence. Skip writes nothing. Nothing is read before the button; the first read
+a failure stays on the step with its sentence. Skip writes nothing, and while agent reading is not yet allowed it reads *Not now* and clears the ticks (`SavedListsStepModel.ticksAfterSkip`, `skipTitle`), because those ticks are an offer nothing has answered — Back must not show lists ticked that are off; once agent reading is allowed (a rerun) the ticks describe lists that are on, and Skip keeps them. Nothing is read before the button; the first read
 starts when the person's agent next opens a session (the SessionStart note counts the due lists, and
 `cicada_reading_queue` lists them; verified on scratch state, 2026-10-26). The one departure from "nothing is
 pre-ticked", dated in DESIGN_RULES §9. *Meet your bookworm*'s Back returns here.

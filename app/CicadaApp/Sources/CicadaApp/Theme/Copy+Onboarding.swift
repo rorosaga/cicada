@@ -181,6 +181,8 @@ extension Copy {
         + "These sites' terms discourage automated access, even to your own account."
     static let savedListsNoAgent = "No agent is connected yet, so nothing reads these until you connect one."
     static let savedListsKeep = "Keep them current"
+    /// The step's secondary while nothing is on: the ticked lists stay off.
+    static let savedListsNotNow = "Not now"
     static let savedListsSaveFailed = "That didn't save. Try again, or turn the lists on later on the Sources page."
     static func savedListsItem(_ item: SavedListItem) -> String {
         switch item {

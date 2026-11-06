@@ -370,6 +370,17 @@ enum SavedListsStepModel {
     /// Only the primary (and its ⏎) sends the answer; Skip moves on and sends nothing (review of #474).
     static func writes(on button: FootButton) -> Bool { button == .primary }
 
+    /// Skip changes nothing, so a first run's ticks (an offer nothing has answered) are cleared when it is pressed;
+    /// once agent reading is allowed (a rerun) they describe lists that are on, and stay.
+    static func ticksAfterSkip(_ ticked: Set<SavedListItem>, consented: Bool) -> Set<SavedListItem> {
+        consented ? ticked : []
+    }
+
+    /// Where nothing is on yet, the secondary says what it does to the ticked lists: not now.
+    static func skipTitle(onSavedLists: Bool, consented: Bool) -> String {
+        onSavedLists && !consented ? Copy.savedListsNotNow : Copy.onboardingSkip
+    }
+
     /// The foot's one primary: the answer when something is ticked, else simply moving on (the unticked are noted off).
     static func primaryTitle(_ ticked: Set<SavedListItem>) -> String {
         ticked.isEmpty ? Copy.onboardingContinue : Copy.savedListsKeep
