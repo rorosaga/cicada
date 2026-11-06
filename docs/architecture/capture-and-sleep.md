@@ -1857,6 +1857,17 @@ rides on the extraction's result.
 naming that title applied it, dated as said, under the door's own commit. *Not right* reopened the earlier status.
 
 - **Choosing what goes in (2026-11-06).** Where several books arrive at once the person confirms all or picks some, and nothing is staged before: `POST /sources/goodreads/preview` also returns `items` (`id`, `title`, `author`, `status`), `POST /sources/goodreads/import` takes an optional `ids` form field (JSON list; omitted is every book, `[]` none, a malformed one 422). Apple Books is chosen in the app (`AppleBooksStore.partition`): a book memory has never accepted waits, a declined one is not asked again, an accepted one is kept current as before. Books already in are untouched. A scan is one explicit add and goes in at once.
+- **Goodreads through the person's own browser (ROR-128, ruling 70, 2026-11-06).** The first way in: the person turns on *Read
+  through your browser* (Sources → Goodreads; off until then, `saved_lists.PLATFORMS["goodreads"]`) and their own agent opens
+  their shelves (Read, Currently Reading, Want to Read) in their own signed-in session, then reports the books through
+  `cicada_record_saved_list(platform="goodreads", items=[{id, title, author, shelf, rating, date_read, date_added, review}])`.
+  The backend never opens a Goodreads page. The books are **held, not staged**, in `$CICADA_HOME/goodreads_waiting.json`
+  (`goodreads_waiting`: 0600, `flock`ed, ≤ 500 waiting, outside every bank) as rows in the export's own column names, so the
+  choice is #666's: `GET /sources/goodreads/waiting` (the preview's row shape) and `POST /sources/goodreads/waiting/choose`
+  (`{ids}`; the ticked go through `goodreads_export.stage_rows` — the file's writer — and the rest are left out for good,
+  remembered by id). A book already in memory by any door, or left out before, is never held. One episode per book
+  (`goodreads:<Book Id>`) whichever door, so the file imported later edits it in place. Not built: reading a shelf's
+  pages past what one read shows (the agent reads a few screens), and a book unshelved on Goodreads stays here.
 
 ### Sleep — 5-stage nightly batch
 1. **Entity & relationship extraction** — LLM over episode chunks, structured output.

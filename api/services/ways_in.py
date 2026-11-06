@@ -19,7 +19,8 @@ existing route:
 
 Which ways exist was decided on 2026-11-04 against each service's own terms and developer documentation (the table in
 ``docs/architecture/network.md``, "Ways in, per source"). In short: Spotify's Developer Terms and its User Guidelines
-both bar automated access and putting its content into an AI model, so Spotify is a file only; Reddit's API serves a
+both bar an app putting its content into an AI model, so Spotify has no connector (its library is read in the person's
+own browser since ROR-128, ruling 70, and its download is a file); Reddit's API serves a
 desktop app with no secret (an installed app) but new access needs Reddit's approval, so Connect shows only once the
 build carries an approved client id; Pinterest's token exchange needs a client secret and apps registered since
 2026-09-14 cannot read a personal account's boards, so only the person's own older app connects; TikTok's and

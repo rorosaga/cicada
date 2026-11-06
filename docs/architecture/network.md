@@ -501,7 +501,7 @@ way. As applied on 2026-10-28:
 | Source | Path | Why |
 |---|---|---|
 | Telegram | API (47a) | full chat history and live updates; no harness sees them |
-| Spotify | export only: the person's own "Extended streaming history" download (Spotify's privacy page), through G32's import; no API connector | Spotify's Developer Terms (v10, 15 May 2025) forbid it: §IV.2(b)(i) bars "using the Spotify Platform or any Spotify Content to train a machine learning or AI model or otherwise ingesting Spotify Content into a machine learning or AI model", and §IV.3(a) says "you may not store, aggregate or create compilations or databases of Spotify Content" and "Do not store Spotify Content indefinitely" — the bank is a lasting compilation that agents read, so the ToS rail rules the API out (2026-10-29). The download is the person's own data, given to them, not taken through the Spotify Platform. Capturing what is playing through the macOS harness waits on an owner ruling (G223). **Re-checked 2026-11-04 (G232):** the terms are unchanged (v10), the browser is ruled out the same way (its User Guidelines bar "crawling" or "scraping … by automated means" and "ingesting Spotify Content into a machine learning or AI model"), and since 11 Feb 2026 a Development Mode app needs its owner on Premium and serves at most 5 users, so one app could not serve every install anyway |
+| Spotify | **no API connector**; the person's own agent reads their library in their own browser (ROR-128, ruling 70: a site's terms do not decide this, 2026-11-06), and the "Extended streaming history" download through G32's import stays a way in | Spotify's Developer Terms (v10, 15 May 2025) forbid it: §IV.2(b)(i) bars "using the Spotify Platform or any Spotify Content to train a machine learning or AI model or otherwise ingesting Spotify Content into a machine learning or AI model", and §IV.3(a) says "you may not store, aggregate or create compilations or databases of Spotify Content" and "Do not store Spotify Content indefinitely" — the bank is a lasting compilation that agents read, so the ToS rail rules the API out (2026-10-29). The download is the person's own data, given to them, not taken through the Spotify Platform. Capturing what is playing through the macOS harness waits on an owner ruling (G223). **Re-checked 2026-11-04 (G232):** the terms are unchanged (v10), the browser is ruled out the same way (its User Guidelines bar "crawling" or "scraping … by automated means" and "ingesting Spotify Content into a machine learning or AI model"), and since 11 Feb 2026 a Development Mode app needs its owner on Premium and serves at most 5 users, so one app could not serve every install anyway |
 | Notion | API | a workspace's pages as structured blocks; a harness sees one page at a time |
 | Readwise | none (built on tier 2 2026-10-29, removed by owner direction 2026-11-03) | — |
 | Google | Calendar on the Mac reader; API only for what the Mac cannot read (Drive, Docs), on ask | the Mac already reads Calendar |
@@ -531,8 +531,10 @@ The browser rows carry the site's own terms on automated access — Pinterest ("
 means (without our express prior permission)"), TikTok ("scrape, crawl, export or otherwise extract any data … for any
 purpose" with automated tools), Reddit and Instagram alike — the same posture G206 took for Instagram and LinkedIn: the
 person's own agent in their own signed-in session, a standing ask for one list page, ≤ 10 reads a day, the person's
-account carrying the risk (the v3 acknowledgement says so). Spotify is the one excluded, because its terms add the AI
-clause the 2026-10-29 ruling rested on.
+account carrying the risk (the v3 acknowledgement says so). Spotify was the one excluded, because its terms add the AI
+clause the 2026-10-29 ruling rested on; **ruling 70 (2026-11-06) lifted that for the browser path** — the person's own agent
+in their own browser is not an app ingesting Spotify Content, and the saved items are index-only — while the API connector
+stays unbuilt. The backend's own rail is unchanged: it never fetches a page behind authentication and never signs in.
 
 **Connect Reddit (G232).** `connectors/reddit.py` signs in with Cicada's own installed app: `POST
 /sources/connectors/reddit/authorize` returns Reddit's consent page (`client_id`, `response_type=code`, `state`,
