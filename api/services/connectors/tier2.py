@@ -169,14 +169,17 @@ def _retry_after(headers: dict) -> float:
 
 
 def _answer(adapter: ModuleType, resp: Response) -> Any:
-    if resp.status in (401, 403):
+    # A 403 that carries the rate-limit signals is a limit, not a refused account (GitHub answers its limit with one).
+    if resp.status in (401, 403) and not base.rate_limited(resp.status, resp.headers):
         raise Refused(adapter.REFUSED_WORDS, kind="sign-in")
-    if resp.status == 429:
+    if resp.status in (403, 429):
         # An adapter whose next sync starts over (GitHub reads its lists whole) says so in its own words.
         raise Refused(getattr(adapter, "RATE_WORDS", None)
                       or f"{adapter.LABEL} asked Cicada to slow down; the next sync carries on from here.", kind="rate")
     if resp.status >= 400:
-        raise base.ConnectorError(f"{adapter.LABEL} answered HTTP {resp.status}")
+        # Not a Refused: a page the service will not give is skipped, not the whole sync (`notion.walk`).
+        raise base.ConnectorError(f"{adapter.LABEL} had a problem answering (HTTP {resp.status}). Nothing is lost; the "
+                                  "next sync tries again.", kind="server" if resp.status >= 500 else "other")
     return resp.body
 
 
@@ -380,20 +383,19 @@ async def run(adapter: ModuleType, memory_path: Path, *, http_fn: Transport | No
             try:
                 await prepare()
             except Refused as exc:      # a lapsed sign-in is said on the row, like any other refusal
-                sync_state.record_error(memory_path, channel, exc.words)
+                sync_state.record_error(memory_path, channel, exc.words, kind=exc.kind)
                 return {**_empty("error", error=exc.words), "resources_read": 0}
         client = Client(adapter, token(adapter), http_fn)
         started = time.perf_counter()
         try:
             batch: Batch = await adapter.fetch(client, cursor, memory_path)
         except Refused as exc:
-            sync_state.record_error(memory_path, channel, exc.words)
+            sync_state.record_error(memory_path, channel, exc.words, kind=exc.kind)
             return {**_empty("error", error=exc.words), "resources_read": client.requests}
         except Exception as exc:  # noqa: BLE001
-            message = base._sanitize_error(exc) if isinstance(exc, base.ConnectorError) else \
-                f"{adapter.LABEL}: the sync stopped ({type(exc).__name__})"
+            message, kind = base.describe_failure(exc, adapter.LABEL)
             logger.warning(f"{channel} sync failed: {type(exc).__name__}")
-            sync_state.record_error(memory_path, channel, message)
+            sync_state.record_error(memory_path, channel, message, kind=kind)
             return {**_empty("error", error=message), "resources_read": client.requests}
         fetched_s = time.perf_counter() - started
 
@@ -427,9 +429,10 @@ async def run(adapter: ModuleType, memory_path: Path, *, http_fn: Transport | No
             sync_state.record_skip(memory_path, channel, WAITED_FOR_SLEEP)
             return {**_empty("skipped", WAITED_FOR_SLEEP), "seen": batch.seen, "resources_read": client.requests}
         except Exception as exc:  # noqa: BLE001
-            message = f"{adapter.LABEL}: saving what came in failed ({type(exc).__name__})"
+            message = (f"{adapter.LABEL}: what came in couldn't be saved this time. Nothing is lost; the next sync "
+                       "tries again.")
             logger.warning(f"{channel} staging failed: {type(exc).__name__}")
-            sync_state.record_error(memory_path, channel, message)
+            sync_state.record_error(memory_path, channel, message, kind="other")
             return {**_empty("error", error=message), "seen": batch.seen, "resources_read": client.requests}
 
         write_cursor(channel, memory_path, batch.cursor)

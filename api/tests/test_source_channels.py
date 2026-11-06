@@ -518,3 +518,16 @@ def test_parts_ship_only_positive_known_counts(tmp_path):
     sync_state.record_sync(tmp_path, "safari-bookmarks", count=9,
                            extra={"reading_list": 2, "favorites": 0, "surprise": 4})
     assert _channels(tmp_path)["safari-bookmarks"]["parts"] == [{"key": "reading-list", "count": 2}]
+
+
+def test_a_connector_failure_ships_its_typed_code_beside_the_plain_words(tmp_path):
+    sync_state.record_error(tmp_path, "github", "GitHub asked Cicada to slow down. Nothing is lost.", kind="rate")
+    from api.services import channel_registry
+
+    row = {r["id"]: r for r in channel_registry.build_channels(
+        tmp_path, telegram_enabled=False, connectors_connected={"github": True})}["github"]
+    assert row["last_error_code"] == "rate" and row["last_error"].startswith("GitHub asked")
+    sync_state.record_sync(tmp_path, "github", count=2)
+    row = {r["id"]: r for r in channel_registry.build_channels(
+        tmp_path, telegram_enabled=False, connectors_connected={"github": True})}["github"]
+    assert row["last_error_code"] is None

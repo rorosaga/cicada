@@ -257,6 +257,9 @@ def _connector_channel(
         "count": count,
         "last_sync": last,
         "last_error": error,
+        # The typed code beside the words (sync_state `last_error_kind`): the app tells a refused account (`sign-in`)
+        # from a rate limit, the network or the service's own trouble by this, never by reading the sentence.
+        "last_error_code": (entry.get("last_error_kind") or None) if error else None,
         "detail": detail,
         "count_noun": count_noun,
         "count_is_delta": count_is_delta,

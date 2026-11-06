@@ -29,31 +29,74 @@ _URL_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://\S+")
 
 
 class ConnectorError(RuntimeError):
-    """A sync could not complete — recorded, never raised past ``sync()``."""
+    """A sync could not complete — recorded, never raised past ``sync()``. Its message is already in the person's
+    words; ``kind`` is the typed code beside it (see :func:`describe_failure`)."""
+
+    kind: str | None = None
+
+    def __init__(self, message: str = "", *, kind: str | None = None):
+        super().__init__(message)
+        if kind:
+            self.kind = kind
 
 
-def _sanitize_error(e: Exception) -> str:
-    """Build the string ``run_sync`` records to ``sync_state.json`` from a
-    raised exception (final-review L1).
+def _label_of(channel_id: str) -> str:
+    try:
+        from api.services.connectors import ADAPTERS
 
-    ``sync_state.json`` lives INSIDE the bank and is git-committed — unlike a
-    log line, it is versioned memory. An ``httpx.HTTPStatusError``'s own
-    ``str()`` embeds the full request URL (for Reddit, ``/user/<username>/saved``
-    — not a credential, but PII that would otherwise land in committed
-    history forever); for that one it is dropped down to ``ClassName: HTTP
-    <status>``. Any other exception keeps its type + message, with anything
-    URL-shaped scrubbed as a defensive fallback (a raw response body or a
-    lower-level connection error can just as easily embed one).
-    """
+        return str(getattr(ADAPTERS.get(channel_id), "LABEL", "") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def rate_limited(status: int, headers: dict | None) -> bool:
+    """A 429 is a rate limit; so is a 403 that carries the rate-limit signals (GitHub and others answer a limit with a
+    403 and ``x-ratelimit-remaining: 0`` or a ``retry-after``). Any other 403 is a refusal of the account."""
+    if status == 429:
+        return True
+    h = {str(k).lower(): str(v) for k, v in (headers or {}).items()}
+    return status == 403 and (h.get("x-ratelimit-remaining") == "0" or "retry-after" in h)
+
+
+def describe_failure(e: Exception, label: str = "") -> tuple[str, str]:
+    """``(words, kind)`` for a failed sync — plain words with what to do, never an exception's name or message.
+
+    ``sync_state.json`` lives INSIDE the bank and is git-committed, so nothing URL-shaped or raw is kept (an
+    ``httpx.HTTPStatusError``'s own ``str()`` embeds the full request URL). ``kind`` is the typed code the app reads:
+    ``sign-in`` (a refused account: 401, or a 403 that is not a rate limit), ``rate`` (slow down), ``network``,
+    ``server`` (the service's own trouble) or ``other``. A :class:`ConnectorError` is already written in words."""
+    name = label or "the service"
+    if isinstance(e, ConnectorError):
+        words = _URL_RE.sub("<url>", str(e))
+        kind = getattr(e, "kind", None) or (
+            "sign-in" if re.search(r"reconnect|sign[ -]in|connect \w+ again|expired|no (?:lasting|access) |token is missing",
+                                   words, re.I) else "other")
+        return words, kind
     try:
         import httpx
 
         if isinstance(e, httpx.HTTPStatusError):
-            status = e.response.status_code if e.response is not None else "?"
-            return f"{type(e).__name__}: HTTP {status}"
+            status = e.response.status_code if e.response is not None else 0
+            headers = dict(e.response.headers) if e.response is not None else {}
+            if rate_limited(status, headers):
+                return (f"{name} asked Cicada to slow down. Nothing is lost; the next sync tries again.", "rate")
+            if status in (401, 403):
+                return (f"{name} refused Cicada's access. Connect {name} again in Sources.", "sign-in")
+            if status >= 500:
+                return (f"{name} had a problem on its side. Nothing is lost; the next sync tries again.", "server")
+            return (f"{name} turned the request down. The next sync tries again; if it keeps failing, connect {name} "
+                    "again in Sources.", "other")
+        if isinstance(e, httpx.TransportError):
+            return (f"Cicada couldn't reach {name}. Check the internet connection; the next sync tries again.", "network")
     except ImportError:  # pragma: no cover — httpx is a hard dependency
         pass
-    return f"{type(e).__name__}: {_URL_RE.sub('<url>', str(e))}"
+    return (f"{name}'s sync stopped for a reason Cicada couldn't name. The next sync tries again; if it keeps "
+            "failing, connect it again in Sources.", "other")
+
+
+def _sanitize_error(e: Exception) -> str:
+    """The words of :func:`describe_failure`, for a log line or a caller that keeps no code."""
+    return describe_failure(e)[0]
 
 
 def network_allowed(allow_fetch: bool | None = None) -> bool:
@@ -183,9 +226,9 @@ async def _run_sync_locked(
     try:
         items, extra = await fetch(fn)
     except Exception as e:
-        message = _sanitize_error(e)
-        logger.warning(f"{channel_id} sync failed: {message}")
-        sync_state.record_error(memory_path, channel_id, message)
+        message, kind = describe_failure(e, _label_of(channel_id))
+        logger.warning(f"{channel_id} sync failed: {type(e).__name__}")
+        sync_state.record_error(memory_path, channel_id, message, kind=kind)
         return {"status": "error", "reason": None, **empty, "error": message}
 
     # Final-review H3: chunk in MAX_BATCH-sized slices until every fetched
@@ -218,9 +261,9 @@ async def _run_sync_locked(
             # two from the chunk size failed.
             failed += len(chunk) - chunk_created - chunk_duplicates
     except Exception as e:
-        message = _sanitize_error(e)
-        logger.warning(f"{channel_id} sync failed: {message}")
-        sync_state.record_error(memory_path, channel_id, message)
+        message, kind = describe_failure(e, _label_of(channel_id))
+        logger.warning(f"{channel_id} sync failed: {type(e).__name__}")
+        sync_state.record_error(memory_path, channel_id, message, kind=kind)
         return {"status": "error", "reason": None, "new": created, "seen": 0, "error": message}
 
     if failed:
@@ -232,9 +275,10 @@ async def _run_sync_locked(
         # was, so next run re-fetches everything from there; the items that
         # DID succeed this run are safe from being re-created on that retry
         # (url_index dedup), only the failed one(s) actually re-ingest.
-        message = f"{failed} item(s) failed to ingest"
-        logger.warning(f"{channel_id} sync: {message}")
-        sync_state.record_error(memory_path, channel_id, message)
+        message = (f"{failed} item(s) couldn't be saved this time. The next sync tries them again; nothing already "
+                   "saved is lost.")
+        logger.warning(f"{channel_id} sync: {failed} item(s) failed to ingest")
+        sync_state.record_error(memory_path, channel_id, message, kind="other")
         return {"status": "error", "reason": None, "new": created, "seen": len(items), "error": message}
 
     sync_state.record_sync(memory_path, channel_id, count=len(items), extra=extra)

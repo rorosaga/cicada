@@ -170,9 +170,9 @@ def test_sync_records_a_failure_instead_of_raising(tmp_path, monkeypatch):
 
     result = run(pinterest.sync(memory, http_fn=boom))
     assert result["status"] == "error"
-    assert "token expired" in result["error"]
+    assert "RuntimeError" not in result["error"] and result["error"].startswith("Pinterest")
     entry = sync_state.read_sync_state(memory)["pinterest"]
-    assert "token expired" in entry["last_error"]
+    assert entry["last_error"] == result["error"]
 
 
 def test_exchange_code_stores_only_the_token(tmp_path, monkeypatch):

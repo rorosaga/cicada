@@ -5232,6 +5232,7 @@ class SourceChannel(CamelModel):
     # page can say "last sync failed · <reason>" instead of silently showing a
     # stale success. Never carries a credential: connectors build this string
     # from an exception type + message only.
+    last_error_code: Optional[str] = None
     last_error: Optional[str] = None
     detail: Optional[str] = None
     # R-S5 — the count no longer rides pre-formatted inside `detail`. The
