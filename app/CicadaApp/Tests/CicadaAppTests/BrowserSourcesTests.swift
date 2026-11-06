@@ -21,7 +21,7 @@ final class BrowserSourcesTests: XCTestCase {
     // MARK: The six switches
 
     func testEachOfTheSixSavedListsHasAKeyAndPinterestNeedsNoWalledSite() throws {
-        XCTAssertEqual(SourceCatalog.savedListSites, Set(six))
+        XCTAssertEqual(SourceCatalog.savedListSites, Set(six + ["spotify", "goodreads"]))   // ROR-128 added the last two
         for id in six {
             let entry = try XCTUnwrap(entries.first { $0.id == id })
             XCTAssertEqual(entry.savedListKey, id, id)
