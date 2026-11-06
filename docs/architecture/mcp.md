@@ -199,8 +199,8 @@ sharing a name, the one said lately leads. The hook's tie-break after name stren
 last table with no rebuild (`lately_cached`), never confidence, which ranks no recall. Ask's conversation order is not
 lifted: on 100 questions `x (1 + w x 0.5^(age/14))` took it 71→66 at w=.3 and left it at 71 with temporal 19→17 at w=.1;
 it keeps its reserved newest slot. Measured on a clone of a real bank, counts only: 25 topic queries, pages said lately in
-the top five 14→34 of 125, a query's first page changed on 16; 150 page names, first 124→126 (5 gained, 3 lost, each to
-a page of the same name or alias said more lately). On slept LoCoMo (5 conversations, 200 questions, `--banks-from`) recency changed recall's words on 24; recall graded on
+the top five 14→27 of 125, a query's first page changed on 16; 150 page names, first 124→127 (6 gained, 3 lost, each to
+a page of the same name or alias said more lately). `lately_of` costs 9 ms for 20 pages cold, under 1 ms warm. On slept LoCoMo (5 conversations, 200 questions, `--banks-from`) recency changed recall's words on 24; recall graded on
 those 24 went 15→18 right, one run each. A public bank has only 3 to 11 pages, so it can show no loss, not a win.
 
 **Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the
