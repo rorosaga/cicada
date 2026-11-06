@@ -181,7 +181,7 @@ final class HomeFrontDoorTests: XCTestCase {
     func testEveryLineWithOneDestinationIsOneButton() throws {
         let sections = try source("Views/Home/HomeSections.swift")
         XCTAssertFalse(sections.contains("InlineLink(title: Copy.homeOpenSleep)"), "review #9 — no repeated Sleep ›")
-        XCTAssertTrue(sections.contains("HomeRowButton(help: Copy.homeOpenSleepHelp"), "the waiting line opens Sleep")
+        XCTAssertTrue(sections.contains("help: Copy.homeOpenSleepHelp"), "the waiting figure opens Sleep (a `HomeStatLink`, round 3)")
         XCTAssertTrue(sections.contains("routeToSleepDetails(.lastCycle)"), "Last read opens that read in Details")
         XCTAssertTrue(sections.contains("HomeTargets.tagHitHeight"), "a page tag sits in a 24 pt hit frame")
         XCTAssertEqual(HomeTargets.tagHitHeight, 24)

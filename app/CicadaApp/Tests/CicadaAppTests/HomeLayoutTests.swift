@@ -24,8 +24,8 @@ final class HomeLayoutTests: XCTestCase {
     func testTheHeadlineLeadsAndTheLowerRowsAreQuiet() {
         XCTAssertEqual(HomeLayout.headlineSize, 34)
         XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 100), 24, "never above the room pages' inset")
-        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 600), 66, "round 3: a ninth, under the worm")
-        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 2000), 120, "never past 120 pt")
+        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 600), 102, "round 3: 17 %, above the worm")
+        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 2000), 140, "never past 140 pt")
         XCTAssertEqual(HomeLayout.greeterSize, 72)
         XCTAssertEqual(HomeLayout.pulseGap, 2)
         XCTAssertLessThan(HomeLayout.pulseGap, HomeLayout.blockGap)

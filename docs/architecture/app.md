@@ -564,7 +564,7 @@ once the file has one. Tests: `MediaPageModelTests`.
 
 **Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1. The painted band is gone (off since G189(a),
 2026-10-06; retired with every painting on 2026-10-16, owner: "Remove it from everywhere"), so the first content is
-"What would you like to remember?" as a `PageTitle` at 34 pt (`HomeLayout.headlineSize`), a fifth of the viewport down, 24 to 150 pt (`HomeLayout.headlineTop(viewportHeight:)`; ROR-118 rounds 1-2) — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block — the one column every block and row below shares — its type 17 pt and 6 pt taller than the palette's, raised a step on the input ring (`HomeLeadField`) with a Find / Ask switch (`FindModeSwitch`: a recessed trough, the active word raised and primary; the palette keeps `TextTabs`): a second
+"What would you like to remember?" as a `PageTitle` at 34 pt (`HomeLayout.headlineSize`), under the study room's worm (`HomeGreeter`, 72 pt, the room's sprite in the menu bar's mood with a reading worm for waiting conversations, never a badge; round 3), the pair starting 17 % of the viewport down, 24 to 140 pt (`HomeLayout.headlineTop(viewportHeight:)`; ROR-118 rounds 1-3) — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block — the one column every block and row below shares — its type 17 pt and 6 pt taller than the palette's, raised a step on the input ring (`HomeLeadField`) with a Find / Ask switch (`FindModeSwitch`: a recessed trough, the active word raised and primary; the palette keeps `TextTabs`): a second
 `FindPaletteModel` sharing the one Ask and keeping no recents; ⌘K on Home focuses it, a pasted `http(s)` link offers
 *Save this link*. The headline, the field and the blocks scroll as one page (owner 2026-10-06), under macOS 26's soft top scroll edge
 (`softTopScrollEdge()`), so no card is cut under the field; the first block sits one 24 pt block gap below it, and with
@@ -582,19 +582,15 @@ setup checklist* (`showChecklist`; the Welcome's record never opens it). The tou
 card, so it is never off-screen. Inside, three labelled groups 20 pt apart — Connected, Your past chats, First read — and *Also
 on this Mac* as an offer. Your past chats has one 36 pt row per vendor still to ask (`ExportVendorRow`; a vendor whose
 `chat-export:<vendor>` row has episodes is not asked again), the whole row opening onboarding's drawn walkthrough over
-Home (`HomeWalkthroughLayer`), with waits above them leading with "Check your email for the … link". Today is two quiet rows, no card and no label (ROR-118; `HomePulse`, `HomeGlyphTile`): captured today, to
-Sources (the busiest origins, names and counts, are its hover and its accessibility label; no strip of marks, round 2), and
-the waiting count as a row to Sleep; every row is a 20 pt neutral glyph with no tile and its words in one size and one ink; Needs you (ruling 48 (1), owner 2026-10-28; `NeedsYouSection`, `HomeQuestions`) is
+Home (`HomeWalkthroughLayer`), with waits above them leading with "Check your email for the … link". Today is one line, no card and no label (ROR-118 round 3; `HomePulse`, `HomeStatLink`): "15 captured today · 21 waiting", each figure a link in the primary ink (captured to Sources, its busiest origins its hover and accessibility label; waiting to Sleep, with the ticked Messages bubbles); Needs you (ruling 48 (1), owner 2026-10-28; `NeedsYouSection`, `HomeQuestions`) is
 **one card that leads** (`LeadQuestionCard`): the most-used page's question — its picture when it draws one
-(`EntityPicture`, nothing otherwise, DR-48), the question in 15 pt medium (under the field's 17), and one foot line: the page's
+(`EntityPicture`, nothing otherwise, DR-48), the question in 15 pt medium (under the field's 17) inside `BalancedLines`, a layout that narrows the text to the narrowest width keeping its line count so no word is stranded on the last line, and one foot line: the page's
 name (a `QuietLink`, opens the page), "N questions" when the page has more — the reason and the age are the question's hover — a click on it opens that question in
-the list (STATE 1); at that line's right *Catch me up* (a `NeutralButton`, its hover "N questions about M pages · or say "catch me
-up" to your agent") and *All N questions* (opens the full list, never a fold — ruling 48 (17)). The other questions are one
+the list (STATE 1); at that line's right *Catch me up* and *All N questions* in one weight, both `QuietLink` (the card is a ring with no fill, so the field stays the one raised surface; *Catch me up*'s hover "N questions about M pages · or say "catch me
+up" to your agent") and *All N questions* opens the full list, never a fold — ruling 48 (17)). The other questions are one
 click away, so no two rows repeat each other's copy. Drawn from the Store's disk-hydrated snapshot, so Home never waits on
 `GET /inbox`. **The titlebar's search is quiet on Home alone** (`CommandBar.quiet`, round 2): the bar is the memory-bank selector and nothing else, since Home's own field is the same palette body; ⌘K and the menu item still open the palette, the tour's search stop draws the full bar, and every other page keeps the bar as it was;
-Last read is the newest Sleep commit as a row to that read in Sleep's Past reads ("Today 07:27 · 33 updated", the commit's
-instant on the viewer's clock) opening with "Last read", its pages as plain names (`bodyFont`, tertiary) under it in 24 pt hit frames, each
-opening the graph (no pill, no dot) — each number once, never a Consolidate. The
+Last read is the newest Sleep commit: a quiet link "Last read Today 07:27 ›" to that read in Sleep's Past reads (the counts, "33 updated", are its hover and accessibility label) over the pages it touched, each its own picture (`EntityPicture` at 22 pt, nothing when it has none) and name, opening the graph — each number once, never a Consolidate. The
 history is not a Store domain: `SleepViewModel` holds it in memory, Home fetches it on arrival and whenever the status's
 `lastSleepAt` moves (`refreshForHome`), and a bank switch empties and rereads it (`bankChanged`) — the launch's own
 switch to the roster's bank used to drop Home's first fetch, leaving "—" until the Sleep page was opened. Each state is
