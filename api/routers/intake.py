@@ -24,7 +24,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from starlette.concurrency import run_in_threadpool
 
@@ -41,8 +41,8 @@ from api.models.schemas import (
     IntakeTitle,
 )
 from api.routers import conversations as conv
-from api.services import (bank_registry, demo_guard, episode_staging, intake_jobs, media_ingestor, notion_export,
-                          saved_exports)
+from api.services import (bank_registry, demo_guard, episode_staging, import_choices, intake_jobs, media_ingestor,
+                          notion_export, saved_exports)
 
 router = APIRouter()
 
@@ -445,12 +445,21 @@ def owner_names(target: Path, settings: Settings | None = None) -> tuple[str, ..
 
 
 def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str | None = None,
-                 defer: bool = False) -> ImportResult:
+                 defer: bool = False, since: str | None = None, exclude: set[str] | None = None) -> ImportResult:
     """Parse, plan, stage — the one import every route shares (R-IA10). With
     ``defer`` (only ``POST /intake/import``), a large write is handed back as
-    ``pending`` for the job runner instead of staged here (R-IA12)."""
+    ``pending`` for the job runner instead of staged here (R-IA12).
+
+    ROR-126: before anything becomes an episode, the person's choice is applied — ``since`` (a start date) and
+    ``exclude`` (the chats they deselected, which are remembered for this bank). With no ``exclude`` the chats left out
+    of an earlier import stay out, whichever door the file comes through."""
     name, target, active = resolve_target(settings, bank)
     parsed = parse_export(content, filename, owner_names=owner_names(target, settings))
+    if exclude is not None:
+        import_choices.remember(target, (import_choices.key_for(e) for e in parsed.episodes), exclude)
+    left_out = exclude if exclude is not None else import_choices.remembered(target)
+    parsed.episodes = import_choices.select(parsed.episodes, since=import_choices.parse_since(since),
+                                            deselected=left_out)
     date_from, date_to = date_range(parsed.episodes)
     staging = plan(parsed.episodes, target)
     legacy = {id(e) for e in staging.legacy}
@@ -571,8 +580,15 @@ def sniff_bytes(content: bytes, filename: str, settings: Settings, bank: str | N
     _, target, _ = resolve_target(settings, bank, scaffold=False)
     staging = plan(parsed.episodes, target)
     date_from, date_to = date_range(parsed.episodes)
-    titles = sorted(({"title": str(e.get("title") or "Untitled"), "date": e.get("original_date")}
+    # ROR-126: a chat left out of an earlier import into this bank is offered unticked and never counted as new.
+    left_out = import_choices.remembered(target)
+    status = {id(e): "new" for e in staging.create} | {id(e): "grown" for e in staging.update}
+    titles = sorted(({"title": str(e.get("title") or "Untitled"), "date": e.get("original_date"),
+                      "key": import_choices.key_for(e), "status": status.get(id(e), "unchanged"),
+                      "deselected": import_choices.key_for(e) in left_out}
                      for e in parsed.episodes), key=lambda t: t["date"] or "", reverse=True)
+    new_count = sum(1 for e in staging.create if import_choices.key_for(e) not in left_out)
+    grown_count = sum(1 for e in staging.update if import_choices.key_for(e) not in left_out)
     return IntakeSniffResponse(
         recognized=True,
         kind="chat",
@@ -582,7 +598,7 @@ def sniff_bytes(content: bytes, filename: str, settings: Settings, bank: str | N
         ignored=[IntakeIgnored(**i) for i in parsed.ignored],
         counts=IntakeCounts(**parsed.counts),
         date_range=BankImportDateRange(**{"from": date_from, "to": date_to}),
-        delta=IntakeDelta(new=len(staging.create), grown=len(staging.update), unchanged=len(staging.skip)),
+        delta=IntakeDelta(new=new_count, grown=grown_count, unchanged=len(staging.skip)),
         titles=[IntakeTitle(**t) for t in titles[:MAX_SNIFF_TITLES]],
         titles_truncated=len(titles) > MAX_SNIFF_TITLES,
         warnings=parsed.warnings,
@@ -610,13 +626,23 @@ async def import_file(
     response: Response,
     background_tasks: BackgroundTasks,
     bank: str | None = Query(None, max_length=128),
+    since: str | None = Form(None, max_length=10),
+    exclude: str | None = Form(None, max_length=4_000_000),
     settings: Settings = Depends(get_settings),
 ) -> IntakeImportResponse:
     """Stage a chat export into ``bank`` (default: the active one). Chat only —
     a saved-content file commits through ``/sources/upload`` (R-IA32). More than
-    ``BACKGROUND_THRESHOLD`` episodes to write: 202 + ``job``."""
+    ``BACKGROUND_THRESHOLD`` episodes to write: 202 + ``job``.
+
+    ROR-126: ``since`` (``YYYY-MM-DD``) and ``exclude`` (a JSON list of the ``key`` the sniff gave each deselected
+    chat) are the person's choice, applied before anything is staged; ``exclude`` is remembered for the bank."""
     content = await file.read()
-    result = await run_in_threadpool(import_bytes, content, file.filename or "", settings, bank=bank, defer=True)
+    try:
+        left_out = {str(k) for k in json.loads(exclude)} if exclude else None
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, "exclude must be a JSON list of chat keys") from exc
+    result = await run_in_threadpool(import_bytes, content, file.filename or "", settings, bank=bank, defer=True,
+                                     since=since, exclude=left_out)
     if result.pending is None:
         return _import_response(result)
     todo, episodes_dir = result.pending
