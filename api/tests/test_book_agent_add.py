@@ -82,7 +82,7 @@ def test_a_bad_number_is_refused(client):
 
 
 def test_the_tool_is_on_every_door():
-    assert "cicada_add_book" in remote_tools.REMOTE_TOOLS if hasattr(remote_tools, "REMOTE_TOOLS") else True
+    assert "cicada_add_book" in remote_tools.REMOTE_TOOLS
     assert catalog.TOOL_SCOPE["cicada_add_book"] == "record" and "cicada_add_book" in catalog.WRITE_TOOLS
     assert "cicada_add_book" not in catalog.NEVER_REMOTE
     assert "cicada_add_book" in remote_runtime.SELF_ADMITTED and "cicada_add_book" in tool_door.DISPATCH
