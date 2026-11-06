@@ -452,7 +452,7 @@ struct SleepControlRow: View {
                 if leading {
                     Rectangle().fill(CicadaTheme.border)
                         .frame(width: 1, height: CicadaTheme.scaled(18))
-                        .padding(.horizontal, CicadaTheme.spacingSM)
+                        .padding(.horizontal, CicadaTheme.spacingXS)
                         .accessibilityHidden(true)
                 }
                 // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
@@ -461,7 +461,9 @@ struct SleepControlRow: View {
                 // The owner's at-rest row (2026-10-16): Consolidate · engine · Options, one height. Options opens the
                 // same reading options the floating "Reading options…" link did, on this row instead of its own line.
                 if showsOptionsLink {
-                    NeutralButton(title: Copy.SleepV5.options, size: .compact,
+                    // ROR-118 round 4 - "Options…" was vague: a slider mark says it adjusts (a longer label truncated the engine's).
+                    NeutralButton(title: leading ? Copy.SleepV5.optionsShort : Copy.SleepV5.options,
+                                  systemImage: leading ? "slider.horizontal.3" : nil, size: .compact,
                                   help: Copy.SleepV5.optionsHelp, quiet: leading) { optionsOpen = true }
                 }
                 if paused != nil, !sleepVM.isRunning {

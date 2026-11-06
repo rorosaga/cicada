@@ -148,6 +148,8 @@ func nextRunSentence(_ schedule: ScheduleConfig, nextSleepAt: String?,
 /// `SleepQueueModel.swift`) so this view stays a pure renderer of whatever
 /// the desk card already resolved SSE-vs-REST precedence for.
 struct StudyListCard: View {
+    /// The corner room's width, when the page sets the table beside it (`SleepRoomWidthKey`).
+    @Environment(\.sleepRoomWidth) private var roomWidth
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(Store.self) private var store
     @Environment(MessagesWatcher.self) private var watcher: MessagesWatcher?
@@ -267,19 +269,68 @@ struct StudyListCard: View {
         }
     }
 
-    /// ROR-118 round 3 - the name's own width (chevron, mark, name): the age and the count follow it at a glance, never
-    /// a window's width away across the row.
-    static var nameColumn: CGFloat { CicadaTheme.scaled(330) }
+    /// ROR-118 round 4 - the table shares the hero's grid: the names run to the room's left edge, and the right-hand
+    /// block is exactly the room's width, a share bar first (so a count is a length the eye follows from the name),
+    /// then the two columns ending on the room's right edge, where Add ends. Without the corner room (a narrow
+    /// column) there is no bar and the columns end the row, as in round 2.
+    private var rightBlockWidth: CGFloat? { roomWidth.map { max(0, $0 - CicadaTheme.scaled(10)) } }
+
+    /// The largest waiting count among the rows: the bar's full length.
+    private var barScale: Int {
+        rows.compactMap { row -> Int? in
+            if case .waiting(let count) = queueRowState(row) { return count }
+            return nil
+        }.max() ?? 1
+    }
+
+    /// A row's share of the longest, as a bar in the block's flexible slot; nothing for a row that is not waiting.
+    @ViewBuilder
+    private func shareBar(_ row: StudyRow) -> some View {
+        if case .waiting(let count) = queueRowState(row) {
+            GeometryReader { geo in
+                Capsule().fill(CicadaTheme.textTertiary)
+                    .frame(width: max(CicadaTheme.scaled(4), geo.size.width * CGFloat(count) / CGFloat(max(barScale, 1))),
+                           height: CicadaTheme.scaled(5))
+                    .frame(maxHeight: .infinity, alignment: .center)
+            }
+            .accessibilityHidden(true)
+        } else {
+            Color.clear
+        }
+    }
+
+    /// The right-hand block of a row (or of the heads when `row` is nil), laid in the room's width when there is one.
+    @ViewBuilder
+    private func rightBlock(_ row: StudyRow?) -> some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            if rightBlockWidth != nil {
+                if let row { shareBar(row) } else { Color.clear }
+            }
+            if let row {
+                // ROR-118 — the age and the count are two fixed columns, so a name is never run into its age and the
+                // counts line up down the list (the head says "Oldest", so a row says "4d", never "just now old").
+                Text(row.oldestAge ?? "")
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .lineLimit(1)
+                    .frame(width: CicadaTheme.scaled(76), alignment: .trailing)
+                trailing(row)
+                    .frame(width: CicadaTheme.scaled(56), alignment: .trailing)
+            } else {
+                Text(Copy.SleepV5.columnOldest)
+                    .frame(width: CicadaTheme.scaled(76), alignment: .trailing)
+                Text(Copy.SleepV5.columnItems)
+                    .frame(width: CicadaTheme.scaled(56), alignment: .trailing)
+            }
+        }
+        .frame(width: rightBlockWidth)
+    }
 
     /// ROR-118 round 2 - the two columns named once, over the first row, in the columns' own widths.
     private var columnHeads: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            Color.clear.frame(width: Self.nameColumn, height: 1)
-            Text(Copy.SleepV5.columnOldest)
-                .frame(width: CicadaTheme.scaled(76), alignment: .trailing)
-            Text(Copy.SleepV5.columnItems)
-                .frame(width: CicadaTheme.scaled(56), alignment: .trailing)
             Spacer(minLength: 0)
+            rightBlock(nil)
         }
         .font(CicadaTheme.metaFont)
         .foregroundStyle(CicadaTheme.textTertiary)
@@ -331,20 +382,8 @@ struct StudyListCard: View {
                 }
                 Spacer(minLength: 0)
               }
-              .frame(width: Self.nameColumn, alignment: .leading)
 
-                // ROR-118 — the age and the count are one right-hand cluster of two fixed columns, so a name is
-                // never run into its age and the counts line up down the list (the column head says "Oldest",
-                // so a row says "4d", never "just now old").
-                Text(row.oldestAge ?? "")
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .lineLimit(1)
-                    .frame(width: CicadaTheme.scaled(76), alignment: .trailing)
-
-                trailing(row)
-                    .frame(width: CicadaTheme.scaled(56), alignment: .trailing)
-                Spacer(minLength: 0)
+                rightBlock(row)
             }
             .padding(.horizontal, CicadaTheme.scaled(10))
             .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 12))
@@ -433,5 +472,16 @@ struct StudyListCard: View {
         .frame(height: 3)
         .padding(.bottom, -1)
         .accessibilityHidden(true)
+    }
+}
+
+/// ROR-118 round 4 - the width of the corner room above the list, so the table's right-hand block is exactly as wide
+/// and shares the hero's grid. `nil` where the room is not beside the words.
+private struct SleepRoomWidthKey: EnvironmentKey { static let defaultValue: CGFloat? = nil }
+
+extension EnvironmentValues {
+    var sleepRoomWidth: CGFloat? {
+        get { self[SleepRoomWidthKey.self] }
+        set { self[SleepRoomWidthKey.self] = newValue }
     }
 }

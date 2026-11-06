@@ -153,11 +153,6 @@ enum PileBooks {
     static let markPoints: CGFloat = 12
     static let markGap: CGFloat = 4
 
-    /// ROR-118 round 3 - a count needs a plate 15 pt tall, and in the corner's 3 pt room it was a 5-cell patch of noise
-    /// on every spine: beneath 4 pt a cell the books draw bare (thickness still says how many), and the count lives in
-    /// the tooltip, the popover and the Waiting list.
-    static func showsPlates(cell: CGFloat) -> Bool { cell >= 4 }
-
     static func label(_ spec: BookSpec) -> String { spec.isRemainder ? "+\(spec.count)" : "\(spec.count)" }
 
     /// The count's width in the caption face at `uiScale` (monospaced digits, medium).
@@ -353,7 +348,7 @@ struct PileBookButton: View {
                 // The sheet failed to load (logged once by `SpriteSheets`): a plain block, still a control.
                 Rectangle().fill(CicadaTheme.textTertiary)
             }
-            if PileBooks.showsPlates(cell: cell), let plate = PileBooks.plate(for: book, cell: cell, uiScale: CicadaTheme.uiScale) {
+            if let plate = PileBooks.plate(for: book, cell: cell, uiScale: CicadaTheme.uiScale) {
                 HStack(spacing: CicadaTheme.scaled(PileBooks.markGap)) {
                     if plate.showsMark { OriginMark(origin: book.spec.origin, size: CicadaTheme.scaled(PileBooks.markPoints)) }
                     Text(PileBooks.label(book.spec))

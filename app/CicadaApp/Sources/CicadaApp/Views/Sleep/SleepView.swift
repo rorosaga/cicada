@@ -557,6 +557,8 @@ struct SleepView: View {
                              showsRun: showsRunBlock(page), runPaused: sleepVM.isPaused,
                              ownerReady: ownerReady(page), onRetryParked: retryParked,
                              onSeeOwnerPage: ownerEntityId.map { id in { onSelectEntity?(id) } })
+                .environment(\.sleepRoomWidth, SleepLayout.roomBeside(columnWidth: min(plan.list, SleepLayout.pageWidth) - 2 * plan.gutter)
+                             ? CGFloat(DeskScene.cols) * SleepLayout.cornerScale(columnWidth: min(plan.list, SleepLayout.pageWidth) - 2 * plan.gutter) : nil)
                 .padding(.horizontal, plan.gutter)
                 .padding(.top, CicadaTheme.spacingSM)
         case .saved:
@@ -697,13 +699,12 @@ struct SleepView: View {
                          exportWaiting: exportWaiting, videos: videoItems.count)
     }
 
-    /// The Waiting tab keeps its count wherever the headline does not say it (review of #363; ROR-118 round 3 drops it
-    /// only while the headline's own numeral is the same number, so it is never said twice).
+    /// The Waiting tab keeps its count everywhere (review of #363): the tab row is pinned, so once the room scrolls
+    /// away it is the one place the waiting total is still on screen (ROR-118 round 3 dropped it; round 4 takes it back).
     private func tabRowTabs(_ page: SleepPageModel) -> [TextTab<SleepTab>] {
         SleepTabRow.tabs(SleepTab.visible(waitingHasRows: waitingHasRows(page), saved: feedVM.items.count,
                                           exportWaiting: exportWaiting, videos: videoItems.count),
-                         waiting: waitingCount, saved: feedVM.items.count, videos: videoItems.count,
-                         waitingSaidAbove: heroCount(page.mood, debt: page.debt) != nil)
+                         waiting: waitingCount, saved: feedVM.items.count, videos: videoItems.count)
     }
 
     /// The detail column is open while the watch run is on, or while a saved item is open on a tab of saved items —

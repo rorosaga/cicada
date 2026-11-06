@@ -107,20 +107,6 @@ final class SleepTabTests: XCTestCase {
         XCTAssertEqual(SleepTab.resolve(chosen: .waiting, waitingHasRows: false, saved: 3, videos: 2), .pastReads)
     }
 
-    /// ROR-118 round 3 - the headline says the waiting number, so the Waiting tab does not say it again.
-    func test_theWaitingTabDropsItsCountWhileTheHeadlineSaysIt() {
-        let tabs = SleepTabRow.tabs([.waiting, .saved], waiting: 21, saved: 7, videos: 0, waitingSaidAbove: true)
-        XCTAssertEqual(tabs.map(\.count), [nil, 7])
-    }
-
-    /// ROR-118 round 3 - the corner room's books draw bare; the larger rooms keep their count plates.
-    func test_theCornersBooksDrawNoPlates() {
-        XCTAssertFalse(PileBooks.showsPlates(cell: 3))
-        XCTAssertFalse(PileBooks.showsPlates(cell: 2))
-        XCTAssertTrue(PileBooks.showsPlates(cell: 4))
-        XCTAssertTrue(PileBooks.showsPlates(cell: 5))
-    }
-
     func test_onlyTheSavedListsHaveFind() {
         XCTAssertEqual(SleepTab.allCases.filter(\.hasFind), [.saved, .videos])
     }

@@ -618,6 +618,9 @@ struct RoomSentenceView: View {
     }
 
     private func leadText(_ line: SentenceLine) -> Text {
+        // ROR-118 round 4 - the numeral takes the lead's own size and weight (it was 30 medium inside a 40 semibold
+        // phrase, which read as two voices).
+        let numeralSize = leading ? Self.cornerLeadSize : Self.leadSize
         let plainColor = line.qualifier == nil ? color(line.tone, plain: CicadaTheme.textPrimary) : CicadaTheme.textPrimary
         return sentenceRuns(line).reduce(Text(verbatim: "")) { text, run in
             switch run.kind {
@@ -625,7 +628,7 @@ struct RoomSentenceView: View {
                 return text + Text(verbatim: run.text).foregroundStyle(plainColor)
             case .numeral:
                 return text + Text(verbatim: run.text)
-                    .font(CicadaTheme.font(size: Self.leadSize, weight: .medium, design: .rounded))
+                    .font(CicadaTheme.font(size: numeralSize, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(plainColor)
             case .qualifier:

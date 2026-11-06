@@ -83,7 +83,29 @@ struct SleepRoomColumn: View {
     /// The schedule in one quiet line (§7.2) — the lamp's text twin (R-A3). Since Z6 it is a control: it opens the
     /// same `LampPopover` the lamp does, anchored here (Z-P25); the popover's engine line shows the scheduled engine
     /// ALWAYS, so ruling 4 is on screen at the moment someone chooses to schedule.
+    @ViewBuilder
     private var whisperRow: some View {
+        if leading { cornerWhisper } else { centredWhisper }
+    }
+
+    /// ROR-118 round 4 - beside the room the schedule is the one fact about the job, so it is set as a quiet 13 pt
+    /// button (DR-40) in the control cluster's own type, never 12 pt caption under it.
+    private var cornerWhisper: some View {
+        NeutralButton(title: cornerWhisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
+                                               lampLit: page.lampLit, lastRead: lastRead),
+                      systemImage: "moon.zzz", size: .compact,
+                      help: page.nextRunText.hasSuffix("—") ? Copy.nextRunUnknownReason : Copy.lampHint, quiet: true) {
+            room.lampPopover = .whisper
+        }
+        .roomLinkCursor()
+        .accessibilityHint(Copy.lampHint)
+        .popover(isPresented: Binding(get: { room.lampPopover == .whisper },
+                                      set: { if !$0 { room.lampPopover = nil } }),
+                 arrowEdge: .bottom) { LampPopover(page: page) }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var centredWhisper: some View {
         Button { room.lampPopover = .whisper } label: {
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "moon.zzz")
@@ -109,8 +131,6 @@ struct SleepRoomColumn: View {
                                       set: { if !$0 { room.lampPopover = nil } }),
                  arrowEdge: .bottom) { LampPopover(page: page) }
         .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
-        // ROR-118 round 3 - the lamp's line stands apart from the control cluster above it.
-        .padding(.top, leading ? CicadaTheme.spacingSM : 0)
     }
 }
 
