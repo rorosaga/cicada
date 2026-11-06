@@ -29,8 +29,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.routers.capture import refuse_capture_into_demo
-from api.services import apple_books, book_covers, book_jobs, book_lookup, books, episode_staging, folder_source
-from api.services import goodreads_export
+from api.services import apple_books, book_covers, book_jobs, books, episode_staging, folder_source, goodreads_export
 from api.services import idempotency, logo_service, sync_state, telemetry, write_admission
 from api.services.sleep_refusal import SleepWriting
 
@@ -76,51 +75,6 @@ async def capture_isbn(req: IsbnCaptureRequest, request: Request, settings: Sett
 
     _, body, _ = await idempotency.run_once(idempotency.scope_of(request), "/capture/isbn", key, work)
     return body
-
-
-class AgentBookRequest(BaseModel):
-    isbn: str = Field(..., min_length=10, max_length=24)
-    preview: bool = False
-    harness: str | None = Field(None, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")
-    sessionId: str | None = Field(None, max_length=128)
-
-
-@router.post("/sources/books/agent-add", dependencies=_DEMO_GATE)
-async def agent_add_book(req: AgentBookRequest, settings: Settings = Depends(get_settings)):
-    """``cicada_add_book`` (stdio): a book the person asked their agent to add, by the ISBN the agent found.
-    ``preview`` reads nothing into memory: it asks the lookup (cached, paced, behind the connector gate, the number
-    only — never a title) so the agent can show which edition it means. Otherwise the same writer as a scan: one episode
-    staged by ``source_id`` (a repeat is ``unchanged``), the page follows at the home. The episode carries no status
-    and names the harness (ruling 50: an agent's act is not the person's own)."""
-    from api.services.connectors.base import network_allowed
-
-    isbn = books.isbn13(req.isbn)
-    if isbn is None:
-        raise HTTPException(status_code=422, detail=NOT_A_BOOK)
-    memory_path = Path(settings.memory_path)
-    if req.preview:
-        if not network_allowed():
-            return {"state": "unavailable", "isbn": isbn}
-        await book_lookup.resolve([isbn])
-        hit = book_lookup.cached(isbn)
-        if not hit or not hit.get("found"):
-            return {"state": "not_found" if hit else "unavailable", "isbn": isbn}
-        return {"state": "found", "isbn": isbn, **{k: hit.get(k) for k in
-                ("title", "subtitle", "authors", "published", "publisher", "pages", "description",
-                 "description_source")}}
-    harness = req.harness or "agent"
-    now = datetime.now(timezone.utc)
-    draft = books.scan_draft(isbn, None, who="agent", ident=isbn, now=now, by=harness)
-
-    async def work():
-        result = await asyncio.to_thread(
-            lambda: episode_staging.stage([draft], memory_path / "episodes", bank=memory_path.name))
-        book_jobs.schedule(memory_path, author=harness, trigger="capture/agent-isbn")
-        status = "created" if result.created else ("updated" if result.updated else "unchanged")
-        return {"status": status, "episodeId": result.episode_ids.get(draft.source_id), "isbn": isbn,
-                "book": "waiting"}
-
-    return await work()
 
 
 @router.get("/sources/books/scans/{episode_id}")

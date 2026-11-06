@@ -140,7 +140,7 @@ class ConversationState:
 
 #: Write tools that fetch before they write (a link's metadata): they take the bank's write admission themselves,
 #: around the write only, and re-ask the Sleep gate inside it (G183 round 1).
-SELF_ADMITTED = frozenset({"cicada_save_url", "cicada_record_watch"})
+SELF_ADMITTED = frozenset({"cicada_save_url", "cicada_record_watch", "cicada_add_book"})
 
 
 def _sleep_running() -> bool:
@@ -215,6 +215,7 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         c, str(a.get("subject") or ""), str(a.get("ref") or ""), a.get("predicate"), str(a.get("action") or ""),
         a.get("reason"), a.get("new_ref"), a.get("new_predicate"), a.get("access"), a.get("entity")),
     "cicada_save_url": lambda c, a: mcp_tools.save_url(c, str(a.get("url") or ""), a.get("note")),
+    "cicada_add_book": lambda c, a: mcp_tools.add_book(c, str(a.get("isbn") or ""), bool(a.get("preview", False))),
     "cicada_note_progress": lambda c, a: mcp_tools.note_progress(
         c, str(a.get("project") or ""), str(a.get("kind") or ""), str(a.get("summary") or ""),
         str(a.get("status") or ""), when=a.get("when"), target=a.get("target"), milestone=a.get("milestone"),

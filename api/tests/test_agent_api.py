@@ -345,7 +345,7 @@ def test_new_operations_take_the_cli_command_spelled_with_underscores():
     assert overrides.items() <= SHIPPED.items()
     assert set(new) == {"hub", "perspective", "capture_turns", "source_add", "source_change", "video_record",
                         "video_queue", "video_claim", "read_queue", "read_record", "inbox_record_check",
-                        "source_list", "progress_add", "backlog_list", "backlog_add", "backlog_note",
+                        "source_list", "books_add", "progress_add", "backlog_list", "backlog_add", "backlog_note",
                         # Ruling 45 (2026-10-27): named by their `cli_map` rows.
                         "projects_create", "projects_link", "projects_influence",
                         # Decision 10 (2026-10-28): pages tied by hand.

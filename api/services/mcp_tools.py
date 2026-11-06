@@ -3256,13 +3256,34 @@ def _match_milestone(rows, wanted: str):
     return None
 
 
+def _run_async(coro_fn):
+    """Run one coroutine to its end from a tool body (a worker thread of the home, or a stdio process)."""
+    import asyncio
+    import threading
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro_fn())
+    box: list = []
+    worker = threading.Thread(target=lambda: box.append(asyncio.run(coro_fn())))
+    worker.start()
+    worker.join()
+    return box[0]
+
+
+def _in_home(ctx: ToolContext) -> bool:
+    """Does this body run in the process that holds the bank's write window (the remote runtime, the tool door)?"""
+    return ctx.is_remote or ctx.sleep_probe is not None
+
+
 def add_book(ctx: ToolContext, isbn: str, preview: bool = False) -> str:
     """`cicada_add_book`: a book the person asked their agent to add, by the ISBN the agent found with its own search.
-    Stdio only (a remote app is not local, and the lookup and the page are the home's). `preview` shows the edition the
-    number names and writes nothing; without it the book is added through the scan's writer, with no status, as the
-    harness's act. Needs the running backend: the lookup and the page are its."""
-    import urllib.error
-
+    One body on every door (ROR piece 2b). In the home (a remote app, a device, ``/v1``) it looks up and applies itself;
+    a stdio process hands the same call to the home's generic ``/tools/call`` when the backend is up, and otherwise only
+    stages the episode (Awake capture), which the next apply or Sleep's tail turns into the page. `preview` shows the
+    edition the number names and writes nothing. The add goes through the scan's writer with no status, as the
+    caller's act (ruling 50), and the lookup asks the number only, never a title (ruling 61)."""
     from api.services import books
 
     if (refusal := _demo_refusal(ctx.memory_path())) is not None:
@@ -3270,53 +3291,64 @@ def add_book(ctx: ToolContext, isbn: str, preview: bool = False) -> str:
     number = books.isbn13(isbn or "")
     if number is None:
         return Reply("That is not a book's ISBN (10 or 13 digits). Nothing was added.", code="invalid_arguments")
-    payload = {"isbn": number, "preview": bool(preview), "harness": ctx.harness, "sessionId": ctx.session_id}
-    try:
-        out = ctx.backend_post("/sources/books/agent-add", payload)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 409:
-            return Reply("Not added: Sleep is updating the memory. Try again in a moment.", code="refused")
-        return Reply("Not added: the backend refused the number.", code="refused")
-    except Exception:  # noqa: BLE001
-        return Reply("Not added: Cicada's backend is not running, and a book's lookup and page are its.",
-                     code="unavailable")
+    if not _in_home(ctx):
+        try:
+            out = ctx.backend_post("/tools/call", {
+                "tool": "cicada_add_book", "arguments": {"isbn": number, "preview": bool(preview)},
+                "caller": {"session_id": ctx.session_id, "harness": ctx.harness, "project_dir": ctx.project_dir}})
+            if out.get("error"):
+                return Reply(str(out["error"]), code=out.get("code") or "refused")
+            return Reply(str(out.get("text") or ""), code=out.get("code"))
+        except Exception:  # noqa: BLE001 - the backend is down: stage only, below
+            pass
     if preview:
-        if out.get("state") != "found":
-            why = ("no source knows this number" if out.get("state") == "not_found"
-                   else "the lookup could not be reached (or network lookups are off)")
-            return f"No edition to show for {number}: {why}. Check the number, or ask the person."
-        lines = [f"ISBN {number}: {out.get('title') or '?'}" + (f" — {out['subtitle']}" if out.get("subtitle") else ""),
-                 "Authors: " + (", ".join(out.get("authors") or []) or "unknown")]
-        meta = [str(x) for x in (out.get("publisher"), out.get("published"),
-                                 f"{out['pages']} pages" if out.get("pages") else None) if x]
-        if meta:
-            lines.append(" · ".join(meta))
-        if out.get("description"):
-            lines.append("Description (" + (out.get("description_source") or "public source") + "): "
-                         + str(out["description"])[:240])
-        lines.append("Show the person this edition; add it with cicada_add_book(isbn) once they agree it is the one.")
-        return "\n".join(lines)
-    episode = out.get("episodeId")
-    note = ("was already requested" if out.get("status") == "unchanged" else "is queued")
-    result = {}
-    if episode:
-        import time
-        import urllib.request
-        for _ in range(4):
-            time.sleep(1.5)
-            try:
-                req = urllib.request.Request(f"{ctx.backend_url}/sources/books/scans/{episode}",
-                                             headers=ctx.backend_headers(), method="GET")
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    result = json.loads(resp.read().decode("utf-8"))
-            except Exception:  # noqa: BLE001
-                result = {}
-            if result.get("state") == "added":
-                break
-    if result.get("state") == "added":
-        return (f"{'Already in memory' if result.get('existing') else 'Added'}: {result.get('name')} "
-                f"({result.get('entityId')}). It carries no reading status; say so if the person told you one. "
-                "Its description comes from a public source and is not the person's words.")
+        return _book_preview(number)
+    return _book_add(ctx, number)
+
+
+def _book_preview(number: str) -> str:
+    from api.services import book_lookup
+    from api.services.connectors.base import network_allowed
+
+    hit = None
+    if network_allowed():
+        _run_async(lambda: book_lookup.resolve([number]))
+        hit = book_lookup.cached(number)
+    if not hit or not hit.get("found"):
+        why = ("no source knows this number" if hit else "the lookup could not be reached (or network lookups are off)")
+        return f"No edition to show for {number}: {why}. Check the number, or ask the person."
+    lines = [f"ISBN {number}: {hit.get('title') or '?'}" + (f" — {hit['subtitle']}" if hit.get("subtitle") else ""),
+             "Authors: " + (", ".join(hit.get("authors") or []) or "unknown")]
+    meta = [str(x) for x in (hit.get("publisher"), hit.get("published"),
+                             f"{hit['pages']} pages" if hit.get("pages") else None) if x]
+    if meta:
+        lines.append(" · ".join(meta))
+    if hit.get("description"):
+        lines.append("Description (" + (hit.get("description_source") or "public source") + "): "
+                     + str(hit["description"])[:240])
+    lines.append("Show the person this edition; add it with cicada_add_book(isbn) once they agree it is the one.")
+    return "\n".join(lines)
+
+
+def _book_add(ctx: ToolContext, number: str) -> str:
+    from api.services import book_jobs, books, episode_staging
+
+    if not ctx.is_remote and ctx.sleep_running():
+        return Reply("Not added: Sleep is updating the memory. Try again in a moment.", code="refused")
+    memory_path = Path(ctx.memory_path())
+    author = ctx.author
+    draft = books.scan_draft(number, None, who="agent", ident=number, now=datetime.now(timezone.utc), by=author)
+    result = episode_staging.stage([draft], memory_path / "episodes", bank=memory_path.name)
+    episode = result.episode_ids.get(draft.source_id)
+    repeat = not (result.created or result.updated)
+    if _in_home(ctx):
+        _run_async(lambda: book_jobs.resolve_and_apply(memory_path, author=author, trigger="capture/agent-isbn"))
+        out = (books.scan_result(memory_path, episode) if episode else None) or {}
+        if out.get("state") == "added":
+            return (f"{'Already in memory' if (repeat or out.get('existing')) else 'Added'}: {out.get('name')} "
+                    f"({out.get('entityId')}). It carries no reading status; say so if the person told you one. "
+                    "Its description comes from a public source and is not the person's words.")
+    note = "was already requested" if repeat else "is queued"
     return (f"The book {note} (ISBN {number}). Its page appears once the lookup answers "
             "(or after the next Sleep if network lookups are off).")
 

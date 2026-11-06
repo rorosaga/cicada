@@ -447,6 +447,7 @@ _AIMED = {
     "cicada_retract_claim": {"subject": "the-book", "claim_id": "{mark}", "reason": "wrong"},
     "cicada_write_claim": {"subject": "the-book", "predicate": "highlighted", "object": "something else"},
     "cicada_ask": {"query": "what did I mark about lanterns?"},
+    "cicada_add_book": {"isbn": "9780000000002"},
     # These name no page's claims; the call shows they do not start to.
     "cicada_save_episode": {"content": "a note"},
     "cicada_capture_turns": {"message": "a turn"},

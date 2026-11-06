@@ -290,12 +290,16 @@ relaying app's word on which project the conversation is in, only from its own c
 **`cicada_add_book`** (G233, 2026-11-06) adds a book the person asked their agent to add, by an ISBN the agent found itself
 (Cicada never searches by title: ruling 61). `preview: true` asks the lookup for that number and shows title, authors,
 publisher and a description so the agent can say which edition it means, and writes nothing; without it the book goes
-through the scan's writer (`POST /sources/books/agent-add`): one episode staged by ISBN (a repeat is `unchanged`), the
-page at the home. **Stdio only** (`NEVER_REMOTE`; the lookup and the page are the home's and a remote app is not local —
-the owner's open question, as `cicada_record_profile`'s), the CLI row is not exposed to an agent's shell. It takes no
-status: the episode names the harness (`book.by`), the page reads "Added by an agent" beside any other way in, and the
-book is a quiet save (ruling 62) until the person acts on it. The agent never withdraws the page; removing it is the
-person's Remove. The primer does not name it (the 1,800-token handshake, R12): the tool list carries it.
+through the scan's writer: one episode staged by ISBN (a repeat is `unchanged`), the page made at once.
+**One body on every door (piece 2b, owner 2026-11-06: "it should work the same everywhere"):** `mcp_tools.add_book` runs in the
+home — the remote runtime (`/mcp` and `/v1`'s `books_add`, scope `record` like a saved link: a write into memory, never the
+person's words, withdrawable only as what the app added, no power `record` does not already hold), the tool door for a
+device, and `cli_map`'s `books add` row (named for the tool door and `/v1`; no shell command yet, like `link save`). A local stdio process hands the same call to the home's generic
+`/tools/call` when the backend is up (no books route exists); with the backend down it only stages the episode and says the
+page follows (Sleep's tail or the next apply makes it). The lookup is the number alone behind the connector gate, never a
+title. The episode names the caller (`book.by` = the commit author), carries no status, and the page reads "Added by an
+agent" beside any other way in; the book is a quiet save (ruling 62) until the person acts on it. The agent never withdraws
+the page; removing it is the person's Remove. The primer does not name it (the 1,800-token handshake, R12): the tool list carries it.
 
 **`cicada_note_progress`** (G141) records a happening or a milestone the person
 described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date

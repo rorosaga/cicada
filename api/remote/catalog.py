@@ -44,6 +44,9 @@ TOOL_SCOPE: dict[str, str | None] = {
     "cicada_add_source": "record",
     "cicada_change_source": "record",   # G61 S3-a: only an entry this connection added
     "cicada_save_url": "record",
+    # Books (piece 2b, owner 2026-11-06): the same tool on every door. `record` like a saved link: a write into memory,
+    # never the person's words, withdrawable only as what the app added; no new power over what `record` already has.
+    "cicada_add_book": "record",
     "cicada_record_watch": "record",
     "cicada_video_claim": "record",   # G162: leases queued videos; touches only the queue file
     "cicada_record_check": "record",   # G61 S3: a report on a listed source; settles nothing
@@ -96,12 +99,9 @@ NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_rep
                           "cicada_record_profile",
                           # The Skills page (2026-10-15): skills live in this Mac's agent folders, and a remote app is
                           # no coding agent here; whether one may ever ask for a skill is the owner's open question.
-                          "cicada_skills", "cicada_propose_skill", "cicada_create_skill",
-                          # Books (2026-11-06): the lookup and the page are the home's and the add is on the person's ask in
-                          # a local conversation; a remote app is not local (mcp.md) — the owner's open question.
-                          "cicada_add_book"})
+                          "cicada_skills", "cicada_propose_skill", "cicada_create_skill"})
 WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_capture_turns", "cicada_write_claim", "cicada_retract_claim",
-                         "cicada_save_url", "cicada_record_watch", "cicada_record_read", "cicada_record_check", "cicada_add_source",
+                         "cicada_save_url", "cicada_add_book", "cicada_record_watch", "cicada_record_read", "cicada_record_check", "cicada_add_source",
                          "cicada_change_source",
                          "cicada_note_progress", "cicada_add_backlog_item", "cicada_add_backlog_note",
                          "cicada_video_claim", "cicada_create_project", "cicada_link_conversation",
