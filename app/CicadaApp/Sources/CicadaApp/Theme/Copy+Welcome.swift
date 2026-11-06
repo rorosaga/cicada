@@ -122,7 +122,9 @@ extension Copy {
     /// The ✕ beside a staged export: it only un-stages it (nothing was imported yet).
     static let welcomeRemoveDrop = "Remove"
     static func welcomeHello(_ first: String) -> String { "Hello, \(first)." }
-    static func welcomeNotYou(_ first: String) -> String { "Not \(first)? Change" }
+    static let welcomeGreetingLead = "Hello,"
+    /// The pencil beside the name — its label for VoiceOver and its hover words.
+    static let welcomeEditName = "Edit your name"
 
     /// Buttons, titles and one-line captions — ≤ 60 characters (CopyConstantsTests).
     // MARK: Reminders (Task 5, design §5.5, R-IB22)
@@ -160,7 +162,7 @@ extension Copy {
         gsWaiting(1_061), gsRunning(read: 1_061, total: 1_061), gsFinished(pages: 1_061),
         gsCapped(read: 1_061, left: 1_061), gsKeepReading,
         welcomeHelloNoName, welcomeYourName, welcomeWhoReads, welcomeStarting, welcomeSetUpLater, welcomeClose,
-        welcomeRemoveDrop, welcomeHello("Ada"), welcomeNotYou("Ada"), welcomeNameFromMac,
+        welcomeRemoveDrop, welcomeHello("Ada"), welcomeEditName, welcomeNameFromMac,
         reminderRemindMe, reminderInThreeHours, reminderTomorrowMorning, reminderInTwoDays, reminderBody,
         reminderDropHere, reminderDismiss, welcomeAskForOne,
         reminderRowLine(requested: "2 hours ago", reminder: "in 21 hours"),

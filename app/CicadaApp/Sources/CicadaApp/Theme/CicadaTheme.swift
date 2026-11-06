@@ -52,6 +52,9 @@ final class ThemeStore {
     static let scaleStep = 0.1
 
     var uiScale: Double
+    /// Owner 2026-11-06 — counts every zoom the person made (a key, the menu, the palette, the Settings slider), so the
+    /// percentage pill shows one even at the limit, where the scale itself does not move. Never persisted.
+    var zoomPulse = 0
 
     /// Where the preference and `AppleInterfaceStyle` are re-read on a flip —
     /// a test hands in a suite, the app the standard domain.
@@ -438,13 +441,21 @@ enum CicadaTheme {
             // redundant write also skips the redundant UserDefaults sync.
             guard ThemeStore.shared.uiScale != clamped else { return }
             ThemeStore.shared.uiScale = clamped
+            ThemeStore.shared.zoomPulse += 1
             UserDefaults.standard.set(clamped, forKey: ThemeStore.scaleKey)
         }
     }
 
-    static func zoomIn() { uiScale = ThemeStore.shared.uiScale + ThemeStore.scaleStep }
-    static func zoomOut() { uiScale = ThemeStore.shared.uiScale - ThemeStore.scaleStep }
-    static func resetZoom() { uiScale = 1.0 }
+    /// The commands announce themselves even when the scale is already at a limit (or at 100% for Actual Size).
+    static func zoomIn() { zoom(to: ThemeStore.shared.uiScale + ThemeStore.scaleStep) }
+    static func zoomOut() { zoom(to: ThemeStore.shared.uiScale - ThemeStore.scaleStep) }
+    static func resetZoom() { zoom(to: 1.0) }
+
+    private static func zoom(to value: Double) {
+        let before = ThemeStore.shared.zoomPulse
+        uiScale = value
+        if ThemeStore.shared.zoomPulse == before { ThemeStore.shared.zoomPulse += 1 }
+    }
 
     // MARK: - Typography (G130: derived from `uiScale`, so ⌘+/⌘− reach every reader)
     private static var scale: CGFloat { CGFloat(uiScale) }
