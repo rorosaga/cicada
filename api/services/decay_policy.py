@@ -80,6 +80,39 @@ def agent_class(value) -> DecayClass | None:
     return cls
 
 
+def fact_class_proposal(value) -> DecayClass | None:
+    """What the extraction model may propose for ONE FACT (ROR-129, owner 2026-11-06: "sleep consolidation should be
+    able to say if something is evergreen"): any of the four, in any language — the model reads the meaning, no word
+    list does. A page keeps the rail (:func:`agent_class`: never evergreen); a fact's evergreen is undoable by the
+    person (``class_by: user`` outranks it) and never holds its page up."""
+    return coerce(value)
+
+
+def fact_class(claim_class, class_by, page_class: DecayClass, page_type: str | None) -> DecayClass | None:
+    """The class one fact fades by, or ``None`` when it never fades.
+
+    * a ``media`` page's facts are artifacts: they never fade, whatever the fact says;
+    * the fact's own class (the person's keep, else the model's proposal) wins on any other page;
+    * a fact with none uses its page's class, and an evergreen page that is not media lends ``active``: the page
+      never fades, asks or archives, its facts do not inherit that.
+
+    ``None`` means evergreen. ``class_by`` is carried for callers that need to know who decided; the choice itself
+    is the same either way (the person's word is already the one stored, a model's never overwrites it)."""
+    if (page_type or "").strip().lower() == "media":
+        return None
+    own = coerce(claim_class)
+    cls = own or page_class
+    if cls is DecayClass.evergreen:
+        return None if own is DecayClass.evergreen else DecayClass.active
+    return cls
+
+
+def fact_multiplier(claim_class, class_by, page_class: DecayClass, page_type: str | None) -> float:
+    """The claim engine's class multiplier for one fact (0.0: never fades). See :func:`fact_class`."""
+    cls = fact_class(claim_class, class_by, page_class, page_type)
+    return 0.0 if cls is None else claim_multiplier(cls)
+
+
 def rate_for(cls: DecayClass) -> float:
     return DECAY_CLASS_RATES[cls]
 

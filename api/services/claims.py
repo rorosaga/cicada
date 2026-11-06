@@ -221,6 +221,12 @@ class Claim:
     # ``turn_extras``, so the reaction is the claim's evidence by turn id. It moved the confidence, never the observer.
     # Omitted when empty.
     reactions: list[dict] = field(default_factory=list)
+    # ROR-129 (owner 2026-11-06): a fact has its own relevance apart from its page. ``decay_class`` is the fact's own
+    # class (``evergreen|durable|active|volatile``), proposed by the extraction model in any language or set by the
+    # person's "keep this fact"; ``class_by`` is ``model`` or ``user`` — a person's word is never replaced by a model's.
+    # Both omitted when unset: a fact with none uses its page's class (`decay_policy.fact_multiplier`).
+    decay_class: str | None = None
+    class_by: str | None = None
 
     def all_session_ids(self) -> list[str]:
         """Every session that has written or reinforced this claim, deduped,
@@ -254,7 +260,7 @@ class Claim:
         data["participants"] = clean_participants(data.get("participants"))
         if not data["participants"]:
             data.pop("participants", None)
-        for key in ("recorded_ts", "recovered_from", "recovered_by", "faded_by_age"):
+        for key in ("recorded_ts", "recovered_from", "recovered_by", "faded_by_age", "decay_class", "class_by"):
             if data.get(key) is None:
                 data.pop(key, None)
         if not data.get("read_late"):
@@ -303,6 +309,8 @@ class Claim:
             recovered_from=_opt_str(data.get("recovered_from")),
             recovered_by=_opt_str(data.get("recovered_by")),
             faded_by_age=_opt_str(data.get("faded_by_age")),
+            decay_class=_fact_class_text(data.get("decay_class")),
+            class_by=_class_by_text(data.get("class_by")),
             read_late=_read_late(data.get("read_late")),
             reactions=clean_reactions(data.get("reactions")),
         )
@@ -544,6 +552,20 @@ def clean_participants(raw) -> list[dict]:
             continue
         out.append({k: str(item[k]) for k in PARTICIPANT_KEYS if item.get(k) not in (None, "")})
     return out
+
+
+_FACT_CLASSES = ("evergreen", "durable", "active", "volatile")
+
+
+def _fact_class_text(value) -> str | None:
+    """A fact's own class as stored, or ``None`` for anything outside the four (a bad value is dropped, never raised)."""
+    text = str(value or "").strip().lower()
+    return text if text in _FACT_CLASSES else None
+
+
+def _class_by_text(value) -> str | None:
+    text = str(value or "").strip().lower()
+    return text if text in ("model", "user") else None
 
 
 def _opt_str(value: Any) -> str | None:
