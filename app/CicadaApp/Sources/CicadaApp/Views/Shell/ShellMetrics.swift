@@ -6,9 +6,6 @@ import SwiftUI
 enum ShellMetrics {
     /// R-DS15 — rail or labelled sidebar, per viewer. A convenience, so `UserDefaults`.
     static let labelledKey = "cicada.shell.labelledSidebar"
-    /// ROR-118 (2026-11-06, §9) — the labelled sidebar is the default: blind judges named the unlabelled thin icons on
-    /// every page. A viewer who toggled keeps their choice; the rail stays one toggle (titlebar, ⌃⌘S) away.
-    static let labelledDefault = true
     static let railWidth: CGFloat = 56
     static let sidebarWidth: CGFloat = 208
     static let railCell: CGFloat = 36          // at a 40 pt pitch (a 4 pt gap)

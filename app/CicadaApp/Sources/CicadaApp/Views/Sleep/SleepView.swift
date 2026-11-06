@@ -160,7 +160,7 @@ struct SleepView: View {
     @AppStorage(SceneryMode.defaultsKey) private var scenerySourceRaw = SceneryMode.localWeather.rawValue
     @AppStorage(ManualScenery.timeKey) private var sceneryTimeRaw = "day"
     @AppStorage(ManualScenery.baseKey) private var sceneryWeatherRaw = "sunny"
-    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = ShellMetrics.labelledDefault
+    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
 
     @Binding var selectedTab: AppTab
     /// Entity chips inside the consolidation history's expanded detail land

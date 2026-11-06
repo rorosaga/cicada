@@ -15,7 +15,7 @@ struct SourcesPageView: View {
     @Environment(IntakeRouter.self) private var intake
     @Environment(ContributorsViewModel.self) private var contributorsVM
     @Environment(ProvenanceRouter.self) private var provenance
-    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = ShellMetrics.labelledDefault
+    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var columns = ListColumns<SourcesSelection>()
     /// G217 — the sites an agent may read, for the accounts' per-site control (in memory, not a Store domain).

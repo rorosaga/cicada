@@ -283,7 +283,7 @@ dollars to that secondary line under the total; a metered run keeps its dollars 
 its window shift, else "share of the plan not recorded". Past nights' folded run row does not carry the figure (its
 detail does): the row has no whole-run usage on the wire.
 
-**Navigation (Direction D, DS-1).** The labelled 208 pt sidebar by default since ROR-118 (the 56 pt icon rail one toggle away) (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Skills,
+**Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Skills,
 Sleep, Sources, Projects, Agents at ⌘1–5 and ⌘7–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant).
 **The Inbox left the rail (ruling 48 (2), owner 2026-10-28):** its questions live on Home and on each page, and the
 full grouped list is Home's sub-view — `AppTab.inbox` stays a destination (⌘K, the menu bar, a notification, Home's

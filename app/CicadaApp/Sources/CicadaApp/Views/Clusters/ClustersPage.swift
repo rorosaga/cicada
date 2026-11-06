@@ -9,7 +9,7 @@ struct ClustersPage: View {
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(AppRouter.self) private var router
     @Environment(ProvenanceRouter.self) private var provenance
-    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = ShellMetrics.labelledDefault
+    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
     @AppStorage(ClustersModel.expandAllKey) private var expandAll = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 

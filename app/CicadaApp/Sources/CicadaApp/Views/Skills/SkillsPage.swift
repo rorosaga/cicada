@@ -85,7 +85,7 @@ struct SkillsPageView: View {
     var onRead: (SkillDraft) -> Void = { _ in }
 
     @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
-    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = ShellMetrics.labelledDefault
+    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var focus: ListFocus?
 

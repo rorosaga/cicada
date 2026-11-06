@@ -15,7 +15,7 @@ struct InboxPage: View {
     @Environment(AppRouter.self) private var router
     @Environment(ProvenanceRouter.self) private var provenance
     @Environment(Store.self) private var store
-    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = ShellMetrics.labelledDefault
+    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum Focus: Hashable { case list, question, reader }

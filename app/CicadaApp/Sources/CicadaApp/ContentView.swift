@@ -12,7 +12,7 @@ struct ContentView: View {
     /// exists (G68 retired five of them).
     @AppStorage("cicada.selectedTab") private var selectedTabRaw = AppTab.home.rawValue
     /// R-DS15 — per viewer: the icon rail (default) or the labelled sidebar.
-    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = ShellMetrics.labelledDefault
+    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
     /// G218 (owner 2026-10-26) — the Traces page is on the rail (mirrored from the recorder's answer).
     @AppStorage(TracesPageVisibility.key) private var tracesPage = false
     @Environment(TraceRecorder.self) private var traceRecorder: TraceRecorder?
