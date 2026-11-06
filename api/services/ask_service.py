@@ -830,6 +830,16 @@ _ADVICE_NOTE = (
     "themselves are yours. Never decline for want of a stated taste. Only when nothing in the context bears on it, say "
     "so in one line and give general advice. Keep confidence below 0.7.")
 
+#: "What has come up lately?" (owner, 2026-11-06): only for a question the search model reads as that (``Searched.lately``).
+_LATELY_NOTE = (
+    "THIS QUESTION ASKS WHAT HAS COME UP LATELY, about no subject in particular. The pages first are those said most "
+    "lately, and OTHER CONVERSATIONS holds the newest ones, whatever their words. Say who and what comes up most and on "
+    "which days, the newest first; a line from a conversation Sleep has not read is still what was said. Say so only if "
+    "the newest day shown is long past.")
+#: The pages said most lately that lead such an answer, and how many of what its words found stay beside them.
+LATELY_PAGES = 5
+LATELY_OTHER_PAGES = 3
+
 #: 2026-10-20 (G148): the owner's Spanish questions answered half as often as their English counterparts.
 _SPANISH_NOTE = (
     "The question is in Spanish; the memory may record its subject in English, in Spanish or in both. A line answers "
@@ -953,7 +963,7 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
         if said:
             context += ("\n\nWHAT WAS SAID (word for word, from the conversations the claims and lines above cite; "
                         "oldest first):\n" + said)
-    if source_words and memory_path is not None and searched is not None and searched.episodes:
+    if source_words and memory_path is not None and searched is not None and (searched.episodes or searched.lately):
         try:
             more = ask_sources.gather_search(memory_path, query, searched, owner_name=owner_name,
                                              taken=ask_sources.shown_turns(excerpts), deep=unread_budget,
@@ -997,6 +1007,8 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
     elif getattr(searched, "record_lang", ""):
         language = _LANGUAGE_NAMES.get(searched.record_lang, "another language")
         notes += _RECORD_LANGUAGE_NOTE.format(language=language) + "\n\n"
+    if getattr(searched, "lately", None):
+        notes += _LATELY_NOTE + "\n\n"
     if getattr(searched, "advice", False):
         notes += _ADVICE_NOTE + "\n\n"
     elif inference:
@@ -1601,9 +1613,18 @@ def answer_query(
         except Exception as exc:  # noqa: BLE001 — the leg is context; its absence never fails an answer
             logger.debug(f"ask search leg skipped ({type(exc).__name__})")
 
+    # What's come up lately names no subject: the pages said most lately lead, ahead of a few of what its words found.
+    if searched is not None and searched.lately:
+        from api.services import page_use
+
+        lead = _retrieved_entities(memory_path, [{"entity_id": e} for e in page_use.top_lately(memory_path, LATELY_PAGES)],
+                                   include_history=include_history, query=query)
+        ids = {e["entity_id"] for e in lead}
+        entities = lead + [e for e in entities if e["entity_id"] not in ids][:LATELY_OTHER_PAGES]
+
     # Honest-gap fast path: nothing to ground on => do NOT call the LLM, do NOT
     # hallucinate. This is the key auditable-synthesis behaviour.
-    if not entities and not watched and not saved and not (searched and searched.episodes):
+    if not entities and not watched and not saved and not (searched and (searched.episodes or searched.lately)):
         return _gap_response(query)
 
     if entities:

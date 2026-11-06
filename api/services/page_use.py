@@ -211,6 +211,15 @@ def lately_of(memory_path: Path, refs, *, today: date | None = None) -> dict[str
     return out
 
 
+def top_lately(memory_path: Path, limit: int, *, today: date | None = None) -> list[str]:
+    """The pages said most lately, best first, the owner's left out: it is said in nearly everything, so it says nothing."""
+    from api.services import everyday_names
+
+    owner = everyday_names.owner_id(memory_path)
+    table = lately(memory_path, today=today)
+    return sorted((k for k in table if k != owner), key=lambda k: -table[k])[:limit]
+
+
 def _dir_mtime(directory: Path) -> int:
     """The entities directory's own mtime: one stat, not a scan of 8k pages. Every page write is atomic (a temp file
     renamed into place, the storage rail), so each one moves it; a hand edit in place may not, and then the order is

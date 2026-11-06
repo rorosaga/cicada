@@ -1403,6 +1403,19 @@ saying which lines and that the suggestions are its own, confidence below 0.7. T
 characters instead of 2 and 800, because a taste is rarely said in the question's words. With no model on the machine it says no,
 and the question goes on as any other.
 
+**"What's come up lately?" names no subject (owner 2026-11-06).** No word of it finds an answer, so on a memory with nothing
+slept it found little or nothing in most languages. `question_intent.asks_lately` reads it the same way as advice, one set of
+examples for every language; `ask_sources.search` then adds the newest conversations (`newest_conversations`: at most 10, 3
+from one day, read or not, never a memory export entry, a feed item, a watched day or a bare save), and the lines are the
+person's first and last turn of each. On Ask and recall the pages said most lately lead (`page_use.top_lately`, the owner's
+left out), which needs Sleep; a conversation waiting for it still shows by its lines. Only such a question builds the bank-wide table, about 3.7 s the first time in a process on a real bank's clone, cached after; every other recall keeps `lately_of`. A question with a subject of its own must
+beat every other kind by `LATELY_MARGIN`, since it spends window; one with no word the record uses only has to be nearest.
+With no model on the machine it says no. The hook doesn't embed, so it doesn't take this path. Measured, no model: 20 held-out
+questions in 11 languages over one public conversation, nothing slept, a turn from the newest 3 days reaches the window on
+10→20 in English; 3→16 Spanish, 2→16 German, 5→15 French, 2→18 Portuguese, 2→17 Japanese, 4→16 Chinese, 4→16 Hindi, 3→16 Korean,
+2→16 Russian; **Arabic only 2→6**, its questions rarely being read as this kind. False alarms: 7 of 2,486 English benchmark
+questions, 0 to 3 of 150 translated per language. Translations by a model, unchecked by a person.
+
 Measured on LongMemEval_S, nothing slept, haiku on the answer and the judge, one run each, against the baseline:
 
 | | Preference of 8 | Overall of 100 | Tokens per right answer |
