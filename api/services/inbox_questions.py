@@ -173,9 +173,12 @@ def refresh_open_questions(
     if not inbox.exists():
         return counts
 
+    from api.services import episode_time
+
+    untimed = episode_time.untimed_ids(memory_path)
     for filepath in sorted(inbox.glob("inbox-*.md")):
         try:
-            _refresh_one(filepath, claims_by_subject, today, stale_after_days, counts)
+            _refresh_one(filepath, claims_by_subject, today, stale_after_days, counts, untimed)
         except Exception:
             # A file removed or rewritten by a concurrent resolve must not abort
             # the whole sweep — skip it and carry on with the rest of the inbox.
@@ -190,6 +193,7 @@ def _refresh_one(
     today: str,
     stale_after_days: int,
     counts: dict,
+    untimed: frozenset = frozenset(),
 ) -> None:
     """Re-score ONE open conflict question (the per-file body of the sweep)."""
     from api.services import markdown_parser
@@ -238,12 +242,17 @@ def _refresh_one(
     changed = False
 
     # --- 1. bump + re-order ------------------------------------------------
+    # An option is bumped by when its claim was last SAID (age counts from when it was said), never by when Sleep
+    # read it: a late read of an old conversation is no reason to call the value fresh. A stored date is only ever
+    # raised here. (Imported here: source_refresh reaches the reconciler, which imports this module.)
+    from api.services import source_refresh
+
     bumped_any = False
     for option in options:
         claim = by_id.get(str(option.get("claim_id") or ""))
         if claim is None:
             continue
-        seen = str(claim.recorded_at or claim.valid_from or "")
+        seen = str(source_refresh.said_on(claim, untimed) or "")
         current = str(option.get("last_referenced") or option.get("observed_at") or "")
         if seen and seen > current:
             option["last_referenced"] = seen
@@ -355,7 +364,7 @@ def decay_question(name: str, last_referenced: str | None, today: str) -> dict:
         "options": [
             {
                 "key": "keep",
-                "label": "Keep active",
+                "label": "Yes, keep it",
                 "description": f"{lead} · still relevant; confidence restored to at least 0.6",
                 "claim_id": None,
                 "observed_at": last_referenced,
@@ -363,7 +372,7 @@ def decay_question(name: str, last_referenced: str | None, today: str) -> dict:
             },
             {
                 "key": "archive",
-                "label": "Archive",
+                "label": "No, archive it",
                 "description": f"{lead} · move it to the archive; it comes back on the next mention",
                 "claim_id": None,
                 "observed_at": last_referenced,

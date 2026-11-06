@@ -1875,10 +1875,10 @@ Respond with JSON only:
 {
   "has_unresolvable_contradiction": true | false,
   "contradiction": "one-sentence description of the contradiction, or empty",
-  "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does the owner work now?'). Empty when there is no contradiction.",
+  "question": "ONE short question, asked directly to the person this memory belongs to: 'you', never 'I' and never their name (e.g. 'Where do you work now?'). Empty when there is no contradiction.",
   "options": [
-    {"label": "the existing claim, 1-4 words", "description": "one short clause saying where this came from and when"},
-    {"label": "the new claim, 1-4 words", "description": "one short clause saying where this came from and when"},
+    {"label": "what the existing statement says, 1-4 words", "description": "one short clause: what it says and when; never the words existing, new, description, record or claim"},
+    {"label": "what the new statement says, 1-4 words", "description": "one short clause: what it says and when; never the words existing, new, description, record or claim"},
     {"label": "Both are true (different contexts)", "description": "Keep both, each tagged with its context"}
   ]
 }
@@ -1961,10 +1961,10 @@ Respond with JSON only, one result for every entity, in the order given:
       "entity": 1,
       "has_unresolvable_contradiction": true | false,
       "contradiction": "one-sentence description of the contradiction, or empty",
-      "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does the owner work now?'). Empty when there is no contradiction.",
+      "question": "ONE short question, asked directly to the person this memory belongs to: 'you', never 'I' and never their name (e.g. 'Where do you work now?'). Empty when there is no contradiction.",
       "options": [
-        {"label": "the existing claim, 1-4 words", "description": "one short clause saying where this came from and when"},
-        {"label": "the new claim, 1-4 words", "description": "one short clause saying where this came from and when"},
+        {"label": "what the existing statement says, 1-4 words", "description": "one short clause: what it says and when; never the words existing, new, description, record or claim"},
+        {"label": "what the new statement says, 1-4 words", "description": "one short clause: what it says and when; never the words existing, new, description, record or claim"},
         {"label": "Both are true (different contexts)", "description": "Keep both, each tagged with its context"}
       ]
     }

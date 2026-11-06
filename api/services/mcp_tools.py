@@ -5973,7 +5973,23 @@ def _agent_question(
             fm["options"] = [o for o in options if str(o.get("key")) == rec] + [
                 o for o in options if str(o.get("key")) != rec
             ]
-        return fm, ctx.cause_for(fm, options).to_wire(), rec
+        cause = ctx.cause_for(fm, options).to_wire()
+        if str(fm.get("kind") or "") == "conflict":
+            # The options as the app serves them (`inbox_wording.present_options`): dated by when each was said.
+            # The claims are read once per page for this context (`InboxContext.claims`), not once per option.
+            from api.services import inbox_wording
+
+            def _name(pid: str) -> str | None:
+                found = ctx.entity(pid)
+                return str((found.frontmatter or {}).get("name") or "") or None if found is not None else None
+
+            try:
+                fm["options"] = inbox_wording.present_options(
+                    {**fm, "options": fm.get("options") or options}, today, claims=ctx.claims(entity_id),
+                    page_name=_name, untimed=ctx.untimed())
+            except Exception:  # noqa: BLE001 — the stored options still read
+                pass
+        return fm, cause, rec
     except Exception:
         return fm, None, None
 
