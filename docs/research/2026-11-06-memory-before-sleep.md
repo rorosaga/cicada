@@ -56,3 +56,15 @@ One public conversation (LoCoMo conv-26) held and asked in each language, 38 que
 | 25 | 18 | 10 | 0 | 0 |
 
 Two causes: `question_language` knew only English and Spanish, so the meaning leg stayed off for every other language; and the word index holds an unspaced run as one token, so a word inside it can't be found.
+
+With overlapping pairs for unspaced scripts and the meaning leg on for any other language (#693), graded on Ask (haiku on answers and judge, 40 questions, one run each, nothing slept):
+
+| | English | German | Arabic | Japanese | Chinese |
+|---|---|---|---|---|---|
+| Right, before | 60.0 | 35.0 | 25.0 | 0.0 | 0.0 |
+| Right, after | not re-graded | 45.0 | 42.5 | 42.5 | 62.5 |
+| Answer turn reached of 38, after | 25 | 21 | 14 | 15 | 20 |
+| Tokens per right answer, before | 6,816 | 13,090 | 12,129 | none right | none right |
+| Tokens per right answer, after | | 11,085 | 11,537 | 12,402 | 8,051 |
+
+The same questions in German, Arabic, Japanese and Chinese over someone else's English memory: 0 of 160 right. One conversation, translations by a model and unchecked by a person, Korean, Hindi and others not run at this level, and nothing slept.
