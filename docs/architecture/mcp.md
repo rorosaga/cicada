@@ -762,6 +762,7 @@ saved list's own pause), as does turning a list on again. A `read` (≤ 200 rows
   its `channel`. A post is its canonical URL — `<pub>.substack.com/p/<slug>`, the shape a publication's feed links to,
   so a post a followed feed already brought in is a duplicate, never a second page; `open.substack.com/pub/<pub>/p/…`
   and `substack.com/@<handle>/p-<id>` ride as aliases; a publication on its own domain keeps its `/p/<slug>` URL.
+- **Liked** (ROR-138, the Likes section of the reader's own profile) → the same write as Saved, origin `substack-saved`, folder `Liked`, so a post both saved and liked is one page on two lists. A feed item (`rss`) is no save: its page says "From a feed" and the app keeps it out of Media unless its kind is chosen. A publication followed from the Subscriptions list (`via: substack-subscriptions`) is polled only while that switch is on (`feed_registry._followed_on`).
 - **History** → reading days (`substack_reads`, `capture-and-sleep.md`), never saves.
 - **Subscriptions** → each publication followed through its own public `/feed` (`feed_registry.subscribe_feed`, tag
   `substack`, its name as `title`, `via: substack-subscriptions`, `automatic`), polled behind the feed gate like any
