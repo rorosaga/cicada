@@ -36,7 +36,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable
 
-from api.services import authorship, evidence
+from api.services import authorship, episode_scrub, evidence
 
 PASSWORD, KEY, CARD, BANK, ID = "password", "key", "card", "bank", "id"
 #: The order a row names them in. Telemetry and the wire carry these enums, never a value.
@@ -347,37 +347,42 @@ def _passwords(line: str, base: int, ctx: Context) -> Iterable[Hit]:
 
 # ---- key -----------------------------------------------------------------------------------------------------------
 
-#: Vendor shapes. The first group `episode_scrub` already replaces at capture, so a hit means a body older than it; the
-#: rest it does not know (and a scrub is permanent, so they are reported here rather than added there unasked).
+#: Vendor shapes. `episode_scrub` replaces every one of these at capture (the last eight since 2026-11-06), so a hit means a
+#: body older than that. ``(?<![A-Za-z0-9])``, not ``\b``: a word boundary does not fall after an underscore.
 _VENDOR_RES: tuple[re.Pattern[str], ...] = tuple(re.compile(p) for p in (
-    r"\bsk-(?:ant-|proj-|or-)?[A-Za-z0-9_-]{20,}",
-    r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}",
-    r"\bgithub_pat_[A-Za-z0-9_]{20,}",
-    r"\bxox[abopr]s?-[A-Za-z0-9-]{10,}",
-    r"\bAKIA[0-9A-Z]{16}\b",
-    r"\bAIza[0-9A-Za-z_-]{30,}",
-    r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",
-    # Not scrubbed today:
-    r"\b[sr]k_live_[A-Za-z0-9]{16,}",
-    r"\bglpat-[A-Za-z0-9_-]{16,}",
-    r"\bnpm_[A-Za-z0-9]{30,}",
-    r"\bhf_[A-Za-z0-9]{30,}",
-    r"\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}",
-    r"\bxai-[A-Za-z0-9]{30,}",
-    r"\bgsk_[A-Za-z0-9]{30,}",
-    r"\bpplx-[A-Za-z0-9]{30,}",
+    r"(?<![A-Za-z0-9])sk-(?:ant-|proj-|or-)?[A-Za-z0-9_-]{20,}",
+    r"(?<![A-Za-z0-9])(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}",
+    r"(?<![A-Za-z0-9])github_pat_[A-Za-z0-9_]{20,}",
+    r"(?<![A-Za-z0-9])xox[abopr]s?-[A-Za-z0-9-]{10,}",
+    r"(?<![A-Za-z0-9])AKIA[0-9A-Z]{16}\b",
+    r"(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}",
+    r"(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",
+    # `episode_scrub` takes these too since 2026-11-06:
+    r"(?<![A-Za-z0-9])[sr]k_live_[A-Za-z0-9]{16,}",
+    r"(?<![A-Za-z0-9])glpat-[A-Za-z0-9_-]{16,}",
+    r"(?<![A-Za-z0-9])npm_[A-Za-z0-9]{30,}",
+    r"(?<![A-Za-z0-9])hf_[A-Za-z0-9]{30,}",
+    r"(?<![A-Za-z0-9])SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}",
+    r"(?<![A-Za-z0-9])xai-[A-Za-z0-9]{30,}",
+    r"(?<![A-Za-z0-9])gsk_[A-Za-z0-9]{30,}",
+    r"(?<![A-Za-z0-9])pplx-[A-Za-z0-9]{30,}",
 ))
 #: A whole PEM block: the header alone is every TLS tutorial.
 _PEM_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----\s*[A-Za-z0-9+/=\s]{64,}?-----END [A-Z ]*PRIVATE KEY-----")
 _URL_CRED_RE = re.compile(
     r"\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss|amqps?|ftp|sftp|ssh|smb|https?)"
-    r"://[^\s:/@]+:(?P<value>[^\s:/@]{4,})@[^\s/]+", re.IGNORECASE)
+    r"://[^\s:/@]*:(?P<value>[^\s:/@]{2,})@[^\s/]+", re.IGNORECASE)
 #: A database's own name doubling as its dev password: every local connection string in every README.
 _URL_DEFAULTS = frozenset({"postgres", "postgresql", "mysql", "root", "redis", "mongo", "mongodb", "guest", "rabbitmq",
                            "localhost", "pass", "pwd", "user"})
 _ENV_LINE_RE = re.compile(
-    r"^\s*(?:export\s+)?[A-Z][A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|API_KEY|APIKEY|ACCESS_KEY|PRIVATE_KEY|AUTH_TOKEN|ACCESS_TOKEN)"
+    r"^\s*(?:export\s+)?[A-Z][A-Z0-9_]*(?:PASSWORD|PASSWD|PWD|SECRET|SECRET_KEY|API_KEY|APIKEY|ACCESS_KEY|PRIVATE_KEY|AUTH_TOKEN"
+    r"|ACCESS_TOKEN|REFRESH_TOKEN)"
     r"\s*=\s*['\"]?(?P<value>[^\s'\"#]{8,})['\"]?\s*$")
+#: What an env line's value must not look like: code, or a path. Not the ``/.*/`` rule of `_CODE_CHARS_RE`: a real AWS
+#: secret key has slashes in it.
+_ENV_CODE_RE = re.compile(r"[(){}<>\[\]$\\|;^]|=>|->|::|^[.\-/~@]|\.(?:py|js|ts|md|env|json|ya?ml|txt|sh|swift|html?|com|org|net)$",
+                          re.IGNORECASE)
 
 
 #: "api key: <value>", said in words: `episode_scrub` wants ``api_key`` and 12+ characters joined by ``=``/``:``, which a
@@ -402,9 +407,9 @@ def _keys(line: str, base: int, ctx: Context) -> Iterable[Hit]:
         return
     for m in _URL_CRED_RE.finditer(line):
         value = m.group("value")
-        if value.casefold() in _URL_DEFAULTS:
+        if value.casefold() in _URL_DEFAULTS or (value.isdigit() and len(value) <= 5):     # a default, or a port
             continue
-        if not _CODE_CHARS_RE.search(value) and not _PLACEHOLDER_RE.search(value) and value.casefold() not in _CODE_VALUE:
+        if not _CODE_CHARS_RE.search(value) and not episode_scrub.placeholder_value(value) and value.casefold() not in _CODE_VALUE:
             yield Hit(KEY, base + m.start("value"), base + m.end("value"))
     if not ctx.fenced:
         for m in _SAID_KEY_RE.finditer(line):
@@ -416,7 +421,7 @@ def _keys(line: str, base: int, ctx: Context) -> Iterable[Hit]:
     if m:
         value = m.group("value")
         if (any(c.isdigit() for c in value) and any(c.isalpha() for c in value)
-                and not _CODE_CHARS_RE.search(value) and not _PLACEHOLDER_RE.search(value)):
+                and not _ENV_CODE_RE.search(value) and not episode_scrub.placeholder_value(value)):
             yield Hit(KEY, base + m.start("value"), base + m.end("value"))
 
 
@@ -612,7 +617,7 @@ def _ids(line: str, base: int, ctx: Context) -> Iterable[Hit]:
 _FENCE_RE = re.compile(r"^\s*(?:(?:user|human|assistant|ai|chatgpt|claude|system|speaker:[^:]*)\s*:\s*)?(?:```|~~~)", re.IGNORECASE)
 #: Quick refusal: a line none of the families could match costs one search.
 _ANY_RE = re.compile(
-    rf"\d{{3,}}|{_WORD}|\b(?:sk|ghp|gho|ghu|ghs|ghr|github_pat|glpat|npm|hf|SG|xai|gsk|pplx|rk)[-_.]|\b(?:xox|AKIA|AIza|eyJ)|://|"
+    rf"\d{{3,}}|{_WORD}|(?<![A-Za-z0-9])(?:sk|ghp|gho|ghu|ghs|ghr|github_pat|glpat|npm|hf|SG|xai|gsk|pplx|rk)[-_.]|(?<![A-Za-z0-9])(?:xox|AKIA|AIza|eyJ)|://|"
     r"PASSWORD|PASSWD|SECRET|_KEY|_TOKEN|\bapi\s+(?:key|token)|\b(?:access|auth)\s+token|\bbearer\b|\bssn\b|\bcvc|\bcvv", re.IGNORECASE)
 
 

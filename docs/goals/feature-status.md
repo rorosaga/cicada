@@ -9,6 +9,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
+| ROR-132 | Secrets behind an underscored name or in a URL (`DB_PASSWORD=`, `AWS_SECRET_ACCESS_KEY=`, `scheme://user:pw@host`, `sk_live_…`) were stored whole: the scrub's `\b` fails after an underscore. One name rule for every writer, URL passwords, the vendor shapes the finder already knew, placeholders kept; `sensitive_text` agrees. Forward-only | PR open | #PR | 2026-11-06 |
 | ROR-118 | UI climb round 1, shared parts (ROR-118): a clearer rail, the type ladder up a step with a lighter dark tertiary, the page name leading each list page, stronger scrims, a Settings panel that cues more below, pictures drawn on the first frame | PR open | pending | 2026-11-06 |
 | [G161](memory-evolution.md#g161) | An Apple Note reads as the note (ROR-15, part 1): headings, lists, checklists as far as Notes' HTML carries them, styles, tables and links, native and read-only, spans on the one standard; fetched at view time, in memory only, plain text on any mismatch or failure | Implemented, not yet seen on a real note | #638 | 2026-11-05 |
 | [G161](memory-evolution.md#g161) | A pinned Apple Note (ROR-15, part 2): listed first under "Pinned", read from Notes' store with Full Disk Access already held (`Z_PK` alone), kept outside the hash and the queue, and told to Stage 1 as one line for the model to judge | Implemented, not yet seen on a real store | #639 | 2026-11-05 |
