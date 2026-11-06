@@ -13,6 +13,13 @@ final class SourceShelfTests: XCTestCase {
         SourceChannel(id: id, label: id, connected: true, lastSync: nil, lastError: nil)
     }
 
+    func testYoursStripSpreadsItsRowsEvenly() {
+        XCTAssertEqual((1...6).map { SourceAddOverlay.yoursColumns($0) }, [1, 2, 3, 4, 5, 6])
+        XCTAssertEqual(SourceAddOverlay.yoursColumns(7), 4, "7 marks are 4 + 3, never 6 + 1")
+        XCTAssertEqual(SourceAddOverlay.yoursColumns(13), 5, "13 marks are 5 + 5 + 3, never 6 + 6 + 1")
+        XCTAssertEqual(SourceAddOverlay.yoursColumns(0), 1)
+    }
+
     func testEveryCatalogueEntryHasOneKindAndNoVendorMakesAKind() {
         let all = rows()
         XCTAssertEqual(Set(all.map(\.entry.shelf)), Set(SourceShelf.allCases), "all six kinds hold something")
