@@ -568,6 +568,16 @@ def _class_by_text(value) -> str | None:
     return text if text in ("model", "user") else None
 
 
+#: ROR-129: a fact below this reads as older on its page (dimmed, in an "older" fold). It is never closed or hidden.
+FADED_BELOW = 0.2
+
+
+def is_faded(claim: "Claim") -> bool:
+    """A current fact that has faded to where its page folds it away (ROR-129). A kept or evergreen fact never is, and
+    an event is dated history, not a belief that fades. Presentation only: Ask, recall and agents read it as before."""
+    return (not is_event(claim) and claim.decay_class != "evergreen" and claim.confidence < FADED_BELOW)
+
+
 def _opt_str(value: Any) -> str | None:
     """Normalize an optional scalar to ``str`` or ``None`` (YAML may parse dates)."""
     if value is None:

@@ -503,6 +503,11 @@ def _still(fm: dict, today: str, name: str, page_fm: dict | None, *, own: bool) 
     question = _ask(template.format(obj=obj, name=name)) if template else _ask(str(fm.get("question") or ""))
     said = fm.get("last_said")
     n = int(fm.get("said_in") or 0)
+    if str(fm.get("still") or "") == "long_term":
+        # ROR-129: a fact judged long-term, unsaid for a year; asked about itself, not its page.
+        quiet = _for(said, today)
+        return Spoken(question, f"It's a long-term fact and nothing has said it again {quiet}, so I'd rather ask than let it fade."
+                      if quiet else "It's a long-term fact and has gone quiet, so I'd rather ask than let it fade.")
     if predicate in INTEREST_PREDICATES:
         when = _ago(said, today)
         if n <= 1 and when:

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from api.services import claims as claims_mod
 from api.models.schemas import ClaimModel, ParticipantModel, TransclusionPayload
 from api.services import git_service, markdown_parser, turn_authorship
 from api.services.claims import Claim, is_current, parse_claims
@@ -93,6 +94,9 @@ def claim_to_model(claim: Claim, *, turns: turn_authorship.TurnAuthorship | None
         recorded_ts=claim.recorded_ts,
         author_model=model,
         author_effort=effort,
+        decay_class=claim.decay_class,
+        class_by=claim.class_by,
+        faded=claims_mod.is_faded(claim),
     )
 
 
