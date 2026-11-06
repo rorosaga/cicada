@@ -2084,7 +2084,7 @@ def _option_said_on(option: dict, today: str) -> str:
 
 
 def _hold_offered_value(option: dict, *, fm_item: dict, entity_id: str, name: str, predicate: str, claim_list: list,
-                        settings, today: str, confirmed: bool):
+                        settings, today: str, confirmed: bool, holds_now: bool = True):
     """The claim holding an offered value, written to ``claim_list`` if the page has none.
 
     The reconciler's ``CONFLICT_NUDGE`` leaves a new value only in the question (`claim_reconciler._place_claim`), so an
@@ -2092,8 +2092,9 @@ def _hold_offered_value(option: dict, *, fm_item: dict, entity_id: str, name: st
     value only offered, with no claim id, is prose: None.
 
     ``confirmed`` is the person's own answer. A value Sleep settled or the person only dismissed past stays as read, an
-    extraction, and is never written as their act; with no one saying it holds now, a closed claim of that value is
-    enough, so nothing closed is reopened."""
+    extraction, and is never written as their act. ``holds_now`` is an answer saying the value is current, which a
+    closed claim cannot carry; a dismissal says no such thing, so a closed claim of that value is enough there and
+    nothing closed is reopened."""
     from api.services.claims import Claim
 
     claim_id = str(option.get("claim_id") or "")
@@ -2104,7 +2105,7 @@ def _hold_offered_value(option: dict, *, fm_item: dict, entity_id: str, name: st
         if claim.id == claim_id:
             return claim
     for claim in claim_list:
-        if (claim.predicate == predicate and (claim.valid_to is None or not confirmed)
+        if (claim.predicate == predicate and (claim.valid_to is None or not holds_now)
                 and str(claim.object or "").strip().casefold() == label.casefold()):
             return claim
     siblings = [c for c in claim_list if c.predicate == predicate and c.valid_to is None]
@@ -2160,7 +2161,8 @@ def _dismiss_informational(path, fm_item: dict, entity_id: str, settings) -> "_C
     for option in inbox_questions.normalize_options(fm_item.get("options")):
         if str(option.get("key")) not in _NOT_A_VALUE:
             _hold_offered_value(option, fm_item=fm_item, entity_id=entity_id, name=name, predicate=predicate,
-                                claim_list=claim_list, settings=settings, today=today, confirmed=False)
+                                claim_list=claim_list, settings=settings, today=today, confirmed=False,
+                                holds_now=False)
     if len(claim_list) == held:
         return _ConflictPlan(entity_id, unlink=True)
     from api.services.claims import write_claims
@@ -2319,7 +2321,8 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                 if claim is None:
                     labels.append(str(option.get("label") or ""))
                     continue
-                if claim.context == "general":
+                # A value just written copied the slot of what it stands beside: it takes its own, so the two coexist.
+                if claim.context == "general" or claim.id not in by_id:
                     claim.context = f"as of {claim.valid_from or today}"
                 labels.append(str(claim.object))
             sentence = _kept_values_sentence(labels, predicate, name, today) or sentence

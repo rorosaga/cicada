@@ -267,3 +267,58 @@ def test_dismissing_never_reopens_a_value_already_closed(repo):
     before = page.read_text()
     _dismiss(repo)
     assert page.read_text() == before
+
+
+def _reseed(repo: Path, claims: list[Claim]) -> None:
+    page = repo / "entities" / "alpha.md"
+    entity = markdown_parser.parse(page)
+    markdown_parser.write(page, entity.frontmatter, write_claims(entity.body, [*parse_claims(entity.body), *claims]))
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "reseed")
+
+
+def test_both_gives_a_value_said_on_another_day_its_own_slot(repo):
+    """Never the slot of the value it stands beside, relabelled a moment earlier: two open values in one slot conflict."""
+    item = next((repo / "inbox").glob("*.md"))
+    parsed = markdown_parser.parse(item)
+    parsed.frontmatter["options"][1]["observed_at"] = "2026-02-15"
+    markdown_parser.write(item, parsed.frontmatter, parsed.body)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "later day")
+    _answer(repo, "both")
+    held = _by_object(repo)
+    assert held["lisbon"].context == "as of 2026-02-01"
+    assert held["porto"].context == "as of 2026-02-15"
+
+
+def test_both_gives_a_written_value_its_own_slot_beside_a_named_context(repo):
+    page = repo / "entities" / "alpha.md"
+    entity = markdown_parser.parse(page)
+    claims = parse_claims(entity.body)
+    claims[0].context = "at work"
+    markdown_parser.write(page, entity.frontmatter, write_claims(entity.body, claims))
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "named context")
+    _answer(repo, "both")
+    held = _by_object(repo)
+    assert held["lisbon"].context == "at work" and held["porto"].context == "as of 2026-02-01"
+
+
+@pytest.mark.parametrize("by_sleep", [False, True])
+def test_a_pick_is_not_satisfied_by_a_closed_claim_of_that_value(repo, by_sleep):
+    """The page must end with the picked value current, whoever settled it."""
+    from api.services import inbox_actor
+
+    closed = _claim("clm_closed", "porto", "2026-01-01", "ep_2026-01-01_001")
+    closed.valid_to = "2026-01-15"
+    _reseed(repo, [closed])
+    token = inbox_actor.set_actor(inbox_actor.Actor(rule="judged_conflict")) if by_sleep else None
+    try:
+        _answer(repo, "b")
+    finally:
+        if token is not None:
+            inbox_actor.reset(token)
+    claims = _claims(repo)
+    assert claims["clm_closed"].valid_to == "2026-01-15"
+    assert claims["clm_off"].valid_to is None and claims["clm_off"].object == "porto"
+    assert claims["clm_page"].superseded_by == "clm_off"
