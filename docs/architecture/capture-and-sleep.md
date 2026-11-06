@@ -415,7 +415,14 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   source-keyed stager retains its cached frontmatter scan and identity rules.
 - **Every writer scrubs, and every source-keyed writer stages through one module** (G133/G134,
   R-N3). `api/services/episode_scrub.py` — secrets, long base64 runs, one-time codes anchored on a
-  connector word — runs before every writer's hash and write, and `test_episode_writers_scrub.py`
+  connector word — runs before every writer's hash and write (**names and URLs, ROR-132, 2026-11-06:** a vendor prefix
+  starts after anything that is not a letter or digit, never at `\b`, which does not fall after an underscore; a
+  `NAME=value` credential takes any prefix on its name — `DB_PASSWORD`, `AWS_SECRET_ACCESS_KEY` — a bare name keeps
+  G105's 12 characters, a prefixed one 8 and a value that looks like a secret; the value is one token, bare or quoted,
+  and the name and separator stay; a `scheme://user:PASSWORD@host` password goes in the body and in a URL field;
+  `placeholder_value` keeps variable references, templates, masks, expressions, `x`-runs and `your_…_here`, the one
+  test `sensitive_text` shares; a key prefixed `sk_live_`, `glpat-`, `npm_`, `hf_`, `SG.`, `xai-`, `gsk_`, `pplx-` is taken
+  too; forward-only, a stored body is the finder's, never rewritten here), and `test_episode_writers_scrub.py`
   fails for any module that mints an episode id without it. `api/services/episode_staging.py` is the
   G20 stager they share: an `EpisodeDraft` keyed by `source_id`, the hash over the scrubbed body, an
   edit rewritten in place with `processed: false`, a rename kept by content hash, a deletion
