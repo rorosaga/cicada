@@ -11,7 +11,9 @@ extension Copy {
         static let saved = "Saved"
         static let media = "Media"
         /// An empty shelf's one line, and a shelf with sources' add line: "Add Notion, Folders".
-        static func add(_ names: [String]) -> String { "Add " + names.joined(separator: ", ") }
+        static func add(_ names: [String], more: Int = 0) -> String {
+            "Add " + names.joined(separator: ", ") + (more > 0 ? " and \(more) more" : "")
+        }
         static let addSource = "Add source"
         static let addHelp = "Add a source"
         static let addTitle = "Add a source"
@@ -31,23 +33,24 @@ extension Copy {
         static let replay = "Replay"
         static let replayHelp = "Watch it again"
         static let noApp = "No AI app connected yet"
-        static let noAppLine = "Cicada asks an AI app on this Mac to open your list in your browser. The app does the reading, not Cicada."
+        static let noAppLine = "This app asks an AI app on this Mac to open your list in your browser. The AI app does the reading, not this app."
         static let openAgents = "Connect an AI app"
         static let yourAssistant = "your AI app"
         static let yourBrowser = "your browser"
-        static let cicada = "Cicada"
+        /// What the first node of the picture is called: this app, so a reader who sees only the card knows who "it" is.
+        static let cicada = "This app"
         static func turnOn(_ site: String) -> String { "You turn on \(site)" }
         static func nextTime(app: String) -> String { "Next time you use \(app), it can look at it" }
         static func opens(app: String, site: String, browser: String) -> String {
             "\(app) opens \(site) in \(browser), where you are signed in"
         }
         static func reads(list: String) -> String { "It reads only \(list), never anything else" }
-        static let hands = "It hands each item's link and words to Cicada, which keeps them"
+        static let hands = "It hands each item's link and words to this app, which keeps them"
         /// The honest lines (one each: what is read, whose sign-in, who else sees it, how to stop).
         static func whatIsRead(list: String, app: String) -> String {
             "On this Mac, in your browser, while you use \(app): reads \(list) about once a day. Never posts or changes anything."
         }
-        static let whoseSession = "Your browser, your sign-in. Cicada never sees a password."
+        static let whoseSession = "Your browser, your sign-in. This app never sees a password."
         static func whoSees(app: String) -> String { "\(app)'s company sees what it reads. No model reads a saved item unless you name it." }
         static let oneClick = "One click on the switch turns it off. What was kept stays until you remove it."
     }

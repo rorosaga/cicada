@@ -13,6 +13,10 @@ extension Copy {
         static func disconnectTitle(_ source: String) -> String { "Disconnect \(source)?" }
         static let disconnectKeeps = "What already came in stays in your memory."
         static func connect(_ source: String) -> String { "Connect \(source)" }
+        /// ROR-118 round 4 — a site read through the person's AI app leads with one button; the account is a way below.
+        static func readSiteInBrowser(_ site: String) -> String { "Read \(site) in your browser" }
+        static func useAccount(_ site: String) -> String { "Use your \(site) account" }
+        static let connectShort = "Connect"
         static let reconnect = "Reconnect"
         static let open = "Open…"
         static let folders = "Folders"

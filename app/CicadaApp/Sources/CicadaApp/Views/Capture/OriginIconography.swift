@@ -417,6 +417,8 @@ enum OriginIconography {
         // G179 — Cicada reads the Messages app's own database, so the app is here; Apple's marks are never committed.
         case "imessage": "com.apple.MobileSMS"
         case "whatsapp": "net.whatsapp.WhatsApp"
+        // ROR-118 round 4 — Files and links is what the person drops from Finder; Apple's icon is the colour mark it lacked.
+        case SourceCatalog.filesOrigin: "com.apple.finder"
         default: nil
         }
     }

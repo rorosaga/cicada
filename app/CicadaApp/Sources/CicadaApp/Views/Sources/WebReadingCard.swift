@@ -73,6 +73,8 @@ struct WebReadingCard: View {
             }
             .frame(width: side, height: side)
             .ringed(in: shape)
+            Text(name).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                .lineLimit(1).truncationMode(.tail)
         }
         .opacity(lit ? 1 : 0.35)
         .frame(width: CicadaTheme.scaled(96))

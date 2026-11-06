@@ -69,17 +69,15 @@ struct SourceAddOverlay: View {
         }
     }
 
-    /// What is connected, as marks with a green dot: the same tile the page's rows wear, in one scrolling line.
+    /// What is connected, as marks: the same tile the page's rows wear, wrapped in a grid so no name is ever cut off.
     private var yoursStrip: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             SectionLabel(Copy.Shelf.yours)
-            ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-                    ForEach(yours) { row in YoursTile(row: row) { open(row) } }
-                }
-                .padding(.trailing, CicadaTheme.spacingSM)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(104), maximum: CicadaTheme.scaled(120)),
+                                         spacing: CicadaTheme.spacingSM, alignment: .top)],
+                      alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                ForEach(yours) { row in YoursTile(row: row) { open(row) } }
             }
-            .scrollIndicators(.hidden)
             Divider().overlay(CicadaTheme.border).padding(.top, CicadaTheme.spacingXS)
         }
     }
@@ -139,7 +137,7 @@ private struct AddRow: View {
     }
 }
 
-/// A connected source in *Yours*: its logo tile with a green dot, and its name under it, the whole thing one tap.
+/// A connected source in *Yours*: its logo tile and its name under it (every one here is connected, so no dot), the whole thing one tap.
 private struct YoursTile: View {
     let row: SourceCatalogRow
     let open: () -> Void
@@ -149,14 +147,9 @@ private struct YoursTile: View {
         Button(action: open) {
             VStack(spacing: CicadaTheme.scaled(6)) {
                 SourceLogoTile(origin: row.entry.origin)
-                    .overlay(alignment: .bottomTrailing) {
-                        Circle().fill(CicadaTheme.success).frame(width: CicadaTheme.scaled(9), height: CicadaTheme.scaled(9))
-                            .overlay(Circle().stroke(CicadaTheme.surface, lineWidth: 2))
-                            .offset(x: 3, y: 3)
-                    }
                 Text(row.entry.title).font(CicadaTheme.captionFont)
                     .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-                    .lineLimit(1).frame(width: CicadaTheme.scaled(96))
+                    .lineLimit(1).frame(maxWidth: .infinity)
             }
             .contentShape(Rectangle())
         }

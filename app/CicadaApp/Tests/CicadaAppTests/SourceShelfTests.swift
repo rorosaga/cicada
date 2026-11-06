@@ -32,7 +32,7 @@ final class SourceShelfTests: XCTestCase {
         XCTAssertEqual(saved.connected.map(\.id), ["reddit"])
         XCTAssertFalse(saved.addable.contains { $0.id == "reddit" }, "added already")
         XCTAssertTrue(saved.addable.contains { $0.id == "instagram" })
-        XCTAssertLessThanOrEqual(saved.addNames.count, 2, "one line: two names")
+        XCTAssertLessThanOrEqual(saved.addNames.count, 3, "one line: three names")
         XCTAssertEqual(SourceShelves.yours(all).map(\.id), ["reddit"])
     }
 
@@ -56,7 +56,7 @@ final class SourceShelfTests: XCTestCase {
         }
         let documents = shown.first { $0.shelf == .documents }!
         XCTAssertTrue(documents.connected.isEmpty)
-        XCTAssertLessThanOrEqual(documents.addNames.count, 2, "names, not a count")
+        XCTAssertLessThanOrEqual(documents.addNames.count, 3, "names, not a count")
         XCTAssertTrue(documents.addable.contains { $0.id == "notes" }, "Apple Notes is findable by name")
         let events = shown.first { $0.shelf == .events }!
         XCTAssertTrue(events.addable.contains { $0.id == "calendar-local" }, "so is the Mac's Calendar")

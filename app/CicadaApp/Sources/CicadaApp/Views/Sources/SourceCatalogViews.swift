@@ -508,10 +508,11 @@ struct SourceCatalogDetail: View {
             } else if entry.overviewId != nil {
                 EmptyView()
             } else if let connector = Self.connectorChannel(in: mine) {
-                ConnectorSlot(slot: .connect, channel: connector, title: entry.title, ways: siteWays,
-                              vendors: entry.tile?.vendors ?? [], needsSignIn: row.status == .needsSignIn)
+                ConnectorSlot(slot: .connect, channel: connector, title: entry.title,
+                              ways: siteWays(withoutBrowser: webStart != nil), vendors: entry.tile?.vendors ?? [],
+                              needsSignIn: row.status == .needsSignIn, primaryOverride: webStart)
             } else if entry.site != nil || entry.savedListKey != nil || entry.verb == .importFile {
-                SourceConnectArea(ways: siteWays)
+                SourceConnectArea(primary: webStart, ways: siteWays(withoutBrowser: webStart != nil))
             } else if let feed = mine.first, feed.actions.contains("manage"), let tile = entry.tile {
                 // A feed: the Subscribe field and the list are its flow.
                 if feed.count == 0 {
@@ -539,6 +540,19 @@ struct SourceCatalogDetail: View {
 
     /// An account's ways in beyond its connector: the browser reader's per-site switch, the saved list it keeps
     /// current, and the export (the source's own mark on a file, its where-from on hover).
+    /// ROR-118 round 4 — a site read through the person's own AI app, still off: the card above says how, and ONE
+    /// button turns it on. The account connection, the file and the switch are ways below it, never rivals of it.
+    private var webStart: SourcePrimaryAction? {
+        guard WebReadingScene.applies(row.entry), let key = row.entry.savedListKey, row.status == .off,
+              !reading.savedListsOn.contains(key) else { return nil }
+        return SourcePrimaryAction(title: Copy.SourceLayout.readSiteInBrowser(row.entry.title),
+                                   help: Copy.Catalog.readSavedList(key)) { flipSavedList(key, on: true) }
+    }
+
+    private func siteWays(withoutBrowser: Bool) -> [SourceWayIn] {
+        siteWays.filter { !(withoutBrowser && ($0.id == "saved" || $0.id == "browser")) }
+    }
+
     private var siteWays: [SourceWayIn] {
         var ways: [SourceWayIn] = []
         // ROR-114: a source with a saved list has ONE switch, "Read through your browser" (the list's). The site grant

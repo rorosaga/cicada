@@ -12,8 +12,8 @@ enum SourceShelfLayout {
     /// page the same six stack in `SourceShelf.allCases` order.
     static func column(_ shelf: SourceShelf) -> Int {
         switch shelf {
-        case .conversations, .events, .work: 0
-        case .documents, .saved, .media: 1
+        case .conversations, .events, .media: 0
+        case .documents, .work, .saved: 1
         }
     }
 
@@ -130,8 +130,9 @@ private struct SourceNeedsRow: View {
     }
 }
 
-/// One kind: its name with a "+" that opens the add overlay on it, then its connected sources as rows, or, with none,
-/// one dashed line naming what it takes.
+/// One kind: its name, its connected sources as rows, and one line that names what else it takes ("Add Apple Notes,
+/// Contacts") with those apps' own marks. A kind with nothing connected is just that line, never a box: a row is
+/// connected, a plus line is not.
 struct SourceShelfSection: View {
     let shelf: SourceShelves.Shelf
     let now: Date
@@ -140,65 +141,54 @@ struct SourceShelfSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            HStack {
-                SectionLabel(shelf.shelf.title)
-                Spacer(minLength: 0)
-                if !shelf.addable.isEmpty {
-                    Button { add(shelf.shelf) } label: {
-                        Image(systemName: "plus").font(CicadaTheme.icon(.inline)).foregroundStyle(CicadaTheme.textTertiary)
-                            .frame(width: CicadaTheme.scaled(24), height: CicadaTheme.scaled(24))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.cicadaPlain)
-                    .help(Copy.Shelf.add(shelf.addNames))
-                    .accessibilityLabel(Copy.Shelf.add(shelf.addNames))
-                }
-            }
-            if shelf.connected.isEmpty {
-                SourceEmptyLine(shelf: shelf) { add(shelf.shelf) }
-            } else {
-                VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
+            SectionLabel(shelf.shelf.title)
+            if !shelf.connected.isEmpty {
+                VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
                     ForEach(shelf.connected) { row in
                         SourceShelfRow(row: row, shelf: shelf.shelf, now: now) { open(.entry(row.id)) }
                             .id(SourcesSelection.entry(row.id))
                     }
                 }
             }
+            if !shelf.addable.isEmpty { SourceAddLine(shelf: shelf) { add(shelf.shelf) } }
         }
     }
 }
 
-/// A kind with nothing connected: one dashed line with the kind's glyph and what it takes, by name; a tap opens the add
-/// overlay on the kind. Dashed means not here yet; a source that is here is always a row.
-struct SourceEmptyLine: View {
+/// The one way to add to a kind: a plus, the names of what it takes, and their marks. A tap opens the add overlay on
+/// the kind. Same height and rhythm as a source row, so a kind with nothing in it still reads as finished.
+struct SourceAddLine: View {
     let shelf: SourceShelves.Shelf
     let add: () -> Void
     @State private var hovering = false
 
-    private var shape: some InsettableShape { CicadaTheme.shape(CicadaTheme.cornerRadius) }
-
     var body: some View {
         Button(action: add) {
             HStack(spacing: CicadaTheme.scaled(12)) {
-                Image(systemName: shelf.shelf.symbol).font(CicadaTheme.icon(.list)).foregroundStyle(CicadaTheme.textTertiary)
+                Image(systemName: "plus").font(CicadaTheme.icon(.list)).foregroundStyle(CicadaTheme.textSecondary)
                     .frame(width: CicadaTheme.scaled(36))
-                Text(shelf.addNames.joined(separator: ", ")).font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
-                Spacer(minLength: 0)
+                Text(Copy.Shelf.add(shelf.addNames, more: shelf.addMore)).font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
+                Spacer(minLength: CicadaTheme.spacingSM)
+                HStack(spacing: CicadaTheme.scaled(-8)) {
+                    ForEach(Array(shelf.addable.prefix(3).enumerated()), id: \.element.id) { index, row in
+                        SourceLogoTile(origin: row.entry.origin, size: .dense).zIndex(Double(-index))
+                    }
+                }
             }
-            .padding(.horizontal, CicadaTheme.scaled(8))
+            .padding(CicadaTheme.scaled(8))
             .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(52), alignment: .leading)
-            .contentShape(shape)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
         .rowHover($hovering, selected: false, cornerRadius: CicadaTheme.cornerRadius)
-        .background(shape.strokeBorder(CicadaTheme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
-        .accessibilityLabel(Copy.Shelf.add(shelf.addNames))
+        .help(Copy.Shelf.add(shelf.addable.map(\.entry.title), more: 0))
+        .accessibilityLabel(Copy.Shelf.add(shelf.addNames, more: shelf.addMore))
     }
 }
 
-/// A connected source: the logo tile, the name, when it last read; what came in below, aligned to the name. The whole
-/// row opens the source; nothing inside it is a second control.
+/// A connected source: the logo tile, the name, when it last read (time only: every row on this page is connected, so a
+/// dot or the word "Connected" said nothing); what came in below, aligned to the name. The whole row opens the source.
 struct SourceShelfRow: View {
     let row: SourceCatalogRow
     let shelf: SourceShelf
@@ -221,12 +211,11 @@ struct SourceShelfRow: View {
                     SourceLogoTile(origin: row.entry.origin)
                     Text(row.entry.title).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
                     Spacer(minLength: CicadaTheme.spacingSM)
-                    if let line = SourceGrid.line(row, now: now) {
-                        StatusWord(word: line.word, tone: line.tone).monospacedDigit()
-                    }
+                    trailing
                 }
                 SourceShelfItems(shelf: shelf, items: list?.items ?? [], total: list?.all ?? list?.total ?? overview?.items,
-                                 today: ISODay.today(now: now), counted: overview.flatMap(counted))
+                                 today: ISODay.today(now: now), counted: overview.flatMap(counted),
+                                 mediaSymbol: Self.mediaSymbol(row.entry.id))
                     .padding(.leading, CicadaTheme.scaled(48))
             }
             .padding(CicadaTheme.scaled(8))
@@ -238,9 +227,33 @@ struct SourceShelfRow: View {
         .accessibilityLabel("\(row.entry.title), \(row.word)")
         .task(id: listId) { if let listId { await cache?.refresh(listId) } }
     }
+
+    /// The same place on every row: when it last read. Only a source that needs something says more, with its dot.
+    @ViewBuilder private var trailing: some View {
+        if let line = SourceGrid.line(row, now: now) {
+            if line.tone == .on {
+                if line.word != row.status.word {
+                    Text(line.word).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                        .monospacedDigit().lineLimit(1)
+                }
+            } else {
+                StatusWord(word: line.word, tone: line.tone).monospacedDigit()
+            }
+        }
+    }
 }
 
 extension SourceShelfRow {
+    /// The glyph on a cover that has no picture: the kind of thing this source holds.
+    static func mediaSymbol(_ id: String) -> String {
+        switch id {
+        case "spotify": "music.note"
+        case "youtube", "tiktok": "play.rectangle"
+        case VoiceMemosReader.channel: "waveform"
+        default: "book.closed"
+        }
+    }
+
     /// What a source with no list of titles still says: how many it holds, in its own unit (a harness's conversations).
     fileprivate func counted(_ overview: SourceOverview) -> String? {
         switch shelf {
@@ -251,8 +264,9 @@ extension SourceShelfRow {
     }
 }
 
-/// The kind's own way of showing what came in, quietly: two titles in the secondary ink, no dates; the week for events;
-/// marks for saved; covers for media. Pure data in, so it draws the same for a test and for the page.
+/// The kind's own way of showing what came in: titles for conversations and documents; repositories with a code glyph
+/// for work; the week for events; each save's title and the site it came from; covers for media. Pure data in, so it
+/// draws the same for a test and for the page. No letter chips: a mark is a real icon or it is absent.
 struct SourceShelfItems: View {
     let shelf: SourceShelf
     let items: [ChannelItem]
@@ -260,20 +274,23 @@ struct SourceShelfItems: View {
     let today: ISODay
     /// One quiet line when there are no titles to list.
     var counted: String? = nil
+    /// The glyph on a media item with no cover.
+    var mediaSymbol = "book.closed"
 
     var body: some View {
         if items.isEmpty, let counted {
-            Text(counted).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+            Text(counted).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
         } else { kind }
     }
 
     @ViewBuilder
     private var kind: some View {
         switch shelf {
-        case .conversations, .documents, .work: titles
+        case .conversations, .documents: titles
+        case .work: work
         case .events: SourceWeekStrip(items: items, today: today)
         case .saved: saved
-        case .media: SourceCoverStrip(items: items, total: total)
+        case .media: SourceCoverList(items: items, total: total, symbol: mediaSymbol)
         }
     }
 
@@ -285,24 +302,49 @@ struct SourceShelfItems: View {
     @ViewBuilder
     private var titles: some View {
         if !items.isEmpty {
-            VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
                 ForEach(items.prefix(2)) { titleLine($0) }
             }
         }
     }
 
+    /// Work: what the tool holds, with a code glyph, and when it moved.
+    @ViewBuilder
+    private var work: some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
+                ForEach(items.prefix(3)) { item in
+                    HStack(spacing: CicadaTheme.scaled(8)) {
+                        Image(systemName: "chevron.left.forwardslash.chevron.right").font(CicadaTheme.icon(.inline))
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                        Text(item.title).font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textSecondary).lineLimit(1).truncationMode(.tail)
+                        Spacer(minLength: CicadaTheme.spacingSM)
+                        if let day = SavedItemText.day(item, today: today) {
+                            Text(day.text).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).fixedSize()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Saved: each title, and the site it came from at the end of the line.
     @ViewBuilder
     private var saved: some View {
         if !items.isEmpty {
-            VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
                 ForEach(items.prefix(2)) { item in
                     HStack(spacing: CicadaTheme.scaled(8)) {
-                        SavedLinkMark(mark: SavedItemText.mark(item), size: .row)
                         titleLine(item)
+                        Spacer(minLength: CicadaTheme.spacingSM)
+                        if let host = item.host {
+                            Text(host).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
+                        }
                     }
                 }
                 if let total, total > 2 {
-                    Text(Copy.Shelf.savedCount(total)).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                    Text(Copy.Shelf.savedCount(total)).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
                 }
             }
         }
@@ -333,7 +375,7 @@ struct SourceWeekStrip: View {
         return Array((ahead.isEmpty ? dated.map(\.0) : ahead).prefix(limit))
     }
 
-    private static let letters = ["M", "T", "W", "T", "F", "S", "S"]
+    private static let letters = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
     var body: some View {
         let week = Self.week(containing: today)
@@ -343,10 +385,10 @@ struct SourceWeekStrip: View {
                 ForEach(Array(week.enumerated()), id: \.offset) { index, day in
                     let isToday = day == today
                     VStack(spacing: CicadaTheme.scaled(4)) {
-                        Text(Self.letters[index]).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                        Text(String(day.civil.day)).font(CicadaTheme.metaFont).monospacedDigit()
+                        Text(Self.letters[index]).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                        Text(String(day.civil.day)).font(CicadaTheme.bodyFont).monospacedDigit()
                             .foregroundStyle(isToday ? CicadaTheme.onAccent : CicadaTheme.textPrimary)
-                            .frame(width: CicadaTheme.scaled(26), height: CicadaTheme.scaled(26))
+                            .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
                             .background(Circle().fill(isToday ? CicadaTheme.accent : Color.clear))
                         Circle().fill(busy.contains(day) ? CicadaTheme.info : Color.clear)
                             .frame(width: CicadaTheme.scaled(5), height: CicadaTheme.scaled(5))
@@ -359,7 +401,7 @@ struct SourceWeekStrip: View {
                     Text(item.title).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
                     Spacer(minLength: CicadaTheme.spacingSM)
                     if let day = SavedItemText.day(item, today: today) {
-                        Text(day.text).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).fixedSize()
+                        Text(day.text).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary).fixedSize()
                     }
                 }
             }
@@ -368,19 +410,26 @@ struct SourceWeekStrip: View {
     }
 }
 
-/// Media as what it looks like: a book's cover, a video's still, else the site's mark, in a row, with the count.
-struct SourceCoverStrip: View {
+/// Media as what it looks like: each item as a small cover (a book's, a video's still, else a quiet tile with the kind's
+/// own glyph) beside its title, never a letter standing for a site.
+struct SourceCoverList: View {
     let items: [ChannelItem]
     let total: Int?
+    let symbol: String
 
     var body: some View {
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
-                HStack(alignment: .top, spacing: CicadaTheme.scaled(8)) {
-                    ForEach(items.prefix(5)) { item in cover(item) }
-                    Spacer(minLength: 0)
+                ForEach(items.prefix(3)) { item in
+                    HStack(spacing: CicadaTheme.scaled(10)) {
+                        cover(item)
+                        Text(item.title).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                            .lineLimit(1).truncationMode(.tail)
+                    }
                 }
-                if let total { Text(Copy.Shelf.itemCount(total)).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary) }
+                if let total, total > 3 {
+                    Text(Copy.Shelf.itemCount(total)).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                }
             }
         }
     }
@@ -389,10 +438,18 @@ struct SourceCoverStrip: View {
     private func cover(_ item: ChannelItem) -> some View {
         if let still = SavedItemText.stillPath(item) {
             VideoStill(path: still)
-        } else if item.book == true {
-            BookCoverThumb(path: item.cover, points: 48, reservesSlot: false)
+        } else if item.book == true, item.cover != nil {
+            BookCoverThumb(path: item.cover, points: 34, reservesSlot: true)
         } else {
-            SavedLinkMark(mark: SavedItemText.mark(item), size: .row)
+            let shape = CicadaTheme.shape(CicadaTheme.scaled(4))
+            ZStack {
+                shape.fill(CicadaTheme.surfaceElevated)
+                Image(systemName: symbol).font(CicadaTheme.icon(.inline))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+            }
+            .frame(width: CicadaTheme.scaled(23), height: CicadaTheme.scaled(34))
+            .ringed(in: shape)
+            .accessibilityHidden(true)
         }
     }
 }

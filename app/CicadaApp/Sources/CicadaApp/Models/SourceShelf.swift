@@ -64,8 +64,9 @@ enum SourceShelves {
         /// What could still be added here, suggested first (an app already on this Mac), then the catalogue's order.
         let addable: [SourceCatalogRow]
 
-        /// "Add Notion, Folders": the first two addable names, or nil when everything on the shelf is added.
-        var addNames: [String] { addable.prefix(2).map(\.entry.title) }
+        /// "Add Apple Notes, Contacts, Folders": the first three addable names, and how many more there are.
+        var addNames: [String] { addable.prefix(3).map(\.entry.title) }
+        var addMore: Int { max(0, addable.count - 3) }
     }
 
     static func shelves(_ rows: [SourceCatalogRow]) -> [Shelf] {
