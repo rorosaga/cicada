@@ -105,7 +105,15 @@ enum Copy {
     static let rhythmAndTime = "Rhythm and time:"
     /// G243 — the lamp popover's keep-awake switch, next to the schedule.
     static let keepAwakeSwitch = "Keep this Mac awake while Sleep reads"
-    static let keepAwakeCaption = "Only on power. It won't wake a sleeping Mac or work with the lid closed."
+    static let keepAwakeCaption = "Only on power. It won't wake a sleeping Mac, and it needs the lid open unless you use the beta below."
+    /// G243 part 3 — the closed-lid beta; the warning itself is the server's, shown as served.
+    static let closedLidSwitch = "Closed lid (beta)"
+    static let closedLidCaption = "Keeps reading with the lid shut. Only on power, only while Sleep reads. Needs an admin step."
+    static let closedLidConfirm = "Turn on the beta"
+    static let closedLidCancel = "Cancel"
+    static let closedLidAdminStep = "Run this once in Terminal. Until you do, Closed lid does nothing."
+    static let closedLidReady = "Ready. Sleep goes back on when the run ends."
+    static func closedLidRemove(_ command: String) -> String { "To remove the admin step: \(command)" }
     static let keepAwakeWriteFailed = "Couldn't change this — nothing changed."
     static let scheduleWriteFailed = "Couldn't change the schedule — nothing changed."
     static let openInSources = "Open in Sources ›"

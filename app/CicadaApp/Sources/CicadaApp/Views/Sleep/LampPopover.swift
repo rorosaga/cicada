@@ -48,6 +48,8 @@ struct LampPopover: View {
     /// The value in flight, or `nil`.
     @State private var writing: Bool?
     @State private var failed = false
+    /// The closed-lid warning on screen, waiting for the person's click; never stored.
+    @State private var confirmingClosedLid: ClosedLidInfo?
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
@@ -93,6 +95,7 @@ struct LampPopover: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             keepAwakeRow
+            closedLidRow
             if failed {
                 Text(Copy.scheduleWriteFailed)
                     .font(CicadaTheme.captionFont)
@@ -126,6 +129,76 @@ struct LampPopover: View {
                     .foregroundStyle(sleepVM.runOptionsWriteFailed ? CicadaTheme.danger : CicadaTheme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// G243 part 3 — the closed-lid BETA, only offered beside an on keep-awake switch, off by default. Turning it on shows
+    /// the server's warning in place (sheet-free, DR-77's popover row; no fold, DR-81) and needs a click on "Turn on the
+    /// beta" every time. Once on, the exact admin command is shown until the person has run it.
+    @ViewBuilder private var closedLidRow: some View {
+        if let options = sleepVM.runOptions, options.keepAwake {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                Toggle(Copy.closedLidSwitch, isOn: Binding(
+                    get: { options.closedLidBeta || confirmingClosedLid != nil },
+                    set: { on in
+                        if on {
+                            sleepVM.bankTask {
+                                if await sleepVM.loadClosedLid() { confirmingClosedLid = sleepVM.closedLid }
+                                else { sleepVM.runOptionsWriteFailed = true }
+                            }
+                        } else {
+                            confirmingClosedLid = nil
+                            if options.closedLidBeta { sleepVM.bankTask { await sleepVM.updateRunOptions(.closedLidBeta(false)) } }
+                        }
+                    }))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .font(CicadaTheme.font(size: 13, weight: .semibold))
+                if let asking = confirmingClosedLid {
+                    Text(asking.warning)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: CicadaTheme.spacingMD) {
+                        Button(Copy.closedLidConfirm) {
+                            confirmingClosedLid = nil
+                            sleepVM.bankTask {
+                                await sleepVM.updateRunOptions(.closedLidBeta(true))
+                                await sleepVM.loadClosedLid()
+                            }
+                        }
+                        Button(Copy.closedLidCancel) { confirmingClosedLid = nil }
+                    }
+                    .buttonStyle(.cicadaPlain)
+                    .font(CicadaTheme.captionFont.weight(.semibold))
+                } else if options.closedLidBeta {
+                    if let info = sleepVM.closedLid, !info.ruleInstalled, let command = info.installCommand {
+                        Text(Copy.closedLidAdminStep)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        CommandBox(command: command)
+                    } else {
+                        Text(Copy.closedLidReady)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                    if let info = sleepVM.closedLid {
+                        Text(Copy.closedLidRemove(info.removeCommand))
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    Text(Copy.closedLidCaption)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .task(id: options.closedLidBeta) { if options.closedLidBeta { await sleepVM.loadClosedLid() } }
         }
     }
 

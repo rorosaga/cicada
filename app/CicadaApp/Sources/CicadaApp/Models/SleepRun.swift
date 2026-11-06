@@ -213,12 +213,15 @@ struct SleepRunOptions: Codable, Equatable {
     var spendLimitUsd: Double?
     /// G243: hold the Mac awake while Sleep reads, on power only. Off by default; an older server has no such field.
     var keepAwake: Bool
+    /// G243 part 3: the closed-lid beta (off by default; only beside `keepAwake`). An older server has no such field.
+    var closedLidBeta: Bool
 
     init(batchSize: Int = 25, batchSizeChoices: [Int] = [10, 25, 50], continueAfterReset: Bool = false,
          reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30], scheduledUsePlan: Bool = true,
-         spendLimitUsd: Double? = 5, keepAwake: Bool = false) {
+         spendLimitUsd: Double? = 5, keepAwake: Bool = false, closedLidBeta: Bool = false) {
         self.spendLimitUsd = spendLimitUsd
         self.keepAwake = keepAwake
+        self.closedLidBeta = closedLidBeta
         self.batchSize = batchSize; self.batchSizeChoices = batchSizeChoices
         self.continueAfterReset = continueAfterReset; self.reservePct = reservePct; self.reserveChoices = reserveChoices
         self.scheduledUsePlan = scheduledUsePlan
@@ -235,9 +238,10 @@ struct SleepRunOptions: Codable, Equatable {
         scheduledUsePlan = ((try? c.decodeIfPresent(Bool.self, forKey: .scheduledUsePlan)) ?? nil) ?? false
         spendLimitUsd = (try? c.decodeIfPresent(Double.self, forKey: .spendLimitUsd)) ?? nil
         keepAwake = ((try? c.decodeIfPresent(Bool.self, forKey: .keepAwake)) ?? nil) ?? false
+        closedLidBeta = ((try? c.decodeIfPresent(Bool.self, forKey: .closedLidBeta)) ?? nil) ?? false
     }
     enum CodingKeys: String, CodingKey {
-        case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices, scheduledUsePlan, spendLimitUsd, keepAwake
+        case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices, scheduledUsePlan, spendLimitUsd, keepAwake, closedLidBeta
     }
 }
 
@@ -253,6 +257,9 @@ enum SleepRunOptionsChange: Equatable {
     case spendLimitUsd(Double?)
     /// G243: keep the Mac awake while Sleep reads (on power).
     case keepAwake(Bool)
+    /// G243 part 3: the closed-lid beta. An on is only ever sent after the person accepted the warning in the popover,
+    /// and says so in the same body (the server refuses an on without it).
+    case closedLidBeta(Bool)
 
     var body: [String: Any] {
         switch self {
@@ -262,6 +269,7 @@ enum SleepRunOptionsChange: Equatable {
         case .spendLimitUsd(let usd): ["spendLimitUsd": usd.map { $0 as Any } ?? NSNull()]
         case .scheduledUsePlan(let on): ["scheduledUsePlan": on]
         case .keepAwake(let on): ["keepAwake": on]
+        case .closedLidBeta(let on): on ? ["closedLidBeta": true, "closedLidAcknowledged": true] : ["closedLidBeta": false]
         }
     }
 }
@@ -532,4 +540,19 @@ struct SleepRunDetail: Codable, Equatable {
         case id, startedBy, startedAt, finishedAt, state, filed, frozen, parked, skipped, calls, readMs, pausedMs
         case pauses, questionsRaised, replaced, owner, batches, models, usage, pages
     }
+}
+
+/// `GET /sleep/closed-lid` — the beta's warning (served, so the app never words it on its own), the exact admin command
+/// the person runs themselves, and where things stand. Enums and fixed text only.
+struct ClosedLidInfo: Codable, Equatable {
+    var warning: String
+    var available: Bool
+    var ruleInstalled: Bool
+    var helperInstalled: Bool
+    var installCommand: String?
+    var removeCommand: String
+    var restoreCommand: String
+    var holding: Bool
+    var pendingRestore: Bool
+    var lastEnd: String?
 }

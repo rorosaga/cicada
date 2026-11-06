@@ -161,6 +161,8 @@ final class SleepViewModel {
     var runOptions: SleepRunOptions?
     /// Whether the last options write failed (the sheet says so in words, and snaps back).
     var runOptionsWriteFailed = false
+    /// G243 part 3: the closed-lid beta's warning, admin command and state; `nil` until asked (the popover asks).
+    var closedLid: ClosedLidInfo?
     /// What's waiting, one row per conversation with where it stands (`GET /sleep/queue`). Refetched when the run's
     /// counts move (`queueKey`), never per tick (M3).
     var queue: SleepQueueResponse?
@@ -552,6 +554,14 @@ final class SleepViewModel {
     /// One `GET /sleep/status`, off the poll loop — a pause appeared, was armed or was cleared with no status change.
     func refreshStatus() async {
         if let next = try? await fetchSleepStatus() { status = next }
+    }
+
+    /// Asks for the closed-lid beta's warning and state; `false` when it cannot be had (the beta is then not turned on).
+    @discardableResult
+    func loadClosedLid() async -> Bool {
+        guard let info = try? await APIClient.shared.fetchClosedLid() else { return false }
+        closedLid = info
+        return true
     }
 
     func loadRunOptions() async {

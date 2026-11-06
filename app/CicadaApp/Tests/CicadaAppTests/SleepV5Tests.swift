@@ -123,6 +123,12 @@ final class SleepV5WireTests: XCTestCase {
         XCTAssertEqual(SleepRunOptionsChange.continueAfterReset(true).body as? [String: Bool], ["continueAfterReset": true])
         XCTAssertEqual(SleepRunOptionsChange.keepAwake(true).body as? [String: Bool], ["keepAwake": true])
         XCTAssertFalse(SleepRunOptions().keepAwake, "G243: off by default")
+        XCTAssertFalse(SleepRunOptions().closedLidBeta, "G243 part 3: the closed-lid beta is off by default")
+        XCTAssertEqual(SleepRunOptionsChange.closedLidBeta(true).body as? [String: Bool],
+                       ["closedLidBeta": true, "closedLidAcknowledged": true], "an on carries the accepted warning")
+        XCTAssertEqual(SleepRunOptionsChange.closedLidBeta(false).body as? [String: Bool], ["closedLidBeta": false])
+        let old = try? JSONDecoder().decode(SleepRunOptions.self, from: Data("{}".utf8))
+        XCTAssertEqual(old?.closedLidBeta, false, "an older server has no such field")
         XCTAssertTrue(SleepRunOptionsChange.spendLimitUsd(nil).body["spendLimitUsd"] is NSNull, "off is an explicit null")
         XCTAssertEqual(SleepRunOptionsChange.spendLimitUsd(7.5).body["spendLimitUsd"] as? Double, 7.5)
         XCTAssertTrue(SleepRunOptionsChange.reservePct(nil).body["reservePct"] is NSNull, "off is an explicit null")

@@ -3468,6 +3468,11 @@ actor APIClient {
         return try await get("/sleep/run-options")
     }
 
+    /// `GET /sleep/closed-lid` — the closed-lid beta's warning, admin command and state (G243 part 3).
+    func fetchClosedLid() async throws -> ClosedLidInfo {
+        return try await get("/sleep/closed-lid")
+    }
+
     func updateRunOptions(_ change: SleepRunOptionsChange) async throws -> SleepRunOptions {
         return try await put("/sleep/run-options", body: change.body)
     }
