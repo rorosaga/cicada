@@ -18,12 +18,18 @@ extension Copy {
     static let homeToday = "Today"
     static let homeNeedsYou = "Needs you"
     static let homeLastRead = "Last time Cicada read"
+    /// ROR-118 (round 1) — the first words of Home's last-read row, which has no label above it.
+    static let homeLastReadShort = "Last read"
+    /// Round 5 — the word before the pictures of the pages the read touched.
+    static let homeLastReadTouched = "updated"
+    /// "2 pages updated" / "1 page updated" — the count comes from the same chips the pictures draw.
+    static func homeLastReadPagesUpdated(_ n: Int) -> String { "\(n) \(n == 1 ? "page" : "pages") updated" }
     /// The TODAY sum is the UTC bucket `source_overview` writes (R-A16), so the
     /// hover says which midnight it counts from rather than pretending local.
     static let homeCapturedHelp = "Captured since 00:00 UTC"
     static let homeLoading = "Loading…"
     static let homeNothingCapturedToday = "Nothing captured yet today"
-    static let homeNothingWaiting = "Nothing waiting to be read"
+    static let homeNothingWaiting = "Nothing waiting"
     static let homeNothingNeedsYou = "Nothing needs you right now."
     static let homeNothingReadYet = "Nothing read yet"
     static let homeNothingChanged = "nothing changed"
@@ -36,8 +42,11 @@ extension Copy {
     static func homeCapturedToday(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "\(UsageFormat.count(n, locale: locale)) captured today"
     }
+    /// ROR-118 round 3 — the figure alone beside "captured today": the two share one line.
+    static let homeCapturedWords = "captured today"
+    static let homeWaitingWords = "waiting to read"
     static func homeWaiting(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        "\(UsageFormat.count(n, locale: locale)) waiting to be read"
+        "\(UsageFormat.count(n, locale: locale)) \(homeWaitingWords)"
     }
     static func homeMoreChips(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "+\(UsageFormat.count(n, locale: locale))"

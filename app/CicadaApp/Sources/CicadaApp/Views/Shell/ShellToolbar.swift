@@ -8,6 +8,8 @@ struct ShellToolbar: ToolbarContent {
     /// Which popover the page's `?` opens (R-DS18) — `HelpContent.page(selectedTab)`.
     let help: HelpContent
     let chrome: ShellChrome
+    /// ROR-118 round 2 — Home alone: the bar is the bank selector only (`CommandBar.quiet`).
+    var quietSearch = false
 
     var body: some ToolbarContent {
         ChromeToolbarItem(placement: .navigation) {
@@ -18,7 +20,7 @@ struct ShellToolbar: ToolbarContent {
                 .shellChrome(chrome)
         }
         ChromeToolbarItem(placement: .principal) {
-            CommandBar().shellChrome(chrome)
+            CommandBar(quiet: quietSearch).shellChrome(chrome)
         }
         ChromeToolbarItem(placement: .primaryAction) {
             TitlebarHelpButton(content: help).shellChrome(chrome)

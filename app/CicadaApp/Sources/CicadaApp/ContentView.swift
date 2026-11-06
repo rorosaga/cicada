@@ -338,7 +338,8 @@ struct ContentView: View {
         .toolbar {
             ShellToolbar(labelled: $labelledSidebar, help: .page(selectedTab),
                          chrome: ShellChrome(welcomeShowing: showFirstRun, settingsOpen: router.settingsOpen,
-                                             tourActive: tour.isActive))
+                                             tourActive: tour.isActive),
+                         quietSearch: selectedTab == .home && !tour.spotlights(.commandBar))
         }
         // No `.id(colorSchemeRaw)` here any more. Keying this subtree on the
         // mode string used to be what repainted it, because the tokens were

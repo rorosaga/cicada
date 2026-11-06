@@ -25,6 +25,8 @@ extension Copy {
         static func moreOnPage(_ n: Int) -> String { n == 1 ? "1 question" : "\(UsageFormat.count(n)) questions" }
         static func openPage(_ name: String) -> String { "Open \(name)" }
         static let answerHelp = "Answer this question"
+        /// Round 4 — the lead question's one next act on Home.
+        static let answer = "Answer"
 
         // The chat (`08-catchup`).
         static let eyebrow = "Home · Catching up"

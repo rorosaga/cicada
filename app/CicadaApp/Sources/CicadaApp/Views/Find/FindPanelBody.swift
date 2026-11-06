@@ -59,17 +59,21 @@ struct FindPanelBody: View {
         .onChange(of: focusRequest) { _, _ in fieldFocused = true }
     }
 
+    /// ROR-118 (round 1, Home) — on Home the field is the page's one lead: 17 pt type and 6 pt more air above and below
+    /// than the palette's 15 pt field (`.page` placement only; the palette is unchanged).
+    private var fieldSize: CGFloat { placement == .page ? 17 : 15 }
+
     private var field: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             // Home review #10 (DR-5) — a field glyph is not one of the accent's six uses.
             Image(systemName: model.mode == .find ? "magnifyingglass" : "sparkle.magnifyingglass")
-                .font(CicadaTheme.font(size: 15))
+                .font(CicadaTheme.font(size: fieldSize))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .accessibilityHidden(true)
             TextField(model.mode == .find ? (prompt ?? "Search your memory") : "Ask your memory",
                       text: Binding(get: { model.fieldText }, set: { model.setFieldText($0) }))
                 .textFieldStyle(.plain)
-                .font(CicadaTheme.font(size: 15))
+                .font(CicadaTheme.font(size: fieldSize))
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .focused($fieldFocused)
                 .onSubmit {
@@ -83,11 +87,15 @@ struct FindPanelBody: View {
             // Home review #10 — DR-45 text tabs inside the field (26 pt, `bgSelected` when active), never the native
             // segmented control, whose selected segment paints the accent (DR-5). One mode is always on: tapping the
             // active tab keeps it. The switch is instant (DR-60/61): ⌘⏎ and a click share this path.
-            TextTabs(tabs: [TextTab(id: FindMode.find, label: "Find"), TextTab(id: FindMode.ask, label: "Ask")],
-                     selection: Binding(get: { model.mode }, set: { if let mode = $0 { model.setMode(mode) } }),
-                     showsCounts: false)
-                .fixedSize()
-                .accessibilityLabel("Find or ask")
+            if placement == .page {
+                FindModeSwitch(mode: Binding(get: { model.mode }, set: { model.setMode($0) }))
+            } else {
+                TextTabs(tabs: [TextTab(id: FindMode.find, label: "Find"), TextTab(id: FindMode.ask, label: "Ask")],
+                         selection: Binding(get: { model.mode }, set: { if let mode = $0 { model.setMode(mode) } }),
+                         showsCounts: false)
+                    .fixedSize()
+                    .accessibilityLabel("Find or ask")
+            }
             if placement == .palette {
                 Button(action: close) {
                     Image(systemName: "xmark.circle.fill")
@@ -98,7 +106,8 @@ struct FindPanelBody: View {
                 .accessibilityLabel("Close")
             }
         }
-        .padding(CicadaTheme.spacingLG)
+        .padding(.horizontal, CicadaTheme.spacingLG)
+        .padding(.vertical, CicadaTheme.spacingLG + (placement == .page ? CicadaTheme.scaled(6) : 0))
     }
 
     private var rows: some View {
@@ -220,5 +229,48 @@ struct FindPanelBody: View {
     private func run(_ destination: FindDestination) {
         open(destination)
         if placement == .palette { close() }
+    }
+}
+
+/// ROR-118 round 2 (Home; DR-45's text tabs, one level up) — Home's Find / Ask switch: two words in a recessed trough
+/// with the active one raised (`bgButton` in dark, white in light, the resting ring, primary ink), so which mode is on reads at a glance; the
+/// palette keeps its `TextTabs`. One mode is always on and the switch is instant (DR-60/61): a click and ⌘⏎ share
+/// `model.setMode`.
+struct FindModeSwitch: View {
+    @Binding var mode: FindMode
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.scaled(2)) {
+            segment("Find", .find)
+            segment("Ask", .ask)
+        }
+        .padding(CicadaTheme.scaled(3))
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall + 3).fill(CicadaTheme.bgRail))
+        .padding(.leading, CicadaTheme.spacingSM)
+        .fixedSize()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Find or ask")
+    }
+
+    private func segment(_ label: String, _ value: FindMode) -> some View {
+        let active = mode == value
+        return Button { mode = value } label: {
+            Text(label)
+                .font(CicadaTheme.metaMediumFont)
+                .foregroundStyle(active ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+                .padding(.horizontal, CicadaTheme.scaled(12))
+                .frame(height: CicadaTheme.scaled(26))
+                .background {
+                    if active {
+                        CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                            .fill(CicadaTheme.mode == .dark ? CicadaTheme.bgButtonHover : CicadaTheme.bgFocus)
+                            .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(active ? [.isSelected] : [])
     }
 }
