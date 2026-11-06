@@ -1725,7 +1725,8 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
                       handle: str | None = None, profile_url: str | None = None) -> str:
     """``cicada_record_saved_list`` (G206, redesign 2026-10-22): what the person's own agent read on their saved list
     on X (Bookmarks), Instagram (Saved), LinkedIn (Saved posts) or, since G232, Reddit (Saved), Pinterest (Saved Pins)
-    or TikTok (Favorites), in their signed-in browser, after the person turned that list on.
+    or TikTok (Favorites), and, since ROR-128, Spotify (Library) or Goodreads (shelves), in their signed-in browser, after
+    the person turned that list on. A Goodreads read is books, held for the person's choice (``goodreads_waiting``).
 
     Refusals, in order, write nothing: a demo bank, agent reading off, an unknown platform or outcome, a list the
     person has not turned on, the day's reads spent. ``needs_login`` / ``blocked`` pause that list for a week (no bank
@@ -1778,6 +1779,18 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     if saved_lists.reads_today(memory_path) >= saved_lists.DAILY_READS:
         return Reply(f"Not recorded: {saved_lists.DAILY_READS} saved-list reads have been recorded today, the most "
                      "Cicada takes in a day. Nothing was saved; the list is offered again tomorrow.", code="refused")
+    if key == "goodreads":
+        # ROR-128: shelves are books, not posts. They wait outside the bank for the person's pick (nothing is written
+        # into memory, so Sleep running is no reason to refuse); choosing stages them like a file's rows.
+        from api.services import goodreads_waiting
+
+        out = goodreads_waiting.hold(memory_path, rows)
+        saved_lists.note(memory_path, key, "read", items=out["held"] + out["known"], **who)
+        left = (f" {out['dropped']} row(s) were not books (no id or title) and were left out." if out["dropped"] else "") + (
+            f" {out['full']} more book(s) did not fit; the rest are offered after the person chooses." if out["full"] else "")
+        return (f"Recorded the person's Goodreads shelves. {out['held']} new book(s) wait for the person to choose which "
+                f"to add; {out['known']} were already in memory or left out. Nothing is in memory until they choose "
+                f"(Sources → Goodreads).{left}{unkept}")
     if ctx.sleep_answer:
         return SAVED_LIST_SLEEPING
     idx = media_ingestor.load_url_index(memory_path)

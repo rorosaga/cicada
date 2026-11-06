@@ -3,7 +3,7 @@
 * Connect Reddit — Cicada's own installed app: a browser sign-in with no client secret (the client id and an empty
   password), a refresh token renewed the same way, Disconnect revoking at Reddit; offered only while the build carries
   a client id. Reads saved, upvoted and joined communities; the last two index-only (ruling 30).
-* Read through your browser — the saved-list machinery (G206) for Reddit, Pinterest and TikTok; never Spotify.
+* Read through your browser — the saved-list machinery (G206) for Reddit, Pinterest and TikTok; Spotify since ROR-128.
 * Import a file — Reddit's votes and joined communities, Spotify's playlists.
 * ``GET /sources/ways-in`` — what the standard source page's connect area shows.
 
@@ -257,9 +257,9 @@ def test_each_new_list_keeps_only_its_sites_posts(key, url, canonical):
     assert saved_lists.canonical(key, "https://example.com/pin/123456789012/") is None
 
 
-def test_spotify_has_no_browser_list():
-    assert "spotify" not in saved_lists.PLATFORMS and "spotify" not in reading_settings.SAVED_LISTS
-    assert ways_in.describe("spotify", None)["notOffered"][1]["kind"] == "browser"
+def test_spotify_has_a_browser_list_since_ror_128():
+    assert "spotify" in saved_lists.PLATFORMS and "spotify" in reading_settings.SAVED_LISTS
+    assert ways_in.SOURCES["spotify"].browser == "spotify" and list(ways_in.SOURCES["spotify"].not_offered) == ["account"]
 
 
 def test_a_tiktok_favorite_read_in_the_browser_is_the_exports_row_and_index_only(reading):
@@ -362,8 +362,8 @@ def test_the_connect_area_for_each_source(api, memory):
     by = {s["source"]: s for s in body["sources"]}
     assert list(by) == ["spotify", "reddit", "pinterest", "tiktok", "instagram"]
     spotify = by["spotify"]
-    assert spotify["primary"] is None and set(_by_kind(spotify)) == {"file"} and spotify["recommended"] == "file"
-    assert {n["kind"] for n in spotify["notOffered"]} == {"account", "browser"}
+    assert spotify["primary"] is None and set(_by_kind(spotify)) == {"browser", "file"}
+    assert {n["kind"] for n in spotify["notOffered"]} == {"account"}
     reddit_area = by["reddit"]
     assert reddit_area["primary"] is None and reddit_area["ownApp"] is False and reddit_area["recommended"] == "browser"
     assert set(_by_kind(reddit_area)) == {"browser", "file"}

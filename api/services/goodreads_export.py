@@ -153,7 +153,13 @@ def preview(data: bytes) -> dict:
 def stage(memory_path: Path, data: bytes, *, bank: str | None = None, now: datetime | None = None,
           ids: set[str] | None = None) -> dict:
     """``ids`` is the person's choice (Goodreads ``Book Id`` values); ``None`` is every book, an empty set none."""
-    rows = _rows(data)
+    return stage_rows(memory_path, _rows(data), bank=bank, now=now, ids=ids)
+
+
+def stage_rows(memory_path: Path, rows: list[dict], *, bank: str | None = None, now: datetime | None = None,
+               ids: set[str] | None = None) -> dict:
+    """Stage export-shaped rows — a file's, or the books the person's agent read and the person chose
+    (``goodreads_waiting``): one writer, one episode per book whichever door."""
     now = now or datetime.now(timezone.utc)
     drafts = [d for d in (draft_for(r, now=now) for r in rows) if d is not None]
     if ids is not None:

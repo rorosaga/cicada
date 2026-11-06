@@ -82,7 +82,9 @@ PLATFORMS: dict[str, Platform] = {
     # G232 (owner 2026-11-04: "offer the website connection through browser harness, just like a toggle switch …
     # Same for TikTok, same for Pinterest, same for Reddit"). Each files under its export's own origin and folder, so
     # a post the export (or Reddit's connector) brought in is the same row, and every one is index-only (ruling 30).
-    # Spotify has none: its terms bar automated reading of the service (`ways_in.SPOTIFY_NO_BROWSER`).
+    # ROR-128 (owner 2026-11-06) lifted Spotify's "never": a site's terms do not decide whether the person's own agent
+    # reads their own list in their own browser. Spotify's library is a saved list like the rest; Goodreads' shelves
+    # are books, held for the person's choice (`goodreads_waiting`) instead of saved as links.
     "reddit": Platform("reddit", "Reddit", "Saved", "https://www.reddit.com/user/me/saved/", "", "reddit-saved",
                        "Saved posts", "reddit.com", "to read your saved posts", ("reddit.com",)),
     "pinterest": Platform("pinterest", "Pinterest", "Saved Pins", "https://www.pinterest.com/",
@@ -91,6 +93,11 @@ PLATFORMS: dict[str, Platform] = {
     "tiktok": Platform("tiktok", "TikTok", "Favorites", "https://www.tiktok.com/",
                        " — open the person's profile, then the Favorites tab (videos)", "tiktok-saved", "Favorites",
                        "tiktok.com", "to read your favorite videos", ("tiktok.com",)),
+    "spotify": Platform("spotify", "Spotify", "Library", "https://open.spotify.com/",
+                        " — open Your Library, then Liked Songs, then each playlist, album and podcast listed",
+                        "spotify-saved", "Library", "spotify.com", "to read your library", ("spotify.com",)),
+    "goodreads": Platform("goodreads", "Goodreads", "shelves", "https://www.goodreads.com/review/list", "",
+                          "goodreads", "", "goodreads.com", "to read your shelves", ("goodreads.com",)),
 }
 #: A list is offered again this long after its last read (the youtube lists' cadence).
 CADENCE = timedelta(hours=20)
@@ -333,6 +340,9 @@ _REDDIT_POST = re.compile(r"^/r/(?P<sub>[A-Za-z0-9_]{2,21})/comments/(?P<id>[a-z
 #: A Pin: ``/pin/<id>/`` on pinterest.com or one of its country hosts.
 _PIN = re.compile(r"^/pin/(?P<id>[A-Za-z0-9_-]{5,40})/?$")
 _PIN_HOST = re.compile(r"(?:(?:www|[a-z]{2})\.)?pinterest\.(?:com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})")
+#: A Spotify item: ``/<kind>/<id>`` on open.spotify.com (a locale prefix such as ``/intl-es`` is dropped).
+_SPOTIFY = re.compile(r"^(?:/intl-[a-z]{2}(?:-[A-Za-z]{2})?)?/(?P<kind>track|album|show|episode|playlist|artist)/"
+                      r"(?P<id>[A-Za-z0-9]{8,40})/?$")
 #: A video or photo post on TikTok: ``/@<user>/video/<id>``.
 _TIKTOK_POST = re.compile(r"^/@(?P<user>[A-Za-z0-9._]{2,24})/(?P<kind>video|photo)/(?P<id>\d{8,25})/?$")
 
@@ -397,6 +407,11 @@ def canonical(key: str, url) -> tuple[str, tuple[str, ...]] | None:
         # The export lists a favourite as ``tiktokv.com/share/video/<id>/``: the same video, one row.
         return f"https://www.tiktok.com/@{user}/{kind}/{vid}", (f"https://www.tiktokv.com/share/video/{vid}/",
                                                                  f"https://tiktok.com/@{user}/{kind}/{vid}")
+    if key == "spotify":
+        found = _SPOTIFY.match(path_) if host == "open.spotify.com" else None
+        if found is None:
+            return None
+        return f"https://open.spotify.com/{found.group('kind')}/{found.group('id')}", ()
     return None
 
 
@@ -409,6 +424,8 @@ def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = N
     if not keys:
         return []
     p = PLATFORMS[keys[0]]
+    if p.key == "goodreads":
+        return _goodreads_lines(can_record)
     lines = [f"- The person's {p.name} {p.label}: {p.url}{p.how} — read each post's link, its author as the page "
              "shows it, and the words the post shows."]
     tail = (f"Record it with `cicada_record_saved_list(platform, outcome, items=[{{url, author, text}}], via)` "
@@ -420,3 +437,21 @@ def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = N
             "their own signed-in browser session; read only the list (scroll at most a few screens), never their "
             "feed or messages, and never click anything that changes the list (no unsave, like, follow or "
             "reply)."] + lines + [tail]
+
+
+def _goodreads_lines(can_record: bool) -> list[str]:
+    """Goodreads' shelves are books, not posts: what to read per book, and where it goes (held for the person's pick)."""
+    p = PLATFORMS["goodreads"]
+    tail = ("Record it with `cicada_record_saved_list(platform=\"goodreads\", outcome, items=[{id, title, author, shelf, "
+            "rating, date_read, date_added, review}], via)`: `id` is the number in the book's link "
+            "(`/book/show/<id>`), `shelf` is `read`, `currently-reading` or `to-read`, dates are YYYY-MM-DD. Nothing "
+            "enters memory until the person chooses which books to add. If Goodreads asks you to sign in, do not sign "
+            "in or type credentials: record `needs_login` and stop."
+            if can_record else
+            "If Goodreads asks you to sign in, do not sign in or type credentials: stop and tell the person.")
+    return ["The person asked their agent to keep their Goodreads shelves current in Cicada. Open this page in their "
+            "own signed-in browser session; read only their shelves Read, Currently Reading and Want to Read (scroll "
+            "at most a few screens), never their feed, friends or messages, and never click anything that changes a "
+            "shelf (no rating, review, shelving or follow).",
+            f"- The person's Goodreads shelves: {p.url} — per book: its id, title, author, which shelf, the person's "
+            "own star rating, the dates read and added, and the person's own review if they wrote one.", tail]
