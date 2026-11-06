@@ -562,9 +562,8 @@ struct ReadingSitesSection: View {
 
 // MARK: - Last read
 
-/// ROR-118 (rounds 3 and 4, Home) — the newest Sleep commit: "Last read <when>" (a link to that read's details) and the
-/// pages it touched as pictures, each a button that shows the page on the graph (its name is the hover and the
-/// accessibility label; a page with no picture draws nothing, never a type glyph, and stays one click away in the read's
+/// ROR-118 (rounds 3 and 4, Home) — the newest Sleep commit: "Last read <when>" (a link to that read's details) and,
+/// in words, how many pages it touched ("· 4 pages updated"; no pictures, each page stays one click away in the read's
 /// details). Round 4: it is the status line's last segment when it sits under Today (`TodaySection.includesLastRead`), its
 /// own centred line otherwise; the counts ("4 updated") are the link's hover and accessibility label.
 struct LastReadSegment: View {
@@ -575,7 +574,6 @@ struct LastReadSegment: View {
 
     @Environment(Store.self) private var store
     @Environment(SleepViewModel.self) private var sleepVM
-    @Environment(GraphViewModel.self) private var graphVM
     @Environment(AppRouter.self) private var router
 
     /// A one-line state ("Loading…", "Nothing read yet"): plain words.
@@ -622,42 +620,21 @@ struct LastReadSegment: View {
         let when = HomeFigures.when(entry.date) ?? String(entry.date.prefix(10))
         let shownWhen = joinsStatusLine ? HomeFigures.withoutToday(when) : when
         let line = HomeFigures.lastReadLine(entry)
-        // Round 5 — the pictures say what they are: "2 pages updated", before them, only while one is drawn (a page with no
-        // picture is not drawn, so its word would stand over nothing).
-        let drawsChips = EntityPictureLayout.anyDrawn(chips.shown.map { (type: $0.type, picture: store.picture(for: $0.id)) })
+        // The count says it in words, no pictures: "4 pages updated", its dot spaced and inked like the status line's others.
+        let touched = chips.shown.count + chips.more
         return HStack(spacing: CicadaTheme.scaled(HomeLayout.statGap)) {
             lastReadLink(figure: shownWhen, lead: Copy.homeLastReadShort,
                          label: Copy.homeLastReadShort + " " + when + ": " + line,
                          help: Copy.homeLastReadHelp + " · " + line)
-            if drawsChips {
-                Text("· " + Copy.homeLastReadPagesUpdated(chips.shown.count + chips.more))
+            if touched > 0 {
+                Text(Copy.Inbox.dot).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
+                    .accessibilityHidden(true)
+                Text(Copy.homeLastReadPagesUpdated(touched))
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .accessibilityHidden(true)
             }
-            // One size, one ring, side by side: the pictures read as one group (a page with none is simply not there).
-            HStack(spacing: CicadaTheme.scaled(4)) {
-                ForEach(chips.shown, id: \.id) { chip in pageChip(chip) }
-            }
         }
-    }
-
-    /// One page the read touched, as its picture alone (collapsing to nothing when it has none); a click shows it on
-    /// the graph.
-    private func pageChip(_ chip: HomeChip) -> some View {
-        Button {
-            selectedTab = .graph
-            graphVM.revealEntity(id: chip.id)
-        } label: {
-            EntityPicture(id: chip.id, name: chip.name, type: chip.type, size: HomeLayout.chipPicture,
-                          collapsesWhenEmpty: true)
-                // A 24 pt hit frame in height only, so a page with no picture still takes no width.
-                .frame(minHeight: CicadaTheme.scaled(HomeTargets.tagHitHeight))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .help(Copy.homeShowOnGraph(chip.name))
-        .accessibilityLabel(Copy.homeShowOnGraph(chip.name))
     }
 
     /// Review #9 — Last read opens *that read* in the Sleep page's Details, not the page again.
