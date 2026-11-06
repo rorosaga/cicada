@@ -283,7 +283,7 @@ dollars to that secondary line under the total; a metered run keeps its dollars 
 its window shift, else "share of the plan not recorded". Past nights' folded run row does not carry the figure (its
 detail does): the row has no whole-run usage on the wire.
 
-**Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Skills,
+**Navigation (Direction D, DS-1).** The labelled 208 pt sidebar by default since ROR-118 (the 56 pt icon rail one toggle away) (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Skills,
 Sleep, Sources, Projects, Agents at ⌘1–5 and ⌘7–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant).
 **The Inbox left the rail (ruling 48 (2), owner 2026-10-28):** its questions live on Home and on each page, and the
 full grouped list is Home's sub-view — `AppTab.inbox` stays a destination (⌘K, the menu bar, a notification, Home's
@@ -303,7 +303,7 @@ owner 2026-10-26), no wordmark. The gear's `warning` dot lights only
 when the engine the person chose is a plan that is installed but signed out (owner 2026-10-16,
 `ConnectionsViewModel.needsAttention(engine:)` over `EngineOption.connectionId` — a plan merely available, never chosen,
 is not the person's problem; the engine choice is read once the backend answers). ⌃⌘S or the titlebar toggle swaps it
-for a 208 pt labelled sidebar, remembered per viewer (`cicada.shell.labelledSidebar`). Relaunch restores the last tab:
+with the 56 pt rail, remembered per viewer (`cicada.shell.labelledSidebar`). Relaunch restores the last tab:
 nothing stored, or a value no build knows, opens Home, and a stored Graph stays on Graph; `AppTab` raw values are the
 persisted identity and `AppTab.restored(from:)` maps retired ones. **The titlebar is a SwiftUI toolbar** with the
 title hidden (AppKit keeps the drag area in every gap): the sidebar toggle after the traffic lights; the **command
