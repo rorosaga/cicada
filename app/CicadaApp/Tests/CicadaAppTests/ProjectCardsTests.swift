@@ -23,18 +23,42 @@ final class ProjectCardsTests: XCTestCase {
         XCTAssertEqual(ProjectCardGroup.blocks(entries).count, 1)
     }
 
-    func testTheThreadHasOnlyThePlansMilestonesAndNoRemainderWithoutAPlan() throws {
-        let open = try row("a")
-        XCTAssertFalse(ProjectThread.span(open, today: today).planned)
-        XCTAssertTrue(ProjectThread.marks(open).isEmpty)
-        XCTAssertTrue(try ProjectThread.span(row("p", planned: true), today: today).planned)
+    private func planned(_ names: [(String, String, String?)]) throws -> ProjectLine {
+        let ms: [[String: Any]] = names.enumerated().map { i, m in
+            var o: [String: Any] = ["slug": m.0, "name": "Step \(m.0)", "status": m.1, "source": "milestone"]
+            if let t = m.2 { o["target"] = t }
+            return o
+        }
+        let object: [String: Any] = ["id": "p", "name": "Example p", "status": "active", "planned": true,
+                                     "lastMomentDay": today.adding(-2).description,
+                                     "created": today.adding(-20).description, "milestones": ms]
+        let row = try JSONDecoder().decode(ProjectRow.self, from: JSONSerialization.data(withJSONObject: object))
+        return try XCTUnwrap(ProjectsModel.entries([row], tab: .current, query: "", today: today)
+            .compactMap(\.line).first)
     }
 
-    func testTheStandingHangsFromTodayWhenThereIsNoNextMilestone() throws {
+    func testAPlanIsStepsInDateOrderWithTheNextOneMarked() throws {
+        let line = try planned([("c", "planned", today.adding(9).description), ("a", "done", today.adding(-5).description),
+                                ("b", "planned", today.adding(3).description)])
+        XCTAssertEqual(ProjectSteps.steps(line).map(\.state), [.done, .next, .later])
+        XCTAssertEqual(ProjectSteps.steps(line).map(\.name), ["Step a", "Step b", "Step c"])
+        XCTAssertEqual(ProjectSteps.glyph(line), "diamond")
+    }
+
+    func testNoPlanDrawsNoStepsAndTheStandingIsAClock() throws {
         let entries = ProjectsModel.entries([try row("a")], tab: .current, query: "", today: today)
         let line = try XCTUnwrap(entries.compactMap(\.line).first)
-        let caption = try XCTUnwrap(ProjectThread.caption(line, today: today))
-        XCTAssertEqual(caption.text, ProjectsModel.standing(line, today: today))
-        XCTAssertEqual(caption.fraction, ProjectThread.span(line.row, today: today).fill, accuracy: 0.0001)
+        XCTAssertTrue(ProjectSteps.steps(line).isEmpty)   // R-PJ11: no plan, no track
+        XCTAssertEqual(ProjectSteps.glyph(line), "clock")
+    }
+
+    func testTheGridHoldsAReadableMeasureAndFillsItsLastRow() throws {
+        XCTAssertEqual(ProjectCardLayout.columns(width: 0), 2)
+        XCTAssertEqual(ProjectCardLayout.columns(width: 400), 1)
+        XCTAssertEqual(ProjectCardLayout.columns(width: 900), 2)
+        XCTAssertEqual(ProjectCardLayout.columns(width: 1600), 3)
+        let groups = try ["a", "b", "c"].map { ProjectCardGroup(root: ProjectsModel.entries([try row($0)], tab: .current,
+            query: "", today: today).compactMap(\.line)[0], kids: []) }
+        XCTAssertEqual(ProjectCardLayout.rows(groups, columns: 2).map { $0.map(\.id) }, [["a", "b"], ["c"]])
     }
 }

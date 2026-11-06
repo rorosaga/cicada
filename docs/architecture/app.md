@@ -2699,10 +2699,12 @@ part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page 
   Sleep marked decaying or archived but heard from within its quiet threshold Q (progress logged, a claim's day, a
   repository session, or a conversation tied by hand, by the provider's project id or by the relaying app's word —
   `project_timeline._tied_days`, list and detail alike) is in motion; the status rests it only once it is quiet past Q. `ProjectsModel.entries` is the whole column as `ProjectsEntry` values — rows,
-  the Fading head, Past's year labels and "Show 50 more" — pure, so a test pins it. ROR-118 round 1 (DESIGN_RULES §9, 2026-11-06): Current at rest (wide, no project open) draws
-  `ProjectCard`s (`ProjectCards.swift`) — one ringed card a root project, its sub-projects inside on a darker well, the
-  `ProjectThread` on a `bgBase` well (the band in miniature, neutral ink, no percentage, no track without
-  a plan; round 2: the standing is the one word under it, hung from the next milestone's diamond, else the Today dot; every mark names itself on hover; a sub-project's standing is plain 12 pt text, no pill) — as tall as its content (round 2: no stretch, so no card holds a gap another lacks), the standing centred under its mark; Past and the narrowed list keep rows. A row
+  the Fading head, Past's year labels and "Show 50 more" — pure, so a test pins it. ROR-118 round 3 (DESIGN_RULES §9, 2026-11-06): Current at rest (wide, no project open) draws
+  `ProjectCard`s (`ProjectCards.swift`) as a grid (`ProjectCardGrid`: 1-3 columns by width at a 360 pt measure, a row's
+  tiles one height) — one ringed tile a root project: name, one-liner, and at its foot where it stands (`ProjectSteps`: one
+  segment a plan milestone in date order, done / next / later, only with a plan, no percentage; under it the one signal
+  `ProjectsModel.standing` in 13 pt primary ink with a diamond for a next milestone or a clock for last heard); its
+  sub-projects inside on a darker well under a turn-down glyph. Round 1-2's miniature thread is retired. Past and the narrowed list keep rows. A row
   (`ProjectRowView`, 56 pt) is the name over the one-liner and ONE signal (`ProjectsModel.standing`): the next milestone ("Next · First grasp,
   Oct 1", overdue in words; a milestone named after its own project only its day, "Next · Oct 5" —
   `ProjectsModel.milestoneName`), else the plan's count, else "Heard 9 days ago"; Fading "Quiet 30 days"; Past the

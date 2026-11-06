@@ -113,9 +113,7 @@ struct ProjectsListColumn: View {
             switch block {
             case .quiet: entry(.quiet(count: 0))
             case .cards(let groups):
-                ForEach(groups) { group in
-                    ProjectCard(group: group, today: today, open: tap)
-                }
+                ProjectCardGrid(groups: groups, today: today, open: tap)
             }
         }
     }

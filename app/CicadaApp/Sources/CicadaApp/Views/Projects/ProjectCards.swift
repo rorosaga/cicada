@@ -2,10 +2,25 @@ import SwiftUI
 
 /// ROR-118 round 1 (DESIGN_RULES §9, 2026-11-06) — Current's wide list is cards, not bare rows: one ringed card a
 /// project (DR-9, DR-37: it holds a group), its sub-projects inside it on a darker well so the nesting reads at a
-/// glance. Round 2: a card is as tall as its content, so no card carries a gap another lacks.
+/// glance. Round 2: a card is as tall as its content, so no card carries a gap another lacks. Round 3: the cards stand
+/// in a grid, each a tile with where it stands anchored at its foot, and the thread is a stepper that names itself.
 enum ProjectCardLayout {
-    /// What one sub-project row adds inside its parent's card.
-    static let childHeight: CGFloat = 64
+    /// Round 3: the cards stand in a grid, as many columns as the width holds at a readable measure.
+    static let columnMin: CGFloat = 360
+    static let gap: CGFloat = 16
+    static let maxColumns = 3
+
+    /// Columns for a list this wide (an unmeasured list is drawn as two).
+    static func columns(width: CGFloat) -> Int {
+        guard width > 0 else { return 2 }
+        return min(maxColumns, max(1, Int((width + gap) / (columnMin + gap))))
+    }
+
+    /// Groups in rows of `columns`; the last row may be short.
+    static func rows(_ groups: [ProjectCardGroup], columns: Int) -> [[ProjectCardGroup]] {
+        let n = max(columns, 1)
+        return stride(from: 0, to: groups.count, by: n).map { Array(groups[$0..<min($0 + n, groups.count)]) }
+    }
 }
 
 /// A root project and the sub-projects that follow it in the list.
@@ -62,6 +77,37 @@ extension ProjectCardGroup {
     }
 }
 
+/// Round 3 — a run of cards as a grid: equal-height tiles side by side, so a name sits beside what it is about and the
+/// window is used across, not just down.
+struct ProjectCardGrid: View {
+    let groups: [ProjectCardGroup]
+    let today: ISODay
+    let open: (ProjectLine) -> Void
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        let columns = ProjectCardLayout.columns(width: width)
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(ProjectCardLayout.gap)) {
+            ForEach(ProjectCardLayout.rows(groups, columns: columns), id: \.first?.id) { row in
+                HStack(alignment: .top, spacing: CicadaTheme.scaled(ProjectCardLayout.gap)) {
+                    ForEach(0..<columns, id: \.self) { i in
+                        if i < row.count {
+                            ProjectCard(group: row[i], today: today, open: open)
+                        } else {
+                            Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
+                        }
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    }
+}
+
+/// One tile: the name and what it is on top, where it stands at the foot (a stepper over its words when there is a
+/// plan), the sub-projects on a well beneath.
 struct ProjectCard: View {
     let group: ProjectCardGroup
     let today: ISODay
@@ -73,15 +119,17 @@ struct ProjectCard: View {
     private var shape: RoundedRectangle { CicadaTheme.shape(CicadaTheme.radiusLarge) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: s(12)) {
-            Button { open(line) } label: { head.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .contentShape(Rectangle()) }
-                .buttonStyle(.cicadaPlain)
-                .accessibilityLabel(ProjectsModel.accessibilityLabel(line, today: today))
+        VStack(alignment: .leading, spacing: s(14)) {
+            Button { open(line) } label: {
+                head.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.cicadaPlain)
+            .accessibilityLabel(ProjectsModel.accessibilityLabel(line, today: today))
             if !group.kids.isEmpty { kids }
         }
         .padding(s(20))
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: s(176), maxHeight: .infinity, alignment: .topLeading)
         .background(shape.fill(CicadaTheme.bgFocus))
         .ringed(hovering ? .strong : .resting, in: shape)
         .onHover { hovering = $0 }
@@ -96,18 +144,29 @@ struct ProjectCard: View {
                 .help(line.row.name)
             if let one = ProjectsModel.oneLine(line.row) {
                 Text(one).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(2)
+                    .multilineTextAlignment(.leading)
             }
-            thread.padding(.top, s(10))
+            Spacer(minLength: s(18))
+            standing
         }
     }
 
-    /// The thread on a well of its own, the same ground the sub-projects sit on, so each card has the same two layers.
-    private var thread: some View {
-        ProjectThread(span: ProjectThread.span(line.row, today: today), marks: ProjectThread.marks(line.row),
-                      caption: ProjectThread.caption(line, today: today))
-            .frame(height: s(ProjectThread.height))
-            .padding(.horizontal, s(16)).padding(.top, s(10)).padding(.bottom, s(6))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgBase))
+    /// Where it stands: the steps of its plan (only with one, R-PJ11), then the one signal in words with the glyph
+    /// that says which kind it is — a diamond for the next milestone, a clock for the last time it was heard.
+    private var standing: some View {
+        let text = ProjectsModel.standing(line, today: today)
+        let steps = ProjectSteps.steps(line)
+        return VStack(alignment: .leading, spacing: s(10)) {
+            if !steps.isEmpty { ProjectSteps(steps: steps) }
+            if !text.isEmpty {
+                HStack(spacing: s(6)) {
+                    Image(systemName: ProjectSteps.glyph(line)).font(CicadaTheme.icon(.inline))
+                        .foregroundStyle(CicadaTheme.textSecondary).accessibilityHidden(true)
+                    Text(text).font(CicadaTheme.metaMediumFont).monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
+                }
+            }
+        }
     }
 
     private var kids: some View {
@@ -119,7 +178,7 @@ struct ProjectCard: View {
     }
 }
 
-/// A sub-project on its parent's card: a hook from the parent, its own name at 13, where it stands at the end.
+/// A sub-project on its parent's card: the turn-down glyph from the parent, its name, where it stands.
 private struct ProjectKidRow: View {
     let line: ProjectLine
     let today: ISODay
@@ -130,25 +189,27 @@ private struct ProjectKidRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .center, spacing: s(10)) {
-                Elbow().stroke(CicadaTheme.textSecondary, lineWidth: 1.5).frame(width: s(16), height: s(26))
-                    .padding(.leading, s(6)).accessibilityHidden(true)
+            HStack(alignment: .top, spacing: s(10)) {
+                Image(systemName: "arrow.turn.down.right").font(CicadaTheme.icon(.inline))
+                    .foregroundStyle(CicadaTheme.textSecondary).padding(.top, s(2)).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: s(2)) {
-                    Text(line.row.name).font(CicadaTheme.metaMediumFont)
-                        .foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
+                    HStack(alignment: .firstTextBaseline, spacing: s(12)) {
+                        Text(line.row.name).font(CicadaTheme.rowFont)
+                            .foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
+                        Spacer(minLength: 0)
+                        let text = ProjectsModel.standing(line, today: today)
+                        if !text.isEmpty {
+                            Text(text).font(CicadaTheme.captionFont).monospacedDigit()
+                                .foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
+                        }
+                    }
                     if let one = ProjectsModel.oneLine(line.row) {
                         Text(one).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
                     }
                 }
-                Spacer(minLength: s(12))
-                let text = ProjectsModel.standing(line, today: today)
-                if !text.isEmpty {
-                    Text(text).font(CicadaTheme.captionFont).monospacedDigit()
-                        .foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
-                }
             }
-            .padding(.horizontal, s(10))
-            .frame(maxWidth: .infinity, minHeight: s(ProjectCardLayout.childHeight - 8), alignment: .leading)
+            .padding(.horizontal, s(10)).padding(.vertical, s(8))
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
@@ -157,104 +218,51 @@ private struct ProjectKidRow: View {
     }
 }
 
-/// A sub-project's hook: down from its parent, then across to its name.
-private struct Elbow: Shape {
-    func path(in rect: CGRect) -> Path {
-        Path { p in
-            p.move(to: CGPoint(x: rect.minX, y: rect.minY))
-            p.addLine(to: CGPoint(x: rect.minX, y: rect.midY - 3))
-            p.addQuadCurve(to: CGPoint(x: rect.minX + 3, y: rect.midY), control: CGPoint(x: rect.minX, y: rect.midY))
-            p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-        }
-    }
-}
+/// A plan in steps: one segment a milestone in date order — filled once done, the next one a step lighter, the rest
+/// on the well (ROR-118 round 3; it replaces the miniature thread, whose diamonds and dots no one could name). There
+/// is no stepper without a plan (R-PJ11) and no percentage; each segment names its milestone on hover.
+struct ProjectSteps: View {
+    enum State: Equatable { case done, next, later }
+    struct Step: Equatable { let state: State; let name: String }
 
-/// The project's thread in miniature — the band's own shapes in the text ladder (DR-13: Meadow stays on the band):
-/// a solid run from its first day to today, a dashed open end when there is no plan (R-PJ11), the plan's remainder as
-/// the track only when there is one, a diamond a milestone (filled once done) and the Today dot. The one word under
-/// it is the project's standing, hung from the mark it is about: the next milestone's diamond, else the Today dot
-/// (ROR-118 round 2, DR-44: one signal, moved off the card's corner onto what it names). Each mark also names itself on hover.
-struct ProjectThread: View {
-    struct Mark: Equatable { let day: ISODay; let done: Bool; var name: String = "" }
-    struct Caption: Equatable { let fraction: Double; let text: String }
+    let steps: [Step]
 
-    static let height: CGFloat = 46
-    private static let lineY: CGFloat = 10
-
-    let span: ProgressSpan
-    let marks: [Mark]
-    var caption: Caption? = nil
-
-    static func span(_ row: ProjectRow, today: ISODay) -> ProgressSpan {
-        let targets = row.milestones.filter { $0.source != "expectedEnd" }.compactMap { ISODay($0.target) }
-        let days = ([row.activity.first?.day, row.lastMomentDay]).compactMap { ISODay($0) }
-        return ProgressSpan.of(created: ISODay(row.created), days: days, targets: targets, planned: row.planned,
-                               today: today)
-    }
-
-    static func marks(_ row: ProjectRow) -> [Mark] {
-        row.milestones.filter { $0.source != "expectedEnd" }.compactMap { m in
-            guard let day = ISODay(m.status == "done" ? (m.doneOn ?? m.target) : m.target) else { return nil }
-            return Mark(day: day, done: m.status == "done", name: m.name)
+    /// The plan's milestones by date, undated last; the open one the project is heading for is the next.
+    static func steps(_ line: ProjectLine) -> [Step] {
+        let planned = line.row.milestones.filter { $0.source != "expectedEnd" }
+        let ordered = planned.enumerated().sorted { a, b in
+            switch (ISODay(a.element.target), ISODay(b.element.target)) {
+            case let (x?, y?): x != y ? x < y : a.offset < b.offset
+            case (_?, nil): true
+            case (nil, _?): false
+            default: a.offset < b.offset
+            }
+        }.map(\.element)
+        return ordered.map { m in
+            Step(state: m.status == "done" ? .done : (m.slug == line.state.next ? .next : .later), name: m.name)
         }
     }
 
-    /// The standing, and where on the thread it hangs: under the next milestone's diamond, else under Today.
-    static func caption(_ line: ProjectLine, today: ISODay) -> Caption? {
-        let text = ProjectsModel.standing(line, today: today)
-        guard !text.isEmpty else { return nil }
-        let span = span(line.row, today: today)
-        if let slug = line.state.next, let m = line.row.milestones.first(where: { $0.slug == slug }),
-           let day = ISODay(m.target) {
-            return Caption(fraction: span.fraction(day), text: text)
-        }
-        return Caption(fraction: span.fill, text: text)
+    /// The glyph of the one signal: a diamond when it names a milestone, else a clock.
+    static func glyph(_ line: ProjectLine) -> String {
+        line.group == .current && line.state.next.flatMap { slug in line.row.milestones.first { $0.slug == slug } } != nil
+            ? "diamond" : "clock"
     }
 
-    private var ground: Color { CicadaTheme.bgBase }
+    private func fill(_ state: State) -> Color {
+        switch state {
+        case .done: CicadaTheme.textPrimary
+        case .next: CicadaTheme.textSecondary
+        case .later: CicadaTheme.bgBadge
+        }
+    }
 
     var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let y = CicadaTheme.scaled(Self.lineY)
-            let today = min(max(w * span.fill, 0), w)
-            ZStack(alignment: .topLeading) {
-                if span.planned {
-                    Capsule().fill(CicadaTheme.bgBadge).frame(width: w, height: 4).position(x: w / 2, y: y)
-                } else {
-                    MidLine().stroke(CicadaTheme.progressOpenEnd, style: StrokeStyle(lineWidth: 2, dash: [3, 4]))
-                        .frame(width: max(w - today, 0), height: 3).position(x: today + max(w - today, 0) / 2, y: y)
-                }
-                Capsule().fill(CicadaTheme.textSecondary).frame(width: max(today, 3), height: 4)
-                    .position(x: max(today, 3) / 2, y: y)
-                ForEach(Array(marks.enumerated()), id: \.offset) { _, mark in
-                    diamond(done: mark.done).position(x: min(max(w * span.fraction(mark.day), 6), w - 6), y: y)
-                        .help(mark.name)
-                }
-                Circle().fill(CicadaTheme.textPrimary).frame(width: 11, height: 11)
-                    .background(Circle().fill(ground).padding(-3))
-                    .position(x: min(max(today, 6), w - 6), y: y)
-                    .help(Copy.Projects.todayMark)
-                if let caption { label(caption, width: w) }
+        HStack(spacing: CicadaTheme.scaled(4)) {
+            ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
+                Capsule().fill(fill(step.state)).frame(height: CicadaTheme.scaled(5)).help(step.name)
             }
         }
-    }
-
-    /// Centred under its mark, nudged in so it never leaves the well.
-    private func label(_ c: Caption, width w: CGFloat) -> some View {
-        let half = CicadaTheme.scaled(CGFloat(c.text.count) * 3.5)
-        let x = min(max(w * c.fraction, half), max(w - half, half))
-        return Text(c.text).font(CicadaTheme.captionFont).monospacedDigit().lineLimit(1).fixedSize()
-            .foregroundStyle(CicadaTheme.textSecondary)
-            .position(x: x, y: CicadaTheme.scaled(Self.lineY + 24))
-    }
-
-    private func diamond(done: Bool) -> some View {
-        let shape = CicadaTheme.shape(2)
-        return shape.fill(done ? CicadaTheme.textPrimary : ground)
-            .overlay { if !done { shape.strokeBorder(CicadaTheme.textSecondary, lineWidth: 1.5) } }
-            .frame(width: 10, height: 10)
-            .background(shape.fill(ground).padding(-3))
-            .rotationEffect(.degrees(45))
+        .accessibilityHidden(true)
     }
 }

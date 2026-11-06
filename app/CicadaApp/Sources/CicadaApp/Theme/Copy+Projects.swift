@@ -51,7 +51,6 @@ extension Copy {
         static let nothingHeard = "Nothing heard yet"
         static func lastHeard(_ day: String) -> String { "Last heard \(day)" }
         /// "Heard yesterday", "Heard 9 days ago" — the distance is `RelativeDay`'s (DR-58).
-        static let todayMark = "Today"
         static func heard(_ distance: String) -> String { "Heard \(distance)" }
         /// A nil name is a milestone named after its own project: only its day is said.
         static func next(_ name: String?, _ when: String?) -> String {
