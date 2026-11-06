@@ -51,6 +51,7 @@ struct SettingsDemoTourGroup: View {
                 inDemo ? leave() : enter()
             }
             .settingsRow(.demoMemory)
+            Spacer(minLength: 0)
         }
     }
 
@@ -108,10 +109,10 @@ private struct SetupTile: View {
                     .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .fixedSize()
             }
-            .padding(.horizontal, CicadaTheme.scaled(8))
-            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(36))
+            .padding(.horizontal, CicadaTheme.scaled(14))
+            .frame(minHeight: CicadaTheme.scaled(40))
             .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .fill(hovering && !isDisabled ? CicadaTheme.bgButtonHover : CicadaTheme.bgButton))
             .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
