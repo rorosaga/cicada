@@ -65,7 +65,7 @@ final class AskViewModel {
 
     /// What the person reads when the request itself failed: a sentence and what to do, never a status code, a raw
     /// body or the system's wording (G199 for the app: the cause is in the log).
-    static func describe(_ error: Error) -> String {
+    nonisolated static func describe(_ error: Error) -> String {
         if let apiError = error as? APIError {
             switch apiError {
             case .serverUnreachable: return Copy.AskWords.unreachable
@@ -85,7 +85,7 @@ final class AskViewModel {
 
     /// A refusal the backend wrote for the person (a 4xx with a sentence in `detail`) is shown as written; anything
     /// else, a 5xx above all, is the generic line.
-    static func httpMessage(code: Int, body: String) -> String {
+    nonisolated static func httpMessage(code: Int, body: String) -> String {
         guard (400..<500).contains(code),
               let data = body.data(using: .utf8),
               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
