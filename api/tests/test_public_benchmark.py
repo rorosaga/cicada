@@ -345,3 +345,46 @@ def test_offline_unit_without_sleep_indexes_and_answers(tmp_path):
     assert (bank / "search_index.db").is_file() and (bank / "vector_index.db").is_file()
     summary = json.loads((run_dir / "report.json").read_text())
     assert "sleep" not in summary["calls_by_phase"] and summary["paths"]["ask"]["n"] == 2
+
+
+def test_controls_doors_and_a_reused_prompt_run_offline(tmp_path):
+    """The controls answer without Ask, the doors spend no call, and a second run over the same banks re-reads nothing."""
+    cache = tmp_path / "cache"
+    home = cache / "home"
+    home.mkdir(parents=True)
+    (home / "_bench_home.yaml").write_text(json.dumps({"kind": "cicada-system-benchmark-v1"}) + "\n")
+    data = tmp_path / "locomo.json"
+    data.write_text(json.dumps([_locomo_sample()]))
+    base = [sys.executable, "-m", "benchmarks.public.run", "run", "--cache", str(cache), "--dataset", "locomo",
+            "--fake-engine", "--dataset-file", str(data), "--concurrency", "1", "--sleep-schedule", "none",
+            "--gate", "true", "--claude-home", str(tmp_path / "no-claude")]
+    first = subprocess.run([*base, "--paths", "ask,closed-book,recall,hook,doors"], cwd=REPO, capture_output=True,
+                           text=True, timeout=300)
+    [run_dir] = list((cache / "runs").iterdir())
+    assert first.returncode == 0, first.stdout[-3000:] + first.stderr[-3000:]
+    summary = json.loads((run_dir / "report.json").read_text())
+    assert summary["paths"]["closed-book"]["n"] == 2 and "doors" not in summary["paths"]
+    assert summary["paths"]["recall"]["n"] == 2 and summary["paths"]["hook"]["n"] == 2
+    assert summary["paths"]["recall"]["tokens"]["door_chars_p50"] is not None
+    assert set(summary["doors"]) == {"ask", "recall", "hook", "pending"}
+    assert summary["doors"]["ask"]["(all)"]["n"] == 2
+    second = subprocess.run([*base, "--paths", "ask", "--banks-from", str(run_dir), "--reuse-from", str(run_dir)],
+                            cwd=REPO, capture_output=True, text=True, timeout=300)
+    assert second.returncode == 0, second.stdout[-3000:] + second.stderr[-3000:]
+    [again] = [p for p in (cache / "runs").iterdir() if p != run_dir]
+    rows = [json.loads(line) for line in (again / "units" / "conv-x" / "answers.jsonl").read_text().splitlines()]
+    assert len(rows) == 2 and all(r.get("reused") for r in rows)
+    assert not (again / "units" / "conv-x" / "calls.jsonl").exists() or not [
+        line for line in (again / "units" / "conv-x" / "calls.jsonl").read_text().splitlines()
+        if json.loads(line)["phase"] != "judge" or json.loads(line)["ok"] is False]
+
+
+def test_compare_says_who_got_what_right():
+    a = {"1": {"category": "x", "correct": True}, "2": {"category": "x", "correct": False},
+         "3": {"category": "y", "correct": False}, "4": {"category": "y", "correct": False}}
+    b = {"1": {"category": "x", "correct": True}, "2": {"category": "x", "correct": True},
+         "3": {"category": "y", "correct": True}, "5": {"category": "y", "correct": True}}
+    rows = report.compare(a, b, a_name="A", b_name="B")
+    assert rows["(all)"]["n"] == 3 and rows["(all)"]["A"] == 1 and rows["(all)"]["B"] == 3
+    assert rows["(all)"]["only_B"] == ["2", "3"] and rows["(all)"]["only_A"] == [] and rows["(all)"]["sign_p"] == 0.5
+    assert "only B: 2 3" in report.render_compare(rows, "A", "B")
