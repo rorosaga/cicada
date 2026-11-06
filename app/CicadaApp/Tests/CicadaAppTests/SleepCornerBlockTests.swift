@@ -20,6 +20,7 @@ final class SleepCornerBlockTests: XCTestCase {
     private static func states() throws -> [(String, SleepStatusResponse, Bool)] {
         try [
             ("idle", SleepRunStripTests.finished(), false),
+            ("empty", SleepRunStripTests.empty(), false),
             ("running-1", SleepRunStripTests.running(stage: 1), false),
             ("running-5", SleepRunStripTests.running(stage: 5), false),
             ("paused-user", SleepRunStripTests.paused("user"), false),

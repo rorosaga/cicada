@@ -220,6 +220,15 @@ final class SleepRunStripTests: XCTestCase {
         return try decode(status)
     }
 
+    /// Nothing waiting and nothing running: no drain, no debt, an empty queue (the page's empty state).
+    static func empty() throws -> SleepStatusResponse {
+        var status = try scenario("sleep-status-drain.json", "finished")
+        status["drain"] = NSNull(); status["debt"] = NSNull()
+        status["queueByOrigin"] = [String: Int](); status["readByOrigin"] = [String: Int]()
+        status["episodesQueued"] = 0; status["episodesTotal"] = 0; status["episodesProcessed"] = 0
+        return try decode(status)
+    }
+
     static func finished() throws -> SleepStatusResponse {
         try decode(scenario("sleep-status-drain.json", "finished"))
     }
