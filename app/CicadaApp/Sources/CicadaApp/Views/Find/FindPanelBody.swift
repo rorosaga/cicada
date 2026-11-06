@@ -59,17 +59,21 @@ struct FindPanelBody: View {
         .onChange(of: focusRequest) { _, _ in fieldFocused = true }
     }
 
+    /// ROR-118 (round 1, Home) — on Home the field is the page's one lead: 17 pt type and 6 pt more air above and below
+    /// than the palette's 15 pt field (`.page` placement only; the palette is unchanged).
+    private var fieldSize: CGFloat { placement == .page ? 17 : 15 }
+
     private var field: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             // Home review #10 (DR-5) — a field glyph is not one of the accent's six uses.
             Image(systemName: model.mode == .find ? "magnifyingglass" : "sparkle.magnifyingglass")
-                .font(CicadaTheme.font(size: 15))
+                .font(CicadaTheme.font(size: fieldSize))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .accessibilityHidden(true)
             TextField(model.mode == .find ? (prompt ?? "Search your memory") : "Ask your memory",
                       text: Binding(get: { model.fieldText }, set: { model.setFieldText($0) }))
                 .textFieldStyle(.plain)
-                .font(CicadaTheme.font(size: 15))
+                .font(CicadaTheme.font(size: fieldSize))
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .focused($fieldFocused)
                 .onSubmit {
@@ -98,7 +102,8 @@ struct FindPanelBody: View {
                 .accessibilityLabel("Close")
             }
         }
-        .padding(CicadaTheme.spacingLG)
+        .padding(.horizontal, CicadaTheme.spacingLG)
+        .padding(.vertical, CicadaTheme.spacingLG + (placement == .page ? CicadaTheme.scaled(6) : 0))
     }
 
     private var rows: some View {

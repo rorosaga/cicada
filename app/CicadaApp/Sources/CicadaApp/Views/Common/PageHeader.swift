@@ -13,13 +13,18 @@ import SwiftUI
 struct PageTitle: View {
     static let size: CGFloat = 28
     let text: String
+    /// ROR-118 (round 1) — Home's headline leads its page at 34; every other title stays at `size`.
+    var fontSize: CGFloat = PageTitle.size
 
-    init(_ text: String) { self.text = text }
+    init(_ text: String, fontSize: CGFloat = PageTitle.size) {
+        self.text = text
+        self.fontSize = fontSize
+    }
 
     var body: some View {
         Text(text)
-            .font(CicadaTheme.displayFont(size: Self.size))
-            .tracking(CicadaTheme.displayTracking(size: Self.size))
+            .font(CicadaTheme.displayFont(size: fontSize))
+            .tracking(CicadaTheme.displayTracking(size: fontSize))
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .foregroundStyle(CicadaTheme.textPrimary)

@@ -85,11 +85,11 @@ struct HomeView: View {
                         VStack(spacing: 0) {
                             // R-HS2 — the headline is the row under the band, on the window (DR-50), in the room pages'
                             // title (DR-17): one line, the mock's words.
-                            PageTitle(Copy.homeHeadline)
+                            PageTitle(Copy.homeHeadline, fontSize: HomeLayout.headlineSize)
                                 .id(Self.topAnchor)
                                 .multilineTextAlignment(.center)
                                 .accessibilityAddTraits(.isHeader)
-                                .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTop))
+                                .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTop(viewportHeight: viewport.size.height)))
                                 .padding(.bottom, CicadaTheme.scaled(HomeLayout.headlineBottom))
                             fieldColumn(showsResults: showsResults)
                                 .frame(maxWidth: CicadaTheme.scaled(HomeLayout.fieldWidth))
@@ -97,9 +97,11 @@ struct HomeView: View {
                                 // Between the field and the end of the page, and only while the blocks show (R-IB6): the
                                 // first keystroke replaces them too.
                                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
-                                    ForEach(arrangement.order, id: \.self) { id in
+                                    ForEach(Array(arrangement.order.enumerated()), id: \.element) { index, id in
+                                        // ROR-118 — Today and Last read are one quiet group when they sit together.
                                         block(id, today: today, gettingStartedVisible: gettingStartedVisible,
-                                              graduated: graduated, empty: empty, tipShown: tipShown)
+                                              graduated: graduated, empty: empty, tipShown: tipShown,
+                                              joinsToday: id == .lastRead && index > 0 && arrangement.order[index - 1] == .today)
                                     }
                                 }
                                 .tourAnchor(.home)
@@ -175,7 +177,7 @@ struct HomeView: View {
     /// One block of the column, by id — `HomeArrangement` owns the order, this owns nothing but the mapping.
     @ViewBuilder
     private func block(_ id: HomeBlockID, today: Date, gettingStartedVisible: Bool, graduated: Bool,
-                       empty: HomeEmptiness, tipShown: Bool) -> some View {
+                       empty: HomeEmptiness, tipShown: Bool, joinsToday: Bool) -> some View {
         let mode = empty.mode(setupCardShown: gettingStartedVisible)
         switch id {
         case .setup:
@@ -198,7 +200,12 @@ struct HomeView: View {
         case .readingSites:
             ReadingSitesSection()
         case .lastRead:
-            if mode == .blocks { LastReadSection(empty: empty.lastReadNever, selectedTab: $selectedTab) }
+            if mode == .blocks {
+                LastReadSection(empty: empty.lastReadNever, selectedTab: $selectedTab)
+                    // Under Today the two read as one list: the block gap is taken back, leaving a row's own gap.
+                    .padding(.top, joinsToday && !empty.lastReadNever && !empty.todayEmpty
+                             ? -CicadaTheme.scaled(HomeLayout.blockGap - HomeLayout.pulseGap) : 0)
+            }
         case .tour:
             // Seam 3 — onboarding's "Open Cicada" asked for the tour's offer; Home asks once.
             if tour.offerPending { TourOfferCard() }

@@ -18,6 +18,8 @@ extension Copy {
     static let homeToday = "Today"
     static let homeNeedsYou = "Needs you"
     static let homeLastRead = "Last time Cicada read"
+    /// ROR-118 (round 1) — the first words of Home's last-read row, which has no label above it.
+    static let homeLastReadShort = "Last read"
     /// The TODAY sum is the UTC bucket `source_overview` writes (R-A16), so the
     /// hover says which midnight it counts from rather than pretending local.
     static let homeCapturedHelp = "Captured since 00:00 UTC"
