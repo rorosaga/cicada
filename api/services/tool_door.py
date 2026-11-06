@@ -114,6 +114,7 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_get_perspective": lambda c, a: mcp_tools.get_perspective(
         c, _s(a, "subject"), a.get("observer"), a.get("context"), bool(a.get("history", False))),
     "cicada_save_url": lambda c, a: mcp_tools.save_url(c, _s(a, "url"), a.get("note")),
+    "cicada_add_book": lambda c, a: mcp_tools.add_book(c, _s(a, "isbn"), bool(a.get("preview", False))),
     "cicada_record_watch": lambda c, a: mcp_tools.record_watch(
         c, _s(a, "url"), _s(a, "summary"), a.get("excerpts"), a.get("chapters"), a.get("basis"), a.get("engine"),
         a.get("duration"), a.get("lease_token")),

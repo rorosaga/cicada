@@ -287,6 +287,16 @@ names the three in one sentence (ruling 56 amends Option A; contract 25, remote 
 started under "Current projects", then "Recent project pages, not started as projects" (`projects_started`, state schema
 5), the same 7 rows: on a bank where nothing is started an arriving agent still learns what the person works on. `cicada_capture_turns` takes an optional `project` — the
 relaying app's word on which project the conversation is in, only from its own context, kept as `relay.project`.
+**`cicada_add_book`** (G233, 2026-11-06) adds a book the person asked their agent to add, by an ISBN the agent found itself
+(Cicada never searches by title: ruling 61). `preview: true` asks the lookup for that number and shows title, authors,
+publisher and a description so the agent can say which edition it means, and writes nothing; without it the book goes
+through the scan's writer (`POST /sources/books/agent-add`): one episode staged by ISBN (a repeat is `unchanged`), the
+page at the home. **Stdio only** (`NEVER_REMOTE`; the lookup and the page are the home's and a remote app is not local —
+the owner's open question, as `cicada_record_profile`'s), the CLI row is not exposed to an agent's shell. It takes no
+status: the episode names the harness (`book.by`), the page reads "Added by an agent" beside any other way in, and the
+book is a quiet save (ruling 62) until the person acts on it. The agent never withdraws the page; removing it is the
+person's Remove. The primer does not name it (the 1,800-token handshake, R12): the tool list carries it.
+
 **`cicada_note_progress`** (G141) records a happening or a milestone the person
 described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date
 was decided; `cicada_retract_claim` withdraws an event the same way.

@@ -197,6 +197,8 @@ ROWS: tuple[Row, ...] = (
         mutates=True),
     Row(("design", "search"), "cicada_design_search", "The person's saved looks, by words or by a picture.",
         (_f("query"), _f("image_path"), _f("image_base64"), _f("limit", "int"))),
+    Row(("books", "add"), "cicada_add_book", "Add a book the person asked for, by ISBN (--preview shows the edition first).",
+        (_p("isbn"), _f("preview", "bool")), mutates=True),
     # The Skills page (2026-10-15): an agent reads, asks and drafts; installing is the person's (`skills add`).
     Row(("skills", "list"), "cicada_skills", "Agent skills on this Mac, per agent, with updates and requests.",
         exposed=True),
