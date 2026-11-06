@@ -297,7 +297,7 @@ struct SourceShelfItems: View {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
                 ForEach(items.prefix(2)) { item in
                     HStack(spacing: CicadaTheme.scaled(8)) {
-                        SavedLinkMark(mark: SavedItemText.mark(item), size: .inline)
+                        SavedLinkMark(mark: SavedItemText.mark(item), size: .row)
                         titleLine(item)
                     }
                 }

@@ -156,7 +156,7 @@ private struct YoursTile: View {
                     }
                 Text(row.entry.title).font(CicadaTheme.captionFont)
                     .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-                    .lineLimit(1).frame(width: CicadaTheme.scaled(80))
+                    .lineLimit(1).frame(width: CicadaTheme.scaled(96))
             }
             .contentShape(Rectangle())
         }
