@@ -263,7 +263,7 @@ struct FindModeSwitch: View {
                 .background {
                     if active {
                         CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                            .fill(CicadaTheme.mode == .dark ? CicadaTheme.bgButton : CicadaTheme.bgFocus)
+                            .fill(CicadaTheme.mode == .dark ? CicadaTheme.bgButtonHover : CicadaTheme.bgFocus)
                             .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
                     }
                 }

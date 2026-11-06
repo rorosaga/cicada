@@ -261,7 +261,7 @@ struct TodaySection: View {
     /// each a link to the page that owns it; figures in the primary ink, words in the secondary, so the line reads as
     /// the page's one status and not as three footnotes.
     private func statLine(_ figures: HomeToday) -> some View {
-        HStack(spacing: CicadaTheme.scaled(8)) {
+        HStack(spacing: CicadaTheme.scaled(HomeLayout.statGap)) {
             captured(figures)
             if HomeLayout.showsWaitingInToday(gettingStartedVisible: gettingStartedVisible, hasRunBefore: hasRunBefore) {
                 statDot
@@ -269,7 +269,7 @@ struct TodaySection: View {
             }
             if includesLastRead {
                 statDot
-                LastReadSegment(selectedTab: $selectedTab)
+                LastReadSegment(selectedTab: $selectedTab, joinsStatusLine: true)
             }
         }
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.oneLine), alignment: .center)
@@ -363,7 +363,7 @@ struct HomeStatLink<Trailing: View>: View {
             HStack(spacing: CicadaTheme.scaled(6)) {
                 let words = hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary
                 (Text(lead.isEmpty ? "" : lead + " ").foregroundStyle(words)
-                 + Text(figure).font(CicadaTheme.font(size: 13, weight: .semibold)).foregroundStyle(CicadaTheme.textPrimary)
+                 + Text(figure).font(CicadaTheme.font(size: 14, weight: .semibold)).foregroundStyle(CicadaTheme.textPrimary)
                  + Text(self.words.isEmpty ? "" : " " + self.words).foregroundStyle(words))
                     .font(CicadaTheme.bodyFont)
                     .monospacedDigit()
@@ -398,6 +398,8 @@ struct NeedsYouSection: View {
     /// Review #8 — the inbox is loaded and empty: "Needs you · nothing right now", no card.
     var empty = false
     @Binding var selectedTab: AppTab
+    /// Round 5 — Answer is the surface's one accent primary (DR-5 (2), DR-40) unless Getting started's own read pill is up.
+    var answerIsPrimary = true
     let openPage: (String) -> Void
     let startCatchup: ([String]) -> Void
 
@@ -413,7 +415,7 @@ struct NeedsYouSection: View {
         } else if let lead = figures.rows.first {
             LeadQuestionCard(row: lead, drawsPicture: HomeQuestions.reservesPicture([lead], store: store),
                              total: figures.total, catchUp: figures.catchUp, pages: figures.catchUpPages,
-                             openPage: openPage, startCatchup: startCatchup,
+                             answerIsPrimary: answerIsPrimary, openPage: openPage, startCatchup: startCatchup,
                              open: {
                                  router.pendingInboxItem = lead.id
                                  selectedTab = .inbox
@@ -445,6 +447,7 @@ struct LeadQuestionCard: View {
     let total: Int
     let catchUp: [String]
     let pages: Int
+    var answerIsPrimary = true
     let openPage: (String) -> Void
     let startCatchup: ([String]) -> Void
     let open: () -> Void
@@ -489,10 +492,15 @@ struct LeadQuestionCard: View {
                 .accessibilityAddTraits(.isHeader)
 
                 HStack(spacing: CicadaTheme.scaled(12)) {
-                    NeutralButton(title: Copy.Catchup.answer, help: help, action: open)
+                    if answerIsPrimary {
+                        PrimaryActionButton(title: Copy.Catchup.answer, help: help, action: open)
+                            .controlSize(.large)
+                    } else {
+                        NeutralButton(title: Copy.Catchup.answer, help: help, action: open)
+                    }
                     if !catchUp.isEmpty {
-                        QuietLink(title: Copy.Catchup.title,
-                                  help: Copy.Catchup.blockLine(questions: catchUp.count, pages: pages)) {
+                        NeutralButton(title: Copy.Catchup.title,
+                                      help: Copy.Catchup.blockLine(questions: catchUp.count, pages: pages)) {
                             startCatchup(catchUp)
                         }
                     }
@@ -502,7 +510,10 @@ struct LeadQuestionCard: View {
         }
         .padding(CicadaTheme.scaled(HomeLayout.leadInset))
         .frame(maxWidth: .infinity, alignment: .leading)
-        // A ring and no fill — the field above is the page's one filled surface, so the card cannot outweigh it.
+        // Round 5 — three steps, by weight: the ground, this card one step up in dark (`bgFocus`, with the resting ring)
+        // and the field above it a step more, so the layers separate and the field still leads (DR-9: a ring, no shadow).
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadius)
+            .fill(CicadaTheme.mode == .dark ? CicadaTheme.bgFocus : Color.clear))
         .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
         .accessibilityElement(children: .contain)
     }
@@ -558,6 +569,9 @@ struct ReadingSitesSection: View {
 /// own centred line otherwise; the counts ("4 updated") are the link's hover and accessibility label.
 struct LastReadSegment: View {
     @Binding var selectedTab: AppTab
+    /// Round 5 — the segment ends the status line, which already says "today" in its first words: the read's own "Today"
+    /// is dropped there ("Last read 2:07 PM"), never when it stands alone or the read was another day.
+    var joinsStatusLine = false
 
     @Environment(Store.self) private var store
     @Environment(SleepViewModel.self) private var sleepVM
@@ -606,11 +620,21 @@ struct LastReadSegment: View {
     private func read(_ entry: SleepHistoryEntry) -> some View {
         let chips = HomeFigures.chips(entry, nodes: store.graph.value?.nodes ?? [])
         let when = HomeFigures.when(entry.date) ?? String(entry.date.prefix(10))
+        let shownWhen = joinsStatusLine ? HomeFigures.withoutToday(when) : when
         let line = HomeFigures.lastReadLine(entry)
-        return HStack(spacing: CicadaTheme.scaled(8)) {
-            lastReadLink(figure: when, lead: Copy.homeLastReadShort,
-                         label: Copy.homeLastReadShort + ": " + line,
+        // Round 5 — the pictures say what they are: "updated", before them, only while one is drawn (a page with no
+        // picture is not drawn, so its word would stand over nothing).
+        let drawsChips = EntityPictureLayout.anyDrawn(chips.shown.map { (type: $0.type, picture: store.picture(for: $0.id)) })
+        return HStack(spacing: CicadaTheme.scaled(HomeLayout.statGap)) {
+            lastReadLink(figure: shownWhen, lead: Copy.homeLastReadShort,
+                         label: Copy.homeLastReadShort + " " + when + ": " + line,
                          help: Copy.homeLastReadHelp + " · " + line)
+            if drawsChips {
+                Text(Copy.homeLastReadTouched)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .accessibilityHidden(true)
+            }
             // One size, one ring, side by side: the pictures read as one group (a page with none is simply not there).
             HStack(spacing: CicadaTheme.scaled(4)) {
                 ForEach(chips.shown, id: \.id) { chip in pageChip(chip) }

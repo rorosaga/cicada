@@ -44,6 +44,9 @@ enum HomeLayout {
     static let leadPicture: CGFloat = 44
     /// ROR-118 round 3 — a page chip's picture under Last read (the smallest `EntityPicture` draws is 20).
     static let chipPicture: CGFloat = 22
+    /// Round 5 — the status line's gap between its segments (the separator dot sits in it): 12 pt, it was 8 and read as
+    /// one packed string.
+    static let statGap: CGFloat = 12
     static let bottomPadding: CGFloat = 64
     static let gutter: CGFloat = 40
     static let blockInset: CGFloat = 4

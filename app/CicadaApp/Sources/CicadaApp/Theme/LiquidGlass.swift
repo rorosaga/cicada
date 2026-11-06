@@ -143,16 +143,20 @@ struct LiquidGlassGroup<Content: View>: View {
 struct PrimaryActionButton: View {
     let title: String
     var systemImage: String? = nil
+    /// Hover and, for a reader with no pointer, the accessibility help; the title says it when nil.
+    var help: String? = nil
     let action: () -> Void
 
+    @ViewBuilder
     var body: some View {
-        Button(action: action) {
+        let button = Button(action: action) {
             Group {
                 if let systemImage { Label(title, systemImage: systemImage) } else { Text(title) }
             }
             .primaryActionInk()
         }
         .primaryActionStyle()
+        if let help { button.help(help) } else { button }
     }
 }
 

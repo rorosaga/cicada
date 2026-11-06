@@ -211,6 +211,7 @@ struct HomeView: View {
         case .needsYou:
             if mode == .blocks {
                 NeedsYouSection(empty: empty.needsYouEmpty, selectedTab: $selectedTab,
+                                answerIsPrimary: !gettingStartedVisible,
                                 openPage: { open(.entity(id: $0)) }, startCatchup: { startCatchup($0) })
             }
         case .readingSites:
@@ -313,7 +314,7 @@ struct HomeLeadField: ViewModifier {
     func body(content: Content) -> some View {
         let shape = CicadaTheme.shape(CicadaTheme.cornerRadius)
         content
-            .background(shape.fill(CicadaTheme.mode == .dark ? CicadaTheme.bgOption : CicadaTheme.bgFocus))
+            .background(shape.fill(CicadaTheme.mode == .dark ? CicadaTheme.bgButton : CicadaTheme.bgFocus))
             .clipShape(shape)
             .ringed(.input, in: shape)
     }
