@@ -69,12 +69,21 @@ struct SourceAddOverlay: View {
         }
     }
 
+    /// Columns for the *Yours* strip: one row up to six marks, else the fewest rows at six, spread evenly.
+    static func yoursColumns(_ count: Int, perRow: Int = 6) -> Int {
+        guard count > perRow else { return max(1, count) }
+        let rows = (count + perRow - 1) / perRow
+        return (count + rows - 1) / rows
+    }
+
     /// What is connected, as marks: the same tile the page's rows wear, wrapped in a grid so no name is ever cut off.
     private var yoursStrip: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             SectionLabel(Copy.Shelf.yours)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(104), maximum: CicadaTheme.scaled(120)),
-                                         spacing: CicadaTheme.spacingSM, alignment: .top)],
+            // Balanced rows: 7 marks are 4 + 3, never 6 + one name alone on a second line.
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: CicadaTheme.scaled(104)),
+                                                         spacing: CicadaTheme.spacingSM, alignment: .top),
+                                     count: Self.yoursColumns(yours.count)),
                       alignment: .leading, spacing: CicadaTheme.spacingMD) {
                 ForEach(yours) { row in YoursTile(row: row) { open(row) } }
             }
