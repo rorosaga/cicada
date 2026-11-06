@@ -1,12 +1,14 @@
 """Keep the Mac awake while a Sleep run reads, on power (G243; the person's switch, off by default).
 
-The one thing that needs no root: a power assertion. ``caffeinate -i -s -w <backend pid>`` asks macOS not to sleep
-the system on idle (``-i``) and not to sleep it at all **while it runs on AC power** (``-s``, which macOS itself
-ignores on battery). ``-w`` ties the assertion to this process, so a crash or a kill of the backend drops it with the
+The one thing that needs no root: a power assertion. ``caffeinate -s -w <backend pid>`` asks macOS not to sleep the
+system **while it runs on AC power** (``man caffeinate``: "-s ... valid only when system is running on AC power").
+It must be ``-s`` ALONE: ``-i`` (idle sleep) is not limited to AC and would hold the Mac awake on battery, so no
+other assertion flag may ever be added (``ARGS``, pinned by a test). ``-w`` ties the assertion to this process, so a crash or a kill of the backend drops it with the
 process — there is no system setting to put back, which is the rail ("never strand a run, never strand the Mac").
 
 What it does not do, said in words wherever it is offered: it does not wake a sleeping Mac, and it does not keep a
-closed lid awake (macOS sleeps on lid close without an external display whatever an assertion says). Those need root
+closed lid awake (macOS sleeps on lid close without an external display; whether an assertion alone holds a closed
+lid is unverified on this Mac, and the one open-source app read says it does not). Waking and the lid need root
 (``pmset``) and are a separate, un-built step (``docs/goals/``, G243).
 
 One holder per run id; ``release`` is idempotent; every failure to hold is a log line, never a failed run.
@@ -22,6 +24,12 @@ import sys
 logger = logging.getLogger(__name__)
 
 _CAFFEINATE = "caffeinate"
+#: The only assertion flag: AC power only. Never -i, -d, -m or -u: those hold on battery too.
+ARGS = ("-s",)
+
+
+def argv(pid: int) -> list[str]:
+    return [shutil.which(_CAFFEINATE) or _CAFFEINATE, *ARGS, "-w", str(pid)]
 _held: dict[str, subprocess.Popen] = {}
 
 
@@ -38,7 +46,7 @@ def acquire(run_id: str) -> bool:
         return False
     try:
         proc = subprocess.Popen(
-            [shutil.which(_CAFFEINATE), "-i", "-s", "-w", str(os.getpid())],
+            argv(os.getpid()),
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
     except OSError as e:  # noqa: BLE001
