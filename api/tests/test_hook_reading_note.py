@@ -146,7 +146,7 @@ def test_a_remote_handshake_says_links_wait_only_to_a_connection_that_can_read_t
     enable()
     _ask(bank)
     both = _handshake(bank, {"read", "record"})
-    assert recall_text.reading_line(1) in both and "cicada_record_read(url, outcome, summary)" in both
+    assert recall_text.reading_line(1, record=True) in both and "cicada_record_read(url, outcome, summary)" in both
     read_only = _handshake(bank, {"read"})
     assert recall_text.reading_line(1, record=False) in read_only and "cicada_record_read" not in read_only
     assert "reading queue" not in _handshake(bank, {"record"}), "no queue tool, no queue sentence"
