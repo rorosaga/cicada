@@ -334,32 +334,30 @@ def declared(tokens: dict | None) -> list[str]:
 
 def _role_schema() -> dict:
     return {"type": "object", "properties": {
-        "family": {"type": "string", "description": "The computed font-family, as the browser gives it."},
-        "size": {"type": ["number", "string"], "description": "Computed font-size (px)."},
+        "family": {"type": "string"},
+        "size": {"type": ["number", "string"]},
         "weight": {"type": ["integer", "string"]},
-        "line_height": {"type": ["number", "string", "null"], "description": "Computed line-height (px) or normal."},
-        "letter_spacing": {"type": ["number", "string"], "description": "Computed letter-spacing (px) or normal."},
-        "color": {"type": "string", "description": "Computed colour, rgb() or #hex."}}}
+        "line_height": {"type": ["number", "string", "null"]},
+        "letter_spacing": {"type": ["number", "string"]},
+        "color": {"type": "string"}}}
 
 
 #: The token shape as a tool schema — the ONE definition the MCP tools advertise (``cicada_save_design.tokens``,
-#: ``cicada_record_capture.design``), so the schema an agent sees cannot drift from what :func:`clean` keeps.
+#: ``cicada_record_capture.design``), so the schema an agent sees cannot drift from what :func:`clean` keeps. Its
+#: prose is cut to what an agent cannot guess (G148): the structure is what the door checks, so it stays whole.
 JSON_SCHEMA: dict = {
     "type": "object",
-    "description": ("The page's computed styles, read in the page with one bounded script (the site-explore skill's "
-                    "capture prints them as `design`): type by role (body, heading, subheading, caption, link, "
-                    "drop_cap), colour roles (ground, ink, accent, wash) and the most-used colours. Out-of-bounds "
-                    "values are dropped."),
+    "description": ("Computed styles read in the page (the capture prints them as `design`): type by role, colour "
+                    "roles, most-used colours. Out-of-bounds values are dropped."),
     "properties": {
         "type": {"type": "object", "properties": {role: _role_schema() for role in TYPE_ROLES}},
         "colors": {"type": "object", "properties": {role: {"type": "string"} for role in COLOR_ROLES}},
         "used": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_USED},
         "specimens": {"type": "array", "maxItems": MAX_SPECIMENS, "description": (
-            "Optional: one small picture per font family the page renders (the capture script draws \"Aa\" in the "
-            "page's own loaded font, a transparent PNG at most 400x120), so the person sees the real type."),
+            "One \"Aa\" picture per font family, drawn in the page's own font (transparent PNG, at most 400x120)."),
             "items": {"type": "object", "required": ["family"], "properties": {
-                "family": {"type": "string", "description": "The computed font-family the picture is set in."},
-                "path": {"type": "string", "description": "Absolute path of the PNG the script saved."},
-                "base64": {"type": "string", "description": "The PNG itself, base64 (when you have no file)."}}}},
+                "family": {"type": "string"},
+                "path": {"type": "string", "description": "Absolute path of the PNG."},
+                "base64": {"type": "string", "description": "The PNG, when you have no file."}}}},
     },
 }

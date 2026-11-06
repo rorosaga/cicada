@@ -2200,6 +2200,17 @@ OWN advertised table (stdio `TOOLS` in `mcp/server.py`, remote `REMOTE_TOOLS`), 
 - **The fixture.** `api/tests/fixtures/mcp_stdio_golden.json` pins whole `tools/call` results (`call_tool`), refusals
   and the spelled-number refusal included; `api/tests/test_mcp_error_contract.py` holds the rest.
 
+- **What `tools/list` costs (G148).** Every client that loads the stdio schemas pays for them on every request, whatever
+  it asks, so the table's size is held: `len(json.dumps(TOOLS))` was 103,111 characters (58 tools, about 25,800 tokens)
+  and is 73,956 (about 18,500), with the same names, arguments, types, enums, limits and `required` lists. Only prose was
+  cut: a tool's description keeps when to use it, when not to, a rail (provenance, "never", exact words, what needs the
+  person's ask) and the shape of a non-obvious argument; a property keeps a note only where its name and type do not
+  say it. A nested `properties` block is never dropped for size, because the door checks nested types, enums, limits and
+  `required` (`tool_contract._value`) and a body such as `design_tokens.clean` drops a bad value with a note where the
+  door refuses it; the shared design-token schema (`design_tokens.JSON_SCHEMA`) is therefore still advertised three
+  times. `api/tests/test_mcp_schema_size.py` fails above that size plus 5%. The remote table (`REMOTE_TOOLS`, and the
+  `/v1` operations generated from it) is a separate table and was not touched.
+
 ## A hookless app's own connection (ruling 57, owner 2026-11-04)
 
 `mcp/server.py` holds `cicada_capture_turns` in `TOOLS` for its schema and a `cli_map` row (`capture-turns`, MCP only), and
