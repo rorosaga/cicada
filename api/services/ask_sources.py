@@ -401,6 +401,9 @@ ENUM_CHUNKS = 32
 #: every line of a two-person chat, "plan"); the rarer a word, the more a turn holding it counts. A question made only
 #: of such words cannot tell one conversation from another, and the leg shows nothing for it.
 COMMON_SHARE = 0.5
+#: …and never a word said in this few. In a new memory every word is "most of the conversations": with one conversation
+#: a share would drop all of them, and Ask would say nothing matches about something the person said a minute ago.
+COMMON_FLOOR = 5
 #: Rows counted per word for its share: past this the word is common in any bank that has them.
 DF_CAP = 20000
 #: A conversation is on the question's subject when it holds at least this share of the weight of the question's
@@ -1074,7 +1077,7 @@ def _lexical(memory_path: Path, terms: set[str], *, common_share: float = COMMON
             rows = {int(r) for (r,) in conn.execute(
                 f"SELECT rowid FROM pas WHERE pas MATCH ? LIMIT {DF_CAP}", (f'"{t}"*',)) if (int(r) >> bits) in refs}
             df = len({r >> bits for r in rows})
-            if df and df <= common_share * n:
+            if df and df <= max(common_share * n, COMMON_FLOOR):
                 weights[t] = math.log((n + 1) / (df + 0.5))
                 rows_by_term[t] = rows
             elif df and common is not None:
