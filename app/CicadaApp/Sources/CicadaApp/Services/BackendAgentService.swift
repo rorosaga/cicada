@@ -35,6 +35,9 @@ enum BackendAgentPolicy {
     /// feeds, a connector) while every client here points elsewhere. The plist stays: choosing This Mac again, the
     /// next login or the person's Turn on brings it back as they left it.
     static func stopArgv(uid: uid_t) -> [String] { ["/bin/launchctl", "bootout", "gui/\(uid)/\(label)"] }
+    /// Production blocker (2026-11-06) — start launchd's copy again now (`-k` restarts one that runs). Fails when the
+    /// service is not loaded, and the caller then starts the app's own.
+    static func kickstartArgv(uid: uid_t) -> [String] { ["/bin/launchctl", "kickstart", "-k", "gui/\(uid)/\(label)"] }
 
     /// 124 = timed out, 127 = could not start (`LiveAgentProcessRunner`'s conventions).
     static func state(probeStatus: Int32, plistExists: Bool) -> BackendAgentState {
@@ -219,6 +222,13 @@ final class BackendAgentService {
         onInstalled()
         state = .checking
         await refresh()
+    }
+
+    /// The banner's click when the background service owns the backend. True when launchd took the request.
+    func kickstart() async -> Bool {
+        let result = await runner.run(BackendAgentPolicy.kickstartArgv(uid: uid), environment: ["PATH": "/usr/bin:/bin"],
+                                      timeout: BackendAgentPolicy.probeTimeout)
+        return result.status == 0
     }
 
     /// G181 phase 3 — on a launch whose memory lives on a server: stop the service if launchd is running it (never

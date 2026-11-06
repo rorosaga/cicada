@@ -726,7 +726,7 @@ final class StoreTests: XCTestCase {
         await store.refresh([.status])
         XCTAssertNil(store.status.value, "no snapshot has ever landed")
         XCTAssertFalse(store.status.isRefreshing, "a failed fetch must not leave the domain spinning")
-        XCTAssertEqual(store.domainErrors[.status], "Couldn't load status")
+        XCTAssertEqual(store.domainErrors[.status], Copy.Reach.readFailed(.status))
 
         api.replies[.status] = nil
         await store.refresh([.status])

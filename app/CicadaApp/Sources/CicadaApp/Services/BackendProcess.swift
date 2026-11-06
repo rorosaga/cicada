@@ -9,6 +9,14 @@ final class BackendProcess {
     let runtime: CicadaRuntime
     private var process: Process?
     private var terminationObserver: NSObjectProtocol?
+    /// A restart of a backend THIS app started is waiting its turn (`BackendRestartPolicy`); the banner says so.
+    private(set) var restartPending = false
+    private var restartPolicy = BackendRestartPolicy()
+    private var startedAt: Date?
+    private var retryTask: Task<Void, Never>?
+    /// The person asked for a restart while the child still ran: start again once it has really gone, so the new one
+    /// never meets the old one's port.
+    private var respawnAfterExit = false
 
     init(runtime: CicadaRuntime = .current) {
         self.runtime = runtime
@@ -74,13 +82,72 @@ final class BackendProcess {
         }
 
         let proc = runtime.isRelease ? releaseProcess() : developerProcess()
+        // A backend that dies under a running app comes back — only this child, only a bounded number of times.
+        proc.terminationHandler = { [weak self] ended in
+            Task { @MainActor in self?.childEnded(ended) }
+        }
         do {
             try proc.run()
             process = proc
+            startedAt = Date()
             isRunning = true
         } catch {
             print("Failed to start backend: \(error)")
+            scheduleRestart(ranFor: 0)
         }
+    }
+
+    /// The child exited. `stop()` and the app quitting clear `process` first, so only an exit nobody asked for
+    /// arrives here with it still set.
+    @MainActor
+    private func childEnded(_ ended: Process) {
+        guard ended === process else { return }
+        process = nil
+        isRunning = false
+        if respawnAfterExit {
+            respawnAfterExit = false
+            spawn()
+            return
+        }
+        scheduleRestart(ranFor: startedAt.map { Date().timeIntervalSince($0) } ?? 0)
+    }
+
+    /// The next try, by `BackendRestartPolicy`. It goes back through `start()`, so it never starts a backend while
+    /// something else holds the port, and when the background service's plist exists it waits for launchd first —
+    /// launchd owns that backend and is not fought.
+    private func scheduleRestart(ranFor: TimeInterval) {
+        switch restartPolicy.childEnded(ranFor: ranFor) {
+        case .giveUp:
+            restartPending = false
+        case .restart(let after):
+            restartPending = true
+            retryTask?.cancel()
+            retryTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(after))
+                guard let self, !Task.isCancelled else { return }
+                self.restartPending = false
+                self.start()
+            }
+        }
+    }
+
+    /// The person's click: start again now, with the count of tries begun afresh. A child that is still running (it
+    /// answers, but not with this app's key) is stopped first. Nothing happens to a backend this app did not start.
+    func restartNow() {
+        retryTask?.cancel()
+        retryTask = nil
+        restartPending = false
+        restartPolicy = BackendRestartPolicy()
+        launchdWait?.cancel()
+        launchdWait = nil
+        if let child = process, child.isRunning {
+            respawnAfterExit = true
+            child.terminate()
+            return
+        }
+        process = nil
+        isRunning = false
+        spawn()
     }
 
     /// Round-4 behaviour, on `runtime.port`: the checkout's venv, `api/.env` overlaid, the checkout on `PYTHONPATH`.
@@ -164,6 +231,10 @@ final class BackendProcess {
     }
 
     func stop() {
+        retryTask?.cancel()
+        retryTask = nil
+        restartPending = false
+        respawnAfterExit = false
         launchdWait?.cancel()
         launchdWait = nil
         process?.terminate()

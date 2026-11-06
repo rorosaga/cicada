@@ -55,7 +55,7 @@ final class StateCoverageTests: XCTestCase {
         api.replies[.contributors] = .failure
         await store.refresh([.contributors])
         XCTAssertFalse(vm.hasLoaded)
-        XCTAssertEqual(vm.errorMessage, "Couldn't load contributors")
+        XCTAssertEqual(vm.errorMessage, Copy.Reach.readFailed(.contributors))
 
         api.replies[.contributors] = .value([Contributor]())
         await vm.load()
@@ -92,13 +92,13 @@ final class StateCoverageTests: XCTestCase {
 
         api.replies[.contributors] = .failure
         await store.refresh([.contributors])
-        XCTAssertEqual(vm.errorMessage, "Couldn't load contributors")
+        XCTAssertEqual(vm.errorMessage, Copy.Reach.readFailed(.contributors))
 
         // Simulate ContentView's `.task(id: toast)` 4s auto-clear timer.
         store.toast = nil
 
         XCTAssertFalse(vm.hasLoaded, "still nothing has ever loaded")
-        XCTAssertEqual(vm.errorMessage, "Couldn't load contributors",
+        XCTAssertEqual(vm.errorMessage, Copy.Reach.readFailed(.contributors),
                        "the VM's own error state must outlive the transient global toast")
     }
 
@@ -139,7 +139,7 @@ final class StateCoverageTests: XCTestCase {
         api.replies[.graph] = .failure
         await store.refresh([.graph])
 
-        XCTAssertEqual(store.toast, "Couldn't load graph", "precondition: the shared toast now names a different domain")
+        XCTAssertEqual(store.toast, Copy.Reach.readFailed(.graph), "precondition: the shared toast now names a different domain")
         XCTAssertFalse(vm.hasLoaded)
         XCTAssertNil(vm.errorMessage, "contributors never failed — it must not borrow graph's error")
     }
@@ -162,7 +162,7 @@ final class StateCoverageTests: XCTestCase {
         store.toast = nil
 
         XCTAssertFalse(vm.hasLoaded)
-        XCTAssertEqual(vm.errorMessage, "Couldn't load contributors",
+        XCTAssertEqual(vm.errorMessage, Copy.Reach.readFailed(.contributors),
                        "the domain-scoped failure must survive the shared toast clearing before it was ever read")
     }
 

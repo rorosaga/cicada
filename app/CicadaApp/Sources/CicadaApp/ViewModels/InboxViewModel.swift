@@ -36,6 +36,10 @@ final class InboxViewModel {
 
     var isLoading: Bool { store.inbox.isEmpty && store.inbox.isRefreshing }
 
+    /// Nothing to list because the questions could not be read — not because none are pending (`Store.couldNotRead`).
+    var couldNotRead: Bool { store.inbox.isEmpty && store.couldNotRead(.inbox) }
+    var offersRetry: Bool { store.reach == .up }
+
     /// Sidebar / menu-bar badge — number of pending items.
     var pendingCount: Int { items.count }
 

@@ -248,7 +248,8 @@ final class FindPaletteModel {
             serverPhase = .done
         } catch {
             guard !Task.isCancelled, isCurrent(q) else { return }
-            serverPhase = FindServerPhase.isUnreachable(error) ? .unreachable : .done
+            serverPhase = FindServerPhase.isUnreachable(error) ? .unreachable
+                : FindServerPhase.isFailure(error) ? .failed : .done
         }
     }
 
@@ -276,6 +277,7 @@ final class FindPaletteModel {
         switch serverPhase {
         case .searching: return "Searching conversations…"
         case .unreachable: return "Conversations and beliefs need the Cicada backend. It isn't answering."
+        case .failed: return Copy.Reach.searchFailed
         case .done where indexState == "building" || indexState == "unavailable":
             return "Cicada is still reading your conversations — try again in a moment."
         default: return nil

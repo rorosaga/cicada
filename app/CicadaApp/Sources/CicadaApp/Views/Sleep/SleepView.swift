@@ -907,7 +907,9 @@ struct SleepView: View {
     /// backend raises constantly, so it says "we could not reach it" — the
     /// same fact the chip is there to state — rather than "a cycle failed".
     private var pageError: String? {
-        guard let error = sleepVM.lastError ?? sleepVM.errorMessage, !error.isEmpty else { return nil }
+        // A fetch failure while the backend is not answering is the banner's news, not a cycle's (2026-11-06).
+        let fetchFailure = store.reach == .up ? sleepVM.errorMessage : nil
+        guard let error = sleepVM.lastError ?? fetchFailure, !error.isEmpty else { return nil }
         return error
     }
 
@@ -1200,7 +1202,9 @@ struct SleepView: View {
             }
 
             // G229 — right under the strip that says what waits: what each machine is still syncing after it was closed.
-            AwaySyncLines(entries: AwaySyncWords.machines(own: awaySync?.view, rows: sleepVM.machines),
+            // Production blocker (2026-11-06) — "Synced" is the backend's last answer; with no backend answering it is
+            // not news, so the lines wait for it (the shell's banner says why).
+            AwaySyncLines(entries: store.reach == .up ? AwaySyncWords.machines(own: awaySync?.view, rows: sleepVM.machines) : [],
                           openSources: { selectedTab = .sources })
 
             // G132 phase 2 — the device that runs consolidation, every other device's lag, and moving it (shared only).

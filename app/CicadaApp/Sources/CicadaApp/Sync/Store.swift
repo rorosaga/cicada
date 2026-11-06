@@ -156,6 +156,9 @@ final class Store {
     var version: VersionVector?
     /// True while the SSE stream is connected.
     var isConnected: Bool = false
+    /// What `BackendWatch` found while the stream was closed. A page that has nothing to show asks `couldNotRead`
+    /// before it says the memory is empty (`Sync/Store+Reach.swift`).
+    var reach: BackendReach = .up
     /// Latest `event: sleep` payload; SleepViewModel observes this.
     var sleepEvent: SleepEventPayload?
 
@@ -460,7 +463,7 @@ final class Store {
             } catch {
                 guard refreshEpoch == startEpoch else { return }
                 if self[keyPath: kp].isEmpty {
-                    let message = "Couldn't load \(domain.rawValue)"
+                    let message = Copy.Reach.readFailed(domain)
                     if !heartbeatRetry { toast = message }   // said once, not on every heartbeat (P2-7)
                     domainErrors[domain] = message
                 }
@@ -508,7 +511,7 @@ final class Store {
             } catch {
                 guard refreshEpoch == startEpoch else { return }
                 if status.isEmpty {
-                    let message = "Couldn't load status"
+                    let message = Copy.Reach.readFailed(.status)
                     if !heartbeatRetry { toast = message }
                     // `refreshOne` latches this for every other domain;
                     // `refreshStatus` has its own loop and must latch it too,

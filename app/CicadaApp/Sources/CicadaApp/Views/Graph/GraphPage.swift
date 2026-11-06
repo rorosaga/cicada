@@ -82,7 +82,16 @@ struct GraphPage: View {
 
             // G117 — a fresh bank's graph is never a literal blank canvas; `isLoading` gates on an empty cache
             // AND a fetch in flight, so this never flashes over the instant on-disk hydrate.
-            if !graphVM.isLoading && graphVM.nodes.hasNoContentBeyondOwner {
+            if graphVM.couldNotRead {
+                // Production blocker (2026-11-06) — a memory that could not be read is never drawn as an empty one.
+                EmptyStateView(
+                    systemImage: "exclamationmark.circle",
+                    title: Copy.Reach.unreadTitle,
+                    message: "",
+                    actionLabel: graphVM.offersRetry ? Copy.Reach.tryAgain : nil,
+                    action: graphVM.offersRetry ? { graphVM.retryRead() } : nil
+                )
+            } else if !graphVM.isLoading && graphVM.nodes.hasNoContentBeyondOwner {
                 // Onboarding v2's empty state (2026-10-22): one icon, one bold sentence, one grey instruction.
                 EmptyStateView(
                     systemImage: "point.3.connected.trianglepath.dotted",

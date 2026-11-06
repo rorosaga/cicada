@@ -134,6 +134,14 @@ enum FindSleepers {
 
 enum FindServerPhase: Equatable, Sendable {
     case idle, searching, done, unreachable
+    /// The backend answered and refused or failed the search (a key it does not accept, a 5xx): said, where it used
+    /// to end with no note (2026-11-06).
+    case failed
+
+    static func isFailure(_ error: Error) -> Bool {
+        if let api = error as? APIError, case .httpError(let code, _) = api { return code == 401 || code >= 500 }
+        return false
+    }
 
     /// A backend that is not answering — as opposed to a cancelled request
     /// (the next keystroke) or an error reply (an old backend, a 422), which

@@ -32,6 +32,8 @@ struct InboxPage: View {
         Group {
             if viewModel.review != nil {
                 InboxReviewView(onEnd: { endReview() }, onOpenInInbox: { openInInbox($0) })
+            } else if viewModel.couldNotRead, viewModel.items.isEmpty, viewModel.held == nil {
+                unreadState
             } else if let err = viewModel.errorMessage, viewModel.items.isEmpty, viewModel.held == nil {
                 errorState(err)
             } else if viewModel.isLoading {
@@ -307,6 +309,21 @@ struct InboxPage: View {
         let queued = viewModel.unprocessedEpisodes
         if queued > 0 { lines.append(Copy.Inbox.waiting(queued)) }
         return lines.joined(separator: "\n")
+    }
+
+    /// Production blocker (2026-11-06) — "Nothing pending" is a claim that the backend said so; when it could not be
+    /// asked, the page says that instead (DR-50: text alone, no card).
+    private var unreadState: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            EyebrowRow(eyebrow: Copy.Inbox.title)
+            EmptyStateView(
+                systemImage: "exclamationmark.circle",
+                title: Copy.Reach.unreadTitle,
+                message: "",
+                actionLabel: viewModel.offersRetry ? Copy.Reach.tryAgain : nil,
+                action: viewModel.offersRetry ? { Task { await viewModel.loadInbox() } } : nil
+            )
+        }
     }
 
     /// DR-43 — the list pages' one first-read state (`ListSkeleton`): the sentence over still bars, no shimmer.

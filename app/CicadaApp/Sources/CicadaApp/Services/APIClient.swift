@@ -2490,8 +2490,8 @@ actor APIClient {
     /// can otherwise disagree depending on install layout (G88 follow-up).
     /// Capped like the refresh path: it's retried with backoff while the
     /// backend comes up, so one attempt must never park for a full minute.
-    func fetchHealth() async throws -> HealthSnapshot {
-        return try await get("/healthz", timeout: Self.refreshTimeout)
+    func fetchHealth(timeout: TimeInterval = APIClient.refreshTimeout) async throws -> HealthSnapshot {
+        return try await get("/healthz", timeout: timeout)
     }
 
     // MARK: - Sources (media / bookmark ingestion — ships in a later wave)

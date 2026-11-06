@@ -3879,6 +3879,35 @@ everything but publish and uploads the files as an artifact; a re-run or a manua
 `VERSION` only while main's tip is still its commit (a fix ships as a new release PR). The app carries the public key
 and the repo (`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in Info.plist) for the updater.
 
+**A backend that stops answering (production blocker, 2026-11-06; G182, G92).** Measured on a release build: SIGTERM to the
+app's own backend child left nothing listening, nothing restarting it, and pages that read the silence as an empty memory
+("Your memory starts here", "Nothing pending", "No beliefs yet"). Three parts, all pure logic in `Services/BackendWatch.swift`.
+(1) **Restart, bounded.** `BackendProcess` sets a `terminationHandler` on the child it spawned; an exit nobody asked for (not
+`stop()`, not the app quitting) or a failed `run()` asks `BackendRestartPolicy`: five tries after 2, 5, 15, 30, 60 s, then it
+stays down until the person clicks (about two minutes in all, so a backend failing at start is not hammered); a child that ran
+60 s or more was working, so the count begins again. The try goes back through `start()`, so it spawns nothing while another
+program holds the port and, when the background service's plist exists, waits for launchd first — launchd's backend is
+never fought, and a backend this app did not start is never touched. `restartNow()` is the person's click (count begun afresh,
+a child that still runs is stopped and started again once it has gone). (2) **One line in the shell.** `BackendWatch` looks at
+`/healthz` (`fetchHealth(timeout: 5)`, open; it gives paths and counts only to a key it accepts, so a token-less answer from a
+Cicada is "key refused", asked once more after the key cache is dropped) **only while the event stream is closed** — an open
+stream pings every 15 s and is the proof; a healthy app never polls — every 4 s. `BackendReachTracker` (pure, clock injected)
+turns looks into `BackendReach`: *not answering* only after 20 s from the last real answer or from launch; *port held* (an
+answer that is not Cicada) and *key refused* only on two looks in a row; **a slow or dropped answer is never down** — it is
+judged by `BackendSilence`, the ruling-66 bound the updater uses (three looks ten minutes apart over two hours, no drain's
+record moving), fed from the same file. `BackendBannerView` is a full-width strip, a safe-area inset over the page area (DR-37:
+a strip, not a card; DR-7: the glyph alone is `warning`; DR-40: a neutral button; DR-5; no motion, DR-60/61): "Cicada's memory
+stopped answering." with *Restart*, "Starting Cicada's memory again…" with no button while a restart is waiting, "Another
+program is using port N." with *Try again*, "Cicada's memory refused this app's key." with *Restart*; on a server the same
+lines about the server with *Try again*. It clears by itself when the backend answers. The click is `launchctl kickstart -k` when
+the plist exists (else `restartNow()`), and on a server only a fresh look. (3) **No false empty.** `Store.reach` carries the
+watch's verdict and `Store.couldNotRead(domain)` (`Sync/Store+Reach.swift`) is the one predicate every empty state asks first:
+a domain's latched failure or a backend not answering. Graph and Inbox draw "Couldn't read your memory" (with *Try again* only
+when the backend itself is fine) instead of their empty states; Sleep's away-sync lines ("Synced") and a transport error
+dressed as a cycle failure wait for the backend; the entity card says its beliefs "couldn't be read" with *Try again* instead
+of "No beliefs recorded"; a search the backend refused (401) or failed (5xx) says so in the palette's footer; and a Store
+domain's failure is `Copy.Reach.readFailed(domain)` in plain nouns, never the domain's name.
+
 **Installing and updating a release (G182 phase 5).** Testers install with
 `curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash`: it reads the
 latest release's `latest.json`, downloads the zip with curl (no quarantine flag, so Gatekeeper doesn't block the
