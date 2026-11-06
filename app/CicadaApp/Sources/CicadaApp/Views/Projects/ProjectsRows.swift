@@ -54,9 +54,10 @@ struct ProjectsListColumn: View {
                     PageFindRow(text: $findText, isOpen: $findOpen, prompt: Copy.Projects.find)
                         .padding(findInsets)
                 }
+                GeometryReader { viewport in
                 ScrollView {
                     LazyVStack(alignment: .leading,
-                               spacing: style == .titles || style == .hidden ? 0 : CicadaTheme.scaled(RowMetrics.twoLineGap)) {
+                               spacing: rowGap) {
                         switch state {
                         case .loading:
                             ListSkeleton(message: Copy.Projects.gathering)
@@ -71,12 +72,17 @@ struct ProjectsListColumn: View {
                         case .noMatch:
                             note(Copy.Projects.noMatch(query.trimmingCharacters(in: .whitespaces)))
                         case .list:
-                            ForEach(entries) { entry in
-                                self.entry(entry).id(entry.id)
+                            if cards {
+                                cardList(viewport.size.height)
+                            } else {
+                                ForEach(entries) { entry in
+                                    self.entry(entry).id(entry.id)
+                                }
                             }
                         }
                     }
                     .padding(ListInsets.of(style))
+                }
                 }
                 .onChange(of: openId) { _, id in
                     guard let id else { return }
@@ -90,6 +96,33 @@ struct ProjectsListColumn: View {
             focusDetail()
             return true
         }, escape: escape)
+    }
+
+    /// ROR-118 — Current at rest is cards; Past stays the archive's rows, and beside an open project the list narrows.
+    private var cards: Bool { tab == .current && style == .wide }
+
+    private var rowGap: CGFloat {
+        if cards { return CicadaTheme.spacingMD }
+        return style == .titles || style == .hidden ? 0 : CicadaTheme.scaled(RowMetrics.twoLineGap)
+    }
+
+    @ViewBuilder
+    private func cardList(_ viewport: CGFloat) -> some View {
+        let blocks = ProjectCardGroup.blocks(entries)
+        let all = blocks.flatMap { block -> [ProjectCardGroup] in
+            if case .cards(let g) = block { g } else { [] }
+        }
+        let height = ProjectCardLayout.height(viewport: viewport, cards: all.count,
+                                              children: all.reduce(0) { $0 + $1.kids.count }, gap: rowGap)
+        ForEach(blocks) { block in
+            switch block {
+            case .quiet: entry(.quiet(count: 0))
+            case .cards(let groups):
+                ForEach(groups) { group in
+                    ProjectCard(group: group, today: today, minHeight: height, open: tap)
+                }
+            }
+        }
     }
 
     private var findInsets: EdgeInsets {
