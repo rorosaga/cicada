@@ -382,6 +382,9 @@ struct ClusterTile: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // A media row's content is one fixed height whether or not a line follows the title, so the title's top
+            // never moves with it (the row below centres this block in the same frame as every other).
+            .frame(height: isMedia ? CicadaTheme.scaled(36) : nil, alignment: .topLeading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
