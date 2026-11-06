@@ -66,4 +66,14 @@ final class ProjectCardsTests: XCTestCase {
         XCTAssertEqual(ProjectsModel.tabs(c).first?.count, 2)
         XCTAssertNil(ProjectsModel.tabs(c).last?.count)   // Past with none carries no 0
     }
+
+    func testAMilestoneASubProjectCarriesByNameIsDrawnOnceOnTheLead() throws {
+        let line = try planned([("a", "done", today.adding(-5).description), ("b", "planned", today.adding(3).description)])
+        var named = try row("k", parent: "p")
+        named.name = "Step b"
+        let kid = try XCTUnwrap(ProjectsModel.entries([named], tab: .current, query: "", today: today).compactMap(\.line).first)
+        let kids = [kid]
+        XCTAssertEqual(ProjectSteps.steps(line, without: kids).map(\.name), ["Step a"])
+        XCTAssertEqual(ProjectSteps.steps(line, without: []).count, 2)
+    }
 }

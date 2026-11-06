@@ -2704,7 +2704,7 @@ part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page 
   ringed card (`ProjectLeadCard`): its name (24 pt) and one-liner on the left, its plan on the right as the milestones
   themselves (`ProjectSteps`: a mark, a name and a day a milestone in date order, a check once done, a ring in primary
   ink for the next, an overdue next day in the warning ink; at most five, the oldest done dropped first; only with a plan,
-  no percentage — R-PJ11), so a planned lead says nothing else about where it stands; an unplanned one says it once
+  no percentage — R-PJ11; a milestone a sub-project carries by name is left to that sub-project), so a planned lead says nothing else about where it stands; an unplanned one says it once
   (`ProjectsModel.standing`, a diamond for a next milestone, a clock for last heard); its sub-projects sit beneath on a
   darker well. Every other project is a row of one ringed list (`ProjectRestList`): name over one-liner, where it stands at
   the end, sub-projects indented beneath. A project's picture (`EntityPicture`) draws beside its name only when it has one.

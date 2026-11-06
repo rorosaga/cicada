@@ -132,12 +132,12 @@ struct ProjectLeadCard: View {
     private var shape: RoundedRectangle { CicadaTheme.shape(CicadaTheme.radiusLarge) }
 
     var body: some View {
-        let steps = ProjectSteps.steps(line)
+        let steps = ProjectSteps.steps(line, without: group.kids)
         VStack(alignment: .leading, spacing: s(20)) {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: s(48)) {
                     head(steps: steps)
-                    if !steps.isEmpty { ProjectSteps(steps: steps, today: today).frame(width: s(480)) }
+                    if !steps.isEmpty { ProjectSteps(steps: steps, today: today).frame(width: s(400)) }
                 }
                 VStack(alignment: .leading, spacing: s(20)) {
                     head(steps: steps)
@@ -307,6 +307,12 @@ struct ProjectSteps: View {
             return Step(state: done ? .done : (m.slug == line.state.next ? .next : .later), name: m.name,
                         day: ISODay(done ? (m.doneOn ?? m.target) : m.target))
         }
+    }
+
+    /// The lead's plan without a milestone a sub-project of its own carries by name: the sub-project's row says it, once.
+    static func steps(_ line: ProjectLine, without kids: [ProjectLine]) -> [Step] {
+        let names = Set(kids.map { $0.row.name.lowercased() })
+        return steps(line).filter { !names.contains($0.name.lowercased()) }
     }
 
     /// What a card draws of a long plan: the oldest done steps go first, then the far end.
