@@ -2314,7 +2314,7 @@ drain (`inbox_catchup.Budget`, `NEW_PER_DRAIN` = 3), each in its own `cicada` co
   at most 3 open. A question only (ruling 41, G209): spelling is a reason to ask, never proof, and only the person's
   words join them.
 - **"Is A the same as B?" for the pairs a person spots at a glance** (`person_duplicates`, ROR-136, owner 2026-11-06): a
-  misspelling a transcript made ("Rexim" / "Rikzim"), a first name beside the full one, a shared account. Engine-free, no
+  misspelling a transcript made ("Texim" / "Tikzim"), a first name beside the full one, a shared account. Engine-free, no
   network, **no word lists of any language** — letter classes only: `sound_key` folds the letters that spell one sound
   across alphabets (`x`/`ks`, `z`/`s`, `c`/`k`, `ph`/`f`, then vowels after the first letter dropped), plus one-edit
   spelling, a one-word name that is a word of the other's longer name, an alias, the same account in both pages' sources,

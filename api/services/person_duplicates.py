@@ -1,7 +1,7 @@
 """People a person spots as one at a glance (ROR-136, owner 2026-11-06).
 
-A misspelling ("Rexim" / "Rikzim"), a nickname with nothing in common with the name ("Poopy"), a first name beside the
-full one ("Eduardo" / "Eduardo Castello") were one person each and the inbox held no question for two of them, while
+A misspelling ("Texim" / "Tikzim"), a nickname with nothing in common with the name ("a nickname"), a first name beside the
+full one ("Dana" / "Dana Example") were one person each and the inbox held no question for two of them, while
 the two it did hold sat among 659. This finds the pairs from the record alone — engine-free, no network, no word lists
 of any language — and the drain asks about the best few (:func:`propose`). A question only (the "Same person?" rail,
 ruling 41, G209): spelling, sound and shared facts are reasons to ask, never proof, and only the person's words join
@@ -13,7 +13,7 @@ Signals (``Pair.signals``, enums), each language-neutral:
   letter classes that spell one sound in many alphabets — ``x``/``ks``, ``z``/``s``, ``c``/``k``, ``ph``/``f`` — then
   the vowels after the first letter dropped). This is what joins a transcript's mishearing to the right spelling.
 * ``spelling`` — the existing close-spelling test (``entity_resolver.close_spelling``): one or two edits apart.
-* ``short_in_full`` — a one-word name that is a word of the other's longer name ("Eduardo" / "Eduardo Castello"), or the
+* ``short_in_full`` — a one-word name that is a word of the other's longer name ("Dana" / "Dana Example"), or the
   start of one (a nickname and its long form, ``inbox_catchup.nickname_pair``).
 * ``alias`` — one page lists the other's name as its own.
 * ``shared_source`` — the same account, link or address in both pages' sources.
@@ -52,7 +52,7 @@ def fold(text) -> str:
 
 def sound_key(word: str) -> str:
     """One word as it sounds, coarsely: letters that spell one sound across alphabets are folded together, then every
-    vowel after the first letter is dropped. ``rexim`` and ``rikzim`` are both ``rksm``. Letter classes, never words."""
+    vowel after the first letter is dropped. ``texim`` and ``tikzim`` are both ``tksm``. Letter classes, never words."""
     w = fold(word).replace(" ", "")
     for old, new in (("ph", "f"), ("ck", "k"), ("sch", "sh"), ("x", "ks"), ("z", "s"), ("q", "k"), ("w", "v"),
                      ("y", "i"), ("j", "i")):

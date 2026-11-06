@@ -1,6 +1,6 @@
 """ROR-136: the same-person pairs a person spots at a glance, found from the record alone.
 
-Synthetic names only (`rexim`/`rikzim` stand for a misspelling and its right spelling). No word lists: letter classes."""
+Synthetic names only (`texim`/`tikzim` stand for a misspelling and its right spelling). No word lists: letter classes."""
 from datetime import date
 
 import pytest
@@ -9,15 +9,15 @@ from api.services import bank_index, inbox_catchup, markdown_parser, person_dupl
 
 
 def test_sound_key_joins_a_mishearing_to_the_right_spelling():
-    assert pd.sound_key("Rexim") == pd.sound_key("Rikzim") == "rksm"
-    assert pd.word_match("rexim", "rikzim") == "sound"
+    assert pd.sound_key("Texim") == pd.sound_key("Tikzim") == "tksm"
+    assert pd.word_match("texim", "tikzim") == "sound"
     assert pd.word_match("daniel", "daniela") == "ending"       # a vowel ending is two names, only a lead
     assert pd.word_match("john", "mary") is None
 
 
 def test_name_signals():
-    assert pd.name_signals("Rexim", "Rikzim") == ["sound"]
-    assert "short_in_full" in pd.name_signals("Eduardo", "Eduardo Example")
+    assert pd.name_signals("Texim", "Tikzim") == ["sound"]
+    assert "short_in_full" in pd.name_signals("Dana", "Dana Example")
     assert pd.name_signals("Sam", "Samantha") == ["short_in_full"]
     assert pd.name_signals("Anna Smith", "Anna Smyth") in (["spelling"], ["sound"])
     assert pd.name_signals("Chris Alpha", "Chris Beta") == []
@@ -35,10 +35,10 @@ def bank(tmp_path, monkeypatch):
     memory = tmp_path / "bank"
     for d in ("entities", "episodes", "inbox"):
         (memory / d).mkdir(parents=True)
-    _page(memory, "rexim", "Rexim", source_episodes=["ep_2026-01-01_001"])
-    _page(memory, "rikzim", "Rikzim", source_episodes=["ep_2026-01-02_001", "ep_2026-01-03_001"])
-    _page(memory, "eduardo", "Eduardo", aliases=["he", "Eduardo's brother"])          # pronoun / relation aliases: not names
-    _page(memory, "eduardo-example", "Eduardo Example")
+    _page(memory, "texim", "Texim", source_episodes=["ep_2026-01-01_001"])
+    _page(memory, "tikzim", "Tikzim", source_episodes=["ep_2026-01-02_001", "ep_2026-01-03_001"])
+    _page(memory, "dana", "Dana", aliases=["he", "Dana's brother"])          # pronoun / relation aliases: not names
+    _page(memory, "dana-example", "Dana Example")
     _page(memory, "chris-alpha", "Chris Alpha", aliases=["Chris"])
     _page(memory, "chris-beta", "Chris Beta")
     _page(memory, "partner", "Partner", owner_roles=["partner"])
@@ -49,8 +49,8 @@ def bank(tmp_path, monkeypatch):
 
 def test_candidates_finds_the_pairs_and_leaves_the_rest(bank):
     pairs = {tuple(sorted((p.a, p.b))): p for p in pd.candidates(bank)}
-    assert ("rexim", "rikzim") in pairs and "sound" in pairs[("rexim", "rikzim")].signals
-    assert ("eduardo", "eduardo-example") in pairs
+    assert ("texim", "tikzim") in pairs and "sound" in pairs[("texim", "tikzim")].signals
+    assert ("dana", "dana-example") in pairs
     assert not any({"chris-alpha", "chris-beta"} == {p.a, p.b} for p in pairs.values())   # two fuller names that differ
     assert not any({"partner", "former-partner"} == {p.a, p.b} for p in pairs.values())   # role_people's, not ours
     assert all(p.score <= 0.95 for p in pairs.values())
@@ -59,8 +59,8 @@ def test_candidates_finds_the_pairs_and_leaves_the_rest(bank):
 def test_a_pair_the_person_called_two_people_is_never_listed(bank):
     from api.services import merge_rejections
 
-    merge_rejections.add_rejected(bank, "rexim", "rikzim")
-    assert not any({"rexim", "rikzim"} == {p.a, p.b} for p in pd.candidates(bank))
+    merge_rejections.add_rejected(bank, "texim", "tikzim")
+    assert not any({"texim", "tikzim"} == {p.a, p.b} for p in pd.candidates(bank))
 
 
 def test_propose_writes_one_ordinary_merge_question(bank, monkeypatch):
