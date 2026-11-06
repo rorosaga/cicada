@@ -28,6 +28,15 @@ def _media(fm: dict) -> dict:
 def origin_of(fm: dict) -> str | None:
     """The origin id the page was brought in by (its ``origin:``), as the app's mark table knows it; None when none."""
     origin = str((fm or {}).get("origin") or "").strip().lower()
+    if origin == "book":
+        # A book page's own origin is the kind, not a source: the door it came in through is the source (Apple Books,
+        # Goodreads, a scan), in the same fixed order the page's words use (`books.door_words`).
+        book = (fm or {}).get("book")
+        doors = {str(d) for d in ((book.get("doors") if isinstance(book, dict) else None) or [])}
+        if isinstance(book, dict):
+            doors |= {"apple-books"} if book.get("apple_books") else set()
+            doors |= {"goodreads"} if book.get("goodreads") else set()
+        return next((d for d in ("apple-books", "goodreads", "book-scan") if d in doors), None)
     return origin or None
 
 

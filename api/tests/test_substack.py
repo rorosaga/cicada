@@ -363,6 +363,16 @@ def test_media_kinds_split_by_what_the_page_is():
     assert media_kinds.channel_of(page(channel="  A  Channel ")) == "A Channel"
 
 
+def test_a_books_origin_is_the_door_it_came_in_through():
+    from api.services import media_kinds
+
+    book = {"type": "media", "origin": "book", "media": {"kind": "book"}}
+    assert media_kinds.origin_of({**book, "book": {"doors": ["apple-books"]}}) == "apple-books"
+    assert media_kinds.origin_of({**book, "book": {"goodreads": "1", "doors": ["book-scan"]}}) == "goodreads"   # fixed order
+    assert media_kinds.origin_of({**book, "book": {"apple_books": ["7"]}}) == "apple-books"   # a page from before `doors`
+    assert media_kinds.origin_of(book) is None   # "book" is a kind, not a source: no mark rather than a wrong one
+
+
 def test_the_liked_list_saves_under_its_own_folder(tmp_path):
     assert "liked" in substack_lists.LISTS
     assert substack_lists.FOLDER_LIKED != substack_lists.FOLDER_SAVED
