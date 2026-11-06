@@ -64,6 +64,11 @@ final class HomeFiguresTests: XCTestCase {
                        "the status not yet known is never a guess either way")
     }
 
+    func testThePagesUpdatedWordsCountAndAreSingularForOne() {
+        XCTAssertEqual(Copy.homeLastReadPagesUpdated(1), "1 page updated")
+        XCTAssertEqual(Copy.homeLastReadPagesUpdated(2), "2 pages updated")
+    }
+
     func testLastReadLineStatesTheDayAndOnlyTheCountsThatHappened() throws {
         let en = Locale(identifier: "en_US")
         let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-14T12:00:00Z"))

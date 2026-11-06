@@ -22,6 +22,8 @@ extension Copy {
     static let homeLastReadShort = "Last read"
     /// Round 5 — the word before the pictures of the pages the read touched.
     static let homeLastReadTouched = "updated"
+    /// "2 pages updated" / "1 page updated" — the count comes from the same chips the pictures draw.
+    static func homeLastReadPagesUpdated(_ n: Int) -> String { "\(n) \(n == 1 ? "page" : "pages") updated" }
     /// The TODAY sum is the UTC bucket `source_overview` writes (R-A16), so the
     /// hover says which midnight it counts from rather than pretending local.
     static let homeCapturedHelp = "Captured since 00:00 UTC"

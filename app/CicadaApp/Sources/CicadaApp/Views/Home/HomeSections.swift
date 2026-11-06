@@ -622,7 +622,7 @@ struct LastReadSegment: View {
         let when = HomeFigures.when(entry.date) ?? String(entry.date.prefix(10))
         let shownWhen = joinsStatusLine ? HomeFigures.withoutToday(when) : when
         let line = HomeFigures.lastReadLine(entry)
-        // Round 5 — the pictures say what they are: "updated", before them, only while one is drawn (a page with no
+        // Round 5 — the pictures say what they are: "2 pages updated", before them, only while one is drawn (a page with no
         // picture is not drawn, so its word would stand over nothing).
         let drawsChips = EntityPictureLayout.anyDrawn(chips.shown.map { (type: $0.type, picture: store.picture(for: $0.id)) })
         return HStack(spacing: CicadaTheme.scaled(HomeLayout.statGap)) {
@@ -630,7 +630,7 @@ struct LastReadSegment: View {
                          label: Copy.homeLastReadShort + " " + when + ": " + line,
                          help: Copy.homeLastReadHelp + " · " + line)
             if drawsChips {
-                Text(Copy.homeLastReadTouched)
+                Text("· " + Copy.homeLastReadPagesUpdated(chips.shown.count + chips.more))
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .accessibilityHidden(true)
