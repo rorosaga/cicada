@@ -69,7 +69,9 @@ enum SourceShelves {
         let ordered = SourceCategory.allCases.flatMap { category in rows.filter { $0.entry.category == category } }
         return SourceShelf.allCases.map { shelf in
             let mine = ordered.filter { $0.entry.shelf == shelf }
-            let addable = mine.filter { !$0.needsYou && $0.status == .off && !$0.notInstalled }
+            // A list turned on that has not read yet is still to be added, in its own words ("Not read yet").
+            let addable = mine.filter { !$0.needsYou && !$0.notInstalled
+                && ($0.status == .off || $0.browser?.state == .notReadYet) }
             return Shelf(shelf: shelf, connected: mine.filter(\.isConnectedHere),
                          addable: addable.filter(\.suggested) + addable.filter { !$0.suggested })
         }

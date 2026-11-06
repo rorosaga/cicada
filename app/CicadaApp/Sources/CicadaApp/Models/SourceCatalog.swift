@@ -382,8 +382,19 @@ enum SourceCatalog {
     /// A failure that reads as a lapsed sign-in: the row's one action becomes "Sign in" (design-refs pattern 5).
     static func readsAsSignIn(_ error: String?) -> Bool {
         guard let error = error?.lowercased(), !error.isEmpty else { return false }
-        return ["sign in", "signed in", "log in", "login", "reconnect", "expired", "unauthor", "401", "403",
-                "token", "auth"].contains { error.contains($0) }
+        // Whole words and codes only: "403 item(s) failed to ingest" and "author" are not an account's refusal.
+        if ["sign in", "signed in", "log in", "login", "reconnect", "expired", "unauthor"].contains(where: { error.contains($0) }) {
+            return true
+        }
+        return error.range(of: #"(?<![0-9])(401|403)(?![0-9])|\btokens?\b|\bauth(?!or)"#, options: .regularExpression) != nil
+            && !error.contains("item(s) failed")
+    }
+
+    /// A channel's last failure is a refused account: by its typed code when it has one (a 403 that is a rate limit is
+    /// `rate`, never a sign-in), else by reading a line written before codes existed.
+    static func refusesAccount(_ channel: SourceChannel) -> Bool {
+        if let code = channel.lastErrorCode, !code.isEmpty { return code == "sign-in" }
+        return readsAsSignIn(channel.lastError)
     }
 
     /// The channels a person signs in to (`ChannelActions.connectorChannels`). Only these can need a sign-in: a reader
@@ -425,7 +436,7 @@ enum SourceCatalog {
         // (ruling 36's three words; the detail's own line says "Paused until …").
         if entry.id == tracesId { return (localReaders[tracesId] == true ? .connected : .off, false) }
         let mine = channelsOf(entry, in: channels)
-        if mine.contains(where: { signInChannels.contains($0.id) && readsAsSignIn($0.lastError) }) {
+        if mine.contains(where: { signInChannels.contains($0.id) && refusesAccount($0) }) {
             return (.needsSignIn, false)
         }
         // 2026-11-04 (owner: "I just pressed sync contacts … it said syncing and then it turned off … now that it finished

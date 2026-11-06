@@ -178,7 +178,8 @@ final class SourceCatalogTests: XCTestCase {
                                                                                       "linkedin"])
         let connected = SourceCatalog.rows(entries: entries, channels: synced, overview: [], readableSites: [],
                                            savedListsOn: lists, localAgent: true)
-        XCTAssertEqual(SourceCatalog.connectedCount(connected), 5)
+        // Lists turned on with an agent here but nothing read yet are on, not connected (sources-truth).
+        XCTAssertEqual(SourceCatalog.connectedCount(connected), 1)
         XCTAssertEqual(SourceCatalogStatus.waitingForAgent.word, "On · waits for your agent")
         XCTAssertNotEqual(SourceCatalogStatus.waitingForAgent.tone, .on, "never painted as connected")
     }
@@ -373,7 +374,8 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertEqual(row("x", in: r)?.status, .connected)
         XCTAssertEqual(row("linkedin", in: r)?.status, .off)
         XCTAssertFalse(Copy.Catalog.instagramHonest.lowercased().contains("coming"))
-        XCTAssertEqual(SourceCatalog.savedListSites, ["x", "instagram", "linkedin", "reddit", "pinterest", "tiktok"])
+        XCTAssertEqual(SourceCatalog.savedListSites,
+                       ["x", "instagram", "linkedin", "reddit", "pinterest", "tiktok", "spotify", "goodreads"])   // ROR-128
     }
 
     func testReadingSettingsDecodeTheSavedListsAndAnOlderBackendHasNone() throws {
@@ -415,6 +417,11 @@ final class SourceCatalogTests: XCTestCase {
     func testSignInWordsAreReadFromTheFailure() {
         XCTAssertTrue(SourceCatalog.readsAsSignIn("401 Unauthorized"))
         XCTAssertFalse(SourceCatalog.readsAsSignIn("Timed out"))
+        // sources-truth: a count that happens to hold 403, or an author, is not a refusal.
+        XCTAssertFalse(SourceCatalog.readsAsSignIn("1403 item(s) failed to ingest"))
+        XCTAssertFalse(SourceCatalog.readsAsSignIn("Could not read the author of 3 items"))
+        XCTAssertTrue(SourceCatalog.readsAsSignIn("HTTPStatusError: HTTP 403"))
+        XCTAssertTrue(SourceCatalog.readsAsSignIn("The token was revoked"))
         XCTAssertFalse(SourceCatalog.readsAsSignIn(nil))
     }
 }

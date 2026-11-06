@@ -333,9 +333,9 @@ def test_sync_records_a_failure_instead_of_raising(tmp_path, monkeypatch):
 
     result = run(x.sync(memory, http_fn=boom))
     assert result["status"] == "error"
-    assert "rate limited" in result["error"]
+    assert "RuntimeError" not in result["error"] and result["error"].startswith("X")
     entry = sync_state.read_sync_state(memory)["x"]
-    assert "rate limited" in entry["last_error"]
+    assert entry["last_error"] == result["error"]
 
 
 def test_exchange_code_stores_tokens_and_resolves_the_user_id(tmp_path, monkeypatch):

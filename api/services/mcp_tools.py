@@ -1607,10 +1607,14 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
     if outcome == "failed":
         youtube_lists.note(memory_path, name, outcome)
         return "Recorded: the read failed. Nothing was written; the list is offered again later."
+    if isinstance(videos, list) and not videos:
+        # An empty Watch later or history is a read: the list is there and has nothing in it (not a failed page).
+        youtube_lists.note(memory_path, name, "read", videos=0)
+        return "Recorded: that YouTube list is empty. Nothing was written; it is checked again later."
     rows = videos if isinstance(videos, list) else []
     if not rows:
         return Reply("Error: a read needs `videos` — the videos the page showed, each {url, title, channel"
-                + (", watched_on" if name == "history" else "") + "}. Record `failed` if the page showed none.",
+                + (", watched_on" if name == "history" else "") + "}; send `videos: []` for a list that is empty. Record `failed` only if you could not read the page.",
                 code="invalid_arguments")
     if len(rows) > MAX_YOUTUBE_LIST_VIDEOS:
         return Reply(f"Error: at most {MAX_YOUTUBE_LIST_VIDEOS} videos in one call; record the rest in a second call.",
@@ -1769,10 +1773,16 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     if outcome == "failed":
         saved_lists.note(memory_path, key, outcome, **who)
         return "Recorded: the read failed. Nothing was written; the list is offered again later." + unkept
+    if isinstance(items, list) and not items:
+        # The list is there and has nothing in it: a read of an empty list, not a failed page (sources-truth).
+        saved_lists.note(memory_path, key, "read", items=0, **who)
+        return (f"Recorded: the person's {p.name} {p.label} is empty. Nothing was written; it is checked again "
+                "later." + unkept)
     rows = items if isinstance(items, list) else []
     if not rows:
-        return Reply("Error: a read needs `items` — the posts the list showed, each {url, author, text}. Record "
-                     "`failed` if the page showed none.", code="invalid_arguments")
+        return Reply("Error: a read needs `items` — the posts the list showed, each {url, author, text}; send "
+                     "`items: []` for a list that is empty. Record `failed` only if you could not read the page.",
+                     code="invalid_arguments")
     if len(rows) > MAX_SAVED_LIST_ITEMS:
         return Reply(f"Error: at most {MAX_SAVED_LIST_ITEMS} items in one call; record the rest in a second call.",
                      code="invalid_arguments")
@@ -1836,6 +1846,12 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         index_changed = (index_file.read_bytes() if index_file.is_file() else None) != before_index
     if index_changed:
         paths.append("sources/url_index.json")
+    if dropped and not seen:
+        # Every row was something else (a feed, a profile, a login page): the agent was not on the list. Calling that a
+        # read would show the source healthy, count against the day and clear a pause, with nothing kept.
+        saved_lists.note(memory_path, key, "failed", **who)
+        return (f"Recorded: the read failed. None of the {dropped} row(s) were {p.name} posts, so nothing was written; "
+                f"the list is offered again later. Open {p.name}'s {p.label} page and read that list." + unkept)
     saved_lists.note(memory_path, key, "read", items=len(seen), **who)
     if paths:
         lines = ([f"sources/url_index.json: updated (trigger: {ctx.trigger})"] if index_changed else []) + (
@@ -2008,10 +2024,14 @@ def record_substack_list(ctx: ToolContext, list_name: str, outcome: str, items=N
     if outcome == "failed":
         substack_lists.note(memory_path, name, outcome)
         return "Recorded: the read failed. Nothing was written; the list is offered again later."
+    if isinstance(items, list) and not items:
+        substack_lists.note(memory_path, name, "read", items=0)
+        return "Recorded: that Substack list is empty. Nothing was written; it is checked again later."
     rows = items if isinstance(items, list) else []
     if not rows:
-        return Reply(f"Error: a read needs `items` — the rows the page showed, each {spec.shape}. Record `failed` if "
-                     "the page showed none.", code="invalid_arguments")
+        return Reply(f"Error: a read needs `items` — the rows the page showed, each {spec.shape}; send `items: []` "
+                     "for a list that is empty. Record `failed` only if you could not read the page.",
+                     code="invalid_arguments")
     if len(rows) > MAX_SUBSTACK_LIST_ITEMS:
         return Reply(f"Error: at most {MAX_SUBSTACK_LIST_ITEMS} items in one call; record the rest in a second call.",
                      code="invalid_arguments")

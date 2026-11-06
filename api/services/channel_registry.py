@@ -42,6 +42,7 @@ from api.services import (
     media_ingestor,
     messages_source,
     origin_stats,
+    source_overview,
     reminders_local,
     sync_state,
     tab_groups,
@@ -85,7 +86,8 @@ CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
 #: "g219" (2026-10-23): the always-listed Apple Reminders row and the Notion export row.
 #: "book-scan" (2026-11-04): the always-listed Book scans row (G233).
 #: "g89-publications" (2026-11-05): the followed Substack publications count on `substack-feeds`, out of `rss`.
-CHANNELS_SHAPE = "g89-publications"
+#: "sources-truth" (2026-11-06): `files` counts the links the person saved, not every indexed item.
+CHANNELS_SHAPE = "sources-truth-files"
 
 
 # R-S5 — there is deliberately no `_plural` here any more. It baked
@@ -255,6 +257,9 @@ def _connector_channel(
         "count": count,
         "last_sync": last,
         "last_error": error,
+        # The typed code beside the words (sync_state `last_error_kind`): the app tells a refused account (`sign-in`)
+        # from a rate limit, the network or the service's own trouble by this, never by reading the sentence.
+        "last_error_code": (entry.get("last_error_kind") or None) if error else None,
         "detail": detail,
         "count_noun": count_noun,
         "count_is_delta": count_is_delta,
@@ -329,12 +334,13 @@ def build_channels(
     by_origin = {o["origin"]: o for o in origin_stats.aggregate_origins(memory_path)}
     connected_map = connectors_connected or {}
 
+    # The links and files the person saved — not every item `ingest_batch` ever wrote: a saved-list post, a bookmark, a
+    # pin or a feed item is another source's, and counting it made Files & links read Connected over someone who never
+    # added one (sources-truth). The same set the Files & links page lists (`source_overview.files_media_count`).
     try:
-        url_index = media_ingestor.load_url_index(memory_path)
+        saved_count = source_overview.files_media_count(memory_path)
     except Exception:
-        url_index = {}
-    # R-LS14: an alias entry is the same paper under its other URL.
-    saved_count = sum(1 for e in url_index.values() if not (isinstance(e, dict) and e.get("alias_of")))
+        saved_count = 0
 
     telegram_count = int((by_origin.get("telegram") or {}).get("episodeCount") or 0)
 

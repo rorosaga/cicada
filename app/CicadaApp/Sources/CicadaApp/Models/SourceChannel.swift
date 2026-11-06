@@ -16,6 +16,9 @@ struct SourceChannel: Codable, Identifiable, Hashable {
     /// G71 — the last poll's failure, when there was one. Present so a tile can
     /// say "needs attention" instead of showing a stale success.
     let lastError: String?
+    /// The typed code beside `lastError` (`sign-in`, `rate`, `network`, `server`, `other`); nil for a line written
+    /// before codes existed. The app tells a refused account from a rate limit by this, never by the sentence.
+    let lastErrorCode: String?
     /// R-S5 — the SINGULAR noun `count` counts ("bookmark", "saved item"), or
     /// nil when this channel's state has nothing to count. The server used to
     /// bake `f"{n:,} bookmarks"` into `detail`; that printed the SERVER's
@@ -34,17 +37,17 @@ struct SourceChannel: Codable, Identifiable, Hashable {
     let parts: [ChannelPart]
 
     enum CodingKeys: String, CodingKey {
-        case id, label, connected, count, lastSync, detail, lastError
+        case id, label, connected, count, lastSync, detail, lastError, lastErrorCode
         case countNoun, countIsDelta, actions, parts
     }
 
     init(id: String, label: String, connected: Bool = false, count: Int = 0,
-         lastSync: String? = nil, detail: String? = nil, lastError: String? = nil,
+         lastSync: String? = nil, detail: String? = nil, lastError: String? = nil, lastErrorCode: String? = nil,
          countNoun: String? = nil, countIsDelta: Bool = false,
          actions: [String] = [], parts: [ChannelPart] = []) {
         self.id = id; self.label = label; self.connected = connected
         self.count = count; self.lastSync = lastSync; self.detail = detail
-        self.lastError = lastError
+        self.lastError = lastError; self.lastErrorCode = lastErrorCode
         self.countNoun = countNoun; self.countIsDelta = countIsDelta
         self.actions = actions
         self.parts = parts
@@ -59,6 +62,7 @@ struct SourceChannel: Codable, Identifiable, Hashable {
         lastSync = try c.decodeIfPresent(String.self, forKey: .lastSync)
         detail = try c.decodeIfPresent(String.self, forKey: .detail)
         lastError = try c.decodeIfPresent(String.self, forKey: .lastError)
+        lastErrorCode = try c.decodeIfPresent(String.self, forKey: .lastErrorCode)
         // Optional-with-default: an older backend omits both, and its
         // already-formatted `detail` then renders unchanged.
         countNoun = try c.decodeIfPresent(String.self, forKey: .countNoun)

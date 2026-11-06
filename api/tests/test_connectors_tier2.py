@@ -450,3 +450,17 @@ def test_cicadas_own_secrets_never_reach_a_child(monkeypatch):
     for module in ("embed_worker.py", "pdf_page.py"):
         source = (root / module).read_text()
         assert "dict(os.environ)" not in source and "secretless_env()" in source, module
+
+
+def test_a_403_with_the_limit_signals_is_a_rate_limit_and_any_other_403_is_a_refused_account():
+    from types import SimpleNamespace
+
+    from api.services.connectors import github, tier2
+
+    adapter = SimpleNamespace(LABEL="GitHub", REFUSED_WORDS=github.REFUSED_WORDS, RATE_WORDS=github.RATE_WORDS)
+    with pytest.raises(tier2.Refused) as limited:
+        tier2._answer(adapter, tier2.Response(403, headers={"x-ratelimit-remaining": "0"}))
+    assert limited.value.kind == "rate"
+    with pytest.raises(tier2.Refused) as refused:
+        tier2._answer(adapter, tier2.Response(403))
+    assert refused.value.kind == "sign-in"

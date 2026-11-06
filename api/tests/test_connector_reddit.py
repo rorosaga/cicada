@@ -178,8 +178,8 @@ def test_sync_records_a_failure_instead_of_raising(tmp_path, monkeypatch):
 
     result = run(reddit.sync(memory, http_fn=boom))
     assert result["status"] == "error"
-    assert "429" in result["error"]
-    assert "429" in sync_state.read_sync_state(memory)["reddit"]["last_error"]
+    assert "RuntimeError" not in result["error"] and result["error"].startswith("Reddit")
+    assert sync_state.read_sync_state(memory)["reddit"]["last_error_kind"] == "other"
 
 
 def test_credential_fields_never_leak_a_value(tmp_path, monkeypatch):

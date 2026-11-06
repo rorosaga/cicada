@@ -96,7 +96,8 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("dia-bookmarks", "Dia bookmarks", "browser", "dia-bookmark", ("dia-bookmark",), "dia-bookmarks"),
     # Round 4 (G160 first slice): Chrome's open tab groups — one snapshot episode per group.
     SourceSpec("chrome-tab-groups", "Chrome tab groups", "browser", "chrome-tab-group", ("chrome-tab-group",), "chrome-tab-groups"),
-    SourceSpec("pinterest", "Pinterest", "social", "pinterest", ("pinterest",), "pinterest"),
+    # `pinterest-saved`: the person's own agent reading Saved Pins (G232) files under the export's origin, like Reddit's.
+    SourceSpec("pinterest", "Pinterest", "social", "pinterest", ("pinterest", "pinterest-saved"), "pinterest"),
     SourceSpec("reddit", "Reddit", "social", "reddit-saved", ("reddit-saved",), "reddit"),
     # `x-likes`: the X archive's like.js (saved_exports); bookmarks come from the connector.
     SourceSpec("x", "X", "social", "x-bookmarks", ("x-bookmarks", "x-likes"), "x"),
@@ -325,6 +326,19 @@ def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
     }
 
 
+def is_files_media(fm: dict) -> bool:
+    """A media page the person saved as a link or file: nil-origin (saved before writers stamped one) or `saved-link`.
+    A saved-list post, a bookmark, a pin or a feed item is another source's, so it never makes Files & links read
+    Connected (sources-truth)."""
+    origin = str(fm.get("origin") or "").strip()
+    return fm.get("type") == "media" and (not origin or origin in _FILES_ORIGINS) and not is_hidden(fm)
+
+
+def files_media_count(memory_path: Path) -> int:
+    """How many saved links and files the Files & links page lists (the one set the card, the page and the channel share)."""
+    return sum(1 for f in bank_index.files(Path(memory_path), "entities") if is_files_media(f.frontmatter))
+
+
 def build_overview(memory_path: Path, *, channels: list[dict], today: _date | None = None) -> list[dict]:
     """Every source with evidence (R2), ordered by kind then newest activity.
 
@@ -409,7 +423,7 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         # link saved before they did carries none, and both are the same card.
         # F6: skipping the hidden ones is what keeps this count equal to the
         # list `GET /sources/{id}` renders — the same predicate, one module.
-        if fm.get("type") == "media" and (not origin or origin in _FILES_ORIGINS) and not is_hidden(fm):
+        if is_files_media(fm):
             files_media += 1
         for ep_id in fm.get("source_episodes", []) or []:
             key = episode_key.get(str(ep_id))

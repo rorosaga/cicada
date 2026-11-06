@@ -321,3 +321,28 @@ def test_the_record_tool_schema_takes_a_handle_and_a_profile_link(reading):
     stdio, _ = reading
     props = next(t for t in stdio.TOOLS if t["name"] == "cicada_record_saved_list")["inputSchema"]["properties"]
     assert {"handle", "profile_url"} <= set(props)
+
+
+def test_a_read_where_no_row_was_a_post_is_a_failed_read_not_a_healthy_one(reading):
+    """The agent was on the wrong page: nothing was kept, so the list must not read as read, count toward the day or
+    clear a pause (sources-truth)."""
+    server, memory = reading
+    _on("x")
+    out = _record(server, "x", items=[{"url": "https://x.com/alice_example", "text": "a profile, not a post"},
+                                      {"url": "https://example.com/feed"}])
+    assert "the read failed" in out and "2 row(s)" in out
+    last = saved_lists.last(memory, "x")
+    assert last["outcome"] == "failed" and not last.get("read_at")
+    assert saved_lists.status(memory)["lists"]["x"]["state"] == "couldnt_read"
+    assert saved_lists.reads_today(memory) == 0
+
+
+def test_an_empty_list_is_recorded_as_read_empty_not_as_a_failure(reading):
+    """sources-truth: a list that is there with nothing in it is a read; only an unreadable page is `failed`."""
+    server, memory = reading
+    _on("x")
+    out = _record(server, "x", items=[])
+    assert "is empty" in out
+    last = saved_lists.last(memory, "x")
+    assert last["outcome"] == "read" and last["items"] == 0 and last.get("read_at")
+    assert saved_lists.status(memory)["lists"]["x"]["state"] == "read"

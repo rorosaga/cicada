@@ -53,12 +53,16 @@ extension SourceCatalogRow {
     /// Waiting on the person: a sign-in, an agent, a permission, or a read their page already calls Needs you.
     var needsYou: Bool {
         !notInstalled && (status == .needsSignIn || status == .waitingForAgent || waitingOn != nil
-            || browser?.state == .signedOut)
+            || browser?.state == .signedOut || browser?.state == .couldntRead)
     }
 
     /// What the eyebrow counts, so the Connected section and "6 connected" can never disagree (#619): a row Connected
     /// only through a reader another row holds keeps its green dot in its own category.
-    var isConnectedHere: Bool { status == .connected && countsAsConnected && !needsYou }
+    /// A list the person's own agent reads in their browser is connected once it has read: on with nothing read yet is
+    /// turned on, not connected (sources-truth, owner 2026-11-06); one that could not read is Needs you.
+    var isConnectedHere: Bool {
+        status == .connected && countsAsConnected && !needsYou && browser?.state != .notReadYet
+    }
 
     var section: SourceGridSection { needsYou ? .needsYou : .shelf(entry.shelf) }
 
