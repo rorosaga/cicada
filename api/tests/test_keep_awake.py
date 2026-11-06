@@ -47,3 +47,23 @@ def test_an_unavailable_tool_is_a_false_never_a_raise(monkeypatch):
     monkeypatch.setattr(keep_awake, "available", lambda: False)
     assert keep_awake.acquire("t2") is False
     assert not keep_awake.holding()
+
+
+def test_only_the_ac_only_flag_is_ever_passed():
+    """man caffeinate: -s alone is valid only on AC; -i/-d/-m/-u hold on battery too (review of #671)."""
+    flags = [a for a in keep_awake.argv(123) if a.startswith("-") and a != "-w"]
+    assert flags == ["-s"], "any other assertion flag would keep the Mac awake on battery"
+    assert keep_awake.argv(123)[-2:] == ["-w", "123"]
+
+
+@pytest.mark.skipif(not keep_awake.available(), reason="needs macOS caffeinate")
+def test_the_live_process_runs_with_only_s(monkeypatch):
+    import subprocess
+
+    assert keep_awake.acquire("t3")
+    try:
+        out = subprocess.run(["ps", "-o", "args=", "-p", str(keep_awake._held["t3"].pid)],
+                             capture_output=True, text=True).stdout
+        assert " -s " in out and " -i" not in out and " -d" not in out, out
+    finally:
+        keep_awake.release("t3")
