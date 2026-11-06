@@ -21,18 +21,21 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
+from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.routers.capture import refuse_capture_into_demo
 from api.services import apple_books, book_covers, book_jobs, books, episode_staging, folder_source, goodreads_export
-from api.services import idempotency, logo_service, sync_state, telemetry, write_admission
+from api.services import choice_covers, idempotency, logo_service, sync_state, telemetry, write_admission
+from api.services import media_preview
 from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
@@ -291,14 +294,37 @@ async def preview_goodreads(file: UploadFile = File(...), settings: Settings = D
     return {**out, "bank": settings.memory_path.name}
 
 
+@router.get("/sources/books/choice-cover/{isbn}")
+async def choice_cover(isbn: str):
+    """The cover for one row of the choice list, by the export's ISBN (``choice_covers``): the image, or 404 for "draw
+    nothing" (no number, no cover, fetches off, or not asked yet). Cached outside every bank; never a title."""
+    path = await choice_covers.cover_for(isbn)
+    if path is None:
+        raise HTTPException(404, "no cover")
+    return FileResponse(path, media_type=media_preview.MEDIA_TYPES.get(path.suffix.lstrip("."), "image/jpeg"),
+                        headers={"Cache-Control": "private, max-age=3600"})
+
+
 @router.post("/sources/goodreads/import", dependencies=_DEMO_GATE)
-async def import_goodreads(file: UploadFile = File(...), settings: Settings = Depends(get_settings)):
-    """Stage one episode per book in the export (a re-import edits in place), commit them, make the pages. 422 for a
-    file that is not a Goodreads library export."""
+async def import_goodreads(file: UploadFile = File(...), ids: str | None = Form(None),
+                           settings: Settings = Depends(get_settings)):
+    """Stage one episode per chosen book in the export (a re-import edits in place), commit them, make the pages.
+    ``ids`` is the person's choice, a JSON list of the preview's ids; omitted means every book. 422 for a file that is
+    not a Goodreads library export or a malformed ``ids``."""
     memory_path = settings.memory_path
+    chosen: set[str] | None = None
+    if ids is not None:
+        try:
+            parsed = json.loads(ids)
+        except ValueError:
+            parsed = None
+        if not isinstance(parsed, list) or len(parsed) > goodreads_export.MAX_ROWS:
+            raise HTTPException(422, "ids must be a list of book ids")
+        chosen = {str(i) for i in parsed}
     data = await _export_bytes(file)
     try:
-        out = await run_in_threadpool(goodreads_export.stage, memory_path, data, bank=memory_path.name)
+        out = await run_in_threadpool(goodreads_export.stage, memory_path, data, bank=memory_path.name,
+                                    ids=chosen)
     except goodreads_export.PayloadError as exc:
         raise HTTPException(422, str(exc))
     sync_state.record_sync(memory_path, goodreads_export.CHANNEL_ID, count=out["books"])

@@ -223,6 +223,22 @@ final class AppleBooksReaderTests: XCTestCase {
         XCTAssertEqual(AppleBooksStore.changed(moved, sent: sent).map(\.assetId), ["A1"])
     }
 
+    func testANewBookWaitsForTheChoiceAndAKnownOneIsKeptCurrent() {
+        func book(_ id: String, hidden: Bool = false, progress: Double = 0) -> AppleBooksBookRecord {
+            AppleBooksBookRecord(assetId: id, title: id, author: nil, epubId: nil, contentType: 1, isFinished: false,
+                                 isHidden: hidden, progress: progress, finishedAt: nil, lastOpenedAt: nil, addedAt: nil,
+                                 annotations: [])
+        }
+        let known = book("known", progress: 0.2), changed = book("known", progress: 0.5)
+        let sent = ["known": AppleBooksStore.fingerprint(known)]
+        let a = AppleBooksStore.partition([changed, book("new"), book("declined"), book("hid", hidden: true)],
+                                          sent: sent, skipped: ["declined"])
+        XCTAssertEqual(a.fresh.map(\.assetId), ["new"])
+        XCTAssertEqual(a.update.map(\.assetId), [])  // page turns alone are no change
+        let b = AppleBooksStore.partition([known], sent: sent, skipped: [])
+        XCTAssertTrue(b.fresh.isEmpty && b.update.isEmpty)
+    }
+
     func testThePageLineSaysWhatCameIn() {
         let now = Date()
         let en = Locale(identifier: "en_US")

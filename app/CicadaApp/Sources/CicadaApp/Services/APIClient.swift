@@ -2809,9 +2809,13 @@ actor APIClient {
         try await uploadMultipart(path: "/sources/goodreads/preview", fileData: data, filename: filename)
     }
 
-    /// `POST /sources/goodreads/import` — one entry per book; a re-import changes nothing.
-    func importGoodreads(data: Data, filename: String) async throws -> GoodreadsImportResult {
-        try await uploadMultipart(path: "/sources/goodreads/import", fileData: data, filename: filename)
+    /// `POST /sources/goodreads/import` — one entry per chosen book (`ids`; nil is every book); a re-import changes
+    /// nothing.
+    func importGoodreads(data: Data, filename: String, ids: [String]? = nil) async throws -> GoodreadsImportResult {
+        var fields: [String: String] = [:]
+        if let ids, let json = try? JSONEncoder().encode(ids) { fields["ids"] = String(data: json, encoding: .utf8) }
+        return try await uploadMultipart(path: "/sources/goodreads/import", fileData: data, filename: filename,
+                                         fields: fields)
     }
 
     /// Proposed ruling 55: `GET /people/numbers/match-key` — nothing while the feature is off, or from a client of a
@@ -3813,6 +3817,22 @@ actor APIClient {
     /// still): its bytes, or nil on a 404 ("draw the monogram"). `path` is built by `SourcePictures`, never by a caller.
     func fetchSourcePicture(path: String) async throws -> Data? {
         var request = makeRequest(path, method: "GET", json: false)
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
+    /// G233 — the cover for one row of the book choice list, by the export's ISBN: its bytes, or nil on a 404 ("draw
+    /// nothing"). Never a title; the backend validates the number again.
+    func fetchChoiceCover(isbn: String) async throws -> Data? {
+        guard isbn.range(of: "^97[89][0-9]{10}$", options: .regularExpression) != nil else { return nil }
+        var request = makeRequest("/sources/books/choice-cover/\(isbn)", method: "GET", json: false)
         request.timeoutInterval = Self.refreshTimeout
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }

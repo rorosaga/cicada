@@ -58,6 +58,16 @@ extension Copy {
         + "ready, choose goodreads_library_export.csv here. Your shelves, ratings, dates, reviews and private notes "
         + "come in; nothing is read from the Goodreads site."
     static let goodreadsImport = "Import"
+    /// Nothing is in memory until the person picks (G233).
+    static func booksChoosing(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        (n == 1 ? "1 book is" : "\(UsageFormat.count(n, locale: locale)) books are") + " waiting for your choice"
+    }
+    static func booksAddChosen(_ chosen: Int, of total: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        chosen == total ? "Add all" : "Add \(UsageFormat.count(chosen, locale: locale))"
+    }
+    static let booksSelectAll = "Select all"
+    static let booksSelectNone = "Select none"
+    static let booksLeaveOut = "Leave out"
     static let goodreadsReading = "Reading the export…"
     /// The description box (2026-11-06): where it came from, and the way back from a wrong title match.
     static func bookDescriptionSource(_ name: String, saved: String?) -> String {

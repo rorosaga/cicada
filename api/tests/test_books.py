@@ -368,6 +368,28 @@ def test_goodreads_preview_counts_and_writes_nothing(client):
     assert sorted(p.name for p in (memory / "episodes").glob("*.md")) == before
 
 
+def test_goodreads_preview_lists_each_book_so_the_person_can_choose(client):
+    c, memory, _ = client
+    out = c.post("/sources/goodreads/preview", files={"file": ("x.csv", CSV.encode())}).json()
+    assert sorted(i["id"] for i in out["items"]) == ["101", "102", "103"]
+    assert {i["title"] for i in out["items"]} >= {"Someday Shelf"}
+    assert set(out["items"][0]) == {"id", "title", "author", "status", "isbn"}
+
+
+def test_goodreads_import_brings_only_the_chosen_books_and_none_for_an_empty_choice(client):
+    c, memory, _ = client
+    f = {"file": ("x.csv", CSV.encode())}
+    r = c.post("/sources/goodreads/import", files=f, data={"ids": "[]"})
+    assert r.status_code == 200, r.text
+    assert r.json()["books"] == 0 and _books(memory) == {}
+    r = c.post("/sources/goodreads/import", files=f, data={"ids": '["103"]'})
+    assert r.status_code == 200, r.text
+    assert r.json()["books"] == 1
+    assert set(_books(memory)) == {"someday-shelf"}
+    assert c.post("/sources/goodreads/import", files=f, data={"ids": "nope"}).status_code == 422
+    assert c.post("/sources/goodreads/import", files=f, data={"ids": '{"a":1}'}).status_code == 422
+
+
 def test_goodreads_import_maps_shelves_ratings_and_reviews_onto_the_same_pages(client):
     c, memory, _ = client
     c.post("/capture/isbn", json={"isbn": PAPERBACK, "status": "reading"})
