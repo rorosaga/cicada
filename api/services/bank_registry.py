@@ -83,11 +83,13 @@ DERIVED_ARTIFACTS = (
     "vector_index.db",
     "vector_index.db-wal",
     "vector_index.db-shm",
+    "vector_index.db-journal",
     # G136: the FTS5 lexical index (`search_index.py`) — same rule, same
     # directory, same reason.
     "search_index.db",
     "search_index.db-wal",
     "search_index.db-shm",
+    "search_index.db-journal",
     # Audit A02/K01: an atomic page write's staging file (`markdown_parser._stage`)
     # and the other temp-then-replace writers' — never a page, never versioned.
     ".*.tmp",
