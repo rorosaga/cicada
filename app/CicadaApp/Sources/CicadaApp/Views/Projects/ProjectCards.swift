@@ -99,7 +99,7 @@ private struct ProjectStanding: View {
             HStack(spacing: CicadaTheme.scaled(6)) {
                 Image(systemName: ProjectSteps.glyph(line)).font(CicadaTheme.icon(.inline))
                     .foregroundStyle(CicadaTheme.textSecondary).accessibilityHidden(true)
-                Text(text).font(CicadaTheme.metaMediumFont).monospacedDigit()
+                Text(text).font(CicadaTheme.font(size: 14, weight: .medium)).monospacedDigit()
                     .foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
             }
         }
@@ -162,7 +162,7 @@ struct ProjectLeadCard: View {
                         .font(CicadaTheme.font(size: 24, weight: .medium))
                         .foregroundStyle(CicadaTheme.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
                     if let one = ProjectsModel.oneLine(line.row) {
-                        Text(one).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                        Text(one).font(CicadaTheme.font(size: 16)).foregroundStyle(CicadaTheme.textSecondary)
                             .lineLimit(3).multilineTextAlignment(.leading)
                     }
                     // A plan names its own next step; only a project with none says when it was last heard.
@@ -217,7 +217,7 @@ private struct ProjectListRow: View {
                         Text(line.row.name).font(CicadaTheme.font(size: 17, weight: .medium))
                             .foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
                         if let one = ProjectsModel.oneLine(line.row) {
-                            Text(one).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
+                            Text(one).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
                         }
                     }
                     Spacer(minLength: s(16))
@@ -249,24 +249,18 @@ private struct ProjectKidRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: s(10)) {
+            HStack(alignment: .center, spacing: s(10)) {
                 Image(systemName: "arrow.turn.down.right").font(CicadaTheme.icon(.inline))
-                    .foregroundStyle(CicadaTheme.textSecondary).padding(.top, s(2)).accessibilityHidden(true)
+                    .foregroundStyle(CicadaTheme.textSecondary).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: s(2)) {
-                    HStack(alignment: .firstTextBaseline, spacing: s(12)) {
-                        Text(line.row.name).font(CicadaTheme.rowFont)
-                            .foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
-                        Spacer(minLength: 0)
-                        let text = ProjectsModel.standing(line, today: today)
-                        if !text.isEmpty {
-                            Text(text).font(CicadaTheme.metaFont).monospacedDigit()
-                                .foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
-                        }
-                    }
+                    Text(line.row.name).font(CicadaTheme.font(size: 15, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
                     if let one = ProjectsModel.oneLine(line.row) {
-                        Text(one).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
+                        Text(one).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
                     }
                 }
+                Spacer(minLength: s(16))
+                ProjectStanding(line: line, today: today)
             }
             .padding(.horizontal, s(10)).padding(.vertical, s(8))
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -282,7 +276,11 @@ private struct ProjectKidRow: View {
 /// is heading for a ring in primary ink, the rest a quiet ring; an overdue next day reads in the warning ink. Only with a
 /// plan (R-PJ11: no plan, nothing here; no percentage). It replaces round 3's unlabelled segments, which no one could name.
 struct ProjectSteps: View {
-    enum State: Equatable { case done, next, later }
+    enum State: Equatable {
+        case done, next, later
+        /// What VoiceOver says for the mark the eye reads.
+        var spoken: String? { self == .done ? "done" : (self == .next ? "next" : nil) }
+    }
     struct Step: Equatable { let state: State; let name: String; var day: ISODay? = nil }
 
     /// A plan longer than this drops its oldest done steps first.
@@ -346,18 +344,20 @@ struct ProjectSteps: View {
                 HStack(spacing: s(12)) {
                     Image(systemName: m.name).font(CicadaTheme.icon(.inline)).foregroundStyle(m.ink)
                         .frame(width: s(18)).accessibilityHidden(true)
-                    Text(step.name).font(step.state == .next ? CicadaTheme.rowFont : CicadaTheme.bodyFont)
+                    Text(step.name).font(CicadaTheme.font(size: 15, weight: step.state == .next ? .medium : .regular))
                         .foregroundStyle(step.state == .later ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
                         .lineLimit(1)
                     Spacer(minLength: s(12))
                     if let day = step.day {
-                        Text(RelativeDay.absolute(day, today: today)).font(CicadaTheme.metaFont).monospacedDigit()
+                        Text(RelativeDay.absolute(day, today: today)).font(CicadaTheme.bodyFont).monospacedDigit()
                             .foregroundStyle(overdue ? CicadaTheme.warning : CicadaTheme.textSecondary)
                     }
                 }
                 .padding(.vertical, s(7))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Copy.Projects.stepLabel(step.name, state: step.state.spoken,
+                                                            day: step.day.map { RelativeDay.absolute($0, today: today) }))
             }
         }
-        .accessibilityHidden(true)
     }
 }

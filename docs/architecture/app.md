@@ -2706,8 +2706,8 @@ part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page 
   ink for the next, an overdue next day in the warning ink; at most five, the oldest done dropped first; only with a plan,
   no percentage — R-PJ11; a milestone a sub-project carries by name is left to that sub-project), so a planned lead says nothing else about where it stands; an unplanned one says it once
   (`ProjectsModel.standing`, a diamond for a next milestone, a clock for last heard); its sub-projects sit beneath on a
-  darker well. Every other project is a row of one ringed list (`ProjectRestList`): name over one-liner, where it stands at
-  the end, sub-projects indented beneath. A project's picture (`EntityPicture`) draws beside its name only when it has one.
+  darker well, each laid out like a list row (name over one-liner, the one signal at the end in the same `ProjectStanding`). Every other project is a row of one ringed list (`ProjectRestList`): name over one-liner, where it stands at
+  the end, sub-projects indented beneath. Round 5 (§9, 2026-11-06): nothing on these cards is smaller than 14 pt (one-liners 15-16, milestone names 15, days and the standing 14; colours unchanged, secondary ink is 11:1 dark and 12:1 light on the card); each milestone is its own VoiceOver element (name, done or next, day; `Copy.Projects.stepLabel`). A project's picture (`EntityPicture`) draws beside its name only when it has one.
   The Current tab counts cards, not sub-projects, and Past carries no count at zero (`ProjectsModel.counts`, `tabs`). The
   window below is empty when the person has few projects: nothing is added to fill it. Rounds 1-3's thread and tile grid
   are retired. Past and the narrowed list keep rows. A row
