@@ -67,7 +67,9 @@ def test_the_tool_refuses_a_bad_number_and_names_a_missing_backend(client):
         def memory_path(self): return client[1]
         def backend_post(self, path, payload): raise urllib.error.URLError("down")
         def backend_headers(self): return {}
-        sleep_answer = None
-        def sleep_running(self): return False
     assert "not a book's ISBN" in str(mcp_tools.add_book(Ctx(), "12", False))
     assert "not running" in str(mcp_tools.add_book(Ctx(), PAPERBACK, False))
+
+
+def test_the_write_wrapper_stays_on_note_progress_and_off_the_http_only_add():
+    assert hasattr(mcp_tools.note_progress, "__wrapped__") and not hasattr(mcp_tools.add_book, "__wrapped__")

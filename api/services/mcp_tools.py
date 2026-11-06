@@ -3256,7 +3256,6 @@ def _match_milestone(rows, wanted: str):
     return None
 
 
-@_holding_pages
 def add_book(ctx: ToolContext, isbn: str, preview: bool = False) -> str:
     """`cicada_add_book`: a book the person asked their agent to add, by the ISBN the agent found with its own search.
     Stdio only (a remote app is not local, and the lookup and the page are the home's). `preview` shows the edition the
@@ -3322,6 +3321,7 @@ def add_book(ctx: ToolContext, isbn: str, preview: bool = False) -> str:
             "(or after the next Sleep if network lookups are off).")
 
 
+@_holding_pages
 def note_progress(ctx: ToolContext, project: str, kind: str, summary: str, status: str, when=None,
                   target=None, milestone=None, settles=None, participants=None, evidence=None) -> str:
     """`cicada_note_progress` (G141 §5.2): record a happening or a milestone the
