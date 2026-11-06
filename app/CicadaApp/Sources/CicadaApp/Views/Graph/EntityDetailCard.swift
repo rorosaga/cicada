@@ -755,6 +755,10 @@ struct EntityDetailCard: View {
         guard !showRawMarkdown, !isStub, paperDetail == nil else { return false }
         if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper, !media.isBook { return false }
         if entity.type == .media, entity.media?.isFile == true { return false }
+        // ROR-138: a book's page leads with its own head (cover, authors, where the person stands, the description
+        // box), which the article's emptiness says nothing about. Its Summary is drawn by that box, so a book with
+        // no other prose has an empty article and used to lose the whole page block — a blank panel.
+        if entity.type == .media, entity.media?.isBook == true { return false }
         if HeroPreview.hasPreviewableAsset(for: entity) { return false }
         return WikiArticleCache.shared.article(articleKey).isEmpty
     }
