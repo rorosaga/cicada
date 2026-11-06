@@ -26,8 +26,8 @@ def test_the_default_is_off_and_empty():
                     "youtubeListsOff": {"watchLater": False, "history": False},   # 2026-10-26: no off on record
                     "savedListsOff": {"x": False, "instagram": False, "linkedin": False, "reddit": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False},
                     # G89 (2026-11-04): the Substack lists, off until the person turns one on.
-                    "substackLists": {"saved": False, "history": False, "subscriptions": False},
-                    "substackListsOff": {"saved": False, "history": False, "subscriptions": False}}
+                    "substackLists": {"saved": False, "liked": False, "history": False, "subscriptions": False},
+                    "substackListsOff": {"saved": False, "liked": False, "history": False, "subscriptions": False}}
     assert not reading_settings.path().exists(), "reading never creates the file"
 
 

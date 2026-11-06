@@ -88,7 +88,8 @@ def demo(tmp_path: Path, *, index: bool = True, events: bool = True, person: boo
                          backlog=backlog, showcase=showcase, today=today)
         _TEMPLATES[key] = template
     bank = tmp_path / "demo"
-    shutil.copytree(template, bank, symlinks=True)
+    # An index commit can delete its own journal between the copy's listing and its read.
+    shutil.copytree(template, bank, symlinks=True, ignore=shutil.ignore_patterns("*-wal", "*-shm", "*-journal"))
     bank_index.invalidate()
     if index:
         search_index.ensure_fresh(bank, wait=True, max_age_s=0)

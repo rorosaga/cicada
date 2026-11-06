@@ -10,6 +10,7 @@ one ``cicada`` commit), the routes, the MCP tool's ``subject`` and the explore a
 Synthetic only: made-up pages drawn by ``demo_pictures.website``, example.com links, placeholder names."""
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 from datetime import datetime, timezone
@@ -257,6 +258,7 @@ def test_the_person_moves_a_look_and_a_page_gone_reads_as_unattached(client):
     assert c.get("/design").json()["refs"][0]["entity"] is None
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="the screenshot decoder is the Mac's sips")
 def test_similar_looks_leave_the_look_itself_out(client):
     c, bank = client
     a = c.post("/design", files={"image": ("a.png", DARK, "image/png")}).json()
