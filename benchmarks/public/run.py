@@ -171,8 +171,11 @@ def run(args) -> int:
             raise SystemExit(f"--paths takes {', '.join(PATHS)}")
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         run_dir = lay["runs"] / f"{cfg['dataset']}-{stamp}"
-        if run_dir.exists():   # two runs started in one second would mix their results in one table
-            raise SystemExit(f"{run_dir.name} already exists: start again")
+        lay["runs"].mkdir(parents=True, exist_ok=True)
+        try:
+            run_dir.mkdir()   # atomic: two runs started in one second would mix their results in one table
+        except FileExistsError:
+            raise SystemExit(f"{run_dir.name} already exists: start again") from None
         _mark(run_dir, RUN_MARKER)
         cfg["created"] = stamp
         cfg["revision"] = _git_rev()

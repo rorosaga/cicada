@@ -384,7 +384,7 @@ async def run_unit(job: dict) -> int:
     # A failed answer is retried on every run until it succeeds; it is never silently dropped.
     todo = answers_to_do(unit["questions"], paths, answers.rows)
     calls.phase = "answer"
-    if todo and "ask" in paths:
+    if todo and {"ask", "recall", "hook"} & set(paths):
         from api.services import search_index
 
         search_index.ensure_fresh(bank, wait=True)   # what the running backend keeps fresh; never a half-built index
