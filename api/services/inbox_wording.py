@@ -561,8 +561,8 @@ def _owner_voice(text: str, names: list[str]) -> str:
     frame = re.compile(rf"\b({'|'.join(_OWNER_FRAMES)})\s+(?i:{alt})\b")
     possessive = re.compile(rf"(?i:\b(?:{alt}))'s\b")
     bare = re.compile(rf"(?i:\b(?:{alt})\b)")
-    turned = frame.sub(lambda m: _OWNER_FRAMES[m.group(1)], text)
-    turned = possessive.sub("your", turned)
+    turned = possessive.sub("your", text)
+    turned = frame.sub(lambda m: _OWNER_FRAMES[m.group(1)], turned)
     return text if bare.search(turned) else turned
 
 

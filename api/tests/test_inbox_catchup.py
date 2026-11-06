@@ -163,7 +163,7 @@ def test_people_and_a_generic_conflict_are_said_plainly_and_every_question_keeps
         {"kind": "conflict", "entity_name": "Alpha", "predicate": "value-of-x",
          "question": "Which is true about Alpha (value-of-x)?",
          "options": [{"key": "a", "label": "one"}, {"key": "b", "label": "two"}]}, TODAY.isoformat())
-    assert generic.question == "Which is right about Alpha: one or two?"
+    assert generic.question == "Which is right for Alpha's x: one or two?"
     own = inbox_wording.spoken({"kind": "conflict", "entity_id": OWNER, "predicate": "works-at",
                                 "options": [{"key": "a", "label": "x"}, {"key": "b", "label": "y"}]},
                                TODAY.isoformat(), owner_id=OWNER)
@@ -425,7 +425,7 @@ def test_ask_mode_says_the_question_in_plain_words_too(bank):
          question="Which is true about Alpha (value-of-x)?",
          options=[{"key": "a", "label": "red"}, {"key": "b", "label": "blue"}])
     out = mcp_tools.check_nudges(ctx(bank), "is alpha red or blue", ["alpha"], "ask")
-    assert "Ask it like: Which is right about Alpha: red or blue?" in out
+    assert "Ask it like: Which is right for Alpha's x: red or blue?" in out
 
 
 # --------------------------------------------------------------------------- S10 + Sleep's tail
