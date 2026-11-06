@@ -60,6 +60,8 @@ struct OnboardingView: View {
     @State private var pageShownAt = Date()
     /// *Saved lists* (owner 2026-10-26): pre-ticked from the person's reading settings (an off they chose stays off).
     @State private var savedTicks: Set<SavedListItem> = Set(SavedListItem.allCases)
+    /// Agent reading is already allowed (a rerun): only then do the ticks describe lists that are on.
+    @State private var readingConsented = false
     @State private var savedFailure: String?
     @FocusState private var rootFocused: Bool
 
@@ -278,7 +280,8 @@ struct OnboardingView: View {
             }
             Spacer(minLength: CicadaTheme.spacingSM)
             if page.skippable {
-                OnboardingLink(title: Copy.onboardingSkip) { skip() }
+                OnboardingLink(title: SavedListsStepModel.skipTitle(onSavedLists: page == .savedLists,
+                                                                    consented: readingConsented)) { skip() }
             }
             PrimaryActionButton(title: page == .savedLists ? SavedListsStepModel.primaryTitle(savedTicks)
                                                            : Copy.onboardingContinue, large: true) { advance(.pointer) }
@@ -396,6 +399,9 @@ struct OnboardingView: View {
     /// Only the primary sends a step's answer (`SavedListsStepModel.writes(on:)`).
     private func skip() {
         guard !busy, seeHow == nil else { return }
+        // The ticks are an offer until the primary answers it: leaving without it leaves nothing on, so Back must not
+        // show them ticked.
+        if page == .savedLists { savedTicks = SavedListsStepModel.ticksAfterSkip(savedTicks, consented: readingConsented) }
         if let next = page.next { go(next, .pointer) }
     }
 
@@ -560,6 +566,7 @@ struct OnboardingView: View {
         }
         if let reading = try? await APIClient.shared.fetchReadingSettings() {
             savedTicks = SavedListsStepModel.initialTicks(reading)
+            readingConsented = reading.agentEnabled && reading.ackCurrent
         }
         browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value
         await inventory.refresh()
