@@ -509,7 +509,7 @@ struct EntityDetailCard: View {
                 MediaPageHead(media: media, session: mediaPage)
             } else if entity.type == .media, let media = entity.media, media.isBook {
                 // Ruling 61: where the person stands with the book, and the way back from a word Cicada misread.
-                BookPageHead(entityId: entity.id, cover: media.preview, changed: reloadPage)
+                BookPageHead(entityId: entity.id, cover: media.preview, markdown: entity.markdownContent, changed: reloadPage)
             } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper, !media.isBook {
                 // G11: rich media preview above the body for `media`-type entities.
                 MediaPreview(model: MediaPreviewModel(block: media, title: entity.name, description: mediaDescription))

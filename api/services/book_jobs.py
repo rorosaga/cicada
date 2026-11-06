@@ -60,14 +60,19 @@ async def lookup_waiting(memory_path: Path, *, fetch=None) -> dict | None:
     from api.services.connectors.base import network_allowed
 
     isbns = await asyncio.to_thread(books.waiting_isbns, Path(memory_path))
-    if not isbns:
+    titles = await asyncio.to_thread(books.title_candidates, Path(memory_path))
+    if not isbns and not titles:
         return None
     if not network_allowed():
         from api.services import sync_state
 
         sync_state.record_skip(Path(memory_path), CHANNEL, "network fetch disabled")
         return None
-    return await book_lookup.resolve(isbns, fetch=fetch)
+    report = await book_lookup.resolve(isbns, fetch=fetch) if isbns else {}
+    if titles:
+        # Ruling 61 (amended 2026-11-06): a book the person added with no ISBN may be found by its title and author.
+        report["titles"] = await book_lookup.resolve_titles(titles, fetch=fetch)
+    return report
 
 
 async def resolve_and_apply(memory_path: Path, *, author: str, trigger: str, fetch=None) -> dict:

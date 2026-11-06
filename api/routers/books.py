@@ -13,6 +13,8 @@
 * ``GET /sources/books`` — counts for the Reading rows: books by status, and scans waiting for their lookup.
 * ``POST /sources/apple-books/covers`` — the covers the app read from Apple Books' cache (ruling 61, ``book_covers``).
 * ``GET /entities/{id}/book`` — what the page leads with (subtitle, facts line, subjects, the description's source, ways in).
+* ``GET /sources/books/backfill-plan`` — a counts-only dry run of a description backfill (writes nothing, asks nothing).
+* ``POST /entities/{id}/book/not-this-book`` — takes back a description a title found (ruling 61 amended 2026-11-06).
 * ``GET /entities/{id}/book-status``, ``POST /entities/{id}/book-status/undo`` — the book's status and "Not right".
 """
 from __future__ import annotations
@@ -217,6 +219,33 @@ async def get_book_card(entity_id: str, settings: Settings = Depends(get_setting
     if out is None:
         raise HTTPException(404, "not a book")
     return out
+
+
+@router.get("/sources/books/backfill-plan")
+async def backfill_plan(settings: Settings = Depends(get_settings)):
+    """A dry run, counts only: what asking for the descriptions of the books already in memory would do. Read-only; nothing
+    is asked of any service and nothing is written."""
+    return await run_in_threadpool(books.backfill_plan, Path(settings.memory_path))
+
+
+@router.post("/entities/{entity_id}/book/not-this-book")
+async def not_this_book(entity_id: str, settings: Settings = Depends(get_settings)):
+    """"Not this book": the person says a title found the wrong book. What the match wrote is removed and the page is
+    never matched by title again. Committed as the person's; 404 for a page no title matched; 409 while Sleep writes."""
+    memory_path = Path(settings.memory_path)
+
+    async def body():
+        out = await asyncio.to_thread(books.not_this_book, memory_path, entity_id)
+        if out["paths"]:
+            await folder_source.commit_paths_for(memory_path, out["paths"], subject="Not this book",
+                                                 trigger="books/not-this-book", author="user", channel=book_jobs.CHANNEL)
+        return out
+
+    out = await write_admission.run_admitted(
+        memory_path, body, refuse=lambda: SleepWriting("Sleep is updating your memory — try again in a moment."))
+    if not out["undone"]:
+        raise HTTPException(404, "no title match on this page")
+    return {"undone": True}
 
 
 @router.post("/entities/{entity_id}/book-status/undo")

@@ -14,12 +14,22 @@ final class BookPageLayoutTests: XCTestCase {
         XCTAssertNotNil(EntityHeaderWords.summary(markdown: page, isStub: false))
     }
 
-    func testABooksArticleKeepsTheDescriptionAndItsSourceLineWithoutTheHeading() {
-        let article = EntityHeaderWords.articleMarkdown(page, isBook: true)
-        XCTAssertFalse(article.contains("## Summary"))
-        XCTAssertTrue(article.hasPrefix("A lamplighter learns"))
-        XCTAssertTrue(article.contains("From [Open Library]"))
+    func testABooksArticleLeavesTheDescriptionToItsBoxAndKeepsTheRest() {
+        let with = page + "\n\n## History\nAdded in autumn."
+        let article = EntityHeaderWords.articleMarkdown(with, isBook: true)
+        XCTAssertFalse(article.contains("Summary"))
+        XCTAssertFalse(article.contains("A lamplighter learns"))
+        XCTAssertTrue(article.contains("## History"))
         XCTAssertEqual(EntityHeaderWords.articleMarkdown(page, isBook: false), page)
+    }
+
+    func testTheBoxReadsTheParagraphItsSourceAndTheDaySaved() {
+        let d = EntityHeaderWords.bookDescription(page)
+        XCTAssertEqual(d?.text, "A lamplighter learns the orchard keeps its hours.")
+        XCTAssertEqual(d?.source, "Open Library")
+        XCTAssertEqual(d?.url, "https://example.org/w")
+        XCTAssertEqual(d?.saved, "5 Nov")
+        XCTAssertNil(EntityHeaderWords.bookDescription("An article with no summary."))
     }
 
     func testNoRelationLineOnABookButARealRelationStillShows() {

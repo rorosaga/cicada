@@ -104,11 +104,24 @@ struct BookPageHead: View {
     let entityId: String
     /// The page's own picture path (`media.preview`), nil for a book with no cover.
     let cover: String?
+    /// The page's markdown: its `## Summary` is the description the box under the head draws.
+    var markdown: String = ""
     let changed: () -> Void
 
     @State private var card: BookCard?
 
     var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            head
+            if let description = EntityHeaderWords.bookDescription(markdown) {
+                BookDescriptionBox(entityId: entityId, description: description,
+                                   byTitle: card?.matchedByTitle == true, changed: changed)
+            }
+        }
+        .task(id: entityId) { card = try? await APIClient.shared.fetchBookCard(id: entityId) }
+    }
+
+    private var head: some View {
         HStack(alignment: .top, spacing: 0) {
             if cover != nil { BookCoverThumb(path: cover, points: 168, reservesSlot: false, trailing: CicadaTheme.spacingLG) }
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -143,7 +156,56 @@ struct BookPageHead: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .task(id: entityId) { card = try? await APIClient.shared.fetchBookCard(id: entityId) }
+    }
+}
+
+/// A book's description, below its head: a small settled summary with its source named, no heading and no fold (the page is
+/// an article, DR-77; said once, DR-38; a ring, not a border, DR-9). It is a world fact from a public source, never the
+/// person's words — the source and the day it was saved say so — and a book a title found says that too, with the way
+/// back ("Not this book"), which removes the description and is never asked again.
+struct BookDescriptionBox: View {
+    let entityId: String
+    let description: EntityHeaderWords.BookDescription
+    let byTitle: Bool
+    let changed: () -> Void
+
+    @State private var busy = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text(description.text)
+                .font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            HStack(spacing: CicadaTheme.spacingSM) {
+                if let name = description.source {
+                    let line = Copy.bookDescriptionSource(name, saved: description.saved)
+                    if let url = description.url.flatMap(URL.init(string:)) {
+                        Link(line, destination: url)
+                    } else {
+                        Text(line)
+                    }
+                }
+                if byTitle {
+                    Text("·")
+                    Text(Copy.bookFoundByTitle)
+                    NeutralButton(title: Copy.bookNotThisBook) {
+                        busy = true
+                        Task {
+                            try? await APIClient.shared.notThisBook(id: entityId)
+                            busy = false
+                            changed()
+                        }
+                    }
+                    .disabled(busy)
+                }
+            }
+            .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(CicadaTheme.spacingMD)
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
     }
 }
 

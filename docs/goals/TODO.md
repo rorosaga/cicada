@@ -3703,6 +3703,40 @@ A whole row moves to DONE only after its remaining implementation and required a
    (`episode_staging`); the table is in `capture-and-sleep.md` ("A rename at the source").
    **Trigger to revisit:** a person's name overwritten by a source (a mark missed), or a rename flip-flopping between doors.
 
+70. **A book the person added may be read for what it is, and found by its title (owner, 2026-11-06; G233, G39; amends 61, 62, 64).** The
+    owner's words: "I think the ruling change should be applied for books because reading the description of a added book is
+    important for memory. Like it's the bare minimum in terms of relevance for why it's there in the first place. And to be able
+    to surface it in the future." and "if we only get the title from Apple Books, for example, or the ISBN, we should be able to
+    link it the same way we search with an ISBN the book and have a description and stuff." **(a) The description is the book's
+    bare relevance.** Sleep may read the public description of a book the person added, once, bounded, so the page says what the
+    book is and why it may matter and recall, Ask and linking can find it. It does not allow: reading the book's text; making
+    anything the person's own words (a description is `external`, cited, never their opinion or a sign they read it); a
+    question about it (a quiet page stays quiet until mentioned); a link from co-mention; a metered key nobody chose (ruling 31).
+    Marks work as ruling 64 says. **Built here:** the description reaches the page (G233) and is found by recall and Ask by
+    words and meaning with no model; **not built:** the one bounded Sleep read that adds "why it may matter" (G233 row; it
+    needs its own measured cost per book). **(b) What relevance can do at linking:** nothing by itself. Under ruling 56 a link
+    needs a recorded fact or an agent's stated reason; the description is what makes either findable and checkable (an agent that
+    recalls the book by its topic can cite its words as the reason), never a link made because two things sit near each other.
+    **(c) A title can find the book** (amends 61's "never a title", which gave two reasons): the second ("sends the reading list
+    out") is answered by the owner's decision — a book the person chose to add, from a door of their own (Apple Books,
+    Goodreads), with no ISBN and an author, sends its title and its first author to the same keyless Open Library search
+    behind the same gate, paced at one request a second, cached outside every bank under a hash, no identity sent. The first
+    ("a guess at a work") is answered by a confidence rule with no fuzzy step: the page's title (or title and subtitle) equals a
+    result's once case, accents and punctuation are set aside, AND every one of the page's authors is among the result's, AND the
+    results name exactly one work (several editions of one work are one match, the least valid ISBN-13 taken); two works, no
+    author, no ISBN or anything less leaves the book with no description and no question. The match gives description,
+    year, pages, publisher, subjects and a cover id; the page's title, authors and ISBNs never change, so a match never joins two
+    pages. `book.title_match` marks it; **"Not this book"** (`POST /entities/{id}/book/not-this-book`, a button in the box) takes
+    the description back and the page is never matched by title again. A title never leaves for a book the person did not add
+    (a scan has an ISBN; a placeholder, an author-less entry and a conversation's mention are never searched). **(d) The box:**
+    the description is a small settled summary under the head with its source named (DESIGN_RULES §9, 2026-11-06). **(e) Existing
+    books** are not backfilled: `GET /sources/books/backfill-plan` is a counts-only dry run; the owner reads it before any run.
+    **Measured** (Open Library, live, 40 well-known public titles with Apple-style variants, 2026-11-06): 17 matched, 14
+    ambiguous (Open Library holds duplicate work records for the classics; held back by design), 9 none (surname-only authors,
+    "Dune: Deluxe Edition", two invented titles: none expected to match); 0 of the 17 matches named the wrong work by title and
+    author. An import of N books with no ISBN costs about 5 s each (1 search + 3-4 ISBN requests) and no model.
+    Revisit on: the owner overruling the confidence rule, or measured wrong matches.
+
 67. **One book is one page whichever door it came in by; the Mac adds books by number or camera (owner, 2026-11-05; G233, ROR-116).**
    The owner: "yes ofc i want books on the mac and it has to have some overlap with potential books from ibooks." (a) Amends
    review-of-#600 B1: after an identifier (ISBN, work id, a source's id) fails, **exactly the same** title (or title +
