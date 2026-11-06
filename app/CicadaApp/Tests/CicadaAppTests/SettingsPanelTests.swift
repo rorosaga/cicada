@@ -12,16 +12,16 @@ final class SettingsPanelTests: XCTestCase {
         return try String(contentsOf: file, encoding: .utf8)
     }
 
-    /// 920 × 740 at the rules' window (content 1440 × 848 under the 52 pt titlebar), inset ≥ 40 at
+    /// 1080 × 780 (round 5), 776 tall at the rules' window (content 1440 × 848 under the 52 pt titlebar), inset ≥ 36 at
     /// the smallest, and it scales with the chrome without ever leaving the window.
     func testThePanelsSize() {
         CicadaTheme.uiScale = 1.0
-        XCTAssertEqual(SettingsPanelLayout.size(container: CGSize(width: 1440, height: 848)), CGSize(width: 920, height: 740))
-        XCTAssertEqual(SettingsPanelLayout.size(container: CGSize(width: 1200, height: 748)), CGSize(width: 920, height: 668))
+        XCTAssertEqual(SettingsPanelLayout.size(container: CGSize(width: 1440, height: 848)), CGSize(width: 1080, height: 776))
+        XCTAssertEqual(SettingsPanelLayout.size(container: CGSize(width: 1200, height: 748)), CGSize(width: 1080, height: 676))
         CicadaTheme.uiScale = 1.4
         let zoomed = SettingsPanelLayout.size(container: CGSize(width: 1200, height: 748))
-        XCTAssertEqual(zoomed.width, 1120, accuracy: 0.5, "1200 − 2 × 40")
-        XCTAssertEqual(zoomed.height, 668, accuracy: 0.5, "748 − 2 × 40")
+        XCTAssertEqual(zoomed.width, 1128, accuracy: 0.5, "1200 − 2 × 36")
+        XCTAssertEqual(zoomed.height, 676, accuracy: 0.5, "748 − 2 × 36")
         XCTAssertEqual(SettingsPanelLayout.size(container: .zero), .zero)
     }
 

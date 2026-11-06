@@ -77,19 +77,19 @@ struct SettingsGeneralView: View {
                     // so it never moves the slider under the pointer.
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Text("A")
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .font(CicadaTheme.font(size: 13, weight: .semibold))
+                            .foregroundStyle(CicadaTheme.textPrimary)
                             .accessibilityHidden(true)
                         Slider(value: scale, in: ThemeStore.scaleRange, step: ThemeStore.scaleStep)
-                            .frame(width: CicadaTheme.scaled(180))
+                            .frame(width: CicadaTheme.scaled(220))
                         Text("A")
-                            .font(CicadaTheme.font(size: 19, weight: .medium))
-                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .font(CicadaTheme.font(size: 20, weight: .semibold))
+                            .foregroundStyle(CicadaTheme.textPrimary)
                             .accessibilityHidden(true)
                         Text("\(Int((CicadaTheme.uiScale * 100).rounded()))%")
-                            .font(CicadaTheme.rowFont.monospacedDigit())
+                            .font(CicadaTheme.font(size: 15, weight: .medium).monospacedDigit())
                             .foregroundStyle(CicadaTheme.textPrimary)
-                            .frame(width: CicadaTheme.scaled(48), alignment: .trailing)
+                            .frame(width: CicadaTheme.scaled(52), alignment: .trailing)
                     }
                     .overlay(alignment: .leading) {
                         if CicadaTheme.uiScale != 1.0 {
@@ -123,22 +123,6 @@ struct SettingsGeneralView: View {
                 }
                 // G231 — the notch's connect suggestion, and the apps the person said No to.
                 ConnectSuggestSettingRow()
-                SettingsDivider()
-                // G181 phase 3 — on a server nothing runs on this Mac for the memory, so nothing is offered.
-                let onServer = ServerConnection.current.isServer
-                SettingsRow(.backgroundService, title: Copy.keepMemoryWorking,
-                            detail: onServer ? Copy.Devices.backgroundNotNeeded
-                                : (backendAgent.state == .running ? nil : Copy.backgroundDetail(backendAgent.state))) {
-                    if onServer {
-                        SettingsInlineLink(section: .devices, row: .memoryHome, label: Copy.Devices.whereGroup)
-                    } else {
-                        BackgroundServiceButton()
-                    }
-                } below: {
-                    if !onServer && BackgroundServiceButton.showsCommand(backendAgent.state) {
-                        CommandBox(command: backendAgent.display)
-                    }
-                }
                 // G182 phase 5 — the updater's switch and its one status line (DR-37: a line never gets a card of its
                 // own). Hidden entirely where the updater is inert (a developer build).
                 if updates.isActive {
@@ -158,9 +142,28 @@ struct SettingsGeneralView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 loginItems.refresh()
             }
-            // Hyrum audit B12: setup, the tour and the demo are one job, so one strip. The command-line tool left for
-            // Agents (B11).
-            SettingsDemoTourGroup()
+            // Round 5 (ROR-118): what is not a switch shares the last card, so a word at the trailing edge (On) and a
+            // menu read as values, never as a broken switch; setup, the checklist, the tour and the demo are one
+            // row's menu (B12), not a bar of four buttons.
+            SettingsGroupCard {
+                // G181 phase 3 — on a server nothing runs on this Mac for the memory, so nothing is offered.
+                let onServer = ServerConnection.current.isServer
+                SettingsRow(.backgroundService, title: Copy.keepMemoryWorking,
+                            detail: onServer ? Copy.Devices.backgroundNotNeeded
+                                : (backendAgent.state == .running ? nil : Copy.backgroundDetail(backendAgent.state))) {
+                    if onServer {
+                        SettingsInlineLink(section: .devices, row: .memoryHome, label: Copy.Devices.whereGroup)
+                    } else {
+                        BackgroundServiceButton()
+                    }
+                } below: {
+                    if !onServer && BackgroundServiceButton.showsCommand(backendAgent.state) {
+                        CommandBox(command: backendAgent.display)
+                    }
+                }
+                SettingsDivider()
+                SettingsDemoTourGroup()
+            }
             // G182 — the version a tester reports; the backend's only when it differs (an updated app beside a
             // background service still running the old one). Plain text, monospaced digits (DR-21). An update that
             // couldn't be installed while Cicada was closed is said here, once, for this session (phase 5). Round 1:
@@ -239,7 +242,7 @@ struct BackgroundServiceButton: View {
             // word where the switches sit, at their height and on their trailing edge. The green dot, a pattern no
             // other row had, is gone.
             Text(Copy.Status.on)
-                .font(CicadaTheme.rowFont)
+                .font(CicadaTheme.font(size: 15, weight: .medium))
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .frame(minHeight: CicadaTheme.scaled(Self.switchHeight))
                 .padding(.trailing, CicadaTheme.scaled(Self.switchTrailingInset))

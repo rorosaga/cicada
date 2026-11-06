@@ -231,10 +231,10 @@ struct SettingsPanel: View {
 
 /// DR-33 — the panel's geometry, pure.
 enum SettingsPanelLayout {
-    static let width: CGFloat = 920
-    static let height: CGFloat = 740
+    static let width: CGFloat = 1080
+    static let height: CGFloat = 780
     static let sidebarWidth: CGFloat = 220
-    static let minimumInset: CGFloat = 40
+    static let minimumInset: CGFloat = 36
     /// The 28 pt close × + a gap. The `esc` keycap beside it retired (round 1, ROR-118): the × carries Esc.
     static let closeClusterWidth: CGFloat = 52
 

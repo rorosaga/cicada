@@ -17,48 +17,64 @@ struct SettingsDemoTourGroup: View {
     @Environment(IntakeRouter.self) private var intake
     @Environment(GraphViewModel.self) private var graphVM
     @State private var busy = false
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var inDemo: Bool { DemoMode.isActive(store.banks.value) }
 
-    /// Round 1 (ROR-118): four action tiles in one strip, each a glyph over its own words, instead of three rows of
-    /// plain text (the row titles repeated their buttons). Each tile is its row's landing anchor.
+    /// Round 5 (ROR-118): the four actions are one row, *Getting started*, whose whole width opens a menu (a chevron at its
+    /// trailing edge, as a value row has). Rounds 1-4 drew them as tiles, a strip, loose buttons and a bar; judges read
+    /// every one as onboarding clutter on a settings page, and a rarely used action needs no standing control. Each
+    /// item is the old button, unchanged, and the row keeps all three landing anchors. Neutral, no primary (DR-40).
     var body: some View {
-        // Round 4 (ROR-118): one low bar of four equal cells on the cards' own fill and ring, hairlines between them,
-        // as wide as the cards above it. Round 2's cells were tall and outweighed the settings; round 3's four loose
-        // buttons had no edge to line up with. Neutral, no primary (DR-40).
-        HStack(spacing: 0) {
-            // DR-40 — neutral, no primary.
-            SetupTile(systemImage: "arrow.counterclockwise", title: Copy.runSetupAgain) {
-                OnboardingState.reset(bank: store.bank)
-                router.requestFirstRun()
-            }
-            .settingsRow(.runSetup)
+        Menu {
+            Button { rerunSetup() } label: { Label(Copy.runSetupAgain, systemImage: "arrow.counterclockwise") }
             // R-IB17 — the checklist is re-openable, beside Run setup again so G139's index lands on both.
-            SetupTile(systemImage: "checklist", title: Copy.gsShowChecklist) {
-                GettingStartedState.showChecklist(bank: store.bank)
-                // A card already seen done this session would otherwise reopen as "You're set up."
-                runner.sawDoneThisSession = false
-                runner.checklistChanged()
-                router.pendingTab = .home
-                router.activateMainWindow()
+            Button { showChecklist() } label: { Label(Copy.gsShowChecklist, systemImage: "checklist") }
+            Button { router.closeSettings(); tour.requestStart() } label: { Label(Copy.Tour.offerTake, systemImage: "map") }
+            Button { inDemo ? leave() : enter() } label: {
+                Label(inDemo ? Copy.Demo.leaveDemo : Copy.Demo.exploreDemo, systemImage: "play.circle")
             }
-            .columnEdge(.leading)
-            SetupTile(systemImage: "map", title: Copy.Tour.offerTake) {
-                router.closeSettings()
-                tour.requestStart()
+            .disabled(busy)
+        } label: {
+            HStack(spacing: CicadaTheme.spacingMD) {
+                Text(Copy.Demo.settingsGroup)
+                    .font(CicadaTheme.font(size: 15, weight: .medium))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Spacer(minLength: CicadaTheme.scaled(16))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(CicadaTheme.font(size: 12, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .padding(.trailing, CicadaTheme.scaled(6))
             }
-            .columnEdge(.leading)
-            .settingsRow(.guidedTour)
-            SetupTile(systemImage: "play.circle", title: inDemo ? Copy.Demo.leaveDemo : Copy.Demo.exploreDemo,
-                      isDisabled: busy) {
-                inDemo ? leave() : enter()
-            }
-            .columnEdge(.leading)
-            .settingsRow(.demoMemory)
+            .padding(.vertical, CicadaTheme.spacingSM + CicadaTheme.scaled(2))
+            .padding(.horizontal, CicadaTheme.spacingMD)
+            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(48), alignment: .leading)
+            .background(hovering ? CicadaTheme.bgButtonHover : Color.clear)
+            .contentShape(Rectangle())
         }
-        .frame(height: CicadaTheme.scaled(44))
-        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
-        .settingsCardSurface()
+        .menuStyle(.button)
+        .buttonStyle(.cicadaPlain)
+        .menuIndicator(.hidden)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+        .settingsRow(.runSetup)
+        .settingsRow(.guidedTour)
+        .settingsRow(.demoMemory)
+    }
+
+    private func rerunSetup() {
+        OnboardingState.reset(bank: store.bank)
+        router.requestFirstRun()
+    }
+
+    private func showChecklist() {
+        GettingStartedState.showChecklist(bank: store.bank)
+        // A card already seen done this session would otherwise reopen as "You're set up."
+        runner.sawDoneThisSession = false
+        runner.checklistChanged()
+        router.pendingTab = .home
+        router.activateMainWindow()
     }
 
     /// `GettingStartedCard`'s effects, with Home as the landing — the demo plan ends on `.showHome`.
@@ -93,40 +109,5 @@ struct SettingsDemoTourGroup: View {
             if let why = DemoMode.leaveToast(outcome) { store.toast = why }
             busy = false
         }
-    }
-}
-
-/// One cell of the Getting started bar: a glyph beside its words, filling its quarter; the pointer lights the cell
-/// (`bgButtonHover`), and the bar's own fill and ring are the cards' (DR-40, DR-48); its hairlines are `columnEdge`s (DR-11).
-private struct SetupTile: View {
-    let systemImage: String
-    let title: String
-    var isDisabled = false
-    let action: () -> Void
-    @State private var hovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: CicadaTheme.scaled(6)) {
-                Image(systemName: systemImage)
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                Text(title)
-                    .font(CicadaTheme.metaMediumFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-            }
-            .padding(.horizontal, CicadaTheme.scaled(8))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(hovering && !isDisabled ? CicadaTheme.bgButtonHover : Color.clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .onHover { hovering = $0 }
-        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
-        .disabled(isDisabled)
-        .opacity(isDisabled ? NeutralButton.disabledOpacity : 1)
     }
 }

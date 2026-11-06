@@ -28,8 +28,9 @@ struct SettingsRow<Control: View, Below: View>: View {
             HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                        // Round 5 (ROR-118): one point above the ladder's row size, so a Settings title reads at a glance.
                         Text(title)
-                            .font(CicadaTheme.rowFont)
+                            .font(CicadaTheme.font(size: 15, weight: .medium))
                             .foregroundStyle(CicadaTheme.textPrimary)
                         // F-10 — a live fact beside the title ("Day now"), never a control.
                         if let accessory {
@@ -40,7 +41,7 @@ struct SettingsRow<Control: View, Below: View>: View {
                     }
                     if let detail, !detail.isEmpty {
                         Text(detail)
-                            .font(CicadaTheme.captionFont)
+                            .font(CicadaTheme.metaFont)
                             .foregroundStyle(CicadaTheme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
