@@ -10,7 +10,7 @@ final class InboxGroupsTests: XCTestCase {
         return try JSONDecoder().decode(InboxItem.self, from: Data(#"{"id":"\#(id)","kind":"\#(kind)","requiredInput":"choice","title":"\#(id)","priority":\#(priority),"createdDate":"\#(created)","entityId":"\#(page)","entityName":"\#(name)"\#(order)}"#.utf8))
     }
 
-    /// Ruling 71 — with the server's order on every question, sections and pages follow it, not priority: the decay
+    /// Ruling 70 — with the server's order on every question, sections and pages follow it, not priority: the decay
     /// question the server put first leads its section even at the lowest priority.
     func testGroupsFollowTheServedOrderWhenEveryQuestionHasIt() throws {
         let items = [try item("c1", priority: 0.9, index: 2), try item("d1", kind: "decay", priority: 0.1, page: "gamma", name: "Gamma", index: 0),

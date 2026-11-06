@@ -1576,7 +1576,7 @@ def answer_query(
             logger.debug(f"ask linked people skipped ({type(exc).__name__})")
 
     retrieved_ids = [e["entity_id"] for e in entities]
-    # The pages this answer read count as SHOWN reads (`page_reads`, ruling 71): once a page a day, never raising.
+    # The pages this answer read count as SHOWN reads (`page_reads`, ruling 70): once a page a day, never raising.
     from api.services import page_reads
 
     for _eid in retrieved_ids:

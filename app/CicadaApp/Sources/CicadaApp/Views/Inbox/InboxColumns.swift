@@ -24,7 +24,7 @@ struct InboxColumns: Equatable {
         a.priority != b.priority ? a.priority > b.priority : a.createdDateValue > b.createdDateValue
     }
 
-    /// Ruling 71 — whether this whole list is in the server's order: EVERY question carries `orderIndex`. Decided for
+    /// Ruling 70 — whether this whole list is in the server's order: EVERY question carries `orderIndex`. Decided for
     /// the list, never per pair (a pairwise "index when both have one, else priority" is not transitive), so one item
     /// without it sends the whole list to the fallback.
     static func usesServedOrder(_ items: [InboxItem]) -> Bool {
@@ -156,7 +156,7 @@ enum InboxRows {
         var rows = visible.map(InboxRowEntry.item)
         guard let held, let item = snapshot.first(where: { $0.id == held.id }),
               filter == nil || filter == item.kind else { return rows }
-        // The Undo row sits where its question sat in the snapshot's own order (ruling 71: the served order, else G115's).
+        // The Undo row sits where its question sat in the snapshot's own order (ruling 70: the served order, else G115's).
         let place = Dictionary(InboxColumns.ordered(snapshot).enumerated().map { ($1.id, $0) },
                                uniquingKeysWith: { first, _ in first })
         let mine = place[item.id] ?? Int.max

@@ -8,7 +8,7 @@
 
 **Pick up here (2026-10-22, redesign):** read ruling 36 (the owner's answers D1–D6 to the redesign proposal), then [`feature-status.md`](feature-status.md) for what is building. Branches in flight: `feat/awake-read` (G207), `fix/people-dedup` (G209), `feat/update-sources` (G61); queued: connection model and providers (G217, G50), agent API (G213), app (G217's pages, needs a Mac). **Decided after review (2026-10-22, in ruling 36):** a new install's Auto uses a signed-in plan, a key offered as an equal option; ruling 4c stays and the quick read follows it; G213's API rides the G135 listener; "Where to check" as one grouped inbox review; `rich` + `questionary` approved. Nothing waits on the owner from this ruling. **Ruling 38 (2026-10-23)** decides the follow-ups: `/v1` from the tool table (G213), a capture-only phone (G91), one-way syncs (G219), traces with screenshots (G218).
 
-**Inbox order (2026-11-06, ruling 71, G113/G115):** `GET /inbox`, the catch-up and `mode="ask"`/`"list"`, recall's question block, the recall hook's pointer and a web lookup's order are ordered by `question_order` (the expected change in what gets read, lowered for a fact said long ago), fed by `page_use` and the new read counter `page_reads` (not the ledger); read ruling 71 before touching the order, its constants or the counter. In flight: #673.
+**Inbox order (2026-11-06, ruling 70, G113/G115):** `GET /inbox`, the catch-up and `mode="ask"`/`"list"`, recall's question block, the recall hook's pointer and a web lookup's order are ordered by `question_order` (the expected change in what gets read, lowered for a fact said long ago), fed by `page_use` and the new read counter `page_reads` (not the ledger); read ruling 70 before touching the order, its constants or the counter. In flight: #673.
 
 **Browser-read sources (2026-11-05, ROR-114, G206/G228/G232):** Instagram, TikTok, Reddit and Pinterest (with X and LinkedIn) have one "Read through your browser" switch; a source read that way has its own colour and words (not the green of a connection), a "Signed out" state with Try again, and the person's handle and profile link on its page; YouTube's and Substack's lists show the same states, without a handle. Why the switches were missing: the app's set stayed at three lists after #596 and Instagram's switch sat beside a refused site grant (`app.md`, DESIGN_RULES §9 2026-11-05). Freshness limit (by design): signed out is learned only when an agent tries the page. T3 Code is no source row. Mac tests are for the owner's shell: `swift build --build-tests` only here.
 
@@ -845,7 +845,7 @@
   Needs the owner: a person's own site as a face, project avatars, Gravatar from Contacts, Wikidata P18, Stage 1's
   site upgraded by ruling 40, the two redrawn marks (`G159`).
 - **2026-10-28 — saved links feed the pages they are about (vision item 1; G61, G166, G191; branch `feat/vision-sources-reason`).** The person's reason for a save rides the reading queue (their words: remote with `sources` only), steers link summaries and earns a page described before it one more read (`read_for`); a saved link is a proposed where-to-check source on the project, company, concept, tool or place page its claims are about; `cicada_record_read(facts=…)` lands a read's specifics on their pages with page spans. Dry run on a copy of the owner's bank: 133 proposals on 113 pages, all in the one review; 9 haiku re-reads, the reason answered on 6 of 8 (2 before). Stage 1's prompt is unchanged (a note measured no gain). Coordinator calls: saves with no reason join the review; a read's facts never land on a person's page. **Next:** research citations as proposals (rulings 27/44) waits for the owner.
-- **2026-11-06 — the inbox is ordered by the expected change in what gets read (ruling 71; G113, G115; branch
+- **2026-11-06 — the inbox is ordered by the expected change in what gets read (ruling 70; G113, G115; branch
   `feat/question-impact`).** `question_order` replaces `page_use.rank` for `GET /inbox`, the catch-up and `mode="ask"`;
   `page_reads` is the small per-memory read counter beside it (not the ledger); `orderIndex` goes to the app. Constants
   are judgment on two recorded answers; `impact` on each `resolution` row is how they get checked. Round 2 (same day,
@@ -3636,7 +3636,7 @@ A whole row moves to DONE only after its remaining implementation and required a
    person's own words). **Trigger to revisit (b):** the owner asks for the words in the
    page's markdown, knowing a committed transcript cannot be forgotten.
 
-71. **The inbox is ordered by the expected change in what gets read, on real reads (owner, 2026-11-06; G113, G115).**
+70. **The inbox is ordered by the expected change in what gets read, on real reads (owner, 2026-11-06; G113, G115).**
    The owner: "the questions should have in order the impact they might have on current accesses knowledge, and things
    that might have big impact." and, asking for the work: "focuses on doing the PR for the impact score and all that stuff
    that you're recommending. Maybe it can come up with a better formulation to estimate impact." Home was about to show

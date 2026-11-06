@@ -3430,7 +3430,7 @@ page), its failure saying the page changed since (`settledSleepUndoFailed`). Neu
 from the server, Not now); `InboxBodyPreview` draws its `body` — "Why: …" and the changes as "- Replace “old” with
 “new”" lines — even beside a cause quote, because the body is the change itself (every other kind keeps the old rule:
 the body only when there is neither a cause nor a quote).
-**The Inbox's order is the server's (ruling 71, 2026-11-06).** `GET /inbox` serves `orderIndex` on every item (its place in the
+**The Inbox's order is the server's (ruling 70, 2026-11-06).** `GET /inbox` serves `orderIndex` on every item (its place in the
 served list, set after agent requests are placed above the questions; it carries no magnitude, `question_order`,
 `features.md`). `InboxItem.orderIndex` decodes it leniently; `InboxColumns.usesServedOrder` decides **for the whole list**
 (every question has it) whether `ordered` sorts by index or, as against an older server, by priority then newest — never
@@ -3444,7 +3444,7 @@ order (`QuestionOrderEverywhereTests`). The ETag and this mapping ship together 
 Under All the full-width list is one collapsible group per kind (`InboxGroups`, `InboxListLine`, `InboxGroupHeader`):
 the kind's tab word and its count, and *Review one at a time* — the quick review below, the group's one action. There is
 no answer-all: a header only opens or closes (a click eases, a key is one frame — *One fold motion* below), and every answer is still one question through
-the card or the review, held for the Undo window. Groups sit where their most urgent question would (the list's order: the server's `orderIndex`, ruling 71, else G115's priority then newest);
+the card or the review, held for the Undo window. Groups sit where their most urgent question would (the list's order: the server's `orderIndex`, ruling 70, else G115's priority then newest);
 past `InboxGroups.openFirstUpTo` (12) questions every group starts closed, so a full inbox reads as its kinds and counts;
 the person's open/closed choice holds for the memory, and the open question's group is always open. Inside a group (and
 under a kind's tab) two or more questions about one page sit together under the page's name, said once (`InboxPageHeader`;

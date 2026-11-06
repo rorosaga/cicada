@@ -3099,7 +3099,7 @@ class InboxItem(CamelModel):
     chain_question: Optional[str] = None
     chain_reason: Optional[str] = None
     chain_pairs: Optional[list[dict]] = None
-    # Ruling 71 (2026-11-06): this question's place in the served list, 0 first, set by `GET /inbox` after the agent
+    # Ruling 70 (2026-11-06): this question's place in the served list, 0 first, set by `GET /inbox` after the agent
     # requests are placed above the questions. The order is derived at read (`question_order`) and carries no magnitude;
     # a client that has it for EVERY item sorts by it, else by `priority` then newest (an older server). Additive.
     order_index: Optional[int] = None

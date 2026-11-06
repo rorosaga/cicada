@@ -426,7 +426,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   its claims, with a reason that is the commit message; only a harness on the person's trust list writes at once (Claude Code
   and Codex until the person changes it, owner 2026-10-14; never remote, never `agent`), any other proposes in the inbox; pinned fixes and removed aliases outlive Sleep; blame is read from git (`storage.md`, `mcp.md`).
   A device holding a per-device token the person issued counts as local (ruling 28); a G135 connector never does.
-- **The inbox is ordered by the expected change in what gets read (ruling 71, owner 2026-11-06):** `question_order`, derived on
+- **The inbox is ordered by the expected change in what gets read (ruling 70, owner 2026-11-06):** `question_order`, derived on
   read, never stored; the stored priority no longer moves it. It rests on a per-memory **read counter** (`page_reads`,
   outside every bank and git, never served, a no-op with recording off, wiped with its bank) that is **not** the telemetry
   ledger; today's reads count from tomorrow; the hook's injection, Sleep and Cicada's own spawns never count. A fact said

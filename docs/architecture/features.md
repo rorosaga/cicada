@@ -189,7 +189,7 @@ multi-valued predicate. It is dated when it was said, carries its conversation, 
 answer. A value they picked against is not written. Between a
 drain's batches it commits alone.
 
-**The order is the expected change in what gets read (ruling 71, owner 2026-11-06; supersedes vision item 10's
+**The order is the expected change in what gets read (ruling 70, owner 2026-11-06; supersedes vision item 10's
 "priority + 0.5 × use", 2026-10-28).** Owner: "the questions should have in order the impact they might have on current
 accesses knowledge, and things that might have big impact." `question_order.Tables.score` orders all three places the
 list is met — `load_inbox` (so `GET /inbox` and Home), `inbox_catchup.select` and `cicada_check_nudges(mode="ask")`

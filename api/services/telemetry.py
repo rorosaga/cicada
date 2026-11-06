@@ -258,7 +258,7 @@ def record_read(entity_id: str, *, surface: str, bank: str | None, memory_path=N
     bank, so this is the same privacy line the G113 feedback rows draw. An
     empty id is ignored; nothing here can raise into a recall or a card open.
 
-    This is also the one choke point of the read counter (``page_reads``, ruling 71): when the caller names the
+    This is also the one choke point of the read counter (``page_reads``, ruling 70): when the caller names the
     ``memory_path`` the read is counted there too, by the surface's suffix (``-recall`` shown; plain, ``-project`` and
     the app's opened; ``-backlog`` not counted). The counter is a separate store with its own gates - the ledger's
     rail ("nothing learned from it is auto-applied") is untouched.

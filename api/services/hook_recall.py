@@ -434,7 +434,7 @@ def _open_question(reader: search_index.Reader, pages: list[PageNote], today: st
              if mcp_tools.nudge_visible(d.meta, wanted=frozenset(names), today=today, memory_path=memory_path)]
     if not items:
         return None, None
-    # The same order the app and the agent's ask mode serve (`question_order`, ruling 71), never the stored priority. The
+    # The same order the app and the agent's ask mode serve (`question_order`, ruling 70), never the stored priority. The
     # tables are built only when there is more than one item to choose between.
     from api.services import question_order
 

@@ -6390,7 +6390,7 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
     if not results:
         return "No pending inbox items" + (f" related to '{topic}'" if topic else "") + "."
     if len(results) > 1:
-        # The order the app serves (`question_order`, ruling 71), not the file order. The remote door's is computed
+        # The order the app serves (`question_order`, ruling 70), not the file order. The remote door's is computed
         # WITHOUT the read counter, so nothing derived from it crosses that door.
         from api.services import question_order
 

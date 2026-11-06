@@ -510,7 +510,7 @@ def source_items(memory_path: Path, facts: web_settle.BankFacts, *, already: set
 
     memory_path = Path(memory_path)
     out: list[tuple[int, web_settle.Candidate]] = []
-    # The order the inbox serves (ruling 71): the drain's cap keeps the first few, so never file order.
+    # The order the inbox serves (ruling 70): the drain's cap keeps the first few, so never file order.
     served = {i.id: n for n, i in enumerate(inbox_service.load_inbox(memory_path))}
     for path in sorted((memory_path / "inbox").glob("inbox-*.md")):
         if path.stem not in served:

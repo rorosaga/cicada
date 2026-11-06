@@ -162,7 +162,7 @@ async def _replica_lifespan(app: FastAPI, settings):
     asyncio.get_running_loop().run_in_executor(None, warm_query_embedder, settings.memory_path)
     search_index.warm_in_background(settings.memory_path)
     asyncio.get_running_loop().run_in_executor(None, sensitive_hold.warm, settings.memory_path)
-    # Ruling 71: the first hook after launch (a 300 ms budget) finds the order's tables warm, not a page-by-page read.
+    # Ruling 70: the first hook after launch (a 300 ms budget) finds the order's tables warm, not a page-by-page read.
     asyncio.get_running_loop().run_in_executor(None, question_order.warm, settings.memory_path)
     # G132 phase 3b: the relay link (when the person set a relay) before the follower, so its first ask can take
     # either path; the direct listener when CICADA_DEVICE_URL names this computer's private address.
@@ -299,7 +299,7 @@ async def lifespan(app: FastAPI):
     search_index.warm_in_background(settings.memory_path)
     # G235: the door to every engine reads the bank once, so the first model call after launch does not wait for it.
     asyncio.get_running_loop().run_in_executor(None, sensitive_hold.warm, settings.memory_path)
-    # Ruling 71: the first hook after launch (a 300 ms budget) finds the order's tables warm, not a page-by-page read.
+    # Ruling 70: the first hook after launch (a 300 ms budget) finds the order's tables warm, not a page-by-page read.
     asyncio.get_running_loop().run_in_executor(None, question_order.warm, settings.memory_path)
 
     entities_count = len(list((settings.memory_path / "entities").glob("*.md")))

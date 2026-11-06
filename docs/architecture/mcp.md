@@ -958,7 +958,7 @@ same way.
   company, tool or place. Each page comes with its summary and at most two current claims with their dates —
   only claims about what the message is about (2026-10-27, below) —
   plus at most one open inbox question — only one the message is ABOUT (the ask gate below), the first in the app's
-  order (`question_order`, ruling 71; never the stored priority; ordered only when more than one passes the visibility
+  order (`question_order`, ruling 70; never the stored priority; ordered only when more than one passes the visibility
   rule, its tables warmed at launch), worded as a statement
   the agent can act on naturally ("if the message already answers it, it is recorded … and not asked"), with a
   pointer to `cicada_check_nudges(mode="list")`. A follow-up never rides a note. The note is ≤ 400 tokens or
@@ -1266,7 +1266,7 @@ concrete format". `cicada_check_nudges(mode="catchup")` is that chat's read (`mc
 - **What comes back:** the next `inbox_catchup.LIMIT` (3) questions the person can answer in conversation — every
   visible kind but `normalization`, `page_edit`, an agent request and the grouped "Confirm N links" review, and never a
   multi-valued conflict (G98: shown, never asked) — ordered by `question_order` (the expected change in what gets
-  read: what the answer changes × how much of that page is being read, at most one of a type in a row, ruling 71; `features.md`, "The order is the expected
+  read: what the answer changes × how much of that page is being read, at most one of a type in a row, ruling 70; `features.md`, "The order is the expected
   change in what gets read"; a chain of same-person questions takes its best member's place). Each block has `Ask:` (the question in a person's words), `Why you are asking`
   (its reason, from the record), the answers with their unchanged keys, Cicada's guess once, and the call that records
   it on this door (`cicada_resolve_inbox(…)` on MCP, a `cicada inbox resolve …` line from `cli_map.spell` on the CLI).

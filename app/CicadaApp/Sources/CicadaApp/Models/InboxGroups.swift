@@ -8,7 +8,7 @@ import Foundation
 /// the server — a group only decides where a question is drawn. The order a group draws is the order ↑/↓ walk and the
 /// order the next question opens after an answer (`InboxViewModel.visible`), so the keys never jump around the screen.
 ///
-/// Order: a section sits where its most urgent question would (the list's order — the server's `orderIndex`, ruling 71,
+/// Order: a section sits where its most urgent question would (the list's order — the server's `orderIndex`, ruling 70,
 /// else G115's priority then newest; `InboxColumns.ordered`); a page's questions sit where their most urgent one would;
 /// inside, the same order.
 enum InboxGroups {

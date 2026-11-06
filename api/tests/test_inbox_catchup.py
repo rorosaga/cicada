@@ -106,7 +106,7 @@ def test_the_inbox_asks_about_the_most_used_page_first_at_equal_impact(bank):
 
 
 def test_the_stored_priority_no_longer_moves_the_order_what_the_answer_changes_does(bank):
-    """Ruling 71: `question_order` derives the order at read; the stored priority stays on disk and on the wire."""
+    """Ruling 70: `question_order` derives the order at read; the stored priority stays on disk and on the wire."""
     page(bank, "quiet", convs=1, said=-200)
     two = item(bank, 1, entity_id="quiet", entity_name="Quiet", predicate="uses", priority=1.2, title="t",
                options=[{"key": "a", "label": "x", "claim_id": "c1"}, {"key": "b", "label": "y", "claim_id": "c2"}])

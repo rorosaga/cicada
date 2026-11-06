@@ -299,7 +299,7 @@ def item_frontmatter(owner: str, owner_name: str, cand: Candidate, today: date) 
         "allow_other": True, "allow_defer": True, "created_date": today.isoformat(),
         **({"source_episode": cand.episode} if cand.episode else {}),
         "last_said": cand.last_said, "said_in": cand.said_in,
-        # The page the fact is about (additive, ruling 71): `entity_id` is the owner, so the order reads the topic's use here.
+        # The page the fact is about (additive, ruling 70): `entity_id` is the owner, so the order reads the topic's use here.
         **({"object_id": cand.object_id} if cand.object_id else {}),
     }
 

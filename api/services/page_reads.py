@@ -1,5 +1,5 @@
 """How often the person (and their agents) actually read each page - a small counter that orders the inbox and
-nothing else (TODO ruling 71, 2026-11-06; ``question_order``).
+nothing else (TODO ruling 70, 2026-11-06; ``question_order``).
 
 Rodrigo (2026-11-06): "the questions should have in order the impact they might have on current accesses knowledge,
 and things that might have big impact." ``page_use`` is derived from what was *said*; this is what was *read*. It is

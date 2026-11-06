@@ -1,7 +1,7 @@
 import XCTest
 @testable import CicadaApp
 
-/// Ruling 71, requirement 2 — one order everywhere. The server's score orders the list (`orderIndex`); every queue in the
+/// Ruling 70, requirement 2 — one order everywhere. The server's score orders the list (`orderIndex`); every queue in the
 /// app reads that order and never the stored `priority`. These tests give each queue a list whose priorities OPPOSE the
 /// served order and assert the served order wins: a page's own queue ("A question · 1 of N"), Home's lead and rows, the
 /// catch-up's list, the Inbox columns, the palette's tie-break and `Store.visibleInbox`. Synthetic items, placeholder names.

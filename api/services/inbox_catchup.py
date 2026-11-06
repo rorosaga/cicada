@@ -8,7 +8,7 @@ at consolidation should be detected".
 Three parts, one module:
 
 * **The read** (:func:`select`, served as ``cicada_check_nudges(mode="catchup")``): every question the person can
-  answer in conversation, the biggest expected change in what gets read first (``question_order``, ruling 71), a
+  answer in conversation, the biggest expected change in what gets read first (``question_order``, ruling 70), a
   handful at a time (:data:`LIMIT`), each in its human words with its reason
   (``inbox_wording``). Frontmatter only until the top few are picked, so a 400-question inbox costs one cached
   directory read, not 400 cause lookups.

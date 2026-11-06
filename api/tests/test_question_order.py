@@ -1,4 +1,4 @@
-"""Ruling 71 — the inbox is ordered by the expected change in what gets read (``question_order``).
+"""Ruling 70 — the inbox is ordered by the expected change in what gets read (``question_order``).
 
 Synthetic bank, invented names. The argued pairs below are the evidence for the formula: each pair says which question
 should come first and WHY, and four formulations are run on every pair - F0 (the old order), F1 (additive), F2 (the

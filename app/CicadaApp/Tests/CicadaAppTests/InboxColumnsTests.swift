@@ -20,7 +20,7 @@ final class InboxColumnsTests: XCTestCase {
         XCTAssertEqual(InboxColumns.visible([a, b, try item("d", kind: "decay")], filter: .decay).map(\.id), ["d"])
     }
 
-    /// Ruling 71 — every question carries `orderIndex`: the server's order stands, whatever the priorities say, and
+    /// Ruling 70 — every question carries `orderIndex`: the server's order stands, whatever the priorities say, and
     /// a tab shows its kind in that same order.
     func testTheServedOrderStandsOverPriority() throws {
         let a = try item("a", priority: 0.9, index: 2), b = try item("b", priority: 0.1, index: 0),
@@ -146,7 +146,7 @@ final class InboxColumnsTests: XCTestCase {
         XCTAssertEqual(InboxRows.entries(visible: [a, c], held: nil, snapshot: [a, b, c], filter: nil).map(\.id), ["a", "c"])
     }
 
-    /// Ruling 71 — with a served order the Undo row sits at its question's place in the SNAPSHOT's order, not where
+    /// Ruling 70 — with a served order the Undo row sits at its question's place in the SNAPSHOT's order, not where
     /// priority would put it (the answered question here has the lowest priority and the first place).
     func testTheUndoRowFollowsTheServedOrder() throws {
         let a = try item("a", priority: 0.9, index: 1), b = try item("b", priority: 0.1, index: 0), c = try item("c", priority: 0.5, index: 2)

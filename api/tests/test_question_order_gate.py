@@ -1,4 +1,4 @@
-"""Ruling 71, requirement 2: no caller orders or picks a question by its stored ``priority``.
+"""Ruling 70, requirement 2: no caller orders or picks a question by its stored ``priority``.
 
 The stored ``priority`` stays on disk and on the wire for an older client, and ``question_order`` falls back to it for
 one item it cannot score. Everything else that sorts, picks or breaks a tie between questions uses the score
@@ -91,7 +91,7 @@ def test_no_caller_sorts_or_picks_a_question_by_its_raw_priority():
     stray = [(rel, line) for rel, line in scan() if not allowed(rel, line)]
     assert stray == [], (
         "a question must be ordered by `question_order` (the score) or the served `orderIndex`, never by its stored "
-        f"priority (ruling 71). If a site is not about questions, narrow the matcher; if it is a fallback, name it with a reason: {stray}")
+        f"priority (ruling 70). If a site is not about questions, narrow the matcher; if it is a fallback, name it with a reason: {stray}")
 
 
 def test_every_allowlisted_site_still_exists():

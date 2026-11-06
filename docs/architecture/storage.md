@@ -2554,7 +2554,7 @@ at least two of them, over the last 35 days machine-wide; with `samples`, and `u
 move, which caps it). A window with neither a reading nor a rate is left out; a model's own window is never estimated
 for a run that did not report it (`cycle_usage.plan_share`, `rate_samples`, `rates_of`).
 
-**Page-read counter (ruling 71, 2026-11-06; `api/services/page_reads.py`) — not the ledger.** A small per-memory count of
+**Page-read counter (ruling 70, 2026-11-06; `api/services/page_reads.py`) — not the ledger.** A small per-memory count of
 how often each page was *read*, used by one thing: the inbox order (`question_order`, `features.md`). Deliberately a
 separate store: the ledger's rail is "nothing learned from it is auto-applied", and an order learned from it would be
 exactly that. `$CICADA_HOME/page-reads/<bank id>.db` (0700 dir, 0600 file, sqlite WAL, 0.5 s timeout, like
@@ -2588,7 +2588,7 @@ last day, that day's weight)`: no query, no text, no timestamp beyond a day, no 
 **Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`,
 `refs` = item id, kind, predicate, entity id, action label, `verdict: agreed|overruled|neutral`,
 winner/loser claim ids, the extractor's confidence and model, and since vision item 10 the question's `asks` shape
-its page's `page_use` bucket and, since ruling 71, the question's `impact` bucket (`high|mid|low` of `question_order`'s
+its page's `page_use` bucket and, since ruling 70, the question's `impact` bucket (`high|mid|low` of `question_order`'s
 score, taken at admission before the resolver writes; so the reward can say whether the order asks what the person
 answers, and a human can check its constants) — ids and enums only, never claim text), Stage-3 reconcile emits one `audit` event per supersede/reject, and the dedup sweep emits one
 `dedup_verdict` per judged pair. `telemetry.FEEDBACK_KINDS` names the three (a superset,

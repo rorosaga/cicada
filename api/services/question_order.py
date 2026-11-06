@@ -1,4 +1,4 @@
-"""The order of the inbox: the expected change in what actually gets read (TODO ruling 71, 2026-11-06).
+"""The order of the inbox: the expected change in what actually gets read (TODO ruling 70, 2026-11-06).
 
 Rodrigo (2026-11-06): "the questions should have in order the impact they might have on current accesses knowledge,
 and things that might have big impact." One function, ``Tables.score``, orders all three places a person meets the

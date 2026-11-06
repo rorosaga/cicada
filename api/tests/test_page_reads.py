@@ -1,4 +1,4 @@
-"""Ruling 71 - the page-read counter (``page_reads``): what it counts, what it never counts, and that it is derived,
+"""Ruling 70 - the page-read counter (``page_reads``): what it counts, what it never counts, and that it is derived,
 disposable and never served. Synthetic banks, invented names; ``CICADA_TELEMETRY=on`` because the counter is a no-op
 with recording off (conftest forces it off)."""
 from __future__ import annotations

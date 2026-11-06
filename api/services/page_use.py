@@ -1,6 +1,6 @@
 """How much the person's life uses each page — a derived signal, one input of the inbox order (vision item 10, S1).
 
-**Since ruling 71 (2026-11-06) this is an input, not the order.** The inbox is ordered by the expected change in what
+**Since ruling 70 (2026-11-06) this is an input, not the order.** The inbox is ordered by the expected change in what
 gets read (``question_order``), whose ``exposure`` term combines this table (what was *said*) with the read counter
 (``page_reads``, what was *read*); an empty or absent counter leaves exactly this signal. ``rank`` and ``USE_WEIGHT``
 (priority + 0.5 x use) are gone; ``scores``, ``item_use`` and ``bucket`` stay (``still_questions``, the nickname

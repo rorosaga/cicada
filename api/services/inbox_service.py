@@ -695,7 +695,7 @@ def _build_inbox(memory_path: Path, *, today: str, include_deferred: bool) -> li
         ):
             continue
         items.append(item)
-    # Pending first, then the expected change in what gets read (`question_order`, ruling 71), then newest; a tie
+    # Pending first, then the expected change in what gets read (`question_order`, ruling 70), then newest; a tie
     # keeps the file order (ids ascend), as the stable sort does.
     items.sort(
         key=lambda i: (
@@ -1316,7 +1316,7 @@ def _emit_resolution(
                     # the reward can say whether the use-weighted order asks what the person answers.
                     "asks": _opt_str(fm.get("asks")),
                     "page_use": _use_bucket(settings, fm),
-                    # Ruling 71: the question_order bucket (high|mid|low) at admission, so a later human reading of
+                    # Ruling 70: the question_order bucket (high|mid|low) at admission, so a later human reading of
                     # `GET /consumption/feedback` can check the order's constants. Nothing is auto-applied.
                     "impact": impact,
                     # G141 PJ-6 (R-PJB24): ids and enums only — never the sentence.

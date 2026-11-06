@@ -242,7 +242,7 @@ def test_load_inbox_at_the_owners_scale_is_well_under_half_a_second(tmp_path):
 
 @pytest.mark.bench
 def test_the_read_order_at_8000_pages_costs_a_rebuild_nothing_it_can_feel(tmp_path, monkeypatch):
-    """Ruling 71: the order reads a raw claim count for each question's pages and a small counter - no parse. At 8,000
+    """Ruling 70: the order reads a raw claim count for each question's pages and a small counter - no parse. At 8,000
     pages with a counter of 2,000 rows a warm rebuild stays under the 4,700-page budget above (measured: the old and the
     new order within noise of each other, ~0.25 s)."""
     from datetime import date, timedelta

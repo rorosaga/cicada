@@ -209,7 +209,7 @@ final class InboxAllListBenchTests: XCTestCase {
         XCTAssertEqual(InboxColumns.ordered(items).map(\.id), items.sorted(by: InboxColumns.precedes).map(\.id))
     }
 
-    /// Ruling 71 — with `orderIndex` on every question the one sort is the server's order, whatever the shuffle.
+    /// Ruling 70 — with `orderIndex` on every question the one sort is the server's order, whatever the shuffle.
     func testTheOneSortFollowsTheServedOrder() throws {
         var items = Self.items(500)
         for i in items.indices { items[i].orderIndex = (i * 7) % 500 }   // 7 is coprime with 500: a permutation

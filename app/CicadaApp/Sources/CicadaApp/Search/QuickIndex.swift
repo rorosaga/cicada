@@ -189,7 +189,7 @@ extension QuickIndex {
         }
     }
 
-    /// A tie in the palette goes to the question the server asks first (`orderIndex`, ruling 71), for the whole list or
+    /// A tie in the palette goes to the question the server asks first (`orderIndex`, ruling 70), for the whole list or
     /// not at all; an older server that serves none keeps the stored priority, as it always did.
     static func inboxDocs(_ items: [InboxItem]) -> [Doc] {
         let served = items.allSatisfy { $0.orderIndex != nil }

@@ -839,7 +839,7 @@ KIND_ORDER = {"clarification": 0, PAIR: 1, "conflict": 2}
 
 def candidates(memory_path: Path, *, scope: str = "public", facts: BankFacts | None = None) -> list[Candidate]:
     """Pending questions of ``scope``: clarifications before conflicts (what a lookup can answer), and within a kind the
-    order the inbox serves (``question_order``, ruling 71: the expected change in what gets read), deferred ones left out.
+    order the inbox serves (``question_order``, ruling 70: the expected change in what gets read), deferred ones left out.
     ``web_lookup`` refines the conflicts' order by their local context."""
     from api.services import inbox_service
 

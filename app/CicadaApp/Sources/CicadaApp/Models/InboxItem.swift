@@ -476,7 +476,7 @@ struct InboxItem: Identifiable, Codable {
     var entityDisplayName: String? = nil
     var mergeTargetDisplayName: String? = nil
     var sameTitle: [String]? = nil
-    /// Ruling 71 — this question's place in the list the server served (0 first), derived there from the expected change
+    /// Ruling 70 — this question's place in the list the server served (0 first), derived there from the expected change
     /// in what gets read. It carries no magnitude and is never compared with `priority`; nil from an older server.
     var orderIndex: Int? = nil
 
