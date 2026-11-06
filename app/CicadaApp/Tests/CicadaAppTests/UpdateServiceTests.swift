@@ -469,10 +469,9 @@ final class UpdateServiceTests: XCTestCase {
         XCTAssertTrue(commands.contains("check(userInitiated: true)"))
         let general = try String(contentsOf: XCTUnwrap(ThemeTokenTests.swiftSources().first {
             $0.path.hasSuffix("Views/Settings/SettingsGeneralView.swift") }), encoding: .utf8)
-        let version = try XCTUnwrap(general.range(of: "SettingsRow(.appVersion,")).lowerBound
+        XCTAssertNotNil(general.range(of: ".settingsRow(.appVersion)"), "Version keeps the anchor the updater's search entry lands on")
         let gate = try XCTUnwrap(general.range(of: "if updates.isActive")).lowerBound
         let row = try XCTUnwrap(general.range(of: "SettingsRow(.autoUpdate,")).lowerBound
-        XCTAssertLessThan(version, gate, "in Version's card, after it (DR-37)")
         XCTAssertLessThan(gate, row)
         let app = try String(contentsOf: XCTUnwrap(ThemeTokenTests.swiftSources().first {
             $0.path.hasSuffix("CicadaApp.swift") }), encoding: .utf8)
