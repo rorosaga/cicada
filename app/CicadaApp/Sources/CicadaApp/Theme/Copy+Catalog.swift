@@ -98,6 +98,8 @@ extension Copy {
             switch site {
             case "x": "Read my Bookmarks in my browser"
             case "linkedin": "Read my Saved posts in my browser"
+            case "goodreads": "Read my shelves in my browser"
+            case "spotify": "Read my Library in my browser"
             default: "Read my Saved in my browser"
             }
         }

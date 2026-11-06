@@ -448,7 +448,7 @@ struct SourceCatalogDetail: View {
         case RemindersReader.channel: RemindersSlot(slot: .connect)
         case AppleBooksReader.channel: AppleBooksSlot(slot: .connect, channel: mine.first)
         case VoiceMemosReader.channel: VoiceMemosSlot(slot: .connect)
-        case "goodreads": GoodreadsSlot()
+        case "goodreads": GoodreadsSlot(browserWay: savedListWay("goodreads"))
         case "book-scan": BookAddSlot()
         case MessagesWatcher.channel: ChatPickerSlot(slot: .connect, kind: .messages)
         case WhatsAppWatcher.channel: ChatPickerSlot(slot: .connect, kind: .whatsApp)
@@ -562,17 +562,21 @@ struct SourceCatalogDetail: View {
         if let site = row.entry.site, row.entry.savedListKey == nil || reading.readableSites.contains(site) {
             ways.append(.browser(on: reading.readableSites.contains(site)) { flip(site, on: $0) })
         }
-        if let key = row.entry.savedListKey {
-            ways.append(SourceWayIn(id: "saved", icon: .symbol("globe"), title: Copy.SourceLayout.readInBrowser,
-                                    control: .toggle(reading.savedListsOn.contains(key)) { flipSavedList(key, on: $0) },
-                                    help: Copy.Catalog.readSavedList(key)))
-        }
+        if let key = row.entry.savedListKey, let way = savedListWay(key) { ways.append(way) }
         if let tile = row.entry.tile, row.entry.verb == .importFile || row.entry.site != nil {
             ways.append(.importFile(origin: row.entry.origin, help: SourceCatalog.exportHow(row.entry.id)) {
                 flowTile = tile
             })
         }
         return ways
+    }
+
+    /// The one *Read through your browser* switch of a saved list (ROR-114), also the first way in on Goodreads' page.
+    private func savedListWay(_ key: String) -> SourceWayIn? {
+        guard row.entry.savedListKey == key else { return nil }
+        return SourceWayIn(id: "saved", icon: .symbol("globe"), title: Copy.SourceLayout.readInBrowser,
+                           control: .toggle(reading.savedListsOn.contains(key)) { flipSavedList(key, on: $0) },
+                           help: Copy.Catalog.readSavedList(key))
     }
 
     /// YouTube's ways in: the history Chrome keeps on this Mac, the two lists the person's agent keeps current, and
