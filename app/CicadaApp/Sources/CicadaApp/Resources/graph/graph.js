@@ -2260,6 +2260,15 @@ function drawAmbientLabels() {
     ctx.shadowBlur = 3 / k;
     ctx.fillStyle = PALETTE.label;
     const placed = [];
+    // A name is never printed over another page's dot (the dots on screen, in screen px): the label would read as that
+    // page's. It waits for a zoom where the two have moved apart.
+    const dots = [];
+    for (const m of visibleNodes) {
+        if (m.x == null || nodeIsFacet(m)) continue;
+        const dx = m.x * k + transform.x, dy = m.y * k + transform.y;
+        if (dx < -100 || dx > width + 100 || dy < -20 || dy > height + 20) continue;
+        dots.push([m, dx, dy, nodeRadius(m) * k]);
+    }
     let drawn = 0;
     for (const [r, n] of candidates) {
         if (drawn >= LABEL_BUDGET) break;
@@ -2267,7 +2276,8 @@ function drawAmbientLabels() {
         const sx = n.x * k + transform.x;
         const sy = (n.y + r) * k + transform.y + 3;
         const rect = { x: sx - w / 2 - 2, y: sy - 1, w: w + 4, h: 15 };
-        let collides = false;
+        let collides = dots.some(([m, dx, dy, dr]) => m !== n &&
+            dx + dr > rect.x && dx - dr < rect.x + rect.w && dy + dr > rect.y && dy - dr < rect.y + rect.h);
         for (const p of placed) {
             if (rect.x < p.x + p.w && rect.x + rect.w > p.x && rect.y < p.y + p.h && rect.y + rect.h > p.y) { collides = true; break; }
         }
