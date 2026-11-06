@@ -35,13 +35,11 @@ struct OnboardingRoom: View {
         Group {
             if let fill {
                 ZStack(alignment: .bottomLeading) {
-                    // The wall above the room is the room's own top row, drawn tall: whole cells, never resampled
-                    // into a different picture (its top rows hold no prop, so only wall and trim repeat).
-                    DeskSceneView(lampLit: false, scenery: scenery, pixelScale: cell)
-                        .frame(width: size.width, height: cell, alignment: .top)
-                        .clipped()
-                        .scaleEffect(x: 1, y: max(1, (fill.height - size.height) / cell + 2), anchor: .bottom)
-                        .offset(y: cell - size.height)
+                    // The wall above the room is the room's own top nine rows, repeated upward (ROR-118 round 5; round 4
+                    // stretched row one, a blank wall): the backdrop's wallpaper repeats every nine rows, so whole bands
+                    // of it carry its dashes and light up the wall, whole cells, never resampled. The backdrop alone,
+                    // so no prop's top edge repeats with it.
+                    wallBands(scenery: scenery, height: fill.height - size.height, roomHeight: size.height)
                     art
                 }
                 .offset(x: -CGFloat(OnboardingRoomLayout.cropStartCol) * cell)
@@ -52,6 +50,30 @@ struct OnboardingRoom: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+extension OnboardingRoom {
+    /// The wall's repeat, in lattice rows: the backdrop's dashes sit every nine rows from the top.
+    static let wallPeriodRows = 9
+
+    /// Bands of the backdrop's top `wallPeriodRows` rows, stacked so their bottom edge meets the room's top edge and
+    /// they cover `height`, bottom-leading like the room.
+    @ViewBuilder
+    func wallBands(scenery: Scenery, height: CGFloat, roomHeight: CGFloat) -> some View {
+        let band = CGFloat(Self.wallPeriodRows) * cell
+        let count = max(1, Int((max(0, height) / band).rounded(.up)) + 1)
+        let art = RoomArt.tag(.backdrop, lampLit: false, scenery: scenery)
+        let sheet = art.flatMap { SpriteSheets.sheet(named: $0.sheet) }
+        VStack(spacing: 0) {
+            ForEach(0..<count, id: \.self) { _ in
+                SpriteLayerView(clip: art.flatMap { sheet?.clip($0.tag) }, sheet: sheet, pixelScale: cell,
+                                canvasSize: CGSize(width: DeskScene.cols, height: DeskScene.rows))
+                    .frame(width: CGFloat(DeskScene.cols) * cell, height: band, alignment: .top)
+                    .clipped()
+            }
+        }
+        .offset(y: -roomHeight)
     }
 }
 

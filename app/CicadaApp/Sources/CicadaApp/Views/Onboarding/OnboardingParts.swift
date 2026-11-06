@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A working page's headline (DR-17's fourth call site: onboarding headlines) and its one line. ROR-118: 40 pt over an
-/// 18 pt line (round 3; 36 over 17 in round 2) in the secondary ink, up from 28 over 14, so the step's name is the first thing read and the line a clear
+/// 19 pt medium line (round 5; 18 regular in round 4, 36 over 17 in round 2) in the secondary ink, up from 28 over 14, so the step's name is the first thing read and the line a clear
 /// second (hierarchy, DR-15's display role kept).
 struct OnboardingHeadline: View {
     let title: String
@@ -15,7 +15,7 @@ struct OnboardingHeadline: View {
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
             Text(subline)
-                .font(CicadaTheme.font(size: 18))
+                .font(CicadaTheme.font(size: 19, weight: .medium))
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -43,7 +43,7 @@ struct OnboardingChoice<Content: View>: View {
                 .accessibilityHidden(true))
         let row = content(indicator)
             .padding(.vertical, CicadaTheme.spacingSM)
-            .frame(minHeight: CicadaTheme.scaled(104))
+            .frame(minHeight: CicadaTheme.scaled(128))
             .background(shape.fill(selected ? CicadaTheme.bgSelected : CicadaTheme.bgFocus))
             .overlay(shape.strokeBorder(selected ? CicadaTheme.textPrimary : CicadaTheme.ring(.strong),
                                         lineWidth: selected ? 2 : 1))
@@ -111,9 +111,10 @@ extension OnboardingRowLine where Below == EmptyView {
     }
 }
 
-/// The one action on a working step's row (ROR-118 round 2): words and a chevron, no box, so four of them never compete
-/// with the step's one filled Continue; the row's own hover fill says it is live. The key, a plan and every other
-/// verb that opens a row use it.
+/// The one action on a working step's row (ROR-118 round 5): a small outlined button, the neutral material (`bgButton`
+/// and the strong ring, DR-40), so it reads as something to press (round 2's bare words did not) and yet stays under
+/// the step's one filled, larger Continue (round 1's four boxed buttons competed with it). The state is the button
+/// itself: a row with nothing to say is not connected, so it says nothing (no repeated "Not connected").
 struct OnboardingRowAction: View {
     let title: String
     let action: () -> Void
@@ -121,15 +122,14 @@ struct OnboardingRowAction: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let shape = CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
         Button(action: action) {
-            HStack(spacing: CicadaTheme.scaled(4)) {
-                Text(title).font(CicadaTheme.font(size: 16, weight: .medium))
-                Image(systemName: "chevron.right").font(CicadaTheme.font(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(CicadaTheme.textPrimary)
-            .padding(.horizontal, CicadaTheme.spacingSM)
-            .frame(height: CicadaTheme.scaled(32))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgSelected : .clear))
+            Text(title).font(CicadaTheme.font(size: 15, weight: .medium))
+                .foregroundStyle(CicadaTheme.textPrimary)
+                .padding(.horizontal, CicadaTheme.scaled(14))
+                .frame(height: CicadaTheme.scaled(34))
+                .background(shape.fill(hovering ? CicadaTheme.bgButtonHover : CicadaTheme.bgButton))
+                .overlay(shape.strokeBorder(CicadaTheme.ring(.strong), lineWidth: 1))
         }
         .buttonStyle(.cicadaPlain)
         .onHover { hovering = $0 }

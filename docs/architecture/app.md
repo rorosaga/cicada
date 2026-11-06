@@ -673,16 +673,16 @@ Back, a visible **Skip** and the one primary Continue (⏎ never animates).
 **UI climb rounds 1-3 (ROR-118; round 3 amends what follows where it says so):** the pane is a close view of the room that fills it floor to wall, edge to edge
 (`OnboardingRoom(fill:)`: round 4: columns 0-111 of the lattice at 5 pt a cell, 560 pt at 1x (39% of a 1440 pt window), so the lamp, window, plant, worm, clock and mug are all whole — `OnboardingRoomLayout.paneCell`,
 a whole number of cells, stepping down before the column drops under its minimum, gone when it would be a sliver; the
-wall above the room is the room's own top row drawn tall, never resampled; a hairline ring is its seam). The column is
+wall above the room is the backdrop's own top nine rows repeated upward (round 5: `OnboardingRoom.wallBands`, whole cells, so its dashes continue; round 4 stretched one row, a blank wall), never resampled; a hairline ring is its seam). The column is
 fixed: the headline starts `OnboardingLayout.stepTop` under the topbar on every step and the foot (Back, Skip, Continue)
 sits on the bottom margin on every step (round 4: one 88 pt band under a hairline holding *Back* leading and *Skip this step* and the one large Continue trailing, `OnboardingLink`: what moves between steps; *Set up later* (*Close* on a rerun) leaves the whole flow, so it is `OnboardingLeaveLink` with a close mark in the window's top corner, level with the progress, on Welcome and every working step; the ⏎ chip is gone, the key still advances), so nothing moves between steps; a tall step scrolls between them and the foot
 stays pinned (`OnboardingView.column`). Rows of the working steps are `OnboardingRowLine` (round 3: 17 medium over a 15 line, in the roomy 48 pt `LogoTile`; was 16 over 14 in the
-secondary ink, a line that only repeats the name is left out), the one action on a row `OnboardingRowAction` (words and
-a chevron, no box, so none competes with the filled Continue); the engine choice is two 104 pt rows (the open circle in `textSecondary`), the chosen one a 2 pt
+secondary ink, a line that only repeats the name is left out), the one action on a row `OnboardingRowAction` (round 5: a small outlined button, `bgButton` and the strong ring, 34 pt, so it reads as pressable and still sits under the large filled Continue; was words and
+a chevron, no box); the engine choice is two 128 pt rows (the open circle in `textSecondary`), the chosen one a 2 pt
 ring over `bgSelected` with a filled check, the key row's glyph at full strength. Welcome is wider (round 3: 960 pt over a 6 pt-a-cell room, was 800 over 5)
 (`OnboardingRoomLayout.heroCell`), the room framed in a ring and the card's radius so its own trim reads as a picture's
-edge; its greeting is 56 pt, its line 24, *Not Maya? Change* an outlined button with a pencil centred on the greeting (`OnboardingOutlinedButton`), and one action line: a large Continue and *Try the demo* outlined. Headlines are 40 pt over an 18 pt line; the topbar's segments are 18 × 4, a
-reached step in `textSecondary`, the count in 14 pt `textSecondary`. A vendor mark published as a finished icon (`LogoSet.fullBleed`: OpenCode, Hermes) fills its tile edge to edge. What each step shows is pure data in
+edge; its greeting is 56 pt, its line 24, *Not Maya? Change* an outlined button with a pencil centred on the greeting (`OnboardingOutlinedButton`), and one action line: a large Continue and *Try the demo* outlined. Headlines are 40 pt over a 19 pt medium line; the topbar's segments are 22 × 5 (round 5), a
+reached step in `textSecondary`, one still to come in `textTertiary`, the count in 15 pt `textSecondary`. Every mark in a roomy tile takes the one 36 pt box in the 48 pt tile (round 5), a vendor icon published finished (`LogoSet.fullBleed`: OpenCode, Hermes) keeping its own curvature inside it; elsewhere (regular, dense) it still fills its tile edge to edge. What each step shows is pure data in
 `Support/OnboardingSteps.swift` (`OnboardingStepsTests`), each step's fixed words under 40.
 *Welcome*: the greeting (saved name, else the Mac account's, *Not you?* corrects it), one sentence, Continue — the owner
 PUT alone and first (G117 R1; a file dropped here waits for it) — *Try the demo*; *Set up later* is the top-corner exit.

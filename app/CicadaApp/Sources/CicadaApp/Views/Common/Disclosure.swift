@@ -43,6 +43,8 @@ struct DisclosureHeader: View {
     var spokenTitle: String? = nil
     /// A mark between the chevron and the title — the Inbox's kind glyph, said once for its group (inbox v2).
     var leading: AnyView? = nil
+    /// The title's face when the page it sits on reads larger than a list does (onboarding's *Other agents*).
+    var font: Font? = nil
     let toggle: () -> Void
 
     @State private var hovering = false
@@ -68,7 +70,7 @@ struct DisclosureHeader: View {
                 }
                 if fillsWidth { Spacer(minLength: 0) }
             }
-            .font(CicadaTheme.metaMediumFont)
+            .font(font ?? CicadaTheme.metaMediumFont)
             .frame(height: CicadaTheme.scaled(Self.height))
             .contentShape(Rectangle())
         }

@@ -64,6 +64,14 @@ final class OnboardingPagesTests: XCTestCase {
         }
     }
 
+    /// ROR-118 round 5: onboarding's rows hold one tile and one mark box for every vendor (a finished icon is no longer
+    /// full-bleed there), and the wall above the room repeats the backdrop's own nine-row wallpaper period.
+    func testOnboardingRowsShareOneMarkBoxAndTheWallRepeatsItsPeriod() {
+        XCTAssertEqual(LogoTile.tileSide(.roomy), CicadaTheme.scaled(48))
+        XCTAssertEqual(LogoTile.markSide(.roomy), CicadaTheme.scaled(36))
+        XCTAssertEqual(OnboardingRoom.wallPeriodRows, 9, "the backdrop's dashes sit every nine rows from its top")
+    }
+
     /// Paint is retired from onboarding: the frame draws the room, never a painting (owner 2026-10-16).
     func testOnboardingDrawsTheRoomNotAPainting() throws {
         let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first {

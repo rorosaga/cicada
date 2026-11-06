@@ -587,15 +587,16 @@ private struct OnboardingTopbar: View {
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            HStack(spacing: CicadaTheme.scaled(4)) {
+            HStack(spacing: CicadaTheme.scaled(5)) {
                 ForEach(OnboardingPage.allCases, id: \.self) { p in
                     Button { onJump(p) } label: {
-                        // ROR-118 round 4: 18 × 4 pt, a short quiet bar (it was 36 × 6, 323 pt long); every step reached reads
-                        // in the secondary ink (the text ladder, §3.2), the steps still to come keep a ring-strength track.
+                        // ROR-118 round 5: 22 × 5 pt (round 4: 18 × 4, round 3: 36 × 6); every step reached reads in the secondary
+                        // ink and the steps still to come in the tertiary one (the text ladder, §3.2), no longer a ring-strength
+                        // track that all but vanished.
                         Capsule()
                             .fill(p == page ? CicadaTheme.textPrimary
-                                  : (p <= furthest ? CicadaTheme.textSecondary : CicadaTheme.ring(.input)))
-                            .frame(width: CicadaTheme.scaled(18), height: CicadaTheme.scaled(4))
+                                  : (p <= furthest ? CicadaTheme.textSecondary : CicadaTheme.textTertiary))
+                            .frame(width: CicadaTheme.scaled(22), height: CicadaTheme.scaled(5))
                             .frame(height: CicadaTheme.scaled(20))
                             .contentShape(Rectangle())
                     }
@@ -604,7 +605,7 @@ private struct OnboardingTopbar: View {
                     .accessibilityLabel(Copy.onboardingStepOf(p.step))
                 }
             }
-            Text(Copy.onboardingStepOf(page.step)).font(CicadaTheme.font(size: 14, weight: .medium))
+            Text(Copy.onboardingStepOf(page.step)).font(CicadaTheme.font(size: 15, weight: .medium))
                 .foregroundStyle(CicadaTheme.textSecondary)
             if comingIn > 0 {
                 // DR-43 (round 3, 2026-10-20): what is still arriving is said in words alone, never a spinner beside them.

@@ -67,13 +67,14 @@ struct AgentsStep: View {
             // and only until something is connected (ROR-118: it sat between the headline and the rows as a third layer).
             if !anyConnected {
                 Text(Copy.agentsNeedsPlan)
-                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .font(CicadaTheme.font(size: 15)).foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             // "Then try it" follows a connection: before one there is nothing for the words to be said to.
             if anyConnected || live.firstCall != nil { tryIt }
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                DisclosureHeader(title: Copy.agentsOther, isOpen: otherOpen) {
+                DisclosureHeader(title: Copy.agentsOther, isOpen: otherOpen,
+                                 font: CicadaTheme.font(size: 15, weight: .medium)) {
                     otherOpen.toggle()
                 }
                 if otherOpen {
