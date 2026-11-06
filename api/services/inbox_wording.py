@@ -201,7 +201,7 @@ def present_options(fm: dict, today: str, *, claims=None, page_name=None, untime
             if named:
                 o["label"] = str(named)
         out.append(o)
-    # "both" keeps every claim the question holds, so with three or more answers it says so. The key stays.
+    # With three or more answers "both" can't be the word. The key stays, and so does what answering it does.
     if sum(str(o.get("key")) not in _SYNTHETIC for o in out) >= 3:
         for o in out:
             if str(o.get("key")) == "both":

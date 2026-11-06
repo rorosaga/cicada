@@ -381,7 +381,10 @@ safe verb frame, from the bank's own name, never on another person's page), a ba
 noun, "You mentioned X" became "X came up" where Cicada cannot know who said it, a decay question's answers are "Yes,
 keep it" / "No, archive it" (keys `keep` / `archive` unchanged, served and never stored), and the one page edit Cicada
 proposes itself, dropping an alias another thing owns (`wrong_aliases`), is asked "Should “X” stop being another name
-for Y?" with its why as the reason; every other page edit serves its stored question and no reason. The Inbox draws
+for Y?" with its why as the reason and "Yes, stop using that name" / "No, keep the name" as its answers (keys `apply` /
+`dismiss` unchanged); every other page edit serves its stored question and no reason. A generic conflict question names
+its answers only when there are exactly two and neither is clipped; with three or more, `both` reads "All of these are
+true" (key and what answering it does unchanged). A decay answer shows no confidence number. The Inbox draws
 `askText`/`askReason` everywhere it shows the question. Forward writers: `inbox_questions.refresh_open_questions` bumps
 an option by when its claim was last said (a late read does not bump; a later re-saying does), `claim_reconciler`
 writes `Last mentioned <day>` plus `source_episode`, and the contradiction prompts ask for a question to "you" and a
