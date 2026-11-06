@@ -14,9 +14,7 @@ final class SourceCatalogTests: XCTestCase {
 
     func testSectionsComeInTheirFixedOrderAndAnEmptyOneIsNotDrawn() {
         let sections = SourceGrid.sections(rows()).map(\.section)
-        XCTAssertEqual(sections, [.category(.messaging), .category(.calendars), .category(.social), .category(.media),
-                                  .category(.reading), .category(.notes), .category(.meetings), .category(.files),
-                                  .category(.agents)])
+        XCTAssertEqual(sections, SourceShelf.allCases.map(SourceGridSection.shelf), "six kinds, never vendors")
     }
 
     /// G95 (2026-11-03) — Meeting recorders: Hex once it is here (or has a folder), Wispr Flow moved in from This Mac, a

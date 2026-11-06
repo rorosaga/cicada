@@ -45,12 +45,13 @@ final class SourceGridTests: XCTestCase {
         let all = rows(channels: [channel("reddit"), channel("github", error: "401 token expired")],
                        waitingOn: ["calendar-local": Copy.sourceNeedsAccess], suggested: [WhatsAppWatcher.channel])
         let sections = SourceGrid.sections(all).map(\.section)
-        XCTAssertEqual(Array(sections.prefix(3)), [.needsYou, .connected, .suggested])
+        XCTAssertEqual(sections.first, .needsYou)
+        XCTAssertEqual(Array(sections.dropFirst()), SourceShelf.allCases.map(SourceGridSection.shelf))
         XCTAssertEqual(section("github", in: all), .needsYou, "a lapsed sign-in")
         XCTAssertEqual(section("calendar-local", in: all), .needsYou, "a permission taken away")
-        XCTAssertEqual(section("reddit", in: all), .connected)
-        XCTAssertEqual(section(WhatsAppWatcher.channel, in: all), .suggested)
-        XCTAssertEqual(section("instagram", in: all), .category(.social), "the rest by what it is")
+        XCTAssertEqual(section("reddit", in: all), .shelf(.saved), "by what it is, never by who makes it")
+        XCTAssertEqual(section(WhatsAppWatcher.channel, in: all), .shelf(.conversations))
+        XCTAssertEqual(section("instagram", in: all), .shelf(.saved))
     }
 
     func testAListWaitingForAnAgentIsWaitingOnThePersonAndNotCounted() {
@@ -64,22 +65,21 @@ final class SourceGridTests: XCTestCase {
     func testTheConnectedSectionHoldsExactlyWhatTheEyebrowCounts() {
         let all = rows(channels: [channel(WatchHistoryWatcher.channel), channel("reddit")],
                        localReaders: [WatchHistoryWatcher.channel: true])
-        let connected = SourceGrid.sections(all).first { $0.section == .connected }?.rows.map(\.id) ?? []
+        let connected = SourceShelves.yours(all).map(\.id)
         XCTAssertEqual(connected.count, SourceCatalog.connectedCount(all))
         XCTAssertTrue(connected.contains(SourceCatalog.browserPrefix + "chrome"), "the reader's own page")
         XCTAssertFalse(connected.contains("youtube"), "it only borrows Chrome's reader")
-        XCTAssertEqual(section("youtube", in: all), .category(.media))
+        XCTAssertEqual(section("youtube", in: all), .shelf(.media))
         XCTAssertEqual(all.first { $0.id == "youtube" }?.status, .connected, "and keeps its green dot there")
         let line = SourceGrid.line(all.first { $0.id == "youtube" }!, now: Date())
         XCTAssertEqual(line?.tone, .on)
     }
 
-    /// A heading already says it: the word returns only in search results, where no heading stands above the tile.
-    func testAConnectedTileNeverRepeatsItsHeading() throws {
+    /// ROR-118: a kind's heading no longer says Connected, so a connected card says when it read, or says Connected.
+    func testAConnectedCardSaysItIsConnectedWhenItHasNotReadYet() throws {
         let all = rows(channels: [channel("reddit")])
         let row = try XCTUnwrap(all.first { $0.id == "reddit" })
-        XCTAssertEqual(row.section, .connected)
-        XCTAssertNil(SourceGrid.line(row, now: Date(), headed: true))
+        XCTAssertEqual(row.section, .shelf(.saved))
         XCTAssertEqual(SourceGrid.line(row, now: Date())?.word, row.status.word)
     }
 
@@ -137,7 +137,7 @@ final class SourceGridTests: XCTestCase {
         let id = WhatsAppWatcher.channel
         let all = rows(waitingOn: [id: Copy.sourceNeedsAccess], suggested: [id], notInstalled: [id])
         let row = all.first { $0.id == id }!
-        XCTAssertEqual(row.section, .category(.messaging), "not waiting, and not suggested either")
+        XCTAssertEqual(row.section, .shelf(.conversations), "not waiting, and not suggested either")
         XCTAssertEqual(SourceGrid.line(row, now: Date())?.word, Copy.SourcePage.notInstalledRow)
     }
 
@@ -188,7 +188,7 @@ final class SourceGridTests: XCTestCase {
         XCTAssertEqual(Set(found("messaging")), Set(["imessage", WhatsAppWatcher.channel, TelegramChats.channel]))
         XCTAssertEqual(Set(found("messaging", in: rows(channels: [channel("telegram")]))),
                        Set(["imessage", WhatsAppWatcher.channel, "telegram", TelegramChats.channel]))
-        XCTAssertEqual(found("connected", in: rows(channels: [channel("reddit")])), ["reddit"])
+        XCTAssertTrue(found("conversations").contains("imessage"), "a kind is found by its own word")
     }
 
     func testSearchNeverLeavesTheApp() throws {
@@ -257,7 +257,8 @@ final class SourceGridTests: XCTestCase {
 
     func testAConnectedSourceIsNeverSuggested() {
         let all = rows(channels: [channel("reddit")], suggested: ["reddit"])
-        XCTAssertEqual(section("reddit", in: all), .connected)
+        XCTAssertEqual(section("reddit", in: all), .shelf(.saved))
+        XCTAssertTrue(all.first { $0.id == "reddit" }!.isConnectedHere)
     }
 
     // MARK: The hand-offs reach every source, whatever was typed

@@ -111,13 +111,7 @@ struct SourceShelfSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            HStack(spacing: CicadaTheme.scaled(6)) {
-                SectionLabel(shelf.shelf.title)
-                if !shelf.connected.isEmpty {
-                    Text(Copy.Shelf.count(shelf.connected.count))
-                        .font(CicadaTheme.labelFont).foregroundStyle(CicadaTheme.textTertiary).monospacedDigit()
-                }
-            }
+            SectionLabel(shelf.shelf.title, count: shelf.connected.isEmpty ? nil : shelf.connected.count)
             ForEach(shelf.connected) { row in
                 SourceShelfCard(row: row, shelf: shelf.shelf, now: now) { open(.entry(row.id)) }
                     .id(SourcesSelection.entry(row.id))

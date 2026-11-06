@@ -81,11 +81,7 @@ struct SourceAddOverlay: View {
 
     private var yoursStrip: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            HStack(spacing: CicadaTheme.scaled(6)) {
-                SectionLabel(Copy.Shelf.yours)
-                Text(Copy.Shelf.count(yours.count)).font(CicadaTheme.labelFont).foregroundStyle(CicadaTheme.textTertiary)
-                    .monospacedDigit()
-            }
+            SectionLabel(Copy.Shelf.yours, count: yours.count)
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                     ForEach(yours) { row in YoursTile(row: row) { open(row) } }

@@ -73,8 +73,10 @@ final class SourcesListTests: XCTestCase {
         // DR-75 (2026-10-20, round 2) — the labelled add button every page shares. G217 (ruling 36 D6): the page is the
         // one catalogue, so it presents no second catalogue. CIC8 (2026-10-29): its add opens the one intake, named for
         // what people bring (a chat export first), not Files and links' bookmarks line.
-        XCTAssertTrue(page.contains("PageAddButton(title: Copy.Catalog.importChatsOrFiles"))
-        XCTAssertTrue(page.contains("intake.present(from: .emptyState(.sources))"))
+        // ROR-118: the add is one overlay (a Yours strip, then every other source by kind); the import's walkthrough
+        // is the Chat exports and Files and links entries in it, and the palette's ⇧⌘I still opens the one intake.
+        XCTAssertTrue(page.contains("PageAddButton(title: Copy.Shelf.addSource"))
+        XCTAssertTrue(page.contains("SourceAddOverlay("))
         XCTAssertEqual(page.components(separatedBy: "AddSourceSheet(").count - 1, 0)
     }
 }
