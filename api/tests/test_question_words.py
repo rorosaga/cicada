@@ -213,6 +213,35 @@ def test_a_third_answer_with_no_date_stops_the_same_conversation_and_same_day_re
     assert "same conversation" not in said.reason and "same day" not in said.reason
 
 
+def test_a_question_names_the_answers_only_when_it_can_name_them_all_whole():
+    three = conflict([side("a", "6"), side("b", "10"), side("c", "12"), BOTH], predicate="value-of-team-size",
+                     question="Which is true about Alpha Project (value-of-team-size)?")
+    assert inbox_wording.spoken(three, TODAY).question == "Which is right for Alpha Project's team size?"
+    long = "waiting on a very long sentence that a value should never have been in the first place, really"
+    claims = [claim("clm_a", long, episodes=["ep_2026-03-02_001"]), claim("clm_b", "10", episodes=["ep_2026-09-10_001"])]
+    clipped = conflict([side("a", long, claim_id="clm_a"), side("b", "10", claim_id="clm_b"), BOTH],
+                       predicate="value-of-team-size", question="Which is true about Alpha Project (value-of-team-size)?")
+    said = inbox_wording.spoken(clipped, TODAY, claims=claims)
+    assert said.question == "Which is right for Alpha Project's team size?"
+    assert said.reason == "I have 2 different answers, the latest about 8 weeks ago, and I can't tell which is current."
+
+
+def test_keeping_all_is_said_as_all_when_there_are_three_answers():
+    both = {**BOTH, "description": "Keep both claims, each tagged with its context"}
+    three = conflict([side("a", "6"), side("b", "10"), side("c", "12"), both])
+    shown = inbox_wording.present_options(three, TODAY)[-1]
+    assert (shown["key"], shown["label"]) == ("both", "All of these are true (different contexts)")
+    assert inbox_wording.present_options(conflict([side("a", "6"), side("b", "10"), both]), TODAY)[-1]["label"] == BOTH["label"]
+    assert three["options"][-1]["label"] == BOTH["label"]
+
+
+def test_a_decay_answer_never_shows_a_confidence_number():
+    built = inbox_questions.decay_question("Alpha", "2026-09-10", TODAY)
+    words = " ".join(o["description"] for o in built["options"])
+    assert "confidence" not in words and "0.6" not in words
+    assert [o["key"] for o in built["options"]] == ["keep", "archive"]
+
+
 def test_a_count_of_things_is_true_of_the_answers_offered():
     two = conflict([side("a", "x"), side("b", "y"), BOTH])
     assert inbox_wording.spoken(two, TODAY).reason.startswith("Two things I have")
@@ -421,7 +450,11 @@ def _alias_edit(**over):
 def test_a_wrong_alias_proposal_is_asked_as_a_question_with_its_why():
     said = inbox_wording.spoken(_alias_edit(), TODAY, page_fm={"type": "tool", "name": "Python"})
     assert said.question == "Should “Flask” stop being another name for Python?"
-    assert said.reason == "it is a web framework."
+    assert said.reason == "I think so because: it is a web framework."
+    shown = inbox_wording.present_options({**_alias_edit(), "options": [
+        {"key": "apply", "label": "Apply the change"}, {"key": "dismiss", "label": "Leave the page as it is"}]}, TODAY)
+    assert [(o["key"], o["label"]) for o in shown] == [("apply", "Yes, stop using that name"),
+                                                       ("dismiss", "No, keep the name")]
 
 
 @pytest.mark.parametrize("over", [
@@ -448,7 +481,8 @@ def test_a_page_edit_is_served_with_the_alias_words_and_the_stored_question_othe
     bank_index.invalidate()
     items = {i.id: i for i in inbox_service.load_inbox(memory, include_deferred=True)}
     assert items["inbox-001"].spoken_question == "Should “Flask” stop being another name for Python?"
-    assert items["inbox-001"].spoken_reason == "it is a web framework."
+    assert items["inbox-001"].spoken_reason == "I think so because: it is a web framework."
+    assert [o.label for o in items["inbox-001"].options] == ["Yes, stop using that name", "No, keep the name"]
     assert items["inbox-002"].spoken_question is None and items["inbox-002"].spoken_reason is None
     assert items["inbox-002"].question == "An agent suggests a change to Python: x"
 

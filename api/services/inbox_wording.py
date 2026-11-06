@@ -160,7 +160,10 @@ def present_options(fm: dict, today: str, *, claims=None, page_name=None, untime
     Keys, claim ids and the stored file are never changed. A copy remembers its conversations (``_said_in``) for the
     reason, and that it was presented (``_presented``): presenting twice is presenting once."""
     options = inbox_questions.normalize_options(fm.get("options"))
-    if str(fm.get("kind") or "") != "conflict":
+    kind = str(fm.get("kind") or "")
+    if kind == "page_edit" and _wrong_alias(fm):
+        return [{**o, "label": _ALIAS_ANSWERS.get(str(o.get("key")), o.get("label"))} for o in options]
+    if kind != "conflict":
         return [dict(o) for o in options]
     predicate = str(fm.get("predicate") or "") or "description"
     prose = predicate == "description"
@@ -198,6 +201,12 @@ def present_options(fm: dict, today: str, *, claims=None, page_name=None, untime
             if named:
                 o["label"] = str(named)
         out.append(o)
+    # "both" keeps every claim the question holds, so with three or more answers it says so. The key stays.
+    if sum(str(o.get("key")) not in _SYNTHETIC for o in out) >= 3:
+        for o in out:
+            if str(o.get("key")) == "both":
+                o["label"] = "All of these are true (different contexts)"
+                o["description"] = "Keep them all, each tagged with its context"
     return out
 
 
@@ -629,6 +638,9 @@ def _conflict(fm: dict, today: str, name: str, *, own: bool, page_type: str = ""
     stored = str(fm.get("question") or fm.get("title") or "")
     options = [o for o in inbox_questions.normalize_options(fm.get("options")) if str(o.get("key")) not in _SYNTHETIC]
     labels = [_clip(o.get("label"), MAX_LABEL) for o in options]
+    clipped = any(label.endswith("…") for label in labels)
+    # The question names the answers only when it can name all of them, whole; the choices say the rest.
+    answers = f": {labels[0]} or {labels[1]}" if len(labels) == 2 and not clipped else ""
     days = [(o.get("last_referenced") or o.get("observed_at")) for o in options]
     sides = [f"{label} ({_ago(day, today)})" if _ago(day, today) else label for label, day in zip(labels, days)]
     noun = _slug_noun(predicate) if predicate.startswith("value-of-") else ""
@@ -637,9 +649,9 @@ def _conflict(fm: dict, today: str, name: str, *, own: bool, page_type: str = ""
     elif (not stored or _GENERIC.match(stored)) and len(labels) >= 2:
         if noun:
             whose = "your" if own else _possessive(name)
-            question = _ask(f"Which is right for {whose} {noun}: {labels[0]} or {labels[1]}")
+            question = _ask(f"Which is right for {whose} {noun}{answers}")
         else:
-            question = _ask(f"Which is right about {'you' if own else name}: {labels[0]} or {labels[1]}")
+            question = _ask(f"Which is right about {'you' if own else name}{answers}")
     else:
         spoken_stored = stored_in_your_voice(
             stored, owner_names=_owner_names(own, page_type, owner_name, name)) if stored else ""
@@ -665,7 +677,7 @@ def _conflict(fm: dict, today: str, name: str, *, own: bool, page_type: str = ""
         day = f"the same day ({ago})" if ago else "the same day"
         reason = (f"Both were said {day}, so I can't tell which is current." if len(real) == 2 else
                   f"They were all said {day}, so I can't tell which is current.")
-    elif len(real) >= 3:
+    elif len(real) >= 3 or clipped:
         latest = _ago(max(dated), today) if dated else None
         reason = (f"I have {len(real)} different answers, the latest {latest}, and I can't tell which is current."
                   if latest else f"I have {len(real)} different answers, and I can't tell which is current.")
@@ -674,22 +686,36 @@ def _conflict(fm: dict, today: str, name: str, *, own: bool, page_type: str = ""
     return Spoken(question, reason)
 
 
-def _page_edit(fm: dict, name: str) -> Spoken:
-    """E1: the one page edit Cicada proposes itself, removing a name another thing owns (`wrong_aliases`), said as a
-    question; every other page edit keeps its stored words (an empty :class:`Spoken` means "use the stored ones")."""
+#: What the two answers to the wrong-name question mean, said as answers to it. The keys stay.
+_ALIAS_ANSWERS = {"apply": "Yes, stop using that name", "dismiss": "No, keep the name"}
+
+
+def _wrong_alias(fm: dict) -> tuple[str, str] | None:
+    """The name and the why of the one page edit Cicada proposes itself, removing a name another thing owns
+    (`wrong_aliases`), or None for every other page edit."""
     from api.services import wrong_aliases
 
     edit = fm.get("edit") if isinstance(fm.get("edit"), dict) else {}
     aliases = edit.get("remove_aliases") if isinstance(edit.get("remove_aliases"), list) else []
     if str(fm.get("origin") or "") != wrong_aliases.ORIGIN or len(aliases) != 1:
-        return Spoken("", "")
+        return None
     alias = str(aliases[0] or "").strip()
     page = str(fm.get("entity_name") or "").strip()
     reason = " ".join(str(fm.get("reason") or "").split())
     prefix = f"“{alias}” is the name of another thing, not of {page}: "
     if not alias or not page or not reason.startswith(prefix) or not reason[len(prefix):].strip():
+        return None
+    return alias, reason[len(prefix):].strip()
+
+
+def _page_edit(fm: dict, name: str) -> Spoken:
+    """E1: the wrong-name edit said as a question; every other page edit keeps its stored words (an empty
+    :class:`Spoken` means "use the stored ones")."""
+    found = _wrong_alias(fm)
+    if not found:
         return Spoken("", "")
-    return Spoken(_ask(f"Should “{_clip(alias, 32)}” stop being another name for {name}"), reason[len(prefix):].strip())
+    alias, why = found
+    return Spoken(_ask(f"Should “{_clip(alias, 32)}” stop being another name for {name}"), f"I think so because: {why}")
 
 
 def _clarification(fm: dict, today: str, name: str, page_type: str) -> Spoken:

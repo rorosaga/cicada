@@ -365,7 +365,7 @@ def decay_question(name: str, last_referenced: str | None, today: str) -> dict:
             {
                 "key": "keep",
                 "label": "Yes, keep it",
-                "description": f"{lead} · still relevant; confidence restored to at least 0.6",
+                "description": f"{lead} · it stays in what I remember",
                 "claim_id": None,
                 "observed_at": last_referenced,
                 "last_referenced": last_referenced,
@@ -373,7 +373,7 @@ def decay_question(name: str, last_referenced: str | None, today: str) -> dict:
             {
                 "key": "archive",
                 "label": "No, archive it",
-                "description": f"{lead} · move it to the archive; it comes back on the next mention",
+                "description": f"{lead} · it goes to the archive and comes back if it's mentioned again",
                 "claim_id": None,
                 "observed_at": last_referenced,
                 "last_referenced": last_referenced,

@@ -221,7 +221,7 @@ def _item_from_file(
     # The options as a person reads them (`inbox_wording.present_options`): dated by when each value was said, the
     # check's bookkeeping words dropped. The verdicts and the recommended key above were judged on the stored ones.
     shown = raw_options
-    if context is not None and kind == "conflict":
+    if context is not None and kind in ("conflict", "page_edit"):
         try:
             from api.services import inbox_wording
 
