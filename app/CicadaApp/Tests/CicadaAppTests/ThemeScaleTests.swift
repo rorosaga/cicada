@@ -36,7 +36,7 @@ final class ThemeScaleTests: XCTestCase {
     func test_tokens_at_1_0_equal_todays_layout_exactly() {
         CicadaTheme.uiScale = 1.0
         XCTAssertEqual(CicadaTheme.spacingMD, 12)
-        XCTAssertEqual(CicadaTheme.bodyFont, Font.system(size: 13, weight: .regular))
+        XCTAssertEqual(CicadaTheme.bodyFont, Font.system(size: 14, weight: .regular))
     }
 
     // MARK: - Chrome that has to scale with it (round-2 live check)

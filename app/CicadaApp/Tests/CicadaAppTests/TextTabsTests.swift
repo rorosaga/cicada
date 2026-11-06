@@ -25,9 +25,9 @@ final class TextTabsTests: XCTestCase {
         XCTAssertEqual(Eyebrow.text("Clusters", ""), "Clusters")
     }
 
-    func testTheRowSitsTwentyBelowTheTitlebarAtLeast28Tall() {
+    func testTheRowSitsTwentyBelowTheTitlebarAtLeast32Tall() {
         XCTAssertEqual(EyebrowRow<EmptyView>.topPadding, 20)
-        XCTAssertEqual(EyebrowRow<EmptyView>.minHeight, 28)
+        XCTAssertEqual(EyebrowRow<EmptyView>.minHeight, 32)
         XCTAssertEqual(TextTabs<String>.height, 26)
         XCTAssertEqual(TextTabs<String>.horizontalPadding, 9)
     }
