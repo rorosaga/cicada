@@ -1275,6 +1275,14 @@ TOOLS = [
             "limit": {"type": "integer", "description": "Optional: how many to return (default 8, at most 24)."}}},
     },
     {
+        # Stdio only (a remote app is not local; the lookup and the page are the home's). A write: the harness is the author.
+        "name": "cicada_add_book",
+        "description": "Add a book the person asked you to add. Find its ISBN yourself (a web search or the person's words, never a guess), call with `preview: true` to see which edition that number names, show the person title, authors and publisher, and add it only once they agree. The book lands as a quiet saved book with no reading status (do not claim one: use cicada_note_progress for what they did); its description is a public source's, not their words. One add per book; a repeat changes nothing. Cicada never searches by title.",
+        "inputSchema": {"type": "object", "required": ["isbn"], "properties": {
+            "isbn": {"type": "string", "description": "The book's ISBN-13 or ISBN-10."},
+            "preview": {"type": "boolean", "description": "true: show the edition this number names and write nothing."}}},
+    },
+    {
         # The Skills page (2026-10-15): a read of the agents' skill folders; no fetch (the person checks updates).
         "name": "cicada_skills",
         "description": "The agent skills installed on this Mac, per coding agent: where each came from, its version, whether an update is available (from the person's last check), and whether a tool skill's text is older than its tool. Also Claude Code's plugins and the skills each ships (read-only), each skill's kind (about-you, generic or unknown), the estimated weight each agent loads every session, Cicada's suggestions, skills agents drafted, and requests waiting for the person.",
@@ -1798,6 +1806,8 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
     elif name == "cicada_design_search":
         return mcp_tools.design_search(_ctx(), arguments.get("query"), arguments.get("image_path"),
                                        arguments.get("image_base64"), arguments.get("limit", 8))
+    elif name == "cicada_add_book":
+        return mcp_tools.add_book(_ctx(), arguments.get("isbn", ""), bool(arguments.get("preview", False)))
     elif name == "cicada_skills":
         return mcp_tools.skills(_ctx())
     elif name == "cicada_propose_skill":

@@ -96,7 +96,10 @@ NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_rep
                           "cicada_record_profile",
                           # The Skills page (2026-10-15): skills live in this Mac's agent folders, and a remote app is
                           # no coding agent here; whether one may ever ask for a skill is the owner's open question.
-                          "cicada_skills", "cicada_propose_skill", "cicada_create_skill"})
+                          "cicada_skills", "cicada_propose_skill", "cicada_create_skill",
+                          # Books (2026-11-06): the lookup and the page are the home's and the add is on the person's ask in
+                          # a local conversation; a remote app is not local (mcp.md) — the owner's open question.
+                          "cicada_add_book"})
 WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_capture_turns", "cicada_write_claim", "cicada_retract_claim",
                          "cicada_save_url", "cicada_record_watch", "cicada_record_read", "cicada_record_check", "cicada_add_source",
                          "cicada_change_source",

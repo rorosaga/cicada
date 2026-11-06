@@ -103,6 +103,7 @@ MAX_APPLY = 3000
 #: The most "same book?" questions one new page asks (a title more pages than this hold is a pile for the person's own look).
 MAX_SAME_ASKED = 3
 #: What each door is called on a book's page when it has more than one way in (``current_status``'s ``ways``).
+AGENT_WORDS = "Added by an agent"
 DOOR_WORDS = {APPLE_ORIGIN: "Apple Books", GOODREADS_ORIGIN: "Goodreads", SCAN_ORIGIN: "Scanned"}
 
 _ISBN_STRIP = re.compile(r"[\s\-‐-―=\"']")
@@ -826,15 +827,18 @@ def book_card(memory_path: Path, entity_id: str) -> dict | None:
         return None
     book = fm["book"]
     scanned: list[str] = []
+    by_agent: list[bool] = []
     for episode in fm.get("source_episodes") or []:
         ep = bank_index.file(Path(memory_path), "episodes", f"{episode}.md")
         efm = (ep.frontmatter or {}) if ep is not None else {}
         if efm.get("origin") == SCAN_ORIGIN and (day := utc_day(efm.get("original_date") or efm.get("timestamp"))):
             scanned.append(day)
+            by_agent.append(bool((efm.get(EPISODE_KEY) or {}).get("by")))
     ways = []
     for door in (APPLE_ORIGIN, GOODREADS_ORIGIN, SCAN_ORIGIN):
         if DOOR_WORDS[door] in ways_in(fm):
-            ways.append({"door": door, "label": DOOR_WORDS[door],
+            agent_only = door == SCAN_ORIGIN and bool(by_agent) and all(by_agent)
+            ways.append({"door": door, "label": AGENT_WORDS if agent_only else DOOR_WORDS[door],
                          **({"day": min(scanned)} if door == SCAN_ORIGIN and scanned else {})})
     source = str(book.get("description_source") or "")
     return {"subtitle": book.get("subtitle") or None, "authors": [str(a) for a in book.get("authors") or []][:3],
@@ -976,8 +980,11 @@ def waiting_isbns(memory_path: Path) -> list[str]:
     return out
 
 
-def scan_draft(isbn: str, status: str | None, *, who: str, ident: str, now: datetime):
-    """The episode a scan is: the person's act, already read (nothing in it for a model)."""
+def scan_draft(isbn: str, status: str | None, *, who: str, ident: str, now: datetime, by: str | None = None):
+    """The episode a scan is: the person's act, already read (nothing in it for a model). ``by`` names the harness when
+    an agent added the book on the person's ask (``cicada_add_book``): the same episode and the same writer, but never
+    a status (an agent does not say what the person is doing with a book) and it reads "Added by an agent", not
+    "Scanned" (ruling 50: an agent's act is the agent's, never the person's own)."""
     from api.services import episode_staging, when as when_mod
 
     instant = when_mod.utc_z(now)
@@ -986,7 +993,8 @@ def scan_draft(isbn: str, status: str | None, *, who: str, ident: str, now: date
     return episode_staging.EpisodeDraft(
         title="Book scan", source_id=f"isbn:{who}:{ident}", timestamp=instant, original_date=day,
         source=SCAN_ORIGIN, origin=SCAN_ORIGIN, body="\n".join(lines) + "\n",
-        extra={EPISODE_KEY: {"isbn": isbn, "status": status, "day": day, "dated": True}}, queue_for_sleep=False,
+        extra={EPISODE_KEY: {"isbn": isbn, "status": status, "day": day, "dated": True, **({"by": by} if by else {})}},
+        queue_for_sleep=False,
         writer=SCAN_ORIGIN)
 
 

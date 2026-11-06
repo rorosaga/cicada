@@ -1699,6 +1699,10 @@ its `content_hash`, so the queue is derived from the bank — a move or a restor
   `to-read` → want (a happening only for a finish with a Date Read); a custom exclusive shelf records no status; a 1–5 rating is a `rated` claim. One episode per row
   (`goodreads:<Book Id>`, a saved record); only a row with the person's review or private notes (`## User note`) is
   queued for Sleep. Nothing is read from the Goodreads site.
+- **An agent's add (2026-11-06, `cicada_add_book`; `mcp.md`).** The fourth way in: an agent the person asked adds a book by the
+  ISBN it found, through the scan's episode and writer with `book.by` = the harness, no status and no model. The page's
+  way in reads "Added by an agent" (`books.AGENT_WORDS`) unless the person also scanned it; a book already on a page is
+  joined by identifier like any scan.
 - **A door's list** (`channel_items`): `GET /sources/channels/{apple-books|goodreads|book-scan}/items` is that door's
   books, one row each, a `page` row once it has its book page (a book has no saved link, so a click opens the page).
 

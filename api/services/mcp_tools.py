@@ -3257,6 +3257,71 @@ def _match_milestone(rows, wanted: str):
 
 
 @_holding_pages
+def add_book(ctx: ToolContext, isbn: str, preview: bool = False) -> str:
+    """`cicada_add_book`: a book the person asked their agent to add, by the ISBN the agent found with its own search.
+    Stdio only (a remote app is not local, and the lookup and the page are the home's). `preview` shows the edition the
+    number names and writes nothing; without it the book is added through the scan's writer, with no status, as the
+    harness's act. Needs the running backend: the lookup and the page are its."""
+    import urllib.error
+
+    from api.services import books
+
+    if (refusal := _demo_refusal(ctx.memory_path())) is not None:
+        return refusal
+    number = books.isbn13(isbn or "")
+    if number is None:
+        return Reply("That is not a book's ISBN (10 or 13 digits). Nothing was added.", code="invalid_arguments")
+    payload = {"isbn": number, "preview": bool(preview), "harness": ctx.harness, "sessionId": ctx.session_id}
+    try:
+        out = ctx.backend_post("/sources/books/agent-add", payload)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 409:
+            return Reply("Not added: Sleep is updating the memory. Try again in a moment.", code="refused")
+        return Reply("Not added: the backend refused the number.", code="refused")
+    except Exception:  # noqa: BLE001
+        return Reply("Not added: Cicada's backend is not running, and a book's lookup and page are its.",
+                     code="unavailable")
+    if preview:
+        if out.get("state") != "found":
+            why = ("no source knows this number" if out.get("state") == "not_found"
+                   else "the lookup could not be reached (or network lookups are off)")
+            return f"No edition to show for {number}: {why}. Check the number, or ask the person."
+        lines = [f"ISBN {number}: {out.get('title') or '?'}" + (f" — {out['subtitle']}" if out.get("subtitle") else ""),
+                 "Authors: " + (", ".join(out.get("authors") or []) or "unknown")]
+        meta = [str(x) for x in (out.get("publisher"), out.get("published"),
+                                 f"{out['pages']} pages" if out.get("pages") else None) if x]
+        if meta:
+            lines.append(" · ".join(meta))
+        if out.get("description"):
+            lines.append("Description (" + (out.get("description_source") or "public source") + "): "
+                         + str(out["description"])[:240])
+        lines.append("Show the person this edition; add it with cicada_add_book(isbn) once they agree it is the one.")
+        return "\n".join(lines)
+    episode = out.get("episodeId")
+    note = ("was already requested" if out.get("status") == "unchanged" else "is queued")
+    result = {}
+    if episode:
+        import time
+        import urllib.request
+        for _ in range(4):
+            time.sleep(1.5)
+            try:
+                req = urllib.request.Request(f"{ctx.backend_url}/sources/books/scans/{episode}",
+                                             headers=ctx.backend_headers(), method="GET")
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+            except Exception:  # noqa: BLE001
+                result = {}
+            if result.get("state") == "added":
+                break
+    if result.get("state") == "added":
+        return (f"{'Already in memory' if result.get('existing') else 'Added'}: {result.get('name')} "
+                f"({result.get('entityId')}). It carries no reading status; say so if the person told you one. "
+                "Its description comes from a public source and is not the person's words.")
+    return (f"The book {note} (ISBN {number}). Its page appears once the lookup answers "
+            "(or after the next Sleep if network lookups are off).")
+
+
 def note_progress(ctx: ToolContext, project: str, kind: str, summary: str, status: str, when=None,
                   target=None, milestone=None, settles=None, participants=None, evidence=None) -> str:
     """`cicada_note_progress` (G141 §5.2): record a happening or a milestone the
