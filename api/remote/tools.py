@@ -239,6 +239,15 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           {"url": {"type": "string", "description": "The http(s) link."},
            "note": {"type": "string", "description": "Optional: why it matters."}},
           ("url",), read_only=False, idempotent=True, open_world=True),
+    _tool("cicada_add_book",
+          "Add a book the person asked you to add. Find its ISBN yourself (a web search or the person's words, never "
+          "a guess), call with preview true to see which edition that number names, show the person its title, "
+          "authors and publisher, and add it only once they agree. It lands as a quiet saved book with no reading "
+          "status; its description is a public source's, not the person's words. A repeat changes nothing. Cicada "
+          "never searches by title.",
+          {"isbn": {"type": "string", "description": "The book's ISBN-13 or ISBN-10."},
+           "preview": {"type": "boolean", "description": "true: show the edition this number names, write nothing."}},
+          ("isbn",), read_only=False, idempotent=True, open_world=True),
     _tool("cicada_record_watch",
           "After you watch a video the person saved, record what it covers: a short summary and up to 12 "
           "short quotes with the time each is said. Cicada keeps these quotes as the video's words, never "

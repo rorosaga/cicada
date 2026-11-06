@@ -684,6 +684,7 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_merge_pages": (ADMITTED, "_join_locked"),           # G227 follow-up: the join or the proposal, alone
     "cicada_split_page": (ADMITTED, "_join_locked"),
     "cicada_undo_join": (ADMITTED, "_join_locked"),
+    "cicada_add_book": (ADMITTED, None),                        # the staged episode is Awake; the page applies inside book_jobs.apply_admitted
     "cicada_save_url": (ADMITTED, "save_url"),                  # backend up: POST /sources/save admits itself
     "cicada_resolve_inbox": (ADMITTED, None),                   # posts to /inbox/{id}/resolve, which admits
     "cicada_save_episode": (CAPTURE, None),

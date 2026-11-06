@@ -244,6 +244,7 @@ def _ctx(bank: Path) -> mcp_tools.ToolContext:
 WRITES = {
     "cicada_save_episode": lambda ctx: mcp_tools.save_episode(ctx, "Decided alpha-project ships Friday.", "T"),
     "cicada_save_url": lambda ctx: mcp_tools.save_url(ctx, "https://example.com/a", None),
+    "cicada_add_book": lambda ctx: mcp_tools.add_book(ctx, "9780000000002", False),
     "cicada_record_watch": lambda ctx: mcp_tools.record_watch(ctx, "https://example.com/v", "A summary."),
     "cicada_record_read": lambda ctx: mcp_tools.record_read(ctx, "https://example.com/p", "read", "A summary."),
     "cicada_record_check": lambda ctx: mcp_tools.record_check(ctx, "inbox-001", "https://example.com/p", "unclear"),

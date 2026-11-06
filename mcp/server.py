@@ -1275,7 +1275,7 @@ TOOLS = [
             "limit": {"type": "integer", "description": "Optional: how many to return (default 8, at most 24)."}}},
     },
     {
-        # Stdio only (a remote app is not local; the lookup and the page are the home's). A write: the harness is the author.
+        # Every door (piece 2b): the body runs in the home. A write: the caller is the author.
         "name": "cicada_add_book",
         "description": "Add a book the person asked you to add. Find its ISBN yourself (a web search or the person's words, never a guess), call with `preview: true` to see which edition that number names, show the person title, authors and publisher, and add it only once they agree. The book lands as a quiet saved book with no reading status (do not claim one: use cicada_note_progress for what they did); its description is a public source's, not their words. One add per book; a repeat changes nothing. Cicada never searches by title.",
         "inputSchema": {"type": "object", "required": ["isbn"], "properties": {
