@@ -126,10 +126,12 @@ def _age_bucket(said: date, today: date) -> str:
     return AGE_BUCKETS[-1][0]
 
 
-def _recompute_claims(body: str, subject_about, multiplier: float, untimed, result: Survey) -> str:
-    """The page body with its open claims charged their proven silence; only changed fence lines rewritten."""
+def _recompute_claims(body: str, subject_about, multiplier: float, untimed, result: Survey, *,
+                      per_claim: Callable[[Claim], float] | None = None) -> str:
+    """The page body with its open claims charged their proven silence; only changed fence lines rewritten.
+    ``per_claim`` (ROR-129): each fact's own multiplier — its class, else its page's — instead of the page's alone."""
     match = claims._CLAIMS_BLOCK_RE.search(body or "")
-    if match is None or multiplier <= 0:
+    if match is None or (multiplier <= 0 and per_claim is None):
         return body
     payload = match.group("payload")
     if not payload.strip() or payload.strip() == "[]":
@@ -154,7 +156,10 @@ def _recompute_claims(body: str, subject_about, multiplier: float, untimed, resu
         said, learned = _day(_said(claim, untimed)), _day(claim.recorded_at)
         if said is None or learned is None or learned <= said:
             continue
-        rate = claim_rate(claim, subject_about, multiplier, untimed=untimed)
+        mult = per_claim(claim) if per_claim is not None else multiplier
+        if mult <= 0:
+            continue
+        rate = claim_rate(claim, subject_about, mult, untimed=untimed)
         new_conf = decay_policy.charge(
             claim.confidence, rate, decay_policy.Silence((learned - said).days, 0, learned),
             nudge_threshold=NUDGE_THRESHOLD,
@@ -266,7 +271,9 @@ def survey(memory_path, *, today: date | None = None, settings=None) -> Survey:
                     result.floored_repeats += unfloored < new_conf
 
         about = subject(path.stem)
-        new_body = _recompute_claims(body, about, decay_policy.claim_multiplier(about.decay_class), untimed, result)
+        new_body = _recompute_claims(
+            body, about, decay_policy.claim_multiplier(about.decay_class), untimed, result,
+            per_claim=lambda c, _a=about: decay_policy.fact_multiplier(c.decay_class, c.class_by, _a.decay_class, _a.entity_type))
         if new_body != body and "learned_on" not in new_fm:
             # The page's claims were charged: mark it so a second run never charges them again.
             new_fm["learned_on"] = max(said, added.get(path.name, said)).isoformat()
