@@ -89,7 +89,7 @@ enum ContributorIdentity {
     /// The picture of the MODEL an author id names (ROR-127), whichever provider served it: the maker read from the id
     /// (`ModelMaker`: the provider's own organisation segment, else the model's family) mapped to a bundled mark.
     /// When the maker is unknown (or ships no mark here) and the id came through a router or host that has a mark of its
-    /// own (`ModelMaker.router`), that router's mark draws — a mark, not initials (Rodrigo, 2026-11-06); only an id with
+    /// own (`ModelMaker.router`), that router's mark draws — a mark, not initials (owner, 2026-11-06); only an id with
     /// neither draws initials, never a guess. One function, so the avatar and the claim chip agree.
     static func modelMark(author: String) -> String? {
         if let mark = ModelMaker.maker(of: author).flatMap(makerMark) { return mark }

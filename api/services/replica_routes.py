@@ -144,8 +144,10 @@ ROUTES: dict[str, str] = {
     "PUT /sources/apple-books/settings": FORWARD,
     "POST /sources/apple-books/covers": CAPTURE,         # ruling 61: a reader's post, kept outside every bank
     "POST /entities/{entity_id}/book-status/undo": FORWARD,
+    "POST /entities/{entity_id}/book/not-this-book": FORWARD,   # ruling 71: the person's own act, on the home
     "POST /sources/goodreads/preview": LOCAL,            # reads the file here, writes nothing
     "POST /sources/goodreads/import": FORWARD,
+    "POST /sources/goodreads/waiting/choose": FORWARD,          # ruling 72: the pick list's answer, on the home
     "POST /capture/local-source/wispr-flow": CAPTURE,
     "POST /capture/note": CAPTURE,
     "POST /capture/offered": CAPTURE,                   # G132 phase 2: an old home's set-aside episode, offered back

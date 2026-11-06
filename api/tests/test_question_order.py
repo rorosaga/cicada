@@ -871,7 +871,9 @@ def test_the_launch_warm_up_builds_the_tables_and_never_raises(bank, monkeypatch
     question_order.warm(bank)   # a failure costs the warm-up, nothing else
     from api import main
     import inspect
-    assert inspect.getsource(main).count("question_order.warm") == 2, "both lifespans (home and replica) warm it"
+    source = inspect.getsource(main)
+    assert "question_order.warm" in inspect.getsource(main._staged_warm)
+    assert source.count("_staged_warm(settings.memory_path)") == 2, "both lifespans (home and replica) warm it"
 
 
 # --------------------------------------------------------------------------- one order everywhere (requirement 2)
