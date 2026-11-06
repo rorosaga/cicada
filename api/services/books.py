@@ -783,12 +783,19 @@ def ways_in(fm: dict) -> list[str]:
     """Where a book came in from, in the person's words, in a fixed order — read from the page (``book.doors``; a page
     made before that field is known by its Apple Books and Goodreads ids)."""
     book = fm.get("book") if isinstance(fm.get("book"), dict) else {}
+    doors = door_set(book)
+    return [DOOR_WORDS[d] for d in (APPLE_ORIGIN, GOODREADS_ORIGIN, SCAN_ORIGIN) if d in doors]
+
+
+def door_set(book: dict) -> set[str]:
+    """The doors a book page came in through: ``book.doors``, plus — for a page made before that field — its Apple Books
+    and Goodreads ids (a dry run on the real bank found 272 of 286 pages that way)."""
     doors = set(book.get("doors") or [])
     if book.get("apple_books"):
         doors.add(APPLE_ORIGIN)
     if book.get("goodreads"):
         doors.add(GOODREADS_ORIGIN)
-    return [DOOR_WORDS[d] for d in (APPLE_ORIGIN, GOODREADS_ORIGIN, SCAN_ORIGIN) if d in doors]
+    return doors
 
 
 def scan_result(memory_path: Path, episode_id: str) -> dict | None:
@@ -1037,6 +1044,14 @@ def _enrich_from_lookups(memory_path: Path, index: BookIndex, today: str) -> lis
     return paths
 
 
+_ID_TITLE = re.compile(r"[0-9A-Fa-f]{16}|\d{4}\.\d{4,5}(v\d+)?")
+
+
+def id_title(title) -> bool:
+    """A "title" that is an identifier — an Apple Books asset id or an arXiv number, a PDF it holds — never a book's."""
+    return bool(_ID_TITLE.fullmatch(str(title or "").strip()))
+
+
 def title_candidates(memory_path: Path) -> list[dict]:
     """The books a title may find (ruling 61 amended 2026-11-06): a page the person's own door added (Apple Books, Goodreads)
     that holds no ISBN, a real title and an author, no description yet, and was never told "not this book". Only
@@ -1047,7 +1062,8 @@ def title_candidates(memory_path: Path) -> list[dict]:
         book = fm.get("book") if is_book(fm) and isinstance(fm.get("book"), dict) else None
         if (not book or book.get("isbns") or book.get("title_from") == "placeholder" or book.get("description_at")
                 or book.get("title_match_declined") or not (book.get("title") or fm.get("name"))
-                or not book.get("authors") or not ({APPLE_ORIGIN, GOODREADS_ORIGIN} & set(book.get("doors") or []))):
+                or id_title(book.get("title") or fm.get("name"))
+                or not book.get("authors") or not ({APPLE_ORIGIN, GOODREADS_ORIGIN} & door_set(book))):
             continue
         out.append({"title": book.get("title") or fm.get("name"), "authors": list(book.get("authors") or [])})
     return out

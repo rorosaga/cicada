@@ -202,3 +202,16 @@ def test_a_title_matched_book_draws_its_cover_by_the_catalogue_id_never_by_title
                                                "title_match": {"isbn": ISBN}}})
     assert src is not None and "1234" in src.url and "Quiet" not in src.url
     assert media_preview._book_source({"book": {"title": "Quiet Engines", "isbns": []}}) is None
+
+
+def test_a_page_made_before_the_doors_field_is_known_by_its_apple_books_block():
+    """A dry run on a real bank found 272 of 286 book pages with no ``doors`` and an ``apple_books`` block: they are
+    Apple Books pages, so a title may find them."""
+    assert books.door_set({"apple_books": {"asset_id": "x"}}) == {books.APPLE_ORIGIN}
+    assert books.door_set({"goodreads": {"id": "1"}, "doors": ["book-scan"]}) == {books.GOODREADS_ORIGIN, "book-scan"}
+    assert books.door_set({}) == set()
+
+
+def test_an_identifier_is_not_a_title():
+    assert books.id_title("09BBED25F11B9396") and books.id_title("2412.06769v2")
+    assert not books.id_title("Essentialism: The Disciplined Pursuit of Less") and not books.id_title("1984")
