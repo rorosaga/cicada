@@ -113,7 +113,7 @@ struct ProjectsListColumn: View {
             switch block {
             case .quiet: entry(.quiet(count: 0))
             case .cards(let groups):
-                ProjectCardGrid(groups: groups, today: today, open: tap)
+                ProjectCardGrid(groups: groups, today: today, leads: block.id == blocks.first?.id, open: tap)
             }
         }
     }

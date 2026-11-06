@@ -52,15 +52,18 @@ final class ProjectCardsTests: XCTestCase {
         XCTAssertEqual(ProjectSteps.glyph(line), "clock")
     }
 
-    func testTheGridHoldsAReadableMeasureAndFillsItsLastRow() throws {
-        XCTAssertEqual(ProjectCardLayout.columns(width: 0), 2)
-        XCTAssertEqual(ProjectCardLayout.columns(width: 400), 1)
-        XCTAssertEqual(ProjectCardLayout.columns(width: 900), 2)
-        XCTAssertEqual(ProjectCardLayout.columns(width: 1600), 3)
-        XCTAssertEqual(ProjectCardLayout.columns(width: 1600, count: 2), 2)   // no empty third column
-        XCTAssertEqual(ProjectCardLayout.columns(width: 1600, count: 1), 2)   // a lone card stands at half
-        let groups = try ["a", "b", "c"].map { ProjectCardGroup(root: ProjectsModel.entries([try row($0)], tab: .current,
-            query: "", today: today).compactMap(\.line)[0], kids: []) }
-        XCTAssertEqual(ProjectCardLayout.rows(groups, columns: 2).map { $0.map(\.id) }, [["a", "b"], ["c"]])
+    func testALongPlanDropsItsOldestDoneStepsFirst() throws {
+        let line = try planned((0..<8).map { ("m\($0)", $0 < 3 ? "done" : "planned", today.adding($0 - 4).description) })
+        let shown = ProjectSteps.visible(ProjectSteps.steps(line))
+        XCTAssertEqual(shown.count, ProjectSteps.cap)
+        XCTAssertEqual(shown.map(\.name), ["Step m3", "Step m4", "Step m5", "Step m6", "Step m7"])
+        XCTAssertEqual(ProjectSteps.visible(Array(ProjectSteps.steps(line).prefix(3))).count, 3)
+    }
+
+    func testTheTabsCountCardsNotSubProjects() throws {
+        let rows = [try row("a"), try row("b", parent: "a"), try row("c")]
+        let c = ProjectsModel.counts(rows, today: today)
+        XCTAssertEqual(ProjectsModel.tabs(c).first?.count, 2)
+        XCTAssertNil(ProjectsModel.tabs(c).last?.count)   // Past with none carries no 0
     }
 }

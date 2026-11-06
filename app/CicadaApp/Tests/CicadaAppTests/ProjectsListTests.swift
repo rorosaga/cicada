@@ -36,7 +36,7 @@ final class ProjectsListTests: XCTestCase {
         let rows = try rows() + unheardRows(9)
         let tabs = ProjectsModel.tabs(ProjectsModel.counts(rows, today: today))
         XCTAssertEqual(tabs.map(\.label), ["Current", "Past"])
-        XCTAssertEqual(tabs.map(\.count), [3, 9], "nine projects never heard from: they are past")
+        XCTAssertEqual(tabs.map(\.count), [2, 9], "a sub-project sits in its parent's card and is not counted; nine never heard from are past")
         XCTAssertEqual(ProjectsModel.defaultTab(ProjectsModel.counts(rows, today: today)), .current)
         XCTAssertEqual(ProjectsModel.defaultTab(ProjectsModel.counts(rows, today: today.adding(400))), .past,
                        "nothing current: the page opens on Past")

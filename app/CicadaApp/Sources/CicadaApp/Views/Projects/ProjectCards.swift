@@ -1,30 +1,11 @@
 import SwiftUI
 
-/// ROR-118 round 1 (DESIGN_RULES §9, 2026-11-06) — Current's wide list is cards, not bare rows: one ringed card a
-/// project (DR-9, DR-37: it holds a group), its sub-projects inside it on a darker well so the nesting reads at a
-/// glance. Round 2: a card is as tall as its content, so no card carries a gap another lacks. Round 3: the cards stand
-/// in a grid, each a tile with where it stands anchored at its foot, and the thread is a stepper that names itself.
-enum ProjectCardLayout {
-    /// Round 3: the cards stand in a grid, as many columns as the width holds at a readable measure.
-    static let columnMin: CGFloat = 360
-    static let gap: CGFloat = 16
-    static let maxColumns = 3
-
-    /// Columns for a list this wide (an unmeasured list is drawn as two) — never more than the cards there are, and
-    /// never fewer than two when the width holds two, so a lone card stands at half the list, not across it.
-    static func columns(width: CGFloat, count: Int = maxColumns) -> Int {
-        guard width > 0 else { return 2 }
-        let fit = min(maxColumns, max(1, Int((width + gap) / (columnMin + gap))))
-        return min(fit, max(count, 2))
-    }
-
-    /// Groups in rows of `columns`; the last row may be short.
-    static func rows(_ groups: [ProjectCardGroup], columns: Int) -> [[ProjectCardGroup]] {
-        let n = max(columns, 1)
-        return stride(from: 0, to: groups.count, by: n).map { Array(groups[$0..<min($0 + n, groups.count)]) }
-    }
-}
-
+/// ROR-118 round 4 (DESIGN_RULES §9, 2026-11-06) — Current at rest has one lead and a list. The first project stands as
+/// a card across the window: its name and what it is on the left, its plan on the right as the milestones themselves
+/// (a mark, a name, a day), its sub-projects on a well beneath. Every other project is one row of a single ringed list —
+/// name over what it is, where it stands at the end — with its sub-projects indented under it. Round 3's equal tiles
+/// gave a project with no plan a dead gap beside one with a plan; a row has no such gap, and the lead is the one thing
+/// to look at. The window below is empty because the person has few projects: nothing is added to fill it.
 /// A root project and the sub-projects that follow it in the list.
 struct ProjectCardGroup: Identifiable, Equatable {
     let root: ProjectLine
@@ -79,38 +60,68 @@ extension ProjectCardGroup {
     }
 }
 
-/// Round 3 — a run of cards as a grid: equal-height tiles side by side, so a name sits beside what it is about and the
-/// window is used across, not just down.
+/// Current's run of cards: the lead (only the first run, so *Gone quiet* never has one) then the rest as one list.
 struct ProjectCardGrid: View {
     let groups: [ProjectCardGroup]
     let today: ISODay
+    var leads = true
     let open: (ProjectLine) -> Void
-    @State private var width: CGFloat = 0
 
     var body: some View {
-        let columns = ProjectCardLayout.columns(width: width, count: groups.count)
-        VStack(alignment: .leading, spacing: CicadaTheme.scaled(ProjectCardLayout.gap)) {
-            ForEach(ProjectCardLayout.rows(groups, columns: columns), id: \.first?.id) { row in
-                HStack(alignment: .top, spacing: CicadaTheme.scaled(ProjectCardLayout.gap)) {
-                    ForEach(0..<columns, id: \.self) { i in
-                        if i < row.count {
-                            ProjectCard(group: row[i], today: today, open: open)
-                        } else {
-                            Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
-                        }
-                    }
-                }
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(16)) {
+            if leads, let lead = groups.first {
+                ProjectLeadCard(group: lead, today: today, open: open)
             }
+            let rest = leads ? Array(groups.dropFirst()) : groups
+            if !rest.isEmpty { ProjectRestList(groups: rest, today: today, open: open) }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 }
 
-/// One tile: the name and what it is on top, where it stands at the foot (a stepper over its words when there is a
-/// plan), the sub-projects on a well beneath.
-struct ProjectCard: View {
+/// A project's picture beside its name — only when it has one; a project with none draws nothing (CLAUDE.md, Pictures).
+private struct ProjectMark: View {
+    let line: ProjectLine
+    let size: CGFloat
+    var body: some View {
+        EntityPicture(id: line.id, name: line.row.name, type: .project, size: size, collapsesWhenEmpty: true)
+    }
+}
+
+/// The one signal in words with the glyph that says which kind it is: a diamond for the next milestone, a clock for the
+/// last time it was heard.
+private struct ProjectStanding: View {
+    let line: ProjectLine
+    let today: ISODay
+    var body: some View {
+        let text = ProjectsModel.standing(line, today: today)
+        if !text.isEmpty {
+            HStack(spacing: CicadaTheme.scaled(6)) {
+                Image(systemName: ProjectSteps.glyph(line)).font(CicadaTheme.icon(.inline))
+                    .foregroundStyle(CicadaTheme.textSecondary).accessibilityHidden(true)
+                Text(text).font(CicadaTheme.metaMediumFont).monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
+            }
+        }
+    }
+}
+
+/// The sub-projects of a card or row, on the `bgBase` well.
+private struct ProjectKids: View {
+    let kids: [ProjectLine]
+    let today: ISODay
+    let open: (ProjectLine) -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+            ForEach(kids) { kid in ProjectKidRow(line: kid, today: today) { open(kid) } }
+        }
+        .padding(CicadaTheme.scaled(4))
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgBase))
+    }
+}
+
+/// The lead: name and what it is beside its plan, the sub-projects beneath.
+struct ProjectLeadCard: View {
     let group: ProjectCardGroup
     let today: ISODay
     let open: (ProjectLine) -> Void
@@ -121,62 +132,109 @@ struct ProjectCard: View {
     private var shape: RoundedRectangle { CicadaTheme.shape(CicadaTheme.radiusLarge) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: s(14)) {
-            Button { open(line) } label: {
-                head.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .contentShape(Rectangle())
+        let steps = ProjectSteps.steps(line)
+        VStack(alignment: .leading, spacing: s(20)) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: s(48)) {
+                    head(steps: steps)
+                    if !steps.isEmpty { ProjectSteps(steps: steps, today: today).frame(width: s(480)) }
+                }
+                VStack(alignment: .leading, spacing: s(20)) {
+                    head(steps: steps)
+                    if !steps.isEmpty { ProjectSteps(steps: steps, today: today) }
+                }
             }
-            .buttonStyle(.cicadaPlain)
-            .accessibilityLabel(ProjectsModel.accessibilityLabel(line, today: today))
-            if !group.kids.isEmpty { kids }
+            if !group.kids.isEmpty { ProjectKids(kids: group.kids, today: today, open: open) }
         }
-        .padding(s(20))
-        .frame(maxWidth: .infinity, minHeight: s(176), maxHeight: .infinity, alignment: .topLeading)
+        .padding(s(24))
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(shape.fill(CicadaTheme.bgFocus))
         .ringed(hovering ? .strong : .resting, in: shape)
         .onHover { hovering = $0 }
     }
 
-    private var head: some View {
-        VStack(alignment: .leading, spacing: s(6)) {
-            Text(line.row.name)
-                .font(CicadaTheme.font(size: 20, weight: .medium))
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .lineLimit(1)
-                .help(line.row.name)
-            if let one = ProjectsModel.oneLine(line.row) {
-                Text(one).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(2)
-                    .multilineTextAlignment(.leading)
-            }
-            Spacer(minLength: s(18))
-            standing
-        }
-    }
-
-    /// Where it stands: the steps of its plan (only with one, R-PJ11), then the one signal in words with the glyph
-    /// that says which kind it is — a diamond for the next milestone, a clock for the last time it was heard.
-    private var standing: some View {
-        let text = ProjectsModel.standing(line, today: today)
-        let steps = ProjectSteps.steps(line)
-        return VStack(alignment: .leading, spacing: s(10)) {
-            if !steps.isEmpty { ProjectSteps(steps: steps) }
-            if !text.isEmpty {
-                HStack(spacing: s(6)) {
-                    Image(systemName: ProjectSteps.glyph(line)).font(CicadaTheme.icon(.inline))
-                        .foregroundStyle(CicadaTheme.textSecondary).accessibilityHidden(true)
-                    Text(text).font(CicadaTheme.metaMediumFont).monospacedDigit()
-                        .foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
+    private func head(steps: [ProjectSteps.Step]) -> some View {
+        Button { open(line) } label: {
+            HStack(alignment: .top, spacing: s(14)) {
+                ProjectMark(line: line, size: 36)
+                VStack(alignment: .leading, spacing: s(8)) {
+                    Text(line.row.name)
+                        .font(CicadaTheme.font(size: 24, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
+                    if let one = ProjectsModel.oneLine(line.row) {
+                        Text(one).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                            .lineLimit(3).multilineTextAlignment(.leading)
+                    }
+                    // A plan names its own next step; only a project with none says when it was last heard.
+                    if steps.isEmpty { ProjectStanding(line: line, today: today).padding(.top, s(6)) }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.cicadaPlain)
+        .accessibilityLabel(ProjectsModel.accessibilityLabel(line, today: today))
     }
+}
 
-    private var kids: some View {
-        VStack(alignment: .leading, spacing: s(2)) {
-            ForEach(group.kids) { kid in ProjectKidRow(line: kid, today: today) { open(kid) } }
+/// Every other project: one ringed list, a row a project with a hairline between, sub-projects indented beneath.
+struct ProjectRestList: View {
+    let groups: [ProjectCardGroup]
+    let today: ISODay
+    let open: (ProjectLine) -> Void
+
+    private var shape: RoundedRectangle { CicadaTheme.shape(CicadaTheme.radiusLarge) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(groups.enumerated()), id: \.element.id) { i, group in
+                if i > 0 { Rectangle().fill(CicadaTheme.border).frame(height: 1).padding(.horizontal, CicadaTheme.scaled(20)) }
+                ProjectListRow(group: group, today: today, open: open)
+            }
         }
-        .padding(s(4))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgBase))
+        .padding(.vertical, CicadaTheme.scaled(6))
+        .frame(maxWidth: .infinity)
+        .background(shape.fill(CicadaTheme.bgFocus))
+        .ringed(.resting, in: shape)
+    }
+}
+
+private struct ProjectListRow: View {
+    let group: ProjectCardGroup
+    let today: ISODay
+    let open: (ProjectLine) -> Void
+    @State private var hovering = false
+
+    private var line: ProjectLine { group.root }
+    private func s(_ v: CGFloat) -> CGFloat { CicadaTheme.scaled(v) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: s(6)) {
+            Button { open(line) } label: {
+                HStack(alignment: .center, spacing: s(14)) {
+                    ProjectMark(line: line, size: 28)
+                    VStack(alignment: .leading, spacing: s(3)) {
+                        Text(line.row.name).font(CicadaTheme.font(size: 17, weight: .medium))
+                            .foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
+                        if let one = ProjectsModel.oneLine(line.row) {
+                            Text(one).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: s(16))
+                    ProjectStanding(line: line, today: today)
+                }
+                .padding(.horizontal, s(20)).padding(.vertical, s(14))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.cicadaPlain)
+            .rowHover($hovering)
+            .accessibilityLabel(ProjectsModel.accessibilityLabel(line, today: today))
+            if !group.kids.isEmpty {
+                ProjectKids(kids: group.kids, today: today, open: open)
+                    .padding(.horizontal, s(14)).padding(.bottom, s(10))
+            }
+        }
     }
 }
 
@@ -201,7 +259,7 @@ private struct ProjectKidRow: View {
                         Spacer(minLength: 0)
                         let text = ProjectsModel.standing(line, today: today)
                         if !text.isEmpty {
-                            Text(text).font(CicadaTheme.captionFont).monospacedDigit()
+                            Text(text).font(CicadaTheme.metaFont).monospacedDigit()
                                 .foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
                         }
                     }
@@ -220,14 +278,18 @@ private struct ProjectKidRow: View {
     }
 }
 
-/// A plan in steps: one segment a milestone in date order — filled once done, the next one a step lighter, the rest
-/// on the well (ROR-118 round 3; it replaces the miniature thread, whose diamonds and dots no one could name). There
-/// is no stepper without a plan (R-PJ11) and no percentage; each segment names its milestone on hover.
+/// A plan as its milestones: a mark, a name and a day each, in date order. Done ones carry a check, the one the project
+/// is heading for a ring in primary ink, the rest a quiet ring; an overdue next day reads in the warning ink. Only with a
+/// plan (R-PJ11: no plan, nothing here; no percentage). It replaces round 3's unlabelled segments, which no one could name.
 struct ProjectSteps: View {
     enum State: Equatable { case done, next, later }
-    struct Step: Equatable { let state: State; let name: String }
+    struct Step: Equatable { let state: State; let name: String; var day: ISODay? = nil }
+
+    /// A plan longer than this drops its oldest done steps first.
+    static let cap = 5
 
     let steps: [Step]
+    var today: ISODay = ISODay.today()
 
     /// The plan's milestones by date, undated last; the open one the project is heading for is the next.
     static func steps(_ line: ProjectLine) -> [Step] {
@@ -241,8 +303,17 @@ struct ProjectSteps: View {
             }
         }.map(\.element)
         return ordered.map { m in
-            Step(state: m.status == "done" ? .done : (m.slug == line.state.next ? .next : .later), name: m.name)
+            let done = m.status == "done"
+            return Step(state: done ? .done : (m.slug == line.state.next ? .next : .later), name: m.name,
+                        day: ISODay(done ? (m.doneOn ?? m.target) : m.target))
         }
+    }
+
+    /// What a card draws of a long plan: the oldest done steps go first, then the far end.
+    static func visible(_ steps: [Step]) -> [Step] {
+        var out = steps
+        while out.count > cap, out.first?.state == .done { out.removeFirst() }
+        return Array(out.prefix(cap))
     }
 
     /// The glyph of the one signal: a diamond when it names a milestone, else a clock.
@@ -251,18 +322,34 @@ struct ProjectSteps: View {
             ? "diamond" : "clock"
     }
 
-    private func fill(_ state: State) -> Color {
+    private func s(_ v: CGFloat) -> CGFloat { CicadaTheme.scaled(v) }
+
+    private func mark(_ state: State) -> (name: String, ink: Color) {
         switch state {
-        case .done: CicadaTheme.textPrimary
-        case .next: CicadaTheme.textSecondary
-        case .later: CicadaTheme.bgBadge
+        case .done: ("checkmark.circle.fill", CicadaTheme.textSecondary)
+        case .next: ("circle", CicadaTheme.textPrimary)
+        case .later: ("circle", CicadaTheme.textTertiary)
         }
     }
 
     var body: some View {
-        HStack(spacing: CicadaTheme.scaled(4)) {
-            ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
-                Capsule().fill(fill(step.state)).frame(height: CicadaTheme.scaled(5)).help(step.name)
+        VStack(alignment: .leading, spacing: s(2)) {
+            ForEach(Array(Self.visible(steps).enumerated()), id: \.offset) { _, step in
+                let m = mark(step.state)
+                let overdue = step.state == .next && (step.day.map { $0 < today } ?? false)
+                HStack(spacing: s(12)) {
+                    Image(systemName: m.name).font(CicadaTheme.icon(.inline)).foregroundStyle(m.ink)
+                        .frame(width: s(18)).accessibilityHidden(true)
+                    Text(step.name).font(step.state == .next ? CicadaTheme.rowFont : CicadaTheme.bodyFont)
+                        .foregroundStyle(step.state == .later ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
+                        .lineLimit(1)
+                    Spacer(minLength: s(12))
+                    if let day = step.day {
+                        Text(RelativeDay.absolute(day, today: today)).font(CicadaTheme.metaFont).monospacedDigit()
+                            .foregroundStyle(overdue ? CicadaTheme.warning : CicadaTheme.textSecondary)
+                    }
+                }
+                .padding(.vertical, s(7))
             }
         }
         .accessibilityHidden(true)

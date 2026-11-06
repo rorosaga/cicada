@@ -198,14 +198,20 @@ enum ProjectsModel {
 
     static func counts(_ rows: [ProjectRow], today: ISODay) -> [ProjectsGroup: Int] {
         var out: [ProjectsGroup: Int] = [.current: 0, .fading: 0, .past: 0]
-        for row in rows { out[group(row, today: today), default: 0] += 1 }
+        // A sub-project sits inside its parent's card, so the tabs count the cards, not the sub-projects (ROR-118).
+        let byId = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for row in rows {
+            let g = group(row, today: today)
+            if let parent = row.parent.flatMap({ byId[$0] }), group(parent, today: today).tab == g.tab { continue }
+            out[g, default: 0] += 1
+        }
         return out
     }
 
     /// Current counts everything it holds, fading included; Past the rest. `counts` is computed once per render.
     static func tabs(_ c: [ProjectsGroup: Int]) -> [TextTab<ProjectsTab>] {
         [TextTab(id: .current, label: Copy.Projects.current, count: (c[.current] ?? 0) + (c[.fading] ?? 0)),
-         TextTab(id: .past, label: Copy.Projects.past, count: c[.past] ?? 0)]
+         TextTab(id: .past, label: Copy.Projects.past, count: (c[.past] ?? 0) == 0 ? nil : c[.past])]
     }
 
     /// Current, unless nothing is current and something is past.
