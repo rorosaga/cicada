@@ -115,14 +115,26 @@ final class HomeLayoutTests: XCTestCase {
         for suffix in ["Views/Home/HomeView.swift", "Views/Home/HomeSections.swift"] {
             let file = try XCTUnwrap(files.first { $0.path.hasSuffix(suffix) })
             let text = try String(contentsOf: file, encoding: .utf8)
-            for needle in ["triggerManually", "Copy.consolidateNow", "PrimaryActionButton("] {
+            for needle in ["triggerManually", "Copy.consolidateNow"] {
                 XCTAssertFalse(text.contains(needle), "\(suffix) — \(needle)")
             }
+            // Round 5 — Home's one accent primary is Answer (DR-5 (2)); never a second.
+            let primaries = text.components(separatedBy: "PrimaryActionButton(").count - 1
+            XCTAssertLessThanOrEqual(primaries, 1, suffix)
         }
     }
 
     /// ROR-118 round 2 — one column (the cards and rows sit on the field's 640 pt edges), a lead card of the question and
     /// one foot line, rows with no tile and no strip of marks, and the titlebar's search quiet on Home alone.
+    /// Round 5 — the status line says "today" once (the last read drops its own), and "Today" only goes when it is the
+    /// leading day word of a read with a time.
+    func testWithoutTodayDropsOnlyTheLeadingDayWord() {
+        XCTAssertEqual(HomeFigures.withoutToday("Today 2:07 PM"), "2:07 PM")
+        XCTAssertEqual(HomeFigures.withoutToday("Yesterday 11:40 PM"), "Yesterday 11:40 PM")
+        XCTAssertEqual(HomeFigures.withoutToday("Today"), "Today")
+        XCTAssertEqual(HomeFigures.withoutToday("Oct 3 7:27 AM"), "Oct 3 7:27 AM")
+    }
+
     func testRoundTwoColumnCardRowsAndQuietTitlebar() throws {
         let files = try ThemeTokenTests.swiftSources()
         func text(_ suffix: String) throws -> String {

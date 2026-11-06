@@ -433,12 +433,12 @@ struct NeedsYouSection: View {
     }
 }
 
-/// The lead question (ROR-118, rounds 1 and 4): the page's picture (DR-48: a face, logo or initials, opening the page;
-/// nothing when it has none, never a type glyph), the question in 15 pt medium, and under it the one next act. Round 4:
-/// *Answer* is a `NeutralButton` (the card's only filled control, so it is found at a glance; Home has no accent
-/// primary, DR-40) opening the question in the Inbox's list, where the rest wait; *Catch me up* is the one quiet link
-/// beside it. The page's name, its age and "N more on this page" are the question's hover and accessibility hint, not a
-/// second line of small grey type, and *All N questions* is gone (Answer lands in the list).
+/// The lead question (ROR-118, rounds 1, 4 and 5): the page's picture (DR-48: a face, logo or initials, opening the page;
+/// nothing when it has none, never a type glyph), the question in 15 pt medium, and under it the one next act. Round 5:
+/// *Answer* is the page's one accent primary (DR-5 (2), DR-40; neutral while Getting started's read pill is up) opening
+/// the question in the Inbox's list, where the rest wait; *Catch me up* is a compact neutral button beside it. The
+/// page's name, its age and "N more on this page" are the question's hover and accessibility hint, not a second line of
+/// small grey type, and *All N questions* is gone (Answer lands in the list).
 struct LeadQuestionCard: View {
     let row: HomeQuestions.Row
     /// The page has something to draw (`HomeQuestions.reservesPicture`): with none, the card has no slot for it and its
@@ -499,7 +499,7 @@ struct LeadQuestionCard: View {
                         NeutralButton(title: Copy.Catchup.answer, help: help, action: open)
                     }
                     if !catchUp.isEmpty {
-                        NeutralButton(title: Copy.Catchup.title,
+                        NeutralButton(title: Copy.Catchup.title, size: .compact,
                                       help: Copy.Catchup.blockLine(questions: catchUp.count, pages: pages)) {
                             startCatchup(catchUp)
                         }
