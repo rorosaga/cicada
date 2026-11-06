@@ -3964,6 +3964,16 @@ A whole row moves to DONE only after its remaining implementation and required a
     `why != "plan"`); each is a one-line change, costed in G237. Changed-source reads need no engine at all (`source_refresh`).
     **Not yet proved:** no call has reached the real API; G237 names the one small run that does. **Revisit** if that run
     differs from the plan's own spread on pages, claims or spans, or if the first real 429 does not read as designed.
+72. **Closed lid is a beta, off by default, behind an admin step the person runs (owner, 2026-11-06, G243 part 3).** On the
+    Insomnia findings: "Cicada shouldn't run with the lid closed. And maybe it can be, or maybe it could just be a beta
+    feature. But I agree we should have some safety nets, have a warning also whenever you toggle it on." (a) A beta
+    toggle beside the keep-awake switch, off by default, never on without keep-awake. (b) Turning it on shows a plain
+    warning EVERY time (heat, battery, never in a bag, an admin step, any program running as the person could use it, the
+    one removal); the server refuses an on without the acknowledgement in the same body. (c) The admin step is one command
+    the person runs in Terminal — Cicada never runs `sudo` to install, a sudoers rule for exactly `pmset -a disablesleep 1`
+    and `0`. (d) Only on power, only for the length of a run, read back that it took, restored at the end and by a launchd
+    agent if the app or backend dies, battery (20%) and heat floors. Revisit on the first real lid test or any wish to
+    widen the rule. *Not built:* dimming the panel; waking a sleeping Mac (part 2, still needs root).
 60. **A confident sensitive hit is held back from the engine; an unsure one is reported (owner 2026-11-04, G235).** Asked
     "hold back confident hits and only report unsure ones", the owner: "Yes hold them back." Before any engine read,
     `sensitive_text` finds likely credentials, card and bank numbers and ID numbers with no model. Confident
