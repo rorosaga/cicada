@@ -42,6 +42,12 @@ struct SourceAddOverlay: View {
                     .frame(width: CicadaTheme.scaled(260))
                 ScrollView { list.padding(.bottom, CicadaTheme.spacingMD) }
                     .scrollBounceBehavior(.basedOnSize)
+                    // The list runs on under the panel's edge: it fades there instead of being cut mid-row.
+                    .mask(VStack(spacing: 0) {
+                        Rectangle()
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: CicadaTheme.scaled(28))
+                    })
             }
             .padding(CicadaTheme.spacingXL)
             .frame(maxWidth: CicadaTheme.scaled(760), maxHeight: CicadaTheme.scaled(680), alignment: .topLeading)

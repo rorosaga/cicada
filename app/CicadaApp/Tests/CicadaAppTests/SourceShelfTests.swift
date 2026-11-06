@@ -20,6 +20,11 @@ final class SourceShelfTests: XCTestCase {
         XCTAssertEqual(SourceAddOverlay.yoursColumns(0), 1)
     }
 
+    func testAKindWithThreeThingsToAddDrawsThemCardWide() {
+        XCTAssertEqual([0, 1, 3].map { SourceShelfLayout.tileSpan(addable: $0) }, [2, 2, 2])
+        XCTAssertEqual([4, 5, 9].map { SourceShelfLayout.tileSpan(addable: $0) }, [1, 1, 1])
+    }
+
     func testEveryCatalogueEntryHasOneKindAndNoVendorMakesAKind() {
         let all = rows()
         XCTAssertEqual(Set(all.map(\.entry.shelf)), Set(SourceShelf.allCases), "all six kinds hold something")

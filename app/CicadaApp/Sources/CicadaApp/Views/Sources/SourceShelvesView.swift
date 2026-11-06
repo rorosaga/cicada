@@ -15,6 +15,10 @@ enum SourceShelfLayout {
     }
 
     /// Tiles: 6 across on a wide page, the old page's grid; a connected card is two tiles wide.
+    /// A kind with three or fewer things to add draws them card-wide, so the row runs the page's width under the cards
+    /// above it and no right half is left empty; four or more stay one tile each.
+    static func tileSpan(addable: Int) -> Int { addable <= 3 ? 2 : 1 }
+
     static let tileMinWidth: CGFloat = 180
     static let gap: CGFloat = 12
 }
@@ -150,7 +154,8 @@ struct SourceShelfSection: View {
             }
             if !shelf.addable.isEmpty {
                 EqualGridLayout(minTile: CicadaTheme.scaled(SourceShelfLayout.tileMinWidth),
-                                gap: CicadaTheme.scaled(SourceShelfLayout.gap), span: 1) {
+                                gap: CicadaTheme.scaled(SourceShelfLayout.gap),
+                                span: SourceShelfLayout.tileSpan(addable: shelf.addable.count)) {
                     ForEach(shelf.addable) { row in
                         SourceAddTile(row: row) { open(.entry(row.id)) }.id(SourcesSelection.entry(row.id))
                     }
@@ -183,6 +188,9 @@ struct SourceAddTile: View {
                     }
                 }
                 Spacer(minLength: 0)
+                // Not connected says so on the tile itself: a plus where a card has its dot and its time.
+                Image(systemName: "plus").font(CicadaTheme.icon(.inline))
+                    .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
             }
             .padding(CicadaTheme.scaled(10))
             .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(60), alignment: .leading)
@@ -190,7 +198,7 @@ struct SourceAddTile: View {
         }
         .buttonStyle(.cicadaPlain)
         .rowHover($hovering, selected: false, cornerRadius: CicadaTheme.cornerRadius)
-        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .overlay(CicadaTheme.shape(CicadaTheme.cornerRadius).strokeBorder(CicadaTheme.borderLight, lineWidth: 1))
         .help(row.entry.title)
         .accessibilityLabel(row.entry.title)
     }
