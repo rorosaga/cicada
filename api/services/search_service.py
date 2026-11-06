@@ -105,7 +105,7 @@ def rrf_scores(*ranked_lists: list[dict], k: int = RRF_K, key: Callable[[dict], 
     return scores, keep
 
 
-#: A page said most lately counts this much more in fused order than a quiet one (Rodrigo, 2026-11-06: what has come up
+#: A page said most lately counts this much more in fused order than a quiet one (owner, 2026-11-06: what has come up
 #: lately weighs more). It only reorders what the legs found, and confidence still ranks nothing. Rank scores are flat
 #: (1/61 v 1/68 within one leg), so this moves a page ahead of those one leg put first, not ahead of pages two legs agree on.
 LATELY_WEIGHT = 0.3
@@ -120,7 +120,7 @@ def lately_lift(lately: dict[str, float], named: Iterable[str]) -> dict[str, flo
 def rrf_fuse(*ranked_lists: list[dict], k: int = RRF_K, key: Callable[[dict], str | None] | None = None,
              lately: dict[str, float] | None = None) -> list[dict]:
     """Reciprocal-rank fusion: score(id) = Σ 1/(k + rank), first-seen hit kept, times ``1 + LATELY_WEIGHT x lately[id]``
-    with ``lately`` (:func:`page_use.lately`, :func:`lately_lift`).
+    with ``lately`` (:func:`page_use.lately_of`, :func:`lately_lift`).
 
     The one reciprocal-rank fusion: ``/search`` and MCP recall
     (``mcp_tools._rrf_fuse`` is this function, G140 Q-R1).
@@ -365,7 +365,7 @@ def _pages_kind(ctx: _Ctx, kind: str, lexical: list[_Page], claims: list["_Claim
     keys = [p.doc.ref for p in lexical]
     if ctx.legs is not None:
         order, scores = _fuse(keys, _dedupe(vec), via_claim)
-        lately = lately_lift(page_use.lately(ctx.memory_path), [p.doc.ref for p in lexical if p.label in ("name", "alias")])
+        lately = lately_lift(page_use.lately_of(ctx.memory_path, scores), [p.doc.ref for p in lexical if p.label in ("name", "alias")])
         scores = {ref: v * (1.0 + LATELY_WEIGHT * lately.get(ref, 0.0)) for ref, v in scores.items()}
         order = sorted(scores, key=lambda ref: -scores[ref])
     else:
