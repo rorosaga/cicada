@@ -1857,7 +1857,7 @@ rides on the extraction's result.
 naming that title applied it, dated as said, under the door's own commit. *Not right* reopened the earlier status.
 
 - **Choosing what goes in (2026-11-06).** Where several books arrive at once the person confirms all or picks some, and nothing is staged before: `POST /sources/goodreads/preview` also returns `items` (`id`, `title`, `author`, `status`), `POST /sources/goodreads/import` takes an optional `ids` form field (JSON list; omitted is every book, `[]` none, a malformed one 422). Apple Books is chosen in the app (`AppleBooksStore.partition`): a book memory has never accepted waits, a declined one is not asked again, an accepted one is kept current as before. Books already in are untouched. A scan is one explicit add and goes in at once.
-- **Goodreads through the person's own browser (ROR-128, ruling 70, 2026-11-06).** The first way in: the person turns on *Read
+- **Goodreads through the person's own browser (ROR-128, ruling 72, 2026-11-06).** The first way in: the person turns on *Read
   through your browser* (Sources → Goodreads; off until then, `saved_lists.PLATFORMS["goodreads"]`) and their own agent opens
   their shelves (Read, Currently Reading, Want to Read) in their own signed-in session, then reports the books through
   `cicada_record_saved_list(platform="goodreads", items=[{id, title, author, shelf, rating, date_read, date_added, review}])`.

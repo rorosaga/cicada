@@ -3,7 +3,7 @@
 Goodreads stopped issuing developer keys for its public API in December 2020 and has not reopened it; its pages sit
 behind sign-in and bot protection. So there is no connector: the way in is the export Goodreads itself offers its
 members (My Books → Import and export → Export Library, a ``goodreads_library_export.csv``), picked by the person in
-the app — the quiet second way since ROR-128 (ruling 70), after the person's own agent reading their shelves in their own
+the app — the quiet second way since ROR-128 (ruling 72), after the person's own agent reading their shelves in their own
 browser (``goodreads_waiting``). The backend never fetches a Goodreads page, signed in or not.
 
 The columns read (the export's own headers): ``Book Id``, ``Title``, ``Author``, ``Additional Authors``, ``ISBN``,

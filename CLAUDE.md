@@ -177,7 +177,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   page or they give a reason, never for a retrieval hit; one already read keeps what it made (`capture-and-sleep.md`).
 - **Books (G39, G233):** a scanned ISBN (`/capture/isbn`) resolves at the home behind the connector
   gate, cached outside every bank; Apple Books is read by the app once turned on; Goodreads through the person's own agent
-  and browser first, its export second (ruling 70); one `media` page per work across doors (identical title and authors join, a doubt asks; ruling 67; a door's rename follows, the person's stands; 69), status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
+  and browser first, its export second (ruling 72); one `media` page per work across doors (identical title and authors join, a doubt asks; ruling 67; a door's rename follows, the person's stands; 69), status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
   **Ruling 64:** each highlight and note is a claim word for word with no model (`book_marks`, gated like the person's own
   words); Sleep reads a marked book in one bounded chunk for what its marks share; an unmarked entry is never read.
   **Ruling 61:** the person's own located words in a conversation change a status too, judged by Stage 1 in context, never
@@ -456,7 +456,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (owner 2026-10-16, G71) the
   person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; their saved list on X, Instagram or LinkedIn the same way, one site at a time, ≤ 10 reads a day, each item an
   indexed save (G206, 2026-10-22, `mcp.md`) — and on Reddit, Pinterest or TikTok the same way, off by default until the
-  person turns it on (G232, 2026-11-04; Spotify and Goodreads too, ruling 70: a site's terms don't decide this, 2026-11-06); one person's
+  person turns it on (G232, 2026-11-04; Spotify and Goodreads too, ruling 72: a site's terms don't decide this, 2026-11-06); one person's
   LinkedIn profile only through the link their page lists, on the person's ask, ≤ 10 a day, stdio only (2026-10-16,
   `mcp.md`). Imported LinkedIn connections enrich existing people only, never mint a page. The backend never fetches a
   login-walled page. **Exploring saved sites (ruling 25):** only the person's click or a trusted local agent they asked

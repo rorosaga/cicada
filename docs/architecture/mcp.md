@@ -711,7 +711,7 @@ default** (review of #596): `list_defaults` never turns one of the three on — 
 `reading_settings.DEFAULT_ON_SAVED_LISTS` (X, Instagram, LinkedIn), since the app has no switch or onboarding row for
 them yet, so neither the consent nor the remembered off the 2026-10-26 default rests on exists; only the person's own
 `PUT /reading/settings` turns one on. The app follow-up that ships their switches may revisit the default.
-**Spotify and Goodreads join (ROR-128, ruling 70, owner 2026-11-06: a site's terms do not decide this).** Two more
+**Spotify and Goodreads join (ROR-128, ruling 72, owner 2026-11-06: a site's terms do not decide this).** Two more
 `saved_lists.PLATFORMS`, last in the offer's order, off by default (not in `DEFAULT_ON_SAVED_LISTS`), on the same consent,
 bound and tool. **Spotify** Library (`https://open.spotify.com/`, then Your Library: Liked Songs, each playlist, album and
 podcast; `spotify-saved` / `Library` — the export's origin, so an item the download brought in is the same row; an item must

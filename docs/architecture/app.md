@@ -2117,7 +2117,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   so" and *Not right* when a conversation set it (no *Not right* on a door's record; one line, no explanation). Not a
   Store domain: the card reads it on open and holds it in memory. The phone's scanner shows no cover: a capture-only device
   reads nothing from the home.
-  **Browser first (ROR-128, ruling 70):** the page's first way is *Read through your browser* (the saved-list switch, off
+  **Browser first (ROR-128, ruling 72):** the page's first way is *Read through your browser* (the saved-list switch, off
   until turned on, with the first-use sheet), the file way second; books the person's agent read wait in
   `GoodreadsWaitingList` (the same `BookChoiceList`, *Add all* / *Add N* / *Leave out*) above the file's own list. Spotify
   gets the same switch on its page.
