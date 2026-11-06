@@ -3710,6 +3710,31 @@ A whole row moves to DONE only after its remaining implementation and required a
    Podcasts and Pocket-style read-later (Pocket closed in 2025, so a file only), Notion's and Google's exports where the
    API is not offered, Facebook and Threads saved items, Strava/Fitbit-style activity exports, and chat exports (their own
    row, ROR-126). Each needs its page, its item shape and its own "never click" line before it joins; none is assumed.
+70. **A fact has its own relevance, apart from its page (owner, 2026-11-06; ROR-129, G66).** The owner accepted the
+    rule from the dry run, then rejected its word lists: "sleep consolidation should be able to say if something is
+    evergreen. Like, there should be flexibility on this." (a) A page's relevance and a fact's are separate. An
+    evergreen page never fades, asks or archives; its facts fade by their own class, **except on a media page**, where
+    they are artifacts. (b) **The class comes from the extraction model, per fact, in any language** (`fact_class` on a
+    relationship or a value: any of `evergreen|durable|active|volatile`); no word list decides it. This **amends "Stage 1
+    never proposes evergreen" for facts only** (a page keeps the rail), and the person can undo it. A fact with no class
+    uses its page's, and an evergreen page that is not media lends `active` (`decay_policy.fact_class`). (c) **"Keep this
+    fact"** is the person's word (`class_by: user`, `POST /entities/{id}/claims/{claim}/keep`): evergreen, at least 0.6,
+    undoable, never replaced by a model, and it does not hold its page up. (d) **Fading dims a fact and moves it to an
+    older part of the page** (`faded` on the claim wire, "Older, faded" in `cicada_get_perspective`); it is never closed
+    or hidden, and Ask, recall and agents read it as before ("Confidence does not rank recall" stands; the dry run's
+    stronger step lost 2 real answers in 10). (e) **Questions:** a page that never fades raises no "No recent mentions"
+    item, so Archive can never be offered about the owner's own page; a fact the model judged long-term (`durable`) and a
+    year unsaid asks about itself, "Is this still true: …", in the existing "still?" family (`still_questions`,
+    `long_term`), with Catch me up's budget and dedup. (f) **Ages count from when it was said:** the live path no longer
+    stamps the read day on a fact that never fades (its clock stays at when it was said), and a one-time reset charges
+    existing facts their real age (`api/scripts/reset_fact_clocks.py`; dry run by default; **written, not applied**).
+    (g) **Git size, measured** on a synthetic 8,747-line ledger over 90 days: fading worked out on read writes nothing
+    (0.5 MB packed, the base) but every reader would need the formula and the stored value would drift; a nightly pass
+    9.8 MB packed (43.8 loose); a weekly pass 1.5 MB (6.3 loose). **Weekly won** for facts on a page that never fades
+    (`FACT_CHARGE_MIN_DAYS`): ruling 1 caps live silence at a week a pass, so the total charged is the same. Proven
+    silence is charged at once. **Trigger to revisit:** a measured wrong "evergreen" from the model on a real bank, or a
+    page that needs the weekly rule too (same measurement, other pages). *The dry run's report holds real text and
+    stays outside the repo.*
 
 69. **A rename at the source renames the thing in Cicada, for every source (owner, 2026-11-05; ROR-122).**
    The owner: "I think these two-way updates should be in all sources. So if a voice memo changes the name and stuff,
