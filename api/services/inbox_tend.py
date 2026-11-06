@@ -117,6 +117,10 @@ RULES: dict[str, str] = {
     "owner_unsaid": "Nothing you said names you that: it is not a question about you",
     "no_pair_evidence": "No conversation names the two together",
     "not_started": "It is not one of your projects",
+    "same_value": "The same value, said two ways",
+    "same_conversation": "One conversation gave these values, so it did not contradict itself: every value was kept",
+    "already_described": "Sleep already read what it is; nothing was changed",
+    "not_fading": "It is not fading any more; nothing was changed",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
 RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
@@ -124,7 +128,8 @@ RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
                          "multi_valued", "in_passing", "newest_words", "own_settings", "named_account",
-                         "owner_unsaid", "no_pair_evidence", "not_started"})
+                         "owner_unsaid", "no_pair_evidence", "not_started", "same_value", "same_conversation",
+                         "already_described", "not_fading"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
 MAX_REASON_CHARS = 160
@@ -425,6 +430,13 @@ def _shipped_fold(raw: str, canonical: str) -> bool:
                               for k, v in synonyms.items() if isinstance(synonyms, dict))
 
 
+def _confidence(fm: dict) -> float:
+    try:
+        return float(fm.get("confidence"))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _decay_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
     from api.services import decay_policy
     from api.services.claims import MalformedClaimsBlockError, parse_claims
@@ -433,6 +445,13 @@ def _decay_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | N
     if page is None:
         return None, "judgement"
     _path, pfm, body = page
+    from api.services.age_recompute import NUDGE_THRESHOLD
+
+    if str(pfm.get("status") or "") == "active" and _confidence(pfm) >= NUDGE_THRESHOLD:
+        # The question asks whether something fading still matters; a later mention already lifted it back over the
+        # line a decay question needs. Retired, no claim and no confidence touched: it raises again if it fades again.
+        return Decision(item_id, "decay", "not_fading", None, answer="Not fading any more",
+                        guard=_guard(memory_path, _path.stem)), ""
     if _type_of(pfm) not in ONE_OFF_TYPES or _is_owner_page(pfm):
         return None, "judgement"   # the person's projects, skills, people and places stay theirs
     cls, _rate = decay_policy.resolve(pfm)
@@ -537,6 +556,10 @@ def _conflict_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision 
         # that does not exist. The resolver's own "informational" dismiss closes nothing.
         return Decision(item_id, "conflict", "multi_valued", {"action": "dismiss"}, answer="Kept every value",
                         guard=_guard(memory_path, page[0].stem)), ""
+    if predicate.startswith("value-of-"):
+        decided = _value_rule(memory_path, item_id, fm, predicate, page)
+        if decided is not None:
+            return decided, ""
     if _is_owner_page(page[1]) or (_type_of(page[1]) == "person"
                                    and predicate in ("is-a", "type", "kind", "name", "description")):
         return None, "person"
@@ -578,6 +601,86 @@ def _conflict_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision 
     return Decision(item_id, "conflict", "newest_evidence",
                     {"action": "resolve", "option_key": str(newest[0].get("key"))},
                     answer=str(newest[0].get("label") or ""), guard=_guard(memory_path, page[0].stem)), ""
+
+
+_EPISODE_IN_WORDS = re.compile(r"\bep_[\w-]+")
+_CHANGES_OVER_TIME = re.compile(r"(?:^|-)(?:status|state)(?:-|$)")
+
+
+def _option_episodes(option: dict, claim) -> set[str]:
+    """Which conversations said an offered value. An option older than its `source_episode` field names it in words."""
+    found = set(claim.source_episodes or []) if claim is not None else set()
+    if option.get("source_episode"):
+        found.add(str(option["source_episode"]))
+    found.update(_EPISODE_IN_WORDS.findall(str(option.get("description") or "")))
+    return found
+
+
+def _value_rule(memory_path: Path, item_id: str, fm: dict, predicate: str, page) -> Decision | None:
+    """A value conflict that is not a contradiction (question audit A8, A9). Closes no value it has not already said
+    again: the same value said two ways keeps the fuller wording (the page's own when it rests on the person's words);
+    one conversation's values all stay, because a conversation does not contradict itself. A status is left out: one
+    conversation can hold its before and after, and there the person's answer says which is current."""
+    from api.services import value_words
+    from api.services.claims import MalformedClaimsBlockError, parse_claims
+
+    try:
+        claims = {c.id: c for c in parse_claims(page[2], strict=True)}
+    except MalformedClaimsBlockError:
+        return None
+    options = [o for o in inbox_questions.normalize_options(fm.get("options"))
+               if str(o.get("key")) not in _GENERIC_KEYS and str(o.get("label") or "").strip()]
+    if len(options) < 2:
+        return None
+    on_page = {str(o.get("key")): claims.get(str(o.get("claim_id") or "")) for o in options}
+    if any(c is not None and c.valid_to is not None for c in on_page.values()):
+        return None
+    guard = _guard(memory_path, page[0].stem)
+    labels = [str(o["label"]) for o in options]
+    if value_words.same_value(labels):
+        mine = next((o for o in options if on_page[str(o["key"])] is not None
+                     and persons_words(on_page[str(o["key"])])), None)
+        kept = mine or max(options, key=lambda o: (len(value_words.fold(o["label"])),
+                                                   on_page[str(o["key"])] is not None))
+        return Decision(item_id, "conflict", "same_value", {"action": "resolve", "option_key": str(kept["key"])},
+                        answer=str(kept["label"]), guard=guard)
+    if _CHANGES_OVER_TIME.search(predicate):
+        return None
+    episodes = [_option_episodes(o, on_page[str(o["key"])]) for o in options]
+    if all(episodes) and set.intersection(*episodes):
+        return Decision(item_id, "conflict", "same_conversation", {"action": "resolve", "option_key": "both"},
+                        answer="Kept every value", guard=guard)
+    return None
+
+
+#: The words a Stage 1 reading uses when it does not actually know what a name is: then the question is a real one.
+_ADMITS_NOT_KNOWING = re.compile(
+    r"(?i)\b(?:does(?: not|n't) (?:say|state|describe|explain|give|specify|identify|name)|gives? no|no (?:further |other )?"
+    r"(?:detail|context|description|explanation)|unclear|not clear|not known|unknown|unnamed|its nature)\b")
+_NOT_ASKED_ABOUT_TYPE = frozenset({"person", ""})
+_TYPE_QUESTIONS = frozenset({"Insufficient context to classify", "Ambiguous type or role"})
+
+
+def already_described(memory_path: Path, item_id: str, fm: dict) -> Decision | None:
+    """"Who or what is <name>?" asked only because Stage 1 was unsure of a type, on a name it did describe (question
+    audit C1, C3). Retired with nothing written: the description stays in the settled record and the pending store, and
+    what the name is stays where it was. Never a person, a relation, or a question asked on purpose."""
+    from api.services import role_people
+
+    if (str(fm.get("asks") or "") or fm.get("owner_role") or fm.get("why_asked")
+            or str(fm.get("uncertainty_type") or "") == role_people.UNCERTAINTY):
+        return None
+    if str(fm.get("uncertainty_type") or "") not in _TYPE_QUESTIONS:
+        return None
+    typ, _, words = str(fm.get("suggested_classification") or "").partition("—")
+    typ, words = _type_of({}, typ.strip()), words.strip()
+    page = _page(memory_path, str(fm.get("entity_id") or ""))
+    if page is not None and (_type_of(page[1]) in _NOT_ASKED_ABOUT_TYPE or _is_owner_page(page[1])):
+        return None
+    if typ in _NOT_ASKED_ABOUT_TYPE or not words or _ADMITS_NOT_KNOWING.search(words):
+        return None
+    return Decision(item_id, "clarification", "already_described", None, answer="Sleep already read what it is",
+                    guard=_guard(memory_path, str(fm.get("entity_id") or "")))
 
 
 def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None) -> tuple[Decision | None, str]:
@@ -630,7 +733,12 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
     if kind == "conflict":
         return _conflict_rule(memory_path, item_id, fm)
     if kind == "clarification":
-        return passing_rule(memory_path, item_id, fm)
+        decided, why = passing_rule(memory_path, item_id, fm)
+        if decided is None:
+            described = already_described(memory_path, item_id, fm)
+            if described is not None:
+                return described, ""
+        return decided, why
     return None, "needs_person"
 
 
