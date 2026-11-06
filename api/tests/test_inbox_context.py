@@ -215,7 +215,8 @@ def test_item_from_file_without_context_keeps_the_legacy_shape(memory):
 
 def test_cardinality_unions_the_runtime_map_and_the_seed_with_multi_winning(tmp_path):
     assert predicates.cardinality(tmp_path, "uses") == "multi"          # seed, no runtime map
-    assert predicates.cardinality(tmp_path, "part-of") == "single"
+    assert predicates.cardinality(tmp_path, "takes-place-in") == "single"
+    assert predicates.cardinality(tmp_path, "part-of") == "multi"           # 2026-11-06: a part may be in several wholes
     assert predicates.cardinality(tmp_path, "works-at") == "multi"          # 2026-10-14
     assert predicates.cardinality(tmp_path, "description") == "unknown"
     assert predicates.cardinality(None, "uses") == "multi"

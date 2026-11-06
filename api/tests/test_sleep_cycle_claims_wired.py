@@ -145,7 +145,7 @@ def test_live_cycle_trust_invariant_agent_cannot_close_human(tmp_path, monkeypat
     # Pre-seed an EXISTING human claim on rodrigo's page (single-valued part-of; works-at coexists, 2026-10-14).
     human = Claim(
         id="clm_human_employer", text="Rodrigo part of acme", subject="rodrigo",
-        predicate="part-of", object="acme", observer="agent", context="general",
+        predicate="takes-place-in", object="acme", observer="agent", context="general",
         source_trust="user_stated", origin="clarification", valid_from="2026-06-01",
         confidence=0.95,
     )
@@ -161,7 +161,7 @@ def test_live_cycle_trust_invariant_agent_cannot_close_human(tmp_path, monkeypat
         "origin": "claude-code",
         "entities": [],
         "relationships": [{
-            "source": "Rodrigo", "target": "globex", "label": "part of",
+            "source": "Rodrigo", "target": "globex", "label": "takes place in",
             "source_episode": "ep_2026-06-17_001",
             "source_episode_timestamp": "2026-06-17T10:00:00",
         }],

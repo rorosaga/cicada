@@ -284,17 +284,17 @@ def _open(bank: Path, eid: str) -> list[tuple[str, str, str]]:
 
 
 def _reconcile_fixture(bank: Path) -> None:
-    """``alex-kim`` already holds ``mentors mira-quell`` and ``part-of alpha-team`` (single-valued); the held line
-    restates the first and says ``part-of beta-team``."""
+    """``alex-kim`` already holds ``mentors mira-quell`` and ``takes-place-in alpha-team`` (single-valued); the held line
+    restates the first and says ``takes-place-in beta-team``."""
     from api.services.claims import write_claims
 
     page = bank / "entities" / "alex-kim.md"
     parsed = markdown_parser.parse(page)
     direct = [Claim(id=f"clm_direct_{n}", text=f"alex-kim {p} {o}", subject="alex-kim", predicate=p, object=o,
                     valid_from="2026-09-01", recorded_at="2026-09-01", source_episodes=["ep_2026-09-01_001"])
-              for n, (p, o) in enumerate((("mentors", "mira-quell"), ("part-of", "alpha-team")), 1)]
+              for n, (p, o) in enumerate((("mentors", "mira-quell"), ("takes-place-in", "alpha-team")), 1)]
     markdown_parser.write(page, parsed.frontmatter, write_claims(parsed.body, direct))
-    _line(bank, "Alex", "alex", [_held("alex", "part-of", "beta-team", 6, EP2)])   # carried onto the line
+    _line(bank, "Alex", "alex", [_held("alex", "takes-place-in", "beta-team", 6, EP2)])   # carried onto the line
     _commit(bank, "a page that already says things")
 
 
@@ -308,7 +308,7 @@ def test_released_claims_meet_stage_3_like_stage_2s_release(bank, tmp_path):
     _answer(bank, "inbox-001", action="merge", merge_target="alex-kim")
     answered = _open(bank, "alex-kim")
     assert answered.count(("alex-kim", "mentors", "mira-quell")) == 1, "a restatement is reinforced, not doubled"
-    assert [o for _s, p, o in answered if p == "part-of"] == ["beta-team"], "single-valued: one open part-of"
+    assert [o for _s, p, o in answered if p == "takes-place-in"] == ["beta-team"], "single-valued: one open takes-place-in"
 
     # The same line released by Stage 2 on the same bank leaves the same open claims.
     settings = type("S", (), {"memory_path": copy, "litellm_model": "m", "archive_threshold": 0.2,
