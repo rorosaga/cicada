@@ -13,7 +13,7 @@ import subprocess
 
 import pytest
 
-from api.services import (ask_service, bank_index, bank_registry, evidence, markdown_parser, mcp_tools, search_index,
+from api.services import (ask_service, engine_select, bank_index, bank_registry, evidence, markdown_parser, mcp_tools, search_index,
                           section_provenance)
 from api.services.claims import Claim, Evidence, write_claims
 
@@ -156,6 +156,11 @@ def test_the_remote_door_without_sources_asks_without_conversation_words(bank, m
         return {"answer": "a", "confidence": 0.5, "citations": [], "gaps": [], "used_entities": []}
 
     monkeypatch.setattr(ask_service, "answer_query", fake_answer)
+
+    async def resolved(settings, *a, **kw):   # the direct path resolves the engine; no plan is probed in a test
+        return settings, "test"
+
+    monkeypatch.setattr(engine_select, "resolve_settings", resolved)
     ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="s", harness="claude-code",
                                 backend_url="http://127.0.0.1:9", connector_id="rc_x", raw_excerpts=False)
     mcp_tools.ask(ctx, "What does Alice's necklace symbolize?")

@@ -3321,7 +3321,10 @@ frame's continuous corner, DR-12), or **no mark at all** while it isn't on this 
 2026-10-28 "a page with no picture draws none" ruling, #512). No folds (DR-81): the group counts exactly what the server
 gave (it serves only what clears its floor), so it never offers a "More…" that fetches nothing. ⏎ opens the file in the app's viewer (`MediaSheet`, ROR-117, below) from where
 this Mac last saw it (`MediaFilePlaces`, the app's own record; the backend never has a path), at the hit's second; ⌥⏎ shows it in Finder. Other pictures (looks, previews, stills) are not in the palette yet. Ask is a mode (⌘⏎) hosting the `AskPanel` body — the one place the app draws an Ask answer (the palette
-and Home's field both host it). Under the page sources (chips, then each page's evidence chips) it lists **From
+and Home's field both host it). **When the engine did not answer (G148, 2026-11-06)** `failure` is set and `answer` is the one
+sentence (what happened, what to do, when it resets if known): it shows in the warning banner with no confidence meter and no
+"I don't know", the page sources stay, and it is not pushed to Recent; a request that failed shows a sentence too, never a
+status code or raw body (`AskViewModel.describe`), and `APIClient.ask` waits 600 s, not URLSession's 60 s idle default. Under the page sources (chips, then each page's evidence chips) it lists **From
 conversations**: `POST /ask` `conversations` (2026-10-19), the conversations the answer used that no page cites. A row
 is a conversation glyph, the title ("A conversation" without one) and the day; the episode id only in `.help` (DR-54,
 DR-48, DR-34); a click opens it in the Reader from the top (`AskConversationRow.primary`, the target a Sleep page row

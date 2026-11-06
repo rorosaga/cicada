@@ -1714,6 +1714,22 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
 - **Cost.** On the benchmark bank the context build is ~20 ms (p95 ~30 ms, warm); the prompt grew from ~6–8k to
   ~8–17k characters. `api/tests/test_ask_source_words.py`.
 
+**Ask failure words (G148, 2026-11-06).** When Ask's model call raises, `ask_failure` sorts the exception with the
+classifiers Sleep uses (`engine_errors` classes, `agent_engine.limit_kind_of`, `engine_cause`, `sleep_drain.offline_cause`
+— no keyword list of its own) into a closed code and `answer` becomes one sentence: what happened, what to do, and when it
+resets only when the vendor gave the time (`plan_window`, `plan_weekly`, `overage`, `plan_limit`, `key_limit`,
+`rate_limited`, `key_refused`, `model_unknown`, `engine_unavailable`, `timeout`, `offline`; `no_engine` is told before a
+call). The retrieved pages are still named, confidence is 0, no figure or price appears (ruling 12), an exception's message
+never does (G199: class and code in the log only), and a named failure is not asked twice (the reply retry is for a reply
+that could not be read). A reply that could not be read twice, or an exception that names none of the codes, degrades as
+before (confidence 0.15, "could not synthesize"). **Wire (additive):** `POST /ask` carries `failure` (the code, or
+`unreadable`; absent on an answer) and `resetsAt` (unix seconds); `cicada_ask` and `/v1` carry the same words in the
+answer text. **The MCP tool's direct path** (backend down) resolves the engine as the route does
+(`engine_select.resolve_settings`, one `ask_service.scoped_llm_fn`): before this, the unresolved default Auto reached
+`key_missing`, which is true for an unresolved Auto, and a person with a signed-in plan was told there was no engine. A
+backend that takes the request and outlasts the wait (`ask_failure.ASK_WAIT_S`, 600 s, the engine's 300 s a call twice) is
+not answered again directly: the tool says Ask is still working, so the job runs once.
+
 **Ask grounding (G93/G118, 2026-10-07).** `/ask` and `cicada_ask` use the same
 validity-aware context. Each structured claim sent to synthesis has its id,
 observer/trust, current flag, start, close, stated end and successor; historical
