@@ -379,7 +379,7 @@ struct PageBeliefSentences: View {
     }
 }
 
-// MARK: Older facts (ROR-129, ruling 70)
+// MARK: Older facts (ROR-129, ruling 74)
 
 /// The facts that have faded, at the end of the article: quiet text in the tertiary ink, newest as the server sent
 /// them, never a fold (DR-81), never closed or hidden — Ask, recall and agents still read them as before. Each sentence
