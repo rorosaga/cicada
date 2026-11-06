@@ -282,7 +282,7 @@ def test_sources_items_carry_origin_and_folder(client, bank):
 
 
 def test_a_publications_episodes_and_count_leave_rss_for_its_own_row(bank):
-    """G89 (owner 2026-11-05): every feed Substack, RSS holds nothing and draws no row; each episode counts once."""
+    """G89 (owner 2026-11-05): a publication's episodes count on its own row, once, and never on RSS."""
     url = "https://alpha.substack.com/feed"
     feed_registry.subscribe_feed(bank, url, [])
     post = "https://alpha.substack.com/p/one"
@@ -298,10 +298,11 @@ def test_a_publications_episodes_and_count_leave_rss_for_its_own_row(bank):
     channels = channel_registry.build_channels(bank, telegram_enabled=False, connectors_connected={},
                                                feed_fetch_allowed=True)
     by_id = {c["id"]: c for c in channels}
-    assert by_id["rss"]["count"] == 0 and by_id["rss"]["connected"] is False
+    # ROR-138 (owner 2026-11-06): a Substack publication is followed through its public feed, so RSS lists it too.
+    assert by_id["rss"]["count"] == 1 and by_id["rss"]["connected"] is True
     assert by_id["substack-feeds"]["count"] == 1 and by_id["substack-feeds"]["connected"] is True
     rows = {r["id"]: r for r in source_overview.build_overview(bank, channels=channels)}
-    assert "rss" not in rows
+    assert rows["rss"]["episodes"] == 0, "each episode counts once"
     assert rows["substack-feeds"]["episodes"] == 1 and rows["substack-feeds"]["items"] == 1
 
 
