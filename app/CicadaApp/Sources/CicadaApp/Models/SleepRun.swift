@@ -211,11 +211,14 @@ struct SleepRunOptions: Codable, Equatable {
     var scheduledUsePlan: Bool
     /// ROR-102: a run on a key stops at this figure; `nil` is the person's off.
     var spendLimitUsd: Double?
+    /// G243: hold the Mac awake while Sleep reads, on power only. Off by default; an older server has no such field.
+    var keepAwake: Bool
 
     init(batchSize: Int = 25, batchSizeChoices: [Int] = [10, 25, 50], continueAfterReset: Bool = false,
          reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30], scheduledUsePlan: Bool = true,
-         spendLimitUsd: Double? = 5) {
+         spendLimitUsd: Double? = 5, keepAwake: Bool = false) {
         self.spendLimitUsd = spendLimitUsd
+        self.keepAwake = keepAwake
         self.batchSize = batchSize; self.batchSizeChoices = batchSizeChoices
         self.continueAfterReset = continueAfterReset; self.reservePct = reservePct; self.reserveChoices = reserveChoices
         self.scheduledUsePlan = scheduledUsePlan
@@ -231,9 +234,10 @@ struct SleepRunOptions: Codable, Equatable {
         // An older server has no such switch: its scheduled runs never used a plan.
         scheduledUsePlan = ((try? c.decodeIfPresent(Bool.self, forKey: .scheduledUsePlan)) ?? nil) ?? false
         spendLimitUsd = (try? c.decodeIfPresent(Double.self, forKey: .spendLimitUsd)) ?? nil
+        keepAwake = ((try? c.decodeIfPresent(Bool.self, forKey: .keepAwake)) ?? nil) ?? false
     }
     enum CodingKeys: String, CodingKey {
-        case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices, scheduledUsePlan, spendLimitUsd
+        case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices, scheduledUsePlan, spendLimitUsd, keepAwake
     }
 }
 
@@ -247,6 +251,8 @@ enum SleepRunOptionsChange: Equatable {
     case scheduledUsePlan(Bool)
     /// ROR-102: the spending limit; `nil` is off.
     case spendLimitUsd(Double?)
+    /// G243: keep the Mac awake while Sleep reads (on power).
+    case keepAwake(Bool)
 
     var body: [String: Any] {
         switch self {
@@ -255,6 +261,7 @@ enum SleepRunOptionsChange: Equatable {
         case .reservePct(let pct): ["reservePct": pct.map { $0 as Any } ?? NSNull()]
         case .spendLimitUsd(let usd): ["spendLimitUsd": usd.map { $0 as Any } ?? NSNull()]
         case .scheduledUsePlan(let on): ["scheduledUsePlan": on]
+        case .keepAwake(let on): ["keepAwake": on]
         }
     }
 }
