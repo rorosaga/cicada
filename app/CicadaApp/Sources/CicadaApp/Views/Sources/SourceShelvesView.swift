@@ -68,6 +68,58 @@ private struct EqualGridLayout: Layout {
     }
 }
 
+/// A kind with one connected card and a few things to add: the card on the left, the tiles beside and under it in the
+/// card's own columns (card-wide each), so the card is never alone on a row with two thirds of the page empty. Same tile
+/// columns as `EqualGridLayout` (a card and a tile never stagger); the tile rows split the card's height between them, so
+/// the block is as tall as the card and no taller. The first subview is the card, the rest are tiles.
+private struct BentoLayout: Layout {
+    let minTile: CGFloat
+    let gap: CGFloat
+    let tileHeight: CGFloat
+
+    private func perRow(_ width: CGFloat) -> Int { max(2, Int((width + gap) / (minTile + gap)) / 2 * 2) / 2 }
+
+    private struct Plan { let cell: CGFloat; let cardRows: Int; let rowHeight: CGFloat; let height: CGFloat; let slots: [(Int, Int)] }
+
+    private func plan(_ width: CGFloat, _ subviews: Subviews) -> Plan {
+        let n = perRow(width)
+        let cell = (width - gap * CGFloat(n - 1)) / CGFloat(n)
+        let cardH = subviews.first?.sizeThatFits(.init(width: cell, height: nil)).height ?? 0
+        let tiles = max(0, subviews.count - 1)
+        let cardRows = max(1, Int(((cardH + gap) / (tileHeight + gap)).rounded(.up)))
+        // Slots in reading order: beside the card first, then full rows under it.
+        var slots: [(Int, Int)] = []
+        var row = 0
+        while slots.count < tiles {
+            for col in (row < cardRows ? 1 : 0)..<n where slots.count < tiles { slots.append((row, col)) }
+            row += 1
+        }
+        let rows = max(cardRows, row)
+        let rowHeight = max(tileHeight, (cardH - gap * CGFloat(cardRows - 1)) / CGFloat(cardRows))
+        return Plan(cell: cell, cardRows: cardRows, rowHeight: rowHeight,
+                    height: rowHeight * CGFloat(rows) + gap * CGFloat(rows - 1), slots: slots)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? minTile * 2 + gap
+        return CGSize(width: width, height: plan(width, subviews).height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let p = plan(bounds.width, subviews)
+        let step = p.cell + gap
+        if let card = subviews.first {
+            let cardH = p.rowHeight * CGFloat(p.cardRows) + gap * CGFloat(p.cardRows - 1)
+            card.place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: p.cell, height: cardH))
+        }
+        for (i, slot) in p.slots.enumerated() {
+            subviews[i + 1].place(at: CGPoint(x: bounds.minX + CGFloat(slot.1) * step,
+                                              y: bounds.minY + CGFloat(slot.0) * (p.rowHeight + gap)),
+                                  anchor: .topLeading, proposal: .init(width: p.cell, height: p.rowHeight))
+        }
+    }
+}
+
 struct SourceShelvesView: View {
     let rows: [SourceCatalogRow]
     let open: (SourcesSelection) -> Void
@@ -143,25 +195,37 @@ struct SourceShelfSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             SectionLabel(shelf.shelf.title)
-            if !shelf.connected.isEmpty {
-                EqualGridLayout(minTile: CicadaTheme.scaled(SourceShelfLayout.tileMinWidth),
-                                gap: CicadaTheme.scaled(SourceShelfLayout.gap), span: 2) {
-                    ForEach(shelf.connected) { row in
-                        SourceShelfRow(row: row, shelf: shelf.shelf, now: now) { open(.entry(row.id)) }
-                            .id(SourcesSelection.entry(row.id))
-                    }
-                }
-            }
-            if !shelf.addable.isEmpty {
-                EqualGridLayout(minTile: CicadaTheme.scaled(SourceShelfLayout.tileMinWidth),
-                                gap: CicadaTheme.scaled(SourceShelfLayout.gap),
-                                span: SourceShelfLayout.tileSpan(addable: shelf.addable.count)) {
+            if shelf.connected.count == 1, !shelf.addable.isEmpty, SourceShelfLayout.tileSpan(addable: shelf.addable.count) == 2 {
+                BentoLayout(minTile: CicadaTheme.scaled(SourceShelfLayout.tileMinWidth),
+                            gap: CicadaTheme.scaled(SourceShelfLayout.gap), tileHeight: CicadaTheme.scaled(60)) {
+                    card(shelf.connected[0])
                     ForEach(shelf.addable) { row in
                         SourceAddTile(row: row) { open(.entry(row.id)) }.id(SourcesSelection.entry(row.id))
                     }
                 }
+            } else {
+                if !shelf.connected.isEmpty {
+                    EqualGridLayout(minTile: CicadaTheme.scaled(SourceShelfLayout.tileMinWidth),
+                                    gap: CicadaTheme.scaled(SourceShelfLayout.gap), span: 2) {
+                        ForEach(shelf.connected) { row in card(row) }
+                    }
+                }
+                if !shelf.addable.isEmpty {
+                    EqualGridLayout(minTile: CicadaTheme.scaled(SourceShelfLayout.tileMinWidth),
+                                    gap: CicadaTheme.scaled(SourceShelfLayout.gap),
+                                    span: SourceShelfLayout.tileSpan(addable: shelf.addable.count)) {
+                        ForEach(shelf.addable) { row in
+                            SourceAddTile(row: row) { open(.entry(row.id)) }.id(SourcesSelection.entry(row.id))
+                        }
+                    }
+                }
             }
         }
+    }
+
+    private func card(_ row: SourceCatalogRow) -> some View {
+        SourceShelfRow(row: row, shelf: shelf.shelf, now: now) { open(.entry(row.id)) }
+            .id(SourcesSelection.entry(row.id))
     }
 }
 

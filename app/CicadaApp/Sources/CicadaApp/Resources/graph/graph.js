@@ -2291,6 +2291,11 @@ function drawEdgeLabels(focusActive) {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
+    // Collect first, then draw greedily: the edges touching the hovered node win their place, then the focus
+    // neighbourhood, then the rest; a label whose plate would overlap one already placed is left out, so two labels
+    // never print over each other (parallel edges share a midpoint, a hub's edges crowd one). Hovering a node brings
+    // its own back.
+    const cands = [];
     for (const l of visibleLinks) {
         const src = l.source;
         const tgt = l.target;
@@ -2302,26 +2307,32 @@ function drawEdgeLabels(focusActive) {
 
         const touchesHover = hoveredNode &&
             (src.id === hoveredNode.id || tgt.id === hoveredNode.id);
+        const rank = touchesHover ? 0 : inFocus ? 1 : 2;
+        cands.push({ l, src, tgt, rank, alpha: (touchesHover || inFocus) ? 0.85 : 0.3 });
+    }
+    cands.sort((a, b) => a.rank - b.rank);
 
-        let alpha = 0.3;
-        if (touchesHover || inFocus) alpha = 0.85;
+    const placed = [];
+    const gap = 2 / k;
+    const padX = 3 / k;
+    const padY = 2 / k;
+    const boxH = fontSize + padY * 2;
+    for (const c of cands) {
+        const mx = (c.src.x + c.tgt.x) / 2;
+        const my = (c.src.y + c.tgt.y) / 2;
+        const boxW = ctx.measureText(c.l.label).width + padX * 2;
+        const x0 = mx - boxW / 2 - gap, x1 = mx + boxW / 2 + gap;
+        const y0 = my - boxH / 2 - gap, y1 = my + boxH / 2 + gap;
+        if (placed.some(b => x0 < b[2] && x1 > b[0] && y0 < b[3] && y1 > b[1])) continue;
+        placed.push([x0, y0, x1, y1]);
 
-        const mx = (src.x + tgt.x) / 2;
-        const my = (src.y + tgt.y) / 2;
-
-        const metrics = ctx.measureText(l.label);
-        const padX = 3 / k;
-        const padY = 2 / k;
-        const boxW = metrics.width + padX * 2;
-        const boxH = fontSize + padY * 2;
-
-        ctx.globalAlpha = alpha * 0.7;
+        ctx.globalAlpha = c.alpha * 0.7;
         ctx.fillStyle = PALETTE.plate;
         ctx.fillRect(mx - boxW / 2, my - boxH / 2, boxW, boxH);
 
-        ctx.globalAlpha = alpha;
+        ctx.globalAlpha = c.alpha;
         ctx.fillStyle = PALETTE.plateText;
-        ctx.fillText(l.label, mx, my);
+        ctx.fillText(c.l.label, mx, my);
     }
     ctx.globalAlpha = 1;
 }
