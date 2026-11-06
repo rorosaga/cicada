@@ -24,6 +24,7 @@ import SwiftUI
 /// cell's accessibility label and hint are its text twin.
 struct NavRail: View {
     @Binding var selectedTab: AppTab
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let labelled: Bool
     var inboxCount: Int
     var isSleeping: Bool
@@ -69,7 +70,12 @@ struct NavRail: View {
             if RailReselect.isReselect(current: selectedTab, tapped: tab) {
                 router?.reselect(tab, byKey: NSEvent.modifierFlags.contains(.command))
             }
-            selectedTab = tab
+            // ROR snappy: a click fades the page (`pageFade`); the key holds ⌘ and lands in one frame (DR-60).
+            if NSEvent.modifierFlags.contains(.command) {
+                Instant.run { selectedTab = tab }
+            } else {
+                withAnimation(CicadaMotion.pageFade(reduceMotion: reduceMotion)) { selectedTab = tab }
+            }
             // ⌘ map A — the key and the click share this action; only the key holds ⌘ while it runs.
             if FeedMovedHint.shouldShow(tab: tab, commandHeld: NSEvent.modifierFlags.contains(.command),
                                         alreadyShown: feedMovedHintShown) {

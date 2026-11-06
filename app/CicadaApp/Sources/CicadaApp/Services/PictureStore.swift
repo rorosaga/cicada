@@ -27,12 +27,21 @@ actor PictureStore {
         self.fetch = fetch
     }
 
-    private func key(_ url: PictureURL, _ bank: String) -> String { "\(bank)|\(url.cacheKey)" }
+    nonisolated private func key(_ url: PictureURL, _ bank: String) -> String { "\(bank)|\(url.cacheKey)" }
 
-    private func fileURL(_ key: String, bank: String) -> URL {
+    nonisolated private func fileURL(_ key: String, bank: String) -> URL {
         let digest = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
         return root.appendingPathComponent(bank.replacingOccurrences(of: "/", with: "_"), isDirectory: true)
             .appendingPathComponent("\(digest.prefix(32)).img")
+    }
+
+    /// ROR snappy — the disk copy into `ImageMemory` with no network and no actor hop, for a background prefetch.
+    /// A picture not on disk is left alone (the avatar's own `.task` fetches it).
+    nonisolated func warm(_ url: PictureURL, bank: String) {
+        let k = key(url, bank)
+        guard ImageMemory.pictures.image(k) == nil,
+              let data = try? Data(contentsOf: fileURL(k, bank: bank)), let image = NSImage(data: data) else { return }
+        ImageMemory.pictures.set(k, image)
     }
 
     func image(_ url: PictureURL, bank: String) async -> NSImage? {

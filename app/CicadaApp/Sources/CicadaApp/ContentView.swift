@@ -622,6 +622,7 @@ struct ContentView: View {
                 .accessibilityHidden(selectedTab != .graph)
             if selectedTab != .graph {
                 otherTabContent
+                    .transition(.opacity)   // ROR snappy: the rail's click fades pages (`pageFade`); a key is `Instant`
             }
         }
     }

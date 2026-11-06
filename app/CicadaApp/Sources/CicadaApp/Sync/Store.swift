@@ -335,6 +335,7 @@ final class Store {
         // otherwise the bookworm would render the previous bank's mood.
         let hasStatus = await take(.status, \.status)
         if hasStatus, let s = status.value { pushStatus(s) }
+        prefetchPictures()   // ROR snappy: what is already on disk is in memory before the first page draws
         let summary = "hydrate bank=\(bank) loaded=[\(loaded.joined(separator: ","))]"
         Self.logger.notice("\(summary, privacy: .public)")
     }
@@ -368,7 +369,9 @@ final class Store {
         for domain in SyncDomain.allCases where remaining.contains(domain) {
             switch domain {
             case .banks: continue
-            case .graph: await refreshOne(domain, \.graph) { [api] e in try await api.fetchGraph(etag: e) }
+            case .graph:
+                await refreshOne(domain, \.graph) { [api] e in try await api.fetchGraph(etag: e) }
+                prefetchPictures()
             case .inbox: await refreshOne(domain, \.inbox) { [api] e in try await api.fetchInbox(etag: e) }
             case .sources: await refreshOne(domain, \.sources) { [api] e in try await api.fetchSources(etag: e) }
             case .channels: await refreshOne(domain, \.channels) { [api] e in try await api.fetchChannels(etag: e) }

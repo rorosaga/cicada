@@ -31,13 +31,22 @@ actor LogoStore {
         self.fetch = fetch
     }
 
-    private func key(_ entityId: String, _ bank: String) -> String { "\(bank)/\(entityId)" }
+    nonisolated private func key(_ entityId: String, _ bank: String) -> String { "\(bank)/\(entityId)" }
 
-    private func fileURL(_ entityId: String, _ bank: String) -> URL {
+    nonisolated private func fileURL(_ entityId: String, _ bank: String) -> URL {
         let safeBank = bank.replacingOccurrences(of: "/", with: "_")
         let safeId = entityId.replacingOccurrences(of: "/", with: "_")
         return root.appendingPathComponent(safeBank, isDirectory: true)
             .appendingPathComponent("\(safeId).img")
+    }
+
+    /// ROR snappy — the disk copy into `ImageMemory`, no network, no actor hop (`PictureStore.warm`).
+    nonisolated func warm(entityId: String, bank: String) {
+        guard !entityId.isEmpty else { return }
+        let k = key(entityId, bank)
+        guard ImageMemory.logos.image(k) == nil,
+              let data = try? Data(contentsOf: fileURL(entityId, bank)), let image = NSImage(data: data) else { return }
+        ImageMemory.logos.set(k, image)
     }
 
     func image(entityId: String, bank: String) async -> NSImage? {

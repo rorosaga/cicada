@@ -56,3 +56,30 @@ enum PictureMemory {
         }
     }
 }
+
+/// ROR snappy — the first view of a picture is the second pop-in: `ImageMemory` only held what this run had already
+/// drawn, so a page switch to Clusters drew grey initials, then the photo a frame or three later (seen at +30–40 ms in a
+/// recorded page switch). After the graph lands, the pictures already on this Mac's disk are read into `ImageMemory` on a
+/// utility-priority task (never the main thread, never the network), so the first frame of any page already has them.
+enum PicturePrefetch {
+    /// A bound on what one pass reads; the rest still load through the avatar's own `.task`.
+    static let limit = 800
+
+    static func run(_ pictures: [(id: String, picture: EntityPictureRef)], bank: String) {
+        guard !pictures.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            var read = 0
+            for (id, picture) in pictures {
+                if read >= limit || Task.isCancelled { break }
+                guard let raw = picture.url else { continue }
+                switch picture.source {
+                case .logo: LogoStore.shared.warm(entityId: id, bank: bank)
+                case .upload, .contacts, .messages, .thumbnail, .profile:
+                    if let url = PictureURL.parse(raw) { PictureStore.shared.warm(url, bank: bank) }
+                case .initials: continue
+                }
+                read += 1
+            }
+        }
+    }
+}

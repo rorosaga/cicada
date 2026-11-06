@@ -147,6 +147,9 @@ enum CicadaMotion {
     static let readerInDuration: TimeInterval = 0.25
     static let readerOutDuration: TimeInterval = 0.18
     static let cardFadeDuration: TimeInterval = 0.15
+    /// A page changing under the pointer (the rail's click): the old page fades out as the new one fades in. A key never
+    /// animates (DR-60, `Instant`); the shortest fade that reads as a change, not a cut (ROR snappy, 2026-11-06).
+    static let pageFadeDuration: TimeInterval = 0.12
     static let rowLeaveDuration: TimeInterval = 0.15
     static let undoFadeDuration: TimeInterval = 0.12
     /// DR-66 — Reduce Motion removes movement; a fade stays, shortened. The one family here that is
@@ -220,6 +223,9 @@ enum CicadaMotion {
     }
     static func readerOut(reduceMotion: Bool) -> Animation {
         reduceMotion ? fade : CicadaCurve.drawer(readerOutDuration)
+    }
+    static func pageFade(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.out(pageFadeDuration)
     }
     static func cardFade(reduceMotion: Bool) -> Animation {
         reduceMotion ? fade : CicadaCurve.out(cardFadeDuration)
