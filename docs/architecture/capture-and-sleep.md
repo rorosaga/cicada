@@ -3901,7 +3901,7 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   5. Running it again continues: finished pages are already articles.
 
 ### Temporal decay
-**A fact fades by its own class (ruling 70, ROR-129):** the page's class is not the fact's (`storage.md`, "Decay classes").
+**A fact fades by its own class (ruling 74, ROR-129):** the page's class is not the fact's (`storage.md`, "Decay classes").
 An evergreen page never fades, asks or archives, but `_decay_claims` charges each of its facts at the fact's multiplier
 (its own class, else `active`; a media page's never). It raises no page-level question; a fact the model judged long-term
 asks about itself after a year unsaid through `still_questions` (`long_term`). Stage 1 proposes the class per fact in any

@@ -328,7 +328,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Entity types are a closed set of 10**; Stage 1 never produces `deadline` or `media`; a model's word is mapped into the
   set at extraction and again where a page is born (`entity_types`, 2026-10-17). Status: active → decaying → archived → dropped.
 - **Decay classes (G66):** one resolver; Stage 1 may propose `durable|active|volatile` for a *page*, **never `evergreen`**.
-  **A fact has its own class (ruling 70, 2026-11-06):** the model proposes one per fact, any of the four, in any language;
+  **A fact has its own class (ruling 74, 2026-11-06):** the model proposes one per fact, any of the four, in any language;
   an evergreen page never fades but its facts do (media excepted), "keep this fact" is the person's word (`fact_keep`).
 - **Evidence spans, not copies (G118):** offsets into the source's evidence text with a hash; locate is exact →
   whitespace → case-insensitive, **never fuzzy**; an unlocatable quote becomes `reasoning` and **the claim is still

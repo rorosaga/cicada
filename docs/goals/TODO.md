@@ -3728,7 +3728,7 @@ A whole row moves to DONE only after its remaining implementation and required a
    Podcasts and Pocket-style read-later (Pocket closed in 2025, so a file only), Notion's and Google's exports where the
    API is not offered, Facebook and Threads saved items, Strava/Fitbit-style activity exports, and chat exports (their own
    row, ROR-126). Each needs its page, its item shape and its own "never click" line before it joins; none is assumed.
-70. **A fact has its own relevance, apart from its page (owner, 2026-11-06; ROR-129, G66).** The owner accepted the
+74. **A fact has its own relevance, apart from its page (owner, 2026-11-06; ROR-129, G66).** The owner accepted the
     rule from the dry run, then rejected its word lists: "sleep consolidation should be able to say if something is
     evergreen. Like, there should be flexibility on this." (a) A page's relevance and a fact's are separate. An
     evergreen page never fades, asks or archives; its facts fade by their own class, **except on a media page**, where
