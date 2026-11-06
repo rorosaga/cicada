@@ -1652,6 +1652,10 @@ async def get_entity_commit_diff(
     )
 
 
+#: bank path -> (the HEAD folded, the per-author aggregate at it): `get_contributors` folds only new commits.
+_CONTRIBUTOR_AGG: dict[str, tuple[str, dict[str, dict]]] = {}
+
+
 async def get_contributors(
     memory_path: Path, *, github_user: str | None = None
 ) -> list[Contributor]:
@@ -1679,24 +1683,44 @@ async def get_contributors(
     sep = "\x1f"
     rec = "\x1e"
     try:
-        out = await _run_git(
-            memory_path,
-            "log",
-            f"--format={rec}%H{sep}%ad{sep}%b{sep}",
-            "--date=short",
-            "--name-only",
-            "--root",
-            "--no-renames",
-            # A `log.showSignature` config prints each signed commit's check
-            # before its record, which would land in the previous commit's
-            # file list.
-            "--no-show-signature",
-        )
+        head = (await _run_git(memory_path, "rev-parse", "HEAD")).strip()
     except GitError:
         return []
-
-    # author -> aggregation state
-    agg: dict[str, dict] = {}
+    key = str(memory_path)
+    held = _CONTRIBUTOR_AGG.get(key)
+    base: str | None = None
+    if held is not None and held[0] != head:
+        # Speed 2026-11-06: only the commits since the last HEAD this process folded (`git log <old>..HEAD`) when
+        # that HEAD is still an ancestor of this one; a rewound or unknown history is walked whole, as before.
+        try:
+            await _run_git(memory_path, "merge-base", "--is-ancestor", held[0], head)
+            base = held[0]
+        except GitError:
+            base = None
+    if held is not None and held[0] == head:
+        agg = held[1]
+        out = ""
+    else:
+        try:
+            out = await _run_git(
+                memory_path,
+                "log",
+                *([f"{base}..{head}"] if base else [head]),
+                f"--format={rec}%H{sep}%ad{sep}%b{sep}",
+                "--date=short",
+                "--name-only",
+                "--root",
+                "--no-renames",
+                # A `log.showSignature` config prints each signed commit's check
+                # before its record, which would land in the previous commit's
+                # file list.
+                "--no-show-signature",
+            )
+        except GitError:
+            return []
+        # author -> aggregation state; a copy of the kept one, so two requests folding the same range never double count
+        agg = {a: {"commits": st["commits"], "files": set(st["files"]), "entities": set(st["entities"]),
+                   "last": st["last"]} for a, st in (held[1].items() if base and held else ())}
 
     for record in out.split(rec):
         if not record.strip():
@@ -1723,6 +1747,8 @@ async def get_contributors(
                     state["entities"].add(f)
             if date > state["last"]:
                 state["last"] = date
+
+    _CONTRIBUTOR_AGG[key] = (head, agg)
 
     # Resolve the user-avatar handle once (explicit setting wins; else origin
     # remote), and only pay the git remote lookup if there's actually a `user`
