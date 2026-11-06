@@ -2326,6 +2326,34 @@ drain (`inbox_catchup.Budget`, `NEW_PER_DRAIN` = 3), each in its own `cicada` co
   (`merge_rejections`), written as an ordinary `merge_suggestion` marked `detected: spelling` on the less-used page,
   at most 3 open. A question only (ruling 41, G209): spelling is a reason to ask, never proof, and only the person's
   words join them.
+- **"Is A the same as B?" for the pairs a person spots at a glance** (`person_duplicates`, ROR-136, owner 2026-11-06): a
+  misspelling a transcript made ("Texim" / "Tikzim"), a first name beside the full one, a shared account. Engine-free, no
+  network, **no word lists of any language** — letter classes only: `sound_key` folds the letters that spell one sound
+  across alphabets (`x`/`ks`, `z`/`s`, `c`/`k`, `ph`/`f`, then vowels after the first letter dropped), plus one-edit
+  spelling, a one-word name that is a word of the other's longer name, an alias, the same account in both pages' sources,
+  and the same *rare* belief on both (a fact on more than 3 people says nothing). An alias counts as a name only when it
+  starts with a capital and has no possessive or `@` ("his girlfriend", "she", an address are not names); two pages
+  titled by their relation to the owner are `role_people`'s; two fuller names that do not match are two people sharing a
+  given name; a pair the person called two people (`merge_rejections`) is never listed. **Being named together lowers the
+  score, never raises it** (ruling 65 c), and so do two names that are each well established (4+ conversations); a thin
+  page (≤ 2) raises it, since a mishearing is said once. A pair needs a name signal; a shared account (held by ≤ 2 pages) or
+  3+ rare shared beliefs between two never named together is the only record-only lead. The drain writes the best few as an
+  ordinary `merge_suggestion` (`detected: person_duplicate`, `signals`, the reason in words), the less-used page asked
+  about, at most 6 open and inside the drain's shared budget (`_catchup_questions_safely`), so the card's one-tap merge, the
+  page's own question list and every undo already work. It is the record's own question (no conversation naming both is
+  required, `pair_evidence`'s exemption for a lead the record raises), so "Cicada's guess" stays ≤ 0.4 unless one does; the
+  owner's page is never paired. A question only: the person's words join them.
+- **A merge closes the question it answers** (`merge_closes`, owner 2026-11-06): `entity_merge.merge_entities`, the one
+  merge primitive behind `cicada_merge_pages`, the app's menu, the CLI, an inbox answer, a placeholder person folded into a
+  named one and the dedup sweep, removes every pending `merge_suggestion` whose two ends are exactly the two pages (either
+  direction, by page id or by the slug of its title) in the merge's own commit (and `merge_footprint` lists them for the
+  sweep's rollback). A "Which X is this?" question over several pages and every other kind are left to their resolvers.
+  Undoing the join restores the card with the pages.
+- **"Two people" takes a crossed alias off** (`merge_rejections.uncross_aliases`, owner 2026-11-06): answering a same-person
+  question "no, different" removes, from each person page, an alias that names the other (its name, id or one of its
+  aliases) into `aliases_removed`, so no writer adds it back. Why: a page listed a real other person's name as its alias
+  since a Sleep extraction read two co-applicants named in one sentence as one person; the guard against a crossed alias
+  (`alias_policy.names_another_page`, 2026-10-29) is for aliases Sleep adds and never reached one already written.
 
 **The web check (owner ruling 2026-10-16, TODO ruling 27; `sleep_cycle._web_check_safely`, `web_lookup`).** After the
 run's last nudges, up to `web_check_per_run` (8; `CICADA_WEB_CHECK_PER_RUN`, 0 = off) pending questions about public

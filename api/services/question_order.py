@@ -88,6 +88,12 @@ from api.services import bank_index, decay_policy, entity_types, episode_ids, ep
 
 SHOWN = 30
 FLOOR = 0.1
+#: A duplicate question about pages spoken of lately asks first (Rodrigo, 2026-11-06: two names that "have come up a lot
+#: lately ... that's why recency is important"): the score is multiplied by ``1 + RECENT_BOOST x 0.5^(days / RECENT_DAYS)``
+#: for the newest conversation BOTH pages appear in (the older of the two) - up to 3x today, 1.5x after two weeks, back to 1 in time. It only
+#: raises: an old pair is not lowered, since who someone is does not fade (ruling 70).
+RECENT_BOOST = 2.0
+RECENT_DAYS = 14.0
 #: ``sensitive`` holds have no reach in pages; they sit on the formula's own scale (it runs ~0.01 to ~6), above a typical
 #: question and below a very large merge. The app draws them as a top card whatever their place here.
 SENSITIVE_SCORE = 3.0
@@ -226,6 +232,8 @@ class Parts:
     #: this page never fades). Both set only for a kind that fades.
     said: date | None = None
     half_life: float | None = None
+    #: A "same as?" question only: the newest day either page was spoken of in a conversation (ROR-136).
+    recent: date | None = None
 
 
 def visibility(n: int) -> float:
@@ -429,7 +437,23 @@ class Tables:
         kinds = {self.type_of(eid) or stored, self.type_of(target)}
         if kinds == {"person"}:
             parts.stake = 1.5
+        # Both pages spoken of lately: the OLDER of the two newest days (a hub always in use, or a name with no page yet,
+        # carries nobody else's pair).
+        if len(parts.pages) == 2 and all(self.has_page(pid) for pid in parts.pages):
+            days = [_day(decay_policy.latest_said(self.page_fm(pid).get("source_episodes"),
+                                                  untimed=self._untimed_in(pid))) for pid in parts.pages]
+            parts.recent = min(days) if all(d is not None for d in days) else None
         return parts
+
+    def _untimed_in(self, pid: str) -> frozenset:
+        return frozenset(e for e in (str(x) for x in self.page_fm(pid).get("source_episodes") or ()) if self.untimed(e))
+
+    def recency(self, parts: Parts) -> float:
+        """The boost of a "same as?" question about pages spoken of lately (:data:`RECENT_BOOST`); 1.0 for anything else."""
+        if parts.recent is None:
+            return 1.0
+        age = max(0, (self.today - parts.recent).days)
+        return 1.0 + RECENT_BOOST * 0.5 ** (age / RECENT_DAYS)
 
     def _page_edit(self, fm: dict, parts: Parts, eid: str) -> Parts:
         parts.p = P["page_edit"]
@@ -549,7 +573,7 @@ class Tables:
             if parts.fixed is not None:
                 return parts.fixed
             return (parts.p * parts.stake / parts.effort * (FLOOR + self.exposure(parts.pages))
-                    * math.sqrt(max(0.0, self.seen(parts))) * self.freshness(parts))
+                    * math.sqrt(max(0.0, self.seen(parts))) * self.freshness(parts) * self.recency(parts))
         except Exception as exc:  # noqa: BLE001 - one bad item never costs the list
             logger.warning(f"question order: item scored by its priority ({type(exc).__name__})")
             return max(0.0, min(1.0, _f(fm.get("priority"), 0.0)))

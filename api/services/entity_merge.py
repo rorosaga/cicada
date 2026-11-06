@@ -297,6 +297,10 @@ def merge_footprint(memory_path: Path, loser_id: str, winner_id: str) -> list[st
     from api.services import page_redirects
 
     paths.append(page_redirects.FILE)
+    # The open "same as?" questions between the two pages close with the merge (`merge_closes`).
+    from api.services import merge_closes
+
+    paths += [p for p in merge_closes.footprint(memory_path, loser_id, winner_id) if p not in paths]
     from api.services import claims_ledger
 
     return claims_ledger.with_ledgers(memory_path, paths, existing_only=True)
@@ -561,6 +565,12 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     from api.services import design_refs
 
     paths += [p for p in design_refs.repoint(memory_path, loser_id, winner_id) if p not in paths]
+
+    # The merge answers "Is A the same as B?": the open question between these two pages closes in this same change
+    # (`merge_closes`, owner 2026-11-06), on every door that merges. Read before the loser's page is gone.
+    from api.services import merge_closes
+
+    paths += [p for p in merge_closes.close(memory_path, loser_id, winner_id) if p not in paths]
 
     lp.unlink()
     paths.append(f"entities/{loser_id}.md")

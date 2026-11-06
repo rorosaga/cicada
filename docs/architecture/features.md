@@ -202,6 +202,12 @@ never stored; the stored `priority` stays on disk and on the wire for older clie
 (before this, the app re-sorted `GET /inbox` by raw `priority` on the client, so the server's use-weighted order was never
 what the person saw; `InboxColumns` now follows the server's `orderIndex`, `app.md`).
 
+**A "same as?" question about pages spoken of lately asks first** (`question_order.recency`, Rodrigo 2026-11-06: two names
+"have come up a lot lately ... that's why recency is important"). A merge question between two existing pages is
+multiplied by `1 + 2 x 0.5^(days / 14)` for the older of the two pages' newest conversation (up to 3x the day both
+were spoken of, 1.5x after two weeks, 1 in time). It only raises: who someone is still does not fade (ruling 70), and a hub
+always in use or a name with no page yet carries nobody else's pair. One type at a time still spaces the wall.
+
     score = p × stake ÷ effort × (FLOOR + exposure) × √seen × freshness     FLOOR .1 · SHOWN 30 · FADE_FLOOR .05
 
 * **`p`**, does an answer change anything against never asking (judgment): conflict .9 · "still?" .5 · informational
