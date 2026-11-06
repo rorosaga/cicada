@@ -541,7 +541,7 @@ struct ClusterLead: View {
                 .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
         }
         .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(96), maxHeight: CicadaTheme.scaled(96),
+        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(104), maxHeight: CicadaTheme.scaled(104),
                alignment: .topLeading)
         .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
         .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
@@ -562,17 +562,20 @@ struct ClusterNames: View {
 
     var body: some View {
         ClusterSection(group: group, showAll: showAll) {
-            // Round 4: where the list mixes talked-about pages with saved-only ones (Media), the dimmed block is its own
-            // group under one caption, so the dimming has a visible reason and never reads as a flicker between neighbours.
-            let split = lines > 1 && shown.contains(where: \.quiet) && shown.contains(where: { !$0.quiet })
-            if split {
-                grid(shown.filter { !$0.quiet })
-                Text(Copy.Lists.quiet)
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .padding(.horizontal, CicadaTheme.scaled(8))
-                    .padding(.top, CicadaTheme.spacingXS)
-                grid(shown.filter(\.quiet))
+            // Round 4: Media fills down its columns, not across its rows, so the dimmed titles (ordered last) are
+            // whole columns and the dimming reads as a block, never a flicker between neighbours.
+            if lines > 1, columns > 1 {
+                let rows = Int((Double(shown.count) / Double(columns)).rounded(.up))
+                HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
+                    ForEach(0..<columns, id: \.self) { column in
+                        VStack(spacing: 0) {
+                            ForEach(Array(shown.dropFirst(column * rows).prefix(rows))) { entity in
+                                ClusterNameRow(entity: entity, lines: lines) { open(entity) }.id(entity.id)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .top)
+                    }
+                }
             } else {
                 grid(shown)
             }

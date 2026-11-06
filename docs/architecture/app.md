@@ -2508,7 +2508,7 @@ the start or end of a longer name — "Claude" is not named by "Claude Code"; in
   line (two lines of room, so a sentence is never cut) with the picture at the corner only when it has one; **Companies ·
   Tools · Concepts** as three ruled lists of five names alone side by side, a logo right after its name only where one
   exists (no reserved slot); **Media** as a ruled list of six whole titles on up to two lines, never cut
-  mid-word, one row height with each title on the top line; dimmed names last in a list, and in Media a block of their own under one caption; the rest three to a short row. A section's heading is the way to the
+  mid-word, one row height with each title on the top line; dimmed names last in a list, and Media fills down its columns so they are whole columns; the rest three to a short row. A section's heading is the way to the
   rest: its name and a chevron when some are hidden (no repeated "Show all"), opening the type's tab. Under 900 units
   the portraits are two rows of four and the cards one column.
   `ClustersGrid` decides it, pure (Expand all and a type tab keep the one-card-per-type `ClusterCard`). A click on a
