@@ -145,7 +145,7 @@ struct SourceCatalogRowView: View {
                 .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)   // DR-36
                 Spacer(minLength: CicadaTheme.spacingSM)
                 // Its heading already says Connected; the word only cost the name its room.
-                if style == .wide || (style == .triage && !row.isConnectedHere) {
+                if (style == .wide || (style == .triage && !row.isConnectedHere)) && (row.status != .off || row.waitingOn != nil || row.notInstalled) {
                     StatusWord(word: row.word, tone: row.tone)
                 }
             }

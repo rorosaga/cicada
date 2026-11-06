@@ -103,7 +103,7 @@ final class SourceShelfTests: XCTestCase {
                      Copy.WebReading.whoSees(app: "an app"), Copy.WebReading.oneClick]
         XCTAssertTrue(lines[0].contains("10 times a day"), "G206's bound")
         XCTAssertTrue(lines[1].contains("never sees a password"))
-        XCTAssertTrue(lines[2].contains("company behind it"))
+        XCTAssertTrue(lines[2].contains("company sees what it reads"))
         let view = try String(contentsOf: Self.source("Views/Sources/WebReadingCard.swift"), encoding: .utf8)
         XCTAssertFalse(view.contains("duration:"), "no duration is spelled in the view")
         XCTAssertFalse(view.contains(".seconds(0") || view.contains(".seconds(1"), "nor a sleep")

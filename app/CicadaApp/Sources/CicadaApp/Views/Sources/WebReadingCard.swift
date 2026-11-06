@@ -23,7 +23,7 @@ struct WebReadingCard: View {
     private var appName: String { app?.name ?? Copy.WebReading.yourAssistant }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             scene
             if app != nil {
                 caption
@@ -43,16 +43,17 @@ struct WebReadingCard: View {
 
     private var scene: some View {
         let lit = WebReadingScene.litNodes(atBeat: beat)
+        let has = app != nil
         return HStack(alignment: .top, spacing: 0) {
             node(name: Copy.WebReading.cicada, lit: true) {
                 Image(nsImage: NSApp.applicationIconImage).resizable().interpolation(.high).scaledToFit()
             }
-            lane(forward: beat >= 1, back: beat >= 4)
-            node(name: appName, lit: app == nil ? false : lit >= 2, dashed: app == nil) { appIcon }
-            lane(forward: beat >= 2, back: beat >= 4)
-            node(name: browser.name, lit: app == nil ? false : lit >= 3) { browserIcon }
-            lane(forward: beat >= 3, back: beat >= 4)
-            node(name: entry.title, lit: app == nil ? false : lit >= 4) { siteIcon }
+            lane(forward: has && beat >= 1, back: has && beat >= 4)
+            node(name: appName, lit: has && lit >= 2, dashed: !has) { appIcon }
+            lane(forward: has && beat >= 2, back: has && beat >= 4)
+            node(name: browser.name, lit: has && lit >= 3) { browserIcon }
+            lane(forward: has && beat >= 3, back: has && beat >= 4)
+            node(name: entry.title, lit: has && lit >= 4) { siteIcon }
         }
         .animation(CicadaMotion.webLight(reduceMotion: reduceMotion), value: beat)
         .accessibilityElement(children: .ignore)
@@ -83,7 +84,8 @@ struct WebReadingCard: View {
     private func lane(forward: Bool, back: Bool) -> some View {
         VStack(spacing: CicadaTheme.scaled(10)) {
             line(on: forward, towardsTrailing: true)
-            line(on: back, towardsTrailing: false)
+            // The way back is drawn only when it is the beat (never a second dim line to read past).
+            line(on: back, towardsTrailing: false).opacity(back ? 1 : 0)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, CicadaTheme.scaled(14))
