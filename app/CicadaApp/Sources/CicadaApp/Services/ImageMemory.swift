@@ -42,3 +42,17 @@ extension PictureStore {
         ImageMemory.pictures.image("\(bank)|\(url.cacheKey)")
     }
 }
+
+/// ROR-135 — the one synchronous question both the avatar and the graph's hover card ask: is this page's picture already
+/// in memory, on the first frame? Nothing is read or fetched here.
+enum PictureMemory {
+    static func cached(id: String, picture: EntityPictureRef?, bank: String) -> NSImage? {
+        guard let picture, let raw = picture.url else { return nil }
+        switch picture.source {
+        case .logo: return LogoStore.cachedImage(entityId: id, bank: bank)
+        case .upload, .contacts, .messages, .thumbnail, .profile:
+            return PictureURL.parse(raw).flatMap { PictureStore.cachedImage($0, bank: bank) }
+        case .initials: return nil
+        }
+    }
+}

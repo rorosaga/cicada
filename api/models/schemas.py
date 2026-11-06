@@ -2543,12 +2543,17 @@ class GraphNode(CamelModel):
     # the largest snapshot pays only for the few that collide.
     qualifier: Optional[str] = None
     display_name: Optional[str] = None
+    # ROR-135 (owner 2026-11-06) — the graph's hover card names a book's author beside its cover and title. Only a
+    # book page (``media.kind: book``) has one: its ``book.authors`` joined, capped. Derived on every read, never
+    # stored; OMITTED when there is none, so the largest snapshot pays only for the books.
+    byline: Optional[str] = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_picture(self, handler) -> dict[str, Any]:
         data = handler(self)
         if isinstance(data, dict):
-            for key in ("picture", "pictureSource", "picture_source", "qualifier", "displayName", "display_name"):
+            for key in ("picture", "pictureSource", "picture_source", "qualifier", "displayName", "display_name",
+                        "byline"):
                 if key in data and data[key] is None:
                     del data[key]
             if data.get("quiet") is False:

@@ -18,6 +18,21 @@ from api.services.markdown_parser import load_yaml, load_yaml_file, parse, write
 _SUMMARY_RE = re.compile(r"^##\s+Summary\s*$", re.IGNORECASE | re.MULTILINE)
 
 
+BYLINE_MAX = 120
+
+
+def book_byline(fm: dict) -> str | None:
+    """ROR-135 — a book page's authors for the graph's hover card ("A, B"), capped; None for every other page."""
+    book = (fm or {}).get("book")
+    if not isinstance(fm.get("media"), dict) or fm["media"].get("kind") != "book" or not isinstance(book, dict):
+        return None
+    names = [str(a).strip() for a in book.get("authors") or [] if str(a or "").strip()]
+    line = ", ".join(names)
+    if len(line) > BYLINE_MAX:
+        line = line[: BYLINE_MAX - 1].rstrip(", ") + "…"
+    return line or None
+
+
 def summarize(body: str) -> str | None:
     """Return a short preview: the first non-empty line under a ``## Summary``
     heading, else the first 200 chars of the body with newlines collapsed.
@@ -276,6 +291,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 picture_source=picture.source,
                 last_referenced=entity_picture.day(fm.get("last_referenced")),
                 quiet=quiet,
+                byline=book_byline(fm),
             )
         )
         raw_sources = fm.get("sources")
@@ -403,6 +419,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 node.picture, node.picture_source, node.last_referenced,
                 *(("quiet",) if node.quiet else ()),
                 *(("qualifier", node.qualifier) if node.qualifier else ()),
+                *(("byline", node.byline) if node.byline else ()),
             )
 
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).

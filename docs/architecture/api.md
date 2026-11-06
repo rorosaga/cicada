@@ -45,7 +45,10 @@ and `Cicada-Author: user` — a second door onto one writer, as the CLI is (ruli
 carries `qualifier` and `displayName` ("<name> (<qualifier>)") on `GET /graph` nodes (omitted otherwise; node shape
 `+same-name`, folded into the node's `contentHash` only when present), `GET /entities/{id}` (null / the bare name
 otherwise; `same_name.SHAPE` rides the card ETag's `extra`), `GET /search` entity and media hits, `GET /projects/{id}`
-page rows (`g141-9`), `GET /sleep/runs/{id}/items` page rows (`items-2`, in its ETag) and `/ask` citations. `GET /inbox` items add
+page rows (`g141-9`), `GET /sleep/runs/{id}/items` page rows (`items-2`, in its ETag) and `/ask` citations. **A book's `byline`
+(ROR-135):** `GET /graph` nodes of a `media.kind: book` page carry its `book.authors` joined, capped at 120 characters (omitted
+otherwise; node shape `+byline`, folded into `contentHash` only when present) — the graph's hover card names the author
+from it (`features.md`, "The hover card"). `GET /inbox` items add
 `entityDisplayName`, `mergeTargetDisplayName` (a duplicate question's mention is never named as a page) and
 `sameTitle` (the pages a question about a shared name names), and their spoken question uses them; `same_name.SHAPE`
 rides the inbox ETag's `extra`, so the client mapping (`VersionVector`'s `entities` → `.inbox`/`.graph`) is unchanged

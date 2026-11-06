@@ -44,13 +44,7 @@ struct EntityPicture: View {
     /// fills in what was not. Without it every page switch drew the fallback, then popped the image in.
     private var shownImage: NSImage? {
         if let image { return image }
-        guard let picture, let raw = picture.url else { return nil }
-        switch picture.source {
-        case .logo: return LogoStore.cachedImage(entityId: id, bank: store.bank)
-        case .upload, .contacts, .messages, .thumbnail, .profile:
-            return PictureURL.parse(raw).flatMap { PictureStore.cachedImage($0, bank: store.bank) }
-        case .initials: return nil
-        }
+        return PictureMemory.cached(id: id, picture: picture, bank: store.bank)
     }
     private var loadKey: String { "\(store.bank)|\(id)|\(picture?.source.rawValue ?? "-")|\(picture?.url ?? "-")" }
 

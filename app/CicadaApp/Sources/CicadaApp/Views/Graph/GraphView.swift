@@ -233,6 +233,10 @@ struct GraphView: NSViewRepresentable {
                     viewModel.receive(.backgroundClicked)
                 case .escape:
                     viewModel.receive(.escape)
+                case .nodeHovered(let id, let x, let y, let r):
+                    viewModel.hover.hover(.init(id: id, x: x, y: y, r: r))
+                case .hoverEnded:
+                    viewModel.hover.end()
                 case .nodeFocused, .focusCleared:
                     break   // informational — focus state lives in JS
                 case .jsError(let detail):
