@@ -63,9 +63,11 @@ def test_conflict_nudge_emits_a_question_object_with_age_descriptions():
     assert opts[0]["claim_id"] == "clm_a"
     assert opts[0]["observed_at"] == "2026-02-18"
     assert opts[0]["last_referenced"] == "2026-02-18"
-    # Description leads with the age phrase so staleness is visible first.
-    assert "6 months ago" in opts[0]["description"]
-    assert "ep_2026-02-18_004" in opts[0]["description"]
+    # The description is one clause, the day it was last said: no frozen age (the reader words the age when it is
+    # read) and no conversation id (it rides beside, as `source_episode`).
+    assert opts[0]["description"] == "Last mentioned 2026-02-18"
+    assert opts[0]["source_episode"] == "ep_2026-02-18_004"
+    assert "source_episode" not in opts[1]            # a claim with no conversation has none to name
     assert opts[2]["claim_id"] is None
 
 
