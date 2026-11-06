@@ -14,6 +14,13 @@ final class BookPageLayoutTests: XCTestCase {
         XCTAssertNotNil(EntityHeaderWords.summary(markdown: page, isStub: false))
     }
 
+    func testTheCardCarriesTheSentenceSleepReadFromTheDescription() throws {
+        let json = #"{"authors":["Bea Sample"],"why":"A study of machines that learn."}"#.data(using: .utf8)!
+        XCTAssertEqual(try JSONDecoder().decode(BookCard.self, from: json).why, "A study of machines that learn.")
+        let none = #"{"authors":[]}"#.data(using: .utf8)!
+        XCTAssertNil(try JSONDecoder().decode(BookCard.self, from: none).why)
+    }
+
     func testABooksArticleLeavesTheDescriptionToItsBoxAndKeepsTheRest() {
         let with = page + "\n\n## History\nAdded in autumn."
         let article = EntityHeaderWords.articleMarkdown(with, isBook: true)

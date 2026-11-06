@@ -68,6 +68,8 @@ struct BookCard: Decodable, Equatable, Sendable {
     var descriptionUrl: String? = nil
     /// A title found this book (ruling 61, amended 2026-11-06): the box says so and offers "Not this book".
     var matchedByTitle: Bool = false
+    /// One sentence Sleep read from the description: what the book is about (ruling 70 a); public knowledge, not the person's.
+    var why: String? = nil
     var ways: [Way] = []
 
     init(from decoder: Decoder) throws {
@@ -82,6 +84,7 @@ struct BookCard: Decodable, Equatable, Sendable {
         descriptionAt = try c.decodeIfPresent(String.self, forKey: .descriptionAt)
         descriptionUrl = try c.decodeIfPresent(String.self, forKey: .descriptionUrl)
         matchedByTitle = try c.decodeIfPresent(Bool.self, forKey: .matchedByTitle) ?? false
+        why = try c.decodeIfPresent(String.self, forKey: .why)
         ways = try c.decodeIfPresent([Way].self, forKey: .ways) ?? []
     }
 
@@ -93,7 +96,7 @@ struct BookCard: Decodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case subtitle, authors, published, pages, publisher, subjects, descriptionSource, descriptionAt
-        case descriptionUrl, matchedByTitle, ways
+        case descriptionUrl, matchedByTitle, why, ways
     }
 
     /// "2019 · 320 pages · Example House": year, pages and publisher on one line; nil when none is known.

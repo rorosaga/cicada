@@ -115,7 +115,7 @@ struct BookPageHead: View {
             head
             if let description = EntityHeaderWords.bookDescription(markdown) {
                 BookDescriptionBox(entityId: entityId, description: description,
-                                   byTitle: card?.matchedByTitle == true, changed: changed)
+                                   byTitle: card?.matchedByTitle == true, why: card?.why, changed: changed)
             }
         }
         .task(id: entityId) { card = try? await APIClient.shared.fetchBookCard(id: entityId) }
@@ -167,6 +167,7 @@ struct BookDescriptionBox: View {
     let entityId: String
     let description: EntityHeaderWords.BookDescription
     let byTitle: Bool
+    var why: String? = nil
     let changed: () -> Void
 
     @State private var busy = false
@@ -177,6 +178,10 @@ struct BookDescriptionBox: View {
                 .font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
+            if let why {
+                Text(why).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+            }
             HStack(spacing: CicadaTheme.spacingSM) {
                 if let name = description.source {
                     let line = Copy.bookDescriptionSource(name, saved: description.saved)
