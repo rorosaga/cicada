@@ -343,8 +343,8 @@ struct ClusterShortCard: View {
     }
 }
 
-/// A tile (F-11): the picture, the name, one line in words. The words open the card; a click on the picture offers its
-/// choices (`PictureChoices`; R-PE15, owner 2026-09-30 and 2026-10-29). Hover is a fill (DR-63).
+/// A tile (F-11): the picture, the name, one line in words. The whole cell opens the card — the picture included, with no
+/// camera and no change offered (owner 2026-11-06; a picture is changed only inside the entity page). Hover is a fill (DR-63).
 struct ClusterTile: View {
     let entity: Entity
     /// Some tile in this card has a picture: keep the slot so every name starts at one edge (owner 2026-10-28).
@@ -354,11 +354,11 @@ struct ClusterTile: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: CicadaTheme.spacingMD) {
-            EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 32, heldInputs: entity.pictureInputs,
-                          editing: .tile, collapsesWhenEmpty: !reservesPicture)
-                .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
-            Button(action: open) {
+        Button(action: open) {
+            HStack(spacing: CicadaTheme.spacingMD) {
+                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 32, heldInputs: entity.pictureInputs,
+                              collapsesWhenEmpty: !reservesPicture)
+                    .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         Text(entity.name)
@@ -372,12 +372,12 @@ struct ClusterTile: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.cicadaPlain)
-            .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.shownName, open: false))
-            .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.cicadaPlain)
+        .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.shownName, open: false))
+        .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
         .padding(.horizontal, CicadaTheme.scaled(8))
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine),
                maxHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
@@ -467,11 +467,10 @@ struct ClusterFace: View {
     @State private var hovering = false
 
     var body: some View {
-        VStack(spacing: CicadaTheme.spacingSM) {
-            EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 76, heldInputs: entity.pictureInputs,
-                          editing: .tile)
-                .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
-            Button(action: open) {
+        Button(action: open) {
+            VStack(spacing: CicadaTheme.spacingSM) {
+                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 76, heldInputs: entity.pictureInputs)
+                    .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
                 HStack(spacing: CicadaTheme.spacingXS) {
                     Text(entity.name)
                         .font(CicadaTheme.rowFont)
@@ -480,13 +479,14 @@ struct ClusterFace: View {
                     QualifierTag(qualifier: entity.qualifier)   // G227
                 }
                 .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.cicadaPlain)
-            .help(ClustersModel.line(entity) ?? "")
-            .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.shownName, open: false))
-            .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.cicadaPlain)
+        .help(ClustersModel.line(entity) ?? "")
+        .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.shownName, open: false))
+        .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
         .padding(.vertical, CicadaTheme.spacingSM)
         .padding(.horizontal, CicadaTheme.scaled(4))
         .frame(maxWidth: .infinity)
@@ -546,8 +546,10 @@ struct ClusterLead: View {
             .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.shownName, open: false))
             .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
             EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 36, heldInputs: entity.pictureInputs,
-                          editing: .tile, collapsesWhenEmpty: true)
+                          collapsesWhenEmpty: true)
                 .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: open)
         }
         .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(104), maxHeight: CicadaTheme.scaled(104),
@@ -630,7 +632,7 @@ struct ClusterNameRow: View {
                 QualifierTag(qualifier: entity.qualifier)   // G227
                 if drawn {
                     EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 18, heldInputs: entity.pictureInputs,
-                                  editing: .tile, collapsesWhenEmpty: true)
+                                  collapsesWhenEmpty: true)
                         .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
                 }
                 Spacer(minLength: 0)
