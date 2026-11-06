@@ -422,8 +422,8 @@ struct SleepControlRow: View {
     /// Sleep page v5 — the page's own reading (`SleepPageModel`), for Pause / Continue / End this run, the elapsed
     /// time, the Reading options link and the arrivals reason. `nil` keeps the pre-v5 row.
     var page: SleepPageModel? = nil
-    /// ROR-118 — set on the leading edge beside the room's rectangle, the engine and Options as quiet text beside the
-    /// one primary; the offscreen layouts keep the centred group.
+    /// ROR-118 — set on the leading edge beside the room's rectangle (round 5: the engine and Options are DR-40 neutral
+    /// buttons beside the one primary, so they read as controls); the offscreen layouts keep the centred group.
     var leading = false
 
     @State private var optionsOpen = false
@@ -439,7 +439,7 @@ struct SleepControlRow: View {
 
     var body: some View {
         VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingSM) {
-            HStack(spacing: leading ? CicadaTheme.spacingXS : CicadaTheme.spacingSM) {
+            HStack(spacing: CicadaTheme.spacingSM) {
                 if sleepVM.isRunning {
                     if draining { pauseButton } else { cancelButton }
                 } else if let paused {
@@ -447,24 +447,16 @@ struct SleepControlRow: View {
                 } else {
                     consolidateButton
                 }
-                // ROR-118 round 3 - one hairline between the primary and the two quiet settings, so the engine and
-                // Options read as one cluster that belongs to the button, not as three equal captions.
-                if leading {
-                    Rectangle().fill(CicadaTheme.border)
-                        .frame(width: 1, height: CicadaTheme.scaled(18))
-                        .padding(.horizontal, CicadaTheme.spacingXS)
-                        .accessibilityHidden(true)
-                }
                 // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
                 // applies to the next one (G80). It names the person's own engine and model — never another.
-                EngineLabelButton(size: .compact, quiet: leading)   // D6: a label that opens Settings → Intelligence (UI-A)
+                EngineLabelButton(size: .compact)   // D6: a label that opens Settings → Intelligence (UI-A)
                 // The owner's at-rest row (2026-10-16): Consolidate · engine · Options, one height. Options opens the
                 // same reading options the floating "Reading options…" link did, on this row instead of its own line.
                 if showsOptionsLink {
                     // ROR-118 round 4 - "Options…" was vague: a slider mark says it adjusts (a longer label truncated the engine's).
                     NeutralButton(title: leading ? Copy.SleepV5.optionsShort : Copy.SleepV5.options,
                                   systemImage: leading ? "slider.horizontal.3" : nil, size: .compact,
-                                  help: Copy.SleepV5.optionsHelp, quiet: leading) { optionsOpen = true }
+                                  help: Copy.SleepV5.optionsHelp) { optionsOpen = true }
                 }
                 if paused != nil, !sleepVM.isRunning {
                     TextButton(title: Copy.SleepV5.endRun, help: Copy.SleepV5.endRunHelp) {

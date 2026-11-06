@@ -21,6 +21,8 @@ extension Copy {
         /// The Waiting list's two right-hand columns, named once.
         static let columnOldest = "Oldest"
         static let columnItems = "Items"
+        /// ROR-118 round 5 - the list's last row: the saves nothing reads, with their count in the Items column (the tooltip says the rest).
+        static let keptForLookupRow = "Kept for lookup"
         // MARK: Counting words
 
         static func count(_ n: Int, _ locale: Locale) -> String { UsageFormat.count(n, locale: locale) }

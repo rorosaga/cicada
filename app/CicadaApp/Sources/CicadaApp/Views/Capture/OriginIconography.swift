@@ -292,6 +292,8 @@ enum OriginIconography {
         // that row's origin, and R-L4's whole point is that one source is one
         // picture wherever it is drawn.
         case "saved-link": Color(hex: 0x8896FF)
+        // ROR-118 round 5 - a folder wears the system folder's blue, so the Waiting list never mixes a grey glyph with full-colour marks.
+        case "folder": Color(hex: 0x3B9AF2)
         // `gemini-cli` alone — see the same narrowing in `symbol` above.
         case "gemini-cli": CicadaTheme.textPrimary
         case "unknown": CicadaTheme.textTertiary

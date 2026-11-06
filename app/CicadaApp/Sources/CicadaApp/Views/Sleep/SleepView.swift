@@ -557,8 +557,6 @@ struct SleepView: View {
                              showsRun: showsRunBlock(page), runPaused: sleepVM.isPaused,
                              ownerReady: ownerReady(page), onRetryParked: retryParked,
                              onSeeOwnerPage: ownerEntityId.map { id in { onSelectEntity?(id) } })
-                .environment(\.sleepRoomWidth, SleepLayout.roomBeside(columnWidth: min(plan.list, SleepLayout.pageWidth) - 2 * plan.gutter)
-                             ? CGFloat(DeskScene.cols) * SleepLayout.cornerScale(columnWidth: min(plan.list, SleepLayout.pageWidth) - 2 * plan.gutter) : nil)
                 .padding(.horizontal, plan.gutter)
                 .padding(.top, CicadaTheme.spacingSM)
         case .saved:

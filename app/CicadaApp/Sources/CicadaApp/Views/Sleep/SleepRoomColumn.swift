@@ -39,13 +39,15 @@ struct SleepRoomColumn: View {
             // R-Z5 — the one slot the worm speaks in; an answer replaces the status here (R-Z7).
             RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform,
                              leading: leading)
+            // ROR-118 round 5 - beside the room the schedule is the one fact about the job, so it sits under the
+            // headline it explains (overdue because no schedule), not under the buttons.
+            if leading { whisperRow.accessibilitySortPriority(RoomA11yOrder.whisper) }
             SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount, page: page,
                             leading: leading)
                 .accessibilitySortPriority(RoomA11yOrder.control)
                 .tourAnchor(.consolidate)
             notes
-            whisperRow
-                .accessibilitySortPriority(RoomA11yOrder.whisper)
+            if !leading { whisperRow.accessibilitySortPriority(RoomA11yOrder.whisper) }
             RunInstrument(page: page, justFinished: room.recentCycleCommit != nil)
         }
         .frame(maxWidth: SleepLayout.contentWidth)
@@ -88,8 +90,8 @@ struct SleepRoomColumn: View {
         if leading { cornerWhisper } else { centredWhisper }
     }
 
-    /// ROR-118 round 4 - beside the room the schedule is the one fact about the job, so it is set as a quiet 13 pt
-    /// button (DR-40) in the control cluster's own type, never 12 pt caption under it.
+    /// ROR-118 round 4 - beside the room the schedule is the one fact about the job, so it is a quiet 13 pt
+    /// button (DR-40), the headline's subtitle, never a 12 pt caption under the buttons.
     private var cornerWhisper: some View {
         NeutralButton(title: cornerWhisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
                                                lampLit: page.lampLit, lastRead: lastRead),
@@ -102,6 +104,8 @@ struct SleepRoomColumn: View {
         .popover(isPresented: Binding(get: { room.lampPopover == .whisper },
                                       set: { if !$0 { room.lampPopover = nil } }),
                  arrowEdge: .bottom) { LampPopover(page: page) }
+        .padding(.leading, -CicadaTheme.scaled(10))   // the words hang on the headline's left edge, not the button's padding
+        .padding(.top, -CicadaTheme.spacingXS)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
