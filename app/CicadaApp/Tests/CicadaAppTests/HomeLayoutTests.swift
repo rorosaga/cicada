@@ -19,6 +19,17 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertEqual(HomeLayout.labelGap, 6)
     }
 
+    /// ROR-118 (round 1, Home) — the headline leads at 34 pt and starts an eighth of the viewport down, between the room
+    /// pages' 24 pt inset and 88 pt; Today and Last read are rows with a 2 pt gap, not cards.
+    func testTheHeadlineLeadsAndTheLowerRowsAreQuiet() {
+        XCTAssertEqual(HomeLayout.headlineSize, 34)
+        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 100), 24, "never above the room pages' inset")
+        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 600), 72)
+        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 2000), 88, "never past 88 pt")
+        XCTAssertEqual(HomeLayout.pulseGap, 2)
+        XCTAssertLessThan(HomeLayout.pulseGap, HomeLayout.blockGap)
+    }
+
     /// Owner 2026-10-06 — "i dont like how the boxes get clipped with the portion of the search bar." The field sat
     /// outside the blocks' scroll view, whose top edge ran flush under it, so a scrolled card was cut mid-border. One
     /// scroll view now carries the headline, the field and the blocks, and the first block sits one block gap under the
@@ -28,7 +39,7 @@ final class HomeLayoutTests: XCTestCase {
         let text = try String(contentsOf: file, encoding: .utf8)
         XCTAssertEqual(text.components(separatedBy: "ScrollView {").count - 1, 1, "one scroll view for the page")
         let scroll = try XCTUnwrap(text.range(of: "ScrollView {"))
-        let title = try XCTUnwrap(text.range(of: "PageTitle(Copy.homeHeadline)"))
+        let title = try XCTUnwrap(text.range(of: "PageTitle(Copy.homeHeadline"))
         let field = try XCTUnwrap(text.range(of: "fieldColumn(showsResults:"))
         let blocks = try XCTUnwrap(text.range(of: "GettingStartedCard(selectedTab:"))
         XCTAssertLessThan(scroll.lowerBound, title.lowerBound, "the headline scrolls with the page")

@@ -14,12 +14,12 @@ enum HomeLayout {
     /// The headline is Home's first content (the painted band retired, owner 2026-10-16; off since G189(a)): it takes
     /// the room pages' title inset (24 pt, `PageHeader`'s top), well inside DR-26's 120 pt.
     static let headlineTop: CGFloat = 24
-    /// ROR-118 (round 1) — the headline and the field are the page's lead: the headline is 34 pt and starts a tenth of
+    /// ROR-118 (round 1) — the headline and the field are the page's lead: the headline is 34 pt and starts an eighth of
     /// the viewport down (24 pt at the least, 88 pt at the most), so the lead sits where the eye lands and the rest
     /// reads as what follows it.
     static let headlineSize: CGFloat = 34
     static func headlineTop(viewportHeight: CGFloat) -> CGFloat {
-        min(88, max(headlineTop, (viewportHeight * 0.1).rounded()))
+        min(88, max(headlineTop, (viewportHeight * 0.12).rounded()))
     }
     static let headlineBottom: CGFloat = 22
     static let blockGap: CGFloat = 24

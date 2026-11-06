@@ -564,7 +564,7 @@ once the file has one. Tests: `MediaPageModelTests`.
 
 **Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1. The painted band is gone (off since G189(a),
 2026-10-06; retired with every painting on 2026-10-16, owner: "Remove it from everywhere"), so the first content is
-"What would you like to remember?" as a `PageTitle` at the room pages' 24 pt top inset (`HomeLayout.headlineTop`) — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block: a second
+"What would you like to remember?" as a `PageTitle` at 34 pt (`HomeLayout.headlineSize`), an eighth of the viewport down, 24 to 88 pt (`HomeLayout.headlineTop(viewportHeight:)`; ROR-118 round 1) — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block, its type 17 pt and 6 pt taller than the palette's: a second
 `FindPaletteModel` sharing the one Ask and keeping no recents; ⌘K on Home focuses it, a pasted `http(s)` link offers
 *Save this link*. The headline, the field and the blocks scroll as one page (owner 2026-10-06), under macOS 26's soft top scroll edge
 (`softTopScrollEdge()`), so no card is cut under the field; the first block sits one 24 pt block gap below it, and with
@@ -582,18 +582,19 @@ setup checklist* (`showChecklist`; the Welcome's record never opens it). The tou
 card, so it is never off-screen. Inside, three labelled groups 20 pt apart — Connected, Your past chats, First read — and *Also
 on this Mac* as an offer. Your past chats has one 36 pt row per vendor still to ask (`ExportVendorRow`; a vendor whose
 `chat-export:<vendor>` row has episodes is not asked again), the whole row opening onboarding's drawn walkthrough over
-Home (`HomeWalkthroughLayer`), with waits above them leading with "Check your email for the … link". Today is one row to
-Sources (captured today, UTC, with the three busiest origins' marks, names and counts) plus the waiting count as a row
-to Sleep; Needs you (ruling 48 (1), owner 2026-10-28; `NeedsYouSection`, `HomeQuestions`) is two blocks: **Catch me
-up** on its own (`CatchupBlock`, `07-home-b`'s separation — the chat glyph, "N questions about M pages, the ones you use
-most first · or say "catch me up" to your agent", *Start* a `NeutralButton`), then *Pages with a question*, one row per
-page (at most four, the server's `page_use` order), each leading with the page's picture (`EntityPicture`: face, logo
-or type glyph — the kind moves to `.help`, DR-48), the question in plain words (`spokenQuestion`), its reason and the page
-as an `InlineLink`, "N questions" when the page has more, and the question's age; a row opens that question in the
-list (STATE 1), the link opens the page; *All N questions* at the label's right opens the full list (never a fold —
-ruling 48 (17)). Drawn from the Store's disk-hydrated snapshot, so Home never waits on `GET /inbox`;
+Home (`HomeWalkthroughLayer`), with waits above them leading with "Check your email for the … link". Today is two quiet rows, no card and no label (ROR-118, round 1; `HomePulse`, `HomeGlyphTile`): captured today, to
+Sources, with the busiest origins as their real marks alone (name and count on hover and in the accessibility label), and
+the waiting count as a row to Sleep; Needs you (ruling 48 (1), owner 2026-10-28; `NeedsYouSection`, `HomeQuestions`) is
+**one card that leads** (`LeadQuestionCard`): the most-used page's question — its picture when it draws one
+(`EntityPicture`, nothing otherwise, DR-48), the question in `headingFont`, its reason in `bodyFont` secondary, the page's
+name (a `QuietLink`, opens the page), "N questions" when the page has more, the age — a click on it opens that question in
+the list (STATE 1); in its foot *Catch me up* (a `NeutralButton`, its hover "N questions about M pages · or say "catch me
+up" to your agent") and *All N questions* (opens the full list, never a fold — ruling 48 (17)). The other questions are one
+click away, so no two rows repeat each other's copy. Drawn from the Store's disk-hydrated snapshot, so Home never waits on
+`GET /inbox`;
 Last read is the newest Sleep commit as a row to that read in Sleep's Past reads ("Today 07:27 · 33 updated", the commit's
-instant on the viewer's clock), its pages as `Tag`s in 24 pt hit frames — each number once, never a Consolidate. The
+instant on the viewer's clock) opening with "Last read", its pages as plain names under it in 24 pt hit frames, each
+opening the graph (no pill, no dot) — each number once, never a Consolidate. The
 history is not a Store domain: `SleepViewModel` holds it in memory, Home fetches it on arrival and whenever the status's
 `lastSleepAt` moves (`refreshForHome`), and a bank switch empties and rereads it (`bankChanged`) — the launch's own
 switch to the roster's bank used to drop Home's first fetch, leaving "—" until the Sleep page was opened. Each state is

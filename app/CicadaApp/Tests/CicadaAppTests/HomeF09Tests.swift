@@ -96,8 +96,12 @@ final class HomeF09Tests: XCTestCase {
         // Ruling 48 (1) superseded R-HO12's glyph rows: a row leads with its page's picture, the plain question, its
         // reason and the page as a link; *All N questions* replaced *Open Inbox*.
         XCTAssertTrue(sections.contains("EntityPicture(id: row.entityId"), "ruling 48 (1) — the page leads the row")
-        XCTAssertTrue(sections.contains("linkTitle: figures.total > 0 ? Copy.Catchup.allQuestions(figures.total)"))
-        XCTAssertTrue(sections.contains("CatchupBlock("), "ruling 48 (1) — Catch me up stands apart")
+        // ROR-118 (round 1, Home): ONE question leads in one card; Catch me up and *All N questions* are its foot.
+        XCTAssertTrue(sections.contains("QuietLink(title: Copy.Catchup.allQuestions(total)"))
+        XCTAssertTrue(sections.contains("LeadQuestionCard("), "ROR-118 — one question leads, Catch me up in its foot")
+        XCTAssertTrue(sections.contains("NeutralButton(title: Copy.Catchup.title"), "ruling 48 (1) — Catch me up stays")
+        XCTAssertFalse(sections.contains("struct CatchupBlock"), "the second card is gone: nothing says the same thing twice")
+        XCTAssertFalse(sections.contains("OriginMark(origin: chip.mark, size: CicadaTheme.scaled(14))"))
         XCTAssertTrue(try source("Views/Home/HomeView.swift").contains("LastReadSection("), "R-HO13 — Last read stays")
     }
 }

@@ -349,7 +349,8 @@ struct NeedsYouSection: View {
         if empty {
             HomeBlock(title: Copy.homeNeedsYouCount(figures.total), emptyNote: Copy.homeNeedsYouNothing) { EmptyView() }
         } else if let lead = figures.rows.first {
-            LeadQuestionCard(row: lead, total: figures.total, catchUp: figures.catchUp, pages: figures.catchUpPages,
+            LeadQuestionCard(row: lead, drawsPicture: HomeQuestions.reservesPicture([lead], store: store),
+                             total: figures.total, catchUp: figures.catchUp, pages: figures.catchUpPages,
                              openPage: openPage, startCatchup: startCatchup,
                              open: {
                                  router.pendingInboxItem = lead.id
@@ -376,6 +377,9 @@ struct NeedsYouSection: View {
 /// away in any agent with Cicada — and *All N questions*.
 struct LeadQuestionCard: View {
     let row: HomeQuestions.Row
+    /// The page has something to draw (`HomeQuestions.reservesPicture`): with none, the card has no slot for it and its
+    /// meta line starts at the card's own edge.
+    let drawsPicture: Bool
     let total: Int
     let catchUp: [String]
     let pages: Int
@@ -423,7 +427,7 @@ struct LeadQuestionCard: View {
             .accessibilityAddTraits(.isHeader)
 
             meta
-                .padding(.leading, row.entityId.isEmpty ? 0 : pictureSlot)
+                .padding(.leading, drawsPicture && !row.entityId.isEmpty ? pictureSlot : 0)
                 .padding(.top, CicadaTheme.scaled(2))
 
             HStack(spacing: CicadaTheme.spacingMD) {
