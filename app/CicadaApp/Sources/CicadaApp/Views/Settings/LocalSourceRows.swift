@@ -109,6 +109,9 @@ struct FolderChannelRow: View {
             if let folder, let error = localSources.folderErrors[folder.id] {
                 WarningLine(text: error, warning: true)
                     .padding(.leading, CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
+            } else if let folder, let skipped = localSources.folderSkipped[folder.id] {
+                WarningLine(text: skipped, warning: true)
+                    .padding(.leading, CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
             }
             // G161 — the notes the folder brought in, one row per file.
             if showsItems, channel.connected {

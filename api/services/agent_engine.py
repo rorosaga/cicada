@@ -43,6 +43,7 @@ from loguru import logger
 from api.services import agent_stream, engine_errors, engine_schemas, plan_limits
 from api.services.entity_relations import RELATIONS as _RELATIONS
 from api.services.auth import cicada_home
+from api.services.connections import install_hints
 from api.services.connections.base import CliResult
 
 #: ``runner(argv, *, stdin=None, timeout=None, cwd=None, env_overrides=None)
@@ -575,8 +576,7 @@ def parse_envelope(result: CliResult, stream: agent_stream.StreamResult | None =
     """
     if result.rc == 127:
         return _raise(engine_errors.EngineUnavailable(
-            "Claude Code is not installed — install it (npm i -g @anthropic-ai/claude-code) "
-            "and run `claude` once to sign in."
+            install_hints.CLAUDE_INSTALL_SENTENCE
         ))
     stream = stream if stream is not None else agent_stream.parse_stream(result.stdout)
     # No envelope/non-JSON transport failures used to look like a missing or
@@ -903,8 +903,7 @@ def probe(*, runner: Runner | None = None, binary: str = "claude", timeout: floa
     result = run([binary, "auth", "status", "--json"], stdin=None, timeout=timeout, cwd=None)
     if result.rc == 127:
         return False, (
-            "Claude Code is not installed — install it (npm i -g @anthropic-ai/claude-code) "
-            "and run `claude` once to sign in."
+            install_hints.CLAUDE_INSTALL_SENTENCE
         )
     try:
         info = json.loads((result.stdout or "").strip() or "{}")

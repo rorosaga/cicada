@@ -454,3 +454,22 @@ def test_a_walked_folders_files_sniff_by_their_path_inside_it(tmp_path, monkeypa
                   'window.YTD.like.part0 = [{"like": {"tweetId": "1000000000000000001"}}]').json()
     assert saves["recognized"] and saves["kind"] == "saved" and saves["platform"] == "x"
     config.get_settings.cache_clear()
+
+
+def test_a_file_that_is_not_whole_gets_words_and_the_file_to_drop_never_the_parsers(tmp_path, monkeypatch):
+    """2026-11-06 — `Expecting value: line 1 column 1 (char 0)` and `File is not a zip file` used to reach the panel."""
+    client = _client(tmp_path, monkeypatch)
+    cases = [("conversations.json", b"", intake.CUT_SHORT_JSON_REASON),
+             ("conversations.json", b'[{"mapping": {"a": ', intake.CUT_SHORT_JSON_REASON),
+             ("data-2026.zip", b"PK not really a zip", intake.BAD_ZIP_REASON),
+             ("notes.json", b'{"hello": "world"}', intake.UNKNOWN_JSON_REASON)]
+    for name, body_bytes, reason in cases:
+        sniffed = _post(client, "/intake/sniff", name, body_bytes).json()
+        assert sniffed["recognized"] is False and sniffed["reason"] == reason
+        imported = _post(client, "/intake/import", name, body_bytes)
+        assert imported.status_code == 400 and imported.json()["detail"] == reason
+    for reason in (intake.CUT_SHORT_JSON_REASON, intake.BAD_ZIP_REASON, intake.UNKNOWN_JSON_REASON):
+        assert "conversations.json" in reason or ".zip" in reason, "names what to drop"
+        assert not any(raw in reason for raw in ("Expecting", "char 0", "Failed to parse", "Invalid zip"))
+    assert not list((tmp_path / "episodes").glob("*.md"))
+    config.get_settings.cache_clear()

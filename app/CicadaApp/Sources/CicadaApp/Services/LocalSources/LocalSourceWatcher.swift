@@ -38,6 +38,22 @@ enum LocalSourceCopy {
     static let wisprTurnedOff = "Wispr Flow is turned off — switch it on from the Sources page."
     static let alreadySyncing = "Already syncing — anything new will follow right after."
     static let synced = "Synced"
+
+    /// What the scan left out, in one line (nil when nothing): the file, and why — over `FolderScanner.maxFileBytes`
+    /// or not openable. The first file is named; more are counted.
+    static func skipped(tooLarge: [String], unreadable: [String]) -> String? {
+        let limit = ByteCountFormatter.string(fromByteCount: FolderScanner.maxFileBytes, countStyle: .file)
+        switch (tooLarge.count, unreadable.count) {
+        case (0, 0): return nil
+        case (1, 0): return "\(name(tooLarge[0])) is over \(limit), so Cicada skipped it."
+        case (0, 1): return "Cicada couldn't open \(name(unreadable[0])), so it skipped it."
+        default:
+            let first = tooLarge.first ?? unreadable[0]
+            return "Cicada skipped \(tooLarge.count + unreadable.count) files, starting with \(name(first)): over \(limit), or not openable."
+        }
+    }
+
+    private static func name(_ relpath: String) -> String { (relpath as NSString).lastPathComponent }
 }
 
 /// A folder's watch, made by the watcher — `FSEventsWatch` in the app, a stand-in
@@ -63,6 +79,9 @@ final class LocalSourceWatcher {
     private(set) var folders: [FolderRegistration] = []
     /// The folder's last failure, in words the person can act on.
     private(set) var folderErrors: [String: String] = [:]
+    /// 2026-11-06 — files the last scan left out (over the size limit, or not openable), by folder: one line the row
+    /// shows beside "Watching". Nil when every file was read; the scan that follows a fix clears it.
+    private(set) var folderSkipped: [String: String] = [:]
     private(set) var wisprSettings = WisprFlowSettings()
     private(set) var wisprError: BrowserFileError?
     /// The last Wispr Flow pass's non-file failure (the backend refused the
@@ -382,6 +401,7 @@ final class LocalSourceWatcher {
             lights.publish(.failed, error: nil, for: channel)
             return
         }
+        folderSkipped[folder.id] = LocalSourceCopy.skipped(tooLarge: read.tooLarge, unreadable: read.unreadable)
         var next = manifest
         for (rel, signature) in read.touched { next[rel] = signature }
         do {
@@ -518,6 +538,7 @@ final class LocalSourceWatcher {
         lights.publish(nil, error: nil, for: folder.channelId)
         folders.removeAll { $0.id == folder.id }
         folderErrors[folder.id] = nil
+        folderSkipped[folder.id] = nil
         await store?.refresh([.channels, .sourcesOverview])
     }
 

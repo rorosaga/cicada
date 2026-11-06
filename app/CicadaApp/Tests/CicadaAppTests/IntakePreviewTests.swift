@@ -40,11 +40,11 @@ final class IntakePreviewTests: XCTestCase {
         XCTAssertEqual(p.titles.first?.date, "2026-01-01", "newest first")
     }
 
-    func testNothingReadableFailsWithTheBackendsOwnWords() {
+    func testNothingReadableFailsNamingTheFileWithTheBackendsOwnWords() {
         let phase = IntakePreview.aggregate([
             IntakeFileSniff(url: url("chat.html"), sniff: IntakeSniff(reason: "This looks like ChatGPT's chat.html viewer.")),
         ], capped: false)
-        XCTAssertEqual(phase, .failed("This looks like ChatGPT's chat.html viewer."))
+        XCTAssertEqual(phase, .failed("chat.html: This looks like ChatGPT's chat.html viewer."))
     }
 
     func testSavedContentCountsItsItems() throws {

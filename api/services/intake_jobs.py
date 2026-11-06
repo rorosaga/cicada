@@ -47,6 +47,10 @@ class Job:
 
 
 _jobs: dict[str, Job] = {}
+#: What the panel says when a background write stops (G199: the exception stays in the log, as its class). What was
+#: already written is kept, and a second drop of the same file only adds the rest.
+WRITE_FAILED = "Cicada couldn't finish saving this export. What was saved is kept; drop the file again to add the rest."
+
 _lock = threading.Lock()
 
 
@@ -117,7 +121,7 @@ def run(job_id: str, episodes: list[dict], episodes_dir: Path, *, extras_only: l
     except Exception as exc:  # recorded for the panel, never raised into the server
         logger.error(f"Intake job {job_id} failed: {type(exc).__name__}")
         with _lock:
-            job.error = f"{type(exc).__name__}: {exc}"
+            job.error = WRITE_FAILED
     finally:
         with _lock:
             job.done = True

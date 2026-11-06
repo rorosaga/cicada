@@ -40,6 +40,20 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   full menu stays in Sleep → Options, which keeps the plan reserve and the model prices (ruling 12).
   **An app without its tool (ROR-52, 2026-11-04):** the row says *Not ready* (`notReady`), never *Not installed*, with the
   backend's line and the one command to run (`stepCommand`: `nextCommand`, else the sign-in); `capture-and-sleep.md` has the states.
+  **A plan whose tool is not on the Mac (2026-11-06, G76/G92):** a stranger's Mac has no Node, so the row (Settings, and
+  onboarding's Intelligence step, which draws the same `IntelligenceRow`) reads *Not installed*, then the backend's one
+  sentence ("Claude Code is not installed on this Mac.") and *Paste this in Terminal.*, and a `CommandBox` with the line
+  (`ConnectionStatus.nextCommand` → `IntelligenceRow.installLine`): the vendor's own standalone installer, `curl -fsSL
+  https://claude.ai/install.sh | bash` and `curl -fsSL https://chatgpt.com/codex/install.sh | sh`, read from each vendor's docs
+  and kept in `api/services/connections/install_hints.py` — the one place; the Sleep pre-flight, the engine errors and
+  `GET /sleep/engine`'s plan cards (`nextCommand`, which the full chooser draws in a `CommandBox`) read it, and a test fails on
+  any other spelling of a line. Both put the tool in `~/.local/bin`, a folder `base.resolve_binary` already looks in, so the
+  launchd backend finds it with no restart. Home's First read and the Welcome's compact cards keep "Not installed" and add one
+  hint line, *To use your Claude plan or ChatGPT plan, install it in* + the Plans & keys link (`EngineOption.installHint`).
+  **The row changes without quitting:** `GET /connections` caches a probe 30 s, so coming back to the app (activation)
+  re-reads it fresh, then `GET /sleep/engine`, but only while some plan is still missing (`MissingTools.waiting`,
+  `refreshesMissingTools()` on Settings → Intelligence, the Intelligence step and the Getting-started card); a Mac with
+  everything in place never probes on activation.
   **Your agent tools (G49/G50, 2026-10-28)** sits between Plans and API keys: one `OwnToolRow` per Cursor, OpenCode or
   Grok card from `GET /sleep/engine` (mark, *Connected* / *Not connected* / *Not installed*, the tool's billing note or
   a stale saved model in words, *Use* once signed in, and — signed out — the sign-in command in a `CommandBox`; Cicada
@@ -900,7 +914,8 @@ account. Is that what you go by?" (`WelcomeName.suggestion`); Continue or ⏎ co
 later saves no name for an untouched suggestion (`WelcomeName.unconfirmed` → `OnboardingFlow.laterSteps(name: nil)`), so
 the bank keeps `owner_identity`'s "Owner" placeholder (G169's self-references still land on it) until a name is given.
 (4) **The prerequisite, said once in each place:** the Agents step, the README's install section and
-`install-release.sh`'s first line name Claude Code or Codex signed in to a paid plan (or an API key in Settings).
+`install-release.sh`'s first line name Claude Code or Codex signed in to a paid plan (or an API key in Settings), and each
+adds that the app gives the line that installs it (2026-11-06, below).
 
 **Engine choice in onboarding: Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31).** Until D6 Settings drew
 `EngineChooser(foldsOtherEngines: true)` (the engine card): the card opens on `EngineHeadline` — *Auto* and what it uses now from

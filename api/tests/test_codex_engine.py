@@ -10,6 +10,7 @@ import pytest
 
 from api.config import Settings
 from api.services import agent_engine, codex_engine, engine_errors, engine_schemas, providers
+from api.services.connections import install_hints
 from api.services.codex_app_server import CodexSnapshot
 from api.services.connections.base import CliResult
 from api.services.telemetry import UsageEvent
@@ -92,7 +93,7 @@ def test_no_events_rc_127_and_rc_124():
         codex_engine.check(CliResult(1, "", "boom"), codex_engine.parse_events(""))
     with pytest.raises(engine_errors.EngineUnavailable) as info:
         codex_engine.check(CliResult(127, "", "codex: not found"), codex_engine.parse_events(""))
-    assert "npm i -g @openai/codex" in str(info.value)
+    assert install_hints.CODEX_INSTALL_COMMAND in str(info.value)
     with pytest.raises(engine_errors.EngineTimeout):
         codex_engine.check(CliResult(124, "", "timed out"), codex_engine.parse_events(""))
 

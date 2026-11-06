@@ -163,6 +163,17 @@ enum EngineOption {
         return "To use your \(names.joined(separator: " or ")), sign in on"
     }
 
+    /// "To use your Claude plan or ChatGPT plan, install it in" + the Plans & keys link — a plan card whose tool isn't
+    /// on this Mac (its caption says Not installed). The link lands on the row that gives the line to paste; Home's
+    /// First read and the Welcome lead to the same fix Settings shows.
+    static func installHint(_ candidates: [SleepEngineCandidate]) -> String? {
+        let names = candidates
+            .filter { planIds.contains($0.id) && !$0.available && !($0.nextCommand ?? "").isEmpty }
+            .map(\.label)
+        guard !names.isEmpty else { return nil }
+        return Copy.Intelligence.installHint(names)
+    }
+
     /// R-E13: extra usage is a Claude-only choice and only matters where a
     /// cycle can run on the Claude plan — chosen outright, or through Auto.
     static func showsOverageToggle(selectedMode: String) -> Bool {

@@ -15,10 +15,10 @@ import uuid
 
 from api.models.schemas import ConnectionKind, ConnectionStatus, LoginHint, LoginSession
 from api.services import pricing
+from api.services.connections import install_hints
 from api.services.connections.base import Runner, override_note, resolve_binary, run_cli
 
 LOGIN_COMMAND = "claude auth login"
-_INSTALL_HINT = "Install Claude Code (npm i -g @anthropic-ai/claude-code) and run `claude` once to sign in."
 
 
 def parse_auth_status(stdout: str) -> dict:
@@ -47,10 +47,12 @@ class ClaudePlanAdapter:
 
     async def status(self) -> ConnectionStatus:
         if not self.available():
-            return self._base(available=False, detail=_INSTALL_HINT)
+            return self._base(available=False, detail=install_hints.CLAUDE_MISSING,
+                              next_command=install_hints.CLAUDE_INSTALL_COMMAND)
         res = await self._run(["claude", "auth", "status", "--json"])
         if res.rc == 127:
-            return self._base(available=False, detail=_INSTALL_HINT)
+            return self._base(available=False, detail=install_hints.CLAUDE_MISSING,
+                              next_command=install_hints.CLAUDE_INSTALL_COMMAND)
         try:
             info = parse_auth_status(res.stdout)
         except ValueError:

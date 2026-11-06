@@ -389,7 +389,12 @@ struct EngineChooser: View {
         case "byok":
             if let response = vm.response { providerPicker(response) }
         default:
-            if EngineOption.isOwnTool(candidate) { ownToolStep(candidate) }
+            if EngineOption.isOwnTool(candidate) {
+                ownToolStep(candidate)
+            } else if !candidate.available, let command = candidate.nextCommand {
+                // The Claude or ChatGPT plan whose tool isn't on this Mac: the line that puts it there.
+                CommandBox(command: command)
+            }
         }
     }
 

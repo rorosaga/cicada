@@ -62,6 +62,7 @@ struct IntelligenceView: View {
             if engineVM.response == nil { await engineVM.load() }
             if sleepVM.runOptions == nil { await sleepVM.loadRunOptions() }
         }
+        .refreshesMissingTools()
     }
 
     private var claudePlan: ConnectionStatus? {
@@ -267,6 +268,15 @@ struct IntelligenceRow: View {
     private var isKey: Bool { item.kind == "key" }
     private var isLocal: Bool { item.kind == "local" }
     private var isSignIn: Bool { connection?.login?.mode == "oauth" }
+    /// A plan whose tool isn't on this Mac: its words and the line to paste, in place of a button that can't work.
+    private var installLine: String? { Self.installLine(for: connection, isKey: isKey, isLocal: isLocal) }
+
+    /// The line to paste when this row's tool isn't on the Mac — a plan only (a key or a local model has no tool to
+    /// install here). Pure, so every state is tested without a view.
+    static func installLine(for connection: ConnectionStatus?, isKey: Bool, isLocal: Bool) -> String? {
+        guard let connection, connection.needsInstall, !isKey, !isLocal else { return nil }
+        return connection.nextCommand
+    }
 
     var body: some View {
         ConnectionLine(logo: isLocal ? nil : umbrella.logo,
@@ -274,10 +284,12 @@ struct IntelligenceRow: View {
                        systemFallback: isLocal ? "desktopcomputer" : "key",
                        detail: detail,
                        status: isLocal ? nil : (connected ? (isKey ? Copy.Status.saved : Copy.Status.connected)
-                                                          : Copy.Status.notConnected, connected),
+                                                          : (installLine != nil ? Copy.Intelligence.notInstalled
+                                                                                : Copy.Status.notConnected), connected),
                        quiet: isLocal) {
             actions
         } below: {
+            if let installLine { CommandBox(command: installLine) }
             if editing { keyEntry }
             if let pending = connectionsVM.pendingLogin, pending.connectionId == connection?.id {
                 DeviceCodePanel(session: pending, onRetry: signIn)
@@ -286,6 +298,7 @@ struct IntelligenceRow: View {
     }
 
     private var detail: String? {
+        if installLine != nil { return [connection?.detail, Copy.Intelligence.pasteInTerminal].compactMap { $0 }.joined(separator: " ") }
         if isKey, connected {
             let line = Copy.Intelligence.keyLine(hint: connection?.keyHint, store: connection?.keyStore,
                                                  verifiedAt: connection?.verifiedAt)

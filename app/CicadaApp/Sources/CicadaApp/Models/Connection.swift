@@ -33,11 +33,14 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
     var keyStore: String? = nil
     var verifiedAt: String? = nil
     var termsNote: String? = nil
+    /// 2026-11-06 — the one line to run when the tool this row needs is not on this Mac (`available` is false):
+    /// the backend's `install_hints`, drawn in a copyable box. Absent when the tool is here, or on an older backend.
+    var nextCommand: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, label, kind, available, connected, plan, planLabel, tier, account
         case priceUsdMonth, priceNote, billing, engineRole, detail, how, powers, useForSleep, login
-        case keyHint, keyStore, verifiedAt, termsNote
+        case keyHint, keyStore, verifiedAt, termsNote, nextCommand
     }
 
     /// Memberwise init — declaring `init(from:)` below suppresses the
@@ -102,7 +105,11 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
         keyStore = try? c.decodeIfPresent(String.self, forKey: .keyStore)
         verifiedAt = try? c.decodeIfPresent(String.self, forKey: .verifiedAt)
         termsNote = try? c.decodeIfPresent(String.self, forKey: .termsNote)
+        nextCommand = (try? c.decodeIfPresent(String.self, forKey: .nextCommand)) ?? nil
     }
+
+    /// The tool this row runs through isn't on this Mac and the backend knows the line that puts it there.
+    var needsInstall: Bool { !available && !(nextCommand ?? "").isEmpty }
 
     var isSubscription: Bool { billing == "subscription" }
     /// A card that holds a pasted key. OpenRouter's `oauth` card is one too (R-AG10): signing in only adds a

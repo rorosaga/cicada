@@ -23,6 +23,7 @@ from loguru import logger
 
 from api.models.schemas import ConnectionKind, ConnectionStatus, LoginHint, LoginSession
 from api.services import codex_app_server, pricing
+from api.services.connections import install_hints
 from api.services.connections.base import (
     Runner, codex_home, override_note, resolve_binary, run_cli, scrubbed_env,
 )
@@ -39,7 +40,6 @@ _CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 def strip_ansi(text: str) -> str:
     return _CSI_RE.sub("", text)
-_INSTALL_HINT = "Install Codex CLI (npm i -g @openai/codex), then Sign in with ChatGPT here."
 # R-E28: the sign-in is in-app now, so no line tells a person to open a
 # terminal — and "Connect" was never the button's name.
 _SIGNED_OUT = "Not signed in — “Sign in with ChatGPT” shows a one-time code to enter on the ChatGPT website."
@@ -116,10 +116,12 @@ class CodexPlanAdapter:
 
     async def status(self) -> ConnectionStatus:
         if not self.available():
-            return self._base(available=False, detail=_INSTALL_HINT)
+            return self._base(available=False, detail=install_hints.CODEX_MISSING,
+                              next_command=install_hints.CODEX_INSTALL_COMMAND)
         res = await self._run(["codex", "login", "status"])
         if res.rc == 127:
-            return self._base(available=False, detail=_INSTALL_HINT)
+            return self._base(available=False, detail=install_hints.CODEX_MISSING,
+                              next_command=install_hints.CODEX_INSTALL_COMMAND)
         if res.rc != 0:
             return self._base(available=True, detail=_SIGNED_OUT)
         # R-E8/R-E18: the app-server (30 s cached, read-only, no quota) answers
@@ -168,7 +170,7 @@ class CodexPlanAdapter:
             logger.warning(f"codex login spawn failed: {type(exc).__name__}: {exc}")
             raise HTTPException(
                 status_code=502,
-                detail=f"Could not start `codex login --device-auth`: {exc}. {_INSTALL_HINT}",
+                detail=f"Could not start `codex login --device-auth`: {exc}. {install_hints.CODEX_INSTALL_SENTENCE}",
             ) from exc
         login_sessions[sess.session_id] = sess
         _live[self.id] = (sess, proc)

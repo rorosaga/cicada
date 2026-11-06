@@ -20,6 +20,16 @@
 
 - **2026-11-06 — Ask finds what a new memory holds (G148, G76; branch `prod/ask-small-bank`).** A word in over half the conversations ranked nothing, so a one-conversation bank had no words at all and Ask said nothing matches while recall found the turn. `COMMON_FLOOR` (5 conversations) stops that; a bank past ten conversations reads as before, the benchmarks' banks included. Found walking a stranger's path before the first Sleep.
 - **2026-11-06 — Ask says why it failed (G148; branch `prod/ask-words`).** `ask_failure`: a model call that raised is worded from Sleep's classifiers (plan window or week, overage, key limit or refusal, sign-out, timeout, dropped connection) with its fix and a reset time only when the vendor gave one; additive `failure`/`resetsAt` on `/ask`; the app shows the sentence, keeps it out of Recent and waits 600 s; the MCP direct path resolves Auto (before: "no engine" for a signed-in plan) and a slow backend is no longer answered twice. **Pick up here:** try a real plan limit in a scratch app (only stand-in failures were run). No ruling changed.
+- **2026-11-06 — a stranger's first engine and first file (G76, G92; branch `prod/first-engine`).** A Mac without Claude Code
+  showed "Use my Claude plan · Not connected" with no button and no words: the plan rows (Settings, onboarding's
+  Intelligence step), the engine cards and the Sleep pre-flight now give the vendor's own installer line (a stranger has no
+  npm; `connections/install_hints.py` is the one place, a gate test fails on any other spelling), and the row changes on
+  return to the app without quitting. A bad file is named with what is wrong and which file to drop (never the parser's
+  message); a large export no longer ends "The request timed out." while the import runs (measured: a synthetic 150 MB
+  export sniffs in 110 s and imports in ~3.5 min on a busy Mac, almost all of it the secret scrub); a watched folder says
+  which files it left out. **Pick up here:** `swift test --filter FirstEngineAndFileTests`; drop a truncated `.json` and a
+  broken `.zip` in a scratch app. Not shown in a verify run: the plan row at "Not installed" (`plan-claude` always answers
+  for the Claude plan) — proved by view-state tests. No ruling changed.
 - **2026-11-06 — a conflict answer writes the value only the question held (G98, ROR-31; branch `conflict-off-page-value`).**
   "Both", a pick of the off-page value, "both" on a description question and a multi-valued dismissal each dropped a value;
   each now writes it. No bank write. Still open: a question closed because a later value won drops its off-page rival (G98 row).
