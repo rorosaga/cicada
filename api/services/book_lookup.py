@@ -470,10 +470,10 @@ async def resolve(isbns: list[str], *, fetch: FetchFn | None = None, max_isbns: 
 # For a book the person chose to add that carries no ISBN (Apple Books: about one entry in 284 has one), its title and
 # author go to the same keyless Open Library, behind the same gate, paced and cached, with no identity sent. Only a
 # *confident* match counts: the page's title (or title + subtitle) equals a result's title once case, accents and
-# punctuation are set aside, AND every one of the page's authors is among the result's; two distinct works that both
-# qualify are ambiguous and match nothing. No fuzzy step. The answer is cached under ``title:<hash>`` in the same file
+# punctuation are set aside, AND every one of the page's authors is among the result's; several works that both qualify with exactly the page's
+# authors are one book filed more than once (the most editions wins; a tie is ambiguous); otherwise ambiguous, match nothing. No fuzzy step. The answer is cached under ``title:<hash>`` in the same file
 # (a hash of the normalised words, never the words), so a miss is asked again only after :data:`MISS_RETRY_DAYS`.
-SEARCH_FIELDS = "key,title,subtitle,author_name,isbn,first_publish_year"
+SEARCH_FIELDS = "key,title,subtitle,author_name,isbn,first_publish_year,edition_count"
 SEARCH_LIMIT = 10
 
 
@@ -498,6 +498,7 @@ def confident_match(data, title, authors) -> dict:
     forms = books.title_forms(title)
     want = books.author_set(authors)
     works: dict[str, list[str]] = {}
+    exact: dict[str, int] = {}   # works whose authors are exactly the page's, with their edition counts
     for doc in docs or []:
         if not isinstance(doc, dict):
             continue
@@ -511,10 +512,19 @@ def confident_match(data, title, authors) -> dict:
             continue
         isbns = sorted({i for i in (books.isbn13(x) for x in doc.get("isbn") or []) if i})
         works.setdefault(m.group(1), []).extend(isbns)
+        if have == want:
+            count = doc.get("edition_count")
+            exact[m.group(1)] = max(exact.get(m.group(1), 0), count if isinstance(count, int) else 0)
     if not works:
         return {"match": None, "why": "none"}
     if len(works) > 1:
-        return {"match": None, "why": "ambiguous"}
+        # Several works carry this exact title and exactly these authors: the same book, filed more than once. The
+        # record with the most editions stands for it; a tie, or no work with exactly these authors, stays ambiguous.
+        # Never fuzzy, and "not this book" is still the undo.
+        ranked = sorted(exact.items(), key=lambda kv: -kv[1])
+        if not ranked or (len(ranked) > 1 and ranked[0][1] == ranked[1][1]) or ranked[0][1] <= 0:
+            return {"match": None, "why": "ambiguous"}
+        works = {ranked[0][0]: works[ranked[0][0]]}
     (work, isbns), = works.items()
     if not isbns:
         return {"match": None, "why": "no_isbn"}

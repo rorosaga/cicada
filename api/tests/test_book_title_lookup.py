@@ -19,8 +19,11 @@ OTHER_ISBN = "9781111111113"
 WORK = {"description": {"value": "A quiet novel about engines that learn to wait."}}
 
 
-def _doc(key, title, authors, isbns=(ISBN,), subtitle=None):
-    return {"key": f"/works/{key}", "title": title, "subtitle": subtitle, "author_name": authors, "isbn": list(isbns)}
+def _doc(key, title, authors, isbns=(ISBN,), subtitle=None, editions=None):
+    doc = {"key": f"/works/{key}", "title": title, "subtitle": subtitle, "author_name": authors, "isbn": list(isbns)}
+    if editions is not None:
+        doc["edition_count"] = editions
+    return doc
 
 
 def _fetch(docs, calls):
@@ -94,6 +97,30 @@ def test_anything_less_than_a_confident_match_leaves_the_book_without_a_descript
     assert "title_match" not in page.frontmatter["book"] and "description_at" not in page.frontmatter["book"]
     entry = book_lookup.cached(book_lookup.title_key("Quiet Engines", ["Bea Sample"]))
     assert entry == {**entry, "found": False, "why": why}
+
+
+def _verdict(docs, authors=("Bea Sample",)):
+    return book_lookup.confident_match({"docs": docs}, "Quiet Engines", list(authors))
+
+
+def test_identical_title_and_authors_across_works_is_one_book_and_the_most_editions_wins():
+    v = _verdict([_doc("OL1W", "Quiet Engines", ["Bea Sample"], isbns=(OTHER_ISBN,), editions=3),
+                  _doc("OL2W", "Quiet Engines", ["Bea Sample"], editions=40),
+                  _doc("OL3W", "Quiet Engines", ["Bea Sample"], isbns=(OTHER_ISBN,), editions=7)])
+    assert v["match"] == {"work_id": "OL2W", "isbn": ISBN}
+
+
+def test_the_tiebreak_is_exact_only():
+    tie = [_doc("OL1W", "Quiet Engines", ["Bea Sample"], editions=5), _doc("OL2W", "Quiet Engines", ["Bea Sample"], editions=5)]
+    assert _verdict(tie)["why"] == "ambiguous"                                      # equal counts: still a doubt
+    unknown = [_doc("OL1W", "Quiet Engines", ["Bea Sample"]), _doc("OL2W", "Quiet Engines", ["Bea Sample"])]
+    assert _verdict(unknown)["why"] == "ambiguous"                                  # no counts: nothing to rank by
+    extra = [_doc("OL1W", "Quiet Engines", ["Bea Sample", "Cy Other"], editions=90),
+             _doc("OL2W", "Quiet Engines", ["Bea Sample", "Di Third"], editions=80)]
+    assert _verdict(extra)["why"] == "ambiguous"                                    # authors not exactly the page's
+    near = [_doc("OL1W", "Quiet Engines Revisited", ["Bea Sample"], editions=90),
+            _doc("OL2W", "Quiet Engines", ["Bea Sample"], editions=2)]
+    assert _verdict(near)["match"]["work_id"] == "OL2W"                              # a near title never counts or ranks
 
 
 def test_several_editions_of_one_work_are_one_match(env):
