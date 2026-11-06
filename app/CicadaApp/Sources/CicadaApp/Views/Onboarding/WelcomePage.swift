@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Onboarding v2, step 1 (G92, G217; 2026-10-22) — the card under the study room: the greeting (the saved name, else
 /// the Mac account's — W7: one click corrects it), what Cicada is in one sentence, Continue (the one primary, ⏎; it
-/// saves the name first, G117 R1) beside Set up later, and *Try the demo* as a quiet link (seam 2; hidden on a rerun,
+/// saves the name first, G117 R1) and *Try the demo* as the one quiet link (Set up later sits top right, where the steps keep it) (seam 2; hidden on a rerun,
 /// R-OB19). Under 40 words. Every word sits on the card, none on art (DR-13). The card sits in the page, so it is ringed, never shadowed
 /// (DR-9, DR-10; looks pass 2026-10-23). The card rises once (DR-65, DR-67);
 /// Reduce Motion fades it in.
@@ -17,7 +17,6 @@ struct WelcomePage: View {
     /// Exports dropped on this page, held until Get started (R-OB2) — said, so a drop never vanishes silently.
     let waitingDrops: Int
     let onGetStarted: () -> Void
-    let onSetUpLater: () -> Void
     let onTryDemo: () -> Void
 
     @FocusState private var nameFocused: Bool
@@ -46,21 +45,25 @@ struct WelcomePage: View {
                     .onAppear { nameFocused = true }
                     .accessibilityLabel(Copy.welcomeYourName)
             } else {
-                Text(first.isEmpty ? Copy.welcomeHelloNoName : Copy.welcomeHello(first))
-                    .font(CicadaTheme.displayFont(size: 52))
-                    .tracking(CicadaTheme.displayTracking(size: 52))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
+                // ROR-118 round 2: the greeting and the one way to correct it share a line, so the foot of the card
+                // holds only Continue and the demo.
+                HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingMD) {
+                    Text(first.isEmpty ? Copy.welcomeHelloNoName : Copy.welcomeHello(first))
+                        .font(CicadaTheme.displayFont(size: 52))
+                        .tracking(CicadaTheme.displayTracking(size: 52))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: CicadaTheme.spacingMD)
+                    if !first.isEmpty {
+                        TextButton(title: Copy.welcomeNotYou(first)) { editingName = true }
+                    }
+                }
             }
             Text(Copy.welcomeLine)
                 .font(CicadaTheme.displayFont(size: 24))
                 .tracking(CicadaTheme.displayTracking(size: 24))
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if !first.isEmpty && !editingName {
-                // ROR-118: the row's own size (14), not the inline chip's 13 medium on a 22 pt line: it is read, not hunted.
-                TextButton(title: Copy.welcomeNotYou(first), flushLeading: true) { editingName = true }
-            }
             if let failure {
                 Text(failure).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
@@ -72,14 +75,12 @@ struct WelcomePage: View {
             HStack(spacing: CicadaTheme.spacingSM) {
                 PrimaryActionButton(title: busy ? Copy.welcomeStarting : Copy.onboardingContinue, action: onGetStarted)
                     .disabled(busy || !OnboardingFlow.canStart(name: name))
-                KeyHint("⏎")
                 Spacer()
                 if mode != .rerun {
                     TextButton(title: Copy.welcomeTryTheDemo, action: onTryDemo).disabled(busy)
                 }
-                TextButton(title: mode == .rerun ? Copy.welcomeClose : Copy.welcomeSetUpLater, action: onSetUpLater)
-                    .disabled(busy)
             }
+            .padding(.top, CicadaTheme.spacingSM)
         }
         .padding(CicadaTheme.spacingXL)
         .onboardingCard()

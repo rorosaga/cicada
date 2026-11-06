@@ -25,6 +25,9 @@ struct LogoTile: View {
     /// names a glyph (a device's laptop, a key, a link) gets the glyph.
     var systemFallback: String = LogoTile.monogramFallback
     static let monogramFallback = "app"
+    /// A named glyph read at full strength and size (`textPrimary`, 0.78 of the mark) — a choice row's key or sparkle,
+    /// which has no vendor mark to carry it (ROR-118 round 2). Left false, the glyph is the quiet one every list uses.
+    var glyphProminent = false
 
     static func tileSide(_ density: Density) -> CGFloat {
         CicadaTheme.scaled(density == .regular ? 36 : 24)
@@ -64,8 +67,8 @@ struct LogoTile: View {
                 .lineLimit(1)
         } else {
             Image(systemName: systemFallback)
-                .font(CicadaTheme.font(size: mark * 0.62, weight: .regular))
-                .foregroundStyle(CicadaTheme.textSecondary)
+                .font(CicadaTheme.font(size: mark * (glyphProminent ? 0.78 : 0.62), weight: .regular))
+                .foregroundStyle(glyphProminent ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
         }
     }
 }

@@ -52,9 +52,7 @@ final class OnboardingPagesTests: XCTestCase {
         XCTAssertEqual(OnboardingPage.permissions.roomMood, .reading)
         XCTAssertEqual(OnboardingPage.agents.roomMood, .happy)
         XCTAssertEqual(OnboardingPage.done.roomMood, .happy)
-        XCTAssertEqual(OnboardingRoomLayout.paneCell(paneWidth: 640), 4, "640 × 256, edge to edge in the full pane")
-        XCTAssertEqual(OnboardingRoomLayout.paneCell(paneWidth: 480), 3)
-        XCTAssertEqual(OnboardingRoomLayout.paneCell(paneWidth: 320), 2)
+        XCTAssertEqual(OnboardingRoomLayout.paneCell(windowWidth: 1440, scale: 1), 9, "74 columns at 9 pt, floor to wall")
         XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 800), 5, "800 × 320 over the 800 pt card")
         XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 2000), 5)
         XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 0), 1, "a zero width never traps")
@@ -90,9 +88,9 @@ final class OnboardingPagesTests: XCTestCase {
 
     /// R-OB1 — the painting gives way before the column does, and goes rather than become a sliver.
     func testThePaneShrinksThenGoesAndTheColumnNeverDropsBelowItsMinimum() {
-        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1440, scale: 1), 640)
-        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1200, scale: 1), 480)
-        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1000, scale: 1), 320)
+        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1440, scale: 1), 666)
+        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1200, scale: 1), 518)
+        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1000, scale: 1), 370)
         XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 800, scale: 1), 0)
         for scale in stride(from: CGFloat(0.8), through: 1.4001, by: 0.1) {
             for width in [CGFloat(800), 1000, 1200, 1440, 1800] {
@@ -100,7 +98,7 @@ final class OnboardingPagesTests: XCTestCase {
                 XCTAssertTrue(pane == 0 || width - pane >= OnboardingLayout.minColumn * scale - 0.5, "\(width)@\(scale)")
                 XCTAssertLessThanOrEqual(OnboardingLayout.cardWidth(windowWidth: width, scale: scale), width - 32 * scale)
                 XCTAssertLessThanOrEqual(OnboardingLayout.welcomeWidth(windowWidth: width, scale: scale), width - 32 * scale)
-                XCTAssertEqual(pane.truncatingRemainder(dividingBy: CGFloat(RoomLattice.cols)), 0, "a whole cell wide, never ground beside the room")
+                XCTAssertEqual(pane.truncatingRemainder(dividingBy: CGFloat(OnboardingRoomLayout.cropCols)), 0, "a whole cell wide, never ground beside the room")
             }
         }
         XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 0, scale: 0), 0, "a zero width never traps")

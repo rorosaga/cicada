@@ -90,9 +90,12 @@ enum OnboardingNav {
 
 /// R-OB1 — the frame's geometry (F-02's board: pane 540, column padding 64, topbar 52, foot 36 from the bottom).
 enum OnboardingLayout {
-    /// The pane is the room edge to edge (ROR-118): 640 pt at 1x is 160 lattice columns at 4 pt, so the room is never a
-    /// small picture floating in a wide ground.
-    static let pane: CGFloat = 640
+    /// The pane is the room's close view, floor to wall, edge to edge (ROR-118): 666 pt at 1x is 74 lattice columns at
+    /// 9 pt (`OnboardingRoomLayout`), so the room is never a strip floating in a wide ground.
+    static let pane: CGFloat = 666
+    /// The step's headline sits this far under the topbar on every step, and the foot on the same line at the bottom,
+    /// so nothing moves between steps (ROR-118 round 2).
+    static let stepTop: CGFloat = 56
     static let minColumn: CGFloat = 620
     static let minPane: CGFloat = 240
     static let columnPadding: CGFloat = 64
@@ -110,13 +113,9 @@ enum OnboardingLayout {
     static let sourceTileHeight: CGFloat = 128
 
     /// The room's pane gives way before the column does, and goes rather than become a sliver: it is art only
-    /// (DR-13), so losing it loses no word. Always a whole number of cells wide (160 columns each), so the room runs
-    /// edge to edge with no ground showing beside it (ROR-118).
+    /// (DR-13), so losing it loses no word. Always a whole number of cells wide (`OnboardingRoomLayout`).
     static func paneWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {
-        guard w > 0, scale > 0 else { return 0 }
-        let raw = min(pane * scale, w - minColumn * scale)
-        let width = (raw / CGFloat(RoomLattice.cols)).rounded(.down) * CGFloat(RoomLattice.cols)
-        return width < minPane * scale ? 0 : width
+        OnboardingRoomLayout.paneWidth(windowWidth: w, scale: scale)
     }
 
     static func cardWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {

@@ -67,13 +67,13 @@ struct AgentsStep: View {
             // and only until something is connected (ROR-118: it sat between the headline and the rows as a third layer).
             if !anyConnected {
                 Text(Copy.agentsNeedsPlan)
-                    .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             // "Then try it" follows a connection: before one there is nothing for the words to be said to.
             if anyConnected || live.firstCall != nil { tryIt }
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                DisclosureHeader(title: Copy.agentsOther, summary: Copy.agentsOtherSummary, isOpen: otherOpen) {
+                DisclosureHeader(title: Copy.agentsOther, isOpen: otherOpen) {
                     otherOpen.toggle()
                 }
                 if otherOpen {
@@ -81,8 +81,8 @@ struct AgentsStep: View {
                         anotherAgent
                         SettingsDivider()
                         // Five agents, so no one agent's mark speaks for them: a glyph, like "Another agent" (looks pass).
-                        ConnectionLine(logo: nil, name: Copy.agentsPersonal, systemFallback: "person",
-                                       detail: Copy.agentsPersonalNames, detailLines: 1) {
+                        OnboardingRowLine(logo: nil, name: Copy.agentsPersonal, systemFallback: "person",
+                                          detail: Copy.agentsPersonalNames) {
                             NeutralButton(title: Copy.AgentsPage.addToken, size: .compact) { addingToken = true }
                         }
                     }
@@ -155,10 +155,12 @@ struct AgentsStep: View {
         // dot is the state; a dot and a word come only once there is something to say (Waiting, Connected).
         let status = AgentStepRows.status(row, started: started)
         let shown = status.word == Copy.Status.notConnected ? nil : status
-        return ConnectionLine(logo: row.logo, name: row.label, systemFallback: "sparkles", detail: row.detail,
-                              status: shown, detailLines: 1) {
+        // No repetition: a line that only says the name again ("OpenCode" under "OpenCode") is left out.
+        let detail = row.label.lowercased().contains(row.detail.lowercased()) ? nil : row.detail
+        return OnboardingRowLine(logo: row.logo, name: row.label, systemFallback: "sparkles", detail: detail,
+                                 status: shown) {
             if !row.actionable.isEmpty, expanded != row.id {
-                NeutralButton(title: Copy.agentsConnect, size: .compact) { expanded = row.id }
+                OnboardingRowAction(title: Copy.agentsConnect) { expanded = row.id }
             }
         } below: {
             if expanded == row.id {
@@ -234,7 +236,7 @@ struct AgentsStep: View {
     private var anotherAgent: some View {
         let other = AgentCatalog.entry(for: "other")
         let prompt = model.setups["other"].flatMap { $0.kind == "prompt" ? $0.prompt : nil }
-        return ConnectionLine(logo: nil, name: Copy.agentsAnother, systemFallback: other?.symbol ?? "ellipsis") {
+        return OnboardingRowLine(logo: nil, name: Copy.agentsAnother, systemFallback: other?.symbol ?? "ellipsis") {
             if let prompt, !prompt.isEmpty {
                 NeutralButton(title: copied == "other" ? Copy.agentCopied : Copy.agentCopyPrompt,
                               systemImage: copied == "other" ? "checkmark" : "doc.on.doc", size: .compact) {

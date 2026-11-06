@@ -47,7 +47,8 @@ struct IntelligenceStep: View {
     private func choice(selected: Bool, logo: String?, title: String, detail: String?, symbol: String = "sparkles",
                         action: @escaping () -> Void) -> some View {
         OnboardingChoice(selected: selected, action: action) { indicator in
-            ConnectionLine(logo: logo, name: title, systemFallback: symbol, detail: detail) { indicator }
+            OnboardingRowLine(logo: logo, name: title, systemFallback: symbol, prominentGlyph: logo == nil,
+                              detail: detail) { indicator }
         }
     }
 

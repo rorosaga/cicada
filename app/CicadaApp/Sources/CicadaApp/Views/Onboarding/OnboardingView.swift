@@ -58,8 +58,6 @@ struct OnboardingView: View {
     /// *Saved lists* (owner 2026-10-26): pre-ticked from the person's reading settings (an off they chose stays off).
     @State private var savedTicks: Set<SavedListItem> = Set(SavedListItem.allCases)
     @State private var savedFailure: String?
-    /// The step's own height in the column, so the foot sits under it (`column`).
-    @State private var contentHeight: CGFloat = 0
     @FocusState private var rootFocused: Bool
 
     private var apps: [String: AppSourceDriver] {
@@ -106,7 +104,7 @@ struct OnboardingView: View {
             ZStack(alignment: .topLeading) {
                 CicadaTheme.bgBase.ignoresSafeArea()
                 if page.isSplit, paneWidth > 0 {
-                    pane(width: paneWidth, height: geo.size.height)
+                    pane(width: paneWidth, height: geo.size.height + geo.safeAreaInsets.top, windowWidth: geo.size.width)
                 }
                 if page.isSplit {
                     column(width: geo.size.width - paneWidth)
@@ -115,6 +113,17 @@ struct OnboardingView: View {
                         .offset(x: paneWidth)
                 } else {
                     card(size: geo.size)
+                    if page == .welcome {
+                        // The same place the steps keep it (the topbar's trailing end), not a third action in the card.
+                        HStack {
+                            Spacer()
+                            TextButton(title: mode == .rerun ? Copy.welcomeClose : Copy.welcomeSetUpLater,
+                                       action: mode == .rerun ? closeRerun : setUpLater)
+                                .disabled(busy)
+                        }
+                        .frame(height: CicadaTheme.scaled(OnboardingLayout.topbarHeight))
+                        .padding(.trailing, CicadaTheme.spacingLG)
+                    }
                 }
                 if let vendor = seeHow {
                     // CIC8 — the Welcome's own picker (`welcomeChooseRequest`), which stages what is picked here.
@@ -167,24 +176,24 @@ struct OnboardingView: View {
 
     // MARK: The split frame
 
-    /// The room in the working pages' pane, centred on a `bgPane` ground (one lightness step from the column, P-b).
-    /// Art only: it rests while See how covers it, and no word sits on it (DR-13).
-    private func pane(width: CGFloat, height: CGFloat) -> some View {
-        // The room is centred on the same band the column's step is (below the topbar, above the foot's margin), so the
-        // picture and the step share one centre line instead of floating unaligned (ROR-118).
-        let band = height - CicadaTheme.scaled(OnboardingLayout.topbarHeight) - CicadaTheme.scaled(OnboardingLayout.footBottom)
-        return OnboardingRoom(mood: page.roomMood, cell: OnboardingRoomLayout.paneCell(paneWidth: width))
-            .frame(width: width, height: max(0, band))
-            .padding(.bottom, CicadaTheme.scaled(OnboardingLayout.footBottom))
-            .frame(width: width, height: height, alignment: .bottom)
-            .background(CicadaTheme.bgPane.ignoresSafeArea())
+    /// The room in the working pages' pane: a close view that fills it, floor to wall, edge to edge (ROR-118 round 2),
+    /// so no black ground sits above or below it. Art only: it rests while See how covers it, and no word sits on it
+    /// (DR-13). A hairline on its trailing edge is the seam with the column (DR-9, a ring, not a shadow).
+    private func pane(width: CGFloat, height: CGFloat, windowWidth: CGFloat) -> some View {
+        let cell = OnboardingRoomLayout.paneCell(windowWidth: windowWidth, scale: CGFloat(CicadaTheme.uiScale))
+        return OnboardingRoom(mood: page.roomMood, cell: cell, fill: CGSize(width: width, height: height))
+            .frame(width: width, height: height)
+            .overlay(alignment: .trailing) { Rectangle().fill(CicadaTheme.ring(.resting)).frame(width: 1) }
+            .background(CicadaTheme.bgPane)
+            .ignoresSafeArea(edges: .top)
             .environment(\.scenePaused, seeHow != nil)
     }
 
-    /// The column (ROR-118): the topbar, then the step and its foot as ONE block centred in what is left, on the
-    /// same centre line as the room, rather than the foot stranded at the bottom edge, far from the choice it acts
-    /// on. A short step keeps its foot right under its last row; a long one scrolls inside its own height and the foot stays pinned (the G130
-    /// lesson: the way forward is never the first thing to clip).
+    /// The column (ROR-118 round 2): the topbar, then the step, then the foot — and each at one fixed place on every
+    /// step. The headline starts `stepTop` under the topbar, the foot sits on the bottom margin, so Back, Skip and
+    /// Continue never move between steps and stay as near the progress bar's frame as the window allows. A long step
+    /// scrolls inside the space between and the foot stays pinned (the G130 lesson: the way forward is never the first
+    /// thing to clip).
     private func column(width: CGFloat) -> some View {
         let s = snapshots
         return VStack(spacing: 0) {
@@ -192,7 +201,6 @@ struct OnboardingView: View {
                              comingIn: SetupProgress.stillComingIn(s),
                              trailing: mode == .rerun ? Copy.welcomeClose : Copy.welcomeSetUpLater,
                              onJump: { go($0, .pointer) }, onTrailing: mode == .rerun ? closeRerun : setUpLater)
-            Spacer(minLength: 0)
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     // The newest arrival, with its source's own mark (DR-52) — the design's "2,104 bookmarks in".
@@ -207,19 +215,15 @@ struct OnboardingView: View {
                     pageContent(width: width, snapshots: s)
                 }
                 .padding(.horizontal, CicadaTheme.scaled(OnboardingLayout.columnPadding))
-                .padding(.vertical, CicadaTheme.spacingLG)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+                .padding(.top, CicadaTheme.scaled(OnboardingLayout.stepTop))
+                .padding(.bottom, CicadaTheme.spacingLG)
             }
             .scrollBounceBehavior(.basedOnSize)
-            // The scroll is as tall as its step and no taller, so the foot follows the step; a step taller than the
-            // window scrolls inside what is left.
-            .frame(maxHeight: contentHeight > 0 ? contentHeight : .infinity)
             // One scroll per step: the frame's single ScrollView kept the last step's offset, so the next step (and
             // Back) opened part-way down with its headline cut off under the topbar (QA 2026-10-16).
             .id(page)
             foot
                 .padding(.horizontal, CicadaTheme.scaled(OnboardingLayout.columnPadding))
-            Spacer(minLength: 0)
         }
         .padding(.bottom, CicadaTheme.scaled(OnboardingLayout.footBottom))
     }
@@ -310,8 +314,7 @@ struct OnboardingView: View {
                                                                     editing: editingName),
                             busy: busy, failure: failure,
                             waitingDrops: ownerSaved ? 0 : intake.welcomeDrops.count,
-                            onGetStarted: { advance(.pointer) }, onSetUpLater: mode == .rerun ? closeRerun : setUpLater,
-                            onTryDemo: tryDemo)
+                            onGetStarted: { advance(.pointer) }, onTryDemo: tryDemo)
             } else if page == .menuBar {
                 MenuBarStep(waiting: store.status.value?.waitingForSleep,
                             shownInMenuBar: menuBar?.introPhase == .done && menuBar?.isVisible == true, busy: busy,
