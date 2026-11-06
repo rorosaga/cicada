@@ -68,6 +68,11 @@ enum SleepEyebrow {
         return Eyebrow.text(Copy.SleepTabs.page, last)
     }
 
+    /// "last read 2 h ago" for the lamp's line beside the room - nil until a read happened.
+    static func lastRead(lastSleepAt: String?, now: Date) -> String? {
+        lastSleepAt.flatMap { InboxAge.date($0) }.map { Copy.SleepTabs.lastRead(ago($0, now: now)) }
+    }
+
     /// "just now", "12 min ago", "2 h ago", then the Inbox's day words ("yesterday", "3 days ago").
     static func ago(_ date: Date, now: Date) -> String {
         let seconds = max(0, now.timeIntervalSince(date))

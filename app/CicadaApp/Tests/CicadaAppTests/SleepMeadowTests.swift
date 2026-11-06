@@ -17,8 +17,8 @@ final class SleepMeadowTests: XCTestCase {
     /// rest, 2026-10-16). The owner asked for a minimal sans, so the New York quote face left the sentence too.
     func test_theSentenceSpeaksInMeadowsFaces() throws {
         let code = try sleepFile("RoomSentence.swift")
-        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayFont(size: Self.leadSize)") })
-        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayTracking(size: Self.leadSize)") })
+        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayFont(size: leading ? Self.cornerLeadSize : Self.leadSize)") })
+        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayTracking(size: leading ? Self.cornerLeadSize : Self.leadSize)") })
         // The tail left the display face for the ladder's 17 pt (2026-10-16): secondary words, not a second title —
         // and not italic (owner 2026-10-16: "no italics").
         XCTAssertTrue(code.contains { $0.contains("static func tailFont(size: CGFloat) -> Font { CicadaTheme.font(size: size) }") })
@@ -28,6 +28,7 @@ final class SleepMeadowTests: XCTestCase {
         XCTAssertFalse(code.contains { $0.contains("quoteFont") }, "the sentence left the serif (R-FX13)")
         XCTAssertFalse(code.contains { $0.contains("design: .serif") }, "the New York stand-in part a used until M1")
         XCTAssertGreaterThanOrEqual(RoomSentenceView.leadSize, CicadaTheme.displayMinimumSize)
+        XCTAssertGreaterThan(RoomSentenceView.cornerLeadSize, RoomSentenceView.leadSize)
     }
 
     /// The lead may shrink to one line only as far as the display face's floor.

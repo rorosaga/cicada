@@ -466,6 +466,13 @@ func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> St
     lampLit ? "\(scheduleText) · \(nextRunText)" : Copy.lampOffSentence
 }
 
+/// ROR-118 round 2 - the one quiet line under the controls beside the room: the lamp, short, and when Sleep last
+/// read, so "last read" is not a second caption up by the title. `lastRead` is `SleepEyebrow.lastRead`'s phrase.
+func cornerWhisperLine(scheduleText: String, nextRunText: String, lampLit: Bool, lastRead: String?) -> String {
+    let lamp = lampLit ? "\(scheduleText) · \(nextRunText)" : Copy.SleepV5.lampOffShort
+    return [lamp, lastRead].compactMap { $0 }.joined(separator: " · ")
+}
+
 // MARK: - The slot
 
 /// The one place the worm speaks (R-Z5), directly under the room. Its height
@@ -485,6 +492,9 @@ func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> St
 /// quote face.
 struct RoomSentenceView: View {
     static let leadSize: CGFloat = 30
+    /// ROR-118 round 2 - beside the room's rectangle the headline is the page's loudest word: 40 pt, still shrinking
+    /// to the display floor (`displayMinimumSize`) in a narrow column.
+    static let cornerLeadSize: CGFloat = 40
     /// The one secondary line (2026-10-16): 17 pt regular — the heading step of the ladder (DR-16), not the display
     /// face. At 22 pt it read as a second headline under "Filing…" (the owner's live capture). No italic (owner
     /// 2026-10-16, the page at rest): it is a sentence in `textSecondary`, set like every other line.
@@ -550,10 +560,10 @@ struct RoomSentenceView: View {
         ZStack {
             VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingXS) {
                 leadText(shown)
-                    .font(CicadaTheme.displayFont(size: Self.leadSize))
-                    .tracking(CicadaTheme.displayTracking(size: Self.leadSize))
+                    .font(CicadaTheme.displayFont(size: leading ? Self.cornerLeadSize : Self.leadSize))
+                    .tracking(CicadaTheme.displayTracking(size: leading ? Self.cornerLeadSize : Self.leadSize))
                     .lineLimit(leading ? 2 : 1)
-                    .minimumScaleFactor(Self.leadMinimumScale)
+                    .minimumScaleFactor(CicadaTheme.displayMinimumSize / (leading ? Self.cornerLeadSize : Self.leadSize))
                 // A line with no tail is the lead alone: no empty line is held under the headline (owner QA
                 // 2026-10-17, amending R-Z5's one reserved tail line). A tail the worm adds on a poke takes its line
                 // as the answer comes up, and gives it back once the answer's cross-fade has finished (the outgoing

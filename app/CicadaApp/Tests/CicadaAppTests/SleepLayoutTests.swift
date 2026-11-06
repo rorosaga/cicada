@@ -267,4 +267,16 @@ final class SleepLivenessTests: XCTestCase {
         let date = cal.date(from: utcNoonish)!
         XCTAssertEqual(Copy.asOf(date, timeZone: TimeZone(identifier: "UTC")!), "as of 16:12")
     }
+
+    /// ROR-118 round 2 - "last read" rides the lamp's line beside the room, one caption; the title row says "Sleep".
+    func test_lastReadJoinsTheLampsLine() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let twoHours = ISO8601DateFormatter().string(from: now.addingTimeInterval(-2 * 3_600))
+        XCTAssertEqual(SleepEyebrow.lastRead(lastSleepAt: twoHours, now: now), "last read 2 h ago")
+        XCTAssertNil(SleepEyebrow.lastRead(lastSleepAt: nil, now: now))
+        XCTAssertEqual(cornerWhisperLine(scheduleText: "x", nextRunText: "y", lampLit: false,
+                                         lastRead: "last read 2 h ago"), "Lamp off · last read 2 h ago")
+        XCTAssertEqual(cornerWhisperLine(scheduleText: "Nightly", nextRunText: "Next run 3:00", lampLit: true,
+                                         lastRead: nil), "Nightly · Next run 3:00")
+    }
 }

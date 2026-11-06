@@ -515,8 +515,7 @@ struct SleepView: View {
     /// The page's eyebrow (DR-25, DR-26 — the first item, where the title used to be), with the staleness chip at its
     /// right while the backend is not answering (R-A12). The subtitle the title carried lives on as its hint.
     private func eyebrowRow(_ page: SleepPageModel, gutter: CGFloat) -> some View {
-        EyebrowRow(eyebrow: SleepEyebrow.text(waiting: waitingCount, lastSleepAt: store.status.value?.lastSleepAt,
-                                              now: .now),
+        EyebrowRow(eyebrow: SleepEyebrow.text(waiting: waitingCount, lastSleepAt: nil, now: .now),
                    horizontalPadding: gutter) {
             // R-A12: the chip explains the dimming below it, so it stays at full contrast and sits outside every
             // desaturated group.
@@ -1151,7 +1150,8 @@ struct SleepView: View {
                                 }
                             },
                             ownerEntityId: ownerEntityId, onSelectEntity: onSelectEntity,
-                            openDetails: openDetails, leading: true)
+                            openDetails: openDetails, leading: true,
+                            lastRead: SleepEyebrow.lastRead(lastSleepAt: store.status.value?.lastSleepAt, now: .now))
 
         return VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             if beside {

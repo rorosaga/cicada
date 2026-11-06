@@ -155,6 +155,11 @@ enum Copy {
         n > 0 ? "\(UsageFormat.count(n, locale: locale)) saved, kept for lookup. One is read when you talk about it." : nil
     }
 
+    /// ROR-118 round 2 - the Sleep page's short form; the tooltip carries `keptForLookup`'s second sentence.
+    static func keptForLookupShort(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String? {
+        n > 0 ? "\(UsageFormat.count(n, locale: locale)) saved, kept for lookup" : nil
+    }
+
     // MARK: The Sleep hero (G125 v3, R-A4…R-A7)
 
     /// The noun under the hero's promoted numeral. Pluralised, like every

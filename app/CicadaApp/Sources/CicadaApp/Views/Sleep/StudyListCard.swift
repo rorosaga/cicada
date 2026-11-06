@@ -249,6 +249,7 @@ struct StudyListCard: View {
                     .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
             } else {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    columnHeads
                     ForEach(rows) { row in
                         rowView(row)
                         if expandedOrigins.contains(row.origin) {
@@ -263,6 +264,36 @@ struct StudyListCard: View {
                     }
                 }
             }
+        }
+    }
+
+    /// ROR-118 round 2 - the two right-hand columns named once, over the first row, in the columns' own widths.
+    private var columnHeads: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            Spacer(minLength: 0)
+            Text(Copy.SleepV5.columnOldest)
+                .frame(width: CicadaTheme.scaled(76), alignment: .trailing)
+            Text(Copy.SleepV5.columnItems)
+                .frame(minWidth: CicadaTheme.scaled(56), alignment: .trailing)
+        }
+        .font(CicadaTheme.metaFont)
+        .foregroundStyle(CicadaTheme.textTertiary)
+        .padding(.horizontal, CicadaTheme.scaled(10))
+        .padding(.bottom, CicadaTheme.spacingXS)
+        .accessibilityHidden(true)
+    }
+
+    /// One mark footprint down the list (ROR-118 round 2): an app's own icon, or the SF stand-in inside a quiet tile
+    /// of the same size, so the column never mixes a glyph with an icon.
+    @ViewBuilder
+    private func mark(_ origin: String) -> some View {
+        let size = CicadaTheme.scaled(22)
+        if OriginMark.hasRealMark(origin) {
+            OriginMark(origin: origin, size: size)
+        } else {
+            OriginMark(origin: origin, size: size * 0.64)
+                .frame(width: size, height: size)
+                .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBadge))
         }
     }
 
@@ -281,7 +312,7 @@ struct StudyListCard: View {
             HStack(spacing: CicadaTheme.spacingSM) {
                 DisclosureChevron(isOpen: expandedOrigins.contains(row.origin))
 
-                OriginMark(origin: row.origin, size: CicadaTheme.scaled(14))
+                mark(row.origin)
 
                 Text(row.label)
                     .font(CicadaTheme.rowFont)
@@ -295,9 +326,9 @@ struct StudyListCard: View {
                 Spacer(minLength: CicadaTheme.spacingMD)
 
                 // ROR-118 — the age and the count are one right-hand cluster of two fixed columns, so a name is
-                // never run into its age and the counts line up down the list (the age says "old": it is the
-                // oldest item's).
-                Text(row.oldestAge.map { "\($0) old" } ?? "")
+                // never run into its age and the counts line up down the list (the column head says "Oldest",
+                // so a row says "4d", never "just now old").
+                Text(row.oldestAge ?? "")
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .lineLimit(1)
@@ -307,11 +338,12 @@ struct StudyListCard: View {
                     .frame(minWidth: CicadaTheme.scaled(56), alignment: .trailing)
             }
             .padding(.horizontal, CicadaTheme.scaled(10))
-            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 6))
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 12))
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .rowHoverFill(hovering: room?.hoveredOrigin == row.origin)
+        // The stronger of the two fills: `bgHover` was barely visible on this ground.
+        .rowHoverFill(hovering: false, selected: room?.hoveredOrigin == row.origin)
         .onHover { inside in room?.hover(origin: row.origin, inside: inside) }
         .help(chatsLine(row) ?? "")
         .accessibilityLabel([Self.rowAccessibilityLabel(row), chatsLine(row)].compactMap { $0 }.joined(separator: ", "))

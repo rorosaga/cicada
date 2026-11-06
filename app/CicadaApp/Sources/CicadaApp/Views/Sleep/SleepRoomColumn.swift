@@ -31,6 +31,8 @@ struct SleepRoomColumn: View {
     /// ROR-118 — the page sets the group on the leading edge, beside the room's rectangle (DR-36 amended in §9); the
     /// offscreen layouts keep the centred column.
     var leading = false
+    /// ROR-118 round 2 - "last read 2 h ago", said in the lamp's line beside the room (nil: not said).
+    var lastRead: String? = nil
 
     var body: some View {
         VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingMD) {
@@ -87,8 +89,11 @@ struct SleepRoomColumn: View {
                 Image(systemName: "moon.zzz")
                     .font(CicadaTheme.font(size: 11))
                     .iconHover()
-                Text(whisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
-                                 lampLit: page.lampLit))
+                Text(leading
+                     ? cornerWhisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
+                                         lampLit: page.lampLit, lastRead: lastRead)
+                     : whisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
+                                   lampLit: page.lampLit))
                     .font(CicadaTheme.captionFont)
             }
             .foregroundStyle(leading ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)

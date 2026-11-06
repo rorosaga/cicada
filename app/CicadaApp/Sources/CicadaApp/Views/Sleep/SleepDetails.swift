@@ -51,9 +51,11 @@ struct SleepWaitingList: View {
                           onSelectEntity: onSelectEntity, room: room)
                 .id(DetailsSection.waiting.anchorID)
                 .saturation(liveness.saturation)
-            if let kept = Copy.keptForLookup(queue?.kept ?? 0) {
+            if let kept = Copy.keptForLookupShort(queue?.kept ?? 0) {
                 Text(kept).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, CicadaTheme.scaled(10))
+                    .help(Copy.keptForLookup(queue?.kept ?? 0) ?? "")
             }
         }
     }
