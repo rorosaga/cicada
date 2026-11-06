@@ -143,6 +143,9 @@ enum CicadaTheme {
     static var bgPane: Color { mode == .dark ? Dark.bgPane : Light.bgPane }
     static var bgHover: Color { mode == .dark ? Dark.bgHover : Light.bgHover }
     static var bgFocus: Color { mode == .dark ? Dark.bgFocus : Light.bgFocus }
+    /// Round 2 (ROR-118): the Settings cards sit one step above `bgFocus` in the dark ladder (`bgOption`), so a card reads
+    /// against the panel's `bgBase` instead of dissolving into it; light keeps `bgFocus` (white on the off-white page).
+    static var settingsCardFill: Color { mode == .dark ? Dark.bgOption : Light.bgFocus }
     /// The plain disc of anyone with no photo (owner 2026-11-05). `bgFocus` is the card a picture sits on, so it vanished
     /// there; this stands off every surface in both modes, and `textSecondary` clears 4.5:1 on it.
     static var pictureFill: Color { mode == .dark ? Dark.pictureFill : Light.pictureFill }

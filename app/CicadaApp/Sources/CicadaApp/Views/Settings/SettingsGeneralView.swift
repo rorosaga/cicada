@@ -87,8 +87,12 @@ struct SettingsGeneralView: View {
                             .font(CicadaTheme.metaFont.monospacedDigit())
                             .foregroundStyle(CicadaTheme.textSecondary)
                             .frame(width: CicadaTheme.scaled(44), alignment: .trailing)
+                        // Round 2 (ROR-118): at 100% there is nothing to reset, so the button keeps its slot and goes
+                        // quiet instead of drawing as a disabled control.
                         NeutralButton(title: Copy.actualSize, size: .compact,
                                       isDisabled: CicadaTheme.uiScale == 1.0) { CicadaTheme.resetZoom() }
+                            .opacity(CicadaTheme.uiScale == 1.0 ? 0 : 1)
+                            .accessibilityHidden(CicadaTheme.uiScale == 1.0)
                     }
                 }
             }
@@ -153,6 +157,7 @@ struct SettingsGeneralView: View {
             // Hyrum audit B12: setup, the tour and the demo are one job, so one strip. The command-line tool left for
             // Agents (B11).
             SettingsDemoTourGroup()
+                .padding(.top, CicadaTheme.spacingSM)
             // G182 — the version a tester reports; the backend's only when it differs (an updated app beside a
             // background service still running the old one). Plain text, monospaced digits (DR-21). An update that
             // couldn't be installed while Cicada was closed is said here, once, for this session (phase 5). Round 1:
@@ -182,6 +187,7 @@ struct SettingsGeneralView: View {
                 }
             }
             .padding(.horizontal, CicadaTheme.spacingXS)
+            .padding(.top, CicadaTheme.spacingXS)
             .task(id: store.isConnected) {
                 if let health = try? await APIClient.shared.fetchHealth() { backendVersion = health.version }
             }
@@ -222,7 +228,13 @@ struct BackgroundServiceButton: View {
             ProgressView().controlSize(.small)
         case .running:
             // The row said nothing at all while it worked (looks pass 2026-10-23): a dot and one word, like Devices.
+            // Round 2 (ROR-118): it has no off switch here (the service is installed, not toggled), so it reads as a
+            // deliberate status: a ringed badge at a switch's height, never a switch that lost its knob.
             StatusDot(word: Copy.Status.on, on: true)
+                .padding(.horizontal, CicadaTheme.spacingMD)
+                .frame(height: CicadaTheme.scaled(26))
+                .background(CicadaTheme.shape(CicadaTheme.radiusLarge).fill(CicadaTheme.success.opacity(0.12)))
+                .ringed(.strong, in: CicadaTheme.shape(CicadaTheme.radiusLarge))
         }
     }
 }

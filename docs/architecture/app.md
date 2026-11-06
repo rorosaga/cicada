@@ -381,8 +381,8 @@ DR-60). **System is the default** (`AppearancePreference.defaultChoice`: an abse
 is an explicit choice, kept on upgrade) and follows the Mac's own light/dark through one app-scope observer
 (`ThemeStore.observeSystemAppearance`). The palette's Switch to light/dark actions write the same key. General (F-10, re-laid in ROR-118 round 1 as five blocks: Appearance with three larger
 tiles and Text size under them; one card of switches (Open Cicada at login, Show in menu bar, Suggest connecting apps,
-Keep memory working, the updater); a strip of four setup tiles (Run setup again, Show setup checklist, Take the tour,
-the demo); a version footer beside Report a problem) holds Appearance and Text size (Scene retired with the painted art, owner
+Keep memory working, the updater); one card of four setup cells (Run setup again, Show setup checklist, Take the tour,
+the demo; round 2); Keep memory working is a ringed status badge, never a switch, because the service is installed, not toggled; a version footer beside Report a problem) holds Appearance and Text size (Scene retired with the painted art, owner
 2026-10-16: it picked a painting, and none is left), Open Cicada at
 login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does not keep says so), Show in
 menu bar (per viewer, on by default; hides the 18 × 18 menu-bar bookworm (ruling 18), the Dock icon stays); a login launch opens no

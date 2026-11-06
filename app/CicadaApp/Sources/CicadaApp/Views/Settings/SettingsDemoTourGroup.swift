@@ -23,7 +23,8 @@ struct SettingsDemoTourGroup: View {
     /// Round 1 (ROR-118): four action tiles in one strip, each a glyph over its own words, instead of three rows of
     /// plain text (the row titles repeated their buttons). Each tile is its row's landing anchor.
     var body: some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
+        // Round 2 (ROR-118): one card of four cells divided by hairlines, not four floating tiles of equal weight.
+        HStack(spacing: 0) {
             // DR-40 — neutral, no primary.
             SetupTile(systemImage: "arrow.counterclockwise", title: Copy.runSetupAgain) {
                 OnboardingState.reset(bank: store.bank)
@@ -39,17 +40,21 @@ struct SettingsDemoTourGroup: View {
                 router.pendingTab = .home
                 router.activateMainWindow()
             }
+            .columnEdge()
             SetupTile(systemImage: "map", title: Copy.Tour.offerTake) {
                 router.closeSettings()
                 tour.requestStart()
             }
+            .columnEdge()
             .settingsRow(.guidedTour)
             SetupTile(systemImage: "sparkles", title: inDemo ? Copy.Demo.leaveDemo : Copy.Demo.exploreDemo,
                       isDisabled: busy) {
                 inDemo ? leave() : enter()
             }
+            .columnEdge()
             .settingsRow(.demoMemory)
         }
+        .settingsCardSurface()
     }
 
     /// `GettingStartedCard`'s effects, with Home as the landing — the demo plan ends on `.showHome`.
@@ -87,8 +92,8 @@ struct SettingsDemoTourGroup: View {
     }
 }
 
-/// One tile of the Getting started strip: a glyph over its words, on the focus surface with a resting ring that
-/// strengthens under the pointer (DR-9, DR-48); neutral like every Settings button (DR-40).
+/// One cell of the Getting started card: a glyph over its words; the pointer lights its own cell (DR-48); neutral like
+/// every Settings button (DR-40).
 private struct SetupTile: View {
     let systemImage: String
     let title: String
@@ -99,22 +104,20 @@ private struct SetupTile: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: CicadaTheme.scaled(6)) {
+            VStack(spacing: CicadaTheme.scaled(10)) {
                 Image(systemName: systemImage)
-                    .font(CicadaTheme.icon(.sidebar))
+                    .font(CicadaTheme.font(size: 22, weight: .medium))
                     .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
                 Text(title)
-                    .font(CicadaTheme.metaMediumFont)
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, CicadaTheme.spacingSM)
-            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(88))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(108))
             .rowHoverFill(hovering: hovering, cornerRadius: CicadaTheme.cornerRadius)
-            .ringed(hovering ? .strong : .resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

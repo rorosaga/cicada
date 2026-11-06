@@ -62,7 +62,7 @@ struct SettingsPanel: View {
                 // Round 1 (ROR-118): the app behind the panel is dimmed past legibility so the panel alone is read.
                 ZStack {
                     CicadaTheme.scrimPanel
-                    Color.black.opacity(CicadaTheme.mode == .dark ? 0.4 : 0.14)
+                    Color.black.opacity(CicadaTheme.mode == .dark ? 0.85 : 0.14)
                 }
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
@@ -80,6 +80,8 @@ struct SettingsPanel: View {
                 .frame(width: size.width, height: size.height)
                 .clipShape(CicadaTheme.shape(CicadaTheme.radiusLarge))
                 .floatingSurface(in: CicadaTheme.shape(CicadaTheme.radiusLarge), fill: CicadaTheme.bgBase)
+                // Round 2 (ROR-118): a second, stronger ring so the panel's edge reads against the dimmed app (DR-9).
+                .ringed(.strong, in: CicadaTheme.shape(CicadaTheme.radiusLarge))
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(Copy.settings)
                 .accessibilityAddTraits(.isModal)
@@ -281,8 +283,9 @@ private struct SettingsSidebarRow: View {
         Button(action: action) {
             HStack(spacing: CicadaTheme.scaled(10)) {
                 Image(systemName: section.icon)
-                    .font(CicadaTheme.icon(.sidebar))
-                    .frame(width: CicadaTheme.iconPoints(.sidebar))
+                    // Round 2 (ROR-118): one size and one weight, plain outline glyphs, a little larger than the rail's rows.
+                    .font(CicadaTheme.font(size: 17, weight: .medium))
+                    .frame(width: CicadaTheme.scaled(22))
                     .iconHover(hovering: hovering)
                 Text(section.title)
                     .font(CicadaTheme.rowFont)

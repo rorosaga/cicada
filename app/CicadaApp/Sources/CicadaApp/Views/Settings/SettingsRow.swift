@@ -122,7 +122,7 @@ extension View {
     /// resting ring (DR-9, DR-37) — also used by a card that is not a group of
     /// rows (a Plans & keys connection, a recommended skill).
     func settingsCardSurface() -> some View {
-        background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+        background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.settingsCardFill))
             .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
     }
 }
