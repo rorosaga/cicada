@@ -172,3 +172,19 @@ def test_populate_gives_the_works_at_conflict_a_person_added_source(tmp_path):
                           "entities/dana-example.md"], check=True, capture_output=True, text=True).stdout
     assert log.startswith("Add fact source ") and "Cicada-Author: user" in log
     assert "entities/dana-example.md: updated (trigger: user/companion_app)" in log
+
+
+def test_every_roster_page_reads_as_its_own_fictional_thing(tmp_path):
+    """ROR-118: no line repeats across the roster and none says what the page is for ("synthetic", "trying Cicada")."""
+    from api.services import demo_bank
+
+    assert set(demo_bank._SUMMARIES) == set(demo_bank._ALL_ENTITIES)
+    bank_dir = demo(tmp_path, index=False, showcase=False)
+    lines = []
+    for eid in demo_bank._ALL_ENTITIES:
+        body = markdown_parser.parse(bank_dir / "entities" / f"{eid}.md").body
+        assert demo_bank._SUMMARIES[eid] in body, eid
+        lines.append(demo_bank._SUMMARIES[eid])
+    assert len(set(lines)) == len(lines)
+    for line in lines:
+        assert "synthetic" not in line.lower() and "cicada" not in line.lower(), line
