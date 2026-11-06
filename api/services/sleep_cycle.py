@@ -2054,7 +2054,6 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
         logger.exception("Full traceback:")
     finally:
         from api.services import cycle_usage, keep_awake
-        keep_awake.release(cycle_id)  # G243: on every exit path; the assertion also dies with this process
         cycle_usage.discard(cycle_id)  # bounded: a cycle that never finalized frees its windows
         # Spec §1: this runs on EVERY exit path — idle, aborted before Stage
         # 1, aborted after Stage 1, raised, or fully completed — so capturing
@@ -2080,6 +2079,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
                     **({"skip_links": True} if outcome.skip_links else {}),
                 )
         finally:
+            keep_awake.release(cycle_id)  # G243: after the tail, on every exit path; it also dies with this process
             _state.status = "idle"
             _state.writing = False
             _state.tail_only = False
