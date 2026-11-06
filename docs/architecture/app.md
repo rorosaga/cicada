@@ -2263,7 +2263,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   sources as focusable chips in the gutter (the 🔗's place; ⏎ opens, Esc closes) and as named actions "Source N" on
   the line. A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
   (`PageBeliefSentences`): an inference worded "It seems that …", an ended one "(until March 2025)"; past twelve, "N
-  more in Perspectives". **Older facts (ROR-129, ruling 70, §9 2026-11-06):** a fact that has faded is dimmed (tertiary ink)
+  more in Perspectives". **Older facts (ROR-129, ruling 74, §9 2026-11-06):** a fact that has faded is dimmed (tertiary ink)
   and drawn last, in one quiet paragraph under an "Older" label before References (`PageOlderFacts`) — from the flagged
   `beliefs` of a page whose prose cites nothing, or from `older` on a page whose prose cites; never closed, hidden or folded.
   Each sentence opens a small popover with *Keep this fact* (`KeepFactPopover`), so the control is reachable with or without

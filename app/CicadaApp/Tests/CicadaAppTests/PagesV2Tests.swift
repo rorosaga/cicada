@@ -142,7 +142,7 @@ final class PagesV2Tests: XCTestCase {
         XCTAssertEqual(PageWords.sentence(named), "It seems that Bob prefers mornings.", "a name keeps its capital")
     }
 
-    // MARK: Older facts (ROR-129, ruling 70)
+    // MARK: Older facts (ROR-129, ruling 74)
 
     func testAFadedFactMovesToTheOlderPartAndIsNeverDropped() throws {
         let now = PageBlocks.Citations.Belief(claimId: "a", text: "Alpha Place is in Beta City.")

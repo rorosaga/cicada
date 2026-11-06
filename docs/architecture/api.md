@@ -92,7 +92,7 @@ real count) — the first six `refs` (`n`, `kind` `conversation|web|page`, `titl
 import's episodes together, numbered in reading order), the counts behind References' closing line (`total`,
 `conversations`, `web`, `pages`), and — only when the prose cites nothing — up to twelve `beliefs` as sentences
 (`claimId`, `text`, `refs`, `until`, `inferred`, `verbatim`; `beliefsTotal` null when part of them is in the claims
-ledger, which the card never reads) — **ROR-129:** each belief row also says `faded` (ruling 70), and a page whose prose
+ledger, which the card never reads) — **ROR-129:** each belief row also says `faded` (ruling 74), and a page whose prose
 cites carries its faded facts (at most five, same row shape) in `older` with `olderTotal`; `for_caller` drops `older`, so an
 agent reads the facts through the claims as before. Nothing is matched by similarity: which line a source backs was decided when the
 page was written; the numbering is derived on read and cached per page by its file, ledger and `episodes` stamps (cold
