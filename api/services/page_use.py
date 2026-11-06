@@ -43,6 +43,10 @@ HALF_LIFE_DAYS = 90
 LATELY_HALF_LIFE_DAYS = 14
 #: Older than this a conversation counts under 5% and no header is read for it: the bank's history stays unread.
 LATELY_WINDOW_DAYS = 60
+#: :func:`lately_of`: a page said in this many conversations today counts whole, whatever the rest of the bank holds, and
+#: only a page's newest conversations are read, past which the log barely moves.
+LATELY_FULL = 8
+LATELY_PAGE_EPISODES = 12
 LINK_WEIGHT = 0.25
 #: The ledger's enum for a score (G113: ids and enums only, never a number that could fingerprint a page).
 BUCKETS = (("high", 0.5), ("mid", 0.15), ("low", 0.0))
@@ -170,6 +174,41 @@ def lately_cached(memory_path: Path) -> dict[str, float]:
     with _LOCK:
         hit = _LATELY.get(str(Path(memory_path)))
     return hit[1] if hit is not None else {}
+
+
+def lately_of(memory_path: Path, refs, *, today: date | None = None) -> dict[str, float]:
+    """``{page id: [0, 1]}`` for ``refs`` alone, for a read that ranks what it already found: recall in a fresh process
+    must not read the bank (`test_cold_recall`), so this reads those pages' headers and at most their
+    :data:`LATELY_PAGE_EPISODES` newest conversations' inside the window. A fixed scale stands in for :func:`lately`'s
+    bank-wide top. The owner's page is left out: it is said in nearly everything."""
+    from api.services import everyday_names
+
+    memory_path = Path(memory_path)
+    today = today or date.today()
+    owner = everyday_names.owner_id(memory_path)
+    out: dict[str, float] = {}
+    for ref in {str(r) for r in refs if r}:
+        if ref == owner:
+            continue
+        entry = bank_index.file(memory_path, "entities", f"{ref}.md")
+        raw = (entry.frontmatter or {}).get("source_episodes") if entry is not None else None
+        if not isinstance(raw, list) or (entry.frontmatter or {}).get("status") == "dropped":
+            continue
+        days = []
+        for episode in sorted({str(x).strip() for x in raw}, reverse=True):   # an id starts with its day
+            parsed = episode_ids.parse_episode_id(episode)
+            day = _day(parsed[0]) if parsed else None
+            if day is None or (today - day).days > LATELY_WINDOW_DAYS:
+                continue
+            f = bank_index.file(memory_path, "episodes", f"{episode}.md")
+            if f is not None and not episode_time.counts_as_activity(f.frontmatter):
+                continue
+            days.append(day)
+            if len(days) >= LATELY_PAGE_EPISODES:
+                break
+        if days:
+            out[ref] = min(1.0, math.log2(1 + said_lately(days, today)) / math.log2(1 + LATELY_FULL))
+    return out
 
 
 def _dir_mtime(directory: Path) -> int:

@@ -2291,7 +2291,8 @@ def _recall(ctx: ToolContext, query: str) -> str:
     merged = _rrf_fuse(semantic, keyword, claim_subjects)
     named = _named_hits(entities_dir, query, merged)
     merged = _rrf_fuse(semantic, keyword, claim_subjects,
-                       lately=search_service.lately_lift(page_use.lately(memory_path), named))
+                       lately=search_service.lately_lift(
+                           page_use.lately_of(memory_path, [h.get("entity_id") or h.get("id") for h in merged]), named))
     seen_ids: set[str] = {h.get("entity_id") or h.get("id") for h in merged}
     # Lean reads (2026-10-27): only pages some leg ranks near its own best are shown — at most RECALL_PAGES_SHOWN,
     # never fewer than the top one (`_above_floor`).
