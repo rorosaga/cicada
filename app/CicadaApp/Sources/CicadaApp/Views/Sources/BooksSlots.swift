@@ -112,6 +112,9 @@ struct BookPageHead: View {
     let entityId: String
     /// The page's own picture path (`media.preview`), nil for a book with no cover.
     let cover: String?
+    /// ROR-138: a list row draws its cover from `/entities/<id>/preview`, so the head asks the same place when the
+    /// page itself named none (it draws nothing on a 404, `reservesSlot: false`).
+    private var coverPath: String { cover ?? "/entities/\(entityId)/preview" }
     /// The page's markdown: its `## Summary` is the description the box under the head draws.
     var markdown: String = ""
     let changed: () -> Void
@@ -131,7 +134,7 @@ struct BookPageHead: View {
 
     private var head: some View {
         HStack(alignment: .top, spacing: 0) {
-            if cover != nil { BookCoverThumb(path: cover, points: 168, reservesSlot: false, trailing: CicadaTheme.spacingLG) }
+            BookCoverThumb(path: coverPath, points: 168, reservesSlot: false, trailing: CicadaTheme.spacingLG)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 if let subtitle = card?.subtitle {
                     Text(subtitle).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary)

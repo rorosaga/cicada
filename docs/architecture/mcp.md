@@ -739,7 +739,7 @@ the person's own agent, in their own signed-in browser, on their standing ask. T
 **Subscriptions** (the account menu → Subscriptions). Cicada never spawns a browser, never signs in and never fetches a
 Substack page; the private reader endpoints with the person's cookie are scraping behind authentication and stay out.
 **Consent:** agent reading on (its sheet acknowledged) AND the person turned that list on (`reading.json`
-`substack_lists`, `{saved|history|subscriptions: day}`, offs in `substack_lists_off`; `PUT /reading/settings`
+`substack_lists`, `{saved|liked|history|subscriptions: day}`, offs in `substack_lists_off`; `PUT /reading/settings`
 `substackLists` patch; `GET` carries `substackLists`, `substackListsOff` and `substack` — per list the last read, its
 outcome and count, and the one pause). **Off until the person turns it on**: no memory shows a Substack account before
 a read, so owner 2026-10-26's on-by-default (for accounts the memory shows) cannot apply. Each switch is a standing ask
@@ -762,6 +762,7 @@ saved list's own pause), as does turning a list on again. A `read` (≤ 200 rows
   its `channel`. A post is its canonical URL — `<pub>.substack.com/p/<slug>`, the shape a publication's feed links to,
   so a post a followed feed already brought in is a duplicate, never a second page; `open.substack.com/pub/<pub>/p/…`
   and `substack.com/@<handle>/p-<id>` ride as aliases; a publication on its own domain keeps its `/p/<slug>` URL.
+- **Liked** (ROR-138, the Likes section of the reader's own profile) → the same write as Saved, origin `substack-saved`, folder `Liked`, so a post both saved and liked is one page on two lists. A feed item (`rss`) is no save: its page says "From a feed" and the app keeps it out of Media unless its kind is chosen. A publication followed from the Subscriptions list (`via: substack-subscriptions`) is polled only while that switch is on (`feed_registry._followed_on`).
 - **History** → reading days (`substack_reads`, `capture-and-sleep.md`), never saves.
 - **Subscriptions** → each publication followed through its own public `/feed` (`feed_registry.subscribe_feed`, tag
   `substack`, its name as `title`, `via: substack-subscriptions`, `automatic`), polled behind the feed gate like any

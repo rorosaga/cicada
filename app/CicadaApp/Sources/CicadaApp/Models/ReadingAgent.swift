@@ -190,7 +190,7 @@ struct SavedListsStatus: Decodable, Equatable {
 
 /// G89 (2026-11-04) — the Substack lists an agent may keep current, by the backend's own keys.
 enum SubstackList: String, CaseIterable, Identifiable {
-    case saved, history, subscriptions
+    case saved, liked, history, subscriptions
     var id: String { rawValue }
 }
 
@@ -241,6 +241,7 @@ enum SubstackListWords {
     static func title(_ list: SubstackList) -> String {
         switch list {
         case .saved: Copy.Reading.substackSavedTitle
+        case .liked: Copy.Reading.substackLikedTitle
         case .history: Copy.Reading.substackHistoryTitle
         case .subscriptions: Copy.Reading.substackSubscriptionsTitle
         }
@@ -251,6 +252,7 @@ enum SubstackListWords {
         guard on else {
             switch list {
             case .saved: return Copy.Reading.substackSavedOff
+            case .liked: return Copy.Reading.substackLikedOff
             case .history: return Copy.Reading.substackHistoryOff
             case .subscriptions: return Copy.Reading.substackSubscriptionsOff
             }

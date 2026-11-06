@@ -167,7 +167,7 @@ def test_a_title_fills_a_record_that_lacks_one_and_a_repeat_writes_nothing(tmp_p
 
 def test_off_by_default_and_needs_the_sheet(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
-    assert reading_settings.snapshot()["substackLists"] == {"saved": False, "history": False, "subscriptions": False}
+    assert reading_settings.snapshot()["substackLists"] == {"saved": False, "liked": False, "history": False, "subscriptions": False}
     with pytest.raises(reading_settings.SettingsError):
         reading_settings.update(substack_lists_={"saved": True})
     with pytest.raises(reading_settings.SettingsError):
@@ -332,3 +332,38 @@ def test_a_reading_day_is_never_a_time_signal_from_a_model_read():
     assert history_index.is_index_only(fm)
     assert substack_reads.source_id(date(2026, 11, 1)) == fm["source_id"]
     assert episode_time.counts_as_activity({"origin": "rss", "published_at": "2026-11-01T00:00:00+00:00"}) is False
+
+
+# --- ROR-138 -------------------------------------------------------------------------------------------------------
+
+
+def test_a_feed_item_page_says_it_came_from_a_feed_not_that_it_was_saved():
+    from api.services import media_ingestor
+    from api.services.media_ingestor import MediaMeta
+
+    meta = MediaMeta(title="A post", description="", site="example.com", channel=None, media_type="url")
+    assert media_ingestor._entity_body(meta, None, "rss").splitlines()[1] == "From a feed — A post."
+    assert media_ingestor._entity_body(meta, None, "substack-saved").splitlines()[1] == "Saved url — A post."
+    assert media_ingestor._entity_body(meta, None).splitlines()[1] == "Saved url — A post."
+
+
+def test_media_kinds_split_by_what_the_page_is():
+    from api.services import media_kinds
+
+    def page(origin=None, **media):
+        return {"type": "media", "origin": origin, "media": media}
+
+    assert media_kinds.kind_of({"type": "person"}) is None
+    assert media_kinds.kind_of(page(kind="book", media_type="book")) == "book"
+    assert media_kinds.kind_of(page("youtube-playlist", media_type="youtube")) == "video"
+    assert media_kinds.kind_of(page("rss", media_type="url")) == "feed"
+    assert media_kinds.kind_of(page("substack-saved", media_type="url")) == "article"
+    assert media_kinds.kind_of(page("chrome-bookmark", media_type="bookmark")) == "link"
+    assert media_kinds.origin_of(page("rss")) == "rss"
+    assert media_kinds.channel_of(page(channel="  A  Channel ")) == "A Channel"
+
+
+def test_the_liked_list_saves_under_its_own_folder(tmp_path):
+    assert "liked" in substack_lists.LISTS
+    assert substack_lists.FOLDER_LIKED != substack_lists.FOLDER_SAVED
+    assert "liked" in reading_settings.SUBSTACK_LISTS

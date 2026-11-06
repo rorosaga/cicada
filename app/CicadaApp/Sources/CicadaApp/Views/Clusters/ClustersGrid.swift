@@ -615,12 +615,22 @@ struct ClusterNames: View {
     private static var hangingInset: CGFloat { -CicadaTheme.scaled(8) }
 }
 
+/// ROR-138 — whether media rows name their channel or publication under the title (the View menu's grouping).
+private struct ClusterShowsChannelKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var clusterShowsChannel: Bool {
+        get { self[ClusterShowsChannelKey.self] }
+        set { self[ClusterShowsChannelKey.self] = newValue }
+    }
+}
+
 struct ClusterNameRow: View {
     let entity: Entity
     var lines = 1
     let open: () -> Void
     @State private var hovering = false
     @Environment(Store.self) private var store
+    @Environment(\.clusterShowsChannel) private var showsChannel
 
     var body: some View {
         // Round 5: a name with no picture has nothing after it, so no empty slot spends the row's width on spacing
@@ -630,12 +640,26 @@ struct ClusterNameRow: View {
             // Round 4: a logo sits right after its name, one mark with it, never alone at the far edge; the weight is
             // regular so a name reads a step under its heading and the cards' titles.
             HStack(alignment: lines > 1 ? .top : .center, spacing: CicadaTheme.spacingSM) {
-                Text(entity.name)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(entity.quiet ? CicadaTheme.quietName : CicadaTheme.textPrimary)
-                    .lineLimit(lines)
-                    .multilineTextAlignment(.leading)
+                VStack(alignment: .leading, spacing: 0) {
+                    let channel = showsChannel && entity.type == .media ? entity.mediaChannel : nil
+                    Text(entity.name)
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(entity.quiet ? CicadaTheme.quietName : CicadaTheme.textPrimary)
+                        .lineLimit(channel == nil ? lines : 1)
+                        .multilineTextAlignment(.leading)
+                    if let channel {
+                        Text(channel).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
+                    }
+                }
                 QualifierTag(qualifier: entity.qualifier)   // G227
+                // ROR-138 — where a media page came from, by the origin's own mark (the Sources page's table); nothing
+                // is fetched, and an origin with no mark draws nothing.
+                if entity.type == .media, let origin = entity.origin, let mark = OriginIconography.logoName(for: origin) {
+                    LogoImage.platformTile(name: mark, size: 14)
+                        .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 0.9)
+                        .help(Copy.Lists.cameFrom(OriginIconography.label(for: origin)))
+                        .accessibilityHidden(true)
+                }
                 if drawn {
                     EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 18, heldInputs: entity.pictureInputs,
                                   collapsesWhenEmpty: true)

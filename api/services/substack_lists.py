@@ -11,6 +11,9 @@ own agent, in their own signed-in browser, on their standing ask, reading three 
 
 * **Saved** (``https://substack.com/inbox`` → Saved) — each post an indexed save (ruling 30), origin ``substack-saved``,
   folder ``Saved``, never read by a model; dedup by URL, so a post a followed feed already brought in is one row.
+* **Liked** (the Likes section of the reader's own profile) — the same, folder ``Liked``: a post both saved and liked
+  is one page on two lists (ROR-138, owner 2026-11-06: "from substack i'd only like to save the articles that i've
+  liked or my saved posts").
 * **History** (``https://substack.com/home`` → History) — what the person read, as reading days
   (``substack_reads``): one index-only episode per day, never a save, never a mention.
 * **Subscriptions** (the account menu → Subscriptions) — each publication followed through its own public feed
@@ -50,6 +53,9 @@ SITE = "substack.com"
 NAME = "Substack"
 ORIGIN_SAVED = "substack-saved"
 FOLDER_SAVED = "Saved"
+#: ROR-138: the posts the person liked are a second list of the same account — the same origin (TikTok's likes set
+#: the precedent), its own folder, so a post both saved and liked is one page on two lists.
+FOLDER_LIKED = "Liked"
 #: The tag every feed this read follows carries (the Sources page's Substack entry lists them by it).
 FEED_TAG = "substack"
 FEED_VIA = "substack-subscriptions"
@@ -72,6 +78,12 @@ LISTS: dict[str, SubstackList] = {
     "saved": SubstackList(
         "saved", "Saved", "https://substack.com/inbox", " — open Saved",
         "each post's link, its title, its author and its publication as the list shows them",
+        "{url, title, author, publication}", timedelta(hours=20)),
+    # Substack shows a reader the posts they liked in the Likes section of their own profile (not in the inbox).
+    "liked": SubstackList(
+        "liked", "Liked", "https://substack.com/profile",
+        " — open your profile, then its Likes section (the posts you liked)",
+        "each liked post's link, its title, its author and its publication as the list shows them",
         "{url, title, author, publication}", timedelta(hours=20)),
     "history": SubstackList(
         "history", "History", "https://substack.com/home",

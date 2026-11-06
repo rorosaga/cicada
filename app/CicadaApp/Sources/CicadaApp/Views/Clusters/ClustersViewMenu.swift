@@ -13,6 +13,10 @@ struct ClustersViewMenu: View {
     /// Owner 2026-10-20 — only the pages that show a look the person saved (`LooksCache.pagesWithLooks`).
     var onlyWithLooks: Binding<Bool>? = nil
     var looksCount = 0
+    /// ROR-138 — Media by kind (the wire ids), each with its count, and the sort that groups by channel.
+    var mediaKinds: Binding<Set<String>>? = nil
+    var kindCounts: [String: Int] = [:]
+    var groupByChannel: Binding<Bool>? = nil
     @State private var labelQuery = ""
 
     /// The retired popover built up to 100 rows and froze on open; eight and a search is the mock's answer.
@@ -57,6 +61,23 @@ struct ClustersViewMenu: View {
                     onlyWithLooks.wrappedValue.toggle()
                 }
                 .help(Copy.Looks.withLooksHelp)
+            }
+            if let mediaKinds, !kindCounts.isEmpty {
+                header(Copy.Lists.mediaSection, trailing: nil).padding(.top, CicadaTheme.spacingSM)
+                ForEach(ClustersModel.mediaKindOrder.filter { (kindCounts[$0] ?? 0) > 0 }, id: \.self) { kind in
+                    checkRow(on: mediaKinds.wrappedValue.contains(kind), dot: nil, label: Copy.Lists.mediaKind(kind),
+                             count: kindCounts[kind] ?? 0) {
+                        if mediaKinds.wrappedValue.contains(kind) { mediaKinds.wrappedValue.remove(kind) }
+                        else { mediaKinds.wrappedValue.insert(kind) }
+                    }
+                }
+                if !mediaKinds.wrappedValue.isEmpty { menuRow(Copy.Lists.showEveryType) { mediaKinds.wrappedValue = [] } }
+                if let groupByChannel {
+                    checkRow(on: groupByChannel.wrappedValue, dot: nil, label: Copy.Lists.groupByChannel, count: 0) {
+                        groupByChannel.wrappedValue.toggle()
+                    }
+                    .help(Copy.Lists.groupByChannelHelp)
+                }
             }
             header(Copy.Lists.groupsInAll, trailing: nil).padding(.top, CicadaTheme.spacingSM)
             menuRow(expandAll ? Copy.Lists.collapseAll : Copy.Lists.expandAll) { expandAll.toggle() }

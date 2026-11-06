@@ -32,10 +32,10 @@ final class SourcePageLayoutTests: XCTestCase {
 
     /// Blocker 1 — Substack (#594) on the layout: its three lists as switches, each flipping through the page's own
     /// consent path, never a paragraph.
-    func testSubstacksListsAreThreeSwitchesThatFlipThroughThePage() {
+    func testSubstacksListsAreFourSwitchesThatFlipThroughThePage() {
         var flipped: [(SubstackList, Bool)] = []
         let ways = SourceCatalogDetail.substackWays(isOn: { $0 == .saved }, status: nil) { flipped.append(($0, $1)) }
-        XCTAssertEqual(ways.map(\.id), ["substack-saved", "substack-history", "substack-subscriptions"])
+        XCTAssertEqual(ways.map(\.id), ["substack-saved", "substack-liked", "substack-history", "substack-subscriptions"])
         XCTAssertEqual(ways.map(\.title), SubstackList.allCases.map(SubstackListWords.title))
         for way in ways {
             guard case .toggle(let on, let set) = way.control else { return XCTFail("\(way.id) is not a switch") }
@@ -43,7 +43,7 @@ final class SourcePageLayoutTests: XCTestCase {
             set(!on)
         }
         XCTAssertEqual(flipped.map(\.0), SubstackList.allCases)
-        XCTAssertEqual(flipped.map(\.1), [false, true, true])
+        XCTAssertEqual(flipped.map(\.1), [false, true, true, true])
     }
 
     /// Blocker 2 — the backend sends `["connect"]` before a connector is connected and `["sync", "disconnect"]` after

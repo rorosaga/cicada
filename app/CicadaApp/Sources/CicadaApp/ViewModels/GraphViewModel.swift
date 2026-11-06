@@ -257,7 +257,10 @@ final class GraphViewModel {
                 pictureSource: node.pictureSource,
                 quiet: node.quiet,
                 qualifier: node.qualifier,
-                displayName: node.displayName
+                displayName: node.displayName,
+                mediaKind: node.mediaKind,
+                origin: node.origin,
+                mediaChannel: node.mediaChannel
             )
         }
         edges = response.links

@@ -552,7 +552,9 @@ def _feed_rows(memory_path: Path, media: "_Media", channel_id: str = FEED_CHANNE
     rows = []
     for row in media.by_origins(_catalog_origins(FEED_CHANNEL)):
         row["_collection"] = file(row.get("_feed"), row.get("_url"))
-        if (row["_collection"] in substack) == (channel_id == SUBSTACK_FEEDS):
+        # ROR-138: RSS is how a Substack publication is followed, so RSS lists every followed feed's items and the
+        # Substack row only its own publications' (the second a view of the first).
+        if channel_id == FEED_CHANNEL or row["_collection"] in substack:
             rows.append(row)
     return rows
 
@@ -583,7 +585,7 @@ def _feed_tree(memory_path: Path, channel_id: str = FEED_CHANNEL) -> dict:
         held.setdefault(row["_collection"], []).append(row)
     feeds = []
     for fid, record in _followed(memory_path).items():
-        if feed_registry.is_substack(record) != (channel_id == SUBSTACK_FEEDS):
+        if channel_id == SUBSTACK_FEEDS and not feed_registry.is_substack(record):
             continue
         mine = held.pop(fid, [])
         newest = max(mine, key=lambda r: r["_sort"], default={})

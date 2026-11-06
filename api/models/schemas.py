@@ -2547,13 +2547,19 @@ class GraphNode(CamelModel):
     # book page (``media.kind: book``) has one: its ``book.authors`` joined, capped. Derived on every read, never
     # stored; OMITTED when there is none, so the largest snapshot pays only for the books.
     byline: Optional[str] = None
+    # ROR-138 (`media_kinds`) — a media page's kind (book, article, video, picture, … feed) and the origin that brought
+    # it in, for Clusters' split of Media and its small provenance mark. Derived on every read; OMITTED on every other
+    # page (and when absent), like an absent picture, so the largest snapshot pays only for its media pages.
+    media_kind: Optional[str] = None
+    origin: Optional[str] = None
+    media_channel: Optional[str] = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_picture(self, handler) -> dict[str, Any]:
         data = handler(self)
         if isinstance(data, dict):
             for key in ("picture", "pictureSource", "picture_source", "qualifier", "displayName", "display_name",
-                        "byline"):
+                        "byline", "mediaKind", "media_kind", "origin", "mediaChannel", "media_channel"):
                 if key in data and data[key] is None:
                     del data[key]
             if data.get("quiet") is False:
