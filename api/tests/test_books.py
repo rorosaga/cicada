@@ -373,7 +373,7 @@ def test_goodreads_preview_lists_each_book_so_the_person_can_choose(client):
     out = c.post("/sources/goodreads/preview", files={"file": ("x.csv", CSV.encode())}).json()
     assert sorted(i["id"] for i in out["items"]) == ["101", "102", "103"]
     assert {i["title"] for i in out["items"]} >= {"Someday Shelf"}
-    assert set(out["items"][0]) == {"id", "title", "author", "status"}
+    assert set(out["items"][0]) == {"id", "title", "author", "status", "isbn"}
 
 
 def test_goodreads_import_brings_only_the_chosen_books_and_none_for_an_empty_choice(client):

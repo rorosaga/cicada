@@ -3828,6 +3828,22 @@ actor APIClient {
         return data
     }
 
+    /// G233 — the cover for one row of the book choice list, by the export's ISBN: its bytes, or nil on a 404 ("draw
+    /// nothing"). Never a title; the backend validates the number again.
+    func fetchChoiceCover(isbn: String) async throws -> Data? {
+        guard isbn.range(of: "^97[89][0-9]{10}$", options: .regularExpression) != nil else { return nil }
+        var request = makeRequest("/sources/books/choice-cover/\(isbn)", method: "GET", json: false)
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
     func fetchSiteIcon(site: String) async throws -> Data? {
         guard site.range(of: "^[a-z0-9][a-z0-9.-]*$", options: .regularExpression) != nil, !site.contains("..") else {
             return nil

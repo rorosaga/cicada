@@ -140,7 +140,8 @@ def preview(data: bytes) -> dict:
             continue
         rec = d.extra[books.EPISODE_KEY]
         listing.append({"id": rec["goodreads_id"], "title": rec["title"],
-                        "author": (rec["authors"] or [""])[0], "status": rec["status"]})
+                        "author": (rec["authors"] or [""])[0], "status": rec["status"],
+                        "isbn": (rec["isbns"] or [""])[0]})
         if rec["status"]:
             by[rec["status"]] += 1
         reviews += int(rec["has_note"])

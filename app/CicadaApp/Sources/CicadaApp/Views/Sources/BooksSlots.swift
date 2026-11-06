@@ -21,7 +21,8 @@ struct AppleBooksSlot: View {
                 connectArea
                 if !reader.pending.isEmpty {
                     BookChoiceList(items: reader.pending.map {
-                        BookChoiceItem(id: $0.assetId, title: $0.title ?? "", author: $0.author ?? "")
+                        BookChoiceItem(id: $0.assetId, title: $0.title ?? "", author: $0.author ?? "",
+                                       cover: reader.coverFile(for: $0.assetId).map { .file($0) })
                     }, onLeaveOut: { _ in run { await reader.addChosen([]) } }) { ids in
                         run { await reader.addChosen(ids) }
                     }
@@ -282,7 +283,8 @@ struct GoodreadsSlot: View {
                           ways: [chooseWay]) {
             if let preview, !preview.items.isEmpty {
                 BookChoiceList(items: preview.items.map {
-                    BookChoiceItem(id: $0.id, title: $0.title, author: $0.author)
+                    BookChoiceItem(id: $0.id, title: $0.title, author: $0.author,
+                                   cover: $0.isbn.isEmpty ? nil : .isbn($0.isbn))
                 }, busy: busy) { ids in Task { await runImport(ids: ids) } }
             } else if preview != nil {
                 PrimaryActionButton(title: Copy.goodreadsImport) { Task { await runImport(ids: nil) } }

@@ -131,6 +131,20 @@ struct GoodreadsPreview: Decodable, Equatable, Sendable {
         let title: String
         let author: String
         let status: String?
+        /// The export's own number for the cover lookup; empty when the row has none.
+        let isbn: String
+
+        private enum CodingKeys: String, CodingKey { case id, title, author, status, isbn }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id); title = try c.decode(String.self, forKey: .title)
+            author = try c.decode(String.self, forKey: .author)
+            status = try c.decodeIfPresent(String.self, forKey: .status)
+            isbn = try c.decodeIfPresent(String.self, forKey: .isbn) ?? ""
+        }
+        init(id: String, title: String, author: String, status: String?, isbn: String = "") {
+            self.id = id; self.title = title; self.author = author; self.status = status; self.isbn = isbn
+        }
     }
     let books: Int
     let finished: Int

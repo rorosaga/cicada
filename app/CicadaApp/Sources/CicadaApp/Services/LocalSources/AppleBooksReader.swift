@@ -351,6 +351,11 @@ final class AppleBooksReader {
     private(set) var pending: [AppleBooksBookRecord] = []
     @ObservationIgnored private var lastRead: [AppleBooksBookRecord] = []
 
+    /// The cover file Apple Books keeps for a waiting book (read here for the choice list, never posted from it), or nil.
+    func coverFile(for asset: String) -> URL? {
+        AppleBooksCovers.bestFile(asset: asset, in: AppleBooksCovers.folder(documents: documents))
+    }
+
     @ObservationIgnored private let api: AppleBooksSyncAPI
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let documents: URL
