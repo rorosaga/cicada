@@ -1322,6 +1322,18 @@ class ClaimModel(CamelModel):
     recorded_ts: Optional[str] = None
     author_model: Optional[str] = None
     author_effort: Optional[str] = None
+    # ROR-129 — additive. The fact's own class (`evergreen|durable|active|volatile`, null: its page's), who decided it
+    # (`model|user`), and whether it has faded to where its page folds it into "older" (never closed or hidden).
+    decay_class: Optional[str] = None
+    class_by: Optional[str] = None
+    faded: bool = False
+
+
+class FactKeepRequest(CamelModel):
+    """``POST /claims/{subject}/{claim_id}/keep``: ``keep`` true marks the fact evergreen as the person's word, false
+    lets it fade again by its page's class (ROR-129)."""
+
+    keep: bool = True
 
 
 class ClaimListResponse(CamelModel):
