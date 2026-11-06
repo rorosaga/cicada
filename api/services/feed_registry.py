@@ -291,6 +291,17 @@ async def _call_fetch(fetch_fn: FetchFn, url: str) -> str:
     return result
 
 
+def _followed_on(feed: dict) -> bool:
+    """ROR-138 (owner 2026-11-06): nothing is followed without the person turning it on. A publication their agent
+    followed from their Substack subscriptions (``via: substack-subscriptions``) is polled only while that list's
+    switch is on; every other feed was added by the person and polls as before."""
+    if str(feed.get("via") or "") != "substack-subscriptions":
+        return True
+    from api.services import reading_settings
+
+    return reading_settings.substack_list_allowed("subscriptions")
+
+
 async def poll_feeds(
     memory_path: Path,
     *,
@@ -316,7 +327,7 @@ async def poll_feeds(
     Returns ``{"polled": int, "new": int, "per_feed": [...]}`` (plus
     ``skipped_no_network`` in the no-fetch case).
     """
-    feeds = list_feeds(memory_path)
+    feeds = [f for f in list_feeds(memory_path) if _followed_on(f)]
     if not feeds:
         return {"polled": 0, "new": 0, "per_feed": []}
 

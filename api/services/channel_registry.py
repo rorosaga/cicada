@@ -160,6 +160,14 @@ def _subscription_channel(
     }
 
 
+def _with_substack_note(channel: dict, substack: int) -> dict:
+    """The RSS row's detail names the followed Substack publications it also polls (ROR-138)."""
+    if substack and channel.get("detail") and channel.get("count"):
+        noun = "publication" if substack == 1 else "publications"
+        channel["detail"] = f"{channel['detail']} · {substack} Substack {noun}"
+    return channel
+
+
 def _sync_channel(
     channel_id: str, label: str, state: dict, noun: str, *, legacy_key: str | None = None
 ) -> dict:
@@ -366,9 +374,11 @@ def build_channels(
         # and its own sync_state entry, written by `safari_tabs.sync_tabs`.
         "safari-tabs": _sync_channel("safari-tabs", "Safari iCloud tabs", state, "tab"),
         "notes": _sync_channel("notes", "Apple Notes", state, "note"),
-        "rss": _subscription_channel(
-            "rss", "RSS feeds", [f for f in feeds if not feed_registry.is_substack(f)], "feed",
-            fetch_allowed=feed_fetch_allowed),
+        # ROR-138 (owner 2026-11-06): a Substack publication is followed through its public RSS feed, so RSS lists and
+        # counts every followed feed, and says how many are Substack's; Substack's own row is the view of those.
+        "rss": _with_substack_note(
+            _subscription_channel("rss", "RSS feeds", feeds, "feed", fetch_allowed=feed_fetch_allowed),
+            sum(1 for f in feeds if feed_registry.is_substack(f))),
         # G89 (owner 2026-11-05): a followed Substack publication counts on Substack's row; RSS still polls it.
         "substack-feeds": {
             **_subscription_channel("substack-feeds", "Publications",

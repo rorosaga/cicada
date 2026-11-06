@@ -451,8 +451,12 @@ enum SourceCatalog {
         // ROR-114 (owner: "why cant i turn on instagram, tiktok or reddit"): a saved list the person turned on is read
         // through their browser, whatever else came in — an import no longer paints it as a connection. Only a real
         // connection or a reader on this Mac (above) outranks it.
+        // ROR-138 (owner 2026-11-06: X, Instagram, LinkedIn, Reddit and Pinterest read Connected with no date): turning a
+        // list on is a standing ask, not a connection — the row reads Connected through the agent only once something
+        // it read has a date; until then it waits for the agent's first read.
         if let key = entry.savedListKey, savedListsOn.contains(key) {
-            return localAgent ? (.connected, true) : (.waitingForAgent, false)
+            let read = lastSync(for: entry, channels: channels, overview: overview) != nil
+            return localAgent && read ? (.connected, true) : (.waitingForAgent, false)
         }
         // An account's import that fed memory counts, as a chat export does (2026-10-23, live test: YouTube read Off
         // over a Takeout's thousands of episodes). Only an overview row no channel speaks for — an import — and not one a
