@@ -546,3 +546,20 @@ def test_claim_decay_cap_bounds_a_huge_unbackfilled_gap_to_one_week(tmp_path):
     conf = reconciled["escaped-subj"][0].confidence
     # explicit (0.02) * agent_extracted (1.0) * active (1.0) * (7/7) = 0.02
     assert abs(conf - (0.9 - 0.02)) < 1e-9
+
+
+def test_a_fact_on_an_evergreen_page_is_charged_weekly_not_nightly_ror_129(tmp_path):
+    """Git size, measured: nightly rewrites every line of a big ledger. The days are owed, never lost (ruling 1's week)."""
+    predicates.install_predicate_map(tmp_path)
+
+    def run(day):
+        claim = _open_claim("subj", "clm_1")
+        out, _n, _a = reconcile_stage3([], {"subj": [claim]}, _ClaimSettings(tmp_path), cardinality_fn=lambda _p: True,
+                                       now_date=day, decay_class_fn=lambda _sid: DecayClass.evergreen)
+        return out["subj"][0]
+
+    before = run("2026-01-01")   # the day the fact was recorded: nothing owed
+    assert before.confidence == 0.9
+    assert run("2026-01-05").confidence == 0.9 and run("2026-01-05").decayed_through != "2026-01-05"
+    weekly = run("2026-01-08")
+    assert weekly.confidence < 0.9 and weekly.decayed_through == "2026-01-08"
