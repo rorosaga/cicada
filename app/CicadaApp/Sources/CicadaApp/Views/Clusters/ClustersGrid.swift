@@ -594,6 +594,7 @@ struct ClusterNames: View {
                     }
                 }
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, Self.hangingInset)
             } else {
                 grid(shown)
             }
@@ -606,10 +607,12 @@ struct ClusterNames: View {
                   alignment: .leading, spacing: 0) {
             ForEach(items) { entity in ClusterNameRow(entity: entity, lines: lines) { open(entity) }.id(entity.id) }
         }
-        // A one-line row insets its name by the hover fill's padding; pulling the grid left by the same amount puts the
-        // names under their heading's first letter instead of a step to its right (DR-48: the fill hangs in the gutter).
-        .padding(.leading, lines == 1 ? -CicadaTheme.scaled(8) : 0)
+        .padding(.leading, Self.hangingInset)
     }
+
+    /// A row insets its name by the hover fill's padding; pulling the list left by the same amount puts the names under
+    /// their heading's first letter instead of a step to its right (DR-48: the fill hangs in the gutter).
+    private static var hangingInset: CGFloat { -CicadaTheme.scaled(8) }
 }
 
 struct ClusterNameRow: View {
