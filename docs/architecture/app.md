@@ -50,6 +50,10 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   any other spelling of a line. Both put the tool in `~/.local/bin`, a folder `base.resolve_binary` already looks in, so the
   launchd backend finds it with no restart. Home's First read and the Welcome's compact cards keep "Not installed" and add one
   hint line, *To use your Claude plan or ChatGPT plan, install it in* + the Plans & keys link (`EngineOption.installHint`).
+  **With nothing able to read** (no plan signed in, no key, no local model ready: `EngineOption.nothingConnected`) the same
+  cards lead with one line, *Connect a plan or add a key in* + the Plans & keys link, in place of those two hints
+  (DR-38); a local model stands last in the row and is no choice while it is not installed (`isSelectableCompact`,
+  ruling 36 D1: it runs only when chosen), so a stranger is never steered to the one card that cannot run on most Macs.
   **The row changes without quitting:** `GET /connections` caches a probe 30 s, so coming back to the app (activation)
   re-reads it fresh, then `GET /sleep/engine`, but only while some plan is still missing (`MissingTools.waiting`,
   `refreshesMissingTools()` on Settings → Intelligence, the Intelligence step and the Getting-started card); a Mac with

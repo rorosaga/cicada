@@ -132,28 +132,32 @@ def no_engine(settings) -> bool:
     return bool(str(getattr(settings, "no_engine_reason", "") or "").strip())
 
 
+#: How the two sentences below begin: the CLI recognises them by it and adds its own command line
+#: (``engine_readiness.cli_fix_for_error``). The sentences themselves say nothing a Mac app person cannot do.
+NO_ENGINE_LEAD = "No engine to read with"
+SCHEDULE_DEGRADED_LEAD = "Scheduled runs have no engine they may use"
+
+
 def no_engine_sentence(why: str | None) -> str:
-    """What a run with no engine says, in words, with the fix — naming the scheduled-plan switch when it is the
-    reason (ruling 4b). Provider-neutral."""
+    """What a run with no engine says, in words, with the fix a person at the app can do — naming the
+    scheduled-plan switch when it is the reason (ruling 4b). Provider-neutral. No shell command: the CLI door adds
+    its own (``engine_readiness.cli_fix_for_error``), for a server where there is no app."""
     if why == SCHEDULE_USER_ONLY:
         return ("Scheduled runs don't use the engine you chose: it reads only when you start a read yourself. Start a "
                 "read, or choose another engine for scheduled runs in Settings → Intelligence. What was waiting is "
                 "still waiting.")
     if why == SCHEDULE_DEGRADED:
-        return ("Scheduled runs have no engine they may use: your plan is off for scheduled runs (“Scheduled runs may "
-                "use my plan” in Settings → Sleep; on a server, `cicada sleep schedule --use-plan on`), no local model "
-                "is running, and an API key is used only when you choose it as Sleep's engine. What was waiting is "
-                "still waiting.")
+        return (f"{SCHEDULE_DEGRADED_LEAD}: your plan is off for scheduled runs and no key is chosen. Turn on "
+                "“Scheduled runs may use my plan” in Settings → Sleep. What was waiting is still waiting.")
     if why == SCHEDULE_CURSOR_THIRD_PARTY:
         return ("Scheduled runs use Cursor only with its own models, and the model you chose there is billed "
                 "separately at list price. Start a read yourself, or choose one of Cursor's own models in Settings → "
                 "Intelligence. What was waiting is still waiting.")
     # Ruling 46: an installed tool Auto skipped says why, after the sentence (``_cli_rungs``' notes ride ``NO_ENGINE``).
     notes = why[len(NO_ENGINE):].strip() if why and why.startswith(NO_ENGINE) else ""
-    return ("No engine to read with: no plan is signed in, the local model isn't running, and an API key is used only "
-            "when you choose it. Connect your plan, or choose an engine in Settings → Intelligence (on a server: `cicada "
-            "engine connect claude-plan`, or `cicada sleep engine --mode byok` for a key you chose). What was waiting "
-            "is still waiting." + (f" {notes}" if notes else ""))
+    return (f"{NO_ENGINE_LEAD}: no plan is signed in, and an API key is used only when you choose it. Connect a plan "
+            "or choose a key in Settings → Intelligence. What was waiting is still waiting."
+            + (f" {notes}" if notes else ""))
 
 
 def claude_key_model(settings) -> str | None:

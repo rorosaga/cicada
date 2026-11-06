@@ -61,6 +61,8 @@ extension Copy {
     static let costModelKey = "Billed per use by your provider"
     static let engineKeySaved = "Key saved"
     static let engineAddKey = "Add a key in \(plansAndKeys)"
+    /// Nothing can read yet: lead to the row that connects a plan or a key (a link to Plans & keys follows).
+    static let engineConnectLead = "Connect a plan or add a key in"
     static let welcomeNotChosen = "Not chosen yet. Cicada asks before its first read."
     static let welcomeWillRead = "Will read"
     static let welcomeProviderLine = "Plans and keys send what Cicada reads to that provider."
@@ -154,7 +156,7 @@ extension Copy {
         homeHeadline, homeFieldPrompt, homeToday, homeNeedsYou, homeLastRead,
         homeCapturedHelp, homeLoading, homeNothingCapturedToday, homeNothingWaiting, homeNothingNeedsYou,
         homeNothingReadYet, homeNothingChanged, homeShowOnGraph("alpha-project"), homeOpenSleep, homeSaveLink,
-        costModelPlan, costModelLocal, costModelKey, engineKeySaved, engineAddKey, welcomeWillRead,
+        costModelPlan, costModelLocal, costModelKey, engineKeySaved, engineAddKey, engineConnectLead, welcomeWillRead,
         welcomeNotChosen, welcomeProviderLine, welcomePickSaved("ChatGPT plan"), gsBringingIn, gsTitle, gsHide,
         gsDone, gsAgentOn, gsAgentGone, gsFinishInIntegrations, gsChatHistory, gsChatDrop,
         gsReading, gsFinishedNoCount, gsWatchOnSleep, gsOpenGraph, gsTryAgain, gsScheduleQuestion, gsWhenIAsk,
