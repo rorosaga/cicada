@@ -99,7 +99,9 @@ def test_the_inbox_etag_recipe_is_unchanged():
     # Ruling 48 (1), review B2 of #509: the served words carry relative ages, so the day joins the recipe — and nothing
     # else does (the derived `check` still rides the same three components).
     assert 'etag_for(settings.memory_path, "inbox", "entities", "episodes",' in src
-    assert """extra=f"{kind or ''}|{_served_day()}|{same_name.SHAPE}|{same_name_pick.SHAPE}")""" in src   # G227's shapes ride it
+    assert """extra=f"{kind or ''}|{_served_day()}|{same_name.SHAPE}|{same_name_pick.SHAPE}\"""" in src   # G227's shapes ride it
+    # Ruling 70: the order's wire shape (`orderIndex`) and its one non-bank input, the counter's day-cut digest, join it.
+    assert 'f"|{question_order.SHAPE}|{question_order.stamp(settings.memory_path)}")' in src
 
 
 def test_reading_checkability_writes_nothing_fetches_nothing_and_calls_no_model(memory, monkeypatch):

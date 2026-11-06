@@ -93,19 +93,28 @@ def test_a_page_said_more_and_lately_is_used_more_and_the_owner_is_the_most_used
     assert page_use.item_use(use, {"entity_id": "held-name", "merge_target_hint": "busy"}) == use["busy"]
 
 
-def test_the_inbox_asks_about_the_most_used_page_first_at_equal_priority(bank):
+def test_the_inbox_asks_about_the_most_used_page_first_at_equal_impact(bank):
     page(bank, "busy", convs=30, said=-2)
     page(bank, "quiet", convs=1, said=-200)
     quiet = item(bank, 1, entity_id="quiet", entity_name="Quiet", predicate="uses", question="What does Quiet use?",
-                 options=[{"key": "a", "label": "x"}, {"key": "b", "label": "y"}], title="t")
+                 options=[{"key": "a", "label": "x", "claim_id": "c1"}, {"key": "b", "label": "y", "claim_id": "c2"}], title="t")
     busy = item(bank, 2, entity_id="busy", entity_name="Busy", predicate="uses", question="What does Busy use?",
-                options=[{"key": "a", "label": "x"}, {"key": "b", "label": "y"}], title="t", created_date=d(-30))
+                options=[{"key": "a", "label": "x", "claim_id": "c3"}, {"key": "b", "label": "y", "claim_id": "c4"}],
+                title="t", created_date=d(-30))
     order = [i.id for i in inbox_service.load_inbox(bank)]
     assert order.index(busy) < order.index(quiet)
-    # Use never outweighs a real priority gap: a much higher-priority question on a quiet page still comes first.
-    item(bank, 3, entity_id="quiet", entity_name="Quiet", predicate="runs-on", priority=1.2, title="t",
-         options=[{"key": "a", "label": "x"}, {"key": "b", "label": "y"}])
-    assert [i.id for i in inbox_service.load_inbox(bank)][0] == "inbox-003"
+
+
+def test_the_stored_priority_no_longer_moves_the_order_what_the_answer_changes_does(bank):
+    """Ruling 70: `question_order` derives the order at read; the stored priority stays on disk and on the wire."""
+    page(bank, "quiet", convs=1, said=-200)
+    two = item(bank, 1, entity_id="quiet", entity_name="Quiet", predicate="uses", priority=1.2, title="t",
+               options=[{"key": "a", "label": "x", "claim_id": "c1"}, {"key": "b", "label": "y", "claim_id": "c2"}])
+    five = item(bank, 2, entity_id="quiet", entity_name="Quiet", predicate="runs-on", priority=0.1, title="t",
+                options=[{"key": str(n), "label": "v", "claim_id": f"k{n}"} for n in range(5)])
+    served = inbox_service.load_inbox(bank)
+    assert [i.id for i in served] == [five, two]
+    assert {i.id: i.priority for i in served} == {two: 1.2, five: 0.1}
 
 
 # --------------------------------------------------------------------------- S4: the wording
@@ -505,3 +514,15 @@ def test_a_bool_flag_is_spelled_bare_so_the_line_runs():
 
     assert cli_map.spell("cicada_resolve_inbox", id="inbox-001", skip=True) == "cicada inbox resolve inbox-001 --skip"
     assert cli_map.spell("cicada_resolve_inbox", id="inbox-001", skip=False) == "cicada inbox resolve inbox-001"
+
+
+def test_the_catch_up_asks_the_biggest_change_first_and_a_chain_takes_its_best_members_place(bank):
+    page(bank, "busy", convs=30, said=-2, type_="person")
+    page(bank, "quiet", convs=1, said=-200, type_="person")
+    page(bank, "busy-twin", convs=3, said=-5, type_="person")
+    plain = item(bank, 1, kind="clarification", entity_id="quiet", entity_name="Quiet", priority=0.9, title="t")
+    pair = item(bank, 2, kind="merge_suggestion", entity_id="busy-twin", entity_name="Busy Twin", merge_target_hint="busy",
+                priority=0.1, required_input="merge", suggested_classification="person", title="t")
+    entries, remaining = inbox_catchup.select(bank, today=TODAY.isoformat(), limit=5)
+    assert [e.ids for e in entries] == [[pair], [plain]] and remaining == 0
+    assert entries[0].rank > entries[1].rank > 0

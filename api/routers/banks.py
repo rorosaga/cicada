@@ -221,6 +221,9 @@ async def delete_bank(name: str, settings: Settings = Depends(get_settings)) -> 
     if sleep_cycle.get_sleep_state().status == "running":
         raise HTTPException(409, "A Sleep cycle is running — delete when it finishes.")
     root = settings.memory_root
+    # The bank's id, read first: the trash drops its registry record, and its read counter (`page_reads`, outside every
+    # bank, ruling 70) is named by it.
+    counter_id = await run_in_threadpool(bank_registry.bank_id, root, name)
     try:
         dst = await run_in_threadpool(bank_registry.trash_bank, root, name)
     except bank_registry.UnknownBank as exc:
@@ -239,6 +242,10 @@ async def delete_bank(name: str, settings: Settings = Depends(get_settings)) -> 
     # Ruling 55: the numbers wait in the trash beside the bank, gone when the trash is emptied.
     phone_numbers.park_for_trash(name, dst)
     people_directory.forget(name)
+    # Which pages the person read is theirs: it goes with the bank (also its -wal and -shm), never waits in the trash.
+    from api.services import page_reads
+
+    page_reads.forget_bank(counter_id)
     logger.info(f"Moved bank '{name}' to the trash")
     data = bank_registry.list_banks(root)
     return BankTrashResponse(

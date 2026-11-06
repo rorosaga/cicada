@@ -691,7 +691,9 @@ def _inbox_kind(ctx: _Ctx) -> tuple[list[SearchHit], int | None]:
             kind="inbox", subtitle=meta.get("entity_name") or None, snippet_offsets=offsets,
             matched_field=label, subject_id=meta.get("entity_id") or None,
         )
-        ranked.append(((-score, -float(meta.get("priority") or 0.0), bm), hit))
+        # Text match decides, then bm25. The stored priority no longer orders anything (ruling 70): a palette result's
+        # place is how well it matches, and the served order of the inbox is `orderIndex` in the app.
+        ranked.append(((-score, bm), hit))
     ranked.sort(key=lambda r: r[0])
     total = len(ranked) if len(rows) < INBOX_SCAN else None
     return [hit for _k, hit in ranked][: ctx.per_kind], total

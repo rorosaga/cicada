@@ -584,12 +584,23 @@ setup checklist* (`showChecklist`; the Welcome's record never opens it). The tou
 card, so it is never off-screen. Inside, three labelled groups 20 pt apart — Connected, Your past chats, First read — and *Also
 on this Mac* as an offer. Your past chats has one 36 pt row per vendor still to ask (`ExportVendorRow`; a vendor whose
 `chat-export:<vendor>` row has episodes is not asked again), the whole row opening onboarding's drawn walkthrough over
-Home (`HomeWalkthroughLayer`), with waits above them leading with "Check your email for the … link". Below the question the page has **one status line**, centred, no card and no label (ROR-118 rounds 3, 4 and 5; `TodaySection`, `HomeStatLink`, `LastReadSegment`): "15 captured today · 21 waiting to read · Last read 07:27 updated" (round 5: 14 pt figures and words, 12 pt between segments, `HomeLayout.statGap`; the read drops its own "Today" when it ends this line, `HomeFigures.withoutToday`, and the word "updated" stands before the pictures, only while one is drawn) and, after it, the pages that read touched as pictures alone — each figure a link in the primary ink, its words secondary (captured to Sources, its busiest origins its hover and accessibility label; waiting to Sleep, with the ticked Messages bubbles; last read to that read in Sleep's Past reads; a picture shows its page on the graph, its name the hover and accessibility label, and a page with no picture is not drawn — its name is in the read's details). Last read joins the line when it sits right under Today and both have something to say (`TodaySection.includesLastRead`); otherwise (the first week's order, or Today empty) it is its own centred line (`LastReadSection`); Needs you (ruling 48 (1), owner 2026-10-28; `NeedsYouSection`, `HomeQuestions`) is
 **one card that leads** (`LeadQuestionCard`): the most-used page's question — its picture when it draws one
 (`EntityPicture` in a button that opens the page, nothing otherwise, DR-48), the question in 15 pt medium (under the field's 17) inside `BalancedLines`, a layout that narrows the text to the narrowest width keeping its line count so no word is stranded on the last line, and under it the one next act (round 4): *Answer*, the page's one accent primary (round 5, `PrimaryActionButton`, DR-5 (2) and DR-40; a `NeutralButton` while Getting started's own read pill is up, so never two primaries), opens that question in the Inbox's list, where the rest wait, and *Catch me up*, a compact `NeutralButton`, starts the chat (its hover "N questions about M pages · or say "catch me up" to your agent"). A click on the question does what Answer does. The page's name, the reason, the age and "N questions" are the question's hover and accessibility hint, not a second line of small type, and *All N questions* is gone from the card (Answer lands in the list; the fallback block when no question can lead keeps it; the card is `bgFocus` with the resting ring in dark (a ring with no fill in light), a step under the field, which stays the page's highest surface). The other questions are one
 click away, so no two rows repeat each other's copy. Drawn from the Store's disk-hydrated snapshot, so Home never waits on
 `GET /inbox`. **The titlebar's search is quiet on Home alone** (`CommandBar.quiet`, round 2): the bar is the memory-bank selector and nothing else, since Home's own field is the same palette body; ⌘K and the menu item still open the palette, the tour's search stop draws the full bar, and every other page keeps the bar as it was;
 Last read (the status line's last segment, above) is the newest Sleep commit: its pictures are `EntityPicture` at 22 pt, one size side by side — each number once, never a Consolidate. The
+Home (`HomeWalkthroughLayer`), with waits above them leading with "Check your email for the … link". Today is one row to
+Sources (captured today, UTC, with the three busiest origins' marks, names and counts) plus the waiting count as a row
+to Sleep; Needs you (ruling 48 (1), owner 2026-10-28; `NeedsYouSection`, `HomeQuestions`) is two blocks: **Catch me
+up** on its own (`CatchupBlock`, `07-home-b`'s separation — the chat glyph, "N questions about M pages, the ones you use
+most first · or say "catch me up" to your agent", *Start* a `NeutralButton`), then *Pages with a question*, one row per
+page (at most four, the server's order, `orderIndex`), each leading with the page's picture (`EntityPicture`: face, logo
+or type glyph — the kind moves to `.help`, DR-48), the question in plain words (`spokenQuestion`), its reason and the page
+as an `InlineLink`, "N questions" when the page has more, and the question's age; a row opens that question in the
+list (STATE 1), the link opens the page; *All N questions* at the label's right opens the full list (never a fold —
+ruling 48 (17)). Drawn from the Store's disk-hydrated snapshot, so Home never waits on `GET /inbox`;
+Last read is the newest Sleep commit as a row to that read in Sleep's Past reads ("Today 07:27 · 33 updated", the commit's
+instant on the viewer's clock), its pages as `Tag`s in 24 pt hit frames — each number once, never a Consolidate. The
 history is not a Store domain: `SleepViewModel` holds it in memory, Home fetches it on arrival and whenever the status's
 `lastSleepAt` moves (`refreshForHome`), and a bank switch empties and rereads it (`bankChanged`) — the launch's own
 switch to the roster's bank used to drop Home's first fetch, leaving "—" until the Sleep page was opened. Each state is
@@ -3419,11 +3430,21 @@ page), its failure saying the page changed since (`settledSleepUndoFailed`). Neu
 from the server, Not now); `InboxBodyPreview` draws its `body` — "Why: …" and the changes as "- Replace “old” with
 “new”" lines — even beside a cause quote, because the body is the change itself (every other kind keeps the old rule:
 the body only when there is neither a cause nor a quote).
+**The Inbox's order is the server's (ruling 70, 2026-11-06).** `GET /inbox` serves `orderIndex` on every item (its place in the
+served list, set after agent requests are placed above the questions; it carries no magnitude, `question_order`,
+`features.md`). `InboxItem.orderIndex` decodes it leniently; `InboxColumns.usesServedOrder` decides **for the whole list**
+(every question has it) whether `ordered` sorts by index or, as against an older server, by priority then newest — never
+per pair, which would not be transitive — and `visible` makes that decision on the unfiltered list, so a tab sorts like
+All. The Undo row sits at its question's place in the snapshot's own order (`InboxRows.entries`). `QuickIndex.inboxDocs`
+breaks a tie by `orderIndex` when every question has it (priority only for an older server). Home's lead and rows, a
+page's "A question · 1 of N" strip and `Store.visibleInbox` filter the snapshot and never sort, so they keep the served
+order (`QuestionOrderEverywhereTests`). The ETag and this mapping ship together (`question_order.SHAPE`).
+
 **The Inbox in groups (owner 2026-10-26: "super dense … grouping things would be best"; DR-40, 45, 48, 59, 60, 61).**
 Under All the full-width list is one collapsible group per kind (`InboxGroups`, `InboxListLine`, `InboxGroupHeader`):
 the kind's tab word and its count, and *Review one at a time* — the quick review below, the group's one action. There is
 no answer-all: a header only opens or closes (a click eases, a key is one frame — *One fold motion* below), and every answer is still one question through
-the card or the review, held for the Undo window. Groups sit where their most urgent question would (the G115 order);
+the card or the review, held for the Undo window. Groups sit where their most urgent question would (the list's order: the server's `orderIndex`, ruling 70, else G115's priority then newest);
 past `InboxGroups.openFirstUpTo` (12) questions every group starts closed, so a full inbox reads as its kinds and counts;
 the person's open/closed choice holds for the memory, and the open question's group is always open. Inside a group (and
 under a kind's tab) two or more questions about one page sit together under the page's name, said once (`InboxPageHeader`;

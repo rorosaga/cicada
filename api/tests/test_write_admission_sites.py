@@ -371,7 +371,7 @@ DOOR = ("door: runs one MCP tool's own body for another of the person's machines
 REMOTE = "remote: runs one remote tool through RemoteRuntime.call, which takes admission for a write itself"
 
 ROUTES: dict[str, tuple[str, str | None]] = {
-    "POST /ask": (NONE, None),
+    "POST /ask": (OUTSIDE, None),   # the pages it read are counted in $CICADA_HOME/page-reads (ruling 70)
     "POST /inbox/{item_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
     "POST /sensitive/remove": (ADMITTED, None),   # G235: the person's Remove, run_admitted in the route itself
     # Ruling 48 (8): the catch-up chat's turn reads and calls the engine, writing nothing (its answer is applied

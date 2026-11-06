@@ -238,3 +238,34 @@ def test_load_inbox_at_the_owners_scale_is_well_under_half_a_second(tmp_path):
     cpu, wall = timed(lambda: None)
     print(f"load_inbox, nothing moved: {cpu * 1000:.1f} ms CPU, {wall * 1000:.1f} ms wall")
     assert cpu < 0.1 and wall < 0.4, (cpu, wall)
+
+
+@pytest.mark.bench
+def test_the_read_order_at_8000_pages_costs_a_rebuild_nothing_it_can_feel(tmp_path, monkeypatch):
+    """Ruling 70: the order reads a raw claim count for each question's pages and a small counter - no parse. At 8,000
+    pages with a counter of 2,000 rows a warm rebuild stays under the 4,700-page budget above (measured: the old and the
+    new order within noise of each other, ~0.25 s)."""
+    from datetime import date, timedelta
+
+    from api.services import bank_registry, page_reads
+
+    monkeypatch.setenv("CICADA_TELEMETRY", "on")
+    memory = build(tmp_path / "memory", pages=8000)
+    bank_registry.ensure_bank_ids(memory)
+    _settle(memory / "entities")
+    today = date.today()
+    for k in range(10, 0, -1):
+        for n in range(0, 8000, 4):
+            page_reads.count(memory, f"thing-{n:04d}", "app", today=today - timedelta(days=k))
+    page_reads.reset()
+    inbox_service.load_inbox(memory)
+    cpus, walls = [], []
+    for _ in range(3):
+        inbox_service.reset_built()
+        cpu, wall = time.process_time(), time.perf_counter()
+        served = inbox_service.load_inbox(memory)
+        cpus.append(time.process_time() - cpu)
+        walls.append(time.perf_counter() - wall)
+    print(f"load_inbox rebuild at 8,000 pages / {len(served)} served, 2,000 counted: "
+          f"{min(cpus) * 1000:.0f} ms CPU, {min(walls) * 1000:.0f} ms wall")
+    assert min(cpus) < 0.5 and min(walls) < 2.0, (cpus, walls)

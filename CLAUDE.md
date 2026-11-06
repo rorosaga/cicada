@@ -426,6 +426,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   its claims, with a reason that is the commit message; only a harness on the person's trust list writes at once (Claude Code
   and Codex until the person changes it, owner 2026-10-14; never remote, never `agent`), any other proposes in the inbox; pinned fixes and removed aliases outlive Sleep; blame is read from git (`storage.md`, `mcp.md`).
   A device holding a per-device token the person issued counts as local (ruling 28); a G135 connector never does.
+- **The inbox is ordered by the expected change in what gets read (ruling 70, owner 2026-11-06):** `question_order`, derived on
+  read, never stored; the stored priority no longer moves it. It rests on a per-memory **read counter** (`page_reads`,
+  outside every bank and git, never served, a no-op with recording off, wiped with its bank) that is **not** the telemetry
+  ledger; today's reads count from tomorrow; the hook's injection, Sleep and Cicada's own spawns never count. A fact said
+  long ago scores lower (age from when it was said, never `last_referenced`; merges and name questions never fade); the owner's page never dilutes its facts; at most one question of a type in a row; every queue uses this one order, never the stored priority (a gate test)
+  (`features.md`, "The order is the expected change in what gets read"; `storage.md`, "Page-read counter").
 - **Questions come up naturally (owner, 2026-10-14):** an inbox question reaches a conversation only when it is about
   that question's subject (`inbox_ask_gate`), in the agent's own words; an answer the person already gave is recorded
   with their words as evidence, never guessed; the whole inbox only on request (`mcp.md`).

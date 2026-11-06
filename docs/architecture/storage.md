@@ -2554,11 +2554,43 @@ at least two of them, over the last 35 days machine-wide; with `samples`, and `u
 move, which caps it). A window with neither a reading nor a rate is left out; a model's own window is never estimated
 for a run that did not report it (`cycle_usage.plan_share`, `rate_samples`, `rates_of`).
 
+**Page-read counter (ruling 70, 2026-11-06; `api/services/page_reads.py`) — not the ledger.** A small per-memory count of
+how often each page was *read*, used by one thing: the inbox order (`question_order`, `features.md`). Deliberately a
+separate store: the ledger's rail is "nothing learned from it is auto-applied", and an order learned from it would be
+exactly that. `$CICADA_HOME/page-reads/<bank id>.db` (0700 dir, 0600 file, sqlite WAL, 0.5 s timeout, like
+`agents/seen.db`), **outside every bank, never in git, never on the network, never served** by any route, tool, `/v1`,
+export, sync or replica (a test walks the importers and the responses). One file per memory, named by the bank's `id`
+in `banks.yaml` (survives a rename; a duplicate gets a new id, so nothing mixes; a bank with no id yet counts nothing,
+so a path-named file can never split the counter; the file name never holds a bank name). A row is `(page id, value,
+last day, that day's weight)`: no query, no text, no timestamp beyond a day, no per-day history.
+* **Counted once a page a day, at the day's largest weight:** opened 1.0 (the person opened the card; an agent's
+  `cicada_recall_detail` or `cicada_project`, or a project timeline's `200`) · shown .25 (a page recall showed; a page
+  Ask read). Half-life 30 days; the order reads r ÷ (r + 3), so a looping agent adds at most 1 a day and saturates.
+  The one choke point is `telemetry.record_read(…, memory_path=…)` by surface suffix (`-recall` shown; plain, `-project`,
+  the remote runtime's `remote` and the app's opened; `-backlog` not counted), plus Ask's `answer_query`; an in-process memo makes a burst of recall
+  hits one write.
+* **Today's reads count from tomorrow:** the table leaves today's weight out, so the order cannot move during a session
+  or feed back the same day, and the table is exact for the whole day (cached per day). `GET /inbox`'s ETag folds the
+  day-cut digest, which moves at most with the day.
+* **Never counted:** the recall hook's automatic injection (picked by the person's words, which `page_use` already credits
+  through `source_episodes`; no one chose it), `cicada_backlog` (backlog items, not the page), Sleep, any process with
+  `CICADA_CAPTURE=off` or `CICADA_RECALL=off` (Cicada's own spawns), a demo bank, a replica, and — **no new setting** —
+  anything while `telemetry.enabled()` is false: with recording off the counter is a no-op (nothing written, table
+  empty) and the order runs on `page_use` alone. A disagreement between processes can only undercount.
+* **Derived and disposable:** a missing, wiped, locked or corrupt file is an empty table, never an error (a corrupt one is
+  removed and starts over); nothing raises into a read; a failure logs a class name, never a page id. The backend's inbox
+  read prunes rows for pages that no longer exist once a day (never on an empty page list).
+* **Whole-memory forgets:** deleting a bank (`DELETE /banks/{name}`, the only one: the CLI calls the same route) deletes
+  its file with its `-wal` and `-shm`, reading the id first because the trash drops the registry record. A bank folder
+  removed by hand leaves its small file (known and left); a replica copy kept on disk after leaving replica mode is
+  never counted. Rows for pages the person deletes go with the daily prune (no page-delete route exists).
+
 **Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`,
 `refs` = item id, kind, predicate, entity id, action label, `verdict: agreed|overruled|neutral`,
 winner/loser claim ids, the extractor's confidence and model, and since vision item 10 the question's `asks` shape
-and its page's `page_use` bucket (`high|mid|low`, so the reward can say whether the use-weighted order asks what the
-person answers) — ids and enums only, never claim text), Stage-3 reconcile emits one `audit` event per supersede/reject, and the dedup sweep emits one
+its page's `page_use` bucket and, since ruling 70, the question's `impact` bucket (`high|mid|low` of `question_order`'s
+score, taken at admission before the resolver writes; so the reward can say whether the order asks what the person
+answers, and a human can check its constants) — ids and enums only, never claim text), Stage-3 reconcile emits one `audit` event per supersede/reject, and the dedup sweep emits one
 `dedup_verdict` per judged pair. `telemetry.FEEDBACK_KINDS` names the three (a superset,
 `NON_SPEND_KINDS`, also excludes `capture`/`handshake`/`read`); `consumption_stats.stats()` excludes
 them from `by_connection` so they never show as an "unknown" connection. Nothing learned from the

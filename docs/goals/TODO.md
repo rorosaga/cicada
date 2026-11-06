@@ -8,6 +8,8 @@
 
 **Pick up here (2026-10-22, redesign):** read ruling 36 (the owner's answers D1–D6 to the redesign proposal), then [`feature-status.md`](feature-status.md) for what is building. Branches in flight: `feat/awake-read` (G207), `fix/people-dedup` (G209), `feat/update-sources` (G61); queued: connection model and providers (G217, G50), agent API (G213), app (G217's pages, needs a Mac). **Decided after review (2026-10-22, in ruling 36):** a new install's Auto uses a signed-in plan, a key offered as an equal option; ruling 4c stays and the quick read follows it; G213's API rides the G135 listener; "Where to check" as one grouped inbox review; `rich` + `questionary` approved. Nothing waits on the owner from this ruling. **Ruling 38 (2026-10-23)** decides the follow-ups: `/v1` from the tool table (G213), a capture-only phone (G91), one-way syncs (G219), traces with screenshots (G218).
 
+**Inbox order (2026-11-06, ruling 70, G113/G115):** `GET /inbox`, the catch-up and `mode="ask"`/`"list"`, recall's question block, the recall hook's pointer and a web lookup's order are ordered by `question_order` (the expected change in what gets read, lowered for a fact said long ago), fed by `page_use` and the new read counter `page_reads` (not the ledger); read ruling 70 before touching the order, its constants or the counter. In flight: #673.
+
 **Browser-read sources (2026-11-05, ROR-114, G206/G228/G232):** Instagram, TikTok, Reddit and Pinterest (with X and LinkedIn) have one "Read through your browser" switch; a source read that way has its own colour and words (not the green of a connection), a "Signed out" state with Try again, and the person's handle and profile link on its page; YouTube's and Substack's lists show the same states, without a handle. Why the switches were missing: the app's set stayed at three lists after #596 and Instagram's switch sat beside a refused site grant (`app.md`, DESIGN_RULES §9 2026-11-05). Freshness limit (by design): signed out is learned only when an agent tries the page. T3 Code is no source row. Mac tests are for the owner's shell: `swift build --build-tests` only here.
 
 **RSS by feed (2026-11-05, ROR-108, G89):** the RSS page lists its feeds, each opening in place; polls stamp an item's feed and keep a failed result as a code. Live items gain their stamp on the next poll; until then they file by host or under *Other*.
@@ -843,6 +845,16 @@
   Needs the owner: a person's own site as a face, project avatars, Gravatar from Contacts, Wikidata P18, Stage 1's
   site upgraded by ruling 40, the two redrawn marks (`G159`).
 - **2026-10-28 — saved links feed the pages they are about (vision item 1; G61, G166, G191; branch `feat/vision-sources-reason`).** The person's reason for a save rides the reading queue (their words: remote with `sources` only), steers link summaries and earns a page described before it one more read (`read_for`); a saved link is a proposed where-to-check source on the project, company, concept, tool or place page its claims are about; `cicada_record_read(facts=…)` lands a read's specifics on their pages with page spans. Dry run on a copy of the owner's bank: 133 proposals on 113 pages, all in the one review; 9 haiku re-reads, the reason answered on 6 of 8 (2 before). Stage 1's prompt is unchanged (a note measured no gain). Coordinator calls: saves with no reason join the review; a read's facts never land on a person's page. **Next:** research citations as proposals (rulings 27/44) waits for the owner.
+- **2026-11-06 — the inbox is ordered by the expected change in what gets read (ruling 70; G113, G115; branch
+  `feat/question-impact`).** `question_order` replaces `page_use.rank` for `GET /inbox`, the catch-up and `mode="ask"`;
+  `page_reads` is the small per-memory read counter beside it (not the ledger); `orderIndex` goes to the app. Constants
+  are judgment on two recorded answers; `impact` on each `resolution` row is how they get checked. Round 2 (same day,
+  owner): staleness lowers impact (age from when it was said, relief from reads) and every queue uses the one order,
+  with a gate test. The production code was run on the owner's bank (kept outside the repo, aggregates in
+  `features.md`). The owner judged that top ten the same day: at most one question of a type in a row (limit measured,
+  `features.md`), the owner's page never dilutes the facts an answer changes, merges and name questions do not fade,
+  "still?" does; timeless facts fading is accepted until ROR-129. **Next:** the climb's `HomeQuestions` / `HomeSections`
+  follow `orderIndex`; the app's `surface: "inbox"` is a follow-up.
 - **2026-10-28 — the catch-up chat, backend and agent half (vision item 10; G115, G113, G209; branch
   `feat/vision-inbox-catchup`).** `cicada_check_nudges(mode="catchup")` serves three questions at a time, the pages the
   person uses most first (`page_use`, derived from the record, not the ledger), each in plain words with its reason,
@@ -3623,6 +3635,55 @@ A whole row moves to DONE only after its remaining implementation and required a
    (describing a picture needs an engine that takes images, undecided; so does whether a voice memo counts as the
    person's own words). **Trigger to revisit (b):** the owner asks for the words in the
    page's markdown, knowing a committed transcript cannot be forgotten.
+
+70. **The inbox is ordered by the expected change in what gets read, on real reads (owner, 2026-11-06; G113, G115).**
+   The owner: "the questions should have in order the impact they might have on current accesses knowledge, and things
+   that might have big impact." and, asking for the work: "focuses on doing the PR for the impact score and all that stuff
+   that you're recommending. Maybe it can come up with a better formulation to estimate impact." Home was about to show
+   one lead question, so whatever ranks first is the only one seen. **Second request, same day (staleness and one order):**
+   "the questions in regards to the amounts of <a-payment> are extremely old and in this case shouldn't they
+   be lower impact? The impact formulation should apply to the question queues in all entities." (a) **The order** is `question_order.Tables.score` =
+   p × stake ÷ effort × (floor + exposure) × √seen, derived on read, one function for `load_inbox`, `inbox_catchup.select`
+   and `mode="ask"`; the stored `priority` stays on disk and on the wire and no longer moves the order (the app used to
+   re-sort `GET /inbox` by it, so the old server-side use-weighted order was never seen). Four formulations (old; additive;
+   product without visibility; this) were run on twelve argued pairs (eight, then four on staleness), each with its reason in `test_question_order.py`;
+   this one passes all twelve, the old one one, the additive two, the product-without-visibility eight (measured table in
+   `features.md`). (b) **Every
+   constant is judgment**: the person's own recorded answers number two across all banks, so nothing is fitted. The
+   `impact` bucket on every `resolution` row (G113) is how a human checks them later; nothing learned from it is
+   auto-applied. (c) **Staleness lowers impact** (replaces the earlier "stale-escalated conflict is p .5"): `score` × `freshness`, where
+   `fade = max(.05, ½^(age ÷ half-life))` and `freshness = relief + (1 − relief) × fade`. Age counts from when the thing
+   was SAID (a conflict's freshest option: `source_refresh.said_on` of a claim on the page, the conversation an option
+   names for a claim only it holds, the question's `source_episode` for an option with no claim; a divergence,
+   clarification or follow-up: its `source_episode`'s date), never `last_referenced`, `created_date` or `updated_date`,
+   which a re-reference or a re-asked question bumps, and never a claim-less option's `observed_at`, which is the raise
+   date (120 of 153 on one bank). A memory export entry or feed item is only "no later than". The half-life is the page's decay
+   rate through `decay_policy.resolve` (durable ≈ 243 days, active ≈ 97, volatile ≈ 32); an evergreen page never fades
+   **except the owner's, which fades at the `active` rate** (its class means "never archived", not "every fact stays
+   true"); relief = the largest `reads_fraction × visibility(N)` over the question's pages, so an old fact in daily use on
+   a small page stays fresh and a huge hub opened daily does not rescue every old fact on it. Not faded: who someone is
+   (a pair, `asks: name`, a held-name release), `decay`, and anything that is not a fact someone said (removal,
+   normalization, page edit, sources review, `sensitive`). A timeless fact on the owner's page fades; with the counter
+   off or empty relief is 0. Judgment like the rest. **One order everywhere:** every place that sorts or picks questions
+   goes through `question_order` or `orderIndex` (`features.md`, "One order everywhere"), and
+   `test_question_order_gate.py` fails on a new sort by raw priority. (d) **The read counter is not the telemetry
+   ledger** (`page_reads`, `$CICADA_HOME/page-reads/<bank id>.db`, outside every bank): the ledger's rail ("nothing learned
+   from it is auto-applied") would be broken by an order learned from it. No query, no text, a day's largest weight once a
+   page a day (opened 1.0, shown .25, half-life 30 days, saturating), **today's reads count from tomorrow** so the order
+   cannot move in a session or feed back the same day. Not counted: the hook's automatic injection (picked by the person's
+   words, which `page_use` already credits), `cicada_backlog`, Sleep, Cicada's own spawns (`CICADA_CAPTURE=off` /
+   `CICADA_RECALL=off`), a demo bank, a replica. **(e) Telemetry coupling, decided:** `telemetry.enabled()` false makes the
+   counter a no-op (nothing written, table empty) and the order runs on `page_use` alone; no new setting (`CICADA_TELEMETRY`
+   is an environment variable, not a person-facing switch; a disagreement between processes can only undercount). (f) Per
+   memory, named by the bank id; never served by any route, tool, `/v1`, export, sync or replica; the remote door's own
+   order is computed without it; a missing, wiped or corrupt file is an empty table; deleting a bank deletes its file with
+   its `-wal` and `-shm`. (g) **Wire:** `orderIndex` on every `GET /inbox` item; the app sorts by it when every question
+   has it, else by priority then newest, decided for the whole list (a per-pair rule is not transitive). **Not built:**
+   the app's `surface: "inbox"` (a card opened from a question must not count: the next-day delay and one count a page a day
+   are the guard), the climb's `HomeQuestions` / `HomeSections` comments. *Why:* a question that changes dozens of facts
+   on a page nobody reads, and one that changes two on a page read daily, tied under "priority + 0.5 × use". **Trigger to
+   revisit (a, b):** the `impact` buckets show the person answers the low ones as readily as the high ones over a few
+   hundred answers, or the person reports the first question is wrong; **(d, e):** a request to count with recording off.
 
 69. **A rename at the source renames the thing in Cicada, for every source (owner, 2026-11-05; ROR-122).**
    The owner: "I think these two-way updates should be in all sources. So if a voice memo changes the name and stuff,

@@ -202,10 +202,20 @@ final class InboxAllListBenchTests: XCTestCase {
         XCTAssertEqual(vm.lines.map(\.id), lines.map(\.id))
     }
 
-    /// The G115 order with each day read once is the order `precedes` gives.
+    /// Without a served order, the G115 order with each day read once is the order `precedes` gives.
     func testTheOneSortKeepsTheG115Order() {
         let items = Self.items(500).shuffled()
+        XCTAssertFalse(InboxColumns.usesServedOrder(items))
         XCTAssertEqual(InboxColumns.ordered(items).map(\.id), items.sorted(by: InboxColumns.precedes).map(\.id))
+    }
+
+    /// Ruling 70 — with `orderIndex` on every question the one sort is the server's order, whatever the shuffle.
+    func testTheOneSortFollowsTheServedOrder() throws {
+        var items = Self.items(500)
+        for i in items.indices { items[i].orderIndex = (i * 7) % 500 }   // 7 is coprime with 500: a permutation
+        let sorted = InboxColumns.ordered(items.shuffled())
+        XCTAssertTrue(InboxColumns.usesServedOrder(items))
+        XCTAssertEqual(sorted.compactMap(\.orderIndex), Array(0..<500))
     }
 
     /// Review of #542 — a missing or malformed day is the newest, one fixed instant, never a fresh "now" per read: at one

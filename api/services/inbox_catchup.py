@@ -8,8 +8,8 @@ at consolidation should be detected".
 Three parts, one module:
 
 * **The read** (:func:`select`, served as ``cicada_check_nudges(mode="catchup")``): every question the person can
-  answer in conversation, most-used page first (``page_use.rank``: Sleep's priority moved by how much the person's
-  life uses the page), a handful at a time (:data:`LIMIT`), each in its human words with its reason
+  answer in conversation, the biggest expected change in what gets read first (``question_order``, ruling 70), a
+  handful at a time (:data:`LIMIT`), each in its human words with its reason
   (``inbox_wording``). Frontmatter only until the top few are picked, so a 400-question inbox costs one cached
   directory read, not 400 cause lookups.
 * **The cursor** (:class:`Cursor`): what one session's catch-up already served is not served again — "more" moves on,
@@ -43,7 +43,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import bank_index, inbox_wording, markdown_parser, page_use, same_name
+from api.services import bank_index, inbox_wording, markdown_parser, page_use, question_order, same_name
 
 LIMIT = 3
 CURSOR_HOURS = 12
@@ -376,13 +376,14 @@ def _visible(memory_path: Path, fm: dict, stem: str, today: str) -> bool:
     return True
 
 
-def select(memory_path: Path, *, today: str | None = None, exclude=frozenset(), limit: int = LIMIT
-           ) -> tuple[list[Entry], int]:
-    """``(the next entries to ask, how many remain after them)``: most-used page first, newest on a tie, a chain of
-    same-person questions as one entry. ``exclude`` is what this session already served or skipped."""
+def select(memory_path: Path, *, today: str | None = None, exclude=frozenset(), limit: int = LIMIT,
+           reads: bool = True) -> tuple[list[Entry], int]:
+    """``(the next entries to ask, how many remain after them)``: the biggest expected change in what gets read first
+    (``question_order``, never a wall of one type), newest on a tie, a chain of same-person questions as one entry (it takes its best member's
+    place). ``exclude`` is what this session already served or skipped; ``reads=False`` leaves the read counter out."""
     memory_path = Path(memory_path)
     today = today or date.today().isoformat()
-    table = page_use.scores(memory_path)
+    order = question_order.tables(memory_path, reads=reads, today=date.fromisoformat(today))
     rows: list[tuple[str, dict]] = []
     for f in bank_index.files(memory_path, "inbox"):
         if not f.stem.startswith("inbox-") or f.stem in exclude:
@@ -398,8 +399,8 @@ def select(memory_path: Path, *, today: str | None = None, exclude=frozenset(), 
     entries: list[Entry] = []
     for ids in groups(memory_path, rows):
         members = [by_id[i] for i in ids]
-        uses = [page_use.item_use(table, m) for m in members]
-        best = max(range(len(ids)), key=lambda k: page_use.rank(members[k].get("priority"), uses[k]))
+        marks = [order.score(m) for m in members]
+        best = max(range(len(ids)), key=lambda k: marks[k])
         pages = []
         for m in members:
             for pid in (str(m.get("merge_target_hint") or ""), str(m.get("entity_id") or "")):
@@ -414,19 +415,23 @@ def select(memory_path: Path, *, today: str | None = None, exclude=frozenset(), 
                 label = same_name.label(memory_path, pid, label)   # G227: a shared title, by its qualifier
             if label not in names:
                 names.append(label)
-        entries.append(Entry(ids=ids, rank=page_use.rank(members[best].get("priority"), max(uses)), use=max(uses),
+        entries.append(Entry(ids=ids, rank=marks[best], use=order.exposure(_pages(members)),
                              fm=members[best], created=max(str(m.get("created_date") or "") for m in members),
                              group_names=names))
         grouped.update(ids)
     for stem, fm in rows:
         if stem in grouped:
             continue
-        use = page_use.item_use(table, fm)
-        entries.append(Entry(ids=[stem], rank=page_use.rank(fm.get("priority"), use), use=use, fm=fm,
+        entries.append(Entry(ids=[stem], rank=order.score(fm), use=order.exposure(_pages([fm])), fm=fm,
                              created=str(fm.get("created_date") or "")))
     entries.sort(key=lambda e: (-e.rank, _neg(e.created), e.ids[0]))
+    entries = question_order.spaced(entries, lambda e: question_order.family(e.fm))
     picked = entries[: max(0, int(limit))]
     return picked, max(0, len(entries) - len(picked))
+
+
+def _pages(members: list[dict]) -> list[str]:
+    return [str(m.get(k) or "") for m in members for k in ("entity_id", "merge_target_hint")]
 
 
 def _neg(day: str) -> str:

@@ -5,8 +5,18 @@ import XCTest
 @MainActor
 final class InboxGroupsTests: XCTestCase {
     private func item(_ id: String, kind: String = "conflict", priority: Double = 0.5, created: String = "2026-09-01",
-                      page: String = "alpha-project", name: String = "Alpha Project") throws -> InboxItem {
-        try JSONDecoder().decode(InboxItem.self, from: Data(#"{"id":"\#(id)","kind":"\#(kind)","requiredInput":"choice","title":"\#(id)","priority":\#(priority),"createdDate":"\#(created)","entityId":"\#(page)","entityName":"\#(name)"}"#.utf8))
+                      page: String = "alpha-project", name: String = "Alpha Project", index: Int? = nil) throws -> InboxItem {
+        let order = index.map { #","orderIndex":\#($0)"# } ?? ""
+        return try JSONDecoder().decode(InboxItem.self, from: Data(#"{"id":"\#(id)","kind":"\#(kind)","requiredInput":"choice","title":"\#(id)","priority":\#(priority),"createdDate":"\#(created)","entityId":"\#(page)","entityName":"\#(name)"\#(order)}"#.utf8))
+    }
+
+    /// Ruling 70 — with the server's order on every question, sections and pages follow it, not priority: the decay
+    /// question the server put first leads its section even at the lowest priority.
+    func testGroupsFollowTheServedOrderWhenEveryQuestionHasIt() throws {
+        let items = [try item("c1", priority: 0.9, index: 2), try item("d1", kind: "decay", priority: 0.1, page: "gamma", name: "Gamma", index: 0),
+                     try item("c2", priority: 0.8, page: "beta", name: "Beta", index: 1)]
+        XCTAssertEqual(InboxGroups.sections(items, byKind: true).map(\.kind), [.decay, .conflict])
+        XCTAssertEqual(InboxGroups.ordered(items, byKind: false).map(\.id), ["d1", "c2", "c1"])
     }
 
     func testAllGroupsByKindInTheOrderOfEachKindsMostUrgentQuestion() throws {

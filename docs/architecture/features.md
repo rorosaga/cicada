@@ -189,14 +189,175 @@ multi-valued predicate. It is dated when it was said, carries its conversation, 
 answer. A value they picked against is not written. Between a
 drain's batches it commits alone.
 
-**The order is the person's use (vision item 10, 2026-10-28).** `load_inbox` sorts pending first, then
-`page_use.rank` — the item's priority plus 0.5 × its page's use (the busier side of a duplicate pair), derived from
-the record (conversations, how lately, links; `mcp.md`, "Catching up") — then newest. A question on a page the person
-lives with comes before an equally-prioritised one on a forgotten page; a much higher priority still wins. Two
-additive question shapes feed the catch-up chat: `asks: still` on a `conflict` ("Are you still working at <org>?",
+**The order is the expected change in what gets read (ruling 70, owner 2026-11-06; supersedes vision item 10's
+"priority + 0.5 × use", 2026-10-28).** Owner: "the questions should have in order the impact they might have on current
+accesses knowledge, and things that might have big impact." `question_order.Tables.score` orders all three places the
+list is met — `load_inbox` (so `GET /inbox` and Home), `inbox_catchup.select` and `cicada_check_nudges(mode="ask")`
+(`mcp.md`, "Catching up") — pending first, then the score, then newest, then id. It is derived on read from the record,
+never stored; the stored `priority` stays on disk and on the wire for older clients and **no longer moves the order**
+(before this, the app re-sorted `GET /inbox` by raw `priority` on the client, so the server's use-weighted order was never
+what the person saw; `InboxColumns` now follows the server's `orderIndex`, `app.md`).
+
+    score = p × stake ÷ effort × (FLOOR + exposure) × √seen × freshness     FLOOR .1 · SHOWN 30 · FADE_FLOOR .05
+
+* **`p`**, does an answer change anything against never asking (judgment): conflict .9 · "still?" .5 · informational
+  conflict .05 · duplicate pair
+  `suggested_confidence` clipped .1–1 (default .5) · clarification .6 · decay .3 (silence archives it anyway) · removal
+  .9 · page edit .8 · normalization .9 · divergence .6 · follow-up .5 · the grouped links review .8. A `sensitive` hold
+  is the constant 3.0, on the formula's own scale (≈ .01 to 6). Agent requests never reach `load_inbox` (the router
+  prepends them).
+* **`stake`** 1.5 when the answer decides who someone is (`asks: name`, or a duplicate pair of two people), .5 for the
+  grouped review, else 1. **`effort`** 1.5 for `required_input: freetext`.
+* **`exposure`** = 1 − (1 − `use`)(1 − `reads`) for the busier page of the question (a "still?" question's pages are
+  its `object_id` alone: the owner's page holds the claim and is pinned at use 1.0, and an older item with no `object_id`
+  earns the floor only). `use` is `page_use` (what was
+  *said*, derived; works with no counter). `reads` = r ÷ (r + 3) of the page's counted reads (`storage.md`, "Page-read
+  counter"; what was *read*). With no counter it is 0 and the order is `use` alone.
+* **`seen`** = min(30, `reach` × `visibility`), `visibility` = min(1, √(30 ÷ N)) for the N claims on the page the facts
+  live on; **the owner's own page does not dilute** (owner 2026-11-06, judging the real top 10: "facts about the person
+  matter most", and a recent one fell to 298th under their page's size, now 12th; real text redacted). `reach` is what the resolver changes: a conflict its contested claims (≥ 2) · a divergence 2 · a duplicate pair
+  the smaller side's claims + the held claims of a name with no page + 1 (a side with no page counts 0, never the other
+  side's) · decay its covered claims, else the page's · a removal the page's claims · a plain clarification **1** (an answer
+  appends one claim and prose); only `asks: name` and a held-mention release earn the page's or the held claims ·
+  normalization its folded claims · a page edit its changes (prose has its own read budget, visibility 1; a proposed join
+  counts its pages' claims) · a follow-up 1 · "still?" 1 with visibility 1 (the item stores the owner as `entity_id`, so a
+  new one also stores `object_id`, the topic's page) · the links review its rows at stake .5. Every kind's reach is ≥ 1.
+  The count is a raw count of claim lines in the page and its `.claims.jsonl`, memoised by file stamp: no parse, and no
+  body is read for a page no question names. A merge also rewrites references on other pages, which the count leaves out.
+* **`freshness`** (owner 2026-11-06: "the questions in regards to the amounts of <a-payment> are extremely
+  old and in this case shouldn't they be lower impact? The impact formulation should apply to the question queues in all
+  entities."). `freshness = relief + (1 − relief) × fade`, `fade = max(.05, ½^(age ÷ half-life))`. **Age counts from when
+  the thing was SAID** — for a conflict the freshest of its contested options: an option on a claim the page holds,
+  `source_refresh.said_on` of that claim (read from the page's and its ledger's claim lines, memoised by file stamp and
+  built only for a page that holds a conflict question); a claim only the option holds (the new side of a conflict is stored
+  nowhere else), the conversation the option names, its `observed_at` (the claim's `valid_from`) only when it names none and no other option has a date; an option with no claim,
+  the question's `source_episode`, never `observed_at`, which on these is the day the question was raised (measured: 120
+  of 153 on one bank). A memory export entry or a feed item is no mention (`episode_time.counts_as_activity`, one header per id): it counts only
+  when no contested option has a real date, and then as "no later than" its id's day, so what only an export said still
+  fades. Known limit: a later side merged into an open claim-less question has no date of its own, so the question reads
+  from its first `source_episode`;
+  for a divergence, a plain clarification and a follow-up, the `source_episode` id's
+  date. **Never** `last_referenced`, `created_date` or `updated_date`: a later re-reference or the day a
+  question was raised bumps them for something said a year ago (the shape that prompted this: a conflict on the owner's
+  evergreen page, both options said over a year ago, one option's `last_referenced` reading today, `created_date` today).
+  A fact said again recently (a newer `source_episodes` entry) or one side of a conflict being recent makes the conflict
+  fresh; no date means no fade; a future date is age 0. **Half-life** = ln 2 ÷ the page's weekly rate from
+  `decay_policy.resolve` (durable ≈ 243 days, active ≈ 97, volatile ≈ 32; no constant per class here); an evergreen page
+  never fades **except the owner's own**, whose class means "never archived", not "every fact stays true": it fades at the
+  `active` rate. A timeless fact on that page fades too, accepted by the owner until ROR-129 gives facts their own class.
+  **Relief** = the largest, over the question's pages, of `reads_fraction` × `visibility(N)`: an old fact on
+  a small page opened daily stays fresh, and opening a huge hub daily does not rescue every old fact on it; the owner's
+  page dilutes here too, or a daily look at it would exempt everything on it. **"Still?" fades** (owner 2026-11-06), from
+  its claim's last saying at the holding page's rate, relieved by its topic page's reads. **Does not fade:** who someone
+  is (a duplicate pair, `asks: name`, a held-name release; owner 2026-11-06), `decay` (age is what it asks about, and its
+  `p` already says so), and a removal, normalization, page edit, sources review or `sensitive` hold (not a fact someone
+  said). This replaces the earlier stale-escalation `p` (a `neither` option made a conflict .5): staleness
+  is counted once, here.
+* **One type at a time (owner 2026-11-06, judging the real top 10: 9 of 10 were "same as?").** The score stays;
+  `question_order.spaced` takes a list in score order and lets at most `RUN_LIMIT` = 1 question of one `family` run: "same
+  as?" (a duplicate pair or a proposed page merge), `asks` where it is set, else the kind. When a run reaches the limit the
+  best question of another family comes forward. The first place is always the top score, a family's own order never
+  changes, a family runs on when nothing else is left, and a question shown, never asked is neither brought forward nor
+  counted. `load_inbox`, `ranked` (the hook, recall's block, list mode), the catch-up and ask mode all pass through it; a
+  subset that `ranked` receives is spaced among itself, and a page's queue keeps the served order. **Why one, measured on
+  one real memory (659 open questions):** two left "same as?" at 7 of the top 10 and 33 of the top 50, still the wall, for
+  1 % of the top 10's score; one leaves 5 and 25 for 5 %, and every question in the top 10 still scores in the high bucket.
+  Three members of one same-person chain count as a run though the app draws them as one card, so a chain can be spaced
+  more than it needs.
+* **Failure is per item.** `score()` never raises: a question it cannot read keeps its stored priority, so one bad item
+  never costs `GET /inbox`. `GET /inbox`'s ETag folds the wire shape (`question_order.SHAPE`) and the counter's *day-cut*
+  digest, which moves at most with the day, so there is no rebuild per read.
+
+**Four formulations were run on a synthetic bank** (`test_question_order.py`): F0 the old order; F1 additive (priority +
+.5 use + .5 log-impact); F2 the product without `visibility` (and without `freshness`); F3 the above. Twelve argued pairs,
+each with its reason in the test (the last four are staleness). Measured:
+
+| pair (better first) | F0 | F1 | F2 | F3 |
+|---|---|---|---|---|
+| a conflict on a moderately used page > a held name that only inherits a huge page's use | ok | no | no | ok |
+| a same-person pair of two mid pages > one conflict on an 8,000-claim hub | no | no | ok | ok |
+| opened daily, rarely talked about > the same question unopened | no | no | ok | ok |
+| a big merge on an unopened page > a trivial question on a moderately busy page | no | ok | ok | ok |
+| recall-only < opened | no | no | ok | ok |
+| a 5-way conflict > a 2-way one | no | ok | ok | ok |
+| a choice > free text, otherwise equal | no | no | ok | ok |
+| an informational conflict last | no | no | ok | ok |
+| a conflict said over a year ago < a recent conflict of the same stake | no | no | no | ok |
+| a fact said again recently > the same fact said once, long ago | no | no | no | ok |
+| an old fact on a small page opened daily > the same fact on an unopened page | no | no | ok | ok |
+| an old fact on a small page opened daily > the same on a very large page opened daily | no | no | no | ok |
+
+F0 passes only the first, by a margin the use term alone gives; F1 sees neither reads, effort, `p`, dilution nor age; F2
+sees reads, effort and `p` but not that three claims among 8,000 are almost never in front of a reader, nor that a fact
+said a year ago asks less (it passes the third staleness pair only because reads are in its exposure) — which is why F3
+carries `visibility` and `freshness`. An empty, wiped or unreadable counter orders exactly like `reads=False` (relief 0).
+Measured on a synthetic bank at 8,000 pages (this Mac; fresh process for "cold", three runs each, wall clock): a cold
+`load_inbox` 1.6–1.7 s before and 1.6–1.7 s after (the first old run 2.6 s); a warm rebuild 495–527 ms before and
+478–555 ms after; a hit 30–34 ms and 29–35 ms.
+
+**Every constant is judgment.** The person's own answers on record number two across all banks, so there is nothing to
+fit; the pairs are the argument, not a fit. The `impact` bucket (high ≥ 1, mid ≥ .3, low) rides every resolution row of
+the telemetry ledger (taken at admission, before the resolver writes: a merge removes the page it scored, which the older
+`page_use` bucket, read after the write, still gets wrong) so a human reading `GET /consumption/feedback` can check them.
+Nothing learned from it is auto-applied.
+
+**Measured on one real memory (2026-11-06, 659 open questions, read counter empty, aggregates only).** The question that
+prompted the fade, a conflict on the owner's page said 13 months ago and re-raised that day, went from first in the old
+order (priority + .5 × use, a 14-way tie broken by newest) to 633rd, and from first to last of 8 on its page: its score is
+0.06 of a conflict on the same page with the same stake said the day before. The old top 10 held 10 conflicts with bare
+values that can't be understood as asked; the new one holds none, and 9 of its 10 are merges (40 of the top 50). Conflict
+freshness: 106 at ≥ .8, 50 at .3–.8, 18 below .3. **Stability with every constant moved ±50 %:** one at a time the top 10
+keeps 97 % on average, worst 70 % (the stake bonus halved); all together at random, 200 runs, 83 % on average, worst 60 %. After the owner's judgment the same day (one type at a time, the owner's page undiluted, "still?" fading): the served top 10 has 5 "same as?" of 10 and 25 of the top 50; 96 % and 80 % one at a time, 77 % and 50 % all together; the shape of the complaint is 0.06 of a recent same-stake conflict on the same page and 5th of that page's 8.
+So the exact places are soft and the broad shape firmer; in the earlier prototype this formula was the least stable of the
+four compared. Hook pick among 27 conflicts on that bank, warm: 1.3 ms.
+
+**How it can be wrong.** The `p` values are judgment on two answers. √ visibility assumes a read is aimed by words, not
+uniform. A conflict on the hub the person cares about most can rank under mid pages. Bigger is not more important: a long
+page of noise reaches further. The busier-side exposure undersells a tiny, often-read page that joins a big quiet one.
+Reads lag a day (today's count from tomorrow). **A timeless fact on the owner's page fades**, because nothing on a fact
+says it is timeless (a birthday, a place of birth said once a year ago is as old as a payment amount said then); relief is
+the only thing that keeps one fresh, and only through reads. **With the counter off or empty, relief is 0**, so an old
+fact on a page the person opens every day fades like any other. `exposure` still uses `page_use`, whose recency reads
+`last_referenced` at page level — deliberately: that measures the page's *use*, not the fact's *age*.
+
+**Limits, stated.** A project timeline's `200` counts as an open (bounded by the one count a page a day,
+`routers/projects.py`). A replica's order uses `page_use` alone and differs from the home's; a home move starts with an
+empty counter. A person who opens a page and then answers from its questions strip still counts as a read: no origin is
+carried (`EntityDetailCard` has none), so the loop guard is the next-day delay and one count a page a day. **Known and
+left:** the stale-question wording in `inbox_questions.py` still reads `last_referenced or observed_at` (another session
+owns question wording); `HomeQuestions.swift` and `HomeSections.swift` (the UI climb's) still describe "the server's
+`page_use` order" and must say `orderIndex`; the app's `surface: "inbox"` for a card opened from a question.
+
+**One order everywhere (owner 2026-11-06: "the same score orders every queue: the Inbox columns, Home's lead, catch-up,
+the agent's ask mode, and each page's own question queue … A page's queue must not fall back to raw priority").** Every
+place that sorts or picks questions: `load_inbox` (and with it `GET /inbox`, whose `orderIndex` the app sorts by),
+`inbox_catchup.select`, `cicada_check_nudges` in `ask` mode **and** `list` mode, recall's open-question block
+(`mcp_tools._relevant_inbox`, ordered only when more questions pass the gate than the `RECALL_INBOX_SHOWN` it shows, so
+the recall path builds no tables for the usual one or two), the recall hook's one pointer (`hook_recall._open_question`,
+which runs in the backend through `POST /capture/hook-context`; ordered only when it has more than one candidate),
+`web_settle.candidates` (a lookup's kind order first, since it says what a lookup can answer; the served order inside a
+kind — `web_lookup._order` is a stable sort over that and never read priority), `search_service`'s inbox hits (text match,
+then bm25; priority dropped from the tie-break) and the palette's tie-break in the app (`QuickIndex.inboxDocs`: `orderIndex`
+when every question has it, priority only for an older server). A page's "A question · 1 of N" strip, Home's lead and rows
+and `Store.visibleInbox` keep the snapshot's order (`HomeQuestions.onPage/leads/figures` filter and never sort), which the
+new `QuestionOrderEverywhereTests` proves with priorities that oppose the served order. The remote door's `list` and recall
+orders are computed without the counter (`reads=False`). `test_question_order_gate.py` scans `api/` and the app's sources
+for a sort or pick keyed on a question's raw priority and fails on a new one; its allowlist names the five fallbacks
+(each with its reason) and fails when one stops existing.
+
+**What the hook and recall paths cost** (synthetic 8,000-page bank, 25 conflicts on an 8,000-claim owner page, three runs
+each; old = the previous commit's priority sort): the hook's pick among 27 candidates 7.4–7.5 ms before and 8.7–9.1 ms
+after, warm; 8 ms before and 67–69 ms after when the order's tables are cold in a running backend (the pages already
+parsed: one `page_use` rebuild, at most once a minute); 15 ms before and 0.7–1.5 s after in a fresh process that has
+parsed nothing, which is why `question_order.warm` runs at launch (like the search index and the sensitive-hold warm-up).
+Recall's open-question block 177–187 ms before and 204–220 ms after, of which the ranking itself is 1.2 ms; the rest is
+allocator and collector pressure (with the collector off both are 143 ms), on a path whose cost is the 8,000-claim parse
+of the owner's page that was there before. Recall cold: 360 ms before, 1.04 s after in a fresh process.
+
+Two additive question shapes feed the catch-up chat: `asks: still` on a `conflict` ("Are you still working at <org>?",
 `still_questions`, `capture-and-sleep.md`) and `detected: spelling` on a `merge_suggestion` (a nickname and its long form,
-`inbox_catchup.propose_nicknames`); an older app draws them as a one-choice conflict and a duplicate pair. A
-"still?" question is never `informational`, whatever its predicate's cardinality.
+`inbox_catchup.propose_nicknames`); an older app draws them as a one-choice conflict and a duplicate pair. A "still?"
+question is never `informational`, whatever its predicate's cardinality.
 
 **Plain words on the wire, and the in-app catch-up (ruling 48 (1), (8), 2026-10-28).** `GET /inbox` serves each
 conflict, decay, clarification, duplicate and follow-up with `spokenQuestion` / `spokenReason` — `inbox_wording.spoken`

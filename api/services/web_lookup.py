@@ -474,7 +474,7 @@ def select(memory_path: Path, facts: web_settle.BankFacts, memo: dict[str, dict]
             c.category = web_settle.context_category(c, context)
             c.category_from = "context" if c.category else ""
         picked.append((c, context))
-    picked.sort(key=_order)   # stable: priority, then age, within each rank
+    picked.sort(key=_order)   # stable: the served order (`question_order`) within each rank
     return _capped(picked, cap), len(eligible)
 
 
@@ -509,10 +509,11 @@ def source_items(memory_path: Path, facts: web_settle.BankFacts, *, already: set
     from api.services import inbox_service, markdown_parser, predicates, settling_agent
 
     memory_path = Path(memory_path)
-    out: list[web_settle.Candidate] = []
-    visible = {i.id for i in inbox_service.load_inbox(memory_path)}
+    out: list[tuple[int, web_settle.Candidate]] = []
+    # The order the inbox serves (ruling 70): the drain's cap keeps the first few, so never file order.
+    served = {i.id: n for n, i in enumerate(inbox_service.load_inbox(memory_path))}
     for path in sorted((memory_path / "inbox").glob("inbox-*.md")):
-        if path.stem not in visible:
+        if path.stem not in served:
             continue
         try:
             fm = markdown_parser.parse(path).frontmatter
@@ -537,8 +538,9 @@ def source_items(memory_path: Path, facts: web_settle.BankFacts, *, already: set
             continue
         c = web_settle.candidate(memory_path, path, facts, via_source=True)
         if c is not None and len(c.options) >= 2:
-            out.append(c)
-    return out
+            out.append((served[path.stem], c))
+    out.sort(key=lambda t: t[0])
+    return [c for _n, c in out]
 
 
 async def _handle_answer(fn, memory_path: Path, c: web_settle.Candidate, facts, report: Report, fetch=None) -> Answer:
