@@ -34,6 +34,10 @@ SIZE = 256
 #: `<style>` rules NSImage ignores, written onto the elements they target (the light-scheme values only).
 _INLINE = {
     "openai.svg": [(r"<style>.*?</style>", ""), (r'(<svg[^>]*?)\sfill="none"', r'\1 fill="#000"')],
+    # lobe-icons' single-colour marks inherit the page's colour (`currentColor`); AppKit draws that as nothing
+    # useful, so the vendor-neutral light-scheme value (black) is written on, as for OpenAI above.
+    "zai.svg": [(r'fill="currentColor"', 'fill="#000"')],
+    "moonshot.svg": [(r'fill="currentColor"', 'fill="#000"')],
     "tailscale.svg": [
         (r"<style>.*?</style>", ""),
         (r'<g id ="squircle">', '<g id="squircle" fill="#1f1e1e">'),

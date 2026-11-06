@@ -1,6 +1,6 @@
 # Cicada logo set — 2026-10-22
 
-53 marks, one per provider umbrella (45 on 2026-10-22; Substack, Goodreads, Vivaldi and Dia added 2026-11-05, ROR-107; Perplexity and Comet the same day; Linear 2026-11-05, ROR-115), each from the highest source on this ladder that had a
+58 marks, one per provider umbrella (45 on 2026-10-22; DeepSeek, Qwen, Z.ai, Moonshot and MiniMax 2026-11-06, ROR-127, from lobe-icons because their sites serve no SVG; Substack, Goodreads, Vivaldi and Dia added 2026-11-05, ROR-107; Perplexity and Comet the same day; Linear 2026-11-05, ROR-115), each from the highest source on this ladder that had a
 faithful SVG or a PNG of at least 256 px: the brand's own site icon or app icon → its official
 GitHub assets → lobehub/lobe-icons (`@lobehub/icons-static-svg@1.97.0`) → svgl (pheralb/svgl @
 `f9b726c`) → simple-icons (16.35.0, mono). simple-icons was never needed in that set; Substack (2026-11-05) is its vector with the fill `#FF6719` added, the colour of Substack's own PNG, whose wide margin is too small in a tile. Two marks come from
@@ -75,7 +75,9 @@ their browser tab and dock, which is why the bundled one "looked so far from the
 - **Muse (2026-10-26).** The owner asked for Muse's own mark: `muse.svg` is the SVG favicon muse.ai
   serves (the same drawing as its App Store icon). muse.ai is Meta's: the App Store listing "Muse from Meta"
   names Meta Platforms, Inc. with seller URL muse.ai, and the site's footer reads "© Meta 2026". Meta's infinity
-  (svgl) left the set with it.
+  (svgl) left the set with it; on 2026-11-06 it came back as `meta-infinity.svg` (lobe-icons' `meta-color`, the same
+  drawing) for Llama and Meta models, because Muse's mark took the `meta` agent id, not because of a licence or a dark-variant
+  problem. A coloured mark: no `-dark`.
 - **GitHub Copilot (2026-10-26).** GitHub's brand site has published only lockups since 2025, so the
   bare Copilot glyph comes from GitHub's own Primer Octicons repo (`copilot-48.svg`, pinned commit).
   VS Code's icon left the set; Cline, Goose, Kiro and Poke left with their catalog rows.

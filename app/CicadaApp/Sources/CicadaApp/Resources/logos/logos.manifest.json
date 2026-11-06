@@ -132,6 +132,19 @@
       "umbrella": "DeepInfra"
     },
     {
+      "file": "deepseek.png",
+      "id": "deepseek",
+      "licence": "@lobehub/icons-static-svg 1.97.0 (MIT for the package; the mark stays its owner’s trademark)",
+      "origin": "set",
+      "restrictions": "Trademark of DeepSeek (Hangzhou DeepSeek Artificial Intelligence Co., Ltd.); nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/deepseek.svg",
+      "sha256": "4eb134bd19dbb987836e9ab91f79903475adf5ddf5fc38651511eca0520854f2",
+      "sourceTier": "lobe-icons",
+      "sourceUrl": "https://unpkg.com/@lobehub/icons-static-svg@1.97.0/icons/deepseek-color.svg",
+      "svgSha256": "deba5f98a5c1796e20fcac3149bcd7eb8a32f0bdd04d048819400b1f28bd1439",
+      "umbrella": "DeepSeek"
+    },
+    {
       "file": "devin.png",
       "id": "devin",
       "licence": "Vendor’s own published asset; no licence beyond nominative use",
@@ -368,6 +381,32 @@
       "umbrella": "LinkedIn"
     },
     {
+      "file": "meta-infinity.png",
+      "id": "meta-infinity",
+      "licence": "@lobehub/icons-static-svg 1.97.0 (MIT for the package; the mark stays its owner’s trademark)",
+      "origin": "set",
+      "restrictions": "Trademark of Meta Platforms, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/meta-infinity.svg",
+      "sha256": "e33ca6a984874fc0fb0b3fa01f726aebcb180ac4c954fc0e8eb3d47381510e04",
+      "sourceTier": "lobe-icons",
+      "sourceUrl": "https://unpkg.com/@lobehub/icons-static-svg@1.97.0/icons/meta-color.svg",
+      "svgSha256": "adf9f2c1a646ccd3a37ca8c2e7e5985d64630cd633f4b95fba393d1d44e0578c",
+      "umbrella": "Meta (Llama)"
+    },
+    {
+      "file": "minimax.png",
+      "id": "minimax",
+      "licence": "@lobehub/icons-static-svg 1.97.0 (MIT for the package; the mark stays its owner’s trademark)",
+      "origin": "set",
+      "restrictions": "Trademark of MiniMax; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/minimax.svg",
+      "sha256": "b1844e9990249416ea576f8c2a3ad9035f93b81caaab78773be0b09273e67d74",
+      "sourceTier": "lobe-icons",
+      "sourceUrl": "https://unpkg.com/@lobehub/icons-static-svg@1.97.0/icons/minimax-color.svg",
+      "svgSha256": "7f7187fa6d9b341ac5f22f6c5a970523afb439dc45566d64eb4f4b9b604d6b01",
+      "umbrella": "MiniMax"
+    },
+    {
       "file": "mistral.png",
       "id": "mistral",
       "licence": "Vendor’s own published asset; no licence beyond nominative use",
@@ -379,6 +418,33 @@
       "sourceUrl": "https://mistral.ai/favicon.svg",
       "svgSha256": "66ceaf186f2075da38e5a3c2e46fc0015936e0cb57692d1f8ae0ba565354874d",
       "umbrella": "Mistral"
+    },
+    {
+      "file": "moonshot.png",
+      "id": "moonshot",
+      "licence": "@lobehub/icons-static-svg 1.97.0 (MIT for the package; the mark stays its owner’s trademark)",
+      "origin": "set",
+      "restrictions": "Trademark of Moonshot AI; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/moonshot.svg",
+      "sha256": "b87b8db65db2e82317bdf28c5601c06f58596b1d2ec0df783f7386433e8b7aeb",
+      "sourceTier": "lobe-icons",
+      "sourceUrl": "https://unpkg.com/@lobehub/icons-static-svg@1.97.0/icons/moonshot.svg",
+      "svgSha256": "435f41b74e6a87639b6bf860e9628f20cbe7d6229bece412d548f4cea3081852",
+      "umbrella": "Moonshot AI (Kimi)"
+    },
+    {
+      "derivedFrom": "moonshot.png (this manifest) — monoflip moonshot.png moonshot-dark.png",
+      "file": "moonshot-dark.png",
+      "id": "moonshot-dark",
+      "licence": "@lobehub/icons-static-svg 1.97.0 (MIT for the package; the mark stays its owner’s trademark)",
+      "origin": "recut",
+      "restrictions": "Trademark of Moonshot AI; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/moonshot.svg",
+      "sha256": "ab568dbec23195da3c1538ea5c4620c3e781a18f749f5a22005b6c8b0d696d56",
+      "sourceTier": "lobe-icons",
+      "sourceUrl": "https://unpkg.com/@lobehub/icons-static-svg@1.97.0/icons/moonshot.svg",
+      "svgSha256": "435f41b74e6a87639b6bf860e9628f20cbe7d6229bece412d548f4cea3081852",
+      "umbrella": "Moonshot AI (Kimi)"
     },
     {
       "file": "muse.png",
@@ -520,6 +586,19 @@
       "sourceUrl": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/pinterest.svg",
       "svgSha256": "0127681e08c89a5ea15ffced075255430384ffd6738ea5d1f842fe28592a2467",
       "umbrella": "Pinterest"
+    },
+    {
+      "file": "qwen.png",
+      "id": "qwen",
+      "licence": "@lobehub/icons-static-svg 1.97.0 (MIT for the package; the mark stays its owner’s trademark)",
+      "origin": "set",
+      "restrictions": "Trademark of Alibaba Cloud (Qwen); nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/qwen.svg",
+      "sha256": "6a2dd392b9ab070cea93029d4acfb0887173167051be0abd3502271db86be348",
+      "sourceTier": "lobe-icons",
+      "sourceUrl": "https://unpkg.com/@lobehub/icons-static-svg@1.97.0/icons/qwen-color.svg",
+      "svgSha256": "a158a0e3ed5b541e4f91384ece02c3acf0a0d81b7b11a46d77bafb248b09e32c",
+      "umbrella": "Qwen"
     },
     {
       "file": "raindrop.png",
@@ -754,6 +833,33 @@
       "sourceUrl": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/youtube.svg",
       "svgSha256": "419a6bc647bab83c249709bed0ae67c8f44ce42d8dda1be202ab5a3cdb187372",
       "umbrella": "YouTube"
+    },
+    {
+      "file": "zai.png",
+      "id": "zai",
+      "licence": "@lobehub/icons-static-svg 1.97.0 (MIT for the package; the mark stays its owner’s trademark)",
+      "origin": "set",
+      "restrictions": "Trademark of Z.ai (Zhipu AI); nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/zai.svg",
+      "sha256": "1ad9cbccb895234ea41f6c2571840f34a68cb2ff5604b39400921fdbf4b0e188",
+      "sourceTier": "lobe-icons",
+      "sourceUrl": "https://unpkg.com/@lobehub/icons-static-svg@1.97.0/icons/zai.svg",
+      "svgSha256": "e748cb5108ce37b116d7a5ba97d37e0ae97eadf6849b0de11afb248e244a01e1",
+      "umbrella": "Z.ai (GLM)"
+    },
+    {
+      "derivedFrom": "zai.png (this manifest) — monoflip zai.png zai-dark.png",
+      "file": "zai-dark.png",
+      "id": "zai-dark",
+      "licence": "@lobehub/icons-static-svg 1.97.0 (MIT for the package; the mark stays its owner’s trademark)",
+      "origin": "recut",
+      "restrictions": "Trademark of Z.ai (Zhipu AI); nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/zai.svg",
+      "sha256": "c924cfc4a21b38a3b2f0c6203502c265b10443cc475536fdccb70ca2351fe2af",
+      "sourceTier": "lobe-icons",
+      "sourceUrl": "https://unpkg.com/@lobehub/icons-static-svg@1.97.0/icons/zai.svg",
+      "svgSha256": "e748cb5108ce37b116d7a5ba97d37e0ae97eadf6849b0de11afb248e244a01e1",
+      "umbrella": "Z.ai (GLM)"
     },
     {
       "file": "zed.png",

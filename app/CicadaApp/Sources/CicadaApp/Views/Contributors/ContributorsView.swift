@@ -373,15 +373,16 @@ struct ContributorAvatar: View {
     ///
     /// The `exists` half is not belt-and-braces: it is the R6 rung check every
     /// other mark surface runs (`PlatformTile`, `ConnectedChannelRow`), and
-    /// this was the one call site without it. `ContributorIdentity.logoName`
-    /// is a static provider→file map, so it says "anthropic wears claude.png"
+    /// this was the one call site without it. `ContributorIdentity.modelMark`
+    /// is a static maker→file map, so it says "anthropic wears claude.png"
     /// whether or not that file resolves; without the check the else-branch
     /// its own docstring promises ("never a blank") was skipped and
     /// `LogoImage`'s missing-asset placeholder — SF Symbol `app`, an empty
     /// rounded square — went on screen instead of the author's initials.
     @ViewBuilder
     private var providerBadge: some View {
-        if let logo = ContributorIdentity.logoName(provider: provider),
+        // ROR-127: the model's maker, read from its id — not the provider that served it.
+        if let logo = ContributorIdentity.modelMark(author: author),
            LogoImage.exists(name: logo) {
             LogoImage(name: logo, size: size)
         } else {
