@@ -60,7 +60,7 @@ struct SettingsPanel: View {
             let size = SettingsPanelLayout.size(container: geo.size)
             ZStack {
                 // Round 6 (ROR-118): the app stays behind the panel (an in-app panel, not a solid field), dimmed far
-                // past legibility: 0.96 black over the scrim leaves page text unreadable in both modes.
+                // past legibility: 0.9 black over the scrim leaves page text unreadable in both modes.
                 ZStack {
                     CicadaTheme.scrimPanel
                     Color.black.opacity(SettingsPanelLayout.backdropDim)
@@ -236,7 +236,7 @@ struct SettingsPanel: View {
 enum SettingsPanelLayout {
     static let width: CGFloat = 1080
     /// Black over the scrim behind the panel: dark enough that no page text reads through (round 6).
-    static let backdropDim: Double = 0.96
+    static let backdropDim: Double = 0.9
     static let height: CGFloat = 780
     static let sidebarWidth: CGFloat = 220
     static let minimumInset: CGFloat = 36

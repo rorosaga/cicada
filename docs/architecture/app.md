@@ -317,7 +317,7 @@ on the rail's surface (owner 2026-10-07): `CicadaTheme.titlebarBackground(for:)`
 (`shellContentPanel()`, `ShellContentPanel`) whose top-leading corner alone is rounded at
 `CicadaTheme.contentCornerRadius` (`radiusLarge`, fixed) and clips what scrolls up into the band.
 `RailCornerSnapshotTests` writes it offscreen on request. **Settings is a panel inside this window (DR-33)**: ⌘,
-(`ShellCommands`, which opens the window first if none is) and the gear open it over the app, dimmed past legibility (`SettingsPanelLayout.backdropDim`, 0.96 black over the panel scrim, ROR-118 round 6: no page text reads through; no solid field; the titlebar's items hide) — 1080 × 780 at 1×,
+(`ShellCommands`, which opens the window first if none is) and the gear open it over the app, dimmed past legibility (`SettingsPanelLayout.backdropDim`, 0.9 black over the panel scrim, ROR-118 round 6: the app can be felt behind, no page text reads through; no solid field; the titlebar's items hide) — 1080 × 780 at 1×,
 inset ≥ 36 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
 Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Search & memory · Sleep;
 Customize: Integrations · Reading the web · Agents · Devices & access · Skills; Engines & keys: Engines — and each
