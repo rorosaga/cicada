@@ -408,7 +408,17 @@ final class AppleBooksReader {
     func syncNow() async { guard enabled else { return }; await sync(resend: false) }
 
     /// A bank switch: the new memory has not seen these books.
-    func bankChanged() async { await syncNow() }
+    func bankChanged() async {
+        generation += 1   // an in-flight read of the old memory stops posting
+        pending = []
+        await idle()
+        await syncNow()
+    }
+
+    /// A read in flight finishes (or sees the changed generation and stops) before the next act starts.
+    private func idle() async {
+        while inFlight { try? await Task.sleep(for: .milliseconds(50)) }
+    }
 
     private func arm() {
         guard periodic == nil else { return }
@@ -480,6 +490,7 @@ final class AppleBooksReader {
 
     /// The person's choice: the picked books are posted, the rest are declined and not asked about again.
     func addChosen(_ ids: Set<String>) async {
+        await idle()
         guard enabled, !inFlight else { return }
         inFlight = true
         defer { inFlight = false }
