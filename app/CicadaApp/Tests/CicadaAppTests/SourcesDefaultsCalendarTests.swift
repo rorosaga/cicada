@@ -27,6 +27,16 @@ final class SourcesDefaultsCalendarTests: XCTestCase {
         XCTAssertEqual(SavedListsStepModel.primaryTitle([.x]), Copy.savedListsKeep)
     }
 
+    /// Prod tester pass: ticks nothing answered are an offer, so Skip clears them and says "Not now"; once agent reading
+    /// is allowed (a rerun) they describe lists that are on and stay.
+    func testSkipLeavesNothingTickedThatIsNotOn() {
+        XCTAssertEqual(SavedListsStepModel.ticksAfterSkip(Set(SavedListItem.allCases), consented: false), [])
+        XCTAssertEqual(SavedListsStepModel.ticksAfterSkip([.x], consented: true), [.x])
+        XCTAssertEqual(SavedListsStepModel.skipTitle(onSavedLists: true, consented: false), Copy.savedListsNotNow)
+        XCTAssertEqual(SavedListsStepModel.skipTitle(onSavedLists: true, consented: true), Copy.onboardingSkip)
+        XCTAssertEqual(SavedListsStepModel.skipTitle(onSavedLists: false, consented: false), Copy.onboardingSkip)
+    }
+
     /// Review of #474 (blocker): Skip on *Saved lists* ran the consent button's PUT — everything pre-ticked, so agent
     /// reading, its acknowledgement and all five lists turned on. Skip moves on and sends nothing.
     func testSkipSendsNoWrite() throws {
@@ -35,7 +45,7 @@ final class SourcesDefaultsCalendarTests: XCTestCase {
         let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first {
             $0.path.hasSuffix("Views/Onboarding/OnboardingView.swift") })
         let view = try String(contentsOf: file, encoding: .utf8)
-        XCTAssertTrue(view.contains("OnboardingLink(title: Copy.onboardingSkip) { skip() }"),
+        XCTAssertTrue(view.contains("consented: readingConsented)) { skip() }"),
                       "the foot's Skip goes through skip(), never advance()")
         let start = try XCTUnwrap(view.range(of: "private func skip() {"))
         let body = String(view[start.upperBound...].prefix(400))

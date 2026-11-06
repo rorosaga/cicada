@@ -427,3 +427,9 @@ def test_import_gemini_backdates(tmp_path, monkeypatch):
     parsed = markdown_parser.parse(ep_dir / "ep_2026-02-24_001.md")
     assert parsed.frontmatter["origin"] == "gemini-export"
     config.get_settings.cache_clear()
+
+
+def test_a_live_index_journal_is_derived_and_never_copied():
+    """It comes and goes while an index commits: a copy that listed one and then lost it answered 500."""
+    for db in ("search_index.db", "vector_index.db"):
+        assert {db, f"{db}-wal", f"{db}-shm", f"{db}-journal"} <= set(bank_registry.DERIVED_ARTIFACTS)

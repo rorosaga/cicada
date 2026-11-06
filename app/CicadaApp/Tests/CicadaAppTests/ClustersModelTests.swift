@@ -22,6 +22,26 @@ final class ClustersModelTests: XCTestCase {
         XCTAssertNotNil(ClustersModel.line(person), "only media pages are judged")
     }
 
+    /// ROR-138 — a media tile says what follows "Saved <kind> —", never the lead its slot and chip already say; its slot
+    /// draws a source's mark only for a known origin.
+    func testAMediaTileDropsTheSavedLeadAndDrawsOnlyAKnownOriginsMark() {
+        let paper = e("m1", "Diffusion Policy", .media, summary: "## Summary\nSaved paper — arXiv 2303.04137.")
+        XCTAssertEqual(ClustersModel.tileLine(paper), "arXiv 2303.04137.")
+        let again = e("m2", "Gripper grasp demo", .media, summary: "## Summary\nSaved video — Gripper grasp demo.")
+        XCTAssertNil(ClustersModel.tileLine(again))
+        let plain = e("m3", "Lab Cluster Onboarding Guide", .media, summary: "## Summary\nA PDF that walks through connecting.")
+        XCTAssertEqual(ClustersModel.tileLine(plain), "A PDF that walks through connecting.")
+        var saved = plain
+        XCTAssertNil(MediaLeadingSlot.markOrigin(saved), "no origin, no mark")
+        saved.origin = "chrome-bookmark"
+        XCTAssertEqual(MediaLeadingSlot.markOrigin(saved), "chrome-bookmark")
+        saved.origin = "unknown"
+        XCTAssertNil(MediaLeadingSlot.markOrigin(saved), "an unknown origin draws nothing, never a stand-in")
+        var person = e("p1", "Leo", .person)
+        person.origin = "chrome-bookmark"
+        XCTAssertNil(MediaLeadingSlot.markOrigin(person), "only media pages")
+    }
+
     /// Owner 2026-10-20 — "we can filter looks inside the entities page": only the pages that show a look.
     func testTheViewMenuNarrowsToThePagesWithLooks() {
         let types = Set(EntityType.selectableCases)

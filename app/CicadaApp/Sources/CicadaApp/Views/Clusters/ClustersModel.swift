@@ -142,6 +142,15 @@ enum ClustersModel {
         return norm(String(line[dash.upperBound...])) == norm(e.name)
     }
 
+    /// A tile's line. A media page's generated "Saved <kind> — …" lead says what its slot and its kind chip already say
+    /// (the origin's mark, the chip), so only what follows the dash is shown, and nothing if that is the title again.
+    static func tileLine(_ e: Entity) -> String? {
+        guard let text = line(e) else { return nil }
+        guard e.type == .media, text.hasPrefix("Saved "), let dash = text.range(of: " — ") else { return text }
+        let rest = String(text[dash.upperBound...]).trimmingCharacters(in: .whitespaces)
+        return rest.isEmpty ? nil : rest
+    }
+
     /// A row beside a card: the type only where types mix (find's matches), then the line.
     static func detail(_ e: Entity, showsType: Bool) -> String? {
         let parts = [showsType ? e.type.label : nil, line(e)].compactMap { $0 }

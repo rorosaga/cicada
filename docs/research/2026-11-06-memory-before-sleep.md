@@ -68,3 +68,61 @@ With overlapping pairs for unspaced scripts and the meaning leg on for any other
 | Tokens per right answer, after | | 11,085 | 11,537 | 12,402 | 8,051 |
 
 The same questions in German, Arabic, Japanese and Chinese over someone else's English memory: 0 of 160 right. One conversation, translations by a model and unchecked by a person, Korean, Hindi and others not run at this level, and nothing slept.
+
+## How much Sleep adds, and what's missing before it
+
+LoCoMo, 5 conversations, 200 questions, haiku on answers and judge. The unslept run is on dev at `4a6079491` (after #705, #715); the slept one is from before #705, so the slept Ask may be a little low.
+
+| Door | Nothing slept | Slept |
+|---|---|---|
+| Ask | 61.5 (7,696 per right answer) | 81.5 (11,795) |
+| Recall | 53.5 (7,901) | 64.0 (8,459) |
+| Full-context control | | 83.5 (39,455) |
+| Closed-book | | 3.5 (27,579) |
+| Hook | | 2.0 (147,292) |
+
+Before #705 and #715, unslept Ask was 55.5 and recall 52.8.
+
+| Ask by category | Nothing slept | Slept |
+|---|---|---|
+| Multi-hop (76) | 44.7 | 77.6 |
+| Open-domain (22) | 45.5 | 68.2 |
+| Temporal (99) | 79.8 | 86.9 |
+
+Slept Ask against full-context: multi-hop 59 v 68 of 76 (10 right only with full context, 1 only with Ask, p = .012), open-domain 15 v 8 (p = .039), overall p = .57. Its multi-hop misses are mostly partial lists and "both did X".
+
+**Unslept multi-hop is a reach problem.** Right when every answer turn reached the prompt: 16 of 17. When only some did: 14 of 37. When none did: 4 of 22. The unslept prompt has room: p50 about 4,900 characters against about 18,800 slept, 54 of 200 under 2,000, and 7 empty, so the model isn't called. Temporal questions, which name their subject, reach far more often (82 of 99 had every turn).
+
+## An agent running a loop
+
+20 LongMemEval_S questions, nothing slept, haiku, real `claude -p`, one run, before #705, #715 and #730. Tokens counted with cached reads, then without:
+
+| Agent holds | Right of 20 | Per question | Per right answer | Turns |
+|---|---|---|---|---|
+| Cicada's tools | 13 | 23,586 / 9,187 | 36,286 / 14,133 | 4.5 |
+| The bank as files (Read, Grep, Glob) | 15 | 29,079 / 8,753 | 38,772 / 11,670 | 4.9 |
+| No memory | 3 (2 abstention) | 1,119 / 1,046 | 7,457 / 6,970 | |
+
+20 questions can't separate tools from files, and plain files aren't worse. This isn't comparable with Supermemory's task set.
+
+## The tool list
+
+Before #730 the list was 103,111 characters; #730 cut prose to 73,956 with the same structure. #734 then holds seven recording tools back until a reply names them, for clients that re-read the list: 73,094 to 51,305.
+
+| Client | Re-reads a changed list? | Basis | Tokens saved on each call |
+|---|---|---|---|
+| Claude Code 2.1.319 | Yes | Tested | 125 of 25,526, measured. It defers MCP schemas |
+| VS Code, Gemini CLI | Yes | Source | About 5,450, estimated at 4 characters a token, not measured |
+| Cursor, OpenCode | Handlers seen, refresh untested | Bundle, source | 0: they keep the whole list |
+| Codex 0.165, Claude desktop | No | Source, bundle | 0: they keep the whole list |
+
+## Tried and dropped
+
+- **Clue searches in Ask** (a model call to widen the search): on current dev, 30 LongMemEval_S questions, no model grading: turns 71 to 79 of 87, questions 28 to 29, prompt 11k to 23k, plus a model call each. #705 had taken the gain.
+- **The hook by vectors:** everyday asks on a real clone score a top passage of p50 .744, p90 .756; real questions p50 about .73. No floor separates them, so it would speak on everything. Reach of 38 on one conversation, Ask / recall / hook: English 25/18/5, German 25/13/0, Arabic 18/13/2, Japanese 25/17/0. **The hook stays word-based and weak outside English.**
+- **Lifting Ask's conversation order by recency:** 71 to 66 at weight .3, 71 to 71 at .1 with temporal 19 to 17. Ask keeps its reserved newest slot; recall and search take the lift (#722, #728).
+
+## Noise, and what a stronger model doesn't fix
+
+- **Judge:** haiku 77 v sonnet 75 on the same 100 Ask answers, 6 flips, no bias. A difference of a few questions is noise.
+- **Multi-session:** of 12 misses, 6 had every answer turn on the prompt. The same 20 prompts answered by sonnet: 5 right v haiku's 8, haiku judging. Mostly over- and under-counting events. A stronger model doesn't fix it on this sample.

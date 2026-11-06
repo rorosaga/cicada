@@ -67,12 +67,12 @@ def question_line(name: str, item_id: str, entity_id: str, question: str) -> str
 READING_HEADER = INJECTION_PREFIX + " by Cicada's hook, not typed by them) — a reading request:"
 
 
-def reading_line(waiting: int, *, record: bool = True) -> str:
+def reading_line(waiting: int, *, record: bool = False) -> str:
     """One sentence, per request and never stored: how many links are waiting in
     Cicada's reading queue for an agent to read — ones the person asked about, and
     pages from sites they allowed. A statement, not a command (see the module's
-    note on hook wording). ``record`` false leaves out ``cicada_record_read`` for a
-    remote connection that does not hold it (R12)."""
+    note on hook wording). ``record`` names ``cicada_record_read`` for a remote connection
+    that holds it; elsewhere the queue's reply names it (R12, ``tool_offer``)."""
     noun = "link" if waiting == 1 else "links"
     tail = (" and `cicada_record_read(url, outcome, summary)` records what was read" if record else "")
     return (f"{waiting} {noun} {'is' if waiting == 1 else 'are'} waiting in Cicada's reading queue for an agent "
@@ -87,7 +87,7 @@ def refresh_line(due: int) -> str:
     noun = "tracked source is" if due == 1 else "tracked sources are"
     return (f"{due} {noun} due for a check (pages the person's memory follows for facts that change, which need "
             "their own browser session). If they ask, or once their own request is done, `cicada_refresh_claim` "
-            "takes one and `cicada_record_refresh` records what it says now.")
+            "takes one and its reply names what records what it says now.")
 
 
 #: G110: what the SessionStart note says when even the primer cannot fit — a
