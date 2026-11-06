@@ -12,8 +12,8 @@ enum SourceShelfLayout {
     /// page the same six stack in `SourceShelf.allCases` order.
     static func column(_ shelf: SourceShelf) -> Int {
         switch shelf {
-        case .conversations, .events, .media: 0
-        case .documents, .work, .saved: 1
+        case .conversations, .events, .work: 0
+        case .documents, .saved, .media: 1
         }
     }
 
