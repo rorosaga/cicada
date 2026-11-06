@@ -176,6 +176,10 @@ struct SourceAddTile: View {
                     if row.entry.id == "calendar-local" {
                         Text(Copy.Shelf.calendarNote).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
                             .lineLimit(1)
+                    } else if row.browser?.state == .notReadYet {
+                        // Turned on, nothing read yet: not connected, and the tile says where it stands.
+                        Text(Copy.Browser.notReadYet).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                            .lineLimit(1)
                     }
                 }
                 Spacer(minLength: 0)
