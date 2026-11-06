@@ -109,6 +109,11 @@ of 8 to 1 of 8. Measured with no model, nothing slept: LongMemEval_S questions w
 answer turns 67 → 116 of 188. The cost is size, against the lean read of 2026-10-27: LongMemEval_S p50 1,054 → 2,785
 characters, p50 21 → 54 ms.
 
+**Recall stays lean (ROR-133, 2026-11-06).** The 4 turns take the person's first and an agent's only in what is left, by a turn's role and
+so in any language; a passage repeating a quoted turn is dropped; a turn says "the person" or "an agent". LongMemEval_S 100, nothing slept,
+an agent holding only recall's words, haiku, one run each: right 47 → 56 (10 gained, 2 lost, p = .04), tokens per right answer 9,220 → 7,421,
+characters p50 2,777 → 2,211.
+
 **Before Sleep (G207, 2026-10-22).** Recall's "Related conversation excerpts" (under the `sources` scope, R-R22)
 rank-fuse two legs, keeping 3: the vector leg (`_leann_search_episodes`), which step 0 fills right after capture
 (`capture-and-sleep.md`, "After capture"), and a word leg over the FTS passages (`_lexical_search_episodes`:
