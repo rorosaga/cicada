@@ -958,6 +958,23 @@ Ollama wears a *Local* tag and no card says "slower". Under the cards, `LeavesMa
 where reads leave the Mac and to whom, only for engines that send data out (never Ollama, nor Auto resolving to it).
 A preview line or the Sleep page's button that runs on an `openrouter/` model names and marks OpenRouter.
 
+**Sources, round 1 (ROR-118, 2026-11-06; DESIGN_RULES §9).** The root (nothing open) is `SourceShelvesView`, six shelves by kind
+(`SourceShelf`, pure: Conversations, Documents, Events, Work, Saved, Media; every `SourceCatalogEntry` has one, `entry.shelf`),
+replacing ROR-7's Needs you / Connected / Suggested / category tiles; `SourceGridSection` is now `.needsYou` or `.shelf`, and
+the list beside an open source and the arrow keys walk the same order (connected first within a kind). What waits on the person
+leads as amber lines (`SourceNeedsYou`). A connected source is a card (`SourceShelfCard`) that reads its own items through
+`ChannelItemsCache` and draws them for the kind (`SourceShelfItems`: titles; `SourceWeekStrip` for events; marks and titles for
+saved; `SourceCoverStrip` for media), or one count line when it has no titles; an empty shelf is one dashed `SourceAddLine`.
+Search still draws tiles (`SourceGridView`, results only). **Add source** (the page's one header button) opens
+`SourceAddOverlay`: *Yours* (`SourceShelves.yours`), search, kind tabs, then `SourceShelves.addGroups`; a tap closes it and opens
+that source's page. The window's drop and ⇧⌘I still open the one intake. The import sheet's rows (`ExportAskRow`) carry one
+labelled button and a bell menu; steps sit on the name's hover unless one vendor is in focus. **The website-reading card**
+(`WebReadingCard`, `WebReadingScene`, shown above the switch for the six saved lists, YouTube and Substack): Cicada, the person's
+first locally connected assistant app (`AgentLiveProbe`, by its icon), their default browser (by its icon) and the site; plays
+once per Mac (`cicada.webReading.seen`), Replay on a click, finished under Reduce Motion, no app yet says so and opens Agents.
+Its four lines were checked against `mcp.md` (G206's 10 reads a day, never posts, never a browser spawned, indexed and never read
+by a model, ruling 62).
+
 **the Sources page (G126).** A categorized, logo-first page over the existing
 `GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a
 *standing* connection (sign in once, polled on the Sleep tail, disconnect here) lives in
