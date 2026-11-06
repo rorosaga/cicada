@@ -3330,7 +3330,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 except MalformedClaimsBlockError as exc:
                     raise HTTPException(
                         409, f"'{mention_path.stem}' has an unreadable claims block; repair it before merging ({exc})")
-                path.unlink()
+                path.unlink(missing_ok=True)  # the merge closed it too (`merge_closes`)
                 return target_path.stem, False, [*_merge_manifest(merged["paths"],
                                                                   removed=f"entities/{mention_path.stem}.md"),
                                                  *store_lines]
@@ -3394,7 +3394,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 merge_lines += _release_answered(settings.memory_path, mention, survivor_path.stem, settings,
                                                  subject_page=subject_page)
 
-            path.unlink()
+            path.unlink(missing_ok=True)
             entity_id = survivor_slug
             return entity_id, False, merge_lines
 
