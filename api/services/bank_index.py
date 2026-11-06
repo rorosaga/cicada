@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextvars
 import hashlib
+import contextlib
 import itertools
 import os
 import threading
@@ -25,6 +26,16 @@ parse_count = 0
 _lock = threading.Lock()
 # (bank path, subdir) -> {filename: IndexedFile}
 _cache: dict[tuple[str, str], dict[str, "IndexedFile"]] = {}
+
+
+#: A folder with more files than this to parse takes its per-folder guard first (see `_files`).
+_PARSE_GUARD_MIN = 32
+_PARSE_GUARDS: dict[tuple[str, str], threading.Lock] = {}
+
+
+def _parse_guard(key: tuple[str, str]) -> threading.Lock:
+    with _lock:
+        return _PARSE_GUARDS.setdefault(key, threading.Lock())
 
 
 @dataclass
@@ -217,38 +228,49 @@ def _files(memory_path: Path, subdir: str) -> tuple[list[IndexedFile], int]:
         # stored, or another caller changed the cache meanwhile (the generation moved under us).
         exact, mine = True, _GEN[key]
 
-    for name, mtime_ns, size in to_parse:
-        path = directory / name
-        try:
-            fm, has_turns = markdown_parser.header(path)
-        except Exception as exc:  # malformed file: skip, never crash a caller
-            logger.warning(f"bank_index: skipping malformed {path}: {exc}")
+    # Speed 2026-11-06: a cold folder is parsed by one caller at a time. The launch warm-ups (search, the sensitive
+    # hold, the question order) and the app's first requests all list the same folders at once, and each parsed every
+    # file itself: 22 s to the first `/status` and 45 s to `/graph` on a 9,000-page memory, ~10 s of work alone.
+    # The ones that wait find the cache filled and parse nothing.
+    guard = _parse_guard(key) if len(to_parse) > _PARSE_GUARD_MIN else contextlib.nullcontext()
+    with guard:
+        if len(to_parse) > _PARSE_GUARD_MIN:
             with _lock:
-                exact = False
-                stale = _cache.get(key)
-                if stale is not None and stale.pop(name, None) is not None:
-                    _bump(key)
-            continue
-        with _lock:
-            store = _cache.setdefault(key, {})
-            # The file may have changed again since we scanned/parsed it — in
-            # that case leave the cache alone (stale or absent) and let the
-            # next call pick up the newer copy rather than storing data that
-            # no longer matches what's on disk.
+                known = _cache.get(key, {})
+                to_parse = [t for t in to_parse
+                            if not ((h := known.get(t[0])) is not None and h.mtime_ns == t[1] and h.size == t[2])]
+        for name, mtime_ns, size in to_parse:
+            path = directory / name
             try:
-                st = os.stat(path)
-                stamp_now = (st.st_mtime_ns, st.st_size)
-            except FileNotFoundError:
-                stamp_now = None
-            if stamp_now == (mtime_ns, size):
-                parse_count += 1
-                store[name] = IndexedFile(path=path, mtime_ns=mtime_ns, size=size, frontmatter=fm,
-                                          has_turns=has_turns)
-                exact = exact and _GEN[key] == mine
-                _bump(key)
-                mine = _GEN[key]
-            else:
-                exact = False
+                fm, has_turns = markdown_parser.header(path)
+            except Exception as exc:  # malformed file: skip, never crash a caller
+                logger.warning(f"bank_index: skipping malformed {path}: {exc}")
+                with _lock:
+                    exact = False
+                    stale = _cache.get(key)
+                    if stale is not None and stale.pop(name, None) is not None:
+                        _bump(key)
+                continue
+            with _lock:
+                store = _cache.setdefault(key, {})
+                # The file may have changed again since we scanned/parsed it — in
+                # that case leave the cache alone (stale or absent) and let the
+                # next call pick up the newer copy rather than storing data that
+                # no longer matches what's on disk.
+                try:
+                    st = os.stat(path)
+                    stamp_now = (st.st_mtime_ns, st.st_size)
+                except FileNotFoundError:
+                    stamp_now = None
+                if stamp_now == (mtime_ns, size):
+                    parse_count += 1
+                    store[name] = IndexedFile(path=path, mtime_ns=mtime_ns, size=size, frontmatter=fm,
+                                              has_turns=has_turns)
+                    exact = exact and _GEN[key] == mine
+                    _bump(key)
+                    mine = _GEN[key]
+                else:
+                    exact = False
 
     with _lock:
         gen = _GEN[key]
