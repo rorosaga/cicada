@@ -55,11 +55,26 @@ INTEREST = tuple(sorted(inbox_wording.INTEREST_PREDICATES))
 ROLE_QUIET_DAYS = 180
 INTEREST_QUIET_DAYS = 60
 INTEREST_MAX_DAYS = 365
-ANSWER_QUIET_DAYS = {"role": 180, "interest": 120}
+#: ROR-129 (owner 2026-11-06): a fact the extraction model judged long-term (``decay_class: durable``), on the
+#: person's own page, that nothing has said for a year. It asks about the FACT, never the page-level "No recent
+#: mentions" with an Archive answer, which on the person's own page would archive it.
+LONG_TERM_QUIET_DAYS = 365
+ANSWER_QUIET_DAYS = {"role": 180, "interest": 120, "long_term": 365}
 MAX_OPEN = 4
-PRIORITY = {"role": 0.7, "interest": 0.45}
+PRIORITY = {"role": 0.7, "interest": 0.45, "long_term": 0.4}
 NOT_ANYMORE = {"key": "neither", "label": "Not anymore",
                "description": "Close it — say what's true now if you like", "claim_id": None}
+
+
+def family_of(claim) -> str | None:
+    """The question family of one claim: its predicate's (a role, an interest), else a long-term fact by its OWN class
+    — the model's judgement in any language, no word list (ROR-129)."""
+    fam = family(claim.predicate)
+    if fam is not None:
+        return fam
+    if (getattr(claim, "decay_class", None) or "") == "durable" and getattr(claim, "class_by", None) != "user":
+        return "long_term"
+    return None
 
 
 def family(predicate: str) -> str | None:
@@ -211,7 +226,7 @@ def candidates(memory_path: Path, today: date, report: Report | None = None) -> 
     use = page_use.scores(memory_path, today=today)
     out: list[Candidate] = []
     for c in claims:
-        fam = family(c.predicate)
+        fam = family_of(c)
         if fam is None or c.valid_to is not None:
             continue
         if is_event(c):
@@ -222,7 +237,7 @@ def candidates(memory_path: Path, today: date, report: Report | None = None) -> 
         if said_day is None:
             report.skip("never_said_in_a_conversation")
             continue
-        quiet = ROLE_QUIET_DAYS if fam == "role" else INTEREST_QUIET_DAYS
+        quiet = {"role": ROLE_QUIET_DAYS, "interest": INTEREST_QUIET_DAYS, "long_term": LONG_TERM_QUIET_DAYS}[fam]
         if (today - said_day).days < quiet:
             report.skip("said_recently")
             continue
@@ -238,7 +253,7 @@ def candidates(memory_path: Path, today: date, report: Report | None = None) -> 
         obj_path = resolve_entity_file(memory_path, c.object) if c.object_kind == "node" and c.object else None
         obj_fm = markdown_parser.parse(obj_path).frontmatter if obj_path is not None else {}
         obj_said = _day(obj_fm.get("last_referenced"))
-        if obj_said is not None and (today - obj_said).days < quiet:
+        if fam != "long_term" and obj_said is not None and (today - obj_said).days < quiet:
             report.skip("topic_still_said")
             continue
         obj_id = obj_path.stem if obj_path is not None else ""
@@ -254,6 +269,8 @@ def candidates(memory_path: Path, today: date, report: Report | None = None) -> 
         refs = claim_reconciler._said_refs(c)
         dated = sorted((r for r in refs if r.startswith("ep_") and r not in untimed), reverse=True)
         label = str(obj_fm.get("name") or c.object or "").strip()
+        if fam == "long_term":
+            label = str(c.text or "").strip()[:160]   # the question is about the fact itself
         if not label:
             report.skip("no_object")
             continue
@@ -262,7 +279,7 @@ def candidates(memory_path: Path, today: date, report: Report | None = None) -> 
                              episode=dated[0] if dated else "", cue=cue, use=use.get(obj_id, 0.0)))
     # Roles first (a stale job is the costlier mistake), then the most-used topic, then the most recently quiet —
     # the interest the person may still hold, not the one long gone.
-    out.sort(key=lambda k: (0 if k.family == "role" else 1, -k.use, _neg(k.last_said), k.claim_id))
+    out.sort(key=lambda k: ({"role": 0, "interest": 1}.get(k.family, 2), -k.use, _neg(k.last_said), k.claim_id))
     report.candidates = list(out)
     return out
 
@@ -289,6 +306,8 @@ def item_frontmatter(owner: str, owner_name: str, cand: Candidate, today: date) 
         {"kind": "conflict", "asks": ASKS, "predicate": cand.predicate, "entity_id": owner,
          "options": [{"key": "a", "label": cand.label}]},
         today.isoformat(), owner_id=owner).question
+    if cand.family == "long_term":
+        question = f"Is this still true: {cand.label}?"
     return {
         "kind": "conflict", "asks": ASKS, "still": cand.family, "required_input": "choice", "status": "pending",
         "priority": PRIORITY[cand.family], "entity_id": owner, "entity_name": owner_name,

@@ -157,6 +157,8 @@ struct CitationPopover: View {
     @Environment(ProvenanceRouter.self) private var router: ProvenanceRouter?
     @Environment(\.dismiss) private var dismiss
     @State private var phase: Phase = .loading
+    /// ROR-129: set once the person keeps the fact this marker cites (`keepFact`).
+    @State private var kept = false
 
     enum Phase: Equatable {
         case loading
@@ -216,6 +218,17 @@ struct CitationPopover: View {
                 Text(title).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
             }
             Spacer(minLength: 0)
+            if let claim = key.claim {
+                TextButton(title: kept ? Copy.Pages.factKept : Copy.Pages.keepFact) {
+                    guard !kept else { return }
+                    kept = true
+                    Task {
+                        do { try await APIClient.shared.keepFact(entityId: entityId, claimId: claim, keep: true) }
+                        catch { kept = false }
+                    }
+                }
+                .fixedSize()
+            }
             if router != nil, target(d) != nil {
                 TextButton(title: Copy.Provenance.showIn(d.sourceKind ?? d.kind) + " ›") { open(d) }
                     .fixedSize()

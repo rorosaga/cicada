@@ -4970,8 +4970,14 @@ def get_perspective(
     if not claims and not earlier and not happened:
         return f"{header}: no currently-valid claims match."
 
+    from api.services.claims import is_faded
     lines = [f"{header} — {len(claims)} valid claim(s):", ""]
-    for c in claims:
+    # ROR-129: a fact that has faded is still valid and still listed, after the rest, under its own heading.
+    faded = [c for c in claims if is_faded(c)]
+    claims = [c for c in claims if not is_faded(c)] + faded
+    for n, c in enumerate(claims):
+        if faded and n == len(claims) - len(faded):
+            lines += ["", f"Older, faded ({len(faded)}) — still current, kept for reference:"]
         prov = (
             f"{c.observer} · {c.context} · {c.source_trust} · "
             f"conf {c.confidence:.2f} · since {c.valid_from or 'undated'}"

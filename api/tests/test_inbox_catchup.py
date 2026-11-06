@@ -184,6 +184,26 @@ def test_the_wording_never_changes_the_stored_question_or_its_keys(bank):
 # --------------------------------------------------------------------------- S5: still questions
 
 
+def test_a_long_term_fact_asks_about_itself_never_its_page_ror_129(bank):
+    """A fact the model judged long-term (`decay_class: durable`) and a year unsaid is asked about as that fact, in any
+    language and whatever its predicate; a person's own class, a recent one and a non-durable one are not."""
+    owner_claims(bank, [
+        claim("c-long", "tiene-un-titulo-de", "ingeniero", said=d(-500), kind="literal",
+              decay_class="durable", class_by="model"),
+        claim("c-kept", "tiene-un-titulo-de", "arquitecto", said=d(-500), kind="literal",
+              decay_class="durable", class_by="user"),
+        claim("c-new", "tiene-un-titulo-de", "medico", said=d(-30), kind="literal", decay_class="durable", class_by="model"),
+        claim("c-act", "tiene-un-titulo-de", "abogado", said=d(-500), kind="literal", decay_class="active", class_by="model"),
+    ])
+    found = still_questions.candidates(bank, TODAY)
+    assert [c.claim_id for c in found] == ["c-long"] and found[0].family == "long_term"
+    report = still_questions.propose(bank, TODAY, budget=inbox_catchup.Budget())
+    fm = markdown_parser.parse(bank / report.written[0]).frontmatter
+    assert fm["kind"] == "conflict" and fm["asks"] == "still" and fm["claim_id"] == "c-long"
+    assert fm["question"].startswith("Is this still true:") and "ingeniero" in fm["question"]
+    assert [o["key"] for o in fm["options"]] == ["a", "neither"]
+
+
 def test_a_quiet_interest_and_a_quiet_role_are_asked_once_within_the_budget(bank):
     page(bank, "topic-alpha", name="Topic Alpha", said=-90)
     page(bank, "org-gamma", name="Org Gamma", type_="company", said=-300)

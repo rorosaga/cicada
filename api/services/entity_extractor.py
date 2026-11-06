@@ -56,6 +56,7 @@ Output valid JSON with this exact structure:
       "target": "Entity Name B",
       "label": "specific relationship verb phrase",
       "evidence_quote": "the exact words from the transcript this relationship rests on (verbatim, at most 240 characters)",
+      "fact_class": "evergreen|durable|active|volatile   (optional; see FACT CLASS below)",
       "starts": "YYYY-MM-DD   (optional; see STARTS below)",
       "ends": "YYYY-MM-DD   (optional; see ENDS below)",
       "at": "Organisation Name   (optional; reports to / managed by / manages only; see AT below)"
@@ -66,7 +67,8 @@ Output valid JSON with this exact structure:
       "entity": "Entity Name",
       "attribute": "what is measured, in a few plain words",
       "value": "the value as stated",
-      "evidence_quote": "the exact words from the transcript that state the value (verbatim, at most 240 characters)"
+      "evidence_quote": "the exact words from the transcript that state the value (verbatim, at most 240 characters)",
+      "fact_class": "evergreen|durable|active|volatile   (optional; see FACT CLASS below)"
     }
   ]
 }
@@ -157,6 +159,14 @@ being mentioned:
 - NEVER EVERGREEN a belief here: "evergreen" is reserved for ingested artifacts
   (bookmarks, saved media) and the user — an extraction may only propose
   durable|active|volatile.
+
+FACT CLASS (optional, per relationship and per value, in whatever language the conversation is in) — how long
+THIS fact stays true, judged by what it means, never by a word in it. It is separate from the entity's class above:
+- evergreen: true for life once true (who someone's parent or sibling is, where they were born, their legal name, an
+  allergy). Use it sparingly, only when you are sure; the person can undo it.
+- durable: long-lived but can change (a degree, a long-held role or home, a lasting skill or taste).
+- active: the default. Omit the field when unsure.
+- volatile: a one-off or in-flight thing (a question asked, a plan, a balance, a debt, a price, today's task).
 
 WEBSITE (optional, company, tool or project ONLY) — the entity's own official site:
 - Emit it ONLY when the transcript states it, or you are certain it is that entity's own site.
@@ -1535,6 +1545,7 @@ def entities_to_claims(
                 expected_end=expected_end,
                 session_ids=list(sessions),
                 reactions=clean_reactions(rel.get("reactions")),
+                **_fact_class_kwargs(rel),
             )
             # The pre-normalization label (for the Stage-3 normalization audit).
             setattr(claim, "predicate_raw", raw_label)
@@ -1589,7 +1600,16 @@ def _value_claim(value: dict, episode_id: str, origin: str, to_id: Callable[[str
         valid_from=valid_from or None, source_episodes=[ep] if ep else [], origin=origin,
         evidence=[Evidence.from_dict(e) for e in (value.get("evidence") or []) if isinstance(e, dict)],
         reactions=clean_reactions(value.get("reactions")),
+        **_fact_class_kwargs(value),
     )
+
+
+def _fact_class_kwargs(item: dict) -> dict:
+    """ROR-129: the extraction model's class for one fact (any of the four, any language), or nothing."""
+    from api.services import decay_policy
+
+    cls = decay_policy.fact_class_proposal(item.get("fact_class"))
+    return {"decay_class": cls.value, "class_by": "model"} if cls is not None else {}
 
 
 def _slug_label(label: str) -> str:
