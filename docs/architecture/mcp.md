@@ -1407,7 +1407,7 @@ detector. **A question about what is on the record** keeps every rule: the conte
 answer and one best choice, in two or three sentences, general knowledge shaped by what the context shows about them, closing on what came
 from memory. General knowledge never supplies a fact about the person. The note is gone. `asks_advice` still widens the meaning leg, to up to 6
 lines and 3,000 characters instead of 2 and 800, because a taste is rarely said in the question's words. With no model on the machine it says
-no, and the question goes on as any other. A rule at the end of the prompt, with "the ONLY source of truth" left at its head, reached 3 of 8
+no, and the question goes on as any other. Over 150 questions translated into 11 languages it finds 16 to 26 of 30 requests for advice, and over 2,456 English questions it fires falsely on 12. A question recalling a recommendation already given ("what advice did she give him?") is a question of fact, so its "other" examples hold those. A rule at the end of the prompt, with "the ONLY source of truth" left at its head, reached 3 of 8
 preference questions; this reaches 6 of 8.
 
 Nothing slept, haiku on answers and judge, one run each, before → after, with tokens per right answer:
@@ -1420,7 +1420,9 @@ Nothing slept, haiku on answers and judge, one run each, before → after, with 
 | LongMemEval_S, 100 | 76 → 80, preference 3 → 6 of 8 | 10,358 → 10,151 |
 | The wrong person's memory, 100 | 15 → 15, no flips | |
 | LoCoMo slept, 200 | 159 → 159 | 12,861 → 13,046 |
-TRANSLATED_ROW
+| One LoCoMo conversation, questions of fact in the same 4 languages, 160 | 95 → 105 | 11,043 → 10,512 |
+
+LoCoMo with nothing slept was not re-graded.
 
 **Limits.** The personalization figures come from this harness's own judge, not the papers' protocol. It favours short answers: the same model with no memory scores 4 of 45 at about 1,285 characters and 30 of 90 at about 350. PersonalizationV4 is still only level with no memory and below recall's words with general knowledge; its questions name a person the record doesn't, and its judgement note fires on 69 of 90. Translations are a model's, unchecked. Abstention on LongMemEval_S went 13 → 11 of 14, and the 3 answers judged wrong all plainly say memory lacks it, so that's the judge. The failure to watch is a fact read as a request for help, which would invite invention.
 
