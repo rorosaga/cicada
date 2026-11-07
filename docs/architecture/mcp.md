@@ -1424,7 +1424,7 @@ Nothing slept, haiku on answers and judge, one run each, before → after, with 
 
 LoCoMo with nothing slept was not re-graded.
 
-**Limits.** The personalization figures come from this harness's own judge, not the papers' protocol. It favours short answers: the same model with no memory scores 4 of 45 at about 1,285 characters and 30 of 90 at about 350. PersonalizationV4 is still only level with no memory and below recall's words with general knowledge; its questions name a person the record doesn't, and its judgement note fires on 69 of 90. Translations are a model's, unchecked. Abstention on LongMemEval_S went 13 → 11 of 14, and the 3 answers judged wrong all plainly say memory lacks it, so that's the judge. The failure to watch is a fact read as a request for help, which would invite invention.
+**Limits.** The personalization figures come from this harness's own judge, not the papers' protocol, and that judge isn't stable on them: the same stored PersonalizationV4 answers score 15 to 40 of 90 by how it is called (`docs/research/2026-11-06-memory-before-sleep.md`). Read their direction, not their size. They weren't re-judged after this change. Translations are a model's, unchecked. Abstention on LongMemEval_S went 13 → 11 of 14, and the 3 answers judged wrong all plainly say memory lacks it, so that's the judge. The failure to watch is a fact read as a request for help, which would invite invention.
 
 **Ask reads a wider window, on every question (G148, 2026-11-06).** A count needs every conversation holding one, and the window
 was built for one fact: LongMemEval_S multi-session answered 5 of 20. `window_limits` gives every question 8 conversations, 12 lines

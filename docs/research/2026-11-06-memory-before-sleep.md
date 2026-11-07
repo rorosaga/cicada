@@ -172,7 +172,20 @@ PersonaMem-v2 and PersonalizationV4, 3 users, 30 questions each, nothing slept, 
 | LoCoMo slept, 200 | 159 → 159 | 12,861 → 13,046 |
 | One LoCoMo conversation, facts in the same 4 languages, 160 | 95 → 105 | 11,043 → 10,512 |
 
-**Part of the pilot's gap was format.** This judge favours short answers: the same model with no memory scores 4 of 45 at about 1,285 characters in an agent loop and 30 of 90 at about 350 as closed-book. An agent's own long replies score low on it with or without memory (4 of 45 each), and a contract line sending advice to recall changed nothing (1 of 45), so that line was dropped. PersonalizationV4 stays level with no memory and below recall's words with general knowledge (40).
+A contract line sending advice to recall changed nothing in an agent loop (1 of 45 v 4), so that line was dropped.
+
+**Correction: the judge isn't stable on these, and "it favours short answers" doesn't hold.** PersonalizationV4's 30 v 40 went away when the same stored answers were judged again, with no new answers:
+
+| Same answers, of 90 | Ask | Recall's words with general knowledge | Closed-book |
+|---|---|---|---|
+| As graded, through the harness's judge call | 30 | 40 | 30 |
+| `claude -p`, haiku, a "careful grader" system prompt | 29 | 29 | not run |
+| `claude -p`, haiku, the judge prompt alone, twice | 19, 21 | 16, 15 | 13, 15 |
+
+- **No real gap shown.** Taking the majority of the three judgments where each has three, Ask 23, recall's words 17 (only Ask 14, only recall's words 8, p = .29), closed-book 16. That majority leans on the third setup, so it isn't a score either. Ask wasn't changed for this.
+- **Absolute figures here are soft.** The same answers score from 15 to 40 by how the judge is called, and two runs of one setup flip 5 to 10 of 90. Why the harness's call differs wasn't found. The "+11 points" above doesn't stand as a gain.
+- **Length:** cutting Ask's answers to a median of 245 characters took them from 29 to 18 (13 lost, 2 gained, p = .007), so what it cuts carries the answer. The earlier comparison (no memory, 4 of 45 at 1,285 characters v 30 of 90 at 346) changed the questions, the prompt and the judge call together, and can't be read as an effect of length.
+- **Not re-judged:** PersonaMem-v2's 18 → 45 and the translated 10 → 42. Those are 30 gained, 3 lost and 33 gained, 1 lost, mostly declines becoming answers, so the direction is likely to hold; the sizes may not.
 
 ## Inferred facts, tried
 
