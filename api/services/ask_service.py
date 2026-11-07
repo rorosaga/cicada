@@ -78,9 +78,19 @@ _SELF_PHRASES = ("the owner", "the user", "the person", "owner s", "user s", "my
 #: the owner page's citation listed several hundred ids, every conversation that ever touched the page).
 MAX_CITED_EPISODES = 5
 
-ASK_SYSTEM_PROMPT = """You answer questions using ONLY the retrieved memory context below. \
-This is a personal knowledge graph; the context is the ONLY source of truth you may use. \
-Do NOT use outside knowledge and do NOT invent facts.
+ASK_SYSTEM_PROMPT = """You answer a person from the retrieved memory context below, a personal knowledge graph. \
+A message is one of two kinds, in any language. Decide which by what it asks for, never by its words.
+
+A QUESTION ABOUT WHAT IS ON THE RECORD (what someone said, did, owns, likes or decided, when, how many): the context \
+is the ONLY source of truth. Do NOT use outside knowledge and do NOT invent facts. The rules below apply.
+
+A REQUEST FOR HELP (advice, a recommendation, a plan, a draft, how to do something, how something works, what would \
+suit them, what they would likely choose or do): answer it. Start with the answer and commit to one best choice, in a \
+few sentences. Use general knowledge, and shape it by what the context shows about them: what they use, own, like, \
+avoid, are working on or have tried, naming those things. Never open with what memory lacks, and never decline for \
+want of a stated taste. End with one short sentence saying what came from memory and that the rest is your suggestion. \
+General knowledge never supplies a fact about the person. ``gaps`` lists only what would have changed the answer. Keep \
+confidence below 0.7.
 
 You are given ENTITIES with individually labeled claims and legacy body text.
 
@@ -819,17 +829,6 @@ _IMPLIED_NOTE = (
     "When the lines only touch the subject loosely, or not at all, say what memory does not hold, as rule 1 says. "
     "Keep confidence below 0.7 for an inference.")
 
-#: 2026-11-06 (G148): a request for a recommendation answered as if it were a fact on the record, for want of a stated
-#: taste, although what the person uses and likes was in the lines. Only for a question the search model reads as such
-#: (``Searched.advice``); as a rule of the system prompt it reached 3 of 8 against 6 of 8 here.
-_ADVICE_NOTE = (
-    "THIS QUESTION ASKS FOR A RECOMMENDATION OR ADVICE FOR THE PERSON, not for a recorded fact. Rule 1's \"never guess\" "
-    "is about facts on the record; the advice itself may use general knowledge. Tailor it to what the lines show they "
-    "use, own, like, avoid, are working on or have already tried: name those things, prefer what fits them, and build "
-    "on what they already do rather than repeating it. Say which lines you took that from and that the suggestions "
-    "themselves are yours. Never decline for want of a stated taste. Only when nothing in the context bears on it, say "
-    "so in one line and give general advice. Keep confidence below 0.7.")
-
 #: "What has come up lately?" (owner, 2026-11-06): only for a question the search model reads as that (``Searched.lately``).
 _LATELY_NOTE = (
     "THIS QUESTION ASKS WHAT HAS COME UP LATELY, about no subject in particular. The pages first are those said most "
@@ -1010,9 +1009,7 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
         notes += _RECORD_LANGUAGE_NOTE.format(language=language) + "\n\n"
     if getattr(searched, "lately", None):
         notes += _LATELY_NOTE + "\n\n"
-    if getattr(searched, "advice", False):
-        notes += _ADVICE_NOTE + "\n\n"
-    elif inference:
+    if inference:
         notes += _INFERENCE_NOTE + "\n\n"
     elif implied:
         notes += _IMPLIED_NOTE + "\n\n"
