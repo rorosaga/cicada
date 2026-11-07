@@ -154,8 +154,9 @@ def _fence_lines(body: str):
     return match, payload.split("\n")
 
 
-def survey(memory_path, settings=None, *, limit: int | None = None) -> Survey:
-    """The facts the pass would ask about. Read-only; no model call. ``limit`` caps the facts (a sample)."""
+def survey(memory_path, settings=None, *, limit: int | None = None, claim_ids=None) -> Survey:
+    """The facts the pass would ask about. Read-only; no model call. ``limit`` caps the facts (a sample); ``claim_ids``
+    keeps only those facts (a measured sample; the script has no flag for it)."""
     memory_path = Path(memory_path)
     result = Survey()
     dirty: frozenset[str] = frozenset()
@@ -200,7 +201,7 @@ def survey(memory_path, settings=None, *, limit: int | None = None) -> Survey:
                 result.kept_by_person += 1
             elif claim.decay_class:
                 result.already_classed += 1
-            else:
+            elif claim_ids is None or claim.id in claim_ids:
                 todo.append((path.stem, heading, claim.id, _line(claim)))
     if limit is not None:
         todo = todo[:max(0, limit)]
@@ -389,14 +390,14 @@ def apply(memory_path, result: Survey, *, sleep_running: Callable[[], bool], set
 
 
 def run(memory_path, settings, *, mode: str, sleep_running: Callable[[], bool] = lambda: True,
-        limit: int | None = None, allow_metered: bool = False,
+        limit: int | None = None, claim_ids=None, allow_metered: bool = False,
         backend_problem: Callable[[], str | None] = lambda: None) -> Survey:
     """``mode``: ``"dry"`` (counts and the estimate, no call) or ``"apply"`` (the calls, then one commit).
 
     The engine is resolved first, as a person-started Sleep resolves it (`resolve_engine`), and named in the counts; the
     dry run only reports it, ``apply`` raises :class:`EngineRefused` before any call (a metered key unless
     ``allow_metered``)."""
-    result = survey(memory_path, settings, limit=limit)
+    result = survey(memory_path, settings, limit=limit, claim_ids=claim_ids)
     try:
         settings, result.engine, result.engine_reason = asyncio.run(resolve_engine(settings, allow_metered=allow_metered))
     except EngineRefused as exc:
