@@ -1540,6 +1540,9 @@ LANGUAGE_PASSAGES = 3
 #: By meaning beside the words (`Searched.adds`): at most this many more lines, in this many characters.
 MEANING_EXTRA_EXCERPTS = 2
 MEANING_EXTRA_CHARS = 800
+#: Ask, with room in the prompt: at most this many characters by meaning, a line for each of these.
+MEANING_FILL_CHARS = 3000
+MEANING_LINE_CHARS = 500
 #: The same for a request for advice (2026-11-06): LongMemEval_S preference, answer turns in the prompt 4 → 8 of 14.
 ADVICE_EXTRA_EXCERPTS = 6
 ADVICE_EXTRA_CHARS = 3000
@@ -1608,7 +1611,8 @@ def record_language(passages: dict[str, list[str]], lang: str, best: dict[str, f
 
 
 def by_meaning(question: str) -> bool:
-    """Whether the question's own words can't be trusted to find what the record says of it: it is not in English
+    """Whether the question's own words can't be trusted to find what the record says of it, for a caller on the words
+    alone (recall; Ask asks for the meaning leg in any language, `search`'s ``any_language``): it is not in English
     (the stemming, the stopwords and the shape detectors are English-first, and a person's record is often in another
     language or in both). Never because its words are missing from the record: that is also how a question about
     something never said looks (an abstention), and the nearest passage by meaning would answer it wrongly — the
@@ -1648,10 +1652,11 @@ def newest_conversations(memory_path: Path, limit: int = LATELY_EPISODES, *, tod
 
 
 def search(memory_path: Path, question: str, *, terms: set[str] | None = None, embed_fn=None,
-           indexer=None, today=None) -> Searched:
+           indexer=None, today=None, any_language: bool = False) -> Searched:
     """:func:`_search_words`, and for a question about what has come up lately, the newest conversations beside it. No
     word finds those: it asks about no subject, so before this it found nothing in most languages."""
-    found = _search_words(memory_path, question, terms=terms, embed_fn=embed_fn, indexer=indexer, today=today)
+    found = _search_words(memory_path, question, terms=terms, embed_fn=embed_fn, indexer=indexer, today=today,
+                          any_language=any_language)
     try:
         if indexer is None:
             from api.services.vector_index import SqliteVecIndexer
@@ -1665,7 +1670,7 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
 
 
 def _search_words(memory_path: Path, question: str, *, terms: set[str] | None = None, embed_fn=None,
-                  indexer=None, today=None) -> Searched:
+                  indexer=None, today=None, any_language: bool = False) -> Searched:
     """The conversations most likely to hold what ``question`` asks, read from the derived indexes only — never a
     model, never a write, never the question in a log. Two legs, fused by rank: the word index (:func:`_lexical`) and
     the vector index's episode chunks (the question's vector is the page leg's: one embed per Ask, through the
@@ -1716,7 +1721,9 @@ def _search_words(memory_path: Path, question: str, *, terms: set[str] | None = 
     # question (`RECORD_FLOORS`, review of #390), the question goes by meaning too.
     record_lang = (record_language(passages, lang, best, record_floor(indexer))
                    if passages and indexer is not None and not by_meaning(question) else "")
-    by_mean = bool(passages) and (by_meaning(question) or bool(record_lang))
+    # `any_language` (Ask): the meaning leg beside the words for every question, since it fills only the room the prompt has
+    # (`gather_search`'s `meaning_room`). Recall stays as it was: in its small budget these lines cost it 128 → 114 of 200.
+    by_mean = bool(passages) and (any_language or by_meaning(question) or bool(record_lang))
     # Review of #385 (the owner's Spanish questions over his own Spanish conversations fell 50 → 43 %): the meaning leg
     # leads only when the words can't — no word of the question is weighed, or the nearest passages are in another
     # language than the question. Over conversations in the question's own language the words already find the
@@ -1814,6 +1821,23 @@ def _search_words(memory_path: Path, question: str, *, terms: set[str] | None = 
     return Searched(episodes=order, weights=weights, shape=shape, kept=kept, more=more, similar=similar, **by)
 
 
+def _meaning_budget(question: str, found: Searched, room: int | None, used: int) -> tuple[int, int]:
+    """``(lines, characters)`` the meaning leg adds beside the words. With ``room``, in any language, what the prompt has
+    left, so a memory Sleep has read, or words that filled the window, cost nothing: unslept LoCoMo 123 → 134 of 200 when
+    it isn't limited by pages, while slept stayed 159 at 9% more tokens. A question not in English keeps its few lines,
+    since its words find less (#693)."""
+    if found.advice:
+        return ADVICE_EXTRA_EXCERPTS, ADVICE_EXTRA_CHARS
+    fixed = (MEANING_EXTRA_EXCERPTS, MEANING_EXTRA_CHARS)
+    if room is None:
+        return fixed
+    chars = min(MEANING_FILL_CHARS, room - used)
+    if chars >= MEANING_LINE_CHARS:
+        lines = chars // MEANING_LINE_CHARS
+        return (lines, chars) if not by_meaning(question) or chars >= fixed[1] else fixed
+    return fixed if by_meaning(question) else (0, 0)
+
+
 def window_limits() -> dict:
     """``gather_search``'s limits for Ask."""
     return {"max_episodes": ASK_WINDOW_EPISODES, "max_excerpts": ASK_WINDOW_EXCERPTS, "total_chars": ASK_WINDOW_CHARS,
@@ -1824,13 +1848,15 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
                   taken: set[tuple[str, int]] | None = None, max_episodes: int = SEARCH_EPISODES,
                   max_excerpts: int = SEARCH_EXCERPTS, total_chars: int = SEARCH_CHARS,
                   deep: dict | None = None, excerpt_chars: int = EXCERPT_CHARS,
-                  person_first: bool = False) -> list[Excerpt]:
+                  person_first: bool = False, meaning_room: int | None = None) -> list[Excerpt]:
     """The turns of the best :func:`search` conversations that hold the question's words, the rarer words counting
     more, oldest first. A conversation kept for its day (the newest on the subject, a day the question names) shows
     its best turn before the others fill the budget by score, so the one that settled the subject is never crowded out.
     A count or a list then adds one short line from each further conversation on the subject (``found.more``) in a
     budget of its own. A turn holding only common words is never one. ``taken``: turns the page leg already showed.
-    Same who-spoke labels, clipping and bounds as :func:`gather`; index-only episodes are skipped (ruling 30)."""
+    Same who-spoke labels, clipping and bounds as :func:`gather`; index-only episodes are skipped (ruling 30).
+    ``meaning_room`` (Ask): what the prompt still has for words, pages counted; the meaning leg's lines fill what these
+    turns leave of it (:func:`_meaning_budget`)."""
     weights = found.weights
     if not found.episodes or not (weights or found.meaning):
         return _lately_excerpts(memory_path, found, owner_name, set(taken or ()), deep, max_excerpts, excerpt_chars)
@@ -1943,9 +1969,9 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         for c in _meaning_turns(memory_path, found, near_docs, shown):
             firsts.setdefault(c[3], c)
         extra = sorted(firsts.values(), key=lambda c: (c[3] in shown_eps, c[1]))
-        chosen += _take(extra, near_docs, terms, owner_name,
-                        max_excerpts=ADVICE_EXTRA_EXCERPTS if found.advice else MEANING_EXTRA_EXCERPTS,
-                        total_chars=ADVICE_EXTRA_CHARS if found.advice else MEANING_EXTRA_CHARS, taken=shown, deep=deep)
+        lines, chars = _meaning_budget(question, found, meaning_room, sum(len(e.text) for e in chosen))
+        chosen += _take(extra, near_docs, terms, owner_name, max_excerpts=lines, total_chars=chars, taken=shown,
+                        deep=deep) if lines else []
         chosen.sort(key=lambda e: e.order)
     if found.lately:
         chosen += _lately_excerpts(memory_path, found, owner_name, taken | shown_turns(chosen), deep, max_excerpts,
