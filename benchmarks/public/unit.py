@@ -107,6 +107,7 @@ class Calls:
     def record(self, stage, model, seconds, ok, error=None, tokens=None):
         row = {"unit": self.unit_id, "phase": self.phase, "stage": stage, "model": model,
                "seconds": round(seconds, 3), "ok": ok, "error": error, "tokens": tokens}
+        self.spent.last_failed = not ok
         if tokens:
             self.spent.total = getattr(self.spent, "total", 0) + int(tokens.get("input_tokens") or 0) \
                 + int(tokens.get("output_tokens") or 0)
@@ -415,6 +416,7 @@ async def run_unit(job: dict) -> int:
         clock = _clock(q["question_date"] or unit["clock"])
         started = time.perf_counter()
         calls.spent.total = 0
+        calls.spent.last_failed = False
         try:
             response = answer_fn[path](q["question"], q["qid"])
             err = None
@@ -429,6 +431,10 @@ async def run_unit(job: dict) -> int:
         seen = response.pop("_bench", None) or {}
         prompt = seen.get("prompt")
         key = f"{q['qid']}|{path}"
+        if not err and getattr(calls.spent, "last_failed", False):
+            # An engine that dropped: Ask answers in words, so nothing raised, and those words would be judged wrong
+            # (80 of 200 in one run). A failed answer, which --resume retries.
+            err = "EngineNoAnswer: the last model call failed"
         if path == "ask" and prompt is None and not err and key in old_answers and key in old_judged \
                 and (old_prompts.get(key) or {}).get("prompt", "") is None:
             # No model call either time (an honest gap with nothing found): the same reply, nothing to read again.

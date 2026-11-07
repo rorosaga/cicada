@@ -388,3 +388,15 @@ def test_compare_says_who_got_what_right():
     assert rows["(all)"]["n"] == 3 and rows["(all)"]["A"] == 1 and rows["(all)"]["B"] == 3
     assert rows["(all)"]["only_B"] == ["2", "3"] and rows["(all)"]["only_A"] == [] and rows["(all)"]["sign_p"] == 0.5
     assert "only B: 2 3" in report.render_compare(rows, "A", "B")
+
+
+def test_a_failed_last_model_call_marks_the_answer_failed(tmp_path):
+    """An engine that drops makes Ask answer in words, with nothing raised: this flag is what stops those words being
+    judged wrong, and a retry that worked clears it."""
+    from benchmarks.public.unit import Calls
+
+    calls = Calls(tmp_path / "calls.jsonl", "unit")
+    calls.record("ask", "haiku", 1.0, False, "EngineConnectionLost")
+    assert calls.spent.last_failed
+    calls.record("ask", "haiku", 1.0, True, tokens={"input_tokens": 1, "output_tokens": 1})
+    assert not calls.spent.last_failed
