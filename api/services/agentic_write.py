@@ -561,6 +561,12 @@ def write_claim(
 
         new_body = write_claims(parsed.body, reconciled_claims)
         if new_body != parsed.body:
+            from api.services import replaced_facts
+
+            try:   # a replaced value leaves Key Facts for History (owner 2026-11-07); never costs the claim
+                new_body = replaced_facts.retire(parsed.frontmatter, new_body, existing_claims, reconciled_claims)
+            except Exception:  # noqa: BLE001
+                pass
             markdown_parser.write(page, parsed.frontmatter, new_body)
 
         # G61 — "here's where to check this fact". Attributed to the same
