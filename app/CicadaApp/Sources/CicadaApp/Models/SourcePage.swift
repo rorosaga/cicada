@@ -1,0 +1,237 @@
+import Foundation
+
+/// source-page-v3 (owner 2026-10-29) — the one search a source page offers, pure. The backend narrows the list
+/// (`GET /sources/channels/{id}/items?q=`): titles, a chat's name, a saved link's host, and the words behind each row
+/// where the words index has them. The field's words are trimmed and cut at the backend's cap (`Q_MAX`).
+enum SourceSearch {
+    static let maxLength = 200
+    /// How long typing settles before the list asks (the palette's server debounce).
+    static let debounce: Duration = .milliseconds(180)
+    /// A query value keeps only unreserved characters bare (RFC 3986), so `&`, `=`, `+`, `#` and `?` stay words.
+    nonisolated static let queryAllowed: CharacterSet = {
+        var set = CharacterSet.alphanumerics
+        set.insert(charactersIn: "-._~")
+        return set
+    }()
+
+    /// Trimmed and cut at `maxLength` **code points** — what the backend's `max_length` counts (Python's `len`), not
+    /// Swift's characters: one emoji character can be several code points, so a character cut could still be refused
+    /// (#561 review). Whole characters only: a cut never splits one.
+    nonisolated static func normalized(_ query: String) -> String {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.unicodeScalars.count > maxLength else { return trimmed }
+        var out = ""
+        var scalars = 0
+        for character in trimmed {
+            let n = character.unicodeScalars.count
+            if scalars + n > maxLength { break }
+            out.append(character)
+            scalars += n
+        }
+        return out
+    }
+}
+
+/// source-page-v3 — a source's one status, said once at the top of its page (owner 2026-10-29: "a better status for
+/// when it's connected"): Connected · last item <day> / Syncing <what> / Needs you: <one action> / Off. Pure: derived
+/// from the catalogue row's status, the channel's run state and the day the newest item came in.
+enum SourcePageStatus: Equatable {
+    /// On; `lastItem` is the day the newest item came in (`latest`), nil when nothing came in yet or unknown.
+    case connected(lastItem: String?)
+    /// A read is running; `detail` is the reader's own words when it has them ("12 of 40").
+    case syncing(detail: String?)
+    /// One thing the person must do, in words ("sign in again").
+    case needsYou(String)
+    /// Not reading now; `lastItem` is the newest thing it brought in before, when it holds any.
+    case off(lastItem: String?)
+    /// ROR-118 round 6 — a site read through the person's AI, still switched off. Six readers took "Off" for a fault or
+    /// a switch they could not find; it says what is true: nothing is being read yet, and the button below starts it.
+    case notReading(lastItem: String?)
+    /// 2026-11-03 (live) — a chat reader on this Mac that reads on every change of its app's store: when it last
+    /// checked the ticked chats and the newest message in them (`ChatCheck`), instead of the day something last came in.
+    /// "Connected · last item Oct 28" (and the list's "4 days ago") read as a stopped reader while it was checking on
+    /// every WhatsApp write and the ticked chat had simply had nothing new.
+    case checked(ChatCheck)
+    /// 2026-11-04 (owner: "I deleted Whisperflow today, and the app should have detected that and say that it
+    /// disconnected or that's off") — the app the source reads is no longer on this Mac: Off, and why, in words.
+    case notInstalled
+    /// ROR-114 — read through the person's own browser: it has its own colour and words (Through your browser / Not read
+    /// yet / Signed out / Couldn't read), and the last read in place of the last item.
+    case browser(BrowserRead)
+
+    static func of(row: SourceCatalogStatus, run: SourceRowStatus, latest: String?,
+                   check: ChatCheck? = nil, notInstalled: Bool = false,
+                   waitingOn: String? = nil, browser: BrowserRead? = nil,
+                   readsThroughAI: Bool = false) -> SourcePageStatus {
+        if notInstalled { return .notInstalled }
+        if case .syncing(let detail, _, _) = run { return .syncing(detail: detail) }
+        // ROR-7 — a read waiting on the person reads the same on the tile and on the page it opens, whether its reader
+        // reads Off (a permission taken away) or still Connected (the person's own attempt that macOS refused).
+        if let waitingOn {
+            return .needsYou(waitingOn == Copy.sourceNeedsAccess ? Copy.SourcePage.allowAccess : waitingOn)
+        }
+        switch row {
+        case .needsSignIn: return .needsYou(Copy.SourcePage.signInAgain)
+        case .waitingForAgent: return .needsYou(Copy.SourcePage.connectAnAgent)
+        case .off: return readsThroughAI ? .notReading(lastItem: latest) : .off(lastItem: latest)
+        case .connected:
+            if case .problem(let why) = run {
+                return .needsYou(why == Copy.sourceNeedsAccess ? Copy.SourcePage.allowAccess : why)
+            }
+            if let browser { return .browser(browser) }
+            return check.map(SourcePageStatus.checked) ?? .connected(lastItem: latest)
+        }
+    }
+
+    var tone: StatusWord.Tone {
+        switch self {
+        case .connected, .syncing, .checked: .on
+        case .browser(let read): read.state.tone
+        case .needsYou: .attention
+        case .off, .notInstalled, .notReading: .off
+        }
+    }
+
+    var word: String {
+        switch self {
+        case .connected, .checked: Copy.SourcePage.connected
+        case .browser(let read): read.state.word
+        case .syncing: Copy.SourcePage.syncing
+        case .needsYou: Copy.SourcePage.needsYou
+        case .off, .notInstalled: Copy.SourcePage.off
+        case .notReading: Copy.SourcePage.notReading
+        }
+    }
+
+    /// What follows the word on the same line — never a sentence about the source (DR-38): the last item's day, the
+    /// run's own progress, or the one action. Off says only what it still holds (the settings below hold the switch).
+    func detail(today: ISODay, now: Date = Date(), locale: Locale = .autoupdatingCurrent) -> String? {
+        switch self {
+        case .checked(let check):
+            let checked = Copy.SourcePage.checked(SourceCatalog.ago(check.at, now: now, locale: locale))
+            guard let newest = check.newest else { return checked }
+            let day = Self.cameIn(ISODay.today(now: newest), today: today)
+            return "\(checked) · \(Copy.SourcePage.newestMessage(Self.dayWord(day, today: today, locale: locale)))"
+        case .connected(let latest):
+            guard let day = ISODay(latest) else { return Copy.SourcePage.nothingYet }
+            return Copy.SourcePage.lastItem(Self.dayWord(Self.cameIn(day, today: today), today: today, locale: locale))
+        case .syncing(let detail): return detail
+        case .needsYou(let action): return action
+        case .notInstalled: return Copy.SourcePage.notInstalled
+        case .browser(let read):
+            switch read.state {
+            case .read:
+                return read.lastRead.map { Copy.Browser.lastRead(SourceCatalog.ago($0, now: now, locale: locale)) }
+            case .notReadYet: return nil
+            case .signedOut: return Copy.Browser.signedOutDetail
+            case .couldntRead: return Copy.Browser.couldntReadDetail
+            }
+        case .off(let latest), .notReading(let latest):
+            return ISODay(latest).map {
+                Copy.SourcePage.lastItem(Self.dayWord(Self.cameIn($0, today: today), today: today, locale: locale))
+            }
+        }
+    }
+
+    /// #561 review — the backend dates by the UTC day (and caps there), so west of UTC in the evening the newest
+    /// item's day is already "tomorrow" on the server. Something that came in is never ahead of the person's own today:
+    /// the line clamps to the local day, so it reads "last item today", never "Tomorrow".
+    static func cameIn(_ day: ISODay, today: ISODay) -> ISODay { min(day, today) }
+
+    /// "today", "yesterday", a weekday, "Oct 3" — `RelativeDay`'s phrase, lower-cased where it is a common word mid-line.
+    static func dayWord(_ day: ISODay, today: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
+        let phrase = RelativeDay.phrase(day, today: today, locale: locale)
+        return (-1...0).contains(day - today) ? phrase.lowercased(with: locale) : phrase
+    }
+
+    /// The line spoken and shown: "Connected · last item today".
+    func line(today: ISODay, now: Date = Date(), locale: Locale = .autoupdatingCurrent) -> String {
+        [word, detail(today: today, now: now, locale: locale)].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+/// source-page-v3 — where a source page's column is: the page itself, or one of its lists opened in its place (DR-81:
+/// "All N" opens the full list as the column's content; a group opens its items the same way). Esc returns.
+enum SourceDrill: Equatable {
+    /// Every row the source holds (the capped list's "All N").
+    case all(channel: String)
+    /// One chat's conversations.
+    case chat(ChannelItem)
+    /// One watched day's videos.
+    case day(ChannelItem)
+    /// An agent's every conversation (its capped list's "All N").
+    case conversations
+
+    var title: String? {
+        switch self {
+        case .all, .conversations: nil
+        case .chat(let item): item.title
+        case .day: nil
+        }
+    }
+}
+
+/// source-page-v3 — the list's pure rules: how many rows the page shows before "All N" (DR-81 — the list is the
+/// page's main content, so it shows a screenful rather than DR-81's five; ruling of 2026-10-29 in DESIGN_RULES §9), and
+/// which rows open a group in the column rather than a single item.
+enum SourceItemsRules {
+    static let cap = 12
+
+    /// ROR-15 (owner: "a good UI that imitates what is read from notes") — a page of notes lists the ones the person
+    /// pinned in Notes first, under "Pinned", the rest under the source's noun. Nil when nothing in the page is pinned
+    /// (no heading is drawn for one group, DR-81), so a source without pins is exactly what it was.
+    static func pinnedSplit(_ items: [ChannelItem]) -> (pinned: [ChannelItem], rest: [ChannelItem])? {
+        let pinned = items.filter { $0.pinned == true }
+        return pinned.isEmpty ? nil : (pinned, items.filter { $0.pinned != true })
+    }
+
+    static func isGroup(_ item: ChannelItem) -> Bool { item.kind == .chat || item.videos != nil }
+
+    /// A group row's right-hand words: how many it holds ("4 videos", "12 messages", else "3 conversations"). A chat
+    /// counts its messages when the backend kept them (#559) — what the apps themselves count — else its sittings.
+    static func groupCount(_ item: ChannelItem) -> String? {
+        if let videos = item.videos { return Copy.watchedVideos(videos) }
+        if let messages = item.messages, messages > 0 { return Copy.SourcePage.messages(messages) }
+        if let sittings = item.sittings, sittings > 0 { return Copy.SourcePage.conversations(sittings) }
+        return nil
+    }
+
+    /// 2026-11-04 (owner: YouTube's "All" is "a bit dense") — a long list of days reads in months: each month's rows
+    /// under its name ("November", "March 2025"; the year only when it is not this one), in the order sent. Rows with
+    /// no day keep their place in an untitled group.
+    static func byMonth(_ items: [ChannelItem], today: ISODay,
+                        locale: Locale = .autoupdatingCurrent) -> [(title: String?, items: [ChannelItem])] {
+        var groups: [(key: String?, title: String?, items: [ChannelItem])] = []
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        for item in items {
+            let day = ISODay(item.day)
+            let key = day.map { "\($0.civil.year)-\($0.civil.month)" }
+            if let last = groups.last, last.key == key {
+                groups[groups.count - 1].items.append(item)
+                continue
+            }
+            var title: String?
+            if let day {
+                formatter.setLocalizedDateFormatFromTemplate(day.civil.year == today.civil.year ? "LLLL" : "LLLL yyyy")
+                title = formatter.string(from: day.date(in: calendar))
+            }
+            groups.append((key, title, [item]))
+        }
+        return groups.map { ($0.title, $0.items) }
+    }
+}
+
+/// 2026-11-04 — a source with several lists names each section once: a watched history, a saved list, else the
+/// row's own label (YouTube: History, then Saved).
+enum SourceSectionTitle {
+    static func of(_ row: SourceOverview) -> String {
+        if row.isWatchHistory { return Copy.SourceLayout.history }
+        if row.intent == .saved { return Copy.SourceLayout.saved }
+        return row.label
+    }
+}

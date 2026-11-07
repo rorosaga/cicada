@@ -28,7 +28,8 @@ example.com: …, was …"), the commit is one manifest line per file (``cicada_
 behind ``CICADA_ALLOW_CONNECTOR_FETCH``, on the link rail's one transport: 4 s, ≤ 512 KB, no cookies, a block never
 retried). That read is deterministic — no model: it states only what the page says in machine-readable form
 (schema.org JSON-LD: ``jobTitle``, ``worksFor``, ``homeLocation``…, :data:`FIELDS`), and a page whose words changed
-with no such field is marked ``changed`` and handed to the person's agent. A login-walled source (LinkedIn and the
+with no such field is marked ``changed`` and handed to the person's agent — on a plan run the settling step's model reads
+it first, through this module's own :func:`apply` (ruling 54a, ``settling_agent.read_changed``; it backs off 30 days). A login-walled source (LinkedIn and the
 like, ``reading_hosts.is_walled`` / ``fact_sources.is_refused_host``) is NEVER fetched by the backend: only the
 person's own agent reads it, through this module's small lease queue (:func:`claim`, the explore queue's rules: one
 live lease per site, 15 minutes, a wall pauses the site a week), in the signed-in session only while the person's
@@ -176,9 +177,10 @@ def walled(ref: str) -> bool:
 def checker(source: dict) -> str | None:
     """Who re-checks this source now: ``cicada`` (a public page, Cicada's own fetcher), ``agent`` (a login-walled
     page, a page whose read was blocked, or a public page Cicada saw change with no machine-readable fact), or None
-    (a path, a repo, an app, a note — nothing to visit)."""
+    (a path, a repo, an app, a note, or a link whose record a connected API keeps — nothing to visit)."""
     ref = _url_ref(source)
-    if ref is None:
+    if ref is None or source.get("kept_by"):
+        # `kept_by`: an official API the person connected keeps the record behind this link (G230, GitHub's sync).
         return None
     st = state(source)
     if walled(ref) or fact_sources.effective_access(source) == fact_sources.ACCESS_SIGNED_IN or st.get("blocked"):

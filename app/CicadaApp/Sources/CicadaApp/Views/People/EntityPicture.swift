@@ -4,10 +4,13 @@ import UniformTypeIdentifiers
 
 /// C11 (G146; F-11, F-12) — the one entity avatar. It draws what the picture precedence answered
 /// (`Store.picture(for:held:)`: a write in flight, else the graph node's, else the page the surface holds) at 20–88 pt,
-/// and D's fallback when there is none — never a solid hue fill (R-08's must-fix, plan R-PE14): a person is initials in
-/// a 1.5 pt hue ring, a company a monogram in its hue on a neutral square, every other type its outline glyph in its
-/// hue. A logo stands bare (DR-52); a photo, a Contacts picture and a thumbnail carry the resting ring. Clusters, the
-/// person card, the palette and Ask draw this, so a page looks the same everywhere.
+/// and D's fallback when there is none: a person is grey initials on a plain disc (`EntityPictureFallback`, owner
+/// 2026-11-05); every other type draws **nothing** (owner 2026-10-28, DESIGN_RULES §9: no generic type glyph or
+/// made-up monogram stands in for a picture) — an empty slot of the same size, so a row's text keeps its leading edge,
+/// or no slot at all where `collapsesWhenEmpty` (a lone picture beside a title). A non-person page shows initials only
+/// when the person chose "Use initials instead". A logo stands bare (DR-52); a photo, a Contacts picture and a
+/// thumbnail carry the resting ring. Clusters, the person card, the palette and Ask draw this, so a page looks the same
+/// everywhere.
 struct EntityPicture: View {
     /// How the picture answers the pointer (plan R-PE15; wired in Task 4).
     enum Editing: Equatable { case none, tile, hero }
@@ -21,38 +24,64 @@ struct EntityPicture: View {
     var held: EntityPictureRef? = nil
     var heldInputs: PictureInputs? = nil
     var editing: Editing = .none
+    /// With nothing to draw (`EntityPictureLayout.isEmpty`), take no space at all instead of an empty slot: for a lone
+    /// picture beside a title, or a list where no row has a picture. A row in a list that has some keeps the slot.
+    var collapsesWhenEmpty = false
+    /// Whether an image really arrived: a picture reference whose file is missing or never fetched draws nothing, and a
+    /// caller that has something else to show in that slot (a media row's source mark) asks to be told.
+    var imageArrived: Binding<Bool>? = nil
 
     @Environment(Store.self) private var store
     @State private var image: NSImage?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
     @State private var dropTargeted = false
+    @State private var anchor = PictureMenuAnchor()
 
     private var editable: Bool { editing != .none && PictureActions.canEdit(type) }
 
     private var units: CGFloat { EntityPictureLayout.clamp(size) }
     private var frame: CGSize { EntityPictureLayout.frame(type, size: CicadaTheme.scaled(units)) }
     private var picture: EntityPictureRef? { store.picture(for: id, held: held) }
+    /// ROR-118 — the picture on the first frame when it was already seen this run (`ImageMemory`); the `.task` below
+    /// fills in what was not. Without it every page switch drew the fallback, then popped the image in.
+    private var shownImage: NSImage? {
+        if let image { return image }
+        return PictureMemory.cached(id: id, picture: picture, bank: store.bank)
+    }
     private var loadKey: String { "\(store.bank)|\(id)|\(picture?.source.rawValue ?? "-")|\(picture?.url ?? "-")" }
 
     var body: some View {
-        content
-            .task(id: loadKey) { image = await load() }
-            .help(editable ? Copy.People.changeHelp(name) : Copy.People.sourceLine(picture?.source))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(name)
-            .accessibilityValue(Copy.People.sourceLine(picture?.source))
-            .accessibilityActions {
-                if editable { Button(Copy.People.changePicture) { change() } }
-            }
+        if collapsesWhenEmpty && EntityPictureLayout.isEmpty(type, picture: picture) {
+            EmptyView()
+        } else {
+            drawn
+        }
     }
 
-    /// R-PE15 — a click opens the picker, a hover dims under a camera, a dropped image uploads, a right-click offers the
-    /// rest. A drag that is not an image passes through to the window's intake drop (`ContentView`).
+    private var drawn: some View {
+        content
+            .task(id: loadKey) {
+                image = await load()
+                imageArrived?.wrappedValue = image != nil
+            }
+            .onAppear { if shownImage != nil { imageArrived?.wrappedValue = true } }
+            .help(editable ? Copy.People.changeHelp(name, source: picture?.source) : Copy.People.sourceLine(picture?.source))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(editable ? Copy.People.changePictureLabel(name) : name)
+            .accessibilityValue(Copy.People.sourceLine(picture?.source))
+            .accessibilityAddTraits(editable ? .isButton : [])
+            .accessibilityAction { if editable { openChoices() } }
+    }
+
+    /// R-PE15, owner 2026-10-29 — the picture is the control: a click offers its choices (`PictureChoices`: the picker
+    /// at once when a file is the only choice), a hover dims under a camera with a link cursor, a dropped image uploads,
+    /// a right-click offers the same choices. A drag that is not an image passes through to the window's intake drop
+    /// (`ContentView`).
     @ViewBuilder
     private var content: some View {
         if editable {
-            Button(action: change) {
+            Button(action: openChoices) {
                 surface.overlay {
                     if hovering || dropTargeted {
                         EntityPictureVeil(showsWord: editing == .hero, units: units)
@@ -62,7 +91,9 @@ struct EntityPicture: View {
                 }
             }
             .buttonStyle(.cicadaPlain)
+            .background(PictureMenuAnchorView(anchor: anchor))
             .onHover { hovering = $0 }
+            .roomLinkCursor()
             .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering || dropTargeted)
             .onDrop(of: [UTType.image], isTargeted: $dropTargeted, perform: drop)
             .contextMenu { PictureMenuItems(id: id, name: name, type: type, held: held, heldInputs: heldInputs) }
@@ -71,9 +102,9 @@ struct EntityPicture: View {
         }
     }
 
-    private func change() {
-        PictureActions.change(id: id, name: name, type: type, store: store,
-                              inputs: store.pictureInputs(for: id, held: heldInputs))
+    private func openChoices() {
+        PictureChoices.open(id: id, name: name, type: type, held: held, heldInputs: heldInputs, store: store,
+                            anchor: anchor.view)
     }
 
     private func drop(_ providers: [NSItemProvider]) -> Bool {
@@ -91,27 +122,29 @@ struct EntityPicture: View {
     }
 
     var surface: some View {
-        let shape = EntityPictureLayout.clip(type, height: frame.height)
+        let drawn = EntityPictureLayout.drawnFrame(type, source: picture?.source, image: shownImage?.size, well: frame)
+        let shape = EntityPictureLayout.clip(type, height: drawn.height)
         let fit = picture?.source == .logo
         return ZStack {
-            if let image {
+            if let image = shownImage {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: fit ? .fit : .fill)
-                    .frame(width: frame.width, height: frame.height)
+                    .frame(width: drawn.width, height: drawn.height)
             } else {
                 EntityPictureFallback(type: type, name: name, units: units, frame: frame,
                                       chosenInitials: picture?.source == .initials)
             }
         }
-        .frame(width: frame.width, height: frame.height)
+        .frame(width: drawn.width, height: drawn.height)
         .clipShape(shape)
         .overlay {
-            if EntityPictureLayout.ringed(picture?.source, hasImage: image != nil, type: type) {
+            if EntityPictureLayout.ringed(picture?.source, hasImage: shownImage != nil, type: type) {
                 shape.stroke(CicadaTheme.ring(.resting), lineWidth: 1)
             }
         }
+        .frame(width: frame.width, height: frame.height)
     }
 
     private func load() async -> NSImage? {
@@ -131,7 +164,8 @@ struct EntityPicture: View {
 /// C11 / R-PE14 — the avatar's geometry and fallback, pure.
 enum EntityPictureLayout {
     enum Shape: Equatable { case circle, square, wide }
-    enum Fallback: Equatable { case initials(String), monogram(String), glyph(String) }
+    /// `none` — owner 2026-10-28: a page that is not a person and has no picture draws nothing, never a type glyph.
+    enum Fallback: Equatable { case initials(String), monogram(String), none }
 
     /// C11 — 20 to 88 pt, in units.
     static let sizeRange: ClosedRange<CGFloat> = 20...88
@@ -151,6 +185,15 @@ enum EntityPictureLayout {
         shape(type) == .wide ? CGSize(width: (size * 1.5).rounded(), height: size) : CGSize(width: size, height: size)
     }
 
+    /// Ruling 61: a tall thumbnail in a media page's wide well (a book's cover) is drawn whole at the well's height, never
+    /// cropped to the well; the ring follows the picture, and the well keeps its slot so a row's text keeps its edge.
+    static func drawnFrame(_ type: EntityType, source: PictureSource?, image: CGSize?, well: CGSize) -> CGSize {
+        guard shape(type) == .wide, source == .thumbnail, let image, image.height > image.width, image.height > 0 else {
+            return well
+        }
+        return CGSize(width: (well.height * image.width / image.height).rounded(), height: well.height)
+    }
+
     /// Continuous corners that scale with the picture (DR-12).
     static func clip(_ type: EntityType, height: CGFloat) -> AnyShape {
         switch shape(type) {
@@ -161,52 +204,49 @@ enum EntityPictureLayout {
     }
 
     /// `chosenInitials` — the person picked "Use initials instead" (R-PE4): initials on every type, since the menu said
-    /// initials; with nothing chosen a non-person non-company page wears its outline glyph.
+    /// initials. With nothing chosen a person wears their initials and every other page nothing (owner 2026-10-28:
+    /// the type glyphs and a company's made-up monogram read as placeholders, "npc icons").
     static func fallback(_ type: EntityType, name: String, chosenInitials: Bool = false) -> Fallback {
-        if chosenInitials, type != .person { return .monogram(LogoImage.monogram(for: name)) }
-        switch type {
-        case .person: return .initials(LogoImage.monogram(for: name))
-        case .company: return .monogram(LogoImage.monogram(for: name))
-        default: return .glyph(glyph(type))
-        }
+        if type == .person { return .initials(LogoImage.monogram(for: name)) }
+        return chosenInitials ? .monogram(LogoImage.monogram(for: name)) : .none
+    }
+
+    /// The one decision every surface asks (owner 2026-10-28): is there anything to draw for this page? A person always
+    /// has their initials; any other page only a picture (a logo, a photo, a thumbnail) or initials the person chose.
+    static func isEmpty(_ type: EntityType, picture: EntityPictureRef?) -> Bool {
+        type != .person && picture == nil
+    }
+
+    /// A list's slot rule (owner 2026-10-28): keep the picture column only while some row in it draws something, so
+    /// names line up when pictures are mixed and start at the edge when there are none.
+    static func anyDrawn(_ pages: [(type: EntityType, picture: EntityPictureRef?)]) -> Bool {
+        pages.contains { !isEmpty($0.type, picture: $0.picture) }
+    }
+
+    @MainActor
+    static func anyDrawn(_ entities: [Entity], store: Store) -> Bool {
+        anyDrawn(entities.map { ($0.type, store.picture(for: $0.id, held: $0.pictureRef)) })
     }
 
     /// The initials' size and weight at `units`: 0.36 of the picture, medium. `compact` (the Messages bubbles only,
     /// 2026-10-16) — a stacked bubble below 24 units, where 0.36 set a 7 pt hairline nobody read as a picture, takes
     /// half its height, semibold. Every other small picture sits beside its own name in a row and keeps the proportion.
     static let smallInitialsBelow: CGFloat = 24
-    /// A stacked bubble's monogram disc: the person's hue at this opacity over the ground (2026-10-16).
-    static let bubbleFill: Double = 0.35
     static func initialsType(units: CGFloat, compact: Bool = false) -> (size: CGFloat, weight: Font.Weight) {
         compact && units < smallInitialsBelow ? (units * 0.5, .semibold) : (units * 0.36, .medium)
     }
 
-    /// DR-53 — outline symbols; Clusters' card header wears the same one (F-11).
-    static func glyph(_ type: EntityType) -> String {
-        switch type {
-        case .person: "person"
-        case .project: "flag"
-        case .company: "building.2"
-        case .concept: "sparkles"
-        case .tool: "wrench.and.screwdriver"
-        case .deadline: "calendar"
-        case .skill: "star"
-        case .location: "mappin.and.ellipse"
-        case .media: "play.rectangle"
-        case .hub: "circle.hexagongrid"
-        case .directory: "folder"
-        case .unknown: "circle.dashed"
-        }
-    }
-
-    /// A logo stands bare (DR-52); every other picture and every square fallback carries the resting ring; a person's
-    /// fallback wears its own hue ring instead.
+    /// A logo stands bare (DR-52); every other picture carries the resting ring. With no picture nothing does: initials
+    /// are a plain disc (owner 2026-11-05) and an empty slot is empty.
     static func ringed(_ source: PictureSource?, hasImage: Bool, type: EntityType) -> Bool {
-        hasImage ? source != .logo : type != .person
+        hasImage && source != .logo
     }
 }
 
-/// R-PE14 — D's fallback: the hue once, as a ring or a glyph, never as a fill (DR-8).
+/// One picture for anyone with no photo (owner 2026-11-05, ROR-107: "the more minimal design you have there in contacts
+/// ... no border and the letters are like grey"): initials in the secondary ink on a plain disc, no ring, no hue. A
+/// chosen monogram on a page that is not a person is the same, in its own shape. Nothing for a page that is not a person
+/// (owner 2026-10-28). Every surface draws this; a stacked bubble only sets its letters larger.
 struct EntityPictureFallback: View {
     let type: EntityType
     let name: String
@@ -217,43 +257,23 @@ struct EntityPictureFallback: View {
     var compactInitials = false
 
     var body: some View {
-        let hue = CicadaTheme.entityColor(for: type)
-        let initials = EntityPictureLayout.initialsType(units: units, compact: compactInitials)
         switch EntityPictureLayout.fallback(type, name: name, chosenInitials: chosenInitials) {
-        case .initials(let text) where compactInitials:
-            // A stacked bubble (owner, 2026-10-16): a disc filled with the hue over the ground and the letter in the
-            // primary text colour. A ring around one hue letter at bubble size read as an info glyph ("ⓘ").
-            Text(text)
-                .font(CicadaTheme.font(size: initials.size, weight: initials.weight))
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
+        case .initials(let text): letters(text).background(Circle().fill(CicadaTheme.pictureFill))
+        case .monogram(let text): letters(text).background(CicadaTheme.pictureFill)
+        case .none:
+            Color.clear
                 .frame(width: frame.width, height: frame.height)
-                .background(Circle().fill(hue.opacity(EntityPictureLayout.bubbleFill)))
-                .background(Circle().fill(CicadaTheme.bgBase))
-        case .initials(let text):
-            Text(text)
-                .font(CicadaTheme.font(size: initials.size, weight: initials.weight))
-                .foregroundStyle(hue)
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .frame(width: frame.width, height: frame.height)
-                .background(Circle().fill(CicadaTheme.bgFocus))
-                .overlay(Circle().strokeBorder(hue, lineWidth: CicadaTheme.scaled(1.5)))
-        case .monogram(let text):
-            Text(text)
-                .font(CicadaTheme.font(size: initials.size, weight: initials.weight))
-                .foregroundStyle(hue)
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .frame(width: frame.width, height: frame.height)
-                .background(CicadaTheme.bgOption)
-        case .glyph(let symbol):
-            Image(systemName: symbol)
-                .font(CicadaTheme.font(size: units * 0.42))
-                .foregroundStyle(hue)
-                .frame(width: frame.width, height: frame.height)
-                .background(CicadaTheme.bgOption)
+                .accessibilityHidden(true)
         }
+    }
+
+    private func letters(_ text: String) -> some View {
+        let type = EntityPictureLayout.initialsType(units: units, compact: compactInitials)
+        return Text(text)
+            .font(CicadaTheme.font(size: type.size, weight: type.weight))
+            .foregroundStyle(CicadaTheme.textSecondary)
+            .minimumScaleFactor(0.6)
+            .lineLimit(1)
+            .frame(width: frame.width, height: frame.height)
     }
 }

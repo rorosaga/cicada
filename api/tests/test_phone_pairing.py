@@ -204,8 +204,10 @@ def test_a_replay_after_a_bank_switch_runs_in_the_bank_now_open(tmp_path, monkey
     """Keys are scoped by bank too: the same key after a switch never answers with the other bank's episode id."""
     from api import config
     from api.main import app
+    from api.routers import devices as devices_router
     from api.services import bank_registry
 
+    monkeypatch.setattr(devices_router, "_WRONG_CODES", None)  # the /pair bucket is process-wide: an earlier test's 429
     root = tmp_path / "bank-root"
     root.mkdir()
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(root))
@@ -233,3 +235,15 @@ def test_a_replay_after_a_bank_switch_runs_in_the_bank_now_open(tmp_path, monkey
             assert replay == again and first["episodeId"]
     finally:
         config.get_settings.cache_clear()
+
+
+def test_a_door_pairing_redeems_only_its_own_code(tmp_path):
+    """Ruling 51f: the one-time secret a door pairing carries lets in a redeem of that pairing's code alone."""
+    store = device_tokens.DeviceStore(tmp_path / "devices.db")
+    mine, my_code = store.create_pairing(kind="capture")
+    other, other_code = store.create_pairing(kind="capture")
+    with pytest.raises(KeyError):
+        store.redeem(other_code, "Phone", pairing_id=mine.id)
+    device, _token = store.redeem(my_code, "Phone", pairing_id=mine.id)
+    assert device.kind == "capture"
+    assert store.redeem(other_code, "Other phone")[0].kind == "capture"      # the other code still waits

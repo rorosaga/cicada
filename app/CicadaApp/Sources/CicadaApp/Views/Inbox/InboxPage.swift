@@ -32,6 +32,8 @@ struct InboxPage: View {
         Group {
             if viewModel.review != nil {
                 InboxReviewView(onEnd: { endReview() }, onOpenInInbox: { openInInbox($0) })
+            } else if viewModel.couldNotRead, viewModel.items.isEmpty, viewModel.held == nil {
+                unreadState
             } else if let err = viewModel.errorMessage, viewModel.items.isEmpty, viewModel.held == nil {
                 errorState(err)
             } else if viewModel.isLoading {
@@ -87,10 +89,20 @@ struct InboxPage: View {
                                   // questions.
                                   InboxTopCards(requests: viewModel.agentRequests,
                                                 reviews: viewModel.whereToCheckReviews,
+                                                sensitive: viewModel.sensitiveReviews,
                                                 answer: { item, resolution in viewModel.answer(item, resolution) },
                                                 openPage: { router.routeToClustersEntity($0) })
-                                  InboxReviewEntriesRow(entries: viewModel.reviewEntries) { startReview($0) }
-                              }))
+                                  // Say it once: under All each kind's group carries its own review.
+                                  if viewModel.columns.kindFilter != nil {
+                                      InboxReviewEntriesRow(entries: viewModel.reviewEntries
+                                          .filter { $0.kind.inboxKind == viewModel.columns.kindFilter }) {
+                                          startReview($0)
+                                      }
+                                  }
+                              }),
+                              lines: viewModel.lines,
+                              toggleGroup: { viewModel.toggleGroup($0) },
+                              startReview: { startReview($0) })
                 .focused($focus, equals: .list)
                 .tourAnchor(.inbox)
         } detail: { plan in
@@ -229,7 +241,10 @@ struct InboxPage: View {
             case .closeQuestion:
                 viewModel.columns.close()
                 focus = .list
-            case .none: break
+            case .none:
+                // Ruling 48 (2): the list is Home's sub-view — Esc with nothing open goes back to Home.
+                router.pendingTabByKey = true
+                router.pendingTab = .home
             }
         }
     }
@@ -294,6 +309,21 @@ struct InboxPage: View {
         let queued = viewModel.unprocessedEpisodes
         if queued > 0 { lines.append(Copy.Inbox.waiting(queued)) }
         return lines.joined(separator: "\n")
+    }
+
+    /// Production blocker (2026-11-06) — "Nothing pending" is a claim that the backend said so; when it could not be
+    /// asked, the page says that instead (DR-50: text alone, no card).
+    private var unreadState: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            EyebrowRow(eyebrow: Copy.Inbox.title)
+            EmptyStateView(
+                systemImage: "exclamationmark.circle",
+                title: Copy.Reach.unreadTitle,
+                message: "",
+                actionLabel: viewModel.offersRetry ? Copy.Reach.tryAgain : nil,
+                action: viewModel.offersRetry ? { Task { await viewModel.loadInbox() } } : nil
+            )
+        }
     }
 
     /// DR-43 — the list pages' one first-read state (`ListSkeleton`): the sentence over still bars, no shimmer.

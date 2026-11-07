@@ -337,7 +337,7 @@ def test_new_operations_take_the_cli_command_spelled_with_underscores():
     rows = cli_map.by_tool()
     new = {op: tool for op, tool in agent_api.OPS.items() if op not in SHIPPED}
     for op, tool in new.items():
-        expected = agent_api.REMOTE_ONLY_OPS.get(tool) or "_".join(rows[tool].command).replace("-", "_")
+        expected = "_".join(rows[tool].command).replace("-", "_")
         assert op == expected, (op, tool)
         assert rows.get(tool) is None or rows[tool].api_op is None, "only a frozen name overrides the command"
     # Every override in the table is one of the eleven, and spells exactly its shipped name.
@@ -345,7 +345,13 @@ def test_new_operations_take_the_cli_command_spelled_with_underscores():
     assert overrides.items() <= SHIPPED.items()
     assert set(new) == {"hub", "perspective", "capture_turns", "source_add", "source_change", "video_record",
                         "video_queue", "video_claim", "read_queue", "read_record", "inbox_record_check",
-                        "source_list", "progress_add", "backlog_list", "backlog_add", "backlog_note"}
+                        "source_list", "books_add", "progress_add", "backlog_list", "backlog_add", "backlog_note",
+                        # Ruling 45 (2026-10-27): named by their `cli_map` rows.
+                        "projects_create", "projects_link", "projects_influence",
+                        # Decision 10 (2026-10-28): pages tied by hand.
+                        "projects_tie_page",
+                        # G227 follow-up (coordinator 2026-10-29): a remote merge or split is a proposal.
+                        "page_merge", "page_split", "page_undo"}
 
 
 def test_each_operation_needs_exactly_its_tool_s_scope():

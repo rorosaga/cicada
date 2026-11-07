@@ -10,6 +10,11 @@ import XCTest
 /// `SAY_IT_ONCE_PHASE` prefixes the files (`before` / `after`). The test's own client reaches only that base.
 @MainActor
 final class SayItOnceRenderTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ContactsTrap.install()   // never this Mac's Contacts service (#527 review)
+    }
+
     private struct Env {
         let store: Store
         let router: AppRouter

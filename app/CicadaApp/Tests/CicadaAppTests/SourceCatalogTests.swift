@@ -12,9 +12,60 @@ final class SourceCatalogTests: XCTestCase {
 
     private func row(_ id: String, in rows: [SourceCatalogRow]) -> SourceCatalogRow? { rows.first { $0.id == id } }
 
-    func testGroupsComeInTheirFixedOrderAndEveryEntryHasOne() {
-        let groups = SourceCatalog.grouped(rows()).map(\.group)
-        XCTAssertEqual(groups, [.accounts, .thisMac, .exports, .feeds])
+    func testSectionsComeInTheirFixedOrderAndAnEmptyOneIsNotDrawn() {
+        let sections = SourceGrid.sections(rows()).map(\.section)
+        XCTAssertEqual(sections, SourceShelf.allCases.map(SourceGridSection.shelf), "six kinds, never vendors")
+    }
+
+    /// G95 (2026-11-03) — Meeting recorders: Hex once it is here (or has a folder), Wispr Flow moved in from This Mac, a
+    /// folder of transcripts always; a meeting folder's channel never counts for Folders, nor Hex's for the other.
+    func testMeetingRecordersHoldHexWisprAndAFolderOfTranscripts() {
+        let hex = FolderRegistration(id: "hex-meetings-1", label: "Hex Meetings", path: "/h", kind: "meetings",
+                                     recorder: "hex")
+        let calls = FolderRegistration(id: "calls-2", label: "Calls", path: "/c", kind: "meetings")
+        let notes = FolderRegistration(id: "notes-3", label: "Notes", path: "/n")
+        XCTAssertEqual(hex.channelId, "meetings:hex-meetings-1")
+        XCTAssertEqual(notes.channelId, "folder:notes-3")
+        let none = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        XCTAssertEqual(none.filter { $0.group == .meetings }.map(\.id), [SourceCatalog.meetingFoldersId])
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: true, hexPresent: false,
+                                            meetingFolders: [hex, calls, notes], overview: [])
+        let meetings = entries.filter { $0.group == .meetings }
+        XCTAssertEqual(meetings.map(\.id), [SourceCatalog.hexId, SourceCatalog.wisprChannel, SourceCatalog.meetingFoldersId])
+        XCTAssertEqual(meetings[0].channels, ["meetings:hex-meetings-1"])
+        XCTAssertEqual(meetings[2].channels, ["meetings:calls-2"])
+        XCTAssertFalse(entries.contains { $0.id == SourceCatalog.wisprChannel && $0.group == .thisMac })
+        let channels = [SourceChannel(id: "meetings:calls-2", label: "Calls", connected: true)]
+        let r = SourceCatalog.rows(entries: entries, channels: channels, overview: [], readableSites: [])
+        XCTAssertEqual(row(SourceCatalog.meetingFoldersId, in: r)?.status, .connected)
+        XCTAssertEqual(row("folders", in: r)?.status, .off)
+        XCTAssertEqual(row(SourceCatalog.hexId, in: r)?.status, .off)
+        XCTAssertEqual(none.first { $0.id == SourceCatalog.meetingFoldersId }?.verb, .connect(Copy.Catalog.addFolder))
+    }
+
+    /// The Hex meetings folder: Hex's own `meetings.output_folder` when the person chose one, else Hex's default.
+    @MainActor
+    func testTheHexMeetingsFolderIsHexsOwnSettingElseItsDefault() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("hex-home-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        XCTAssertEqual(LocalSourceWatcher.hexMeetingsFolder(home: home).path,
+                       home.appendingPathComponent("Documents/Hex Meetings").path)
+        let dir = home.appendingPathComponent("Library/Application Support/hex")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data(#"{"meetings": {"enabled": true, "output_folder": "/tmp/alpha-meetings"}}"#.utf8)
+            .write(to: dir.appendingPathComponent("settings.json"))
+        XCTAssertEqual(LocalSourceWatcher.hexMeetingsFolder(home: home).path, "/tmp/alpha-meetings")
+        try Data(#"{"meetings": {"output_folder": ""}}"#.utf8).write(to: dir.appendingPathComponent("settings.json"))
+        XCTAssertEqual(LocalSourceWatcher.hexMeetingsFolder(home: home).lastPathComponent, "Hex Meetings")
+    }
+
+    func testAMeetingFolderPreviewCountsMeetingsAndTheFilesThatHoldNone() {
+        var r = FolderSyncResult()
+        r.filesNew = 3
+        XCTAssertEqual(MeetingFolderText.preview(r, locale: Locale(identifier: "en_US")), "Found 3 meetings")
+        r.errors = [FolderSyncError(relpath: "manifest.json", reason: "not a meeting transcript")]
+        XCTAssertEqual(MeetingFolderText.preview(r, locale: Locale(identifier: "en_US")),
+                       "Found 3 meetings · 1 file holds no transcript")
     }
 
     func testTheCatalogueHasNoObsidianAndKeepsContactsAndInstagram() {
@@ -37,9 +88,112 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertEqual(row("x", in: r)?.status, .off)
     }
 
-    func testInstagramIsConnectedOnlyOnceItsSiteMayBeRead() {
+    /// Ruling 47 tier 2: Notion's one row is connected by its live connection or its export. Readwise is gone from the
+    /// catalogue by owner direction (2026-11-03: "yeah remove readwise"), whatever a backend still lists.
+    func testTokenConnectorsAreRowsOfTheCatalogueTheyAlreadyHave() {
+        XCTAssertNil(row("readwise", in: rows()))
+        let r = rows(channels: [
+            SourceChannel(id: "notion-api", label: "Notion", connected: true, lastSync: "2026-10-28T10:00:00Z"),
+            SourceChannel(id: "readwise", label: "Readwise", connected: true),
+        ])
+        XCTAssertEqual(row("notion", in: r)?.status, .connected)
+        XCTAssertNil(row("readwise", in: r))
+    }
+
+    /// G32: Spotify is a file import (its terms bar an API connector) that says where Spotify hands the file out, and
+    /// reads Connected once its download fed memory.
+    func testSpotifyIsAnImportThatSaysWhereTheFileComesFrom() {
+        let entry = row("spotify", in: rows())?.entry
+        XCTAssertEqual(entry?.group, .accounts)
+        XCTAssertEqual(entry?.verb, .importFile)
+        XCTAssertTrue(SourceCatalog.exportHow("spotify")?.contains("Privacy settings") == true)
+    }
+
+    /// G89 (2026-11-04) — Substack is an account the person's own agent reads in their browser: Off until a list is on,
+    /// then waiting for an agent here, then Connected; its saves or reading days in memory read Connected too.
+    func testSubstackIsReadByTheAgentAndConnectedOnceItsListsAreOnOrItsReadsCameIn() {
+        let entry = row(SourceCatalog.substackId, in: rows())?.entry
+        XCTAssertEqual(entry?.group, .accounts)
+        XCTAssertEqual(entry?.origin, "substack-saved")
+        XCTAssertNil(entry?.site, "no per-site page grant: the lists are standing asks for their own pages")
+        XCTAssertEqual(row(SourceCatalog.substackId, in: rows())?.status, .off)
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        let on: Set<String> = [SourceCatalog.substackId]
+        XCTAssertEqual(row(SourceCatalog.substackId, in: SourceCatalog.rows(
+            entries: entries, channels: [], overview: [], readableSites: [], savedListsOn: on))?.status,
+            .waitingForAgent)
+        XCTAssertEqual(row(SourceCatalog.substackId, in: SourceCatalog.rows(
+            entries: entries, channels: [], overview: [], readableSites: [], savedListsOn: on, localAgent: true))?.status,
+            .connected)
+        let reads = [SourceOverview(id: "substack-history", label: "Substack reading", kind: .social, episodes: 3)]
+        XCTAssertEqual(row(SourceCatalog.substackId, in: rows(overview: reads))?.status, .connected)
+    }
+
+    func testAPublicationFollowedConnectsSubstackAndLeavesRssOff() {
+        let channels = [SourceChannel(id: "rss", label: "RSS", connected: false),
+                        SourceChannel(id: FeedChannelText.substackChannel, label: "Publications", connected: true,
+                                      count: 9)]
+        let all = rows(channels: channels)
+        XCTAssertEqual(row(SourceCatalog.substackId, in: all)?.status, .connected)
+        XCTAssertEqual(row("rss", in: all)?.status, .off)
+    }
+
+    func testSubstackFollowingIsTheCountOfThePublicationsChannel() {
+        let publications = SourceChannel(id: FeedChannelText.substackChannel, label: "Publications", connected: true,
+                                         count: 1)
+        XCTAssertEqual(SubstackFollowing.count([SourceChannel(id: "rss", label: "RSS", connected: true, count: 4),
+                                                publications]), 1)
+        XCTAssertEqual(SubstackFollowing.count([]), 0)
+        XCTAssertEqual(Copy.Reading.substackFollowing(1), "Following 1 publication through its public feed.")
+    }
+
+    func testInstagramIsConnectedOnlyOnceItsSiteMayBeReadByAnAgentHere() {
         XCTAssertEqual(row("instagram", in: rows())?.status, .off)
-        XCTAssertEqual(row("instagram", in: rows(readable: ["instagram"]))?.status, .connected)
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        let withAgent = SourceCatalog.rows(entries: entries, channels: [], overview: [], readableSites: ["instagram"],
+                                           localAgent: true)
+        XCTAssertEqual(row("instagram", in: withAgent)?.status, .connected)
+        XCTAssertEqual(row("instagram", in: rows(readable: ["instagram"]))?.status, .waitingForAgent)
+    }
+
+    /// Tester readiness (2026-10-26, `13-sources.png`): a fresh setup that accepted the pre-ticked saved-lists step with
+    /// no agent connected read "Sources · 5 connected", X, YouTube, Instagram and LinkedIn each Connected. A list only
+    /// an agent reads is Connected only while an agent on this Mac is connected; until then it is on, says what it
+    /// waits for, and the header does not count it.
+    func testSavedListsWithNoAgentHereWaitAndAreNotCounted() {
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        let synced = [SourceChannel(id: "calendar-local", label: "Calendar", connected: true,
+                                    lastSync: "2026-10-26T10:00:00Z")]
+        let lists: Set<String> = ["x", "instagram", "linkedin", "youtube"]
+        let waiting = SourceCatalog.rows(entries: entries, channels: synced, overview: [], readableSites: [],
+                                         savedListsOn: lists, localAgent: false)
+        for id in ["x", "youtube", "instagram", "linkedin"] {
+            XCTAssertEqual(row(id, in: waiting)?.status, .waitingForAgent, id)
+            XCTAssertNil(SourceCatalog.line(row(id, in: waiting)!, now: .now), "\(id): no sync line while waiting")
+        }
+        XCTAssertEqual(SourceCatalog.connectedCount(waiting), 1, "only the calendar is connected")
+        XCTAssertEqual(Copy.Catalog.eyebrow(SourceCatalog.connectedCount(waiting)), Copy.Catalog.eyebrow(1))
+        // Every other row is untouched by the lists: nothing else waits.
+        XCTAssertEqual(Set(waiting.filter { $0.status == .waitingForAgent }.map(\.id)), ["x", "youtube", "instagram",
+                                                                                      "linkedin"])
+        let connected = SourceCatalog.rows(entries: entries, channels: synced, overview: [], readableSites: [],
+                                           savedListsOn: lists, localAgent: true)
+        // Lists turned on with an agent here but nothing read yet are on, not connected (sources-truth).
+        XCTAssertEqual(SourceCatalog.connectedCount(connected), 1)
+        XCTAssertEqual(SourceCatalogStatus.waitingForAgent.word, "On · waits for your agent")
+        XCTAssertNotEqual(SourceCatalogStatus.waitingForAgent.tone, .on, "never painted as connected")
+    }
+
+    /// Only an agent on this Mac reads a list in the browser (the reading tools are stdio only): a connector-only app
+    /// is not one; a config that names Cicada, or a stdio call, is.
+    func testOnlyALocalAgentCountsForAListReadInTheBrowser() {
+        XCTAssertFalse(AgentLiveResponse.anyConnectedLocally([]))
+        XCTAssertFalse(AgentLiveResponse.anyConnectedLocally([AgentLiveRow(id: "claude-ai", connected: true,
+                                                                           via: "remote")]))
+        XCTAssertFalse(AgentLiveResponse.anyConnectedLocally([AgentLiveRow(id: "codex", connected: false)]))
+        XCTAssertTrue(AgentLiveResponse.anyConnectedLocally([AgentLiveRow(id: "claude-code", connected: true,
+                                                                          via: "config")]))
+        XCTAssertTrue(AgentLiveResponse.anyConnectedLocally([AgentLiveRow(id: "codex", connected: true, via: "mcp")]))
     }
 
     func testTheLineIsTheLastSyncOnlyWhileOn() {
@@ -50,12 +204,26 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertNil(SourceCatalog.line(row("rss", in: r)!, now: now))
     }
 
-    func testAnAgentsConversationsWithNoEntryGetTheirOwnRowAndChatExportsPointAtAgents() {
+    func testAnAgentsConversationsWithNoEntryGetTheirOwnRowAndChatExportsImportInPlace() {
         let overview = [SourceOverview(id: "harness:cursor", label: "Cursor", kind: .harness, mark: "cursor")]
         let r = rows(overview: overview)
         XCTAssertEqual(row("overview:harness:cursor", in: r)?.entry.group, .conversations)
         XCTAssertEqual(row("overview:harness:cursor", in: r)?.status, .connected)
-        XCTAssertEqual(row("chat-exports", in: r)?.entry.verb, .openAgents)
+        XCTAssertEqual(row("overview:harness:cursor", in: r)?.entry.verb, .openAgents)
+        // CIC8 (2026-10-29): Chat exports imports here; it no longer bounces the person to Agents.
+        XCTAssertEqual(row("chat-exports", in: r)?.entry.verb, .importFile)
+        XCTAssertNotNil(SourceCatalog.exportHow("chat-exports"))
+    }
+
+    /// CIC8 — a hand-off naming a chat-export tile (Agents, Settings, a walkthrough) lands on Chat exports; a tile
+    /// with its own entry lands on it; one with neither has nowhere to land (and is consumed, never left staged).
+    func testAChatExportTileLandsOnChatExports() {
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        for tile in [AddSourceTile.claudeExport, .chatgptExport, .geminiExport] {
+            XCTAssertEqual(SourceCatalog.entry(for: tile, in: entries)?.id, "chat-exports", "\(tile)")
+        }
+        XCTAssertEqual(SourceCatalog.entry(for: .rssFeed, in: entries)?.id, "rss")
+        XCTAssertNil(SourceCatalog.entry(for: .pasteLink, in: entries))
     }
 
     func testFoldersAreConnectedByAnyFolderChannel() {
@@ -91,6 +259,38 @@ final class SourceCatalogTests: XCTestCase {
     }
 
     /// A browser's row is Connected while any of its readers is on: bookmarks off, YouTube history on.
+    /// ROR-41 ("Sources · 2 connected" with one switch on): Chrome's YouTube history is one reader on two rows.
+    func testOneReaderOnTwoRowsCountsOnce() {
+        let chrome = BrowserInventory.spec(id: "chrome")!
+        let entries = SourceCatalog.entries(browsers: [chrome], wisprPresent: false, overview: [])
+        let watched = [SourceChannel(id: WatchHistoryWatcher.channel, label: "YouTube", connected: true)]
+        let history = SourceOverview(id: "youtube-history", label: "YouTube history", kind: .social, episodes: 12)
+        let one = SourceCatalog.rows(entries: entries, channels: watched, overview: [history], readableSites: [],
+                                     localReaders: [WatchHistoryWatcher.channel: true])
+        XCTAssertEqual(row("browser:chrome", in: one)?.status, .connected)
+        XCTAssertEqual(row("youtube", in: one)?.status, .connected)
+        XCTAssertEqual(SourceCatalog.connectedCount(one), 1)
+
+        // Its own import is a second source, and so is a second switch on Chrome's page once YouTube has its own.
+        let playlists = SourceOverview(id: "youtube", label: "YouTube", kind: .social, episodes: 4)
+        let imported = SourceCatalog.rows(entries: entries, channels: watched, overview: [history, playlists],
+                                          readableSites: [], localReaders: [WatchHistoryWatcher.channel: true])
+        XCTAssertEqual(SourceCatalog.connectedCount(imported), 2)
+    }
+
+    /// The class: every channel two entries speak for names the one that holds its switch.
+    func testEveryChannelTwoEntriesShareHasAHome() {
+        let chrome = BrowserInventory.spec(id: "chrome")!
+        let entries = SourceCatalog.entries(browsers: [chrome], wisprPresent: false, overview: [])
+        var claims: [String: [String]] = [:]
+        for entry in entries { for channel in entry.channels { claims[channel, default: []].append(entry.id) } }
+        for (channel, holders) in claims where holders.count > 1 {
+            let home = SourceCatalog.readerHome[channel]
+            XCTAssertNotNil(home, "\(channel) is on \(holders) with no home")
+            XCTAssertTrue(holders.contains(home ?? ""), "\(channel)'s home is not one of \(holders)")
+        }
+    }
+
     func testABrowserStaysConnectedWhileAnyOfItsReadersIsOn() {
         let chrome = BrowserInventory.spec(id: "chrome")!
         let channels = [SourceChannel(id: "chrome-bookmarks", label: "Chrome", connected: true),
@@ -164,16 +364,18 @@ final class SourceCatalogTests: XCTestCase {
                        "with no reader on this Mac switched off, a Takeout history import counts")
     }
 
-    /// G206 (#426) — a saved list the person's agent keeps current is a connection; the copy no longer says "coming".
+    /// G206 (#426) — a saved list the person's agent keeps current is a connection (with an agent here to read it); the
+    /// copy no longer says "coming".
     func testASavedListOnIsConnectedAndTheInstagramCopySaysWhatExists() {
         let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
         let r = SourceCatalog.rows(entries: entries, channels: [], overview: [], readableSites: [],
-                                   savedListsOn: ["instagram", "x"])
+                                   savedListsOn: ["instagram", "x"], localAgent: true)
         XCTAssertEqual(row("instagram", in: r)?.status, .connected)
         XCTAssertEqual(row("x", in: r)?.status, .connected)
         XCTAssertEqual(row("linkedin", in: r)?.status, .off)
         XCTAssertFalse(Copy.Catalog.instagramHonest.lowercased().contains("coming"))
-        XCTAssertEqual(SourceCatalog.savedListSites, ["x", "instagram", "linkedin"])
+        XCTAssertEqual(SourceCatalog.savedListSites,
+                       ["x", "instagram", "linkedin", "reddit", "pinterest", "tiktok", "spotify", "goodreads"])   // ROR-128
     }
 
     func testReadingSettingsDecodeTheSavedListsAndAnOlderBackendHasNone() throws {
@@ -215,6 +417,29 @@ final class SourceCatalogTests: XCTestCase {
     func testSignInWordsAreReadFromTheFailure() {
         XCTAssertTrue(SourceCatalog.readsAsSignIn("401 Unauthorized"))
         XCTAssertFalse(SourceCatalog.readsAsSignIn("Timed out"))
+        // sources-truth: a count that happens to hold 403, or an author, is not a refusal.
+        XCTAssertFalse(SourceCatalog.readsAsSignIn("1403 item(s) failed to ingest"))
+        XCTAssertFalse(SourceCatalog.readsAsSignIn("Could not read the author of 3 items"))
+        XCTAssertTrue(SourceCatalog.readsAsSignIn("HTTPStatusError: HTTP 403"))
+        XCTAssertTrue(SourceCatalog.readsAsSignIn("The token was revoked"))
         XCTAssertFalse(SourceCatalog.readsAsSignIn(nil))
+    }
+}
+
+
+extension SourceCatalogTests {
+    /// ROR-138 (owner 2026-11-06): X, Instagram, LinkedIn, Reddit and Pinterest read Connected with no date. A list turned
+    /// on is a standing ask; it reads Connected through the agent only once the agent has read it.
+    func testAListTurnedOnReadsConnectedOnlyOnceTheAgentHasReadIt() {
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        func status(_ id: String, read: Set<String>) -> SourceCatalogStatus? {
+            SourceCatalog.rows(entries: entries, channels: [], overview: [], readableSites: [],
+                               savedListsOn: ["x", "instagram", "youtube", SourceCatalog.substackId], localAgent: true,
+                               savedListsRead: read).first { $0.id == id }?.status
+        }
+        for id in ["x", "instagram", "youtube", SourceCatalog.substackId] {
+            XCTAssertEqual(status(id, read: []), .waitingForAgent, "\(id): on, never read — no date, not Connected")
+            XCTAssertEqual(status(id, read: [id]), .connected, id)
+        }
     }
 }

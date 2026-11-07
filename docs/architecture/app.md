@@ -38,7 +38,45 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   may use my plan* (ruling 4c), *Keep going on extra usage* (R-E13, only under a plan) and *Use my Claude plan when I
   start* (only under a key). The Sleep page's engine menu is a label that opens this page (`EngineLabelButton`); the
   full menu stays in Sleep → Options, which keeps the plan reserve and the model prices (ruling 12).
-- **You:** the name and photo (`EntityPicture`, editable), the email the photo ladder hashes, and *Your profiles* — any
+  **An app without its tool (ROR-52, 2026-11-04):** the row says *Not ready* (`notReady`), never *Not installed*, with the
+  backend's line and the one command to run (`stepCommand`: `nextCommand`, else the sign-in); `capture-and-sleep.md` has the states.
+  **A plan whose tool is not on the Mac (2026-11-06, G76/G92):** a stranger's Mac has no Node, so the row (Settings, and
+  onboarding's Intelligence step, which draws the same `IntelligenceRow`) reads *Not installed*, then the backend's one
+  sentence ("Claude Code is not installed on this Mac.") and *Paste this in Terminal.*, and a `CommandBox` with the line
+  (`ConnectionStatus.nextCommand` → `IntelligenceRow.installLine`): the vendor's own standalone installer, `curl -fsSL
+  https://claude.ai/install.sh | bash` and `curl -fsSL https://chatgpt.com/codex/install.sh | sh`, read from each vendor's docs
+  and kept in `api/services/connections/install_hints.py` — the one place; the Sleep pre-flight, the engine errors and
+  `GET /sleep/engine`'s plan cards (`nextCommand`, which the full chooser draws in a `CommandBox`) read it, and a test fails on
+  any other spelling of a line. Both put the tool in `~/.local/bin`, a folder `base.resolve_binary` already looks in, so the
+  launchd backend finds it with no restart. Home's First read and the Welcome's compact cards keep "Not installed" and add one
+  hint line, *To use your Claude plan or ChatGPT plan, install it in* + the Plans & keys link (`EngineOption.installHint`).
+  **With nothing able to read** (no plan signed in, no key, no local model ready: `EngineOption.nothingConnected`) the same
+  cards lead with one line, *Connect a plan or add a key in* + the Plans & keys link, in place of those two hints
+  (DR-38); a local model stands last in the row and is no choice while it is not installed (`isSelectableCompact`,
+  ruling 36 D1: it runs only when chosen), so a stranger is never steered to the one card that cannot run on most Macs.
+  **The row changes without quitting:** `GET /connections` caches a probe 30 s, so coming back to the app (activation)
+  re-reads it fresh, then `GET /sleep/engine`, but only while some plan is still missing (`MissingTools.waiting`,
+  `refreshesMissingTools()` on Settings → Intelligence, the Intelligence step and the Getting-started card); a Mac with
+  everything in place never probes on activation.
+  **Your agent tools (G49/G50, 2026-10-28)** sits between Plans and API keys: one `OwnToolRow` per Cursor, OpenCode or
+  Grok card from `GET /sleep/engine` (mark, *Connected* / *Not connected* / *Not installed*, the tool's billing note or
+  a stale saved model in words, *Use* once signed in, and — signed out — the sign-in command in a `CommandBox`; Cicada
+  never signs in for them). **The picker is data-driven:** a candidate's optional `kind`, `engine`, `mark`,
+  `billingNote`, `modelNote` and `signIn` drive `EngineOption.isPlan` / `isOwnTool` / `logoName(for:)` /
+  `costModel(for:)`, `previewName` / `previewMark` / `candidateId(forEngine:candidates:)` and `EngineReadiness`, so a
+  new engine renders, selects and names its runs without an id table; a body without them (an older backend) answers
+  as before. The quick menu lists an own tool's models (live, else its documented defaults, plus a saved one) and says
+  a stale one; onboarding keeps its four engines (`compactCandidates`); `EngineMark` wears the tool's mark for a
+  `<tool>-cli` run. **Engine picker v2 (ruling 48 part 11, `10-engine-picker`, 2026-10-28):** the quick menu's model
+  `Picker` is gone (amends R-HS10). A card with models opens a second column, `EngineModelList`
+  (`EngineModelListModel` holds every decision): the filter focused on open (`CicadaSearchField`, ↑/↓ and ⏎ choose,
+  no animation, DR-60), the catalogue's families as `SectionLabel`s with their counts (DR-47), newest three per family
+  and *Show N older*, "New" a `Tag` (DR-44) for 14 days, a model's list price only where the wire gives one (ruling
+  12), and "<card>'s own list, as of N min ago · Refresh" — Refresh is `POST /sleep/engine/models/refresh` on the
+  click only (`SleepEngineViewModel.refreshModels`; a failure keeps the list and says so). The only drop-down left in
+  the menu is the reserve's (DR-81). Every engine card keeps its own bundled mark (all `same` in the 2026-10-28
+  freshness check); Cursor and Grok are not merged under a parent mark — they stay two tools with two sign-ins.
+- **You:** the name and photo (`EntityPicture`, plain; a click opens the owner's page, where it is changed, 2026-11-06), the email the photo ladder hashes, and *Your profiles* — any
   profile link pasted as-is, stored as the owner page's sources (`/entities/{owner}/sources`, G61); a pre-D6 GitHub
   handle shows as its profile link. *Connect* only for a service read through a connection (X, Reddit, Pinterest),
   which opens the Sources page.
@@ -48,14 +86,43 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   The QR's `url` is the backend's to fill (this machine's Tailscale name for the backend port, when it can tell); the
   app sends none. With it the sheet says the address and "Scan with Cicada on your phone"; without it, one line says
   which address to type.
+  **2026-10-29 (G212):** each device row's line adds what it may do (*Capture only* / *Full access*) and its key state
+  (*Key-bound since <day>* / *Not yet key-bound*); after a pairing, an older active row of the same name is offered for
+  revoking (an offer only, behind Revoke's confirmation); Revoke keeps its confirmation (DESIGN_RULES' destructive rule) and the next
+  request is refused. *Reach from your phone* (`DeviceReachSection`) sits in the list card above *Pair a device*: a
+  `StatusDot` and one line from `GET /devices/reach?check=true` (read on appear, never polled), the one next step in
+  words, the step's command in a `CommandBox` to copy, *Get Tailscale* where it is missing, and
+  where the live check stopped (DR-19, DR-38, DR-39, DR-40, DR-51; no new visual pattern). **One click (owner
+  2026-10-29, "Yes, one click"; `network.md`):** on the serve step a compact `NeutralButton` *Run it for me* runs that
+  shown command; on a served address a `TextButton` *Stop serving* opens a confirmation naming the exact off
+  (`stopCommand`) before it runs (`POST /devices/reach/serve`, the action only; `DeviceReachText.action`). A refusal or
+  failure is one danger caption under it; the state and check refresh from the answer. The unfunnel step stays copy-only.
   *Memory on* and the folded *Apps outside this machine* (the remote connector, `page:remote`) follow.
+  **One click to the internet (ruling 59; DR-19, DR-40, DR-41):** *How apps reach this Mac* shows one line ("This makes
+  the connector reachable from the internet."), the exact command in a `CommandBox`, the certificate-log warning and a
+  compact `NeutralButton` *Turn on*; open, *Reachable at <address>* only when a probe just answered (`RemoteReach.of`,
+  `.funnelOpen`), and a `TextButton` *Turn off* with a confirmation naming the off, the serve's pattern. A refusal is one
+  danger caption with *Open Tailscale settings* when there is a place to fix it. The connectors card offers an opened
+  address only once it answered. The switch closes the address as it turns the connector off, with one caption saying so.
+  If a mapping still outlives it, one card says so and keeps the off, and another program on the port comes first, in
+  danger. Other public mappings are listed with their off in a `CommandBox`, to copy. An
+  older backend (404) or no Tailscale keeps the page as it was: the command to copy, ngrok, the download.
 - **Privacy & data** gains Search & memory's one row (*Search runs on this Mac* and the sharper-model download); the
   fade card shows only while it holds a suggestion or a chosen pace. Watched folders are sources (`WatchedFoldersGroup`
-  is kept whole for the Sources page).
+  is kept whole for the Sources page). Under *Agent conversations*, *Your agents' notes* (ruling 43, `.agentNotes`) is
+  the memory's one switch for the agents' own memory notes (`GET`/`PUT /capture/agent-memory/settings`), on by
+  default, optimistic with rollback; disabled until the backend answers (`capture-and-sleep.md`).
 - **Reading in your browser** (fix round 2026-10-22): Reading the web's switches — the master switch (on by default
   behind the versioned first-use sheet), the signed-in session (ruling 25), the YouTube lists, Never explore, how the
   agent reads and watches, the sites — in one sheet from the Sources page's header (`ReadingInBrowserSheet`); the
   retired `reading` section and its rows open it (`SettingsHome.readingInBrowser`, `AppRouter.routeToReadingInBrowser`).
+  **Where to check** (owner 2026-10-26, G61) opens the sheet, above the switches (`AddedSourcesSection`): paste a link,
+  optionally pick a page by name (live pages only, never creating one), *Add* — with a page it is that page's source
+  as the person's own (`POST /entities/{id}/sources`), with none it is saved as a link (`POST /sources/save`). Below it,
+  every page's sources the person and their agents added (`GET /sources/where-to-check`, an agent named by its harness),
+  each with who and when and an ✕ that removes it as the person (`/sources/change` remove — remembered). Not a Store
+  domain: `AddedSourcesModel` keeps the list in memory with its ETag (a 304 keeps it) and reads it again after each
+  write; a removal is optimistic with rollback.
 - **Status words** (fix round; words ruling 39, 2026-10-24): a dot and one word from one vocabulary — *Connected*,
   *Not connected*, *Off* (the person turned it off), *Needs sign-in* — across onboarding, the Agents page, Sources and
   Settings; "Found" and "Not set up" are never a status. The dot and the word agree: an agent or a paired device is *Connected* (green) when seen within the backend's window, configured, with conversations or seen before — recency lives in the line ("3 min ago", "last seen <day>"), never in the dot — else *Not connected* (`Copy.Presence`: `.connected`, `.idle` (only the line's wording differs), `.notConnected`). A plan or key in Settings → Intelligence nobody connected reads *Not connected*, never *Off*. An agent's detail draws the connect steps (`AgentSetupSteps`:
@@ -65,13 +132,36 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
 - **Agents page** (`AgentsSidebarPage`): one row per umbrella from `/providers` — `LogoTile` · name · where it was seen
   (never where it could connect: a row nothing has seen has no line) · last seen · conversations · a dot and one word (`/agents/live`, polled every 3 s while shown; conversations summed from
   `sourcesOverview` by harness). A row opens its detail (DR-74): products and how each connects (`AgentProducts`: a way with a `remoteLabel` is two lines — "Claude Desktop · on this machine" and "claude.ai · from anywhere · by export" — so the connector is never named after the Mac app), page edits as *Writes
-  at once* / *Proposes* (G198's list), *Copy setup prompt* (`/agents/setup`), *Import its chat export*, and *Remembers
+  at once* / *Proposes* (G198's list), *Copy setup prompt* (`/agents/setup`), *Import its chat export* (the intake overlay, CIC8), and *Remembers
   automatically* for a harness with hooks. *Add an agent token* (DR-75) makes a G213 token and shows its paragraph once;
-  active tokens list with Revoke; the command-line tool closes the page.
+  active tokens list with Revoke; the command-line tool closes the page. **Who is listed (owner 2026-10-26):** only a
+  product that can actually reach Cicada, by its current name and its own mark — *Devin* (Windsurf became Devin Desktop
+  on 2026-06-02; with the Devin CLI and cloud Devin, way id `windsurf` kept), *GitHub Copilot* with the Copilot glyph
+  (VS Code agent mode and the Copilot CLI; way id `vscode` and the G135 app id kept, its label "GitHub Copilot"), *Muse*
+  with Muse's own mark (Meta's agent; umbrella id `meta` kept), and xAI's three ways (Grok Build, the Grok app's custom
+  connector, Grok Bot asked in chat). Cline, Goose, Kiro and Poke left the table and the logo set; a person who had
+  connected one still lights *Another agent* and an old sign-in request reads "An agent" (`agent_catalog`'s docstring).
+  **T3 Code (G228, 2026-10-29)** is a host row: umbrella `t3`, way `t3code`, tier 1, its own mark (`t3`, from its
+  repository at a pinned commit; `BrandMark` maps the way id to it). It has no pill; its detail's connect steps are the agents it drives (`AgentProducts.entries`: a way
+  with no pill offers the pills its `setup` ids name — `claude-code`, `codex`, `cursor` — the same rule that gives a
+  generic-prompt way *Another agent*), so Connect for me, the copied prompt and the wiring status are those agents'
+  own. The row lights *Connected* once a capture hook named T3 Code (`agent_seen` via `hook`; never *Another agent*),
+  and its conversations are the episodes labelled `host: t3code` (their own Sources row). **Way notes (2026-10-29):**
+  each product line in a detail's Products draws its way's `note` under it in caption ink (`ConnectionLine`'s `below`
+  slot; the local line only, never repeated on a remote one) — T3 Code's says that Codex under T3 Code's own sign-in is
+  not captured and to choose the existing Codex login in T3 Code → Settings → Providers.
 - **Marks:** one per provider umbrella from the curated set (`app/assets/logo-set/`, `scripts/build-logo-set.py`, origin
   `set` in `logos.manifest.json`); `codex`/`chatgpt` draw OpenAI's mark and `gemini-cli` Gemini's through `BrandMark`.
   A listed connection's mark sits in `LogoTile` (26 pt in a 36 pt ring tile; `.dense` 18 in 24); a status is
-  `StatusDot`; a row is `ConnectionLine` (DESIGN_RULES §9, 2026-10-22).
+  `StatusDot`; a row is `ConnectionLine` (DESIGN_RULES §9, 2026-10-22). **Freshness** (vision item 4, 2026-10-28):
+  `scripts/logo-freshness.py` asks each set mark's own `source_url` once and reports `same` (bytes, or pixels for a
+  re-encoded PNG — a pure-stdlib decoder, Adam7 included), `changed` (the fetched file kept under `--save-dir` for
+  review), `pinned` (a commit, npm version or Commons file page: never asked) or `unreachable`; the weekly
+  `.github/workflows/logo-freshness.yml` puts the table in the job summary and the changed files in an artifact, with a
+  read-only token — it never commits or opens a pull request; replacing a mark stays a reviewed `fetch-logos.sh` run.
+  Audit 2026-10-28 (45 set sources behind the 54 bundled PNGs): 23 same (8 of them PNGs the vendor re-encoded), 20 pinned, 2 visible redraws (Fireworks, OpenClaw — waiting on
+  the owner), 0 unreachable; every bundled PNG is 256 px except Instinct (64) and Warp (196), which their vendors still
+  serve no larger, and a 256 px raster is ≥ 4.9× the 52 px the tile draws on Retina, so nothing was re-cut at 512.
 
 **Ruling (G109, 2026-09-02) — d3-force stays.** Evaluated against sigma.js/ForceAtlas2, Pixi,
 cosmos, ngraph and d3-force-3d at ~1,900 nodes: the two G109 symptoms were three local bugs in how
@@ -142,6 +232,30 @@ the coordinator) and `dismantleNSView` suspends the page and removes its handler
 releases its graph. Regression nets: `Tests/graph/graph-lifecycle.test.js` and
 `GraphViewLifecycleTests`. Capture, SSE and the menu-bar worm are untouched by any of this.
 
+**Merge, separate, undo (G227 follow-up, owner 2026-10-29; `PageJoinSheets.swift`, `PageJoin.swift`).** Owner: "the
+separation of entities should mainly happen by talking to an agent." The page's menu (DR-81) has two quiet entries.
+*Merge into another page…* is one light sheet in the Add-skill sheet's shape: search the graph's pages (same-titled ones
+first, each with its `QualifierTag`, DR-44), one sentence saying what moves and that it can be undone, one primary
+Merge (DR-40); afterwards the page that stayed opens fresh. *Separate with your agent…* opens no checklist: it copies a
+ready sentence naming the page by title and id (`SeparateHandOff`, through `AppPasteboard`) and toasts "Copied — paste
+it to your agent"; the agent proposes the split in the conversation and applies it on the person's yes
+(`cicada_split_page`, `mcp.md`). History: a join's row says what it did (`HistoryRowWords`) and carries its own quiet
+**Undo** on the row (`HistoryUndoButton`, `POST …/history/{commit}/undo`); undoing a split from the new page's History
+goes back to the page it came from. A refusal shows the server's own sentence. The in-app catch-up chat does not split:
+it answers inbox items through fixed keys and has no tool loop, so giving it one is not a cheap change (report).
+
+**Same name, different things (G227, 2026-10-29).** `GraphNode`, `Entity`, `MemorySearchHit`, `ProjectPageRow`,
+`SleepConsolidated.Page` and `InboxItem` decode the backend's `qualifier`/`displayName` (decode-tolerant). **Owner
+2026-10-29: the qualifier is a tag, not parentheses.** **Media by kind (ROR-138, 2026-11-06):** a graph node carries a media page's `mediaKind` (`media_kinds`: book, article, video, picture, paper, repository, link, file, feed), its `origin` and its `mediaChannel`, derived on read and omitted elsewhere; the View menu's Media section filters by kind and can group by channel or publication (a name under the title; a channel's own picture is not fetched, since only a site the person added or Cicada confirmed may draw a mark), each Media row in Clusters leads with one aligned slot (`MediaLeadingSlot`: the picture with the origin's mark as a corner badge, or the mark alone in a ringed well while no image has arrived, never a hole; the title on one top line with or without a line, which drops its "Saved <kind> —" lead), the mark from `OriginIconography` (a book's origin is its door, `media_kinds.origin_of`), and a feed item the person has not mentioned stays out unless "From feeds" is chosen. The look of Clusters is unchanged. A book's page block never hides for an empty article: its head (cover from the list's `/entities/<id>/preview`, authors, status, description box) is drawn by the book, not the article. A saved list turned on reads Connected on the Sources page only once its agent has read it (`savedListsRead`). The card header, Clusters' rows and grid, the find palette
+(`FindRow.qualifier`; the qualifier is also a keyword there), Projects' page rows and a pick-the-page inbox option
+(`InboxOption.pageName`/`qualifier`) draw the plain name with `QualifierTag` — DR-44's one `Tag` — beside it; the run
+card's pages are already `Tag`s, so a shared one reads "<name-a> · IDE" inside its own. Running text keeps
+"<name> (<qualifier>)" (`shownName`, `EntityNames`): a tooltip, VoiceOver, an inbox sentence, a dialog button. A
+same-title question's options are its pages plus "Another one"; the card is the `.options` variant and the catch-up
+answers with the option's key (`CatchupAnswers.bare`). A bare `[[<name>]]` that
+two or more pages answer to opens the system's own choice dialog ("Which <name>?", one button per page by its qualified
+name; DR-40's buttons are AppKit's own there, no new visual pattern) — a link never picks one (`MarkdownBody.entityIDs`).
+
 **Sync engine.** One `Store` holds a `Snapshot` per domain, hydrated instantly from a per-bank
 on-disk cache before the first network round-trip, so the app renders real data cold even with the
 backend down. A `SyncEngine` holds one SSE connection to `GET /sync/events`, reconnecting with
@@ -188,7 +302,12 @@ its window shift, else "share of the plan not recorded". Past nights' folded run
 detail does): the row has no whole-run usage on the wire.
 
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Skills,
-Sleep, Inbox, Sources, Projects, Agents at ⌘1–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant). Looks
+Sleep, Sources, Projects, Agents at ⌘1–5 and ⌘7–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant).
+**The Inbox left the rail (ruling 48 (2), owner 2026-10-28):** its questions live on Home and on each page, and the
+full grouped list is Home's sub-view — `AppTab.inbox` stays a destination (⌘K, the menu bar, a notification, Home's
+*All N questions*) but draws no cell (`AppTab.onRail`), Home's cell reads as selected while it shows (`railCell`), its
+eyebrow is the path back ("Home · All questions") and Esc with nothing open returns to Home; ⌘6 is left unused and no
+other digit moved (DR-22). The pending count is Home's badge now. Looks
 (⌘9 from 2026-10-14) went on 2026-10-20 — its looks live on their pages' cards — and a stored "Looks" selection restores
 to Clusters; Agents took the free ⌘9 on 2026-10-22 (ruling 36 D6). The Feed
 retired into Sleep on 2026-10-16 and Skills took its cell, so ⌘4 opens Skills and no other shortcut moved (⌘ map A);
@@ -196,12 +315,13 @@ for one release the first ⌘4 that lands on Skills toasts "The Feed is now part
 (`FeedMovedHint`, the key only — a click on the cell never shows it), and a stored "Feed" or "Capture" selection
 restores to Sleep. Each cell's tooltip
 naming its page and shortcut (450 ms, then instant while warm), selection by brightness and one neutral fill
-(`bgSelected` — never the accent, `SelectionTintLintTests`), the Inbox count a neutral `bgBadge` numeral, a spinner on
-Sleep while a cycle runs, the gear and the sun/moon toggle at its foot, no wordmark. The gear's `warning` dot lights only
+(`bgSelected` — never the accent, `SelectionTintLintTests`), the pending count on Home a neutral `bgBadge` numeral, a spinner on
+Sleep while a cycle runs, the gear alone at its foot (the sun/moon toggle retired into Settings → General → Appearance,
+owner 2026-10-26), no wordmark. The gear's `warning` dot lights only
 when the engine the person chose is a plan that is installed but signed out (owner 2026-10-16,
 `ConnectionsViewModel.needsAttention(engine:)` over `EngineOption.connectionId` — a plan merely available, never chosen,
 is not the person's problem; the engine choice is read once the backend answers). ⌃⌘S or the titlebar toggle swaps it
-for a 208 pt labelled sidebar, remembered per viewer (`cicada.shell.labelledSidebar`). Relaunch restores the last tab:
+with the 56 pt rail, remembered per viewer (`cicada.shell.labelledSidebar`). Relaunch restores the last tab:
 nothing stored, or a value no build knows, opens Home, and a stored Graph stays on Graph; `AppTab` raw values are the
 persisted identity and `AppTab.restored(from:)` maps retired ones. **The titlebar is a SwiftUI toolbar** with the
 title hidden (AppKit keeps the drag area in every gap): the sidebar toggle after the traffic lights; the **command
@@ -215,11 +335,11 @@ on the rail's surface (owner 2026-10-07): `CicadaTheme.titlebarBackground(for:)`
 (`shellContentPanel()`, `ShellContentPanel`) whose top-leading corner alone is rounded at
 `CicadaTheme.contentCornerRadius` (`radiusLarge`, fixed) and clips what scrolls up into the band.
 `RailCornerSnapshotTests` writes it offscreen on request. **Settings is a panel inside this window (DR-33)**: ⌘,
-(`ShellCommands`, which opens the window first if none is) and the gear open it over a scrim — 880 × 620 at 1×,
-inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
+(`ShellCommands`, which opens the window first if none is) and the gear open it over the app, dimmed past legibility (`SettingsPanelLayout.backdropDim`, 0.9 black over the panel scrim, ROR-118 round 6: the app can be felt behind, no page text reads through; no solid field; the titlebar's items hide) — 1080 × 780 at 1×,
+inset ≥ 36 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
 Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Search & memory · Sleep;
 Customize: Integrations · Reading the web · Agents · Devices & access · Skills; Engines & keys: Engines — and each
-page's own header with an `esc` keycap and a close ×. It is modal: the shell under it is inert, ⌘K waits, Esc and a
+page's own header with a close × (the `esc` keycap beside it retired, ROR-118 round 1; the × carries Esc). It is modal: the shell under it is inert, ⌘K waits, Esc and a
 scrim click close it. `AppRouter.openSettings(_:row:)` is the one door (`SettingsSectionLink`, the gear, ⌘,), every
 hand-off to a page closes it, and `cicada.settingsSection` is only its remembered selection — the `Settings{}` scene
 and its cross-window seeds are gone. Privacy & data exports a bank and moves one to `<root>/.trash/`, but never
@@ -231,7 +351,7 @@ under the anchor its header had (`SettingsRowID.memoryGroup` = `page:memory`, `.
 three old raw values onto their new section and group: a saved `cicada.settingsSection`, the R-O11 `agentsMode`
 hand-off (now Devices & access) and a ⌘K recent (the group keeps its page's palette key) all open there, never
 General. Search still finds each by its old name (`SettingsIndex.formerNames`, the groups' own entries). General's
-Setup row joined the tour and the demo in one *Getting started* card (B12); the command-line tool moved to Agents' last
+Setup row joined the tour and the demo in one *Getting started* row (B12; ROR-118 round 5: a menu row whose items are the four actions, in General's last card beside Keep memory working's word, never a bar of buttons); the command-line tool moved to Agents' last
 card (B11); Reading's two method groups wait under *How your agent reads and watches* while its switch is off, and a
 landing on any of them opens the fold for that view only, never stored (B23, `ReadingMethodsFold`; Plans & keys' key
 fold the same; both draw through `DisclosureHeader`, DR-39). A saved retired value lands on its group
@@ -271,9 +391,16 @@ longer says a fresh memory "was set up for the larger version on another Mac": `
 checkout with no bundled model) and `SearchUnderstanding.meaning` then offers the sharper version
 (`meaningNotYet`); a backend without the key reads as before. Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
-announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which
-follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General (F-10:
-Look · Startup · When Cicada is closed) holds Appearance and Text size (Scene retired with the painted art, owner
+announces the row (G139). `SettingsSection` raw values did not move. General's appearance is three live miniatures —
+Light · Dark · System (`AppearancePicker`, owner 2026-10-26), each a drawing of the app in that appearance's own palette
+(`AppearancePalette`), System the two halves side by side; the chosen tile wears the accent ring, ← / → move the choice;
+a pointer's choice cross-fades the window on `CicadaMotion.settle`, a key switches in one frame (`AppearanceMotion`,
+DR-60). **System is the default** (`AppearancePreference.defaultChoice`: an absent or unknown value; a stored `light`/`dark`
+is an explicit choice, kept on upgrade) and follows the Mac's own light/dark through one app-scope observer
+(`ThemeStore.observeSystemAppearance`). The palette's Switch to light/dark actions write the same key. General (F-10, re-laid in ROR-118 round 1 as five blocks: Appearance with three larger
+tiles and Text size under them; one card of switches (Open Cicada at login, Show in menu bar, Suggest connecting apps,
+Keep memory working, the updater); one low bar of four equal setup cells on the cards' own fill and ring with hairlines between them (Run setup again, Show setup checklist, Take the tour,
+the demo; round 4); Keep memory working is the plain word "On" at a switch's height and trailing edge, never a switch, a pill or a dot, because the service is installed, not toggled (an off switch would stop capture, feeds and scheduled Sleep while the app is closed, and the app has no uninstall path; held for the owner, 2026-11-06); Actual size sits left of the slider, so the readout ends on the card's edge; the chosen Appearance tile wears a 2 pt accent ring and a check; a footer: the version in `textTertiary` and Report a problem as a text button) holds Appearance and Text size (Scene retired with the painted art, owner
 2026-10-16: it picked a painting, and none is left), Open Cicada at
 login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does not keep says so), Show in
 menu bar (per viewer, on by default; hides the 18 × 18 menu-bar bookworm (ruling 18), the Dock icon stays); a login launch opens no
@@ -306,6 +433,62 @@ one quiet word (`DeviceOrigin`, names from `DeviceDirectory`, read on demand): *
 "Saved from" line (`FeedSourceLine.text(_:device:)`), in the Reader's meta line (`ReaderHeader.meta(_:device:)`) and on
 each conversation under *Where this came from*; on a server's client, the server's own writes read *from this server*;
 on This Mac, this Mac's own say nothing. The bank picker's menu leads with *on <host>* on a server.
+**One memory on your computers** (G132 phase 1, ruling 51; `MemoryCopySetting`, `MemoryCopyModel`; not a Store domain,
+read on appear and every 30 s while open; drawn only when this app is not a server's client): on the computer that
+holds the memory, *Share this memory with my other computers* (`PUT /sync/publish`; never offered for a demo, fixed
+when the environment sets it); on another computer, *Keep a full copy here* — that computer's address and the
+one-time code its *Pair a device* shows (a computer's code), checked and redeemed by this computer's backend
+(`PUT /sync/replica`), which then starts again in place (`POST /sync/replica/restart`) as a copy. While it keeps a copy
+the row says what it follows, how many changes are still to copy and how many made here are on their way (counts
+only), with *Copy again* when the home's history changed; switching it off stops the copy and reopens the memory this
+Mac had before (the copy stays on disk, inactive, never written). *Keep a full copy here* is off, with the reason in
+words, while Sleep runs here, for a demo memory and while this Mac shares its own; the share switch is never offered for
+a demo (the backend's `demo` and the Store's roster both ask). A failed refresh keeps what the card last showed. The app
+keeps talking to this Mac's own backend in both cases (`headless.md`, "A computer keeps a copy").
+DR-40, DR-59, DR-76.
+**Relay** (G132 phase 3b; `RelaySection`, `RelayModel`, `RelayPairSheet`, `RelayPairModel`, `Copy.Relay`; not a Store
+domain, read with the page; drawn only when this app is not a server's client), **under *Advanced*** (ruling 51f, owner
+D9: never a default) — a folded card (DR-39's form exception), the viewer's choice kept in
+`cicada.settings.devices.advancedOpen`, "Relay on" beside the label while folded with one set, opened by a search hit on
+the row: the relay address, **off by default**
+(`PUT /sync/relay`, `wss://` only, `ws://` only to this Mac; *Turn off* clears it), with one plain line for either
+state. With a relay set on a computer that shares its memory, *Pair a computer through the relay* opens the sheet: the
+QR (v2, sorted keys, drawn here with Core Image inside a ring, DR-9) beside the code and the relay's address for typing
+(DR-19); then the name of the computer that answered — and on the typed path the six digits both screens show, in mono
+because they are compared — with one confirmation (DR-40); "Two devices answered this code, so neither was added" when
+a second answered; closing while it waits cancels the code. On a computer that keeps its own memory and shares nothing,
+*Join with a code* takes the code and the relay's address, shows the same six digits with *They match*, and the
+backend starts again as a copy. Revoke's confirmation now says "Revoking cannot take back the copy it already holds."
+Both G132 cards' models (`MemoryCopyModel`, `RelayModel`) are owned and refreshed by the page (on appear and every
+30 s): a `.task` on a card that hides itself until its first read never ran (2026-11-03).
+**The home-network door, the app's side** (ruling 51f slice 1; `LanDiscovery`, `LocalNetworkStep`, `LanRules`,
+`Copy.LocalNetwork`; network.md, "Discovery on the LAN"). *When Local Network is asked (owner D4):* once, at the
+person's first *Share this memory…*, *Keep a full copy here* or *Pair a device* click — a step titled by that act (the
+pair sheet draws it before any code is made): the Permissions step's own row (`PermissionList`, `.localNetwork`, never
+in onboarding's list or Privacy's), "If macOS asks about incoming connections, choose Allow." only when the firewall is
+on (`socketfilterfw --getglobalstate`, read only), and *Continue*, which never waits on the row. *Allow…* raises the
+prompt by the app's first Bonjour call: a throwaway `cicada-probe-<random>` instance on port 9 (no socket, so no firewall
+question) seen in its own browse is a yes, a policy refusal that never saw it a no (`LocalNetworkMemory`,
+`cicada.permission.localNetwork`; macOS has no preflight). The answer goes to the backend as `lanAllowed`; the door
+stays on loopback until it is a yes. Skipped or refused, the same row sits on the devices card above *Pair a device*
+(`cicada.devices.localNetworkStepSeen`). *Bonjour, once allowed:* `DNSServiceRegister` advertises the door's port under
+`/sync/discovery`'s instance name (an `NWListener` can advertise only its own port), `NWBrowser` browses `_cicada._tcp`
+(a conflict-renamed "c-… (2)" matches), each match is resolved with `DNSServiceResolve` + `DNSServiceGetAddrInfo` —
+never a connection, which would spend the door's handshake budget — and private and unique-local addresses are posted
+as `doors` (`POST /sync/discovered`, at most 16, again only when the set changed or after 5 min). A refusal later in
+System Settings is noticed by the browse; a refused answer is looked at again, silently, on the app's return — only after the person's own *Allow…* asked once
+(`cicada.permission.localNetwork.askedAt`), at most once per 30 s and never two probes at once. A bank switch refreshes
+Bonjour at once (another memory is another instance name). *Hints:*
+`NWPathMonitor` posts `{event: changed}` after a 2 s settle, the app's return `{event: returned}` at most every 30 s,
+only while this memory is shared or this computer keeps a copy. *Route state, in words, never an address or a port:* a
+device row's `how` reads "Same network" for a door on this network (a door request stamps `agent_seen` as `lan` or
+`tailscale`); a copy's row says its route to its home from `/sync/routes` ("Same network · reached just now", "Tailscale",
+"Your address", "Relay", or "Queued") — the "Following <address>" line is gone — and, in `danger`, "Queue full: nothing
+waiting was lost, but new changes aren't kept until the home answers." while `outbox.full`. The bundle carries
+`NSLocalNetworkUsageDescription` and `NSBonjourServices` (`_cicada._tcp`) in both builds; the background service's
+install passes `CICADA_APP_BUNDLE_ID` (the plist's `AssociatedBundleIdentifiers`, TN3179), and a release's plist that
+does not name the app is rewritten once. No new pattern, no motion. DR-5, DR-9, DR-10, DR-19, DR-38, DR-39, DR-40,
+DR-52, DR-59, DR-60, DR-76; §9 2026-11-03.
 Agents' last card holds *Command-line tool* (G180, ruling 21; on General's Setup card until B11; `CommandLineTool`,
 `CommandLineToolRow`): one neutral *Install the command-line tool* button (DR-40) that links `~/.local/bin/cicada`
 with no admin.
@@ -319,7 +502,8 @@ menu commands in `Support/FindCommands.swift` (`HiddenShortcutLintTests`); ⌘, 
 `Support/ShellCommands.swift`. Track P's audit removed the global Sleep button, because a cycle starts from the Sleep
 page's one Consolidate control (G125 R10) or the menu-bar bookworm.
 **One intake (Track I, spec decision 13).** Every way a file arrives — a drop anywhere on the
-window, the Dock icon, File → Import… (⌘⇧I), the menu-bar worm's *Import a file…*, an empty state,
+window, the Dock icon, File → Import Chats or Files… (⌘⇧I), the menu-bar worm's *Import Chats or Files…* (both
+*Import…* / *Import a file…* until CIC8, 2026-10-29: every door says one thing), an empty state,
 each `+` chat tile, the Sleep room's worm — goes through one `IntakeRouter`: sniff (`POST /intake/sniff`, stages nothing) →
 preview (counts, date range, new · grew · already here, skipped files by name, *Into* a memory) →
 import (`POST /intake/import`; a 202 and a job counter above 10 episodes) → a *what happens next*
@@ -332,15 +516,102 @@ resolves under `~/.claude`, `~/.codex` or `~/.cicada` (or `$CLAUDE_CONFIG_DIR`, 
 `$CICADA_HOME`) is refused before any folder is walked, a refused root met inside a dropped folder
 is never descended into and refuses the drop, a drop with nothing export-shaped in it is refused by
 name, and nothing is sent; `accept` answers (`IntakeAcceptance`) so the Sleep room tells a refusal
-in its worm's words while every other door shows it in the panel. Three pickers still sit outside
+in its worm's words while every other door shows it in the panel. **Chat exports, findable (CIC8, 2026-10-29;
+owner: "I didn't find super intuitive the way to add chat exports like files").** The intake's one picker
+(`IntakePicker.choose`, which onboarding's *Choose a file…* now calls too) opens in Downloads, where every chat app's
+export link saves its .zip — only a path is set: the panel draws the folder, so Cicada reads nothing there and no Files
+and Folders prompt is raised. Every door converges on the overlay: Sources' header add, its **Chat exports** entry (the
+export's where-from line and the intake panel itself — drop, *Choose a file…*, each app's export page, steps and *Remind
+me* — where it used to say "each chat export sits on its agent's row" and send the person to Agents), the Agents
+detail's *Import its chat export* (the overlay over that page; it used to stage a tile Sources had no entry for, so the
+person landed on an empty Sources), the palette's *Import chats or files…* action (⇧⌘I; the TOP hit for "chatgpt", "claude", "export", "chat export",
+"zip", on ⌘K and on Home's field, which is the same index — its intent words weigh `QuickMatch.Weight.intent`, 0.82:
+an exact one beats a title's prefix and any keyword, never a title typed in full), and the drawn walkthrough's *I have the
+file…* (Home: straight to the picker; the Welcome: its own picker). An intake panel inside a page (`.emptyState`
+origins) is a door, not a host: its drop or pick runs in the overlay, and it shows no Cancel and takes no Return. Three pickers still sit outside
 the router — the Add-source walkthrough's drop and *Choose file…*, its saved-content picker, and
 Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
+**An export is one-time (ruling 58, owner 2026-11-04).** It starts a new memory or brings in what an AI provider holds; a
+drop or the file panel is the door, and *Remind me* is the one-off for an export that comes by email. Nothing nudges a
+person to ask for another or looks in Downloads for one. #592 did both for a day and never reached a release; a build
+that had them left `cicada.exportHabits` in defaults and a repeating local notification, which `ExportWaitStore` removes
+once at launch (`removeRetiredNudges`, identifiers `cicada.exportWeekly.*` and `cicada.exportArrived.*`), leaving every
+one-off wait and everything imported alone. An old notification's tap opens the intake idle, as a due reminder's does. A
+Files and Folders grant macOS recorded stays listed in System Settings; the app no longer uses it.
+
+**Asking the person's agent to request it (ruling 58b, ROR-126).** `AgentExportOffer`, under the walkthrough's honest
+line, shows only when `ExportAgentRules.canRequest` is true: an agent is connected (`/agents/wiring`, recall on) and can
+drive a browser (`/agent-methods`, the reading job chosen as the agent's own tools or a browser skill installed). *Request
+<provider> for me* is one yes for that provider; it posts `POST /export-requests/<vendor>` and, from that same click,
+starts the wait and its reminder (`ExportWaitStore.remind`, tomorrow 09:00 — the reminder is the fallback, and its
+notification permission is asked here, as it is from *Remind me*). The agent picks the request up through
+`cicada_export_requests` (`mcp.md`) when the person next talks to it; the offer then says "Asked. Tell your agent…",
+"Your agent asked for the … export", or, for `manual`, why this one stays by hand (and the wait is dropped). **Home's
+worm:** `HomeExportWaitStrip`, above the blocks, one row a provider ("Waiting on your … export · requested …"), the small
+mood sprite beside it (DR-13 keeps the study room the one illustration, so this is the mood sprite on a row Rodrigo
+asked for by name, 2026-11-06); a request still `asked`, or `manual`, is not a wait (`ExportAgentRules.waitingVendors`),
+and the menu bar's lines follow the same rule. A sniff of that provider's export clears both the wait and the request.
+
+**Choosing what to bring in (ruling 58b).** The intake preview and the Welcome's staged exports show `ExportChoiceView`:
+a start date (`Everything`, or a date within the exports' own range) and a tick per new or grown chat, with a filter,
+*Select all/none* and "n of m chats". `IntakePreview.since` / `.deselected` are the choice; `chatImportCount` is the
+Import button's number. The choice goes with the import as form fields (`since`, `exclude`), applied by the backend before
+staging, so nothing becomes an episode first. A chat left out before arrives unticked ("Left out of an earlier import").
+An export that arrives during onboarding opens the chooser (`WelcomeExportChoiceSheet`) before it is read in; Done reads
+it in, or Get started does when it arrived on the Welcome.
+
+**Recordings and videos (meaning index 2, 2026-10-28).** **File → Add Recording, Video or Photo…** (2026-10-29; photos 2026-11-05) is the
+keyboard and VoiceOver twin: the intake's own open panel (`IntakePicker.chooseMedia`, audio and video types, no folders)
+hands what was chosen to `IntakeRouter.accept`, so the menu takes the drop's door and its rules. An audio or video file among a drop (by its type; a folder
+is never walked for them) leaves the import before the sniff and goes to `MediaFileIndexer` (`IntakeRouter.onMedia`,
+after `refusedRoot(of:)`): it transcribes the speech on this Mac and, for a video, keeps one frame per shot, and posts
+only those derivatives to `/files` (`storage.md`, "Recordings and videos the person adds"). One toast says it is being
+read and one what landed — the Store's existing toast (DR-59 sentence case; no new visual pattern) — including that
+the words are the recording's, not the person's, and why a file was kept without its words (speech recognition off, or
+no speech model for the language: the toast names Dictation's own setting; Cicada never downloads one). The only
+Speech Recognition request is inside the person's own drop; nothing on launch or in the background asks.
+`MediaFileIndexer.swift` is the one more file allowed to import AVFoundation (`AVImportLintTests`), every call behind
+`Transcribing` / `FrameSampling` seams its tests fake.
+
+**The viewer: play and see it inside the app (ROR-117, G43; DR-5, DR-9, DR-33, DR-59, DR-60).** One sheet, `MediaSheet`
+(`Views/Media/`, presented by `ContentView` from `AppRouter.mediaRoute`), two faces. *One file* (a palette hit's ⏎, a
+list row): `MediaViewerModel.target(id:at:places:)` decides before any player exists — a recording or video plays from
+the hit's second, a photo shows, a file that is not on this Mac is one sentence ("That file isn't on this Mac.") with
+*Choose it…* (a file chosen again must hash to the id, `isTheFile`; a Voice Memo, keyed by its store, offers no choice).
+Video is `AVPlayerSurface` (the existing seam; `VideoPlaybackController` gained `currentTime`, `length`, `seek(to:)`,
+`stop()`, `speed`, `isMuted`, so `AVImportLintTests`' allow-list did not widen): the system's inline transport (play,
+scrubber, time, volume) plus its full-screen button (ROR-131). Audio is `AudioSurface` — the time and the time left, a
+scrubber that follows the finger and seeks on release, back 10 / play / forward 10, a speed menu (0.75–2×) and mute,
+read from the player's clock ten times a second; a finished file plays again from the start. **Keys (ROR-131,
+`PlayerKeys`, scoped to the player's container, R10):** Space or K play and pause, ← → skip 5 s, J L skip 10 s, M mutes;
+the same on `VideoPlayerView` and the sheet / page pane; a held arrow repeats, a held Space does not. The sheet and the
+lightbox size to the screen (`MediaViewerModel.sheetSize`: 70% × 75%, never below 880 × 600 / 640, never past
+1,600 × 1,000). The header carries ‹ (back to the list), the name, *Open in default app* and ✕; Esc closes. Closing
+the sheet runs `MediaViewerModel.end` (pause, drop the item): nothing keeps playing.
+A photo is `PhotoViewer`: fit, pinch / double click / two buttons / + − 0 to zoom, the zoom read as a percentage of the fit with a button back to it, scroll when zoomed, no animation (DR-60). `ImageLightbox` (a stored picture, enlarged) draws the same `PhotoViewer` on its dark scrim, so a zoomed corner can be reached (ROR-131).
+*The list* (**File → Added Files…**): `GET /files` newest first — glyph, name, length — a row opens the same file; the
+context menu keeps *Open in default app* and *Show in Finder*. **A photo** joins File → Add (the picker and the drop take
+`.image` but not SVG): `MediaFrames.photoFrame` decodes it with ImageIO on this Mac, posts kind `image` with no words
+and one ≤ 640 × 400 JPEG at time 0 to `/files/<id>/frames` (the existing derivative path; it is a `photo` picture of the
+one index, shown in the palette as a Photo row, and the Speech prompt is never raised for it). The viewer reads the
+original from `MediaFilePlaces`; nothing is downloaded, no stream is derived (G162).
+**A recording's page (ROR-117 3a, ruling 68; DR-5, DR-9, DR-59, DR-60, DR-78, DR-81).** An added item is a `media` page
+(`media.kind: file`; `EntityMedia` carries `fileId`, `recordedAt`, and an empty `url`). `EntityDetailCard.pageBlock`
+leads with `MediaPageHead` — the same `MediaPlayerPane` / `PhotoViewer` / `MissingFilePane` as the sheet, never a
+second player, and it never autoplays — then one line (`Recording · 1:05 · Mar 2`), then the article, then
+`MediaPageTranscript`: *The recording's words*, one row per segment, each stamp a click that seeks the shared player
+(`MediaPageSession`; plain text when the file is not on this Mac or is a photo). The words are read from
+`GET /files/{id}/transcript` when the page opens and held in view state only. A file not on this Mac keeps the sheet's
+sentence. `WikiArticle` draws no `##` section with nothing under it (DR-81). The transcriber is a chip in *Where this
+came from* ("transcript", `ProvenanceContributor.role`), outside "Written by". The sheet's header gains *Open page*
+once the file has one. Tests: `MediaPageModelTests`.
+
 **Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1. The painted band is gone (off since G189(a),
 2026-10-06; retired with every painting on 2026-10-16, owner: "Remove it from everywhere"), so the first content is
-"What would you like to remember?" as a `PageTitle` at the room pages' 24 pt top inset (`HomeLayout.headlineTop`) — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block: a second
+"What would you like to remember?" as a `PageTitle` at 34 pt (`HomeLayout.headlineSize`), under the study room's worm (`HomeGreeter`, the room's sprite in the menu bar's mood with a reading worm for waiting conversations, never a badge; round 3 — round 4 draws it at a whole 3 points per art pixel, `HomeLayout.greeterCell`, cropped to the pixels every mood draws, `greeterInk`, so it is crisp and its transparent margin does not push the headline down), the pair starting 17 % of the viewport down, 24 to 140 pt (`HomeLayout.headlineTop(viewportHeight:)`; ROR-118 rounds 1-3) — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block — the one column every block and row below shares — its type 17 pt and 6 pt taller than the palette's, raised on the input ring (`HomeLeadField`; round 5: dark `bgButton`, a step above the card under it, itself a step above the ground, so the three layers separate and the field still leads) with a Find / Ask switch (`FindModeSwitch`: a recessed trough, the active word raised and primary; the palette keeps `TextTabs`): a second
 `FindPaletteModel` sharing the one Ask and keeping no recents; ⌘K on Home focuses it, a pasted `http(s)` link offers
 *Save this link*. The headline, the field and the blocks scroll as one page (owner 2026-10-06), under macOS 26's soft top scroll edge
 (`softTopScrollEdge()`), so no card is cut under the field; the first block sits one 24 pt block gap below it, and with
@@ -358,9 +629,21 @@ setup checklist* (`showChecklist`; the Welcome's record never opens it). The tou
 card, so it is never off-screen. Inside, three labelled groups 20 pt apart — Connected, Your past chats, First read — and *Also
 on this Mac* as an offer. Your past chats has one 36 pt row per vendor still to ask (`ExportVendorRow`; a vendor whose
 `chat-export:<vendor>` row has episodes is not asked again), the whole row opening onboarding's drawn walkthrough over
+**one card that leads** (`LeadQuestionCard`): the most-used page's question — its picture when it draws one
+(`EntityPicture` in a button that opens the page, nothing otherwise, DR-48), the question in 15 pt medium (under the field's 17) inside `BalancedLines`, a layout that narrows the text to the narrowest width keeping its line count so no word is stranded on the last line, and under it the one next act (round 4): *Answer*, the page's one accent primary (round 5, `PrimaryActionButton`, DR-5 (2) and DR-40; a `NeutralButton` while Getting started's own read pill is up, so never two primaries), opens that question in the Inbox's list, where the rest wait, and *Catch me up*, a compact `NeutralButton`, starts the chat (its hover "N questions about M pages · or say "catch me up" to your agent"). A click on the question does what Answer does. The page's name, the reason, the age and "N questions" are the question's hover and accessibility hint, not a second line of small type, and *All N questions* is gone from the card (Answer lands in the list; the fallback block when no question can lead keeps it; the card is `bgFocus` with the resting ring in dark (a ring with no fill in light), a step under the field, which stays the page's highest surface). The other questions are one
+click away, so no two rows repeat each other's copy. Drawn from the Store's disk-hydrated snapshot, so Home never waits on
+`GET /inbox`. **The titlebar's search is quiet on Home alone** (`CommandBar.quiet`, round 2): the bar is the memory-bank selector and nothing else, since Home's own field is the same palette body; ⌘K and the menu item still open the palette, the tour's search stop draws the full bar, and every other page keeps the bar as it was;
+Last read (the status line's last segment, above) is the newest Sleep commit: its pictures are `EntityPicture` at 22 pt, one size side by side — each number once, never a Consolidate. The
 Home (`HomeWalkthroughLayer`), with waits above them leading with "Check your email for the … link". Today is one row to
 Sources (captured today, UTC, with the three busiest origins' marks, names and counts) plus the waiting count as a row
-to Sleep; Needs you is the Inbox's kind glyph, question and age, *Open Inbox* at the label's right, landing in STATE 1;
+to Sleep; Needs you (ruling 48 (1), owner 2026-10-28; `NeedsYouSection`, `HomeQuestions`) is two blocks: **Catch me
+up** on its own (`CatchupBlock`, `07-home-b`'s separation — the chat glyph, "N questions about M pages, the ones you use
+most first · or say "catch me up" to your agent", *Start* a `NeutralButton`), then *Pages with a question*, one row per
+page (at most four, the server's order, `orderIndex`), each leading with the page's picture (`EntityPicture`: face, logo
+or type glyph — the kind moves to `.help`, DR-48), the question in plain words (`spokenQuestion`), its reason and the page
+as an `InlineLink`, "N questions" when the page has more, and the question's age; a row opens that question in the
+list (STATE 1), the link opens the page; *All N questions* at the label's right opens the full list (never a fold —
+ruling 48 (17)). Drawn from the Store's disk-hydrated snapshot, so Home never waits on `GET /inbox`;
 Last read is the newest Sleep commit as a row to that read in Sleep's Past reads ("Today 07:27 · 33 updated", the commit's
 instant on the viewer's clock), its pages as `Tag`s in 24 pt hit frames — each number once, never a Consolidate. The
 history is not a Store domain: `SleepViewModel` holds it in memory, Home fetches it on arrival and whenever the status's
@@ -373,6 +656,70 @@ all three empty is one `HomeEmptyBlock` (*Choose a file…*), or nothing while G
 *Make it yours* (Appearance; `AppearanceTipPolicy`, per viewer; × closes it, its foot links Settings → General) is a row after
 Needs you for that one session; once hidden or seen it lives only in Settings.
 
+**Same-person chains (2026-10-29, after #509).** A chain of duplicate questions about one person (`chain` on the wire)
+is ONE question on Home, a page's strip and in the chat — its first open member stands for it
+(`HomeQuestions.leads`), said as "Are A, B and C the same person?" with its reason. Its answers are one tap per pair
+("A is B" / "A isn't B", `CatchupAnswers.chainChips`, each the inbox's own merge or reject for that pair's question,
+held with Undo); the chat stays on the chain until every pair is answered or skipped. Typed words on a chain ("yes, all the same") are proposed pair by pair and by name — "Join A and B as one?", then
+"And C and B, one too?" — each joined only on its own *Yes* (#536 review). Never joined by one answer or
+by typed words (ruling 41); no fold, no placeholder tile.
+
+**Catch me up, the chat (ruling 48 (8), owner 2026-10-28: "not a monotone interrogation").** *Start* opens the chat in
+place on Home (`CatchupView`, mock `08-catchup`; held by `HomeSearch.catchup`, so opening a page from it and coming
+back resumes it; Home's cell, Esc, × or *Stop for now* leave it; a bank switch ends it). Cicada on the left, the person
+on the right (the 2026-10-19 Reader ruling); the eyebrow "Home · Catching up · 3 of 6". `CatchupSession` asks the
+askable questions (`HomeQuestions.askable`: not an agent's request, the grouped link review, a shown-never-asked
+conflict or a pair with no other side) in the inbox's order, each in its plain words with its reason and its page as a
+link. **One tap still answers** (DR-42): the chips are the inbox's own resolutions (`CatchupAnswers.chips` — the
+options, *Yes, the same* / *No, different* for a pair, Keep / Archive for a legacy decay, *Not now* = the 7-day defer,
+*Skip* sends nothing), held through `InboxViewModel.answer` for the same Undo window, with a "✓ Noted: … · Undo" line
+(Undo asks the question again, and removes the tap and its receipt). A tap is drawn on the person's side but is never
+their words: it stays out of the record and the model's history (only typed words are `user:`, review B1 of #509). **Their own words** go to `POST /inbox/catchup/turn` (`features.md`): one turn on the
+person's chosen engine that answers like a person — a follow-up, the question in other words, or a move to a related
+upcoming question (asked in the reply's words, never repeated from the template). **What their words clearly settled
+applies at once** (owner 2026-11-05: "if the agent is going to ask for confirmation on everything eventhough i just told him
+then thats bad user experience"): one line, "✓ Noted: A is B, C isn't B · Undo", no *Yes*, then the talk moves on and that
+question's tap row with it (`CatchupSession.take`). One message may settle several questions: every part goes in one hold
+(`InboxViewModel.answerAll`, `ResolveGrace.also`, partings before joins, each with its located `quote`), under one Undo that
+survives moving to the next question for its window; as with a tap, the next answer ends that window by sending. A chain with
+a pair left open stays on it, with that pair's taps. What stayed unclear is the reply, in plain words, and the question stays
+open; two names joined with no question to carry them get one aside line. *Yes* / *Not quite* remain only for raw words no model
+read (no engine, no usable reply). Their typed words stay in the record as theirs
+either way. With no engine the chat says "I can only take taps right now — <why>" and offers their words
+as a free answer for one tap where the question takes words. After each thing the person says the chat is posted to
+`POST /inbox/catchup/record` (one episode per session; posts never overlap). **The worm is Cicada's face**
+(`WormFace`): the menu bar's own 18 × 18 sheet at 32 pt beside the latest Cicada line only — *curious* while asking,
+*reading* while the person types, *digesting* while a turn is out, *happy* after a noted answer, *awake* at the end —
+the sheet's own clips on the shared sprite clock (ruling 18; no new frames), the menu bar's code-drawn badge left off; a
+mood swaps the clip in one frame, never through `withAnimation`, so typing and ⏎ never animate (DR-60), and Reduce
+Motion holds the key frame (DR-66). **A page's questions strip** (`PageQuestionsStrip`, first on every entity page's
+content): its open questions (either side of a pair, `HomeQuestions.onPage`), one at a time — "A question · 1 of N"
+with ‹ › — the plain question, its reason, the one-tap answers through the same hold, and *Open the full question*;
+nothing when the page has none. **The full list** (`InboxPage`) is unchanged but for the path eyebrow, Esc back to
+Home (in one frame, `AppRouter.pendingTabByKey`, DR-60), and no folds anywhere on it (ruling 48 (17), DR-81): its kind
+groups are always open, a section label with the kind's glyph, plural and count (`InboxGroups.isOpen`); *Settled by a
+check* and *Settled by Sleep* show their first three, open, with *All N* opening the whole group in a sheet
+(`FullListSheet`); *Confirm N links* shows its first pages and *All N pages* opens every page in the same sheet. A new
+day refreshes the inbox (`.NSCalendarDayChanged`), whose ETag moves with the date, so a reason's age is never
+yesterday's. Copy that named the Inbox tab or ⌘6 now says Home or "your questions". DR ids: DR-22, DR-40, DR-42, DR-48, DR-60, DR-66, DR-81.
+
+**Every "All N" opens at once (inbox freeze, owner 2026-10-29).** Home's *All 465 questions* froze the app: the
+click built the page's derived lists (questions, tabs, groups, lines, rows, reviews) on every read — each one a G115
+sort whose comparator built two `DateFormatter`s per comparison — and laid out every row of a non-lazy stack (debug
+build, `InboxAllListBenchTests`: 2.4 s derivations + 1.5 s layout at 465; 14.4 s + 8.3 s at 2,000). Now: a question's
+day is parsed once per day (`InboxCreatedDay`) and read once per sort (`InboxColumns.ordered`); `Store.visibleInbox` is
+kept per `Store.inboxRevision` (bumped by `didSet` on the snapshot, the hidden and sending ids, the held answer and the
+bank), and `InboxViewModel.derived` / `lines` / `rows` per revision and tab, so a draw reads kept values and the views
+still observe the Store's inputs; `InboxRowWords.namesItsPage` is memoised. The list is a `LazyVStack` with one child per
+line (`InboxListDraw`: kind header, its explainer, page headers, questions — the groups never fold, ruling 48 (17)), so
+the click builds the rows on screen. The held answer's ⌘Z moved off its (possibly unbuilt) Undo row to the list's
+`UndoShortcutKeeper` (R-DI4/R-DI25: one owner, none while a field has focus, none when DR-27 hides the list).
+`FullListSheet` is lazy too (pass a `ForEach` straight in; the settled groups' 895 rows do), as are a page's *Where to
+check* popover, the Sleep queue's *Show all*, a run card's groups and Traces' timeline. Budgets at 2,000 rows, always
+run: derivations first build < 600 ms and a kept read < 15 ms, the list's first frame < 400 ms, the sheet's < 300 ms
+(measured 65 / 1 / 38 / 6 ms, debug). The click changes no Store rule: the list still draws the disk-hydrated snapshot,
+never blank.
+
 **Onboarding v2 (G92, G217, ruling 36; 2026-10-22; replaces G145's seven pages).** Six steps of one verb each in
 one full-window layer, raised by `FirstRunGate` (unknown is never empty; never over the demo) or by the one door,
 `OnboardingState.reset` + `AppRouter.requestFirstRun` (Settings → General's *Run setup again*, the demo's *Finish setting
@@ -380,13 +727,26 @@ up*): **Welcome · Intelligence · Agents · Sources · Meet your bookworm · Do
 2026-10-23, below). Welcome (and, until v3, Done — now the menu-bar worm over its card) is the study room over a
 card (`OnboardingRoom`, the one illustration, DR-13; the worm's mood per step); the three working steps are the split
 frame — the room in its `bgPane` pane, the column with "Step n of 6 · k still coming in", *Set up later*, and a foot of
-Back, a visible **Skip** and the one primary Continue (⏎ never animates). What each step shows is pure data in
+Back, a visible **Skip** and the one primary Continue (⏎ never animates).
+**UI climb rounds 1-3 (ROR-118; round 3 amends what follows where it says so):** the pane is the original room art, cropped (round 6) and centred on the page ground
+(`OnboardingRoom(fill:)`: round 4: columns 0-111 of the lattice at 5 pt a cell, 560 pt at 1x (39% of a 1440 pt window), so the lamp, window, plant, worm, clock and mug are all whole — `OnboardingRoomLayout.paneCell`,
+a whole number of cells, stepping down before the column drops under its minimum, gone when it would be a sliver; the
+room is cropped 2 rows off its top and 2 off its bottom (`cropTopRows`, `cropRows` = 60, whole cells, worm whole) and centred vertically, the page's own ground above and below, nothing drawn or repeated (round 6, owner 2026-11-06: a drawn floor and ceiling "look super weird"; rounds 2-5's wall bands are gone); a hairline ring is its seam). The column is
+fixed: the headline starts `OnboardingLayout.stepTop` under the topbar on every step and the foot (Back, Skip, Continue)
+sits on the bottom margin on every step (round 4: one 88 pt band under a hairline holding *Back* leading and *Skip this step* and the one large Continue trailing, `OnboardingLink`: what moves between steps; *Set up later* (*Close* on a rerun) leaves the whole flow, so it is `OnboardingLeaveLink` with a close mark in the window's top corner, level with the progress, on Welcome and every working step; the ⏎ chip is gone, the key still advances), so nothing moves between steps; a tall step scrolls between them and the foot
+stays pinned (`OnboardingView.column`). Rows of the working steps are `OnboardingRowLine` (round 3: 17 medium over a 15 line, in the roomy 48 pt `LogoTile`; was 16 over 14 in the
+secondary ink, a line that only repeats the name is left out), the one action on a row `OnboardingRowAction` (round 5: a small outlined button, `bgButton` and the strong ring, 34 pt, so it reads as pressable and still sits under the large filled Continue; was words and
+a chevron, no box); the engine choice is two 144 pt rows (the open circle in `textSecondary`), the chosen one a 2 pt
+ring over `bgSelected` with a filled check, the key row's glyph at full strength. Welcome is wider (round 3: 960 pt over a 6 pt-a-cell room, was 800 over 5)
+(`OnboardingRoomLayout.heroCell`), the room framed in a ring and the card's radius so its own trim reads as a picture's
+edge; its greeting is 44 pt (owner 2026-11-06: "the letters there are huge"), its line 24, and the name carries a small pencil (label *Edit your name*, also its hover words) that turns the name into a plain line to fill in place — same type, a hairline under it, no box, as wide as its words; ⏎ keeps it, Esc puts back what it was (`WelcomePage.greeting`, `nameLine`), and one action line: a large Continue and *Try the demo* outlined. Headlines are 40 pt over a 19 pt medium line; the topbar's segments are 22 × 5 (round 5), a
+reached step in `textSecondary`, one still to come in `textTertiary`, the count in 15 pt `textSecondary`. Every mark in a roomy tile takes the one 36 pt box in the 48 pt tile (round 5), a vendor icon published finished (`LogoSet.fullBleed`: OpenCode, Hermes) keeping its own curvature inside it; elsewhere (regular, dense) it still fills its tile edge to edge. What each step shows is pure data in
 `Support/OnboardingSteps.swift` (`OnboardingStepsTests`), each step's fixed words under 40.
-*Welcome*: the greeting (saved name, else the Mac account's, *Not you?* corrects it), one sentence, Continue — the owner
-PUT alone and first (G117 R1; a file dropped here waits for it) — *Try the demo* and *Set up later*.
+*Welcome*: the greeting (saved name, else the Mac account's; the pencil beside it edits it in place), one sentence, Continue — the owner
+PUT alone and first (G117 R1; a file dropped here waits for it) — *Try the demo*; *Set up later* is the top-corner exit.
 *Intelligence* (`IntelligenceStep`, ruling 36 D1): `IntelligenceStepState` — a signed-in plan (Auto resolving to it, or
 chosen) is pre-selected, the plan said once ("Using your Claude plan" / "Cicada runs your own Claude Code.", ruling 39,
-2026-10-24 — Settings' own headline keeps "— you're signed in."), *Use an API key* opens Settings → Intelligence's own `IntelligenceRow`s for four keys (`featuredKeys`;
+2026-10-24 — Settings' own headline keeps "— you're signed in.") as the first of two equal rows (`OnboardingChoice`: a `textPrimary` ring and a filled check on the chosen one, DR-5; ROR-118), *Use an API key* the second, which opens Settings → Intelligence's own `IntelligenceRow`s for four keys (`featuredKeys`;
 paste → Verify, the 422/503 sentences) with "More keys in Settings → Intelligence"; with nothing that can read, the plans
 and those keys show side by side. A local model is never offered. The step writes only from a row's click (Sign in,
 Verify, *Use* through `IntelligenceView.write(using:)`); Continue and Skip change nothing.
@@ -395,7 +755,7 @@ as the Agents page lists them) holding the products of it found on this machine 
 says installed, Claude Desktop is present, or `/agents/live` saw it; `umbrellas` groups them) — Anthropic: Claude Code ·
 Claude Desktop; OpenAI: Codex. The umbrella's own mark in a `LogoTile`, never a product badge (a product no umbrella claims
 wears its vendor's mark, `umbrellaLogo`); a dot and one word (Not connected → Waiting → Connected, green when any product
-first calls, polled every 3 s; the Agents page's vocabulary, never "Found"). One *Connect* opens each found product's own
+first calls, polled every 3 s; the Agents page's vocabulary, never "Found"; a row not yet connected shows no dot or word at all, ROR-118: four of them each saying *Not connected* was the repetition; the prerequisite sentence sits under the rows and the *Then try it* chip appears only once something is connected). One *Connect* opens each found product's own
 action, Settings' paths: Connect for me plus
 Remembers automatically (R-OB12) through `AgentConnect.run` with the wiring answer's binaries — "Cicada runs exactly these
 commands…" and *Run these*, the commands behind a collapsed *Show commands* (spec decision 14); *Set up Claude Desktop*'s merge;
@@ -408,6 +768,18 @@ each tick tile shows what it reads and the consent it leads to before the click 
 idle line or a browser's reads, "Needs Full Disk Access" for a browser macOS hides),
 chat history takes a drop or the file panel, *How to get an export* opens `ExportWalkthroughSheet`. Nothing is pre-ticked
 or read before a tick (R-OB6, R-IB12).
+*Saved lists* (`SavedListsStep`, owner 2026-10-26, ruling 39's dated line; step 6 of 8 since the Permissions step, stored `savedLists`): every
+list the person's own agent can keep current from their signed-in browser (`SavedListItem`: YouTube Watch later and
+history, X Bookmarks, Instagram Saved, LinkedIn Saved posts), each with its platform's mark, **pre-ticked** — except one
+the reading settings record as turned off (`youtubeListsOff` / `savedListsOff`) — under "Keep your saved lists
+current" and one line: their own agent, their signed-in browser, at most 10 times a day, and that the sites' terms
+discourage automated access. The foot's primary reads *Keep them current* (*Continue* with nothing ticked) and is the
+consent: one `PUT /reading/settings` (`SavedListsStepModel.write`) with the ticked lists on, `agentEnabled` and
+`acknowledge` when anything is ticked, every unticked list `false` (recorded off, so no later default turns it on);
+a failure stays on the step with its sentence. Skip writes nothing, and while agent reading is not yet allowed it reads *Not now* and clears the ticks (`SavedListsStepModel.ticksAfterSkip`, `skipTitle`), because those ticks are an offer nothing has answered — Back must not show lists ticked that are off; once agent reading is allowed (a rerun) the ticks describe lists that are on, and Skip keeps them. Nothing is read before the button; the first read
+starts when the person's agent next opens a session (the SessionStart note counts the due lists, and
+`cicada_reading_queue` lists them; verified on scratch state, 2026-10-26). The one departure from "nothing is
+pre-ticked", dated in DESIGN_RULES §9. *Meet your bookworm*'s Back returns here.
 *Meet your bookworm* (`MenuBarStep`, owner 2026-10-23: "have the little worm with the number appear only after
 explaining it"): after Sources, because what Sources brings in is what the number counts, and right before Done, so the
 worm lands in the menu bar as setup closes. No room on this step: the menu bar's own 18 × 18 sprite with its code-drawn
@@ -461,10 +833,10 @@ Same six steps, ids and stored names (Hyrum: no saved step is reset). (1) **Perm
 `PermissionDragHelper` is the Full Disk Access door for Messages and Safari: `FullDiskAccessHint` (Messages' row and
 panel, a browser's row, the import panels) and a hidden browser's tick (`FoundTurnOn` → `FoundTurnOnDeps
 .askFullDiskAccess`, so onboarding's Sources tile and Home's Getting started too) open it instead of System Settings.
-The ask card's line follows `PermissionAsk`: *drag* ("Drag me into the … list.") until Cicada has been seen in that list
-(`PermissionMemory`, `cicada.permission.seen.<kind>`, written on a preflight yes), then *flip* ("I'm already in the …
-list. Flip my toggle on."); back from System Settings with no grant (`didBecomeActive` → `returned()`), Accessibility
-moves to *flip* and Screen Recording / Full Disk Access to *reopen* ("Already on? Reopen Cicada to apply it.", their
+The banner's line follows `PermissionAsk`: *drag* ("Drag Cicada into …") until Cicada has been seen in that list
+(`PermissionMemory`, `cicada.permission.seen.<kind>`, written on a preflight yes), then *flip* ("Turn on Cicada's switch
+in …"); back from System Settings with no grant (`didBecomeActive` → `returned()`), Accessibility
+moves to *flip* and Screen Recording / Full Disk Access to *reopen* ("Already on? macOS applies it after a restart", their
 preflight can stay false until a fresh process) with *Reopen Cicada*; once Settings is open those two also offer
 "Already on? Reopen Cicada" as a quiet text button. *Reopen Cicada* writes `PermissionResume`
 (`cicada.permission.resume`: kind, place, time; read once, dropped after ten minutes) and relaunches through
@@ -488,12 +860,71 @@ Code) and a session merely starting both move — and the first agent whose call
 words and bodies ≤ 25 (`OnboardingWords`, measured on each step's longest variant), the worm in a light first person,
 one wink (Done's title), no "!" or capitals; *Another agent* and *Personal agents* fold under *Other agents*
 (`cicada.onboarding.otherAgents`), and Messages, YouTube, X and Instagram under *More sources*
-(`cicada.onboarding.moreSources`, open by itself when one inside is on) — DR-39. (6) No sound: it needs a design ruling.
+(`cicada.onboarding.moreSources`, open by itself when one inside is on) — DR-39. (6) **Sound, soft and rare** (owner 2026-10-24, DESIGN_RULES §9): `OnboardingSound`, one per onboarding run, held by `OnboardingView`, plays macOS's own *Tink* when a permission lands — the drag helper's grant (`FoundTurnOnDeps.live`'s `onPermissionGranted`, passed only by onboarding), a preflight that turns an asked-for row ready (`startGranted`), or the relaunch's fresh look (`resumePermissionTick`) — and *Pop* when the Agents step's `firstCall` lands. Each moment at most once, spent the first time even when silent; at the alert volume (`com.apple.sound.beep.volume`) through `NSSound(named:)`; never with "Play user interface sound effects" off (`com.apple.sound.uiaudio.enabled`), a muted default output (Core Audio's mute, or its volume at zero) or a zero alert volume; never under XCTest, in a demo bank or in a verify-cicada copy (bundle id `com.rorosaga.cicada.verify.*`). Both moments come from outside Cicada, so no key or click in it makes a sound. Nothing else in the app plays one (`OnboardingSoundTests`' source lint).
+
+**The Permissions step (owner 2026-11-03, G92; DESIGN_RULES §9 2026-11-03).** One step after Agents and before Sources
+(`OnboardingPage.permissions`, step 4 of 8, stored `permissions` — a new name, so no saved step moves) asks for every
+macOS permission the app can use, one row each, and the same rows sit in Settings → Privacy & data → *Permissions*
+(`MacPermissionsRows`; row id `permissions`, findable by each permission's name). The inventory (`MacPermission`,
+`Support/MacPermissions.swift`), in order: **Full Disk Access** (Messages, Safari, WhatsApp; drag list),
+**Contacts**, **Calendars**, **Reminders** (macOS's prompt; full access only — a write-only EventKit grant reads
+nothing and stays "not yet"), **Control Chrome** (Automation: the saved page's front tab and removing a bookmark;
+shown only when Chrome is installed), **Control Notes** (Automation for Apple Notes), **Notifications** (an export
+ready, an agent asking), and — only while activity traces are on — **Accessibility** and **Screen Recording** (drag
+lists). Not rows, on purpose: Speech Recognition stays asked only inside `MediaFileIndexer.add(_:)`, the person's own
+drop (decided, owner 2026-11-03: "i'd leave it where it is for now"); Automation for Terminal/Ghostty is the moment of the click that opens one; traces' per-browser Automation is
+traces' own switch; Input Monitoring and Local Network are not used by the app today. Each row
+(`PermissionList`, `ConnectionLine`) shows the app's own icon or a glyph, the name, what it unlocks in one line, and
+either a green dot with *Allowed* or one button (`MacPermissionRows.action`): a drag list's *Allow…* opens its exact
+`x-apple.systempreferences:` list with the drag helper over it at once (`PermissionDragHelper.present(openAtOnce:
+true)`, the place `.onboardingPermissions(rerun:)` or `.settings`, so *Reopen Cicada* comes back to that step or that
+card); a prompt kind's *Allow…* raises macOS's prompt on that click (`LiveMacPermissionAsker`; Automation first opens
+its app in the background, hidden, because macOS asks only while the target runs); a refused prompt reads *Open
+setting* and opens its exact list. **Every state is a preflight** (`LiveMacPermissionProbe`): `authorizationStatus`,
+the notification centre's settings, the drag helper's own probe, and `AEDeterminePermissionToAutomateTarget` with
+`askUserIfNeeded` false — which cannot say while the app is not running (-600), so the last answer seen per app is
+kept (`AutomationMemory`, `cicada.permission.automation.<bundle id>`). The rows look again every
+`CicadaTiming.permissionRowsPoll` (2 s) while they show and when Cicada becomes active; a grant the person asked for
+in this showing plays onboarding's one soft sound. Allowing a permission turns no source on — the Sources step after it
+does. Continue and Skip never wait on a row. Verified on a scratch app copy 2026-11-03 (light and dark; the drag
+helper's one banner under System Settings' window). Caveat for whoever verifies next: `cv app launch`
+starts the binary directly, so TCC attributes the copy to the launching terminal and its rows show that terminal's
+grants (Automation read *Allowed*); a copy opened through LaunchServices has its own fresh identity.
+
+**Tester readiness (2026-10-26, branch `fix/tester-readiness`; the readiness assessment's blockers 2–3 and two
+should-fixes).** (1) **A list only an agent reads is never "Connected" without one.** `SourceCatalog.status` takes
+`localAgent` — an agent on this Mac connected through stdio or its config (`AgentLiveRow.connectedLocally`: `via`
+`mcp` or `config`, never only `remote`; the reading tools are stdio only), from `GET /agents/live`, polled by the
+Sources page while it shows (`AgentLiveProbe`, ids and times only). An allowed walled site, a saved list kept current
+(X, Instagram, LinkedIn) and YouTube's Watch later / history read **Connected** only with one; turned on with none they
+read **On · waits for your agent** (`SourceCatalogStatus.waitingForAgent`, a grey dot — nothing is broken, nothing is
+read), the detail says why under the word, no last-sync line shows, and the header ("Sources · N connected") does not
+count them. The header counts one reader once (ROR-41): Chrome's YouTube history reads Connected on both rows and counts
+as one, Chrome's (`SourceCatalog.readerHome`; a test fails on a shared channel with no home). Onboarding's Sources tiles use the same rule, and the saved-lists step says "No agent is connected yet…"
+when none is. (2) **Report a problem…** (Help menu, and Settings → General beside Version): `ReportProblemSheet` shows the
+whole report before anything leaves the Mac — the app's version and build and the macOS version on top
+(`ProblemReport.header`), then the backend's half from `GET /diagnostics/report` (`api/services/diagnostics.py`: backend
+version, platform, engine mode as an enum — never an account or email, G148 — connected source ids, the bank count,
+recent warnings and errors, and the tail of `backend*.log` and the app's `update.log`, every line through one `Redactor`:
+the bank's own page ids, names, aliases and waiting names withheld as tokens, then URLs, emails, file names, homes,
+quoted text, slugs and the rest, and a line where anything risky survives withheld down to its structure — `api.md`); the header also carries the one known issue (an update
+can make macOS ask again for permissions, while releases are ad-hoc signed). **Copy**, **Save…**, and — only in a
+release whose Info.plist carries `CicadaReportEmail` (from CI's `CICADA_REPORT_EMAIL` variable, owner 2026-10-26; never
+an address in the repo, docs/RELEASING.md) — one **Send** that copies the report and opens a new email with a short
+template. Without the address (developer builds, or before it is set) there is no Send: the sheet says "Send this to
+the person who gave you Cicada" — never a public issue page. Nothing is sent by itself. (3) **The Mac account's
+name is a suggestion.** With no saved name, Welcome opens on the name field prefilled with it under "From this Mac's
+account. Is that what you go by?" (`WelcomeName.suggestion`); Continue or ⏎ confirms it, an edit replaces it, and Set up
+later saves no name for an untouched suggestion (`WelcomeName.unconfirmed` → `OnboardingFlow.laterSteps(name: nil)`), so
+the bank keeps `owner_identity`'s "Owner" placeholder (G169's self-references still land on it) until a name is given.
+(4) **The prerequisite, said once in each place:** the Agents step, the README's install section and
+`install-release.sh`'s first line name Claude Code or Codex signed in to a paid plan (or an API key in Settings), and each
+adds that the app gives the line that installs it (2026-11-06, below).
 
 **Engine choice in onboarding: Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31).** Until D6 Settings drew
 `EngineChooser(foldsOtherEngines: true)` (the engine card): the card opens on `EngineHeadline` — *Auto* and what it uses now from
 `preview.manual` ("Using your Claude plan — you're signed in.", the ChatGPT plan, the model on this Mac, or "Nothing to
-read with yet" with a Plans & keys link), the rule in one line (the Claude plan, then the ChatGPT plan — ruling 36 D1 removed the local rung — never a key
+read with yet" with a Plans & keys link), the rule in one line (the Claude plan, then the ChatGPT plan, then Cursor, then OpenCode — ruling 36 D1 removed the local rung, ruling 46 added the two tools — never a key
 nobody chose), or, for a stored choice that isn't Auto, that card's name, its cost model and state, and *Back to Auto*
 (`EngineWrite(mode: "auto", model: nil)`; hidden while the environment fixes the engine). Every other card waits
 under *Use a different engine* (`DisclosureGroup`, DR-39, per viewer `cicada.engines.othersOpen`; landing on
@@ -546,6 +977,19 @@ Ollama wears a *Local* tag and no card says "slower". Under the cards, `LeavesMa
 where reads leave the Mac and to whom, only for engines that send data out (never Ollama, nor Auto resolving to it).
 A preview line or the Sleep page's button that runs on an `openrouter/` model names and marks OpenRouter.
 
+**Sources, round 1 (ROR-118, 2026-11-06; DESIGN_RULES §9).** The root (nothing open) is `SourceShelvesView`, six shelves by kind
+(`SourceShelf`, pure: Conversations, Documents, Events, Work, Saved, Media; every `SourceCatalogEntry` has one, `entry.shelf`),
+replacing ROR-7's Needs you / Connected / Suggested / category tiles; `SourceGridSection` is now `.needsYou` or `.shelf`, and
+the list beside an open source and the arrow keys walk the same order (connected first within a kind). What waits on the person
+leads as amber lines (`SourceNeedsYou`). Round 3 (judges: cramped, boxy, mixed icons, connected vs available unreadable): a connected source is a plain row (`SourceShelfRow`: one 36 pt tile, name, last read; no card, no ring) that reads its own items through `ChannelItemsCache` and draws them quietly under the name for the kind (`SourceShelfItems`: two titles, no dates; `SourceWeekStrip` for events; marks and titles for saved; `SourceCoverStrip` for media), or one count line. The six kinds sit in two fixed columns (`SourceShelfLayout.column`: Conversations, Events, Work left; Documents, Saved, Media right; one column when narrow, in kind order; `ShelfColumnsLayout`), so a kind never moves when a source joins it. Each kind's heading carries a "+" (opens the add overlay on that kind); a kind with nothing connected is one dashed line naming two things it takes (`SourceEmptyLine`). A source not connected is never a mark on this page: row = connected, dashed line = not here yet. The title's count is `SourceCatalog.connectedCount`, the same set as the rows and *Yours* (a test pins it); Goodreads below the old fold was the whole of the "7 connected" mismatch. `SourceLogoTile` draws Claude Code with the plain Claude mark and a source with no mark in the primary ink.
+Search still draws tiles (`SourceGridView`, results only). **Add source** (the page's one header button) opens
+`SourceAddOverlay`: *Yours* (`SourceShelves.yours`, tiles with a green dot, full overlay only), search, then `SourceShelves.addGroups` as three columns of the page's tiles, grouped by kind, no tabs; opened from a kind's "+" it shows only that kind and no *Yours*. Calendar carries the one honest note (`Copy.Shelf.calendarNote`: the Mac's Calendar holds Google's when added to the Mac); a tap closes it and opens
+that source's page. The window's drop and ⇧⌘I still open the one intake. The import sheet's rows (`ExportAskRow`) carry one
+labelled button and a bell menu; steps sit on the name's hover unless one vendor is in focus. **Round 5** (four rounds of rebuild scored below the plain tile page it replaced; what that page did right was one visible, full-size mark with its name for every source, in one even grid): the root is one full-width column of the six kinds in `SourceShelf.allCases` order. Inside a kind every source is drawn: a connected one as a card (`SourceShelfRow`, two tile columns wide: ring on `bgFocus`, the mark, the name, the green dot and when it last read, then what came in for the kind in primary ink) and a source not connected as a plain tile (`SourceAddTile`, the same tile family, the mark and the name; Calendar says "Includes Google"). Both grids (`EqualGridLayout`) share the tile columns (six on a wide page, an even number, a card spanning two) and every cell in a row is as tall as the tallest. A tile opens that source's own page, where it connects. There are no "Add X and N more" lines, no stacked marks and no "+": Events and Work, with nothing connected, are their tiles alone. Saved items show the title and the site, work items a code glyph, media items a cover or a quiet tile with the kind's glyph (`SourceCoverList`), events the week with three-letter days; no letter chips anywhere. The add overlay's lists are the same tiles in three columns. Marks: Claude Code keeps its ">_" badge (DR-52, R-AG8), Chat exports is four vendors' marks in one tile, Files and links wears Finder's icon. *Yours* in the overlay is a wrapping grid with no dot. A site read through the person's AI app, still off, leads with one button ("Read X in your browser", `SourcePrimaryAction` via `ConnectorSlot.primaryOverride`); "Use your X account" and the file are ways below it. The card's first node is labelled "This app" and every node carries its name. **The website-reading card**
+(`WebReadingCard`, `WebReadingScene`, shown above the switch for the six saved lists, YouTube and Substack). Round 6 (six blind readers lost at "assistant app", "Claude Code" and "Off"): no word the person must know. A headline says why a second app is in it ("Cicada can't open X itself. It asks Claude Code, the AI you use on this Mac, to read your Bookmarks for it"); four nodes (Cicada, the person's first locally connected AI by its icon, their default browser by its icon, the site) each carry their name and what they do; a note, a cursor, an eye and the saved items travel the lanes at their beat; the four steps sit under it in words behind a closed "How it works" fold (the shared `DisclosureHeader`, Replay beside it; opened, the one playing is in full ink) (`WebReadingScene.steps/step(atBeat:)`); three honest lines (whose sign-in, who else sees it, how to stop, naming the "Read through your browser" control). The page's status word for such a source, still off, is "Not reading yet" (`SourcePageStatus.notReading`), never "Off". Plays
+once per Mac (`cicada.webReading.seen`), Replay on a click, finished under Reduce Motion; with no AI it says in words that the AI the person uses does the reading and offers to connect one.
+Its lines were checked against `mcp.md` (the offer is due after 20 hours, so "about once a day", on this Mac, in the person's browser, while they use the app; never posts; never a browser spawned; indexed and never read by a model, ruling 62); what it hands back is each post's link and its words (title and description, `saved_lists`), not only a link. Round 2 also gives one read-only line to the sources that read through the person's own sign-in (`WebReadingScene.honestLine`: Notion, Linear, GitHub, Telegram's ticked one-to-one chats; `network.md` ruling 47's table and 47a); a source that needs none has none.
+
 **the Sources page (G126).** A categorized, logo-first page over the existing
 `GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a
 *standing* connection (sign in once, polled on the Sleep tail, disconnect here) lives in
@@ -554,7 +998,7 @@ behind the `+` on the Sleep page's tab row (the Feed's, until 2026-10-16). Both 
 two surfaces. Round 3 added **Notes & files** (Apple Notes and, when Obsidian is installed, *Obsidian vault*; the
 watched folders and *Add a folder* moved to Settings → Privacy & data on 2026-10-14, and Notes & files keeps one
 pointer, "Folders are in Search & files ›") and **Voice & meetings** (Wispr Flow once it is on this
-Mac) — both standing connections, so both live here; their marks are the installed apps' own icons.
+Mac, while on offer) — both standing connections, so both live here; their marks are the installed apps' own icons.
 Harness rows wear their app's real mark ("Other agents" a neutral glyph); a folder's Manage, Wispr
 Flow and a connector's Connect/Manage open as sheets (`SettingsSheet`), never popovers; the
 add-folder sheet labels its fields and asks which subfolders an agent wrote as a checklist
@@ -576,30 +1020,55 @@ off by default; `cicada.saveWhy.enabled`, per Mac like the watch's consent flags
 on also turns on the bookmark watch of every installed browser Cicada can sync (`SaveWhySetup`), named under the switch
 before the flip — see *Ask why* below.
 **Calendars, contacts & feeds** offers Calendar on this Mac and
-Contacts (G154), both app-owned rows.
+Contacts (G154), both app-owned rows. (Ruling 55, behind its switch: the sync hashes a card's numbers with `PhoneNumberKeys`,
+under a key `GET /people/numbers/match-key` gives only while the feature is on; `storage.md`, "Phone numbers".)
+**A person's numbers (ruling 55, behind its switch; DR-78, DR-81):** `PersonNumbersRow` draws a person's current numbers on their
+page, nothing when there are none; the Reader and `QuoteBlock` show a token's digits, asked of `POST /people/numbers/reveal`
+for what is on screen and held in memory by the view (`NumberTokens`). A token it can't answer reads "a number". A row
+rather than a block of `GET /entities/{id}`, because blocks reach other clients and must never carry a digit. Number claims
+stay out of the belief tabs. Ask's answers and search snippets still show the token.
+
+**Meeting recorders (G95, ruling 52, 2026-11-03).** Sources gains a **Meeting recorders** group after This Mac
+(`SourceCatalogGroup.meetings`): **Hex** (`SourceCatalog.hexId`, shown once Hex is on this Mac — `LocalSourceWatcher.
+hexInstalled`, a LaunchServices lookup made on each reload, never per body — or a Hex folder exists; its mark is the
+installed app's icon, `anomaly.hex`), **Wispr Flow** (moved here from This Mac, its row unchanged; off the offer since 2026-11-04, below) and **Transcripts**
+(`meetingFoldersId`, always: any folder of transcripts; the shorter name fits the list column). `SourceCatalog.entries(hexPresent:meetingFolders:)` takes the watcher's
+folders: a meeting folder (`FolderRegistration.isMeetings`, `kind: meetings`) syncs as `meetings:<id>`, so it never
+counts for Folders; Hex's own (`recorder: hex`) speak for Hex, the rest for the folder of transcripts. The detail lists
+each meeting folder with the folder rows' own `FolderChannelRow` ("3 meetings · …"; its Manage drops the agent
+checklist and Save, DR-38/DR-40) and `FolderSlot`: Hex's one click (*This Mac's pages* below; `LocalSourceWatcher.
+hexMeetingsFolder()`: Hex's own `meetings.output_folder`, the one key the app reads of Hex's settings file, else Hex's
+default), or *Add Hex's folder* / *Add a folder* (DR-40), the open panel, then `AddMeetingFolderSheet` (a sheet, DR-33/R-HS16): its name in
+`cicadaField` (DR-76), *Look inside* (counts only: "Found 3 meetings · 1 file holds no transcript", `MeetingFolderText`),
+then *Start watching*, the sheet's one primary action (DR-40); closing it before that removes the registration the sheet made, never a folder that was already watched (a re-pick);
+a folder already watched as notes is refused by the backend and its words shown. The
+refused roots (`IntakeRouter.refusedRoot`) hold here too. Every sync posts the Mac's zone (`tzName`).
 
 **Activity traces (G218, ruling 38, 2026-10-23).** Sources → This Mac → **Traces** (`SourceCatalog.tracesId`, after
-Messages, the `timeline.selection` symbol): Connected only while the recorder records — paused, off, a server connection
+the chat sources — Messages, WhatsApp — the `timeline.selection` symbol): Connected only while the recorder records — paused, off, a server connection
 and a failed read all read **Off** (ruling 36's three words), each with its own line in the controls ("Paused until
 3:40 PM.", "This Mac only…"). Off, the detail says what traces are and offers **Turn on…**, which opens
 `TracesConsentSheet`: what is recorded, where (this Mac only, encrypted, outside memory and its history, never sent),
-how long (timeline 30 days, screenshots and their text 7), what goes into memory (YouTube watches; a day summary only
-when asked), how to wipe, and the honest limit ("anything running as you on this Mac can read what you can"); *Turn on*
+how long (timeline 30 days, screenshots and their text 7), what goes into memory (what you watch and read on any site;
+a day summary Sleep learns from only when asked), how to wipe, and the honest limit ("anything running as you on this Mac can read what you can"); *Turn on*
 posts the consent (`TraceRecorder.turnOn`), then two skippable steps — Accessibility (window titles) and Screen
 Recording (screenshots) — each through **`PermissionDragHelper(kind:)`**, the one reusable permission component
 (kinds `screenRecording`, `accessibility`, `fullDiskAccess` — the last for Messages and Safari, wired by onboarding v3
 below): a
-small non-activating floating panel with one line ("I need screen recording. Drag me into the Screen Recording list.")
-and *Open*, which deep-links `x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture` /
-`?Privacy_Accessibility` / `?Privacy_AllFiles`; a second card placed over System Settings (by its window bounds only)
-holding the app's icon and name as a draggable tile (the bundle URL as a file, the way Finder drags an app) and a
-near-miss hint ("Drag into 'Screen & System Audio Recording', not the audio-only list."); it polls the preflight only
+single non-activating floating banner (owner 2026-11-03, DESIGN_RULES §9; it replaced a top panel plus a separate
+tile) holding the app's own icon as the drag source (the bundle URL as a file, the way Finder drags an app; the icon
+hops twice as the banner arrives and again as System Settings opens, `CicadaMotion.helperBounce`, still under Reduce
+Motion), one line in the app's own name that names the exact list ("Drag Cicada into Screen & System Audio Recording",
+so the audio-only list beside it is not the target), at most one action (`PermissionBannerAction`: *Open* before System
+Settings is open, which deep-links `x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture` /
+`?Privacy_Accessibility` / `?Privacy_AllFiles`; then nothing, or the quiet "Already on? Reopen Cicada"; *Reopen
+Cicada* in the relaunch state) and ×; once System Settings shows, the banner sits centred under its window (inside its
+lower edge when the screen has no room), by its window bounds only; it polls the preflight only
 (`TracePermissionProbe` → `CGPreflightScreenCaptureAccess` / `AXIsProcessTrusted`, every `CicadaTiming.permissionPoll`,
 1 s) and closes itself and ticks the step on a grant — **no prompting API is ever called**. On, `TracesControls` holds
 the state line, Pause (1 hour · until tomorrow · until I resume) / Resume, *Forget the last 15 minutes*, *Wipe all
 traces…* (a destructive confirmation that says the key goes and memory keeps what was already added), the switches
-(screenshots, window titles, YouTube into the watch history, the day summary and, nested, "Let Sleep learn from the
-summary" with its plan-usage line), retention steppers that only shorten, the never-recorded apps (pick a running app
+(screenshots, window titles — what joins memory moved to the Traces page itself on 2026-10-28), retention steppers that only shorten, the never-recorded apps (pick a running app
 or type an identifier; never prefilled) and sites (typed), the browsers whose address may be read (only names with an
 installed bundle id; turning one on is the one moment Cicada asks for Automation, `LiveTraceBrowserTabs.ask`, off the
 main thread — "Open Chrome, then ask again" when it is not running), titles allowed per chat app, and the days kept,
@@ -610,6 +1079,37 @@ or after `CicadaTiming.traceScreenshotsShown` (5 min). The menu bar shows "Recor
 Resume traces / Forget the last 15 minutes while traces are on (`MenuBarManager` `TraceMenuState`, read as the menu
 opens; no dot on the sprite, which would collide with the count badge). The recorder (`TraceRecorder`, environment,
 `start()` on launch) is described in `capture-and-sleep.md`, "Activity traces"; the store in `storage.md`.
+
+**The Traces page (owner 2026-10-26, G218).** Once traces are on or were ever on (`TracesPageVisibility`: enabled,
+consent given, or a day kept — the recorder's answer, mirrored per viewer into `cicada.traces.pageShown` so the rail
+knows at launch; a server connection or a Wipe takes it away), **Traces** is a rail page (`AppTab.traces`, appended
+tenth with no ⌘ digit — DR-22, ⌘0 is Actual Size) and ⌘K offers *Go to Traces*. `TracesPage`: the eyebrow (Traces ·
+the state line) with *Settings…* (`TracesSettingsSheet`: `TracesControls` without *Browse*) and *Wipe all traces…*; one
+line, "Everything here stays on this Mac, encrypted; screenshots N days, timeline N days" from the person's own
+retention.
+
+**Redesigned 2026-10-28 (mock 11; the owner's answers, Q12).** No drop-downs on the page (owner): an empty section is
+hidden and a long list is capped with "All N" (`TracesPageLogic.capped`). In order:
+*Into memory* — **Learn from my day** (off by default; the help says what Sleep reads and never reads, and "the engine
+you chose for Sleep", provider-neutral) and **What you watch and read** (any site, on); while recording under consent
+sheet 1 with screenshots on, one line offers the newer sheet ("Screenshots can now cover every screen you have
+connected." · *Review…*, which reopens `TracesConsentSheet`). *Yesterday, as Sleep would read it* — trailing
+"Counted on this Mac · nothing sent": the exact counted digest (`GET /sources/traces/preview`) as rows — Your projects
+(one row per project), Reading, Watching, Calls, Everything else — each with a neutral-ink bar (DR-7: one hue, data),
+its words and minutes, and the attribution rule in one line under it; a part under a minute is not shown, and the
+section is hidden on a day with nothing counted. *What traces added* (only when there is something, or a removal can be
+undone) — "N beliefs and M progress notes, since <day>", *Show* (the claims, capped at 5 + All N) and *Remove from
+memory…* behind a confirmation in words; after it, "Removed N from memory." and *Undo* (`TracesMemoryModel`). *Days*
+(`TracesDaysView`, on `TracesBrowserModel`) — one card per kept day ("kind of like BeReal"): the screenshot that stands
+for it, shown only after Touch ID like every screenshot (a lock until then), the day's words, a two-screens glyph when
+more than one screen was connected, and "2 h 17 m · 3 apps"; *Show screenshots* and the search in the header. A card
+opens the day: *All days*, the day's name, "2 screens connected", *Delete day…* (confirmation in words: what already
+joined memory stays); its screenshots grouped by moment ("Screen 1 of 2"), each with a delete button; Apps and Sites
+with time (8 + All N); the Timeline, every span with a delete button (it takes the screenshots of that span with it).
+Leaving the page drops every screenshot like closing the sheet did. DR-4, DR-7, DR-22, DR-25, DR-40, DR-50, DR-58,
+DR-60; depth is a ring. Screenshots of the scratch-app verification are in the traces-v2 report. Sources' Traces detail becomes one line and *Open Traces*
+(`TracesSourcesLink`) once the page exists; before traces were first turned on it keeps the switch (`TracesControls`).
+A hidden Traces page lands on Sources (`AppTab.landing`).
 
 **Messages (G179, 2026-10-15).** Its panel's **Read again** (2026-10-20, shown while a chat is ticked) re-reads every
 ticked chat from its first message so sittings saved before reactions, replies, edits and attachments were kept get
@@ -623,7 +1123,16 @@ the handle — shown in the app only, never sent), last activity and message cou
 agent", "AI agent · suggested", "A person" — the person's own mark, `marked`, wins; "· suggested" only for a
 detector's own answer; the free-form `actor` block keeps the backend's `decided_by`, which the app reads in either
 spelling), *Is <name> an AI agent?* with Yes/No when the detectors are unsure, a menu
-(This is an AI agent · This is a person · Let Cicada suggest) and the tick. `MessagesWatcher` (environment, started
+(This is an AI agent · This is a person · Let Cicada suggest) and the tick. **A group chat** (2026-10-28) is the
+same row (DR-48, DR-34: no new pattern): its title is the chat's own name, else its members' Contacts names ("Alice,
+Bob and 2 more"), else "Group of N" (`Copy.Messages.groupTitle`), the one pill `Tag` reads "Group" (DR-44) with the
+who-is-who line as its help, and it has no *Who is this?* menu or question — a member keeps the mark of their own
+one-to-one chat. Its members' handles stay in the app (`MessagesConversation.members`), looked up in Contacts only
+when Contacts is already allowed; a pass posts each member as `MessagesReader.memberKey` with their Contacts name.
+Since 2026-10-28 (one person across sources) the look-up also keeps the card's `identifier` when exactly ONE card
+holds the handle (`MessagesContactCard.id`), and a pass posts it — `members[].contact`, or `conversation.contact` for
+a one-to-one chat — never the handle.
+`MessagesWatcher` (environment, started
 on launch, `bankChanged` on a switch) owns the list, the per-memory ROWID cursors (`cicada.messages.cursor.<bank>.<id>`
 in UserDefaults), the FSEvents watch on `~/Library/Messages` and the waiting bubbles; `MessagesReader` is the one SQL
 reader (`SQLiteReadOnly`, read-only, one transaction; a BLOB projected only from a column named in `base64Blobs`).
@@ -652,13 +1161,55 @@ bank and draws them at the chat's page everywhere — the `messages` picture run
 sharing is posted as none, and a key store that could not be read posts nothing, so a revoked permission never removes
 a page's picture; unticking forgets it on both sides) → the page's own `messages` rung (the server's copy of the same
 photo, before this session looked it up) → a monogram (`MessageBubbleFace`: the face
-inset 1.5 pt inside a disc of the ground's colour; the monogram is a disc filled with the person's hue at 35 % over the
-ground with the letter in `textPrimary` — a hue ring round one letter read as "ⓘ" — and below 24 units its letters are
+inset 1.5 pt inside a disc of the ground's colour; the monogram is the one plain disc (`EntityPictureFallback`, owner 2026-11-05) and below 24 units its letters are
 half its height, semibold; the bubbles only; never a shadow). Hovering a bubble names it ("Instinct · 34 messages
 waiting to be read"); the Messages row's tooltip and VoiceOver label carry every waiting chat's line. `MessageBubbles.model` is pure and tested. Not a Store domain: `GET /sources/messages/waiting` is fetched
 in memory whenever the status's unprocessed count moves. **Who is who in the Reader:** `EpisodeText.correspondent`
 names a message conversation's `assistant` turns ("Instinct", through `ModelNames.agentLine`) and its `speaker`
 turns; `ProvenanceConversation.correspondent` makes an evidence chip read "Instinct replied".
+
+**WhatsApp (G179, 2026-10-28).** Integrations → Messaging and the Sources detail carry an app-owned **WhatsApp** row
+(`WhatsAppSourceRow`), drawn exactly as Messages' (DR-38 head not repeated under a detail, DR-40 `NeutralButton`s
+*Refresh* and *Choose…*, `FullDiskAccessHint` on a refused read, *What came in*). *Choose…* is a `SettingsSheet`
+(`WhatsAppPanel`, R-HS16): one sentence on what is read and when, then each chat (`ChatTickRow`) — the Contacts photo
+for a one-to-one chat's number (else a monogram), the name (Contacts, else WhatsApp's own; the number only in the app),
+a *Group* `Tag` (DR-44), last activity, *Read history* once ticked (a small `.bordered` button, as Messages' *Read
+again*; "History read" after) and the tick. No new visual pattern. `WhatsAppWatcher` (environment, started on launch,
+`bankChanged` on a switch) owns the list, the per-memory `Z_PK` cursors (`cicada.whatsapp.cursor.<bank>.<id>`), the
+FSEvents watch on the group container and every read off the main actor; `WhatsAppReader` is the one SQL reader.
+**One person across sources (2026-10-29):** it posts a participant's ONE address-book card by Contacts id, the
+Messages rule (`MessagesWatcher.postedCard`) — `conversation.contact` for a one-to-one chat, `members[].contact` for
+each group member (every member JID, `WhatsAppReader.memberJids`, looked up by its number in the app only) — and `""`
+only for a number it looked up this session (`lookedUp`) that no card or several cards hold; never the number or the
+JID. Telegram's chats post no card: the backend reads them through Telegram's API and never sees a phone number
+(ruling 47a), so there is no handle the app could look up.
+
+**Telegram chats (ruling 47a, 2026-10-28; named *Telegram* since 2026-11-04 — owner: "remove 'chats' from 'Telegram
+chats' and just keep 'Telegram'" — and the bot feed *Telegram bot*, on the Sources list, its page and the overview's
+label).** The same row and sheet (`TelegramSourceRow`, `TelegramPanel`;
+`TelegramChats` holds the state, the backend the client). **The connect sheets' one shape (DESIGN_RULES §9,
+2026-10-29; `Views/Settings/ConnectSheet.swift`):** one step at a time, one primary (⏎) with Cancel as a text button, no
+*Done* until connected; under each sign-in step one caption line — one-to-one only, each with the other person's
+agreement, then the backend's consent sentence word for word — and *What Cicada reads*, which swaps the body for the
+full words (a page of the sheet, never a fold or popover). Since ruling 49 (2026-10-29) the sheet opens on a sign-in QR: Connect… was the person's act, so the panel asks
+`POST /sources/telegram/qr` at once and draws the returned `tg://login` link with Core Image (`TelegramQRCode`: dark
+modules on a light four-module quiet zone in both appearances, a 200 pt tile with the resting ring, centred, DR-9,
+DR-12), one line of how under it (Settings → Devices → Link Desktop Device; DR-13), and reads the status once a second only while the
+QR is up (`TelegramChats.followQR`), so a refreshed QR replaces itself and a scan lands on the chat list. Closing the
+sheet mid sign-in stops it at the backend (`abandonSignIn`): a QR on screen or still being asked for (stopped as it
+lands), a code or a two-step password waiting — never a connected session. *Use phone number instead* (a `TextButton`, DR-40) keeps the old steps: a country button (flag + dial
+code; `PhoneCountry`, defaulting to `Locale.current.region`) opening a searchable country list as a page of the sheet,
+the national number in the native setup field (DR-76) grouped as typed, sent as `+<dial><digits>` — a trunk `0`
+dropped, except where the zero is part of the number (CI, BJ, CG, IT, SM, VA); a pasted or autofilled "+34…" or
+"0034…" re-picks the country from its code and keeps the national part. ⏎ is the sheet's default button alone, and
+`TelegramChats` refuses a second send while one is in flight. Then the code Telegram sends, one cell per digit
+(`OneTimeCodeField`, `.oneTimeCode`, the last digit submits) sized by the status's `codeLength` — the backend reads
+it from Telegram's answer (`TgSentCode.length`, `sent.type.length`) — else five;
+the two-step password when the account has one, after either path. Switching between QR and phone clears the last
+way's refusal (`TelegramChats.clearError`). Connected: "Connected. Tick the chats Cicada may read.", the one-to-one chats only (no group, no channel),
+each with *Read history* and the tick; ticking opens a system alert (*Did they agree?*) carrying the backend's
+per-chat sentence with the chat's name — *They agreed* ticks, Cancel doesn't — and unticking withdraws it; *Disconnect* (a
+text button beside the sheet's one *Done*) ends the session at Telegram.
 
 **Ask why (G191).** When the bookmark watch's own file event starts a sync (`BookmarkSyncSignal.live`, a task-local
 the watcher sets; a catch-up, Sync now, Turn on or folder import is never live) and the result has exactly one fresh
@@ -715,7 +1266,24 @@ bound to the memory it read for (`BankScope.bound`) and its signature is recorde
 never read for. The old per-connection signature moves, once, to the active memory at the first launch after the
 upgrade — only once the roster has loaded and `Store.bank` names it (before `hydrate()` it is the placeholder `default`,
 and the old signature is then only read, never moved) — and the consent it implied is written down explicitly so no other memory reads as
-turned off. *No self-opening field* — every chip and click from the panel goes through
+turned off. *Nothing is read before the memory is known* (2026-11-03): `start(store:)` runs before `hydrate()`, so the
+launch catch-up used to ask the placeholder `default` what was synced, find nothing, and read the whole file for a
+memory nobody had open (the server refuses that write, and the light read "Sync failed" until the next save). A
+catch-up or a watch event before the roster names the active memory is owed instead (`catchUpOwed`) and runs once it
+does — `bankChanged` when `Store.bank` moves, `rosterLoaded` (the app's hook on `store.banks.value?.active`) when the
+active memory has the placeholder's own name and `Store.bank` never moves (`testTheLaunchCatchUpWaitsForTheActiveMemory`).
+*What "up to date" is measured against* (2026-11-03, live): Safari keeps every bookmark and the Reading List in one
+file, `~/Library/Safari/Bookmarks.plist`, shared by every Safari profile, written by Safari and — Safari open or not —
+by iCloud's own Safari sync, which merges another device's bookmarks into it (`capture-and-sleep.md`). Cicada reads
+that file and nothing else can be read: a bookmark saved on another device reaches Cicada exactly when it lands there.
+The owner's row read "Watching · Last synced 5 days ago" while bookmarks were being saved elsewhere and the file had not
+moved in five days — both true, neither the reason. The watcher now keeps when the browser last changed its file
+(`browserChanged(for:)`, the file's own modification time, only for a browser the person turned on), and a watched,
+up-to-date browser's header line says it (`BrowserFreshness`, DR-58's relative words): "Up to date with Safari on this
+Mac — its bookmarks here last changed 5 days ago", plus, once that has been quiet a day, how another device's bookmarks
+arrive (Safari: once iCloud copies them into Safari here, "if one is missing, check Safari here"; the Chromium family:
+once the browser on this Mac syncs them, while it is open). The light's Watching sentence says "here … from another
+device, once the browser brings it to this Mac". *No self-opening field* — every chip and click from the panel goes through
 `SaveWhyCenter.input`, which ignores a choice (and a click elsewhere) within `SaveWhyPolicy.armDelay` (0.5 s) of the
 panel showing — at 0.5 s after a save the hand is still on the page beneath — and `SaveWhyNSPanel.canBecomeKey` is false
 until a mouse-down lands in it, so no activation or stray key can press a chip or type; only `tapOther` opens the field.
@@ -966,6 +1534,61 @@ label). An older backend sends no `more`, and the panel then suggests nothing (i
 the budget, no download path in the panel's sources); the backend in `test_saved_why.py`. Shots (render harness — the real
 panel needs a Chrome bookmark): `~/cicada-redesign-2026-10-22/shots/save-notch/`. Detecting saves in other apps is G221.
 
+**Connect from the notch (G231, 2026-11-03; owner: "when you enter an app they support a connection for, they suggest
+from the notch to connect to it … with our own aesthetic").** When the person brings to the front an app whose source
+is not set up in the active memory, the notch offers it once. *Trigger:* `NSWorkspace.didActivateApplicationNotification`
+(a bundle id, no permission), and only once that app has stayed in front for `ConnectSuggestPolicy.dwell` (1.5 s — a ⌘-Tab
+that passes through is not entering it). *Apps* (`ConnectSuggestApps`, bundle id → Sources catalogue entry): WhatsApp
+(`net.whatsapp.WhatsApp` → `whatsapp`), Telegram (`ru.keepcoder.Telegram`, `org.telegram.desktop` → `telegram-chats`),
+Messages, Notes, Calendar, Reminders, Contacts, every browser Cicada reads bookmarks from (`BrowserInventory.catalog`,
+`supported` only — Arc, Firefox, Edge and Opera never), Wispr Flow (`com.electron.wispr-flow`, only while `SourceCatalog.wisprOffered`), Notion (`notion.id`) and
+Hex (`anomaly.hex` → `hex`, the meeting recorders' entry, read with the app's meeting folders so a Hex whose own
+folder is connected never reads Off). Readwise is gone. **A website
+in the front tab is not a trigger:** the only permission-free tab read is the star-click prefill (owner ruling
+2026-10-19), and reading the tab on every activation would be watching browsing without the person's act — activity
+traces' ground (G218). *Connected* is the catalogue's own word for that entry (`ConnectSuggestApps.status` →
+`SourceCatalog.status`, the Store's `channels` and `sourcesOverview` with this Mac's readers): only `off` is offered;
+connected, needs sign-in and waiting for an agent never are, and an entry not read yet or absent here is never guessed.
+*Respect* (`ConnectSuggestPolicy`, pure, clock injected): on by default (Settings → General → **Suggest connecting apps**;
+the offer only ever names an app the person just chose to open, and the caps keep it to a handful a month); once per
+source, ever; **Not now** — and the panel leaving on its own after `timeout` (12 s, the ask-why question's patience; the
+pointer resting on it holds it; measured on `systemUptime`, as the ask-why panel's clock is, so a wall clock stepped back
+never freezes it), the person leaving the app, or the ask-why question taking the notch (`SaveWhyCenter.willShow`, set
+by `ConnectSuggestCenter.yields(to:)` at launch, so it holds with the main window closed) — allows one more
+offer no sooner than 14 days later, and that is the last (`maxShows` 2); **No** is never again, undone by *Suggest
+again* in that Settings card; **Yes** is never asked again (the source's page is where it is finished); at most one
+offer a day across sources (rolling 24 h); never in the first minute after the app launched or after Cicada did; never
+deferred to later (a refused offer waits for the next time the app is brought forward — it belongs to the moment of
+entering); never while the ask-why panel shows, never in a demo memory, never before the active memory is known, and
+**never before that memory's setup ran or was skipped** (`OnboardingState`; found live: a Yes over the Welcome opened the
+source behind it, and setup's own Sources step offers every source). A show is counted at once, so a quit while it
+shows never makes it free again. *Where it is kept:* `cicada.connectSuggest.enabled` and `cicada.connectSuggest.memory`
+(per source: shown count, last shown, the answer and when, the app's name for Settings) in the app's defaults — per Mac,
+per viewer chrome, never in a bank: it is about the apps on this Mac, and a memory handed to someone else must not
+carry "never suggest WhatsApp"; whether a source is connected is never stored, it is read from the active memory each
+time. *The panel* (`ConnectSuggestPanelController`, `ConnectSuggestPanelView`) is the same notch as the ask-why
+question — `SaveWhyNotch` placement on the front app's screen, `SaveWhyNotchShape` on `CicadaMotion.notchGrow` /
+`notchShrink` (drawn grown and only fading under Reduce Motion), notch black and the notch's text ladder, the same
+468 pt card: the bookworm (`curious`) beside the app's own icon as macOS draws it, the question "Connect Notes to
+Cicada?", one tertiary line on what is read ("macOS asks you first.", "Only the chats you tick are read."; a browser
+its own entry's: Chrome "Bookmarks; tab groups and watched videos only if you turn them on.", Safari "Bookmarks and
+Reading List; iCloud tabs only if you import them.", any other "Only your bookmarks are read."), two or three ringed chips of what Cicada does with it (`Copy.ConnectSuggest.uses`, e.g.
+"Remember what friends tell you · Find that link someone sent · Recall plans you made"), and **No · Not now · Yes**.
+It **never takes the keyboard**: `ConnectSuggestNSPanel.canBecomeKey` is always false (there is no field), its buttons
+answer the first click (`ConnectSuggestHostingView.acceptsFirstMouse`), it is shown with `orderFrontRegardless`, and a
+button pressed within `armDelay` (0.5 s) of it showing is ignored. *Yes* opens Sources on that entry
+(`AppRouter.routeToCatalogEntry` → `SourcesPageView.openPendingEntry`, held until a browser's entry is in the list,
+dropped when the page goes) — the same detail a click on its row opens, with its own connect control; for Messages,
+WhatsApp and Safari while Full Disk Access is missing (a preflight, `LiveMacPermissionProbe`), it lands instead on
+that permission's row in Settings → Privacy & data → Permissions, the onboarding step's own rows with the drag helper
+(`ConnectSuggestApps.landing`); Contacts, Calendar, Reminders and Notes ask macOS's prompt from their own Connect, so
+they go straight to the source. Nothing is connected or asked by the Yes itself. *Log:* `com.cicada.app`, category `connect-suggest`,
+the entry id and the decision or outcome enum only; no telemetry ledger event. Tested in `ConnectSuggestTests` (25: every
+respect rule against a fake clock, the panel's clock, the apps, the catalogue status, the copy, the center end to end with
+a fake presenter and front app, and a source guard that the panel never makes itself key or asks a permission).
+Shots (a scratch, separately identified app copy, Notes brought forward on the verify Mac; window-only captures):
+`~/cicada-verify-evidence/g231-notch/app/` and `~/cicada-verify-evidence/g231-notch-b/app/`.
+
 **Bookmarks in the menu bar (G191 v3).** The status menu's **Bookmarks…** (⌘B) opens `BookmarkHistoryController`, a
 Maccy-like panel under the status item (borderless, key without activating the app, closed by Esc, a click elsewhere or
 opening a row): a search field, then every bookmark (`origin` `<browser>-bookmark`) from the Store's `sources`
@@ -985,7 +1608,7 @@ leaves Chrome untouched — `BookmarkRemoveFlow`), and only then is Chrome chang
 targeted: the node in Chrome's default-profile file whose `date_added` matches the record's `lastSavedAt`
 (`ChromeRemovalPlan`); with several copies of the link the confirmation says so and offers "Remove the copy saved …" or
 "Remove all N copies". The script (`ChromeBookmarkScript`, `osascript` as Cicada's child, so the one-time "Cicada
-wants to control Google Chrome" comes only now) addresses each node and each folder of its chain by its `guid` —
+wants to control Google Chrome" comes only now, unless the person already allowed it from the Permissions row's own click) addresses each node and each folder of its chain by its `guid` —
 what Chrome's AppleScript calls `id` (fix 2026-10-15, verified live: the numeric `id` fails with -1728, so v3's script
 deleted nothing) — quoted and accepted only as an 8-4-4-4-12 hex UUID, the numeric id (digits only) only for a node
 with no `guid` (an older Chrome); the generated script is compiled in a test (`osacompile`, never run) — but deletes it
@@ -1132,7 +1755,10 @@ five not-installed entries by rank, install state derived per request from `SKIL
 Claude Code plugin ids, never an agent's config. Since the Skills page (2026-10-15) **the app installs nothing and
 writes no skill folder**: `SkillInstaller` and its consent sheet are gone, Cicada's own `cicada`,
 `cicada-librarian` and `linkedin-people` rows and a skill's detail hand off to the page (`AppRouter.routeToSkills`), and every install is the
-backend's `skill_store` (`api.md`, "Skills"). Hosted MCP servers and agent-prompt texts stay copy-only. The handshake gains a capability line only for an installed, active bridge
+backend's `skill_store` (`api.md`, "Skills"). **hoff** (2026-10-29, G220), the show-me cursor, ships as a catalog
+suggestion at rank 13 (Discover, "Show me on screen"): copied at its reviewed commit with every file hashed and without
+hoff's own hooks; its row says what that loses and that Accessibility and Screen Recording are macOS's to ask,
+never Cicada's (its `reach` line, which the Discover row shows). No Swift changed for it: the page reads the catalog. Hosted MCP servers and agent-prompt texts stay copy-only. The handshake gains a capability line only for an installed, active bridge
 whose tool exists: papers (`cicada_save_url`), video (`cicada_record_watch`) and meetings
 (`cicada_save_episode`, one `speaker:<name>:` line per utterance, never `user:`) are active;
 documents stays off until something says who wrote a document (F2-back R-B14).
@@ -1146,27 +1772,266 @@ verified by `scripts/verify-skills.sh`, whose `--print-urls` is pinned offline) 
 with a `terms` line; `macos-harness` states plainly that it can control the whole Mac. Choosing one is Settings, How your
 agent reads (`agent_methods`), not an install.
 
+**The RSS page lists its feeds (ROR-108, owner 2026-11-05; `Views/Sources/FeedChannels.swift`, DESIGN_RULES §9
+2026-11-05).** The content slot is every feed followed, one row each by name, the row's right edge how many items it
+brought in, *Nothing yet*, or the last check's failure in a few words (*Last check failed: too many requests*); the
+address and the check's day ride `.help`. A feed with items opens in place (`InPlaceDisclosureRow`) to them, newest
+first, a page at a time; one with none has nothing to open. *Other* holds what no followed feed accounts for (a pasted
+feed, one since unfollowed), drawn only when it holds something. The page's search reads across the feeds, as a flat
+list. **Backend:** no new route. `GET /sources/channels/rss/collections` answers one unnamed account holding the feeds
+(`id`, `name`, `count`, `latest`, `url`, `polled`, `problem`) and `/items?collection=<feed id>` pages one; both ETagged,
+not a Store domain, kept by `ChannelItemsCache`. **How an item knows its feed:** a poll stamps `feed` (the feed URL's
+hash) on the `url_index` row of every item the feed lists, a held item included, the first feed keeping one two feeds
+carry; with no stamp yet (an item from before this), the one followed feed on its host, else *Other*. **How a poll
+records its result:** `feeds.yaml`'s `last_problem`, a code (`feed_registry.POLL_PROBLEMS`), never a fetch error's text;
+a good poll clears it, and a body that is no feed counts as `not_a_feed` though the poll's own answer stays `ok`. Reading
+any of this fetches nothing; the feed gate and the polling schedule are unchanged. No item row names a picture from the
+web.
+**A followed Substack publication lists on the Substack page, not here (G89, owner 2026-11-05; DR-34, DR-48, DR-60, DR-81).**
+`feed_registry.is_substack` is the one rule (on `*.substack.com`, or the `substack` tag), read by the mark, the lists and the
+counts. The backend's `substack-feeds` channel (read-only, no actions) lists those feeds and their items with the same
+`collections` and `items` routes, and its overview row (`Publications`) takes their episodes out of `rss`'s by the page each
+episode names, so an item sits under one source; `rss` counts and lists only the other feeds and what no followed feed
+claims (*Other*). With no other feed RSS is Off, and its page shows its way to add a feed. On the Substack page
+`SourceCatalogViews.cameIn` draws `FeedChannelsList(channel: "substack-feeds")` after Saved and reading history; a search
+reads across all three. Polling, the feed gate and `feeds.yaml` do not change: RSS polls every feed, and adding one stays
+on RSS and its add sheet, which lists every feed.
+
+**Each feed wears a mark before its name (ROR-108; DR-12, DR-52):** the row carries `mark` (the bundled Substack mark, for
+`*.substack.com` or the feed list's `substack` tag, nothing asked) or `site` (its own site's key; shape `g161-19`). A
+`site` row draws `SavedLinkMark` by the feed's id, `GET /sources/feeds/{id}/site-icon`, else that site's monogram; *Other*
+draws a monogram of its name. The mark is one 16 pt square in both forms of the row, so a late icon moves nothing. A
+feed's XML `<image>` is not used.
+
+**The standard source page (owner 2026-11-04; `Views/Sources/SourcePageLayout.swift`, `Copy.SourceLayout`;
+DESIGN_RULES §9 2026-11-04).** Owner: *"we should standardize the layout for all the sources pages"*, *"so much text"*.
+Every source's detail column is one `SourcePageLayout(title:origin:status:statusHelp:backLabel:onShowList:onClose:
+connect:content:footer:)` — four slots, top to bottom, and nothing else on the page (no *Settings* label, no paragraph):
+1. **Header** (drawn by the layout from `title`, `origin`, `status`): DR-74's head with the source's real mark
+   (`SourceLogoTile`), its name, and **one status line** (`SourceStatusLine`, `SourcePageStatus`) under the name. What the
+   words measure goes in `statusHelp` (hover only). A source never adds a line here.
+2. **Connect area** — `SourceConnectArea(primary:line:lineIsAttention:ways:extra:)`, drawn for the state the source is
+   in (`SourceConnectState`: `.notConnected` · `.connecting` · `.connected` · `.needsAttention`; `.of(status)` maps a
+   plain status). Each state is **one** `SourcePrimaryAction` (DR-5: the page's one primary; *Connect GitHub*,
+   *Choose chats…*, *Reconnect*) and **at most one short line** (`line`, meta ink, one line, its whole text on hover;
+   `lineIsAttention` for the one thing to fix). A step's own body — a code to enter, a picker's summary — goes in
+   `extra`, between the line and the ways. **Several ways in** are `ways: [SourceWayIn]`, one 36 pt option row each on
+   one ringed block: an icon, a name and a switch (`.toggle(on, set)`) or a neutral button (`.button(words, action)`).
+   The three standard ways: the official account (`icon: .mark(origin)`), *Read through your browser*
+   (`SourceWayIn.browser(on:set:)`, the browser-harness agent's per-site switch, `globe`), and *Import a file*
+   (`SourceWayIn.importFile(origin:action:)`: the source's **own mark on a file icon**, `.file(origin)` — never another
+   company's mark). A connected source with nothing left to choose passes nothing and the area draws nothing (DR-81).
+3. **Content** — the source's own sections, each a `SourceSection(title:count:rows:)` (a `SectionLabel` with its count
+   as meta, then rows at DR-34's heights), drawn only when it holds something (DR-81): GitHub's *Your repositories* and
+   *Starred*; YouTube's lists; a chat source's chats (`ChatSourceList`); a saved source's saves (`SourceItemsSection`,
+   with the page's one search above it). A list longer than the page shows 12 rows then *All N*, opened in the
+   column's place (`SourceDrill`, *‹ <source>* and Esc return); while a drill is open the connect area and the footer
+   are not drawn.
+4. **Footer** — `SourcePageFooter(actions:note:)`: *Refresh* (`SourceFooterAction.refresh`) and *Disconnect*
+   (`SourceFooterAction.disconnect(source, message:)`, asked first in a confirmation whose button carries the
+   destructive role) as quiet `TextButton`s flush with the column's edge, last on the page; `note` is the last action's
+   result in one line. Only the actions that apply (nothing to refresh, no Refresh).
+A source plugs in by building those three slots from its own state in its own file (GitHub: `GitHubSourcePage`); the
+catalogue's dispatcher (`SourceCatalogDetail`) picks the page by entry id. Words go in `Copy.SourceLayout` or the
+source's own `Copy` namespace, short, provider-neutral (CLAUDE.md), never a how-to paragraph (an export's where-from is
+the *Import a file* row's hover). **This Mac on the layout (#599):** `SourceCatalogRow.notInstalled` → `SourcePageStatus
+.notInstalled` ("Off · not installed", `SourceConnectState.notConnected`, no Connect — Wispr Flow's `WisprSlot`), and
+`SourceCatalogDetail.thisMacContent`, the content for every entry `ThisMacSourceContent.handles`: a recorder's *Folders*
+(each row only the folder and its Manage) or Reminders' list picker, then the browser. Wispr Flow keeps the plain list.
+Hex's connect is its `FolderSlot` case.
+**Review of #593 (2026-11-04):** a connector is found by `connect` or `disconnect` (`connectorChannel(in:)`: the backend
+sends `["connect"]` before and `["sync", "disconnect"]` after), so a connected X, Reddit or Pinterest keeps Disconnect and
+a lapsed one Reconnect; Substack (#594) is three switches (`substackWays`, the first-use sheet first) with "Following N
+publications" as the line; a browser page lists *Unmute all* as one row while the ask-why question is muted on a site
+(`BrowserWayRules.showsUnmute`); the YouTube watch-history read shows Stop while it reads and its failure under its
+switch — Full Disk Access's exact fix when that is what failed (`WatchHistoryWatcher.failure`), else its words as the
+attention line (`WatchHistoryState`, `WatchHistoryLine`), on YouTube's page and Chrome's; chat exports list each app's
+*Request your … export* as a way (`ChatExportWay`; the reminder menu stays in the intake overlay, a menu not being a
+switch or a button).
+
+**This Mac's pages: accounts → collections → items (owner 2026-11-04; G161, G154, G95, G142, G219; PR #599;
+`Views/Sources/SourceBrowser.swift`, `SourceBrowserLists.swift`, `Models/SourceAccounts.swift`, `Copy.SourceBrowser`).**
+Owner: *"replicate this layout inside Apple Notes, starting from those that are iCloud … then you go into it, and then you
+can see the notes … or you can see folders … if we can standardize so that this view maybe translates to … the
+transcriptions … for hex or whisperflow"*. Apple Notes, Calendar, Reminders, Contacts and the meeting recorders fill the
+standard page's **content** slot with one call, `ThisMacSourceContent(entry:channels:)` (`handles(entry)` says which):
+- **One browser** (`SourceBrowser(channel:sourceTitle:)`): the page's one search, then **Accounts** — one DR-34 row each
+  (`SourceBrowserRow`: the account's mark, its name, *N notes/events/reminders*, a chevron) — and **Recent** (DR-81's
+  five rows, then *All N*); an account opens its **collections** (a Notes folder, a calendar, a Reminders list — a
+  folder, calendar or list glyph), a collection its **items**; each level opens in the content's place with *‹ <where
+  you were>* and Esc (`SourceBrowserHead`; the focused detail column takes Esc ahead of a back button, so an open level
+  tells the page through `SourcePageBack`, and Esc closes the page only with no level open), and an item opens in the Reader. It starts where there is something to
+  choose (`SourceBrowserText.start`): several accounts → accounts; one account with several collections → its
+  collections; one collection → its items; nothing filed → the plain list. The tree is read from the backend
+  (`GET /sources/channels/{id}/collections`, `ChannelItemsCache.refreshCollections`, never a Store domain), so a client or
+  a replica shows what Cicada holds; one collection's list is asked with `collection=` under its own cache key
+  (`SourceListKey`). Searching an account reads the whole source (the backend narrows by collection only) and says so.
+- **Locked notes (G234):** `ChannelCollections.locked` is one meta line at the Notes page's first level, "12 locked notes ·
+  Cicada can't read them", never a row since nothing is behind it, and not drawn at zero (DR-81); an older backend sends
+  no count and the line stays away. No locked note appears in the items or a folder's count (`capture-and-sleep.md`).
+- **Each account by its real provider, with its own mark** (`SourceAccountProvider`): Calendar and Reminders post the kind
+  from EventKit's source type (`of(sourceType:title:)`: local, Exchange, CalDAV — iCloud when it says so, Google when its
+  name is Google's or a Google address — MobileMe as iCloud, subscribed and birthdays as Subscribed); Notes names only its
+  account, so its kind is read from the name (`of(posted:name:)`). Google draws the bundled *Google Calendar* mark (Gmail's
+  on Notes); iCloud, this Mac, Exchange and the rest a system symbol on the dense tile — Apple's marks are never committed
+  (Track L). **Why Calendar showed a Google account:** the Calendar app holds every account in Internet Accounts, and the
+  old page said so in a standing line with an *Add a Google account* button (`CalendarRow.google` and the layout's
+  way row, both removed); the account list now names each account the Mac holds, Google only when there is one.
+- **Contacts** (`ContactsGrid`, G154, owner 2026-11-04): every card on this Mac as a grid of 48 pt faces with the name
+  under each, read from `GET /sources/contacts-local/book` (`capture-and-sleep.md`) into `ChannelItemsCache`: not a
+  Store domain, no ETag, in memory, read when the page opens and when the channels move. Nearly every card has no photo,
+  so the page is drawn as monograms. A card with a page comes first and is a control (`ContactPageCell`: `EntityPicture`
+  by the one picture precedence, the same plain initials as a card with none; hover a fill, a click opens the page). A card
+  with none is not (`ContactCardCell`: its thumbnail through `SourcePictureStore`, else a neutral disc in secondary ink;
+  no hover, no press, no click target, static text to VoiceOver). A nameless card reads *No name*, never its
+  organisation. One line beside the search: *376 contacts · 6 in memory*. `ContactsGridPhase` decides what is drawn: an
+  empty answer while the reader is still posting (`bookPending`) is the skeleton, never nothing; it stays until the
+  read after the post answers (`onBookPosted`, an older answer dropped for it), and if that read fails with an empty
+  book held the page says so in words. A run a newer one replaced says nothing about any of this. The search is in memory, folded once when the
+  book is read, and its words never leave the app (0.015 s over 20,000 cards, debug build). `LazyVGrid`: about 85 of
+  800 cells exist at once. Contacts stopping (`ContactsReader.onForget`) drops the names and thumbnails the app holds.
+- **Meeting recorders** (`MeetingsBrowser`): recorder → folder → meetings; one folder lists its meetings directly
+  (`MeetingRow`: a waveform glyph, the title, then *Tue, Nov 3 · 32 min* in meta ink, the full date on hover —
+  `MeetingRowText`, `duration_s` from the episode's `meeting` record). **Hex in one click** (`FolderSlot`'s connect
+  area): *Connect Hex* (the one primary), the folder on its hover — Hex's own `meetings.output_folder`, else its default
+  (`LocalSourceWatcher.hexMeetingsFolder`, which reads only Hex's setting). **Opening the page never touches that folder**,
+  because Hex's default is under Documents; the click checks it (`hexFolderFound`), registers it and reads it at once
+  (`connectHexFolder`): one pass that posts each meeting once, where the open panel → name → *Look inside* → *Start
+  watching* path posted every file twice before a meeting could show. No folder there: *Hex hasn't saved a meeting on
+  this Mac yet*, in the connect area's line. The way row *Another folder* keeps the open panel.
+- **Status is the reader's own, from the start** (`SourceCatalog.status`): a reader this Mac runs is Connected while it is
+  allowed and turned on (`localReaders[channel] == true`; Contacts `LocalReaders.contactsOn`: on and not refused), whether
+  or not the bank has recorded a sync — the backend's `connected` means "a sync was recorded", which a fresh bank, a first
+  read still running or a read the bank refused leaves false. Off here stays Off whatever synced before.
+- **An app removed from this Mac** (`LocalSourceWatcher.wisprAppInstalled`, a LaunchServices lookup on each reload and
+  each time the Sources page opens, `refreshInstalledApps`; `missingApps` → `SourceCatalog.rows(notInstalled:)`): Wispr
+  Flow reads Off with *Not installed* on its row and *Off · not installed* on its page (`SourcePageStatus.notInstalled`).
+  Its database stays in `~/Library` after the app is removed, so `wisprInstalled` (the database) could not tell. Its
+  mark is the vendor's bundled one (`OriginIconography.logoName("wispr-flow") == "wispr"`), so it shows with the app gone.
+- **Wispr Flow is off the offer for now (owner 2026-11-04: "remove wisprflow also from sources for now").**
+  `SourceCatalog.wisprOffered = false` is the one line; `true` brings all of this back. No row on Sources, no onboarding
+  row or tile, no driver (`AppSourceDrivers.live`), no notch offer (`ConnectSuggestApps.target`, `.status`), nothing in
+  Settings' list of Noes (`ConnectSuggestApps.offered`), and a checklist that ticked it drops the row
+  (`GettingStartedProgress.rows`). **The reader stops for everyone, connected or not**
+  (`LocalSourceWatcher.wisprReads`): a row that is gone cannot explain a reader still running. Its `enabled` setting
+  and read cursor are left as they are, so it resumes where it stopped. What came in stays: the overview row is drawn
+  from evidence, so someone with Wispr episodes still finds the source in ⌘K and from Sleep (`SourceDetailView`, what came
+  in by name, no Refresh), and search and the Feed are untouched. A fresh memory has no such row. No wire change: the
+  `/capture/local-source/wispr-flow` routes, the `wispr-flow` channel row and `source_overview.CATALOG` stay, the last
+  because it names old episodes' origin, and an older app keeps working. `ThisMacSourcesTests`, `LocalSourceWatcherTests`.
+`ThisMacSourcesTests`, `test_source_collections.py`.
+
 **The redesign, Sources · Inbox · entity card · Sleep (G217, G205, G212, G61, G206; ruling 36 D5/D6, 2026-10-22).**
-- **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off, grouped
+- **The Sources root is a grid of apps (ROR-7, G217, G161; owner 2026-11-05; `SourceGrid`, pure; `SourceGridView`;
+  DESIGN_RULES §9 2026-11-05).** Three questions in order: **Needs you** (a lapsed sign-in, a list waiting for an agent, a
+  permission macOS took away — `LocalReaders.waitingOnAccess` — or a connected reader whose own page says *Needs you*:
+  the same channel and words, `SourceCatalog.rows(watch:)`), **Connected** (exactly what the eyebrow counts, so a row
+  that only borrows another's reader, YouTube on Chrome's, keeps its green dot in its own category, #619), **Suggested**
+  (off, and its app is on this Mac: the notch's own bundle list, `ConnectSuggestApps`, without Apple's apps, which every
+  Mac has, and without what the person said No to; one Launch Services pass per appearance, nothing inside an app read),
+  then what could be added by what it is (`SourceCategory`: Messaging · Calendars and contacts · Browsers · Social · Video
+  and music · Reading · Notes and work · Meeting recorders · Files and activity · Agents' conversations). A source sits in one
+  section. `SourceCatalogGroup` (how it comes in) stays the rules' word and is never drawn. A tile is the one `LogoTile`,
+  the name, and one line only when it says something: when it last read, the waiting word, *Not installed*; off says
+  nothing, no dot is the word, and *Connected* is never repeated under its own heading (it returns in search results and on
+  a row that only borrows a reader). The Chat exports tile takes every assistant's export, so it wears a neutral glyph. One click opens the standard source page; the rows beside it use the same sections.
+  **Search** is always drawn (⌘F focuses it): the one ranker (`QuickMatch`) over the name, `SourceGrid.alsoKnownAs` (a
+  company, an old name, what it holds; never drawn) and the section, with no network and no model. ↑/↓ walk the results,
+  ⏎ opens the highlighted one, neither animated (DR-60); nothing found is `EmptyStateView` with the page's own import.
+  The words outlive an opened source and are cleared by a hand-off and the sidebar's re-click. `catalog` is never
+  filtered, so the palette, the notch's Yes and Sleep's *Open in Sources* reach every source whatever was typed.
+  **Companies are not groups (decided, ROR-7):** Google's sources are four kinds of thing (a video site, a browser, a
+  chat export, a calendar feed), each with its own consent and its own page, and a person looks for "my chats"; a
+  company's folder would add a click and split the categories. Typing the company finds each app as itself, wherever it
+  sits. A tile is offered only if it can really connect; nothing is shown as coming soon.
+- **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off (the page's
+  arrangement is the bullet above). By how it comes in:
   *Accounts and browser* (X, YouTube, Instagram, LinkedIn, Reddit, Pinterest, TikTok) · *This Mac* (Calendar, Contacts,
-  Messages, each browser on this Mac, Apple Notes, Folders, Wispr Flow once present) · *Exports* (Files and links; Chat
+  Messages, each browser on this Mac, Apple Notes, Folders; Wispr Flow once present, while on offer) · *Exports* (Files and links; Chat
   exports, which point at their agent — `AppRouter.routeToAgents`, the Agents page) ·
   *Feeds* (RSS, Calendar feeds, Telegram), then *Agents' conversations* for an overview harness row no entry speaks for.
-  A row is a `LogoTile` (through the `SourceLogoTile` adapter: an origin key or an umbrella logo slug in), the name, the
+  A row beside an open source is a `LogoTile` (through the `SourceLogoTile` adapter: an origin key or an umbrella logo slug in), the name, the
   last sync only while on, and a dot with one word: **Connected · Needs sign-in · Off** (`SourceCatalog.status`: a
   channel whose last failure reads as a lapsed sign-in, else any connected channel, an allowed site for Instagram, a
-  harness with conversations). Its detail (`SourceCatalogDetail`, DR-74's head) holds the source's own control — the
-  very rows Settings drew (`CalendarRow`, `ContactsRow`, `MessagesRow`, `BrowsersSection`, `WatchHistoryRow`,
-  `FolderChannelRow` + *Add a folder*, `WisprFlowRow`), or `ChannelActionsBar` (Connect / Refresh / Manage) for a
-  registry channel, or a tile's flow — then the per-site reading switch for a walled site (x, instagram, linkedin,
-  reddit, tiktok; `PUT /reading/settings` `{sites}`, turning a site on also turns reading on with its acknowledgement:
-  Reading the web left Settings, default on), then what came in (the source's v4 list when the overview has a row).
+  harness with conversations). **Its detail is one template for every source (source-page-v3, owner 2026-10-29;
+  `SourcePageViews.swift`, DESIGN_RULES §9 2026-10-29):** DR-74's head; **one status line** (`SourcePageStatus`, pure:
+  *Connected · last item <day>* / *Syncing · <the reader's words>* / *Needs you · <one action>* / *Off*, which also says
+  its last item when it holds any — the day is the items route's `latest`, ruling 39's received day when later, never a
+  day still ahead; **2026-11-03, live:** a chat reader on this Mac — WhatsApp, Messages — says *Connected · checked
+  <when> · newest message <day>* instead, from its last successful pass and the newest message in the ticked chats
+  (`ChatCheck`, `SourcePageStatus.checked`, DR-58; the list row's age counts that check too, and its facts add when it
+  reads), because the day something last came in read as a stopped reader while the ticked chat was only quiet —
+  `capture-and-sleep.md`, "What up to date means") with *What Cicada reads* as a quiet text button opening the source's full words (its blurb, what it
+  reads, where an export comes from, its honest limit) as a `ConnectFactsPage` sheet; **one search**
+  (`CicadaSearchField`, "Search 6 chats") that replaces the "What came in" heading and narrows the list on the backend
+  (`q`); **what came in** (`SourceItemsSection`) in the source's own unit — a chat (face, name, *N conversations*, its
+  newest day), a watched day (*N videos*), a saved thing (`SavedItemRow`), an item, an agent's conversation
+  (`HarnessConversationsView`'s embedded mode) — at most 12 rows then a plain *All N*; a group row and *All N* open in the
+  column's place (`SourceDrill`) with *‹ <source>* and Esc to return, never in place (DR-81); then the removals proposed
+  against the channel and, for tab groups, the groups open now; and **Settings** last (`SourcePageSettings`, retired 2026-11-04 for the standard source page above — its controls are the connect area and the footer now): the
+  source's own control — the very rows Settings drew (`CalendarRow`, `ContactsRow`, `MessagesRow`, `BrowsersSection`,
+  `WatchHistoryRow`, `FolderChannelRow` + *Add a folder*, `WisprFlowRow`), or `ChannelActionsBar` (Connect / Refresh /
+  Manage) for a registry channel, or a tile's flow — then the per-site reading switch for a walled site (x, instagram,
+  linkedin, reddit, tiktok; `PUT /reading/settings` `{sites}`, turning a site on also turns reading on with its
+  acknowledgement: Reading the web left Settings, default on). Under the page those rows run with
+  `sourceDetailHeadShown`, so their own *What came in* fold draws nothing (`CapturedItemsList`): the page's list is the
+  one list. A how-to or honest limit (an export's *where the file comes from*, Telegram's, Instagram's, Notion's) shows
+  in Settings only while the source is Off; otherwise it is one tap away under *What Cicada reads*.
+  **Owner pass, 2026-11-03 (DESIGN_RULES §9 2026-11-03; `ChatSourcePage.swift`, `ChatSourceList.swift`):** *What Cicada
+  reads* is gone from every source page — the status line is the status, and a chat reader's "checked" sentence is its
+  hover (`SourceStatusLine.help`). The pickers' standing paragraphs (Messages, WhatsApp, Telegram's connected step) are
+  gone too; a failed read still shows `FullDiskAccessHint`. What is set up comes first (since ROR-7 at the top of the
+  page, `SourceGrid.sections`; the arrow keys walk `SourceGrid.drawnOrder`). **A chat
+  source's list is its chats** (`ChatSourceRow`, for `imessage`, `whatsapp`, `telegram-chats`): every chat, no *All N*
+  cap, pinned first then the newest stored message (the backend's order); the face draws `chat.picture` (the page the
+  chat stands for, by the one precedence — the person's own chat is the owner's page) before `chat.photo`, else a
+  monogram (`SourcePictures.chatFacePaths`, only `/entities/<id>/picture|photo` paths); the second line is a
+  `StatusWord` — green *Last synced <ago>* (the later of `synced_at` and this Mac's last check) for a ticked chat, grey
+  *Not syncing* otherwise; the recency on the right as the apps say it (`ChatSourcePage.recency`, DR-58). Right-click
+  *Pin to Top* / *Unpin* writes the chat's own settings route (`APIClient.setChatPinned`, then the list re-reads); a
+  click opens `ChatConversationColumn` in the trailing column the Reader uses (`ChatPanelRouter`, page-local, never a
+  Store domain; opening one closes the other): the newest three sittings from `GET /sources/messages/chats/{id}/sittings`,
+  each read with `GET /episodes/{id}/text` and drawn by the Reader's chat rows, *Earlier messages* for more, opening at
+  the bottom; an unticked chat (the row's `ticked`, or the route's `ticked: false`) shows only its face, name, recency
+  and one line. Esc, the close button, the sidebar re-click and opening another source close it. **Decided:** the page
+  and the picker stay two things — the page is what Cicada holds, from the backend (the same on a client or a replica);
+  the picker (*Choose…*) is the consent act and reads this Mac's own chat list.
+  **Chat images (owner 2026-11-04, G179; `ChatMedia.swift`, `ChatMediaLocal.swift`, `ChatMediaStore.swift`,
+  `ChatMediaTile.swift`):** a chat source's attachment (`imessage`, `whatsapp`, `telegram-chats`; the sitting's origin
+  and its `<origin>:<chat>:` source id, `ChatMedia.source`) draws as the file itself under its bubble wherever the
+  sitting is drawn — this panel and the Reader — instead of its `Tag` (an export's attachment keeps its `Tag`). The
+  app resolves it at view time from what the chat app already holds on this Mac: WhatsApp's media item
+  (`ZWAMEDIAITEM`, the file under `Message/` in its group container, its `ZMOVIEDURATION`; read from the store's clone
+  like the reader) and Messages' attachment row (the file under `Attachments/` beside `chat.db`), each matched by the
+  turn's own second, the name and kind as the backend stored them and the attachment's place among that second's same
+  files — both sides count over the same set, a store's time floored to the second as the backend stored it, so a
+  burst across a second never shifts a picture (#597 review B1; `ChatMedia.files`/`pick`, Telegram's
+  `telegram_account.pick_media`; a name only one file in the chat carries wins wherever its time lands; the kind
+  when the scrub changed the name), every path resolved inside the app's own folder (a `..` or a symlink out is no
+  file). Telegram's ask the backend (`APIClient.telegramChatMedia`). Ticked chats only: the WhatsApp and Messages
+  watchers' `tickedIds` (a chat not ticked is never read and its thumbnails go), Telegram's tick the backend's.
+  Thumbnails: ImageIO's thumbnailer for a picture, else Quick Look's generator (a video's frame), ≤ 480 px, kept as
+  JPEG in `$CICADA_HOME/chat-media/<source>/<chat>/` (0700/0600, outside every bank), dropped on the app's untick and
+  for any chat the backend's ticks no longer list (`ChatMediaCache.keepOnly`, when a watcher reads the ticks); an
+  untick while a list, a thumbnail or a large photo is loading discards what lands after it (a per-chat generation
+  `forget` bumps, #597 review B2). The
+  tile (DESIGN_RULES §9 2026-11-04): a picture at its own aspect, ≤ 220 pt, the bubble's corners and resting ring; a
+  video its frame with a play mark and its length; a voice message or a file a quiet row in the side's bubble fill
+  with its length or size; a file not on this Mac the same row with *Not on this Mac*. A click opens the chat app's
+  own file in Quick Look (`ChatMediaPreview`, the app delegate the panel's controller), a Telegram photo after
+  `/media/full` (kept beside the thumbnails). A video's length without a store value is `AVURLAsset`'s duration,
+  the one AVFoundation call (`ChatMediaDuration.swift`, allowed by `AVImportLintTests`). A WhatsApp or Telegram
+  one-to-one chat's other side wears the chat's own face at the head of each run (`ReaderChatRows.chatFace`, the
+  row's `ChatFace`); a group's members keep their monograms.
   Instagram is offered with **Turn on** = the reading switch, saying the browser reader is still coming (G206) and
   offering the data export. Obsidian's entry is gone (a vault is a folder). Contacts stays (ruling 33).
 - **One catalogue (Hyrum mode B):** the *Add a source* grid opens from nowhere now. The eyebrow keeps DR-75's labelled
-  add as *Import a file* (opens Files and links); Sleep's `+`/⌘N opens the Sources page; `routeToAddSource(tile)` lands
-  on that tile's entry (was Sleep's sheet); a tile's flow still opens alone (`AddSourceSheet(flowOnly: true)`, leaving
-  the flow closes it). *Sync now* / *Poll now* read **Refresh** everywhere on these surfaces. The `.source(id)`
+  add, *Import chats or files* since CIC8 (2026-10-29; it read *Import a file* and opened Files and links, whose line
+  speaks of bookmarks): it opens the one intake's overlay (`IntakeRouter.present`). Sleep's `+`/⌘N opens the Sources
+  page; `routeToAddSource(tile)` lands on that tile's entry (was Sleep's sheet) — a chat-export tile on Chat exports
+  (`SourceCatalog.entry(for:in:)`) — and the hand-off is consumed even when no entry takes it (left staged, it opened its
+  sheet over the Sleep page whenever that page next appeared); a tile's flow still opens alone
+  (`AddSourceSheet(flowOnly: true)`, leaving the flow closes it). *Sync now* / *Poll now* read **Refresh** everywhere on these surfaces. The `.source(id)`
   selection and `routeToSourceDetail` still open the v4 detail; an overview id lands on its catalogue entry.
 - **Connectors that say what they do (2026-10-23, `fix/sources-connectors`).** A row reads Connected only while
   something will keep arriving: `SourceCatalog.status` takes `localReaders` (`LocalReaders.on`: Calendar, Contacts,
@@ -1182,9 +2047,99 @@ agent reads (`agent_methods`), not an install.
   `api/.env`). The overview files a nil-origin save (a bookmarks file imported through Files and links) under Files &
   links instead of a row called "unknown", and a phone's note reads *Phone*. Live test, same day: YouTube claims the
   overview's `youtube-history` and `youtube` rows, and an account's import that fed memory reads Connected (an overview
-  row no channel speaks for, so a reader turned off never returns through its episodes); a row's last sync is the newest
-  capture write (`captured_at` / `last_turn_at`), not a session's start; Instagram's line says what G206 shipped and a
+  row no channel speaks for, so a reader turned off never returns through its episodes); a row's last sync is when
+  Cicada last GOT something from it (`episode_time.delivered_at`: the newest of `received_at`, `captured_at`,
+  `last_turn_at`; an episode older than ruling 39 falls back to its `timestamp`), never a session's start or an
+  import's backdated conversations (CIC8, 2026-10-29: a chat export read "Connected · 1 yr. ago" right after its
+  import) — the overview's `last_activity_at` and an import channel's `last_sync` (`origin_stats`' `lastSeen`) alike; Instagram's line says what G206 shipped and a
   saved list switched on reads Connected.
+- **Lists on by default, where a file comes from, Google Calendar (owner 2026-10-26; G71, G206, G142).** *Lists:*
+  the YouTube row's detail now holds its two list switches (`youtubeListToggle`, `YouTubeListWords`' titles and lines;
+  the first-use sheet first when agent reading is not on, `ReadingFirstUseSheet(youtubeList:)`), and a YouTube list
+  kept current reads Connected (`savedListsOn` holds `youtube`). The backend turns on an older install's undecided
+  lists for accounts its memory shows when `GET /reading/settings` is read (`list_defaults`, ruling 39's dated line);
+  an off the person chose is never overridden. *Import a file:* every row that imports a file says, before its button,
+  where the platform hands the file out (`SourceCatalog.exportHow`: YouTube's Takeout, Instagram's Export your
+  information, TikTok's Download your data in JSON, LinkedIn's Get a copy of your data, a browser's bookmarks export;
+  Notion keeps `notionHow`); the walkthroughs name TikTok's file `user_data_tiktok.json` and Instagram's Export your
+  information. *Calendar:* ~~`CalendarRow` lists the accounts the last read included and, always, "Google calendars
+  come in through macOS…" with *Add a Google account*~~ — retired 2026-11-04 (owner: *"I don't know why there's an Ada
+  Google account for the macOS calendar"*): the page lists each account the Mac holds with its own mark (*This Mac's
+  pages* above); Google calendars still come in through macOS's Internet Accounts. A Google calendar's
+  secret iCal address through Calendar feeds is not offered: a feed subscription is stored in the bank's
+  `calendars.yaml`, and that address is a credential.
+- **Voice Memos (G43, 2026-11-05; DR-5, DR-38, DR-52, DR-59).** A *Voice & meetings* tile on This Mac
+  (`VoiceMemosSlot`, `VoiceMemosReader.shared` in the environment, `Views/Sources/VoiceMemosSlot.swift`): *Connect Voice
+  Memos* is the one primary, its words on hover; on, the area's one line is the count (and "N without words"), the footer holds
+  Refresh and Disconnect. A refusal by macOS shows *Needs access* on the grid and the Full Disk Access button. The mark is
+  Apple's, drawn from `com.apple.VoiceMemos` (`OriginIconography.appBundleId`; `SourceMarkCoverageTests` passes it by the
+  `com.apple.` rule). Reads and rails: `storage.md`, "Voice Memos". A palette hit plays the recording in the app at its second (below, ROR-117).
+- **A book's page (G233, 2026-11-05).** `BookPageHead` leads the article: the cover at 168 pt (none, or not yet drawn: no slot, no indent, no empty box; the header draws no second tile), subtitle, authors, one
+  line of year, pages and publisher, the ways in as small labels ("Scanned 5 Nov", "Apple Books"), the status line, subjects; the
+  title is the card's header. The description is the article's first paragraph under the head with its "From <source>, saved <day>" line, never in the header above the tabs; no globe box, and no "no personal relation" line (a real relation still shows). The Add (`BookAddSlot`, `BookAddFlow.shared.submit(_:status:)` is the one "a number was read" call)
+  shows the book it found (cover, title, authors) and a click opens its page; it is also on the Apple Books page. DR-9, DR-38, DR-48, DR-59.
+- **Reading: Apple Books and Goodreads (G39, G233; 2026-11-04).** A Sources group of its own, *Reading*, between
+  Meeting recorders and Exports (`SourceCatalogGroup.reading`; the backend's `reading` kind sits before `import`).
+  Both are standard source pages (`Views/Sources/BooksSlots.swift`, in `SourceCatalogDetail`'s connect and footer
+  slots; the content is what came in). *Apple Books* (`AppleBooksSlot`, `AppleBooksReader.shared` in the environment):
+  *Connect Apple Books* (what is read on its hover) PUTs the bank's switch, then
+  the reader copies Apple Books' two stores (found by prefix under `NSHomeDirectory()`'s
+  `Library/Containers/com.apple.iBooksX/Data/Documents`, so a verify run's scratch home is honoured) with their WAL into
+  a temporary folder, folds the WAL into the copy, reads only `AppleBooksColumns`' whitelist read-only, and posts the
+  books whose fingerprint changed (status, dates, highlights — never the progress figure), 500 a request; on launch,
+  every 3 hours, on a bank switch and on Refresh. macOS asks once whether Cicada may read another app's data, with the
+  first read. The area's one line is `BooksRowText.appleBooks`: the read in progress, then "N books · N highlights"
+  and what a book's cap left out, or the failure. The footer's Disconnect (asked first) stops it and deletes nothing.
+  *Goodreads* (`GoodreadsSlot`): one *Import a file* way, the source's mark on a file, where the export comes from on **Choosing (2026-11-06):** both doors show `BookChoiceList` (all ticked; *Add all* / *Add N*, *Select none*; Apple Books also *Leave out*) before anything is posted; Apple Books' status line says how many wait. **Covers (owner 2026-11-06):** each row shows its cover thumbnail (`BookChoiceCover`, 24×36, DR-9's ring, loading in as it arrives; none, no picture): Apple Books' from its own cache on this Mac (`AppleBooksReader.coverFile`, read here, not posted), a Goodreads row's from `GET /sources/books/choice-cover/{isbn}` by the export's ISBN (`choice_covers`: the existing lookup behind its gate, one request a second, the picture kept outside every bank, a miss for a day; never a title).
+  its hover (a file importer); then the preview's counts as the line beside *Import*. No footer: nothing to refresh or
+  disconnect. *Book scans* (ROR-116, `BookAddSlot`): add a book on the Mac. A field for an ISBN (typed or pasted; the Add enables
+  on a valid number, `BookISBN.parse`, the backend's check), the phone's three statuses as chips (Reading · Finished · Want
+  to read; none chosen says nothing about reading), **Add** (DR-5's one primary) through `POST /capture/isbn`, and **Scan**:
+  a window over the app (`BookScanSheet`, a sheet; Esc or its close button ends it), the way the iPhone scans a document.
+  The Mac's camera (built-in, else an iPhone as a Continuity Camera) fills it, mirrored on the built-in one (holding a
+  book up to a laptop feels right mirrored; the highlight maps with the same flag). **It shows it sees:** a book-shaped
+  rectangle (`VNDetectRectanglesRequest`, short/long side 0.5-0.9, at least a quarter of the frame, every 3rd analysed
+  frame) gets a white outline with the rest dimmed; a barcode gets a tighter white mark on the observation's own four
+  corners (`ScanQuad.viewPoints`: Vision's normalised bottom-left corners, aspect-fill, mirrored); nothing detected, nothing
+  drawn, no text. The highlight is white, not the accent (not one of its six uses). `QuadHold` follows a move 60% of the
+  way and holds a vanished shape 0.3 s so it does not flicker. **It takes the scan by itself** (`BookScanStabilizer`): the
+  same valid ISBN in **3 analysed frames in a row** (analysis runs at most 20 a second, so about 0.15 s once the code is
+  readable; two frames with no code at all are forgiven, a different number resets). One misread frame cannot fire: an
+  EAN-13 failing its check digit is not an ISBN. The mark then grows and fills with a check for 0.7 s (`CicadaMotion.scanLock*`;
+  Reduce Motion drops the scale, keeps a short fade) and it goes back to looking: **the window stays open for the next
+  book**. A number already taken this session never fires again, so a book held in view is not added twice and does not
+  flash again (a failed capture is let go, `forget`). A code that is not a book's number (a price code, a QR) says so once
+  in one short line and captures nothing. Each taken number goes through `BookAddFlow.submit`, the one "a number was
+  read" call, without waiting on the last lookup; the last three show as cards (cover, title, authors; "Looking it up" until
+  the home answers) that open the book's page. **Performance:** the preview layer reads the session alone; the analysis
+  is its own queue with `alwaysDiscardsLateVideoFrames` and a 50 ms floor between analyses, 1280x720, so a slow frame is
+  dropped, never queued, and the feed never waits (median 5 ms for barcodes and 3 ms for the rectangle on a drawn frame on
+  an M-series Mac, `BookScanMathTests`). The camera (`BookBarcodeCamera`, the one file that opens one, on
+  `AVImportLintTests`' list) opens only on the Scan click (macOS asks then, `NSCameraUsageDescription`; the release entitlement
+  `device.camera`) and stops when the window closes, when the app has been in the background 3 s, and when the view goes away;
+  frames are read in memory by Vision and dropped, never stored, never sent: only the number leaves. Denied or none: one
+  line with the fix, in the window. The page behind still has the field and the Add. The result is one line after the lookup (read from
+  `GET /sources/books/scans/{id}`): "Added · <title>" or "Already in your books · <title>", with *Open* for the page. The
+  list below is what was scanned. A book's status line adds where it came in from ("Reading now · Apple Books · Scanned")
+  only when there is more than one way (`BookStatusRecord.ways`).
+  A book page shows no link preview (`MediaBlock.isBook`, the paper rule). The phone app scans too (`cicada-app`, "Scan a book").
+  **Covers and status (ruling 61; DR-9, DR-12, DR-31, DR-38, DR-59).** After a sync the reader reads the covers Apple Books
+  keeps (`AppleBooksCovers`: `Library/Caches/BCCoverCache-1/BICDiskDataStore/<asset id>/` beside the same container's
+  `Documents`, read on macOS 27.2; the largest `jpg`/`heic` its file name states, never the `.astc` textures, drawn down to
+  a JPEG ≤ 600 pt and 512 KB through ImageIO; an asset id is only ever one path component; a PDF or an audiobook,
+  `ZCONTENTTYPE` 3 or 5, has none sent) and posts those not yet accepted,
+  25 a request, 200 a sync, by a fingerprint per memory (`cicada.appleBooks.covers.<bank>`). It is best-effort and says
+  nothing: a book with none draws nothing. A cover draws wherever a media page's picture does (`EntityPicture`: a tall
+  thumbnail is drawn whole at the well's height, `EntityPictureLayout.drawnFrame`, never cropped to the 3:2 well; the ring
+  follows the picture and the slot keeps its width) and in a door's list (`BookCoverThumb`, asked only when its row is
+  drawn, an empty slot for a book with none). A book's page opens on `BookStatusLine`: "Finished · 20 Oct 2026 · you said
+  so" and *Not right* when a conversation set it (no *Not right* on a door's record; one line, no explanation). Not a
+  Store domain: the card reads it on open and holds it in memory. The phone's scanner shows no cover: a capture-only device
+  reads nothing from the home.
+  **Browser first (ROR-128, ruling 72):** the page's first way is *Read through your browser* (the saved-list switch, off
+  until turned on, with the first-use sheet), the file way second; books the person's agent read wait in
+  `GoodreadsWaitingList` (the same `BookChoiceList`, *Add all* / *Add N* / *Leave out*) above the file's own list. Spotify
+  gets the same switch on its page.
 - **Reminders and Notion (G219, ruling 38: one way in, never written back; 2026-10-23).** *This Mac* gains
   **Reminders** after Contacts (`SourceCatalog.fixed`, id `reminders-local`, the installed Reminders app's icon,
   `com.apple.reminders`). Its detail is `RemindersRow`: `CalendarRow`'s line and buttons (Connect · Refresh ·
@@ -1205,6 +2160,80 @@ agent reads (`agent_methods`), not an install.
   Markdown & CSV with subpages) and holds the one intake's drop (`IntakePanel`); the preview reads "Notion pages" with
   "N pages · N database rows" (`IntakeCounts.pages`/`rows`, `IntakeSummary`), and the row reads Connected once an
   import fed memory (the backend's `notion` origin row, like a chat export).
+  **Ruling 47 tier 2 (2026-10-29):** Notion's row also speaks for the live connection (`channels: ["notion",
+  "notion-api"]`; *Accounts* also carried Readwise until the owner removed it, 2026-11-03). Its detail opens `ConnectorSetupPanel` — the panel Reddit,
+  Pinterest and X already use, so no new pattern (DR-40 buttons, DR-20/DR-2 caption text, DR-81 no fold, DR-52 marks:
+  Notion its export's symbol; an earlier Readwise episode still draws the `highlighter` symbol in the Reader) — which says what the connector reads
+  (`reads`) before anything is connected; **ROR-113 (owner 2026-11-05) removed every form from it**: a source with a browser sign-in shows
+  one `Connect <name>` (`Sign in again` when it lapsed), one with none says "No sign-in here. Use your browser or a file.", a connected one
+  keeps Refresh and Disconnect, and Notion's `reads` line says before Connect that the sign-in acts as the person. The Reddit, X and Pinterest
+  key forms, GitHub's "Use a token instead" and the Telegram bot's token step are gone (the bot tile shows only for a bot already set up,
+  `SourceCatalog.entries(channels:)`); `NoSourceSecretFieldsLintTests` fails on a `SecureField` or a "paste a token" line in any source
+  surface (the one named exception: Telegram's own-account password). A refused token reads
+  Needs sign-in (`signInChannels`). Notion's detail keeps the export's steps and drop below the live panel.
+  **G32 (2026-10-29):** *Accounts* gains **Spotify** (id `spotify`, `verb: .importFile`, channels `spotify` — the
+  library's saved items — and `spotify-listening` — the listening days, shown as "Spotify history" within `SourceDisplayName`'s 16 characters). Its detail is the Files & links row's own
+  controls (the where-it-comes-from line, then `IntakePanel`): `Copy.Catalog.howSpotify` says to ask Spotify's privacy
+  settings for Extended streaming history or Account data and drop the zip it emails. The bundled `spotify` mark.
+  **G232 (2026-11-04, backend only so far):** the connect area of Spotify, Reddit, Pinterest, TikTok and Instagram is
+  served by `GET /sources/ways-in/<source>` (`ways_in.py`): `state` (`notConnected` · `connected` · `needsAttention`,
+  `SourceConnectState`'s words), `primary` (the official connection as the page's one `SourcePrimaryAction` —
+  `connect` → `POST /sources/connectors/<id>/authorize` and open the URL; `reconnect`; `connected` → none; null when no
+  official connection is offered), one short `line` (`lineIsAttention`), `ways` (`browser` → `SourceWayIn.browser`, its
+  switch `PUT /reading/settings` `savedLists`; `file` → `SourceWayIn.importFile`, `how` its hover and `requestUrl`
+  where to ask), `ownApp` (the person's own app may connect, behind "Use your own app", never the primary) and
+  `notOffered` (each missing way with its reason in words, for hover). The app side lands on #593's layout in a
+  follow-up PR.
+  **G230 (2026-11-03; ruling 53):** *Accounts* gains **GitHub** (id `github`, the bundled `github` mark; origins
+  `github-starred`, `github-added`, `github-owned` read "GitHub stars" / "GitHub"). Its detail is `GitHubSourcePanel`
+  (`Views/Sources/GitHubRepos.swift`): **`GitHubConnectPanel`** — connecting with a code (owner 2026-11-03: "cant we
+  just do oauth? like a connect?"), one primary per step (DR-40): *Connect GitHub* (`POST /sources/github/connect`;
+  what it reads said first) → the code in the app's monospaced type (DR-19's allowlist: a code the person types), *Open
+  GitHub* (github.com only) and *Copy code*, "Waiting for you to approve on GitHub…" and the minutes left, *Cancel* —
+  the model asks `POST /sources/github/connect/poll` every interval the backend gives (`GitHubConnectModel`, its
+  `Deps` injected) → connected by code but not installed, *Install on GitHub* (the app's install page) and *I installed
+  it* (asks again, then syncs at once) → *Connected* (or, once GitHub refuses to renew the sign-in, *GitHub signed Cicada out* with *Reconnect*) with Refresh and Disconnect (which says the grant on GitHub is
+  removed there). `GitHubConnectStep.from` decides the step from the backend's answer alone. **2026-11-04 (owner,
+  live; DESIGN_RULES §9 2026-11-04): `GitHubSourcePage` on the standard layout** — not connected, *Connect GitHub* alone;
+  connecting, `GitHubCodeView` (the code at 28 pt in the copyable face, *Copy*, *Open GitHub*, *Cancel* quiet, "14 minutes
+  left"); connected, `GitHubRepoList` *Your repositories* (name alone) and *Starred* (`owner/name`), each a
+  `GitHubRepoRow` (`GitHubRepoPicture`: the page's own picture — an organisation's avatar — else GitHub's mark; the
+  name with *Private*/*Archived* `Tag`s, the description, the language on the right; a click opens its page, the context
+  menu *Open on GitHub* and its projects), 12 rows then *All N* in the column's place; the install step is one way row
+  (*Add your own repositories* · *Install on GitHub*) and `openInstallAndWatch` asks GitHub every 5 s for 3 min, so there
+  is no *I installed it*; Refresh and Disconnect in the footer. The backend starts the first sync when the code sign-in
+  completes (`start_first_sync`, `syncing` on `GET /sources/github/connect`); the status line reads Syncing and
+  `watchSync` reads the lists again when it ends. The words below about `GitHubConnectPanel` and `GitHubReposSection`
+  describe the retired panel. The token
+  (`ConnectorSetupPanel`) is only behind *Use a token instead* — the fallback only where the build's client id is blank
+  (the shipped build names Cicada's registered app, 2026-11-04), never the default. Under it **`GitHubReposSection`**: *Your repositories* in their own scroll, each row's name and
+  "Private · Python · …", *In <project>* (a `TextButton` to each of at most two projects it belongs to, "+N" after) and
+  *Open* (its page, made on sync). There is no add field and no per-row Add any more (owner 2026-11-03: "there
+  shouldn't be added manually, always sync"): linking a repository to a project happens on either page. *Starred*
+  counts the starred pages. The lists are read on open and after each connect, install check or sync
+  (`generation`), never a Store domain.
+  **A repository page's card** (`Views/Graph/RepositoryCard.swift`) sits where a paper's card and a saved link's
+  preview sit, above the article: `GET /entities/{id}/repository` is asked for a `media` page whose kind is unknown
+  (the graph stub) or `repository` (a 404 for any other is nil), on its own task because the README may be read first.
+  It draws the owner and language, what the person did ("Your repository", "You starred it Sep 12", "No longer
+  starred since …", DR-58), the flags and at most five topics as `Tag`s (DR-44, DR-81), **Projects** — each project it
+  belongs to as a `TextButton` to it (how an agent's or the checkout's link was made said on hover; *Unlink* in its
+  context menu, remembered) — *Open on GitHub* (the system browser, github.com only) and *Link to a project*
+  (`RepoLinkMenu`, R-HS10's disclosure glyph: the suggestion first — "<name> — has its name", "<name> — its checkout"
+  — then every other project, then *New project from this repository*), then the README under a `SectionLabel` (DR-47)
+  as clean lines (`RepositoryText.lines`, DR-56: headings, bullets, fences and rules dropped) — never a picture or a
+  link it names — or its state in words (none, not read yet), with when it was read.
+  **A project's repositories** (`ProjectRepositoriesSection`, in the same file): on a project's page, below its local
+  checkouts, `GET /entities/{id}/repositories` — each repository it lists with *Open* (its page; *Unlink* in the row's
+  context menu) and *Link a repository* (the person's own first, one with the project's name before the rest). Drawn
+  only when there is one to show or to link.
+- **What may be sensitive (G235, ruling 60):** `InboxKind.sensitive` is a top card (`SensitiveReviewCard`, DR-37, DR-9,
+  DR-40, DR-54): the server's title, one line of what Remove does and what it cannot, then a row per conversation, its title
+  opening the Reader, "A password held back from <their engine> · Nov 4" under it, *Remove* (neutral, asks once in one line) and *Leave it* (text),
+  answered optimistically; past three rows *All N* opens a sheet. A last line says how many conversations had what looked
+  like a key or code replaced. A run's card says "N conversations may hold…" with *Review* outside its own button, and a
+  run's detail says how many had something replaced. Naming the engine here is the person's own choice shown back, the one
+  exception this feature exists for.
 - **Inbox top cards (G205, G61):** `agent_request` (`InboxKind.agentRequest`) and the grouped *Confirm N links* review
   (`asks: sources`, `review: true`) are cards above the questions, out of the list, its tabs and the quick review
   (`InboxViewModel.questions`). A request: the agent's tile, *Sign in to <site>*, whose and why, **I signed in**
@@ -1214,16 +2243,79 @@ agent reads (`agent_methods`), not an install.
   asks? Notify me*, at the first request; posted ids are remembered per viewer (`cicada.agentRequests.notified`). The
   review: per row the link-kind glyph (`LinkKindGlyph`), the link, its page (opens it), where it was found on hover
   (never an episode id), **Yes / No** answered alone (`POST /inbox/{id}/resolve` with `row`), optimistic with a toast.
-- **Entity card chips (G61):** `WhereToCheckChips` at the top of Content — the page's taken links (not proposals, not
-  notes) as chips: the site's own icon only where `iconSite` says the existing rule serves one (never on a person's page,
-  G159), else the link kind's glyph; click opens, right-click removes (`EntitySourceWrite .remove`), *Add* pastes one
-  (`EntitySourceAdd`). Read from `GET /entities/{id}/sources` when the card opens, held on the card. A `?` beside them
-  says how pages fade (Settings' Memory explainer moved here).
+- **The entity page, v2 (ruling 48 (3), (4), (7), (16), (17); DR-78…DR-81; part A, 2026-10-29).** The Content tab
+  draws `GET /entities/{id}`'s `blocks` top to bottom, the same for every type, and nothing folds: *In short*
+  (`PageInShort` — the served why-it-matters line and, under it, what a person's facts strip repeated: "N conversations
+  · the latest …"; Sleep's summary lands here in part B), *Where to check* (`WhereToCheckBox`, DR-79: one box of mention
+  rows — site in `textTertiary`, the link's own words in primary ink, its state in words on the trailing edge — a
+  person's rows drawing the link kind's glyph, never a site icon (G159); proposals one "N suggested links · Review" line
+  whose popover takes or drops each; at most five rows, then *All N* in a popover; a right-click removes; *Add a link*),
+  the type block (the brand block, `PageBrandBlock`, above the article when looks are what the page is about — two or
+  more, or no article — then the look tiles; a folder, a repository), *Marked* (`PageMarks`, ruling 64: a book's highlights word for word, each note under its passage, the day), *Ongoing* (`PageOngoing`, open happenings and
+  planned milestones on the Projects band's hollow node, at most five), the article carrying its beliefs, and
+  *References* (`PageReferences`, at most six numbered lines, then "N conversations and M web pages in all · who wrote
+  each change is in History", with a History link). **The article carries the beliefs (DR-80):** every line the
+  page's write-time provenance cites ends with a superscript per source (`CitationMarks`, `labelFont`, `textTertiary`,
+  a `cicada://cite/<n>?at=<offset>` link); a click opens a popover (`CitationPopover`: the kind — *You said*,
+  *<agent> replied*, *Looked up*, *From this conversation*, *Inferred* — when, where, the located words through
+  `QuoteBlock` (DR-18) and *Show in conversation* into the Reader, DR-31), read lazily from
+  `GET /entities/{id}/citations/{n}` and held in `CitationDetailCache`. Keys and VoiceOver: each cited line keeps its
+  sources as focusable chips in the gutter (the 🔗's place; ⏎ opens, Esc closes) and as named actions "Source N" on
+  the line. A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
+  (`PageBeliefSentences`): an inference worded "It seems that …", an ended one "(until March 2025)"; past twelve, "N
+  more in Perspectives". **Gone from the page:** the beliefs list, *Where this came from*, the person's *How you know*
+  and *What's happening*, the facts strip, *Details* and the empty *Looks* fold; *How it fades*, *Add a link* and *Add
+  a look…* live in the header's "…" menu. **One request on open:** the card no longer reads `/sources`, `/provenance`
+  or a person's fact claims when it opens — `/provenance` is read when History, Perspectives or Timeline opens — and
+  the Clusters column reads its page through the Store's memo, which now shares one read in flight per page
+  (`Store.entity`).
 - **Sleep's machines strip (G212):** under the room, `GET /devices/status` polled every `CicadaTiming.machinePoll`
   (30 s) while the page shows, held in memory: each machine by its own name (this server's Computer Name), a green dot
   while connected, how (Local · Tailscale · SSH · Local network), *N waiting*. A click opens that machine's queue in
   Waiting (rows rebuilt from its own episodes; `GET /sleep/episodes` rows carry `device`, shape `episodes-3`). The
   engine line is UI-A's.
+- **Syncing after the app was closed (G229, owner 2026-11-03).** `AwaySyncTracker` (app-level, in the environment;
+  `Support/AwaySync.swift`) starts once per launch after every reader is armed. It reads when the app was last open
+  (`AppPresence`, `cicada.app.lastOpenAt` in the app's defaults, stamped once a minute while it runs) before stamping
+  this launch, then looks at every reader once a second (`AwaySyncProbes.live`: `SyncActivity`'s runs, the watch lights
+  and their errors, Calendar/Notes/Reminders/Contacts status — the state each Sources row already shows) and sends its
+  whole word to `PUT /sources/catch-up` whenever it changes (a keep-alive each minute). Nothing shows while it fails: a
+  refusal that cannot change this launch (409 a demo memory, 404/405 a server without the route) ends it at once;
+  anything else (backend starting or down) is retried every 5 s for at most 15 min, the backend's own silence limit,
+  then never again this launch — only the once-a-minute presence stamp keeps running. Rules (`AwaySyncRules`): a reader is listed once seen reading (then `done`) or while it
+  fails or is refused (its own sentence naming the fix); it is over when nothing reads, 3 s after the last reader
+  stopped and at least 10 s after the backend first heard; once over, a reader that starts later is ordinary reading.
+  The answer is drawn **under the machines strip** (`AwaySyncLines`, caption face, centred in the 760 pt column, DR-36):
+  one line per machine syncing — this one unnamed (the strip's polled row when it is in the same state as the tracker's
+  answer, for its fresher counts; the tracker's when the state moved on), another by its name and "…came in while its
+  app was closed" — "Syncing Messages and Notes — 14 new
+  conversations so far. 9 conversations came in while you were away." / "Synced Messages and Notes — 14 new
+  conversations." / "Synced." — with a static `arrow.triangle.2.circlepath` or `checkmark` glyph in `textTertiary` (no
+  motion, DR-61), then one line per failed source: "Calendar couldn't be read." in `warning` (DR-7: the first clause of
+  a failed source) and the reader's own fix in `textSecondary`; a click opens Sources. The strip polls every
+  `machinePollWhileSyncing` (5 s) while any machine syncs; the home strip's refusal sentence is still cleared only at
+  the 30 s pace. **Home's Today** carries the same line as one row under
+  *N waiting* (failures as their warning clause; the row opens Sleep). The finished line shows for 10 min. "Syncing",
+  the word a Sources row says while it reads — never "catching up", which is Home's *Catch me up* chat.
+- **Sleep's home strip (G132 phase 2, ruling 51a; owner 2026-10-29: "Sleep page on the app should show the selected
+  device running consolidation and you should be able to easily switch"):** under the machines strip, only while this
+  memory is shared with another device (`GET /sync/home` → `shared: true`; one computer that shares nothing sees
+  nothing new). `HomeStripView`, fed by `HomeStripModel` (owned by `SleepViewModel`, polled with the machines strip,
+  held in memory, never a Store domain; a failed poll keeps the last answer): one line naming the device that runs
+  consolidation — the home, which also keeps every change in order, one concept — "Sleep runs on <name> · this
+  computer · idle / consolidating, stage 2 of 5 / not answering"; then every other device as the machines strip draws a
+  machine (a dot, green while online; its name; "up to date", "N changes behind", "keeps no copy"), with an inline
+  *Make this the home* `TextButton` on a device that keeps a copy and can be reached. A pick asks once in the native
+  confirmation dialog (as Settings → Devices' revoke does): *Move to <name>*, with what moving does in words; that is the
+  hand-off (`POST /sync/home/move`, which a copy's backend forwards to the home). While it moves the strip asks again
+  every `CicadaTiming.homeMoveFollow` (2 s), at most `homeMoveFollowTries`, then falls back to the page's poll. A lost
+  home offers *Take over on this computer…*: it first asks how far behind this copy is (`GET /sync/home/take-over`) and
+  the confirmation shows that sentence before the person confirms (`POST /sync/home/take-over` with the number shown);
+  a home that still answers is a move instead, said in words. What the backend says in words — moving, what was set
+  aside after a take-over, a refusal's sentence — follows as plain `textSecondary` lines. Applies DR-37 (no card for a
+  line), DR-38, DR-40, DR-41, DR-59 and DR-81 (no fold; nothing drawn when there is nothing); no new pattern, no new
+  motion. Copy in `Copy+MemoryHome.swift` (provider-neutral: a
+  device is the name the person gave it). `HomeStripTests`.
 
 **Sources page — v3 (owner 2026-10-19; supersedes v2's tile grid, G124, DS-3c).** The owner: *"The Sources page needs
 an urgent redesign. It has these graphs and stuff, and it's not intuitive … in two clicks I click on something, then I
@@ -1290,6 +2382,30 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   PUT answers 422 with that sentence otherwise). The accent is not used here beyond the toggle's own tint (DR-5); no
   new mark (the family's bundled mark already heads the column, DR-52). A `needs_login` lands as the G205 agent
   request in the Inbox, not on this row.
+  **Read through your browser (ROR-114, 2026-11-05, DESIGN_RULES §9).** The six lists (x, instagram, linkedin, reddit,
+  pinterest, tiktok: `SourceCatalog.savedListSites`, `SourceCatalogEntry.savedListKey`; Pinterest has no walled site)
+  each have one switch, "Read through your browser"; the site grant beside it shows only while held. A row Connected
+  only through that read (a real connection, an import and a reader on this Mac all outrank it; `SourceCatalog.resolved`)
+  carries a `BrowserRead` built from `GET /reading/settings` `saved` (`ReadingSettingsResponse.browserReads`): "Through
+  your browser" in `StatusWord.Tone.browser` (`CicadaTheme.info`, never the accent), "Not read yet" grey, "Signed out"
+  amber in Needs you (not counted), "Couldn't read" amber under Connected. YouTube's and Substack's lists show the same
+  states from their pauses. The page's connect area (`BrowserIdentityArea`) adds the handle and an *Open profile ›* link
+  (https only, `ItemPlaceOpen.webURL`, on the click) and, signed out, one line with **Try again** (`setSavedList(key, true)`).
+- **Substack (G89, built 2026-11-04).** One Accounts entry, *Substack* (`SourceCatalog.substackId`, origin
+  `substack-saved`, the overview's `substack` saves and `substack-history` reading days; no `site`, so no per-site page
+  grant is drawn). Its detail holds, only while it is off, one line on why the agent reads it (Substack gives readers no
+  way to connect another app), then the three lists' switches the YouTube row's way (`substackListToggle`, words
+  from the pure `SubstackListWords`: *Keep Saved current*, *Keep reading history current*, *Follow my subscriptions*;
+  under each, off — "Off — your agent never opens …", on — the last read's day (DR-58), "Waiting for your agent", or
+  "Your agent wasn't signed in to Substack. Paused until <day> — turn it on again to try sooner."), each bound to
+  `GET /reading/settings` `substackLists.<list>` and written by `PUT /reading/settings {"substackLists": {…}}` (not a
+  Store domain, in memory; never a `sites` grant). Turning one on with agent reading off or its sheet unacknowledged
+  opens the first-use sheet first (`ReadingFirstUseSheet(substackList:)`), whose Turn on enables agent reading and that
+  list. Under the switches, once any publication is followed: "Following N publications through their public feeds"
+  (`SubstackFollowing.count` over the Store's `feeds`, tag `substack`). The row reads Off until a list is on, *On ·
+  waits for your agent* with no local agent, Connected with one (`savedListsOn` holds `substack`), and Connected once
+  its saves or reading days are in memory. The mark is a symbol (`newspaper.fill`, tinted 0xFF6719): no Substack logo
+  is bundled (DR-52). Applies DR-5, DR-20, DR-40, DR-58, DR-81.
 - **Watch history is never a save.** YouTube and TikTok history days are their own captured rows (*YouTube history*,
   *TikTok history*), headlined by their days ("30 watched days", `SourceOverview.isWatchHistory`), and their detail
   lists those days by title under the row's own id (`GET /sources/channels/youtube-history/items`, each opening in the
@@ -1318,7 +2434,8 @@ pending from that category, as a small notification."*
   (`SourceBlurb`, now with Messages, Apple Calendar and "Other agents"), then one state line with only what the row
   beside it can't say — when it last synced, the whole error in `warning`, or "Syncing now" with its × — never the
   row's own "Watching" / "Syncs when you ask" (`SourceDetailText.state`; no line at all when there is nothing), with
-  Sync now / Poll now inline, and **"Consolidate now · N waiting"** as a compact `NeutralButton` only while
+  Sync now / Poll now inline, one line for saves kept for lookup when there are any (ruling 62, `Copy.keptForLookup`,
+  the same words under the Sleep page's Waiting; DR-38, DR-51), and **"Consolidate now · N waiting"** as a compact `NeutralButton` only while
   `waiting > 0` (or a read runs); when other sources wait too it says "N here, M in all" (a read takes everything).
   The run state follows the Store's status and re-reads Sleep's status when it moves, so the button is never enabled
   during a run. The eyebrow stays the page's ("Sources · n connected") whatever is open — v3's position and group
@@ -1341,7 +2458,8 @@ pending from that category, as a small notification."*
 - **Rows say each thing once.** A list row's title drops a trailing " · <its own day>" (`channel_items._without_day`).
   Messages lists one row per chat — its face, who it is with, its newest day and "N sittings" — opening in place to
   its sittings by day and message count, each opening in the Reader (`ChatSittingsRow`, `GET /sources/messages/chats/
-  {id}/sittings`, `ChannelItemsCache.refreshSittings`); the list follows the overview too, so a chat photo reaches it. A conversation row inside its
+  {id}/sittings`, `ChannelItemsCache.refreshSittings`; since 2026-11-03 a chat source's page opens the chat panel
+  instead, above, and the drill stays only where `CapturedItemsList` draws a chat); the list follows the overview too, so a chat photo reaches it. A conversation row inside its
   harness's list shows neither the harness badge nor "Saved once" (`ConversationRow.inSourceList`); a conversation saved more than once says "Saved 3 times" (its `episodeCount`, never "episodes", ruling 39), and the pages it wrote are neutral `Tag`s by name, the id in `.help` (as Past reads' run detail). The conversations'
   find moved out from under the header into the list's own header, behind its magnifier and ⌘F (DR-46; kept, not
   dropped, because the list holds the newest 200 and find is how an older one is reached by title, and where the
@@ -1357,11 +2475,16 @@ pending from that category, as a small notification."*
   Check records (`web-check`, `source-check`) are left out of every row (`source_overview.CHECK_RECORD_SOURCES`), so
   an agent's check no longer makes an "Other agents" conversation either. **"Other agents"** (`harness:unknown`) stays
   for real conversations an agent saved without naming its app, with its own sentence, never folded into an app it may
-  not be. Tests: `SourcesV4Tests`; screenshots render offscreen in `SourcesV4RenderTests` (skipped without
+  not be. **A card and the list under it are one partition (ROR-109, 2026-11-05):** `/conversations/recent?harness=`
+  names an overview row (`source_overview.row_key`), not the episode's `harness` field. Before, `unknown` meant "the
+  field is empty", true of every source-keyed record, so a chat over Messages, a note and a feed item all listed under
+  "Other agents" while its card counted one. A texted agent's chat lists under Messages like any other chat; its turns
+  stay `assistant:` and its claims `external:<name>` (G179). A host's sessions list under the host that counts them
+  (G228). Tests: `SourcesV4Tests`; screenshots render offscreen in `SourcesV4RenderTests` (skipped without
   `SOURCES_V4_RENDER_DIR`).
 
-**Explore saved sites (G166 slice 1, owner 2026-10-14).** A neutral **Explore saved sites** button beside "Add a source"
-in the Sources eyebrow (hidden when the backend answers 404) opens `ExploreSheet`: sites not explored yet or every saved
+**Explore saved sites (G166 slice 1, owner 2026-10-14).** A neutral **Explore saved sites** button (on a browser's
+source page since 2026-11-03; it sat beside "Add a source" in the Sources eyebrow before) (hidden when the backend answers 404) opens `ExploreSheet`: sites not explored yet or every saved
 site, with counts, a checkbox per browser when there are several, the run's size (Light / Medium / Heavy and minutes with
 four agents, never a price — ruling 12), whether the agent will use the signed-in session, and what is left out. The
 Explore button is disabled with a `.help` saying why (reading off, no site, the demo, an unverified capture script;
@@ -1395,20 +2518,47 @@ Home's Getting started rows use it. `BrowserWatcher`, `TabGroupWatcher` and `Con
 **What came in, by name (G161).** Under a source row, a "What came in" disclosure (collapsed, remembered per viewer
 per channel, `cicada.sources.capturedOpen.<channel>`) lists the items that source brought in by their own title and
 day, newest first, twenty at a time with "Show more" (`CapturedItemsList`): under onboarding's Import rows (a preview —
-the rows open nothing there), under every Integrations row, and as the Sources detail column's content for a source
-whose items are not saved links (a saved source's column is the same list in its `.saved` style, above).
+the rows open nothing there) and under every Integrations row. On a source's own page the list is the template's
+`SourceItemsSection` instead (source-page-v3, above) and a row's fold draws nothing there. `ChannelItemsCache` holds a
+search's list under its own key (`ChannelItemsCache.key(channel, query:)`) beside the channel's, so clearing the field
+shows the held list at once; a search settles 180 ms before it asks (`SourceSearch.debounce`).
 **Both dates (TODO ruling 39, 2026-10-24):** a row's line shows the item's own day only; when the item came in days
 later (a feed's back catalogue, an old bookmark) its help and spoken label add "· added <day>"
 (`CapturedItems.withReceived`), and the Reader's meta line reads "May 1, 2023 · added Oct 24, 2026"
 (`EpisodeText.receivedAt`, `Copy.Provenance.added`).
+
+**Open where it lives (G161, ROR-111; DR-40, DR-53, DR-69).** `ItemPlaceControl` is the one control: an `IconButton`
+over the trailing edge of `CapturedItemRow`, `SavedItemRow` and `GitHubRepoRow`, beside the row's own button rather than
+inside it, with help text *Open in Notes*, *Open on GitHub* or *Open in browser*. It draws only when the row says a kind
+it knows and the list is not a preview (onboarding). On the click it asks the backend for the place, checks it again
+(`ItemPlaceOpen`: http(s) with a host and no credentials, GitHub's exact host, Notes' own id form), then opens the browser
+or runs `AppleNotesReader.runShow`: `show note id` with the id as an `osascript` argument, reading no property. Nothing
+runs on hover or on load. A failure is one line under the row until the next press; a missing Automation grant says the
+same words as a Notes read, and a note since deleted or locked (a lock changes its id) says it is no longer in Notes.
+A watched day's videos already open in the browser on their own row, so they carry no second control.
+
 `GET /sources/channels/{id}/items?offset&limit` (≤ 200; `api/services/channel_items.py`)
 derives it at read from the same set the row's count means — the notes index, the calendar and tab-group episodes (never
 a tombstoned one), the bookmark seen-set joined to the url index, a channel's media pages, a folder's files — engine-free
 and read-only; titles only (scrubbed, one line), never a body, and for Contacts the matched page's name only; a saved link's row adds `host` (its bare host, never the URL), `site` (the key its mark is asked under, `reading_hosts.site_of`) and `why` (the newest *Ask why* answer: reason labels and the person's words, one line ≤ 160 characters), read only for the page served. A channel-less saved import (Instagram, YouTube, LinkedIn, TikTok) is listed by its Sources row id. Its
-`total` is its own count, not a promise to equal the row's (a notes index keeps a deleted note). It ETags over
-`sources`+`episodes`+`entities` with the channel and page in `extra`, and is **not** a Store domain: `ChannelItemsCache`
+`total` is its own count, not a promise to equal the row's (a notes index keeps a deleted note). **source-page-v3:**
+`?q=` (≤ 200 characters) narrows the list to the rows whose title, chat name or saved link's host holds every word
+(folded), or whose episode's words do where the words index answers (`search_index.episodes_with_words`, newest 2,000
+episodes, a chat found by any sitting); the page then carries `all` (the channel's whole count) and `latest` (the day the
+newest item came in, ruling 39's received day when later, never a day ahead — a UTC day, which the app clamps to its
+local today, `SourcePageStatus.cameIn`). The query rides the ETag's digest only, never a log: the access log cuts the
+query of any request naming `q`, `query`, `focus` or `code` (`api/main.py` `_REDACTED_PARAMS`, gated over every route
+by `test_main_access_log`). The app cuts a search at 200 code points, whole characters only — the backend's count. It ETags over
+`sources`+`episodes`+`entities`+`photos` with the shape, channel, page and query in `extra`, and is **not** a Store domain: `ChannelItemsCache`
 keeps it in memory, revalidates when the list opens or the channels move, and empties on a bank switch. A row opens its
 episode in the Reader, a saved item in Sleep › Saved, a person in Clusters.
+**Speed (2026-10-29):** a list reads only its own source. `channel_items` keeps the episode headers by origin,
+`source_id` family, id, chat and folder, the media pages by origin (`bank_index.derived`, rebuilt when that folder's
+cached headers change), the url index by its file's stamp, and each built row by the identity of the header it came
+from; the route, `/sources/overview` and `/sources/channels` share one listing per directory between the ETag and the
+read (`sync_ticker.request_scans`, the SSE walk's when its gate allows). Owner's bank copy (8.9k episodes, 8k pages,
+in-process, stream open): an empty source 86 → 1.4 ms p95, one item 90 → 1.4, 372 items 68 → 3.5, the largest (3,156)
+97 → 8.4; Sources page open (`/sources/overview`) 399 → 90, `/sources/channels` 93 → 9; every list's rows identical.
 
 **Clusters and Sleep's saved lists (Direction D, DS-3c; the Feed folded into Sleep 2026-10-16).** Clusters is a list
 page in progressive columns, and the Feed's list lives on as the Sleep page's Saved and Videos tabs (below, and the
@@ -1426,10 +2576,17 @@ name on word boundaries, literal characters, diacritic-insensitive and case-inse
 the start or end of a longer name — "Claude" is not named by "Claude Code"; in doubt the name shows).
 - **Clusters has one filter:** a View menu with the Graph's own types (`graphVM.filter.types`), labels, and a
   remembered *Expand all*. Its tabs are navigation: All plus each present type, by plural name. With nothing open it
-  is mock A's icon-led cards (F-11, G146): People · Projects · Companies · Tools · Concepts · Media two to a row, the
-  rest three to a short row, each a card of 56 pt tiles — `EntityPicture`, the name, one line in words (never tags or
-  a percentage) — six in the first row of cards and four after, "Show all ›" opening the type's tab (one card, every
-  tile); `ClustersGrid` decides it, pure. A click on a tile's picture opens the image picker (no separate hover button, owner 2026-09-30); its
+  is a page with a lead (ROR-118 round 1; plain labels and no type glyphs since 2026-10-28), never six like cards:
+  **People** as one strip of eight 76 pt portraits on the page's own ground, photos first and then initials (round 3),
+  the name under each and the line a hover help; **Projects** as a row of three cards, the name large over its whole
+  line (two lines of room, so a sentence is never cut) with the picture at the corner only when it has one; **Companies ·
+  Tools · Concepts** as three ruled lists of five names alone side by side, a logo right after its name only where one
+  exists (no reserved slot); **Media** as a ruled list of six whole titles on up to two lines, never cut
+  mid-word, one row height with each title on the top line; dimmed names last in a list, and Media fills down its columns (hairline between them) so they are whole columns, its keys walking those columns top to bottom (`ClustersGrid.columnMajor`); the rest three to a short row. A section's heading is the way to the
+  rest: its name and a chevron when some are hidden (no repeated "Show all"), opening the type's tab. Under 900 units
+  the portraits are two rows of four and the cards one column.
+  `ClustersGrid` decides it, pure (Expand all and a type tab keep the one-card-per-type `ClusterCard`). A click on a
+  tile's picture opens the image picker (no separate hover button, owner 2026-09-30); its
   words open the card. ⌘F shows the list column (its find row, then find's ranked rows) in place of the cards while it
   is open. Beside a card the list keeps rows with pictures and an age, recently mentioned first
   (`lastReferenced` on `/graph` nodes). The detail column hosts DS-3a's `EntityDetailCard`, in its `.card` style, with
@@ -1494,6 +2651,13 @@ the start or end of a longer name — "Claude" is not named by "Claude Code"; in
   The Reader's header for a watch record and each `media` turn's fidelity are built from the episode's `watch` block.
   Every string is in `Copy+Videos.swift`, and `VideoCopyNeutralityTests` fails on a provider or model name.
 
+**Hidden (owner 2026-10-26) until the G222 redesign.** `PageSwitches.projectsPage` is off: the rail draws no Projects
+cell (⌘8 opens nothing; no other digit moved), ⌘K has no *Go to Projects* and a project's row opens its page on the
+graph, the tour skips its Projects stop (`TourStop.shown`), `routeToProject` / `routeToBacklogItem` open the project's
+own page (`routeToEntity`), and a stored "Projects" selection lands on Clusters (`AppTab.landing`). Nothing below is
+deleted and no project page changes; turning the switch back on restores all of it. Projects still appear in Clusters,
+on the graph, on a person's card ("What's happening", which now opens the project's page) and in ⌘K as pages.
+
 **Projects (G141 PJ-5, Direction D; v2 owner 2026-10-19 — dated ruling in `docs/design/DESIGN_RULES.md` §9).** The
 eighth page (⌘8, after Sources): a list page in progressive columns over `GET /projects` and `GET /projects/{id}/timeline`, which are **not** Store domains —
 `ProjectsCache` (app-level, in memory) revalidates them with the server's ETag when the page appears, a project opens, a
@@ -1508,6 +2672,57 @@ by project, day and cache revision; the last value stays up while the next build
 project whose happenings cite hundreds of pages opens at once (round-4 D6). Every Swift test reads
 the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`, pinned by
 `api/tests/test_projects_app_fixture.py`.
+
+**Projects v2 redesign — the person's own list, the knowledge panel (TODO rulings 45 and 56; wire g141-10; DESIGN_RULES §9
+2026-10-27, 2026-11-04).** The page is back on the rail (`PageSwitches.projectsPage`, ⌘8). What it does:
+- **The list draws only the person's own** (`ProjectRow.mine`; an older server's rows, with no `mine`, all count as
+  theirs; its `suggested` is ignored). Nothing is suggested (ruling 56). With none of the person's own yet, the list draws
+  no words at all (owner 2026-11-04: "just have it look empty"): the column is empty and calm, and the eyebrow's New
+  project is the way in. A name a page already holds starts that page, its history kept.
+- **A page not started** stays reachable from search and the graph and opens in the detail column; it stays open when the
+  list refreshes (`ProjectsPage` keeps an open id `store.entityNames` knows). Its head shows one neutral *Add to my
+  projects* (DR-40); a listed project has *Remove from my projects* in its ⋯ menu. Neither touches the page.
+- **An agent's link** says who and why: the row's tag names the agent, `.help` holds its reason. A proposal draws its name
+  on its own line with *Add* and *Not about this project* / *Not part of it* (DR-40), at the head of its block.
+- **New project is a page (owner 2026-11-04, DESIGN_RULES §9 2026-11-04).** The eyebrow row's `PageAddButton` opens
+  `ProjectNewColumn` as the detail column (`ProjectsPage.newColumn`, an id no slug can take): the project page it will
+  become, before it exists. The card is the name as the page's H1 (a 22 pt field with no chrome, "Project name" in
+  tertiary ink while empty; ⏎ moves on) over a large editor for what it is about in the person's own words
+  (`cicadaEditor`, DR-76's long form: a `TextEditor` where Return starts a new line, 280 pt tall), then Cancel and the
+  one primary, Create (⌘⏎). Beside it (under it when narrow, `ProjectKnowledgeLayout`) the knowledge panel holds
+  *Pages · N* — the attached pages, each with Remove on hover and in its menu — then `ProjectPagePicker`: one search
+  field ("Find a page to add"), kind text tabs with counts (All · Videos · Articles · Papers · Repositories · People ·
+  Other, drawn only when the matches span two kinds), *Recent* (the most recently mentioned pages) while nothing is
+  typed, and rows of `ProjectAttachRow`: one leading slot as wide as a media page's 3:2 well holding the page's
+  picture, else its source's mark (a saved link's site, GitHub for a repository), then the name and where it came
+  from. The candidates are `ProjectAttachModel.candidates` over the graph's nodes and Sleep › Saved's items (the owner,
+  facets, hubs and dropped pages left out). The draft (`ProjectDraft`) lives on the page: Esc and × close and keep it,
+  Cancel forgets it, a bank switch clears it. Create is ONE `ProjectChange.create(name:description:pages:)` → `POST
+  /projects` with `pages`: the server makes the page and attaches everything in one person commit (a repository joins
+  `repositories:`, ruling 53), and the new project opens in place of the draft; a refusal keeps the draft and toasts
+  the server's sentence. The picker ranks again only when its query, kind, attached set or candidates move
+  (`ProjectPickerMemo`), and the candidates are built once per graph and saved-items load (`ProjectAttachCache`). The person's description is the project page's lead (`ProjectHeaderEditor`, primary ink,
+  paragraphs kept; editing it uses the same long field, ⌘⏎ saves, Esc cancels, a click away saves). The day the
+  person started it counts as activity (`project_timeline._tied_days`), so a project made a moment ago is in Current;
+  that day is one of the moment days `project_state.median_gap` reads, so it also sets the rhythm a quiet project's
+  follow-up is measured against until other activity arrives.
+  Add on *Pages in this project* opens `AddProjectPageSheet`, the same picker in a sheet. `ProjectNameSheet` now only
+  names a provider grouping on accept.
+- **The header** is `ProjectHeaderEditor`: the name and the person's description, edited in place (PATCH), a meta
+  line saying how it became theirs and who last set the description (with that agent's mark). Sleep's first line shows,
+  dimmer, only when the person wrote no description.
+- **The knowledge panel** (`ProjectKnowledgePanel`) sits beside the card when the column is wide enough
+  (`ProjectKnowledgeLayout.sideBySide`), else under it: Conversations · N from `GET /projects/{id}/conversations`
+  (`ProjectsCache.refreshConversations`, ETag-revalidated, never a Store domain; a row opens the Reader, its context
+  menu unties it), the why line in words, Sources & influences grouped by kind with *Add an influence*
+  (`AddInfluenceSheet`) and Undo on the person's own, then a provider project's instructions and documents.
+- **Writes** are `ProjectOwnershipWrite` (`ProjectChange`: create, accept, dismiss, header, tie, add or withdraw an
+  influence) through `Store.perform`: painted over the cache (`ProjectPaint`: a project moved in or out of the list,
+  the header's words, an untie, an influence taken back), rolled back with the server's sentence on failure, settled
+  by the first answer requested after the confirmation. The groupings file rides the sync `entities` component, which
+  `ProjectsRefresh` already watches.
+- **"Timeline"** names the dated list (the old *What happened*, Q6). A separate *Done* fold is not built: done items
+  read in the Timeline with their state (disclosed in the build report).
 
 **Projects v3 — where it came from, six standard sections (ruling 36 D4, G141; backend shipped 2026-10-22, the SwiftUI
 part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page does with it:
@@ -1531,12 +2746,55 @@ part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page 
 - **Swift work:** decode `origin`, `sections`, `people` leniently into `ProjectOrigin`/`ProjectSection`/`ProjectPerson`
   (`ProjectsCache` unchanged — the ETag shape moved, so caches refetch once), re-pin `projects-demo.json`'s decode test,
   add `Copy+Projects` strings (provider-neutral, DR-59), and a `ProjectDetailSectionsTests` over the fixture.
+- **Projects v3 (2026-10-28, ruling 48: DESIGN_RULES §9 2026-10-28 (9), (10), (17); DR-81, DR-38, DR-44, DR-45, DR-74,
+  §3.8) — the page has no folds.** A section with nothing in it is not drawn; a section with something is open and
+  holds at most five rows (`ProjectOpen.cap`); more is a plain "All N" on the section's label that swaps the card's
+  column to that full list (`ProjectOpen.Full`, `ProjectFullHead`: ‹ Back · title · count; Esc returns), never an
+  in-place expansion. A source lint (`ProjectPulseTests.testTheProjectsPageHasNoFolds`) fails any `Disclosure*` under
+  `Views/Projects`. **The head** is the name, the person's line and ONE standing line ("In motion · 3 of 6 milestones
+  done · Next: Fibreglass the hull, Nov 8", Next a button onto its row; with nothing planned, "Add a milestone" M):
+  the meta line ("You added this project · … · description last edited by …") moved into the head's `.help`
+  (`ProjectHeaderEditor.provenance`), and *Last* left — the Timeline's first row and the band's newest mark say it
+  (DR-38). **Under the band and Log progress:** *Pulse* (`ProjectPulseView`, read at the viewer's today by
+  `ProjectPulse`, the twin of `project_pulse.py` on one fixture): the last 4 weeks as words over four neutral weekly
+  bars (text ink, never a hue — the band's green stays the page's one colour), what it is *waiting on* (an open
+  thread's `from` participant, `waitingOn`), what has *gone quiet* (an open thread silent past Q); each fact is drawn
+  only when it has something to say. *In motion* (the open threads, `ProjectNowSection(limit:)`, and the Sleep queue's
+  line). *Coming up* (`ProjectOpen.comingUp`: planned milestones by target, then the backlog's open and doing items,
+  each opening as the third column; its full list adds the whole backlog with its tabs and its add fields; the ⋯ menu's
+  *Add to the backlog* opens it). *Timeline* (`ProjectOpen.timeline`: every story row plus every milestone marked done
+  as a filled diamond with a "Milestone done" Tag, newest first; the full list ends with "Cicada started tracking
+  this"). Done, Plan, Backlog and Around this project are gone as sections. A pick on the band (or Next, or a pulse
+  fact) whose row the capped section does not show opens that section's full list and scrolls to it
+  (`ProjectOpen.isShown`). **The knowledge panel** leads with *Pages in this project* (`ProjectPagesBlock`: the
+  pages a claim or an event ties, the ones tied by hand with a "You tied it" / "<agent> tied it" Tag, and an agent's
+  proposal first with Add and Not part of it; on hover a row offers *Not part of it*, also in its menu; Add opens
+  `AddProjectPageSheet` over the pages already in memory, never making one), then Conversations and Sources &
+  influences, each capped with its own "All N". Writes are `ProjectChange.tiePage` through `Store.perform`, painted at
+  once (`ProjectPagesPaint`). **The list:** sub-projects sit indented under their parent, always shown (no chevron —
+  amends 2026-10-19's "dropdown that moves if I press again", the owner's newer preference); the quiet projects sit
+  under a static *Gone quiet* label (`ProjectsEntry.quiet`), never a fold. ← on a sub-project opens its parent; →
+  has nothing left to unfold. The bullets below describe v2; where they name a fold, v3's open section replaces it.
 - **The list (v2):** text tabs **Current · Past** with counts (`ProjectsModel.tabs`; tapping the selected one keeps
   it). A project's group is `ProjectState`'s section (`ProjectsGroup`): in motion → Current; quiet → **Fading**, one
   folded disclosure at Current's foot, remembered on `cicada.projects.fadingOpen`; resting (decaying or archived, or
-  nothing heard for 90 days) → Past. `ProjectsModel.entries` is the whole column as `ProjectsEntry` values — rows,
-  the Fading head, Past's year labels and "Show 50 more" — pure, so a test pins it. A row (`ProjectRowView`, 56 pt)
-  is the name over the one-liner and ONE signal (`ProjectsModel.standing`): the next milestone ("Next · First grasp,
+  nothing heard for 90 days) → Past. **Activity inside the rhythm wins over the decay status (2026-10-28):** a page
+  Sleep marked decaying or archived but heard from within its quiet threshold Q (progress logged, a claim's day, a
+  repository session, or a conversation tied by hand, by the provider's project id or by the relaying app's word —
+  `project_timeline._tied_days`, list and detail alike) is in motion; the status rests it only once it is quiet past Q. `ProjectsModel.entries` is the whole column as `ProjectsEntry` values — rows,
+  the Fading head, Past's year labels and "Show 50 more" — pure, so a test pins it. ROR-118 round 4 (DESIGN_RULES §9, 2026-11-06): Current at rest (wide, no project open) draws one lead and a list
+  (`ProjectCardGrid`, `ProjectCards.swift`). The lead (the first project of the first run, never under *Gone quiet*) is a
+  ringed card (`ProjectLeadCard`): its name (24 pt) and one-liner on the left, its plan on the right as the milestones
+  themselves (`ProjectSteps`: a mark, a name and a day a milestone in date order, a check once done, a ring in primary
+  ink for the next, an overdue next day in the warning ink; at most five, the oldest done dropped first; only with a plan,
+  no percentage — R-PJ11; a milestone a sub-project carries by name is left to that sub-project), so a planned lead says nothing else about where it stands; an unplanned one says it once
+  (`ProjectsModel.standing`, a diamond for a next milestone, a clock for last heard); its sub-projects sit beneath on a
+  darker well, each laid out like a list row (name over one-liner, the one signal at the end in the same `ProjectStanding`). Every other project is a row of one ringed list (`ProjectRestList`): name over one-liner, where it stands at
+  the end, sub-projects indented beneath. Round 5 (§9, 2026-11-06): nothing on these cards is smaller than 14 pt (one-liners 15-16, milestone names 15, days and the standing 14; colours unchanged, secondary ink is 11:1 dark and 12:1 light on the card); each milestone is its own VoiceOver element (name, done or next, day; `Copy.Projects.stepLabel`). A project's picture (`EntityPicture`) draws beside its name only when it has one.
+  The Current tab counts cards, not sub-projects, and Past carries no count at zero (`ProjectsModel.counts`, `tabs`). The
+  window below is empty when the person has few projects: nothing is added to fill it. Rounds 1-3's thread and tile grid
+  are retired. Past and the narrowed list keep rows. A row
+  (`ProjectRowView`, 56 pt) is the name over the one-liner and ONE signal (`ProjectsModel.standing`): the next milestone ("Next · First grasp,
   Oct 1", overdue in words; a milestone named after its own project only its day, "Next · Oct 5" —
   `ProjectsModel.milestoneName`), else the plan's count, else "Heard 9 days ago"; Fading "Quiet 30 days"; Past the
   day alone ("Mar 3", `RelativeDay.dayInYear` — the year is the label), nothing under *Nothing heard yet*. Beside an
@@ -1666,13 +2924,14 @@ Glass, so the composer's action row (`LooksComposerActions`, Save the one primar
 
 **Sleep page — the study room (G125 v4, Track Z; the Sleep redesign, 2026-10-16).** The room and the worm are Aseprite
 sprite sheets; to watch every animation, open `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser
-(*The sprite art and its preview*, below). **A room-over-list page (DESIGN_RULES §5.2, owner approval 2026-10-16):** one
+(*The sprite art and its preview*, below). **A room-beside-words page (ROR-118, DESIGN_RULES §9 2026-11-06; it was room-over-list, §5.2, owner approval 2026-10-16):** the paragraph below describes the room's art and the control group; since 2026-11-06 the room is a rectangle in the top-right corner (`SleepLayout.cornerScale`: 3 pt a cell from a 960 pt column, else 2; ring, `cornerRadius` clip, no shadow) with the sentence, control and lamp's line on its leading edge (`SleepRoomColumn(leading:)`, `RoomSentenceView(leading:)`, `SleepControlRow(leading:)`), round 2: the headline 40 pt (`cornerLeadSize`), the title row only "Sleep" with "last read" in the lamp's line (`cornerWhisperLine`), a Waiting row with column heads "Oldest"/"Items", one 22 pt mark footprint and `bgSelected` on hover; the page one centred 1,040 pt column (`SleepLayout.pageWidth`), a Waiting row's age and count two fixed right columns, and `MachinesStripView` drawn only with two machines or more. Round 3 was partly taken back. Kept: the saved-for-lookup line as the list's last row, a labelled "+ Add". Round 4: the books keep their count plates; the Waiting tab keeps its count; the list's tabs are 14 pt in a 30 pt pill with the active one semibold (`TextTabs(large:)`); "+ Add" is a neutral button; Options wears a slider mark; the headline's numeral takes the lead's own size and weight. Round 5: the schedule line (with the lamp off, "The lamp is off — I read when you ask · last read ..."; `Copy.SleepV5.lampOffShort`, round 3's "No schedule" taken back) is a quiet 13 pt button directly under the headline, above the controls; the engine label and Options are neutral ringed buttons beside the one primary (no hairline); the Waiting table is round 2's again, the share bar taken back (no scale, read as decoration), the column heads in `textSecondary`; the saved-for-lookup line is the table's last row ("Kept for lookup", its count in the Items column); a watched folder's mark is blue (`OriginIconography.color`). **Status chip (2026-11-06, Rodrigo; approved):** the title, headline, lamp's line and buttons are one block exactly as tall as the room (`SleepRoomColumn(title:fillHeight:)`, `RoomLattice.rows * cell`; the page's title row moves into it, `EyebrowRow(bare:)`, its capitals on the room's top edge) with two springs sharing the free height and the buttons last, so the pair's top and bottom edges line up in every state (`SleepCornerBlockTests`); what a state adds beyond that (the stop's whisper and elapsed time, the notes, the stage strip and bar) hangs under the pair at the column's width, never inside the block. Beside the room the 40 pt headline is a small ringed capsule (`SleepStatusChip`, `statusParts`): the count as a numeral then "to read", with an "Overdue" tag when overdue; every other lead ("Reading 14 of 25", "Filing…", a pause, "All caught up") takes the same capsule, the VoiceOver label is still the whole lead, and `cornerLeadSize` is gone (the centred offscreen layouts keep the 30 pt lead). Below 720 pt the room goes above the words (`roomBeside`). Older sizes in the next paragraph (5, 4, 3 pt, a centred column) are superseded. One
 scroll — no title (the "Sleep Cycle" `PageTitle` retired; the page opens on an eyebrow, "Sleep · last read
-2 h ago", `SleepEyebrow` — what waits is the room's headline ("23 to read.") and the Waiting tab's count, so the eyebrow
+2 h ago", `SleepEyebrow` — what waits is the room's status chip ("23 to read") and the Waiting tab's count, so the eyebrow
 no longer counts it a third time (say it once, 2026-10-19; the pinned tab keeps the total once the room scrolls away) — with the staleness chip at its right, R-A12); then the room **out of its card**, on the page
 ground, drawn at a whole 5, 4 or 3 pt per lattice cell by the width the art may take (`SleepLayout.artScale`: 5 from
-880, 4 from 720, else 3 — 2 only under ⌘+ zoom with the Reader open; `StudyRoom(cell:)`), its floor fading into the
-page over its bottom five cells (`RoomFloorFade`, a mask on the art layer only, never the pile). **The painted room is
+880, 4 from 720, else 3 — 2 only under ⌘+ zoom with the Reader open; `StudyRoom(cell:)`), ending in a hard edge —
+its floor opaque to the last row, no mask, ring or shadow (owner 2026-11-03: "remove that fade effect from everywhere";
+the floor fade `RoomFloorFade` is gone from Sleep and onboarding, `SleepRoomEdgeTests`). **The painted room is
 the lattice (2026-10-16):** the backdrop's wall, floor and trim span all 160 columns, so the pile stands on the room's
 floor in its own columns and the worm, props, pile and every hotspot sit inside `DeskSceneLayout.paintedFrame` at every
 step (`SleepRoomFrameTests`; the backdrop was 110 columns, which the old card hid). **The pile is books (owner pick
@@ -1702,9 +2961,23 @@ Past reads otherwise (`SleepTab.resolve`), and a tab switch is instant and close
 4.5 MB per load on a large bank, 2026-10-19) and revalidated with its ETag, the rows and tag held in `SleepViewModel`
 (not a Store domain; a 304 keeps them, a bank switch drops both); **Saved** and
 **Videos** are the Feed's lists (above, *Clusters and Sleep's saved lists*); **Past reads** (`SleepPastReads`) is Last
-cycle · Readout · Past nights in D's list grammar — section labels over rows, no cards; Last cycle's rows in words,
-"Rested" as a sentence, the readout as key–value rows, a past read opening in place under its row with its Models, tokens
-and cost (ruling 12). Said once (2026-10-19): a Past nights row prints its day only when it is the first of that day;
+cycle · Readout · Past nights; Last cycle's rows in words, "Rested" as a sentence, the readout as key–value rows.
+**Past nights is one card per consolidation** (owner 2026-10-26, `RunCardModel` / `RunCardView`): a run that read in batches
+is one card, a plain cycle one card, a decay pass or an inbox resolution none. The card says when it ran, only an ending other than finished (DR-38, ROR-41), and who started
+it ("You started it" / "On schedule", a catch-up's missed time), one line of what it included ("12 conversations · 3 new
+pages · 18 updates · 2 questions" — the server's whole-run figures on `SleepRunRef`: `created`, `updated`,
+`models`, `usageSummary`; the questions are the dropdown's own count, raised + settled, asked for each card as it
+comes on screen; unknown is left out, never zero), the engine's mark and words with the
+models the ledger says ran, the plan share or cost with its basis (ruling 12, `CycleUsageText`), how long it read, and
+how it ended (Finished · Reading now · Paused at your plan's limit · Paused to leave room in your plan · Paused ·
+Stopped · Didn't finish). A resting ring on `bgFocus`, no shadow (DR-9, DR-37; §9 2026-10-26). Opening it (one card
+open at a time; only a pointer's click eases, on `CicadaMotion.groupExpand`; a key, an event-less action or an assistive press opens in one frame, `RunCardMotion`) drops down what it
+consolidated, grouped under `DisclosureHeader`s — Conversations read (each opens in the Reader), New pages and Updated
+pages (neutral `Tag`s, each opens its page; a page gone since shows its id), Questions raised and settled (each opens
+in the Inbox) — from `GET /sleep/runs/{id}/items` or `GET /sleep/history/{commit}/items` (`SleepConsolidated`, held by
+`SleepViewModel.consolidated` with its ETag, revalidated on each open, a 304 keeping it, emptied on a bank switch); a
+group shows 8 rows (pages 24) then *Show all N*. *Models and batches* folds the run's models, tokens and cost with
+their basis, and its batches and pauses (`RunDetailBlock`; a plain cycle's `CycleUsageBlock`). Said once (2026-10-19): a Past nights row prints its day only when it is the first of that day;
 when no row — a run's batches included — recorded usage or a time the section's label says so once ("Past nights ·
 usage and time not recorded", `PastNightsLayout`) instead of every row; a run's row names its engine in words beside
 its mark; the readout's *Last engine* row steps aside while the newest Past nights row
@@ -1789,7 +3062,7 @@ point, drop a batch that has not begun filing), so its caption and tooltip say w
 row (only when it took more than one batch or something waits), a "Paused at your plan's limit" row carrying the vendor's whole
 sentence, a drain-aware cancel text, and no "Episode cap reached" row for a drain. Home's Getting started says "Keep reading"
 after an early stop (`FirstReadAction.keepReading`) and "Your memory has N pages now." after a full drain. Since ruling 16 the lamp's popover and the engine menu's Scheduled row say a scheduled run reads everything waiting too
-(`Copy.scheduledReadsAll`), with how it spends in words from `preview.scheduled.billing` ("charged per use; Cicada sets no limit", "on this
+(`Copy.scheduledReadsAll`), with how it spends in words from `preview.scheduled.billing` ("charged per use; the spending limit is in the engine menu", "on this
 Mac") — never a provider's name.
 **The study room's scenery (G176, owner 2026-10-02).** `Scenery.resolve(mode:clock:forecast:mood:manual:)` is pure:
 base weather · `SkyPhase` · optional overlay · effective source. The worm still means Sleep at any hour/in any weather.
@@ -1889,19 +3162,33 @@ person's own choice) and journal-honest (no "read and kept": a Pause reads the p
 `GET /sleep/status` and in brief on the SSE event, where a present `null` means none) outranks every idle rung of the sentence — Paused / Paused to
 leave room in your plan / Your plan window is full / The engine stopped answering / Cicada restarted while reading — with what is filed and, when armed
 (ruling 15), "Continues after 3:40 PM" (one locale-aware formatter, `sleepClockWords`); the mood is `.reading`, never an error or a cheer.
-An engine pause's `engineKind` (`transient | needs_fix`) travels in status and the compact SSE block. Transient
+An engine pause's `engineKind` (`transient | needs_fix | offline`) travels in status and the compact SSE block. Transient
 timeouts/errors say "The engine stopped answering" and "Continue to try again" with the filed count. Sign-out and
 model-not-found pauses retain "The engine needs a look" and "Continue when it is fixed"; older backends without the
 kind retain that fix guidance. Past reads shows the backend's diagnosis (DR-59), including the sign-in/model fix or a
 trimmed transient failure detail. For a timeout, the diagnosis says the interrupted part is read again. The existing
 `sleep` version component includes kind and diagnosis and maps to `.status` in `VersionVector`; a changed SSE kind
 refetches the paused record. An engine pause never implies automatic continuation.
-An engine connection loss uses the transient pause/Continue machinery. Neither an engine pause nor a genuine
+**The network left (2026-11-03, `capture-and-sleep.md`).** While a run waits for the network the drain carries
+`waiting` (`SleepDrainInfo.waiting`) and the sentence says "Waiting for the network." with one tail per cause ("The Mac
+slept mid-read. That part is read again once it's back." / "This Mac is offline. …" / "The connection dropped. It tries
+again shortly.") — rung V8, above the stage rungs. A run that gave up waiting pauses with `engineKind: offline`, its lead by `offlineCause`: "Paused. This Mac was
+asleep." / "Paused. This Mac was offline." with "Continue once it's online. N of M filed.", or "Paused. The connection
+kept dropping." with "Continue to try again. N of M filed." (a network present: nothing to wait for), in plain tone
+(nothing to fix, DR-7); Details titles it "Paused — this Mac was offline" or "Paused — the connection kept dropping",
+and Past reads' pause row says the same (DR-38, DR-59).
+An engine connection loss that is not offline uses the transient pause/Continue machinery. Neither an engine pause nor a genuine
 failure renders an exception class, CLI command or raw diagnosis in the page's sentence or worm answers. A failure
 instead says "Reading stopped" / "See what needs a fix in Past reads, then try again", in warning tone (DR-7, DR-59);
 the existing Last cycle rows retain the full diagnosis (DR-37/48). **One
 primary at a time (DR-40):** Consolidate / Pause (a drain's cancel, "Pausing…") / Continue (named for the manual engine; held while a weekly limit's
-reset is ahead) with *End this run* beside it. `SleepViewModel.continueRun()` is the only sender of `{"continue": true}`; **every other door goes
+reset is ahead) with *End this run* beside it. **Past the reset (ROR-96, 2026-11-04):** a weekly pause stays paused (ruling 15),
+so its words follow the clock, never the reason alone: "Paused. Your plan is back." and "Continue when you like. N of M filed.",
+for a window, a week, extra usage or the reserve line alike (`SleepPausedRun.planIsBack`, the reset's own second counting as
+passed; no vendor time never says it). A time gone by is never said: `resetWhen` and `autoContinueWhen` are nil once past, the
+vendor's sentence leaves Details, and the engine menu's help drops its "resets". `SleepPageModel.nextClockEdge` is the soonest
+of a pause's reset, an armed continue and a plan stop's reset still ahead; `SleepView` sleeps until it and redraws, so nothing
+has to be reopened. No animation of its own; the sentence slot's own cross-fade carries the change. `SleepViewModel.continueRun()` is the only sender of `{"continue": true}`; **every other door goes
 through `triggerManually()`, which routes to the Sleep page while a run is paused** (`AppRouter.routeToSleep`), and the menu bar, the intake card's
 and Home's *Read now* say what the click reads — "Consolidate now — all 287", "Reads all 318 waiting, oldest first, saving every 25." (`SleepDoor`,
 readable = waiting minus parked, M7; a pause whose record has not loaded says only "Paused", and an unknown batch size is left out, never a
@@ -1920,13 +3207,13 @@ and Saved hide at a count of zero (`SleepTab.visible(waitingHasRows:saved:export
 parked conversation, a run's block or an unreadable queue, never for the "your own page" note alone; Saved stays while
 an export is being waited on, because `ExportWaitStrip` heads it, R-IB22), so a fresh page opens on Past reads. *Options…* (`ReadingOptionsSheet`, 720 pt) sets batch size
 10/25/50 and *Continue by itself when my plan resets* (off) on change; it has no Read faster row, no engine advice and no site list. The engine
-menu's *Keep plan free* (Off or 5–30 % of the window, plan engines only, a line not a guarantee, an unreported window said so) is one of ruling
+menu's *Stop a run at* (ROR-102: one line for a run charged per use, Off or a dollar figure, suggested $5; its help is one line: Sleep runs only, about one read over at most not cover; DR-81, ruling 12's home for the figure) and *Keep plan free* (Off or 5–30 % of the window, plan engines only, a line not a guarantee, an unreported window said so) is one of ruling
 12's two homes; the page's lists are the other (Past reads and Waiting, Details until 2026-10-16): Last cycle's run rows (`LastCycleRow.runRows`, merged over the pre-v5 drain rows), per-source counts and
 per-conversation rows from `GET /sleep/queue` (refetched when the run's counts move, never per tick) with Retry for a parked one — offered only while no run reads or waits paused, since the
 server refuses it then (`LastCycleRow.canRetryParked`) — a scheduled run's spend note billed from the run's own usage, never today's preview, and Past nights
-folded by run (`PastNightItem.group`, the run's numbers from the server's `run`, never summed from visible rows; opened: models, cost, pages,
-batches and pauses from `GET /sleep/runs/{id}`, cached in the view model and refetched when the run's counts, pause or end move; touched pages
-by name, the id in `.help`). A scheduled run that caught up a time the Mac slept or was off through (`sleep_catch_up`,
+folded by run into one card each (`PastNightItem.group` → `RunCardModel`, the run's numbers from the server's `run`, never summed from
+visible rows; opened: its items from `/items`, and models, cost, batches and pauses from `GET /sleep/runs/{id}` under *Models and
+batches*, cached in the view model and refetched when the run's counts, pause or end move; pages by name, the id in `.help`). A scheduled run that caught up a time the Mac slept or was off through (`sleep_catch_up`,
 `features.md`) carries `catchUpFor` on its `run` and its row says so in words — "Missed 3:00 AM — caught up at 8:12 AM",
 "tried" for a failed one, the missed day added when it is not the run's (`RunPresentation.catchUp`, owner 2026-10-19). The app-level `SleepViewModel` empties its queue, waiting rows (and their ETag), run details and history details on a bank switch
 (`Store.onBankChanged`). `PriceLintTests` keeps `$` and token literals out of every other Sleep
@@ -2032,7 +3319,7 @@ establish the owner's visual acceptance or the live CPU budget.
 every `CicadaTheme` font and spacing token, so every reader repaints with no `.id()` anywhere (the
 PR #49 lesson repeated). The graph canvas keeps its own zoom; ⌘+/⌘− means chrome, not canvas, same
 as a browser's page zoom vs. a map widget's. `Settings` gains a *General* tab (Appearance + a Text
-size slider) alongside Agents, Plans & keys and Schedule. Slice 1b (PR #58) finished the job:
+size slider) alongside Agents, Plans & keys and Schedule. **The percentage pill (owner 2026-11-06, "like in Chrome"):** every zoom — a key, the menu, the palette, the slider — bumps `ThemeStore.zoomPulse` (also at a limit and for Actual Size) and `ZoomPill`, an overlay at the window's top that takes no click, reads the size (100% by default) with no animation and leaves on its own after `CicadaMotion.zoomPillHold`, a fade under `zoomPillFadeDuration` (none under Reduce Motion); VoiceOver hears the percentage. Slice 1b (PR #58) finished the job:
 every literal `.font(.system(size:))` / `Font.system(size:)` in `Sources/` now goes through
 `CicadaTheme.font(size:...)`, and `FontLiteralLintTests` fails the build on a new one.
 
@@ -2044,8 +3331,19 @@ pt, an opaque `bgMenu` floating surface over the panel scrim — that appears an
 answers every keystroke with no network; ~150 ms later `GET /search` (prefix, then hybrid) appends
 conversations, beliefs (superseded ones as history), backlog items (G150; the server tier only) and whatever
 the local tier missed — a shown row
-never moves. Ask is a mode (⌘⏎) hosting the `AskPanel` body — the one place the app draws an Ask answer (the palette
-and Home's field both host it). Under the page sources (chips, then each page's evidence chips) it lists **From
+never moves. **Files** (2026-10-29, meaning index 2): the hybrid pass alone also asks `file` and `image`
+(`FindServerRows.hybridKinds`; the prefix pass never does) and a **Files** group after Sources & papers holds a
+recording's or video's words — the conversation row's grammar: name, kind as the one `Tag` ("Recording" / "Video",
+DR-44), "the recording's words, at m:ss" as the detail, the passage in the quote face, a kind glyph (DR-48) — and a
+video's kept frames, each its own thumbnail (`FindStill`: the stored frame at the mark's height, 16:9, the Feed video
+frame's continuous corner, DR-12), or **no mark at all** while it isn't on this Mac, never a stand-in tile (the
+2026-10-28 "a page with no picture draws none" ruling, #512). No folds (DR-81): the group counts exactly what the server
+gave (it serves only what clears its floor), so it never offers a "More…" that fetches nothing. ⏎ opens the file in the app's viewer (`MediaSheet`, ROR-117, below) from where
+this Mac last saw it (`MediaFilePlaces`, the app's own record; the backend never has a path), at the hit's second; ⌥⏎ shows it in Finder. Other pictures (looks, previews, stills) are not in the palette yet. Ask is a mode (⌘⏎) hosting the `AskPanel` body — the one place the app draws an Ask answer (the palette
+and Home's field both host it). **When the engine did not answer (G148, 2026-11-06)** `failure` is set and `answer` is the one
+sentence (what happened, what to do, when it resets if known): it shows in the warning banner with no confidence meter and no
+"I don't know", the page sources stay, and it is not pushed to Recent; a request that failed shows a sentence too, never a
+status code or raw body (`AskViewModel.describe`), and `APIClient.ask` waits 600 s, not URLSession's 60 s idle default. Under the page sources (chips, then each page's evidence chips) it lists **From
 conversations**: `POST /ask` `conversations` (2026-10-19), the conversations the answer used that no page cites. A row
 is a conversation glyph, the title ("A conversation" without one) and the day; the episode id only in `.help` (DR-54,
 DR-48, DR-34); a click opens it in the Reader from the top (`AskConversationRow.primary`, the target a Sleep page row
@@ -2076,6 +3374,16 @@ acts (`TourLintTests`), opening `DemoShowcase`'s person and project only in the 
 first visit, is offered once on Home after onboarding (`TourOffer`), and replays from Settings → General, every `?` and
 the banner; finishing or skipping is remembered per viewer (`cicada.tour.done`).
 
+**The app icon (owner 2026-10-26, provisional: "for now"; DESIGN_RULES §9).** The Dock, Finder, About panel and
+Launchpad show the menu-bar bookworm — the `awake` key frame of `Resources/sprites/bookworm-small.png`, without the
+status item's code-drawn badge — on a graphite plate (`bgButton` `#232427` → `bgPane` `#141517`) on Apple's 824-in-1024
+grid. `Art/AppIcon/make-icon.swift` (run from the repository root) writes `Art/AppIcon/Cicada.icns` (ten sizes),
+`Cicada-1024.png` and the plugin's `.claude-plugin/icon.png`; `--preview <png>` writes a review sheet. From 32 px up each
+art pixel is a whole (size / 32) device-pixel square, nearest-neighbour; 16@1x carries a hand-drawn 12 × 12 worm
+(`smallRows`). `bundle.sh` copies the committed `.icns` into every build (`make app`, `make install-app`, the release
+build) and `Info.plist` names it (`CFBundleIconFile`); nothing in the app sets the icon at runtime. The previous
+book-and-glasses art stays in `docs/design/cicada-icon/v4/`.
+
 **Brand marks (Track L).** One map, `OriginIconography.logoName(for:)`, and one precedence:
 **installed app icon → bundled PNG → SF Symbol**. Apple's marks are never committed (Safari and
 Apple Notes resolve through `NSWorkspace` by bundle id, then their own SF Symbol); every other mark
@@ -2091,7 +3399,10 @@ mark (`hermes`, the only one) is never recut — every surface that draws one cl
 curvature instead, and `LogoAssetTests` names any opaque plate so another cannot arrive unnoticed.
 **Claude Code is the Claude mark plus an app-drawn `>_` badge** (R-AG8, `BrandMark`, composed in
 `LogoImage`: `claude-code` → `claude.png` + badge, `claude-desktop` → the plain `claude.png`); callers
-keep passing the logical name, and no mark file is edited. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
+keep passing the logical name, and no mark file is edited. **ROR-107 (2026-11-05):** Substack, Goodreads, Vivaldi and Dia
+gained their marks. **ROR-127 (2026-11-06):** a model contributor wears the picture of the model's *maker*, whichever provider served it (`ModelMaker`, `ContributorIdentity.modelMark`; the avatar and the claim chip share it). The maker is read first from the provider's own organisation segment in the id (`openrouter/z-ai/glm-5.2` → Z.ai), then, only when the id carries none, from the model's family (`deepseek-chat`, `accounts/fireworks/models/qwen3-…`); an organisation it does not know (`someone/qwen-finetune`) is no maker, so the model wears the mark of the router or host that served it when that has one bundled (`ModelMaker.router`: OpenRouter, Ollama, Together, Fireworks, DeepInfra, Groq; Rodrigo 2026-11-06, a mark rather than initials) and draws initials only when it came through none — never a guess at a maker. Meta's infinity is back in the set as `meta-infinity` (the lobe-icons rung; Muse keeps `muse` and the `meta` agent id), so Llama and Meta models wear it; the README's old reason for its removal was the id swap, not a licence or a dark-variant bar, and the mark is coloured so it needs no `-dark`. DeepSeek, Qwen, Z.ai, Moonshot and MiniMax joined the set (lobe-icons rung; the makers' sites serve no SVG; Z.ai and Moonshot are black marks with `-dark` siblings). A page's author records are untouched; run `--filter ModelMakerTests`. **Owner 2026-11-05 ("Sources should always have their logos and the latest versions of them"):** T3 Code, Grok, Perplexity and Comet gained theirs (Comet's site serves 32 px; its mark is its App Store icon). `SourceMarkCoverageTests` reads `HARNESS_LABELS` and every `SourceCatalog` entry, and fails on one with no bundled mark unless it is Apple's or on its one named list. `scripts/check-logo-upstream.py`, a release step, prints which set sources differ upstream; it writes nothing and nothing fetches at runtime. A tile with no brand
+wears one outline glyph that says what it holds: Chat exports `square.and.arrow.up`, Files and links `doc.on.doc` (its own key,
+`SourceCatalog.filesOrigin`, for the picture only), Book scans `barcode.viewfinder`, Activity `clock.arrow.circlepath`. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
 transform is an exact luminance inversion of a *monochrome* mark into its `-dark` sibling, which
 `LogoImage` picks under a dark theme. Drawn brand glyphs are gone and do not come back.
 
@@ -2099,7 +3410,7 @@ transform is an exact luminance inversion of a *monochrome* mark into its `-dark
 and every page in both themes (the ranked audit is outside the repo, with its shots). What it changed:
 - **Onboarding.** Welcome's and Done's card under the study room is ringed, never shadowed (`onboardingCard()`: it sits
   in the page, DR-9/DR-10). A text button that starts a column sets its words on the column's edge
-  (`TextButton(flushLeading:)`: Back, *Use an API key*, *Not you? Change*, *How to get an export*; the entity card's lone
+  (`TextButton(flushLeading:)`: Back, *Use an API key*, *How to get an export*; the entity card's lone
   *Add a place to check* sits in a scroll view, which reaches out by `TextButton.inset` instead, so its hover fill is not
   clipped). A row of Sources' tiles is one height: at least `OnboardingLayout.sourceTileHeight`, growing with its
   longest caption (never cut — a consent is read before the tick), and every tile in the row grows with it;
@@ -2136,7 +3447,11 @@ three of that pass's own leftovers:
   Every two-line row wears the 36 pt `SourceLogoTile` (`.row`) at the root and beside an open source alike — the size the
   detail head and onboarding draw — and only a title-only row the dense 24 pt (`SourceCatalogRowView.tileSize`).
 - **Sources, the header.** *Reading in your browser* is a compact `NeutralButton` with a `globe` glyph beside *Explore
-  saved sites* and *Import a file*; as bare text it read as a label (DR-40). Same words, help and sheet.
+  saved sites* and the labelled add (*Import chats or files* since CIC8); as bare text it read as a label (DR-40).
+  **2026-11-03 (owner: "i dont get why these buttons are here if they dont influence whatsapp"):** the header keeps
+  only the labelled add, and only while no source is open; the two buttons sit in the settings of the sources they act
+  on (`SourcePageActions`: *Reading in your browser* on an account read in the browser and YouTube, *Explore saved
+  sites* on a browser's page). A hand-off asking for the reading switches still opens the sheet from the page.
 - **Sources, the detail.** The head shows the source's mark, name and status once: the source's own row under it
   (`CalendarRow`, `ContactsRow`, `MessagesRow`, `WisprFlowRow`, a browser's row) draws only its line and buttons when
   `\.sourceDetailHeadShown` is set (`SourceCatalogDetail` sets it; `SourceRow(showsIdentity:)`), never a second, smaller
@@ -2181,9 +3496,64 @@ page), its failure saying the page changed since (`settledSleepUndoFailed`). Neu
 from the server, Not now); `InboxBodyPreview` draws its `body` — "Why: …" and the changes as "- Replace “old” with
 “new”" lines — even beside a cause quote, because the body is the change itself (every other kind keeps the old rule:
 the body only when there is neither a cause nor a quote).
+**The Inbox's order is the server's (ruling 70, 2026-11-06).** `GET /inbox` serves `orderIndex` on every item (its place in the
+served list, set after agent requests are placed above the questions; it carries no magnitude, `question_order`,
+`features.md`). `InboxItem.orderIndex` decodes it leniently; `InboxColumns.usesServedOrder` decides **for the whole list**
+(every question has it) whether `ordered` sorts by index or, as against an older server, by priority then newest — never
+per pair, which would not be transitive — and `visible` makes that decision on the unfiltered list, so a tab sorts like
+All. The Undo row sits at its question's place in the snapshot's own order (`InboxRows.entries`). `QuickIndex.inboxDocs`
+breaks a tie by `orderIndex` when every question has it (priority only for an older server). Home's lead and rows, a
+page's "A question · 1 of N" strip and `Store.visibleInbox` filter the snapshot and never sort, so they keep the served
+order (`QuestionOrderEverywhereTests`). The ETag and this mapping ship together (`question_order.SHAPE`).
+
+**The Inbox in groups (owner 2026-10-26: "super dense … grouping things would be best"; DR-40, 45, 48, 59, 60, 61).**
+Under All the full-width list is one collapsible group per kind (`InboxGroups`, `InboxListLine`, `InboxGroupHeader`):
+the kind's tab word and its count, and *Review one at a time* — the quick review below, the group's one action. There is
+no answer-all: a header only opens or closes (a click eases, a key is one frame — *One fold motion* below), and every answer is still one question through
+the card or the review, held for the Undo window. Groups sit where their most urgent question would (the list's order: the server's `orderIndex`, ruling 70, else G115's priority then newest);
+past `InboxGroups.openFirstUpTo` (12) questions every group starts closed, so a full inbox reads as its kinds and counts;
+the person's open/closed choice holds for the memory, and the open question's group is always open. Inside a group (and
+under a kind's tab) two or more questions about one page sit together under the page's name, said once (`InboxPageHeader`;
+the rows leave the name out). The order the groups draw is the list's walk (`InboxViewModel.visible`): ↑/↓ and the next
+question after an answer follow the screen; the narrow columns draw the same order flat. Under a kind's tab the review
+row shows that kind's review only (say it once).
+
+**Inbox v2 (owner 2026-10-26: "fix how dense the inbox looks … I don't really get the confirmation of links … as are
+possible duplicates … When I open the drop-downs, it can be smoother"; DR-35, 38, 39, 40, 42, 43, 52, 59, 60, 61, 62, 65,
+66; §9 2026-10-26).** *Words:* a kind is named in a person's words (`InboxKind.label` — Fading, Conflict, Question,
+Possible duplicate, Disagreement, Wording, …; the wire values never change), a group by its plural (`groupTitle` —
+"Fading pages", "Possible duplicates"), and an open group starts with one plain sentence of what its questions ask and
+what the answers do (`InboxGroupExplainer`, `Copy.Inbox.kindExplainer`). *Density:* the kind's glyph leads its header
+once and the rows under it leave theirs out (the slot stays, so the questions line up); groups sit `spacingLG` apart;
+*Review one at a time* shows only while its group is open, so a closed inbox is kinds and counts alone. *Motion:* a
+group's body is one block (`InboxListBlock`) that grows out of its header and fades in (`disclosureReveal()`), the
+groups below easing down with it. **Possible duplicate** (`MergeBody`, `MergePair`): the two sides side by side — "Name
+from a conversation" and "Existing page", each with its `EntityPicture`, type and the graph's one-line summary, or "No
+page yet" for a name below the promotion bar — then what each answer does (Merge files the name under the existing page
+as another name, or folds its page into it; Keep separate is remembered; each answer can be undone in its window), then
+**Merge** (the one neutral button), *Keep separate* and *Skip* (text buttons). Describing it, merging with another page
+and the Keep-as-canonical picker with its "A → B" line wait under *Something else* (open from the start when Sleep named
+no page); a page typed there becomes the existing side ("Page you named", found by id or name) and Merge's sentence names
+it, so the card always shows what will be sent; every resolution sent is the one it sent before. **Confirm N links** (`WhereToCheckReviewCard`,
+`WhereToCheckWords`): one sentence of what the card is ("Nothing is used until you confirm it"), each page once with its
+picture and name (a click opens it), and under it each waiting link: its label, what it is and where ("GitHub profile ·
+github.com/…"), why it is there (`WhereToCheckWords.why`: "You mentioned it in a conversation.", "It's a link you saved.", "It's written on the page.", or for a public listing's site "A public listing gives it as the official site." plus what stopped Cicada trusting it alone — never the person's words for a lookup, ROR-137) and what confirming changes ("their picture and
+updates can come from here" for a person's own profile, "its logo and updates come from here" for a site on any other
+page). **Confirm** (neutral) and *Not theirs* / *Not this one* (text) answer one link, as before; past three pages the
+rest wait under *N more pages*.
+
+**One fold motion (inbox v2).** `DisclosureHeader` and `DisclosureButton` toggle through `DisclosureMotion`: a click
+eases on `CicadaMotion.disclosure` (drawer curve, 240 ms open, 180 ms close), a key — the event running the action is a
+key press — or an assistive press (`AssistivePress`) lands in one frame (DR-60), and Reduce Motion keeps a ~100 ms fade
+(DR-66). Content a fold inserts takes `.disclosureReveal()`: an animatable `DisclosureReveal` reports its share of the
+content's natural height (`DisclosureRevealLayout`) and fades it in, clipped only while it moves. The Inbox's groups and
+settled sections, the entity card's sections (`CardDisclosure`), *Confirm N links*' *N more pages*, the duplicate card's
+*Something else* and onboarding's two folds use it; every other `DisclosureHeader` caller eases its layout through the
+header without a change (Projects keeps its own `groupExpand`, the inner transaction winning).
+
 **The quick review (owner 2026-10-19)** goes one kind at a time inside the Inbox page, never a new window. Above the
-questions at full width (`InboxQuestionList`'s `header`), `InboxReviewEntriesRow` lists one text button per kind with
-something to review — "Fading pages · 49", then Folds, Conflicts and Questions with theirs (`ReviewEntries`, counts
+questions at full width under a kind's tab (`InboxQuestionList`'s `header`; under All each group's header carries it),
+`InboxReviewEntriesRow` lists one text button per kind with something to review — "Fading pages · 49", then Folds, Conflicts and Questions with theirs (`ReviewEntries`, counts
 through `UsageFormat`) — and a click replaces the columns with `InboxReviewView`: the eyebrow says the place ("Inbox ·
 Fading pages"; the line under the card counts answered, skipped and left), one card at a time (`ReviewCardView`, capped at the focus card's width), the same answers in
 the same place on every card (`ReviewCard.answers`): **Keep / Let fade** for decay (`keep`/`archive`, in that order
@@ -2203,7 +3573,7 @@ order; the card on screen is the first undecided one, so Undo puts a card back e
 elsewhere leaves the queue, and an answer the server refused comes back at the END of it — after the card being read,
 never in front of it (`reconcile`). Every answer and skip names the card it was drawn for (`reviewAnswer(itemId:)`): one
 for a card no longer on screen is a no-op, so a key or click never lands on a card that swapped in under it. The Inbox's
-own decay card has the same order (1 = Keep active, 2 = Archive, served fixed by `decay_question`; Recommended marks
+own decay card has the same order (1 = "Yes, keep it", 2 = "No, archive it" since 2026-11-06 — answers to "Still tracking X?"; the "noted" copy still says Keep active / Archive, served fixed by `decay_question`; Recommended marks
 Archive, it no longer moves it first), so one key never means opposite things in the two views. A legacy decay with no options,
 a multi-valued conflict (G98) and the other kinds stay in the Inbox's full card ("Open in Inbox" on every card lands
 there too). A bank switch ends the review. Tests: `InboxReviewTests`. Every other
@@ -2265,32 +3635,55 @@ of #383, so another cited span is as findable as the current one in the document
 `SleepMotion` a duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs; a keyboard action
 never animates. Sprites play per frame from their sheets within `CicadaMotion`'s sprite caps (ruling 18).
 
-**Links show as what they are (owner rulings 2026-10-14; DR-5, 9, 13, 32, 37, 45, 52, 53, 58, 61, 63, 71).** A link on a
-page draws the way its markdown title asks (`storage.md`, the link-title grammar; `LinkGrammar` in `LinkView.swift`, one
-fixture with the backend). In the article (`WikiArticle`/`WikiInline`): a link in a sentence is accent and underlined; a bare
-URL or `<URL>` is a live link that reads as its address (`example.com/guide` — the design guessed a bare URL was dead text,
-`LinkViewTests` shows Foundation links it, so the fix is its words); a **mention** — `"mention"`, a block view written
-inside a sentence, or a plain link in a `## Links` bullet — reads as the site in `textTertiary` (a `WikiInline.SitePart`
-run, coloured when the row is drawn so a cached article follows the theme) then the title with a 30% underline; a view
-word is never shown. A link alone on its line asking for a block view is a row of its own (`WikiRow.Kind.link`) drawn by
-`LinkBlockView`: **bookmark** → `BookmarkCard` (title, two lines of description, mark · site · one date — "Read Oct 2"
-when Cicada read the site's words, else "Saved Oct 2", else "Not read yet" — the stored picture left at ≥ 440 pt, on top
-when narrower, on a ring, hover a fill); **screenshot** → `CaptureCard` (16:10, the caption below the picture never over
-it: "Captured Oct 14, 2026 · 3 months ago", or "Saved to Looks Oct 14 · today" while a saved look stands in, "· nearest
-to Oct 14" for a pinned day with none that day; ⤢ opens the lightbox with the date line); **captures** → `CaptureStrip`;
-**look** → `LookSwatch` (the crop, `LooksPaletteStrip`, site · "Saved to Looks Oct 14"). Each degrades one step and says
-so: "No capture of this page yet", "No captures of this page yet", "No saved look of this page yet" (DR-32). ⧗ Site
-exploration's dated captures (the screenshot from a capture, the gallery, "Changed since you saved it", a gone site, the
-Reader's "How it looked when you saved it", ⌘K's site mark) wait for that pipeline; until then `captures[]` is empty and
-a look's screenshot of the same URL stands in. Every fact comes from `GET /entities/{id}/links` through `LinkFactsCache`
-(in memory, not a Store domain); the app fetches nothing of the web: a click opens the saved item's page when the backend
-matched the URL to one, else the browser, and ⌘-click always opens the browser (`LinkOpen`). A line with links has a 🔗
-in the gutter (and an accessibility action, `LineLinksAction`) opening `LinkLinePopover`: each link's bookmark card, then
-**the person's view switcher** — text tabs (DR-45) of the views Cicada has something for (Link, Mention; and for a link
-alone on its line Bookmark, Screenshot with a picture of the page, Captures with a capture, Look with a saved look), ↗ and
-Copy link (DR-53). Choosing one is `POST /entities/{id}/edits` with the link's token as `old` and the same link with its
-view word as `new`, `all` and `pinned`, committed under the person with the reason "Shown as a bookmark." (owner ruling
-4: the choice is memory, in git, visible to every agent; undo is the page's history). `PageLinkRow` (Where this comes
+**Links show as what they are (owner rulings 2026-10-14; Notion's model, owner 2026-10-26; DR-5, 9, 12, 13, 16, 32, 37,
+52, 53, 58, 61, 63, 69, 71; §9 2026-10-26).** A link on a page draws the way its markdown title asks (`storage.md`, the
+link-title grammar; `LinkGrammar` in `LinkView.swift`, one fixture with the backend), and a link that asks for nothing
+draws by context (`LinkGrammar.drawn`, the fixture's `drawn` cases): **inside a sentence a mention, alone on its line a
+bookmark, never an embed** — the owner pointed at his own editor (research-hub, TipTap) as the look to match. In the
+article (`WikiArticle`/`WikiInline`): a **mention** — a plain link in a sentence, `"mention"`, or a block view written
+inside a sentence — reads as the site's icon (15 pt, the tab-icon corner, `MentionIcon`; the icon only where the page's
+icon route serves it, `LinkFact.icon`, else a tertiary globe — a `Text` cannot hold the ring monogram), the site in
+`textTertiary` (a `WikiInline.SitePart` run carrying the link's URL), then the title in the primary ink and the row
+face's medium weight, underlined in the tertiary tone (`WikiInline.MentionTitle`; both restyled when the row is drawn,
+`themed`, so a cached article follows the theme; the icon goes in at draw time, `WikiInline.composed`, so the line stays
+one selectable, wrapping `Text`); a link the person chose as **URL** (`"url"`) reads as its words, accent and underlined;
+a bare URL or `<URL>` is a live link that reads as its address (`example.com/guide` — `LinkViewTests` shows Foundation
+links it); a view word is never shown. A link alone on its line that draws as a block — a plain link alone in a paragraph
+or on any bullet (Sleep's own `## Links` shape `- [T](url) — note` among them; #475 did only `## Links`), or a link naming
+a block view — is a row of its own (`WikiRow.Kind.link`, `WikiArticle.blockLink`; nothing is written to the page) drawn by
+`LinkBlockView`: **bookmark** → `BookmarkCard`, research-hub's measured card: 10 pt corner (`cornerRadius`), the ring,
+`bgFocus`, the stored picture left at full height (220 × 124 pt) when ≥ 440 pt wide and on top when narrower; words padded
+11/14/12 with 5 pt gaps — title 14 medium, two lines of description at 12, then mark · address · one date ("Read Oct 2",
+else "Saved Oct 2", else "Not read yet") at 12 tertiary; **embed** (only when chosen, and only for what can be embedded,
+`LinkEmbed`) → `LinkEmbedView`: a video with a provider's own player (`VideoRef.kind == .embed`) shows its stored still
+behind a play button and loads the player URL `VideoRef` derives in place only on that click, never autoplaying (G162,
+R11); a PDF (a `.pdf` path or an arXiv `/pdf/` link) is a card with the document's mark, its words and "PDF", nothing
+fetched; an `"embed"` on anything else keeps research-hub's old reading, a screenshot; **screenshot** → `CaptureCard`
+(16:10, the caption below the picture never over it: "Captured Oct 14, 2026 · 3 months ago", or "Saved to Looks Oct 14 ·
+today" while a saved look stands in, "· nearest to Oct 14" for a pinned day with none that day; ⤢ opens the lightbox with
+the date line); **captures** → `CaptureStrip`; **look** → `LookSwatch` (the crop, `LooksPaletteStrip`, site · "Saved to
+Looks Oct 14"). Each degrades one step and says so: "No capture of this page yet", "No captures of this page yet", "No
+saved look of this page yet" (DR-32). ⧗ Site exploration's dated captures (the screenshot from a capture, the gallery,
+"Changed since you saved it", a gone site, the Reader's "How it looked when you saved it", ⌘K's site mark) wait for that
+pipeline; until then `captures[]` is empty and a look's screenshot of the same URL stands in. Every fact comes from `GET
+/entities/{id}/links` through `LinkFactsCache` (in memory, not a Store domain); the app fetches nothing of the web to draw
+a card: a click opens the saved item's page when the backend matched the URL to one, else the browser, and ⌘-click
+always opens the browser (`LinkOpen`). **Each link's view menu** — never only on hover: a card carries a ⋯ menu in its
+corner (`LinkViewMenu`, compact, on the card's own fill), a right-click on a card or on any line with links opens the same
+choices (`LinkViewMenuItems`; titled by each link's words when the line has several), and the line's 🔗 in the gutter
+shows on hover *or* while it holds keyboard focus (it stays in the focus order) and opens `LinkLinePopover`: each link's
+bookmark card, then "Show as · Bookmark ▾", ↗ and Copy link (DR-53); VoiceOver reaches it as *Links on this line*
+(`LineLinksAction`). The menu is one native inline picker, so the view the link draws as now is checked
+(`LinkCardModel.current`): **Mention** and **URL** always; **Bookmark** for a link alone on its line; **Embed** ("Embed
+video" for a video) only alone on its line and only when `LinkEmbed` finds something; then Screenshot, Captures and Look
+only where Cicada has a picture, a capture or a saved look (`LinkCardModel.offered`). Choosing one is `POST
+/entities/{id}/edits` with the link's token as `old` and the same link with its view word as `new` (`LinkCardModel.token`
+— the choice is always written, even where it matches today's default, so a later change of the default never undoes
+it), `all` and `pinned`, committed under the person with the reason "Shown as a bookmark." / "Shown as a plain link."
+(owner ruling 4: the choice is memory, in git, visible to every agent; undo is the page's history), and the card re-reads
+the page (`GraphViewModel.reloadEntity`) so the link redraws in its new view at once — before, it said "Saved" and kept
+the old view until the page was reopened. `PageLinkRow` (Where
+this comes
 from) adds the link's date to its URL line and opens the same bookmark card after a short hover
 (`CicadaMotion.linkPreviewOpenDelay` 0.25 s / `linkPreviewCloseDelay` 0.08 s). A media page's website card is now a
 `BookmarkCard` (no all-caps site, a ring, DR-20/9). **Pictures in prose go through the gate:** `ImageThumbnail` loads only a
@@ -2312,6 +3705,45 @@ on-demand memory cache, without a new Store/VersionVector domain. This slice add
 disclosure or Reader UI. In 1b, the graph-node stub has no `pageBodyHash`: it must show
 no section controls until a full entity response supplies a matching non-nil token;
 nil tokens must never match. Server identity/ranges must not be recreated in Swift.
+
+**An Apple Note as Notes draws it (ROR-15, G161; DR-5, DR-9, DR-18, DR-19, DR-31, DR-60).** With an Apple Note on screen the
+Reader shows the stored text at once, then asks Notes for that one note's `body` (`AppleNotesReader.formatted`, the app's own
+`osascript`, id as an argument, 5 s, off the main actor) and, if every word matches, replaces the plain rows with one row per
+line (`NoteDocument`, `NotePageRows`): headings, bullet, dash and numbered lists with their depth, checklists, bold, italic,
+underline, strikethrough, monospaced text, quotes, tables and links. The note's first line is left to the header when it is
+the header's title and no span lies on it. The HTML stays in memory for the note on screen; it is never posted or stored, the
+sync is unchanged, so spans stay valid and nothing reads as revised. Spans wash through the same offsets and `CitedSpan.marks`
+as the plain view. **Parsing:** a small closed reader into Cicada's own blocks, native SwiftUI, no web view; `script`, `style`,
+`iframe`, `svg` and the like give nothing; no picture is drawn, inline or remote; a link keeps only what
+`ItemPlaceOpen.webURL` allows and is checked again on the click. **Matching:** the whole note walks the stored text (after
+`_episode_body`'s header) on `evidence.locate`'s ladder, exact, whitespace, case, never fuzzy; what may differ is whitespace, an
+object character (U+FFFC, an attachment), and a list marker at the start of a stored list item's line. **Plain text, saying
+nothing, when:** Automation is not already granted (checked with `askUserIfNeeded` false, so no prompt), Notes is closed (it is
+never launched for this), the note is gone or locked, the words differ (changed since stored, scrubbed, a number token,
+truncated), a server connection or another device's note, a timeout, or a span the page cannot show (on a `**Folder:**` line).
+Tick state and table shape come only as far as `body` carries them; a tick the HTML drops draws as a bullet until part 2.
+
+**One drawing of a source (ROR-16, DR-18, DR-31, DR-60).** `SourceSpansView` takes a document (`EpisodeText`), what to wash
+in it (`ReaderPresentation`, plus `others`), and two slots: `pinned` over the scroll, `below` in it. It chooses the chat or
+the document rows, scrolls to the words, reveals the wash and owns the rotors. `SourceSpansState` is held by its host,
+because keys arrive at the host's focus (`state.key`, one frame, DR-60). The Reader hosts it; every citation opens through
+`ProvenanceRouter`, so every citation is drawn by it. **The server judges, the app draws what it was told:** an asked span
+the answer gives no place for is never drawn from the target's own offsets (a held span, Cicada's gap line). **Nothing to
+locate opens the source and says nothing:** the "inferred" and "name not found" banners are gone; "changed since" (stale),
+"continued" (grown), "found by name" (derived) and "only the first part" (truncated) stay, because each is true of the
+words on screen. Words follow the source (`sourceKind`, `Copy.Provenance.showIn`): "Show in note", never "conversation";
+a note, a book's record or a saved page has no "You · turn 1" and no turn count. A book's mark links to its words in the
+record (`PageMarks`). A line's own link prefers a place to highlight over an earlier source with none, and a project's
+milestone with no span still opens its source. **ROR-15 is a thin use:** `cache.sourceSpans(source:)` for the groups,
+`ReaderPresentation.spans()`, `others: spans.ranges`, a `.note` row layout added beside chat and document, and the group
+names as its margin labels. It draws no picture (`testTheComponentNeverAnimatesAKeyAndLoadsNoPicture`).
+
+
+**Pinned notes (ROR-15 part 2, G161; DR-34, DR-81).** The Apple Notes page lists the notes the person pinned in Notes first, under
+"Pinned" (`SourceItemsRules.pinnedSplit`), the rest under "Notes"; with nothing pinned no heading is drawn and the list is what
+it was. The pin is read by the app from a copy of Notes' store, only with Full Disk Access already held, and posted as
+`pinnedNoteIds` with the sync (`AppleNotesPins`, `capture-and-sleep.md`); without it, notes show no pin and nothing is
+asked. The row's `pinned` is the same field a chat's pin uses; `SHAPE` is `g161-21`.
 
 **Provenance viewer (G118 slice 2).** Every claim carries evidence chips (`Views/Provenance/`): the
 label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
@@ -2338,7 +3770,8 @@ other party's left in a `chatBubbleOtherFill` bubble with the resting ring (owne
 bubble hugs its words and leaves 48 pt on its far side; a long message's pieces read as one bubble, its ring drawn open
 where they meet) — the side read from each turn's written marker, not its role, because a relayed
 conversation (ruling 32) forces every role to `assistant`: `/episodes/{id}/text` carries `relay: {app, label}` until an
-export upgrades the episode, and then the person's side reads "Relayed by ChatGPT" (never "You") and the capture line
+export upgrades the episode, and then the person's side reads "Relayed by ChatGPT" (never "You"; so does each later turn of a chat
+that went on after its import, by its own `relayed [ChatGPT]` marker, ruling 58) and the capture line
 says the words came through the app's model; a run (one side and speaker, turns under 15 minutes apart) shows the face — the
 Messages chat's own picture by `MessageBubbles.face`, the chat parsed from the sitting's `imessage:<chat>:…` source id
 (`ReaderChat.messagesChat`), a monogram for a meeting speaker — or the agent's mark, the name only when it differs from
@@ -2468,6 +3901,35 @@ everything but publish and uploads the files as an artifact; a re-run or a manua
 `VERSION` only while main's tip is still its commit (a fix ships as a new release PR). The app carries the public key
 and the repo (`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in Info.plist) for the updater.
 
+**A backend that stops answering (production blocker, 2026-11-06; G182, G92).** Measured on a release build: SIGTERM to the
+app's own backend child left nothing listening, nothing restarting it, and pages that read the silence as an empty memory
+("Your memory starts here", "Nothing pending", "No beliefs yet"). Three parts, all pure logic in `Services/BackendWatch.swift`.
+(1) **Restart, bounded.** `BackendProcess` sets a `terminationHandler` on the child it spawned; an exit nobody asked for (not
+`stop()`, not the app quitting) or a failed `run()` asks `BackendRestartPolicy`: five tries after 2, 5, 15, 30, 60 s, then it
+stays down until the person clicks (about two minutes in all, so a backend failing at start is not hammered); a child that ran
+60 s or more was working, so the count begins again. The try goes back through `start()`, so it spawns nothing while another
+program holds the port and, when the background service's plist exists, waits for launchd first — launchd's backend is
+never fought, and a backend this app did not start is never touched. `restartNow()` is the person's click (count begun afresh,
+a child that still runs is stopped and started again once it has gone). (2) **One line in the shell.** `BackendWatch` looks at
+`/healthz` (`fetchHealth(timeout: 5)`, open; it gives paths and counts only to a key it accepts, so a token-less answer from a
+Cicada is "key refused", asked once more after the key cache is dropped) **only while the event stream is closed** — an open
+stream pings every 15 s and is the proof; a healthy app never polls — every 4 s. `BackendReachTracker` (pure, clock injected)
+turns looks into `BackendReach`: *not answering* only after 20 s from the last real answer or from launch; *port held* (an
+answer that is not Cicada) and *key refused* only on two looks in a row; **a slow or dropped answer is never down** — it is
+judged by `BackendSilence`, the ruling-66 bound the updater uses (three looks ten minutes apart over two hours, no drain's
+record moving), fed from the same file. `BackendBannerView` is a full-width strip, a safe-area inset over the page area (DR-37:
+a strip, not a card; DR-7: the glyph alone is `warning`; DR-40: a neutral button; DR-5; no motion, DR-60/61): "Cicada's memory
+stopped answering." with *Restart*, "Starting Cicada's memory again…" with no button while a restart is waiting, "Another
+program is using port N." with *Try again*, "Cicada's memory refused this app's key." with *Restart*; on a server the same
+lines about the server with *Try again*. It clears by itself when the backend answers. The click is `launchctl kickstart -k` when
+the plist exists (else `restartNow()`), and on a server only a fresh look. (3) **No false empty.** `Store.reach` carries the
+watch's verdict and `Store.couldNotRead(domain)` (`Sync/Store+Reach.swift`) is the one predicate every empty state asks first:
+a domain's latched failure or a backend not answering. Graph and Inbox draw "Couldn't read your memory" (with *Try again* only
+when the backend itself is fine) instead of their empty states; Sleep's away-sync lines ("Synced") and a transport error
+dressed as a cycle failure wait for the backend; the entity card says its beliefs "couldn't be read" with *Try again* instead
+of "No beliefs recorded"; a search the backend refused (401) or failed (5xx) says so in the palette's footer; and a Store
+domain's failure is `Copy.Reach.readFailed(domain)` in plain nouns, never the domain's name.
+
 **Installing and updating a release (G182 phase 5).** Testers install with
 `curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash`: it reads the
 latest release's `latest.json`, downloads the zip with curl (no quarantine flag, so Gatekeeper doesn't block the
@@ -2479,7 +3941,14 @@ from Cicada → Check for Updates…, it reads GitHub's latest release and its `
 semver, refusing a release that needs a newer macOS), downloads the zip, and `UpdateInstaller.stage` verifies size,
 sha256 and the Ed25519 signature against `CicadaUpdatePublicKey` (`UpdateVerifier`, CryptoKit) before unzipping,
 checks the bundle id, distribution and version and `codesign --verify`, and copies it beside the installed app. It
-installs when the person quits — or at once with *Restart to update* — never while Sleep is writing: a detached
+installs when the person quits — or at once with *Restart to update* — never while Sleep is writing. **A slow answer
+is busy (owner 2026-11-05, ruling 66):** only nothing listening counts as idle; a timeout, a dropped or unreadable
+answer defers. `BackendSilence` is what keeps a hung backend updatable: three looks ten minutes apart with no real
+answer, two hours from the first to now, and no drain's `running` record (`$CICADA_HOME/sleep/<bank>/run.json`, rewritten
+at every batch commit) touched in those two hours. The looks are kept in `~/.cicada/update-backend-silent.json`, so they
+outlast a quit, and a real answer ends them; the helper is told `hung`, logs it, and still defers on a clear "running". A
+quit never goes past Sleep. The person's click may: one line names the cost and the button becomes *Restart Anyway*
+(DR-41 keeps its pressed states; a disabled button could not be insisted through). A detached
 helper (`posix_spawn` in its own session) waits for the app to exit, boots out `com.cicada.backend` if its plist
 exists, swaps the two copies by rename in the same folder, moves the old one to the Trash, bootstraps the service
 again (three tries) and relaunches. The backend is asked fresh whether Sleep is writing — by the app at hand-off and by
@@ -2537,3 +4006,11 @@ channels index on this page, and a saved folder row opens it (`ChannelActions.se
 the idle/on-power pause — none is rendered until something computes it.
 
 ---
+
+**Sources count what really connected (sources-truth, owner 2026-11-06).** "Sources · N connected" and the Connected rows count a list read through the person's browser only once it has read (`SourceCatalogRow.isConnectedHere`); a list turned on with nothing read yet stays an addable tile in its own words ("Not read yet" under the name), one that could not read is under Needs you with Try again, and a refused account is told from a rate limit by `lastErrorCode`.
+
+**Page switches and pictures (ROR snappy, 2026-11-06).** The rail's click animates the page change by `CicadaMotion.pageFade`
+(0.12 s; `ContentView` gives the page `.transition(.opacity)`); the ⌘ key runs the same action in `Instant`. `PicturePrefetch`
+(`ImageMemory.swift`) reads the pictures already on disk (`PictureStore.warm`, `LogoStore.warm`: nonisolated, no network, no
+actor hop) into `ImageMemory` after `Store.hydrate` and each graph refresh, on a utility task, ≤ 800 a pass; a picture
+not on disk still loads through the avatar's own `.task`. Recorded with `capture-cicada-motion.sh` (see the snappy report).

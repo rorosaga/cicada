@@ -286,8 +286,21 @@ def merge_footprint(memory_path: Path, loser_id: str, winner_id: str) -> list[st
     from api.services import design_refs
 
     paths += [p for p in design_refs.repoint_footprint(memory_path, loser_id, winner_id) if p not in paths]
+    # G230: the repository pages whose back-link names either page, or that either project lists.
+    from api.services import github_repos
+
+    paths += [f"entities/{e}.md" for e in github_repos.backlink_pages(memory_path, [loser_id, winner_id], (lfm, wfm))
+              if f"entities/{e}.md" not in paths]
     # Each page's claims ledger that exists: the merge folds it in and writes it back (the loser's is removed). A ledger
     # a write creates is committed with its page (`git_service`), never left behind.
+    # The loser's id keeps resolving to the winner (`page_redirects`): its table is always written by a merge.
+    from api.services import page_redirects
+
+    paths.append(page_redirects.FILE)
+    # The open "same as?" questions between the two pages close with the merge (`merge_closes`).
+    from api.services import merge_closes
+
+    paths += [p for p in merge_closes.footprint(memory_path, loser_id, winner_id) if p not in paths]
     from api.services import claims_ledger
 
     return claims_ledger.with_ledgers(memory_path, paths, existing_only=True)
@@ -381,6 +394,11 @@ def rename_references(memory_path: Path, old_id: str, old_name: str, new_id: str
     paths += entity_picture.carry_on_rename(memory_path, old_id, new_id, fm)
     if repoint_edges(memory_path, old_id, new_id) is not None:
         paths.append("graph_edges.yaml")
+    # The old id keeps resolving to the renamed page (`page_redirects`).
+    from api.services import page_redirects
+
+    if page_redirects.add(memory_path, old_id, new_id):
+        paths.append(page_redirects.FILE)
     return paths + repoint_references(memory_path, old_id, old_name, new_id, new_name)
 
 
@@ -406,6 +424,10 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     lfm, wfm = dict(lpar.frontmatter), dict(wpar.frontmatter)
     winner_name = str(wfm.get("name", winner_id))
     loser_name = str(lfm.get("name", loser_id))
+    # G230: the repository pages whose back-link (`github.projects`) this merge changes, read before anything moves.
+    from api.services import github_repos
+
+    repo_pages = github_repos.backlink_pages(memory_path, [loser_id, winner_id], (lfm, wfm))
 
     # strict, both sides: a corrupt block must abort the merge — a lenient parse
     # would read as "no claims", and the rewrite (winner) or the delete (loser)
@@ -413,6 +435,11 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     winner_claims = parse_claims(wpar.body, strict=True)
     loser_claims = parse_claims(lpar.body, strict=True)
 
+    from api.services import alias_policy
+
+    # The loser's aliases are NEW names of the winner: a reference or a pronoun the loser carried never travels
+    # (G169, 2026-10-29) — what the winner already lists stays as it is.
+    lfm["aliases"] = alias_policy.keep(lfm.get("aliases")) if isinstance(lfm.get("aliases"), list) else lfm.get("aliases")
     for f in _LIST_FIELDS:
         merged = _union(wfm.get(f), lfm.get(f))
         if merged:
@@ -428,7 +455,7 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
         if not wfm["related"]:
             wfm.pop("related")
     # The loser's name stays findable: a later mention of it resolves here.
-    if loser_name.lower() != winner_name.lower():
+    if loser_name.lower() != winner_name.lower() and alias_policy.admits(loser_name):
         aliases = list(wfm.get("aliases") or [])
         if loser_name.lower() not in {str(a).lower() for a in aliases}:
             wfm["aliases"] = [*aliases, loser_name]
@@ -438,6 +465,11 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     from api.services import page_edits
 
     page_edits.carry_marks(wfm, lfm)
+    # Ruling 45: the person's word on a project — mine / not mine, their description, conversations tied or untied by
+    # hand, a provider's project id — survives a merge.
+    from api.services import project_ownership
+
+    project_ownership.carry_on_merge(wfm, lfm)
     # G147: the person's "keep" answers on either page count for the merged one.
     from api.services import decay_policy
 
@@ -534,8 +566,22 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
 
     paths += [p for p in design_refs.repoint(memory_path, loser_id, winner_id) if p not in paths]
 
+    # The merge answers "Is A the same as B?": the open question between these two pages closes in this same change
+    # (`merge_closes`, owner 2026-11-06), on every door that merges. Read before the loser's page is gone.
+    from api.services import merge_closes
+
+    paths += [p for p in merge_closes.close(memory_path, loser_id, winner_id) if p not in paths]
+
     lp.unlink()
     paths.append(f"entities/{loser_id}.md")
+    # Old links and ids that name the loser keep resolving: to the winner (`page_redirects`).
+    from api.services import page_redirects
+
+    if page_redirects.add(memory_path, loser_id, winner_id):
+        paths.append(page_redirects.FILE)
+    # G230: each repository page names the merged project, never the page that is gone (its projects re-derived).
+    if repo_pages:
+        paths += [p for p in github_repos.sync_backlinks(memory_path, repo_pages) if p not in paths]
     # The loser's ledger claims were read with its page (`markdown_parser.parse` folds them in) and now sit on the
     # winner's page or its ledger; git keeps the loser's file.
     from api.services import claims_ledger

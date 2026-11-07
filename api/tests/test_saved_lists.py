@@ -91,7 +91,7 @@ def test_saving_an_x_post_with_no_fetch_titles_it_by_its_author(reading):
 
 def test_off_by_default_needs_the_sheet_and_counts_only_while_agent_reading_is_on(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
-    assert reading_settings.snapshot()["savedLists"] == {"x": False, "instagram": False, "linkedin": False}
+    assert reading_settings.snapshot()["savedLists"] == {"x": False, "instagram": False, "linkedin": False, "reddit": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False}
     with pytest.raises(reading_settings.SettingsError):
         reading_settings.update(saved_lists_={"x": True})                     # no "I understand" yet
     with pytest.raises(reading_settings.SettingsError):
@@ -155,9 +155,11 @@ def test_needs_login_pauses_only_that_list_writes_nothing_and_turning_it_on_agai
     before = porcelain(memory)
     out = _record(server, "x", "needs_login")
     assert "do not sign in" in out.lower()
+    assert saved_lists.status(memory)["lists"]["x"]["state"] == "signed_out"
     assert saved_lists.paused_until("x") is not None and saved_lists.paused_until("instagram") is None
     assert saved_lists.due(memory) == ["instagram"] and porcelain(memory) == before
     saved_lists.resume(["x"])          # the route calls this when the person turns the list on again
+    assert saved_lists.status(memory)["lists"]["x"]["state"] == "not_read", "Try again clears Signed out at once"
     assert saved_lists.due(memory) == ["x"]
     saved_lists.note(memory, "x", "needs_login")
     saved_lists.resume_site("www.x.com")   # "I signed in" on the agent request (G205)
@@ -247,3 +249,100 @@ def test_instagram_and_linkedin_posts_save_under_their_own_lists(reading):
     ep = markdown_parser.parse(memory / "episodes" / f"{entry['episode_id']}.md").frontmatter
     assert ep["origin"] == "linkedin-saved" and ep["folder"] == "Saved Items"
     assert porcelain(memory) == ""
+
+
+# --- ROR-114: the person's handle and profile link, and where a list stands --------------------------------------------
+
+
+def test_every_list_the_settings_know_is_a_browser_read_list_the_status_says_so():
+    """The app takes which sources are read through the browser from the wire, so the two lists cannot drift."""
+    assert tuple(saved_lists.PLATFORMS) == reading_settings.SAVED_LISTS
+
+
+@pytest.mark.parametrize("key,url,kept", [
+    ("x", "https://x.com/alice_example", "https://x.com/alice_example"),
+    ("x", "https://twitter.com/alice_example?s=20#top", "https://twitter.com/alice_example"),
+    ("instagram", "https://www.instagram.com/alice.example/", "https://www.instagram.com/alice.example/"),
+    ("pinterest", "https://uk.pinterest.com/alice_example/", "https://uk.pinterest.com/alice_example/"),
+    ("tiktok", "https://www.tiktok.com/@alice.example", "https://www.tiktok.com/@alice.example"),
+    ("reddit", "https://www.reddit.com/user/alice_example/", "https://www.reddit.com/user/alice_example/"),
+    ("linkedin", "https://www.linkedin.com/in/alice-example/", "https://www.linkedin.com/in/alice-example/"),
+    ("x", "http://x.com/alice_example", None),                          # https only
+    ("x", "https://evil.example/x.com/alice_example", None),            # the platform's own host
+    ("x", "https://x.com.evil.example/alice_example", None),
+    ("instagram", "https://x.com/alice_example", None),                 # another platform's host
+    ("x", "https://user:pw@x.com/alice_example", None),                 # no credentials
+    ("x", "https://x.com:8443/alice_example", None),                    # no port
+    ("x", "https://x.com/", None),                                      # a profile, not the home page
+    ("x", "javascript:alert(1)", None),
+    ("x", "", None),
+])
+def test_a_profile_link_is_kept_only_on_the_platforms_own_host_over_https(key, url, kept):
+    assert saved_lists.clean_profile_url(key, url) == kept
+
+
+@pytest.mark.parametrize("value,kept", [("@alice_example", "alice_example"), ("alice.example", "alice.example"),
+                                        ("u/alice_example", "u/alice_example"), ("two words", None),
+                                        ("", None), ("a" * 60, None), ("<b>x</b>", None)])
+def test_a_handle_is_one_short_word(value, kept):
+    assert saved_lists.clean_handle(value) == kept
+
+
+def test_a_read_keeps_the_handle_and_link_beside_the_status_and_a_bad_one_is_said(reading):
+    stdio, memory = reading
+    _on("x")
+    out = _record(stdio, "x", items=[{"url": POST_A, "author": "alice_example", "text": "words"}],
+                  handle="@alice_example", profile_url="https://x.com/alice_example")
+    assert "not kept" not in out
+    row = saved_lists.status(memory)["lists"]["x"]
+    assert (row["handle"], row["profileUrl"], row["state"], row["through"]) == (
+        "alice_example", "https://x.com/alice_example", "read", "browser")
+    # A later read that names nothing leaves them standing; a link on another site is refused, not stored.
+    out = _record(stdio, "x", items=[{"url": POST_B}], handle="two words", profile_url="https://evil.example/a")
+    assert "handle was not kept" in out and "profile link was not kept" in out
+    row = saved_lists.status(memory)["lists"]["x"]
+    assert (row["handle"], row["profileUrl"]) == ("alice_example", "https://x.com/alice_example")
+
+
+def test_where_a_list_stands_comes_from_its_last_attempt_alone(reading):
+    stdio, memory = reading
+    assert saved_lists.status(memory)["lists"]["instagram"]["state"] == "not_read"
+    _on("instagram")
+    _record(stdio, "instagram", "needs_login", handle="alice.example")
+    row = saved_lists.status(memory)["lists"]["instagram"]
+    assert (row["state"], row["lastOutcome"], row["handle"]) == ("signed_out", "needs_login", "alice.example")
+    _record(stdio, "instagram", "failed")
+    assert saved_lists.status(memory)["lists"]["instagram"]["state"] == "couldnt_read"
+    for outcome, state in (("read", "read"), ("blocked", "couldnt_read"), (None, "not_read")):
+        assert saved_lists.state_of(outcome) == state
+
+
+def test_the_record_tool_schema_takes_a_handle_and_a_profile_link(reading):
+    stdio, _ = reading
+    props = next(t for t in stdio.TOOLS if t["name"] == "cicada_record_saved_list")["inputSchema"]["properties"]
+    assert {"handle", "profile_url"} <= set(props)
+
+
+def test_a_read_where_no_row_was_a_post_is_a_failed_read_not_a_healthy_one(reading):
+    """The agent was on the wrong page: nothing was kept, so the list must not read as read, count toward the day or
+    clear a pause (sources-truth)."""
+    server, memory = reading
+    _on("x")
+    out = _record(server, "x", items=[{"url": "https://x.com/alice_example", "text": "a profile, not a post"},
+                                      {"url": "https://example.com/feed"}])
+    assert "the read failed" in out and "2 row(s)" in out
+    last = saved_lists.last(memory, "x")
+    assert last["outcome"] == "failed" and not last.get("read_at")
+    assert saved_lists.status(memory)["lists"]["x"]["state"] == "couldnt_read"
+    assert saved_lists.reads_today(memory) == 0
+
+
+def test_an_empty_list_is_recorded_as_read_empty_not_as_a_failure(reading):
+    """sources-truth: a list that is there with nothing in it is a read; only an unreadable page is `failed`."""
+    server, memory = reading
+    _on("x")
+    out = _record(server, "x", items=[])
+    assert "is empty" in out
+    last = saved_lists.last(memory, "x")
+    assert last["outcome"] == "read" and last["items"] == 0 and last.get("read_at")
+    assert saved_lists.status(memory)["lists"]["x"]["state"] == "read"

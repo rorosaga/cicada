@@ -10,6 +10,7 @@ import pytest
 
 from _synthetic_bank import _bank
 from api.services import backlog, backlog_import, bank_index
+from _checkout_venv import needs_checkout_venv
 
 NOW = datetime(2026, 9, 24, 10, 0, tzinfo=timezone.utc)
 ALL = ["G1", "G2", "G3", "G4", "G5", "G6", "G7"]
@@ -128,6 +129,7 @@ def test_import_file_commits_once_as_the_person(tmp_path):
     assert _git(bank, "rev-parse", "HEAD") == head
 
 
+@needs_checkout_venv
 def test_the_script_runs_twice_and_the_second_run_changes_nothing(tmp_path):
     bank = _bank(tmp_path)
     src = tmp_path / "backlog.md"

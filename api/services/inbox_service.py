@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextvars
 import logging
 import re
+import threading
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -20,6 +21,7 @@ from fastapi import HTTPException
 from api.config import Settings
 from api.models.schemas import InboxCause, InboxCheck, InboxCheckFinding, InboxItem, InboxOption, InboxResolveRequest
 from api.services import (
+    alias_policy,
     bank_index,
     decay_policy,
     entity_types,
@@ -29,8 +31,12 @@ from api.services import (
     inbox_questions,
     inbox_review,
     markdown_parser,
+    pair_evidence,
+    phone_numbers,
     predicates,
     quiet_pages,
+    same_name_pick,
+    search_index,
     source_check,
     telemetry,
 )
@@ -39,6 +45,13 @@ from api.services.inbox_generator import fold_claims
 from api.services.sleep_refusal import SleepWriting
 
 logger = logging.getLogger(__name__)
+
+#: G209 (2026-10-27, #483's merge day): an unflagged "Possible duplicate" question raised on or after this date may be
+#: about a mention Sleep held whose id is the id of a DIFFERENT page — #483 began holding such names before Stage 2
+#: marked its questions (`held_mention`, #484). Once the name's pending line is gone (Stage 2 joined it elsewhere), nothing
+#: tells the two apart, so Sleep's "same" settle never folds the page of such a question unless it carries `fold_page`.
+#: An older page-pair question keeps ruling 29's fold. ISO date, compared as a string.
+UNFLAGGED_FOLD_CUTOFF = "2026-10-27"
 
 
 # ---------- Loading ----------
@@ -61,7 +74,7 @@ def next_inbox_num(inbox_dir: Path) -> int:
 
 
 def _required_input_for(kind: str) -> str:
-    if kind in ("decay", "conflict", "divergence", "normalization", "removal", "followup", "page_edit"):
+    if kind in ("decay", "conflict", "divergence", "normalization", "removal", "followup", "page_edit", "sensitive"):
         return "choice"
     if kind == "merge_suggestion":
         return "merge"
@@ -69,7 +82,9 @@ def _required_input_for(kind: str) -> str:
 
 
 def _item_from_file(
-    filepath: Path, *, today: str | None = None, context: "inbox_context.InboxContext | None" = None
+    filepath: Path, *, today: str | None = None, context: "inbox_context.InboxContext | None" = None,
+    order: "question_order.Tables | None" = None, scores: dict[str, float] | None = None,
+    families: dict[str, str | None] | None = None,
 ) -> InboxItem:
     """One inbox file → ``InboxItem``.
 
@@ -80,8 +95,16 @@ def _item_from_file(
     flag for a conflict on a multi-valued predicate. Without it — every legacy
     caller and test — the shape is exactly what it was.
     """
-    parsed = markdown_parser.parse(filepath)
-    fm = parsed.frontmatter
+    entry = None
+    if context is not None and filepath.parent == context.memory_path / "inbox":
+        # The item's header through `bank_index` (mtime-gated, speed 2026-10-29): a load after one answer re-parses the
+        # one file that moved, not all 423. A malformed file is `None` here and parsed below, which raises as before.
+        entry = bank_index.file(context.memory_path, "inbox", filepath.name)
+    if entry is not None:
+        fm, item_body = dict(entry.frontmatter), entry.body()
+    else:
+        parsed = markdown_parser.parse(filepath)
+        fm, item_body = parsed.frontmatter, parsed.body
     kind = str(fm.get("kind", "decay"))
     if kind == "normalization" and context is not None:
         # Served on a live covered page when its opener is archived or gone — a
@@ -121,6 +144,17 @@ def _item_from_file(
             question = synthesised["question"]
             raw_options = inbox_questions.normalize_options(synthesised["options"])
             allow_other, allow_defer = synthesised["allow_other"], synthesised["allow_defer"]
+        if not raw_options and same_name_pick.applies(fm):
+            # G227 (owner 2026-10-29): a mention said as a title pages share is asked which page it is — one option
+            # per candidate plus "Another one", served at read (the labels carry derived qualifiers).
+            def _lookup(pid: str) -> dict | None:
+                found = context.entity(pid)
+                return dict(found.frontmatter or {}) if found is not None else None
+
+            picks = same_name_pick.options(context.memory_path, fm, _lookup)
+            if picks:
+                raw_options = picks
+                question = question or same_name_pick.question(fm, len(picks) - 1)
         if kind == "decay" and not raw_options:
             # G115 R5: decay is SERVED as a question object and never written as
             # one — the age phrase is computed from the subject page's live
@@ -148,7 +182,11 @@ def _item_from_file(
         extra["cause"] = InboxCause(**context.cause_for(fm, raw_options).to_wire())
         extra["informational"] = (
             kind == "conflict"
-            and predicates.cardinality(context.memory_path, str(fm.get("predicate", "") or "")) == "multi"
+            # A "still?" question (`still_questions`) asks about ONE value, whatever the predicate's cardinality.
+            and str(fm.get("asks") or "") != "still"
+            # One read of the predicate map per inbox load (the context's vocabulary memoises per predicate): asking
+            # `predicates.cardinality` per card deep-copied the map 117 times a load.
+            and context.check_vocab().cardinality(str(fm.get("predicate", "") or "")) == "multi"
         )
         extra.update(_extractor_refs(fm, kind, context))
         # The quick review (owner 2026-10-19): what the page is and how often it was said, and a fold in words —
@@ -169,9 +207,31 @@ def _item_from_file(
             extra["check"] = InboxCheck(**source_check.for_item(fm, raw_options, context).to_wire())
         except Exception as exc:  # noqa: BLE001 — a derived field never costs the card
             logger.warning(f"checkability skipped for {filepath.name}: {type(exc).__name__}")
+        # G227: a page whose title another page shares is named with its qualifier.
+        try:
+            extra.update(_same_name_fields(fm, entity_id, context))
+        except Exception as exc:  # noqa: BLE001 — a derived field never costs the card
+            logger.warning(f"same-name fields skipped for {filepath.name}: {type(exc).__name__}")
+        # Vision item 10 / ruling 48 (1): the plain question and its reason, from the pages this context already read.
+        try:
+            extra.update(_spoken(fm, kind, question, entity_id, context, now))
+        except Exception as exc:  # noqa: BLE001 — a derived field never costs the card
+            logger.warning(f"wording skipped for {filepath.name}: {type(exc).__name__}")
 
+    # The options as a person reads them (`inbox_wording.present_options`): dated by when each value was said, the
+    # check's bookkeeping words dropped. The verdicts and the recommended key above were judged on the stored ones.
+    shown = raw_options
+    if context is not None and kind in ("conflict", "page_edit"):
+        try:
+            from api.services import inbox_wording
+
+            shown = inbox_wording.present_options(
+                {**fm, "options": raw_options}, now, claims=context.claims(entity_id),
+                page_name=_page_namer(context), untimed=context.untimed())
+        except Exception as exc:  # noqa: BLE001 — a derived field never costs the card
+            logger.warning(f"option wording skipped for {filepath.name}: {type(exc).__name__}")
     options: list[InboxOption] = []
-    for raw in raw_options:
+    for raw in shown:
         observed = _opt_str(raw.get("observed_at"))
         last_ref = _opt_str(raw.get("last_referenced")) or observed
         options.append(
@@ -180,6 +240,9 @@ def _item_from_file(
                 label=str(raw.get("label", "")),
                 description=_opt_str(raw.get("description")),
                 claim_id=_opt_str(raw.get("claim_id")),
+                page_id=_opt_str(raw.get("page_id")),
+                page_name=_opt_str(raw.get("page_name")),
+                qualifier=_opt_str(raw.get("qualifier")),
                 observed_at=observed,
                 last_referenced=last_ref,
                 age_days=inbox_questions.age_days(last_ref, now),
@@ -195,6 +258,14 @@ def _item_from_file(
             )
         )
 
+    if order is not None and scores is not None:
+        # The order's score, from the PROJECTED frontmatter (a normalization item is served on its live page) and the
+        # derived `informational`; kept beside the item, never on the wire (`question_order`). It never raises.
+        scores[filepath.stem] = order.score(fm, informational=bool(extra.get("informational")))
+        if families is not None:
+            from api.services import question_order
+
+            families[filepath.stem] = question_order.family(fm, informational=bool(extra.get("informational")))
     findings = _check_findings(fm)
     return InboxItem(
         checks=findings, last_checked_at=findings[0].at if findings else None,
@@ -206,7 +277,7 @@ def _item_from_file(
         entity_id=entity_id,
         entity_name=str(fm.get("entity_name", "") or ""),
         title=str(fm.get("title", "") or fm.get("entity_name", "") or ""),
-        body=parsed.body,
+        body=item_body,
         options=options,
         created_date=str(fm.get("created_date", "") or ""),
         question=question,
@@ -222,6 +293,9 @@ def _item_from_file(
         suggested_confidence=fm.get("suggested_confidence"),
         merge_target_hint=fm.get("merge_target_hint"),
         asks=_opt_str(fm.get("asks")),
+        sensitive_rows=([r for r in fm.get("rows") if isinstance(r, dict) and r.get("id") and r.get("episode")]
+                        if kind == "sensitive" and isinstance(fm.get("rows"), list) else None),
+        replaced=(int(fm["replaced"]) if kind == "sensitive" and isinstance(fm.get("replaced"), int) else None),
         rows=([r for r in fm.get("rows") if isinstance(r, dict) and r.get("id") and r.get("page") and r.get("ref")]
               if str(fm.get("asks") or "") == "sources" and isinstance(fm.get("rows"), list) else None),
         review=bool(fm.get("review")) if str(fm.get("asks") or "") == "sources" else False,
@@ -230,6 +304,93 @@ def _item_from_file(
         claim_id=_opt_str(fm.get("claim_id")),
         **extra,
     )
+
+
+#: Kinds Cicada asks in plain words (`inbox_wording`); the rest (a removal, a page edit, an agent's request…) are the
+#: person's own housekeeping and keep their stored words.
+_SPOKEN_KINDS = frozenset({"conflict", "decay", "clarification", "merge_suggestion", "followup", "page_edit"})
+
+
+def _page_namer(context: "inbox_context.InboxContext"):
+    """``id -> the page's name`` (None when there is no such page), for a label that is a page's id."""
+    def name_of(pid: str) -> str | None:
+        found = context.entity(str(pid or "")) if pid else None
+        return str((found.frontmatter or {}).get("name") or "") or None if found is not None else None
+
+    return name_of
+
+
+def _spoken(fm: dict, kind: str, question: str | None, entity_id: str,
+            context: "inbox_context.InboxContext", today: str) -> dict:
+    """``{spoken_question, spoken_reason}`` for one served item, or ``{}``. The pages come from ``context``'s cache,
+    so a warm read parses nothing new; the owner's id is read once per context."""
+    from api.services import inbox_wording
+
+    if kind not in _SPOKEN_KINDS or str(fm.get("asks") or "") == "sources":
+        return {}
+
+    def page(pid) -> dict | None:
+        found = context.entity(str(pid or "")) if pid else None
+        return dict(found.frontmatter) if found is not None else None
+
+    from api.services import same_name
+
+    owner_id = context.owner_id()
+    conflict = kind == "conflict"
+    said = inbox_wording.spoken({**fm, "question": question or fm.get("question")}, today,
+                                page_fm=page(entity_id), other_fm=page(fm.get("merge_target_hint")),
+                                owner_id=owner_id, same=same_name.qualifiers(context.memory_path),
+                                titled=_titled_pages(fm, context),
+                                claims=context.claims(entity_id) if conflict else None,
+                                page_name=_page_namer(context) if conflict else None,
+                                owner_name=(page(owner_id) or {}).get("name") if owner_id else None,
+                                untimed=context.untimed() if conflict else frozenset())
+    return {"spoken_question": said.question or None, "spoken_reason": said.reason or None}
+
+
+def _same_name_fields(fm: dict, entity_id: str, context: "inbox_context.InboxContext") -> dict:
+    """G227: ``entity_display_name`` / ``merge_target_display_name`` when that page's title is shared, and
+    ``same_title`` — the pages a question about a shared name names (stored by Stage 2, only ids still on disk)."""
+    from api.services import same_name
+
+    same = same_name.qualifiers(context.memory_path)
+    out: dict = {}
+    if not same:
+        return out
+
+    def named(pid) -> str | None:
+        q = same.get(str(pid or ""))
+        if not q:
+            return None
+        page = context.entity(str(pid))
+        name = str(((page.frontmatter if page is not None else {}) or {}).get("name") or pid)
+        return same_name.display(name, q)
+
+    # A duplicate question's entity is the mention, whose id may be spelled like a page's: never named as that page.
+    if str(fm.get("kind") or "") != "merge_suggestion" and (shown := named(entity_id)):
+        out["entity_display_name"] = shown
+    if shown := named(fm.get("merge_target_hint")):
+        out["merge_target_display_name"] = shown
+    titled = [pid for pid in fm.get("same_title") or [] if isinstance(pid, str) and context.entity(pid) is not None]
+    if len(titled) >= 1 and str(fm.get("kind") or "") == "merge_suggestion":
+        out["same_title"] = titled
+    return out
+
+
+def _titled_pages(fm: dict, context: "inbox_context.InboxContext") -> list[dict]:
+    """The pages a question about a shared name names (``same_title``), each ``{id, name, qualifier}`` — for the
+    wording layer, which reads no file."""
+    from api.services import same_name
+
+    out = []
+    for pid in fm.get("same_title") or []:
+        page = context.entity(str(pid)) if isinstance(pid, str) else None
+        if page is None:
+            continue
+        fmp = page.frontmatter or {}
+        out.append({"id": pid, "name": str(fmp.get("name") or pid), "type": str(fmp.get("type") or ""),
+                    "qualifier": same_name.qualifier(context.memory_path, pid)})
+    return out
 
 
 def _check_findings(fm: dict) -> list[InboxCheckFinding]:
@@ -261,7 +422,12 @@ def _extractor_refs(fm: dict, kind: str, context: "inbox_context.InboxContext") 
     out: dict = {"extractor_confidence": None, "extractor_model": None}
     if kind == "decay":
         out["extractor_confidence"] = _as_float(fm.get("priority"))
-    elif kind in ("clarification", "merge_suggestion"):
+    elif kind == "merge_suggestion":
+        # Owner 2026-11-04 (`pair_evidence`): a guess about the pair, below ruling 29's act threshold — a question
+        # raised before this carried the matched mention's extraction confidence (0.9 on "Is <h> the same as you?").
+        value = _as_float(fm.get("suggested_confidence"))
+        out["extractor_confidence"] = None if value is None else min(value, pair_evidence.MAX_GUESS)
+    elif kind == "clarification":
         out["extractor_confidence"] = _as_float(fm.get("suggested_confidence"))
     else:
         claim_id = _opt_str(fm.get("claim_id"))
@@ -389,6 +555,32 @@ def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
     ``"decay"`` default; a malformed file is absent from both paths.
     """
     today = str(date.today())
+    # Speed 2026-10-29: when the built list is current (Home and the Inbox read it), the count IS that list's — no
+    # second walk of every item's subject. Otherwise the header walk below, remembered on the same inputs as the
+    # built list's (what it reads is what `load_inbox` reads) plus the agent requests'.
+    from api.services import agent_requests
+
+    with bank_index.shared_scans():
+        built = _built_if_current(memory_path, today)
+        key = None if built is not None else (_built_inputs(memory_path, today), agent_requests.mtime(memory_path))
+    if built is not None:
+        items = agent_request_items(memory_path) + built
+        return len(items), dict(Counter(i.kind.value for i in items))
+    with _BUILT_LOCK:
+        hit = _COUNTS.get(str(memory_path))
+    if hit is not None and hit[0] == key:
+        return hit[1][0], dict(hit[1][1])
+    out = _served_counts_walk(memory_path, today)
+    with _BUILT_LOCK:
+        _COUNTS[str(memory_path)] = (key, (out[0], dict(out[1])))
+    return out
+
+
+#: bank -> (the walk's inputs, (total, by kind)) for :func:`served_counts` (speed 2026-10-29).
+_COUNTS: dict[str, tuple[tuple, tuple[int, dict[str, int]]]] = {}
+
+
+def _served_counts_walk(memory_path: Path, today: str) -> tuple[int, dict[str, int]]:
     requests = len(agent_request_items(memory_path))
     total = requests
     by_kind: Counter = Counter({"agent_request": requests} if requests else {})
@@ -422,7 +614,7 @@ def agent_request_items(memory_path: Path) -> list[InboxItem]:
 
 
 def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[InboxItem]:
-    """Load inbox items, sorted: pending first, then priority desc, date desc.
+    """Load inbox items, sorted: pending first, then the expected change in what gets read (``question_order``), date desc.
 
     Deferred items (``remind_after`` still in the future, §2.3-4) are hidden by
     default — the file stays on disk and the card returns on its own the day the
@@ -446,15 +638,81 @@ def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[Inb
     (G98). All three are derived at read from one shared
     :class:`inbox_context.InboxContext`, never stored.
     """
-    inbox_dir = _inbox_dir(memory_path)
     today = str(date.today())
+    # One listing per directory for the whole read (and for the route's ETag around it): the inputs key, the context's
+    # indices and `page_use` see the same scan.
+    with bank_index.shared_scans():
+        key = _built_inputs(memory_path, today)
+        slot = (str(memory_path), include_deferred)
+        with _BUILT_LOCK:
+            hit = _BUILT.get(slot)
+        if hit is not None and hit[0] == key:
+            return list(hit[1])
+        with search_index.one_reader(memory_path):
+            items = _build_inbox(memory_path, today=today, include_deferred=include_deferred)
+    with _BUILT_LOCK:
+        _BUILT[slot] = (key, items)
+    return list(items)
+
+
+#: Speed 2026-10-29: the built list per (bank, include_deferred), with the inputs it was built from. ``GET /inbox`` at
+#: the owner's scale (423 questions) rebuilt every card on every read — about 0.5 s of CPU — though nothing it reads
+#: had moved. A hit is the same list a rebuild would make; any input moving rebuilds. Process-local and disposable.
+#: Callers read the items and never edit them (each gets its own list).
+_BUILT: dict[tuple[str, bool], tuple[tuple, list[InboxItem]]] = {}
+_BUILT_LOCK = threading.Lock()
+
+
+def _built_inputs(memory_path: Path, today: str) -> tuple:
+    """Everything :func:`_build_inbox` reads, as stamps: the day (deferral, ages), the inbox, every page and its claims
+    ledger, every episode (subjects, causes, claims, quiet pages, page use — fingerprints of name, size and nanosecond
+    mtime, the ETag's own), and the files beside them (``inbox_inputs.side_stamps``: the predicate map, the held names,
+    the owner's id). The seed vocabulary ships with the code."""
+    from api.services import graph_builder, inbox_inputs, question_order
+
+    mp = Path(memory_path)
+    return (
+        today,
+        # The day-cut read counts (today's reads count from tomorrow, so this moves at most with the day).
+        question_order.stamp(mp, today=date.fromisoformat(today)),
+        graph_builder.inbox_stamp(mp),
+        bank_index.dir_fingerprint(mp / "entities"),
+        bank_index.ledger_fingerprint(mp / "entities"),
+        bank_index.dir_fingerprint(mp / "episodes"),
+        inbox_inputs.side_stamps(mp),
+    )
+
+
+def _built_if_current(memory_path: Path, today: str) -> list[InboxItem] | None:
+    """The built list (deferred items hidden) when every input it was built from is unchanged, else ``None``."""
+    with _BUILT_LOCK:
+        hit = _BUILT.get((str(memory_path), False))
+    if hit is None or hit[0] != _built_inputs(memory_path, today):
+        return None
+    return list(hit[1])
+
+
+def reset_built() -> None:
+    """Forget every built list and remembered count (tests)."""
+    with _BUILT_LOCK:
+        _BUILT.clear()
+        _COUNTS.clear()
+
+
+def _build_inbox(memory_path: Path, *, today: str, include_deferred: bool) -> list[InboxItem]:
+    inbox_dir = _inbox_dir(memory_path)
     # G115 R2: one read cache for the whole inbox — episode + entity frontmatter
     # through bank_index, claim blocks parsed once per subject.
     context = inbox_context.InboxContext(memory_path, today=today)
+    from api.services import question_order
+
+    order = question_order.tables(memory_path, today=date.fromisoformat(today), prune=True)
+    scores: dict[str, float] = {}
+    families: dict[str, str | None] = {}
     items: list[InboxItem] = []
     for filepath in sorted(inbox_dir.glob("inbox-*.md")):
         try:
-            item = _item_from_file(filepath, today=today, context=context)
+            item = _item_from_file(filepath, today=today, context=context, order=order, scores=scores, families=families)
         except Exception as exc:
             logger.warning(f"skipping unparseable inbox item {filepath.name}: {exc}")
             continue
@@ -464,15 +722,61 @@ def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[Inb
         ):
             continue
         items.append(item)
-    # pending first, then priority desc, then created_date desc.
+    # Pending first, then the expected change in what gets read (`question_order`, ruling 70), then newest; a tie
+    # keeps the file order (ids ascend), as the stable sort does.
     items.sort(
         key=lambda i: (
             0 if i.status == "pending" else 1,
-            -i.priority,
+            -scores.get(i.id, i.priority),
             _neg_date_key(i.created_date),
         )
     )
+    # Never a wall of one type (`question_order.spaced`); a resolved item keeps its place behind the open ones.
+    open_count = sum(1 for i in items if i.status == "pending")
+    items[:open_count] = question_order.spaced(items[:open_count], lambda i: families.get(i.id, i.kind.value))
+    try:
+        _mark_chains(memory_path, items, context)
+    except Exception as exc:  # noqa: BLE001 — a derived field never costs the inbox
+        logger.warning(f"same-person chains skipped: {type(exc).__name__}")
     return items
+
+
+def _mark_chains(memory_path: Path, items: list[InboxItem], context) -> None:
+    """#501's read-time grouping, served to the app: open duplicate questions about people that chain into one person
+    (three names or more) each carry the chain, its one question and the pairs' names. Nothing is joined here."""
+    from api.services import inbox_catchup, inbox_wording
+
+    rows = [(i.id, {"kind": i.kind.value, "entity_id": i.entity_id, "merge_target_hint": i.merge_target_hint,
+                    "suggested_classification": i.suggested_classification})
+            for i in items if i.kind.value == "merge_suggestion" and i.status == "pending"]
+    if len(rows) < 2:
+        return
+    by_id = {i.id: i for i in items}
+    order = {i.id: n for n, i in enumerate(items)}
+
+    def said(pid: str | None, fallback: str) -> str:
+        page = context.entity(pid) if pid else None
+        fm = dict(page.frontmatter) if page is not None else {}
+        return inbox_wording.speakable(fm.get("name") or fallback or pid or "", fm)
+
+    for ids in inbox_catchup.groups(memory_path, rows):
+        members = sorted(ids, key=lambda x: order[x])
+        pairs, names = [], []
+        for mid in members:
+            it = by_id[mid]
+            a = said(it.entity_id, it.entity_name)
+            b = said(it.merge_target_hint, it.merge_target_hint or "")
+            pairs.append({"id": mid, "a": a, "b": b})
+            for n in (a, b):
+                if n and n not in names:
+                    names.append(n)
+        lead = by_id[members[0]]
+        said_group = inbox_wording.spoken({"kind": "merge_suggestion", "entity_id": lead.entity_id},
+                                          context.today, page_fm={"type": "person"}, group=names)
+        for mid in members:
+            it = by_id[mid]
+            it.chain, it.chain_pairs = members, pairs
+            it.chain_question, it.chain_reason = said_group.question, said_group.reason
 
 
 def _neg_date_key(created_date: str) -> str:
@@ -562,6 +866,8 @@ def _merge_manifest(paths: list[str], *, removed: str) -> list[str]:
 # Option keys that carry their own meaning rather than pointing at one option:
 # "both" keeps every competing claim open, "neither" closes them all.
 _SPECIAL_KEYS = {"both", "neither"}
+#: The rows of a question that are not values anyone said.
+_NOT_A_VALUE = _SPECIAL_KEYS | {"other", "remind_later"}
 
 
 def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) -> str:
@@ -585,7 +891,7 @@ def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) 
         if key:
             return key
         return "answer" if (request.answer or "").strip() else (action or "answer")
-    if kind == "removal":
+    if kind in ("removal", "sensitive"):
         if action == "skip":
             return "skip"
         if key in ("keep", "remove"):
@@ -607,6 +913,12 @@ def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) 
             return "answer"
         return action or "answer"
     # clarification / merge_suggestion
+    if kind == "merge_suggestion" and key:
+        # G227: a same-title question's picked page is a merge, "Another one" a reject (`same_name_pick`).
+        if key.startswith(same_name_pick.PAGE_PREFIX):
+            return "merge"
+        if same_name_pick.is_another(key):
+            return "reject"
     if key == "rather_not_say":
         return "rather_not_say"
     if action in ("answer", "resolve"):
@@ -770,6 +1082,23 @@ def _normalize_decay_request(kind: str, request: InboxResolveRequest) -> InboxRe
     return request.model_copy(update={"action": _DECAY_KEY_TO_ACTION[key]})
 
 
+def _normalize_pick_request(kind: str, fm: dict, request: InboxResolveRequest, memory_path) -> InboxResolveRequest:
+    """G227 (owner 2026-10-29): ``resolve`` + a same-title question's key → the inbox's own verb, before
+    :func:`_action_label`. ``page:<id>`` merges the mention into that page (``merge_target`` = the id, the page
+    surviving); ``none`` is a ``reject`` the clarification resolver applies to every candidate. A key that is not one
+    of this question's — a page dropped or merged away since it was served — is a 400, nothing written."""
+    if (kind != "merge_suggestion" or (request.action or "").strip().lower() not in ("resolve", "answer")
+            or not (request.option_key or "").strip() or not same_name_pick.applies(fm)):
+        return request
+    verb = same_name_pick.picked(fm, request.option_key, same_name_pick.bank_lookup(memory_path))
+    if verb is None:
+        raise HTTPException(400, f"Unknown optionKey {request.option_key!r} for this question: pick one of the pages "
+                                 f"it lists, or {same_name_pick.ANOTHER_KEY!r}.")
+    if verb[0] == "merge":
+        return request.model_copy(update={"action": "merge", "merge_target": verb[1], "merge_survivor": None})
+    return request.model_copy(update={"action": "reject"})
+
+
 def _option_verdict(kind: str, key: str, fm: dict, options: list[dict]) -> str:
     """What picking ``key`` would be graded as — the same table the ledger
     writes, evaluated once at read so wire == ledger (G115 §4).
@@ -817,6 +1146,8 @@ def recommended_key(kind: str, fm: dict, options: list[dict]) -> str | None:
     if kind in ("merge_suggestion", "clarification", "removal", "followup", "page_edit"):
         # G141 PJ-6: a follow-up proposes nothing — it asks how it went. G198: Cicada proposed no edit; an agent did.
         return None
+    if fm.get("trigger") == "sleep/phone_number":
+        return None    # ruling 55: it asks because the person's line did not say; Sleep has no proposal
     if kind == "decay" and not options:
         options = inbox_questions.normalize_options(
             inbox_questions.decay_question("", None, str(date.today()))["options"]
@@ -928,6 +1259,31 @@ def _feedback_refs(fm: dict, kind: str, label: str, request: InboxResolveRequest
     return out
 
 
+def _use_bucket(settings, fm: dict) -> str | None:
+    """``page_use``'s enum for the item's page, or None when it cannot be read (bookkeeping never blocks an answer)."""
+    try:
+        from api.services import page_use
+
+        return page_use.bucket(page_use.item_use(page_use.scores(settings.memory_path), fm))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _impact_bucket(settings, fm: dict) -> str | None:
+    """``question_order``'s enum (high|mid|low) for the question as it stood when the person answered, or None when it
+    cannot be scored. Computed at admission - before the resolver writes - because a merge removes the page it
+    scored (``_use_bucket`` below reads after the write and has that flaw; it is left as it was)."""
+    try:
+        from api.services import predicates, question_order
+
+        informational = (str(fm.get("kind") or "") == "conflict" and str(fm.get("asks") or "") != "still"
+                         and predicates.cardinality(settings.memory_path, str(fm.get("predicate") or "")) == "multi")
+        order = question_order.tables(settings.memory_path)
+        return question_order.bucket(order.score(fm, informational=informational))
+    except Exception:  # noqa: BLE001 - bookkeeping never blocks an answer
+        return None
+
+
 def _emit_resolution(
     fm: dict,
     item_id: str,
@@ -942,6 +1298,7 @@ def _emit_resolution(
     extractor_model: str | None = None,
     verdict_override: str | None = None,
     extra_refs: dict | None = None,
+    impact: str | None = None,
 ) -> None:
     """Append one ``resolution`` ledger row. Ids/enums/numbers only. Never raises.
 
@@ -982,6 +1339,13 @@ def _emit_resolution(
                     "recommended_key": rec,
                     "picked_recommended": bool(rec)
                     and (str(request.option_key or "").strip().lower() == rec or label == rec),
+                    # Vision item 10 (G113): which question shape it was and how used its page is — enums only, so
+                    # the reward can say whether the use-weighted order asks what the person answers.
+                    "asks": _opt_str(fm.get("asks")),
+                    "page_use": _use_bucket(settings, fm),
+                    # Ruling 70: the question_order bucket (high|mid|low) at admission, so a later human reading of
+                    # `GET /consumption/feedback` can check the order's constants. Nothing is auto-applied.
+                    "impact": impact,
                     # G141 PJ-6 (R-PJB24): ids and enums only — never the sentence.
                     **(extra_refs or {}),
                     # Ruling 29: Sleep's settle is recorded as Sleep's (`by: sleep` + its rule), never the person's.
@@ -1107,6 +1471,9 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
 
     parsed = markdown_parser.parse(path)
     kind = str(parsed.frontmatter.get("kind", "decay"))
+    if kind == "sensitive" and ((request.via or "").strip().lower() == "agent" or request.relayed_by or request.quote):
+        # G235: taking words out of a conversation, or leaving them, is the person's act alone.
+        raise HTTPException(403, "This is the person's to answer, in the app.")
     if kind == "page_edit" and ((request.via or "").strip().lower() == "agent" or request.relayed_by or request.quote):
         # A relayed quote is an agent's account (G115): it never stands in for the person applying a proposal either.
         # G198 review B1: only the person applies or leaves a proposed edit — an agent's answer, its author's least
@@ -1117,6 +1484,7 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
     # `resolve` + `archive|keep`; translate it into the legacy verb here, before
     # `_action_label`, so the G113 R1 commit triggers stay byte-identical.
     request = _normalize_decay_request(kind, request)
+    request = _normalize_pick_request(kind, parsed.frontmatter, request, settings.memory_path)
     # G141 PJ-6 (R-PJB3): a follow-up's "not now" is 30 days, whatever asked
     # for it — its explicit option, an MCP `defer`, or an older client's 7-day
     # button — so a quiet thread is never re-asked within the month.
@@ -1144,7 +1512,8 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
     label = _action_label(
         kind, request, inbox_questions.normalize_options(parsed.frontmatter.get("options") or [])
     )
-    feedback = _feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path)
+    feedback = {**_feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path),
+                "impact": _impact_bucket(settings, parsed.frontmatter)}
 
     # Audit 2026-10-05 P1-3: what the uncommitted pages and items hold BEFORE the
     # answer writes, so an edit already on a page the answer rewrites is
@@ -1181,6 +1550,15 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
         raise
     finally:
         _ANSWER_QUOTE.reset(token)
+    if kind == "conflict" and str(parsed.frontmatter.get("asks") or "") == "still" and not skipped:
+        # A "still?" question answered is not asked again for a while (`still_questions`, the `_merge_rejected.yaml`
+        # pattern): an enum and a day, committed with the answer.
+        from api.services import still_questions
+
+        if still_questions.record_answer(settings.memory_path, _opt_str(parsed.frontmatter.get("claim_id")) or "",
+                                         still_questions.answer_enum(label), str(date.today())):
+            extra_lines = [*extra_lines,
+                           f"{still_questions.FILE}: updated (source: {item_id}, trigger: inbox/conflict/resolved)"]
     if quote_episode and skipped:
         (settings.memory_path / "episodes" / f"{quote_episode}.md").unlink(missing_ok=True)
         bank_index.invalidate()
@@ -1239,6 +1617,8 @@ async def _route_resolution(kind: str, path, parsed, request, settings, item_id:
         )
     elif kind == "page_edit":
         entity_id, skipped, committed = await _resolve_page_edit(path, parsed, settings, label, before)
+    elif kind == "sensitive":
+        entity_id, skipped, committed = await _resolve_sensitive(path, parsed, request, settings, label, before)
     else:
         raise HTTPException(400, f"Unknown kind {kind}")
     return entity_id, skipped, extra_lines, emit_extra, committed
@@ -1309,7 +1689,8 @@ async def _defer(path, parsed, request, settings, item_id: str, *, label: str = 
     from api.services import git_service
 
     kind = str(parsed.frontmatter.get("kind", "decay"))
-    feedback = _feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path)
+    feedback = {**_feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path),
+                "impact": _impact_bucket(settings, parsed.frontmatter)}
 
     days = request.remind_days
     if days is None:
@@ -1724,6 +2105,224 @@ def _close_today(old, *, by, today: str) -> None:
     old.valid_to = today
 
 
+def _page_claims_or_409(entity, path, entity_id: str, entity_path) -> list:
+    """The page's claims, strictly. A corrupt claims block must never be silently overwritten — the answer rewrites the
+    page (an LLM body synthesis on a body whose machine layer we could not read) and then deletes the question. So the
+    whole resolve aborts: the entity stays byte-identical, the inbox item stays pending, and the user is told why."""
+    from api.services.claims import MalformedClaimsBlockError, parse_claims
+
+    try:
+        return parse_claims(entity.body, strict=True)
+    except MalformedClaimsBlockError as exc:
+        logger.error(f"inbox resolve aborted — unparseable claims in {entity_path.name}: {exc}")
+        raise HTTPException(
+            409,
+            f"Cannot resolve {path.stem}: the ```claims block in "
+            f"entities/{entity_id}.md is malformed ({exc}). Fix the page by hand; "
+            "the question has been kept.",
+        ) from exc
+
+
+_OPTION_EPISODE = re.compile(r"\bep_\d{4}-\d{2}-\d{2}_\d+\b")
+
+
+def _option_episodes(option: dict, fm_item: dict) -> list[str]:
+    """The conversation an offered value came from: the option's own, else the one an older option's description
+    names, else the question's when this option is the value that raised it."""
+    named = str(option.get("source_episode") or "")
+    if not named:
+        found = _OPTION_EPISODE.search(str(option.get("description") or ""))
+        named = found.group(0) if found else ""
+    if not named and str(option.get("claim_id") or "") == str(fm_item.get("claim_id") or ""):
+        named = str(fm_item.get("source_episode") or "")
+    return [named] if named else []
+
+
+def _option_said_on(option: dict, today: str) -> str:
+    """The day an offered value was said, which is when it is true from, never the day it was answered."""
+    observed = str(option.get("observed_at") or "")[:10]
+    try:
+        return date.fromisoformat(observed).isoformat()
+    except ValueError:
+        return said_on(today)
+
+
+def _hold_offered_value(option: dict, *, fm_item: dict, entity_id: str, name: str, predicate: str, claim_list: list,
+                        settings, today: str, confirmed: bool, holds_now: bool = True):
+    """The claim holding an offered value, written to ``claim_list`` if the page has none.
+
+    The reconciler's ``CONFLICT_NUDGE`` leaves a new value only in the question (`claim_reconciler._place_claim`), so an
+    answer that keeps it is what writes it. An open claim already saying that value is that claim, whatever its id. A
+    value only offered, with no claim id, is prose: None.
+
+    ``confirmed`` is the person's own answer. A value Sleep settled or the person only dismissed past stays as read, an
+    extraction, and is never written as their act. ``holds_now`` is an answer saying the value is current, which a
+    closed claim cannot carry; a dismissal says no such thing, so a closed claim of that value is enough there and
+    nothing closed is reopened."""
+    from api.services.claims import Claim
+
+    claim_id = str(option.get("claim_id") or "")
+    label = str(option.get("label") or "").strip()
+    if not claim_id or not label:
+        return None
+    for claim in claim_list:
+        if claim.id == claim_id:
+            return claim
+    for claim in claim_list:
+        if (claim.predicate == predicate and (claim.valid_to is None or not holds_now)
+                and str(claim.object or "").strip().casefold() == label.casefold()):
+            return claim
+    siblings = [c for c in claim_list if c.predicate == predicate and c.valid_to is None]
+    held = Claim(
+        id=claim_id,
+        text=f"{predicates.predicate_phrase(predicate, name, label)}.",
+        subject=entity_id,
+        predicate=predicate,
+        object=label,
+        # The same belief slot as what it stands beside, so reconciliation sees one lineage.
+        observer=siblings[0].observer if siblings else _owner_observer(settings, settings.memory_path),
+        context=siblings[0].context if siblings else "general",
+        source_trust="user_stated" if confirmed else "agent_extracted",
+        origin=inbox_actor.claim_origin(),
+        authored_by=inbox_actor.claim_author(),
+        confidence=0.95 if confirmed else 0.6,
+        valid_from=_option_said_on(option, today),
+        recorded_at=today,
+        source_episodes=_option_episodes(option, fm_item),
+        evidence=_quote_spans(settings.memory_path),
+    )
+    claim_list.append(held)
+    return held
+
+
+def _write_lost_values(options: list[dict], chosen: dict, winner, claim_list: list, by_id: dict, *, fm_item: dict,
+                       entity_id: str, name: str, predicate: str, settings, today: str) -> bool:
+    """A pick keeps one value; the others the question alone held are not lost (G98, question audit).
+
+    Each is written as a closed claim: dated when it was said, never current, never the person's act (``confirmed``
+    is False), ended where the kept value began (else the day of the answer). A respelling of the kept value is not a
+    different value, so it is not written. True when a claim was added."""
+    from api.services import value_words
+
+    added = False
+    for option in options:
+        if option is chosen or str(option.get("key")) in _NOT_A_VALUE or not str(option.get("claim_id") or ""):
+            continue
+        if value_words.same_value([str(chosen.get("label") or ""), str(option.get("label") or "")]):
+            continue
+        held = _hold_offered_value(option, fm_item=fm_item, entity_id=entity_id, name=name, predicate=predicate,
+                                   claim_list=claim_list, settings=settings, today=today, confirmed=False,
+                                   holds_now=False)
+        if held is None or held.id in by_id or held.valid_to is not None:
+            continue   # already on the page, or already closed: nothing was lost
+        said = str(held.valid_from or "")[:10]
+        began = str(winner.valid_from or "")[:10] if winner is not None else ""
+        # An earlier value ended where the kept one began; a later one the kept value outranks ends on the answer's day.
+        end = began if began and began >= said else said_on(today)
+        if winner is not None:
+            _close_on(held, by=winner, day=end)
+        else:
+            held.valid_to = max(end, said)
+        added = True
+    return added
+
+
+def keep_values_of_closed_question(settings, fm_item: dict) -> list[str]:
+    """A question closed because a later value won (``inbox_questions._refresh_one``) takes its file with it, and a
+    value that only the question held would go with it (G98, question audit). Each such value is written to its page as
+    a closed claim: dated when it was said, never current, never the person's act, ended where the value that won
+    began. A respelling of a value the page has is not written. Returns the pages written (memory-relative); raises
+    when a page cannot be read, so the caller leaves the question."""
+    from api.services import page_lock, value_words
+    from api.services.claims import parse_claims, write_claims
+
+    memory_path = Path(settings.memory_path)
+    entity_id = str(fm_item.get("entity_id") or "")
+    entity_path = memory_path / "entities" / f"{entity_id}.md"
+    options = [o for o in inbox_questions.normalize_options(fm_item.get("options"))
+               if str(o.get("key")) not in _NOT_A_VALUE and str(o.get("claim_id") or "") and str(o.get("label") or "").strip()]
+    if not entity_id or not options or not entity_path.exists():
+        return []
+    token = inbox_actor.set_actor(inbox_actor.Actor(rule="organic_resolution"))
+    try:
+        with page_lock.page_lock(memory_path):
+            entity = markdown_parser.parse(entity_path)
+            claim_list = parse_claims(entity.body, strict=True)   # a block that will not parse raises: nothing written
+            name = str(entity.frontmatter.get("name", entity_id) or entity_id)
+            raw = str(fm_item.get("predicate", "") or "description")
+            predicate = predicates.load_normalizer(memory_path)(raw) or raw
+            on_page = [c for c in claim_list if c.predicate == predicate]
+            winner = max((c for c in on_page if c.valid_to is None), key=lambda c: str(c.valid_from or ""), default=None)
+            today = str(date.today())
+            added = False
+            for option in options:
+                label = str(option["label"])
+                if any(c.id == option["claim_id"] or value_words.same_value([str(c.object or ""), label])
+                       for c in on_page):
+                    continue
+                held = _hold_offered_value(option, fm_item=fm_item, entity_id=entity_id, name=name,
+                                           predicate=predicate, claim_list=claim_list, settings=settings, today=today,
+                                           confirmed=False, holds_now=False)
+                if held is None or held.valid_to is not None:
+                    continue
+                said = str(held.valid_from or "")[:10]
+                began = str(winner.valid_from or "")[:10] if winner is not None else ""
+                end = began if began and began >= said else today
+                if winner is not None:
+                    _close_on(held, by=winner, day=end)
+                else:
+                    held.valid_to = max(end, said)
+                added = True
+            if not added:
+                return []
+            entity.body = write_claims(entity.body, claim_list)
+            markdown_parser.write(entity_path, entity.frontmatter, entity.body)
+    finally:
+        inbox_actor.reset(token)
+    return [f"entities/{entity_id}.md"]
+
+
+def _kept_values_sentence(labels: list[str], predicate: str, name: str, today: str) -> str:
+    """The sentence the prose is rewritten from when every answer stands. It names each one."""
+    distinct = list({label.strip().casefold(): label.strip() for label in labels if label.strip()}.values())
+    by = f"(confirmed by {inbox_actor.confirmed_by()} on {today})"
+    if not distinct:
+        return ""
+    if len(distinct) == 1:
+        return f"{predicates.predicate_phrase(predicate, name, distinct[0])} {by}."
+    lead = "Both are true" if len(distinct) == 2 else "All are true"
+    return f"{lead}: {', '.join(distinct[:-1])} and {distinct[-1]} {by}."
+
+
+def _dismiss_informational(path, fm_item: dict, entity_id: str, settings) -> "_ConflictPlan":
+    """Dismissing a question on a multi-valued predicate (G98/G115 R4): there is no winner to pick, so every value
+    stands. Stage 3 keeps them open when the predicate was already multi; one raised while it was single-valued has
+    its second value only in the question, and that value is written here. With none to write, no page is touched.
+    Its G113 R3 grade is ``overruled``: the belief overruled is the extractor's "these values conflict"."""
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        return _ConflictPlan(entity_id, unlink=True)
+    entity = markdown_parser.parse(entity_path)
+    claim_list = _page_claims_or_409(entity, path, entity_id, entity_path)
+    predicate_raw = str(fm_item.get("predicate", "") or "description")
+    predicate = predicates.load_normalizer(settings.memory_path)(predicate_raw) or predicate_raw
+    name = str(entity.frontmatter.get("name", entity_id) or entity_id)
+    held = len(claim_list)
+    today = str(date.today())
+    for option in inbox_questions.normalize_options(fm_item.get("options")):
+        if str(option.get("key")) not in _NOT_A_VALUE:
+            _hold_offered_value(option, fm_item=fm_item, entity_id=entity_id, name=name, predicate=predicate,
+                                claim_list=claim_list, settings=settings, today=today, confirmed=False,
+                                holds_now=False)
+    if len(claim_list) == held:
+        return _ConflictPlan(entity_id, unlink=True)
+    from api.services.claims import write_claims
+
+    entity.body = write_claims(entity.body, claim_list)
+    return _ConflictPlan(entity_id, entity_path=entity_path, entity=entity, claim_list=claim_list, sentence="",
+                         name=name, today=today)
+
+
 def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     """Claim-aware conflict adjudication (§2.4).
 
@@ -1731,7 +2330,8 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     winning claim is reinforced and every loser is bi-temporally closed, "both"
     keeps them all open with a context qualifier, and "neither"/free text writes
     a ``user_stated`` claim that closes them. Only then is a full sentence (not
-    a raw button label — the old bug) fed to the LLM body rewrite.
+    a raw button label — the old bug) fed to the LLM body rewrite. A value the answer keeps and only the question held
+    is written then (:func:`_hold_offered_value`).
 
     Two requests are refused outright rather than interpreted: an ``option_key``
     that matches no option (400) and a resolve carrying neither a pick nor free
@@ -1739,7 +2339,7 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     competing claim. A claims block that will not parse aborts the resolve
     (409) with the page untouched and the question kept.
     """
-    from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
+    from api.services.claims import Claim, write_claims
 
     fm_item = parsed.frontmatter
     entity_id = str(fm_item.get("entity_id", "") or "")
@@ -1755,23 +2355,16 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     # action="dismiss" with no key and no answer for such an item. Honor it the
     # old way: remove the item, touch no claims. A modern question item (has
     # `options` and/or a `question`) still gets the strict 400 below.
-    informational = (
-        predicates.cardinality(settings.memory_path, str(fm_item.get("predicate", "") or "")) == "multi"
-    )
     if request.action == "dismiss" and (
-        informational
-        or (
-            not fm_item.get("options")
-            and not str(fm_item.get("question", "") or "").strip()
-            and not (request.option_key or "").strip()
-            and not (request.answer or "").strip()
-        )
+        predicates.cardinality(settings.memory_path, str(fm_item.get("predicate", "") or "")) == "multi"
     ):
-        # Legacy pre-G60 items (above) AND G98/G115 R4 informational items: a
-        # conflict on a multi-valued predicate asked for a winner that does not
-        # exist — Stage 3 already kept every value open, so dismissing touches
-        # no claim. Its G113 R3 grade is `overruled`, and that is right: the
-        # belief overruled is the extractor's "these values conflict".
+        return _dismiss_informational(path, fm_item, entity_id, settings)
+    if request.action == "dismiss" and (
+        not fm_item.get("options")
+        and not str(fm_item.get("question", "") or "").strip()
+        and not (request.option_key or "").strip()
+        and not (request.answer or "").strip()
+    ):
         return _ConflictPlan(entity_id, unlink=True)
 
     predicate_raw = str(fm_item.get("predicate", "") or "description")
@@ -1811,21 +2404,7 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     normalize_predicate = predicates.load_normalizer(settings.memory_path)
     predicate = normalize_predicate(predicate_raw) or predicate_raw
 
-    try:
-        claim_list = parse_claims(entity.body, strict=True)
-    except MalformedClaimsBlockError as exc:
-        # A corrupt claims block must never be silently overwritten — and the
-        # rest of this function rewrites the page (an LLM body synthesis on a
-        # body whose machine layer we could not read) and then deletes the
-        # question. Abort the whole resolve: the entity stays byte-identical,
-        # the inbox item stays pending, and the user is told why.
-        logger.error(f"inbox resolve aborted — unparseable claims in {entity_path.name}: {exc}")
-        raise HTTPException(
-            409,
-            f"Cannot resolve {path.stem}: the ```claims block in "
-            f"entities/{entity_id}.md is malformed ({exc}). Fix the page by hand; "
-            "the question has been kept.",
-        ) from exc
+    claim_list = _page_claims_or_409(entity, path, entity_id, entity_path)
 
     by_id = {c.id: c for c in claim_list}
     option_claims = [
@@ -1843,17 +2422,30 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     # on all options; requiring a claim id here used to drop those picks into
     # the neither/free-text branch below, which stamped "none of these are
     # current" onto the page — the exact opposite of what the user said.
+    def hold(option: dict):
+        return _hold_offered_value(option, fm_item=fm_item, entity_id=entity_id, name=name, predicate=predicate,
+                                   claim_list=claim_list, settings=settings, today=today,
+                                   confirmed=not inbox_actor.is_sleep())
+
     if chosen is not None and option_key not in ("both", "neither"):
-        winner = by_id.get(str(chosen.get("claim_id") or ""))
+        winner = hold(chosen)
+        winner_was_there = winner is not None and winner.id in by_id
+        open_losers = [c for c in option_claims if (winner is None or c.id != winner.id) and c.valid_to is None]
+        actor = inbox_actor.current()
+        if actor is not None and actor.rule == "same_value" and winner_was_there and not open_losers:
+            # The same value said two ways, and the page already holds the one kept: nothing to write, no page line.
+            return _ConflictPlan(entity_id, unlink=True, extra_lines=extra_lines)
         if winner is not None:
             winner.confidence = max(winner.confidence, 0.9)
             # The person's words that picked it, when they came from a conversation (owner, 2026-10-14).
             winner.evidence = [*winner.evidence, *(e for e in _quote_spans(settings.memory_path)
                                                    if e not in winner.evidence)]
+        closed_on_page = False
         for loser in option_claims:
             if winner is not None and loser.id == winner.id:
                 continue
             if loser.valid_to is None:
+                closed_on_page = True
                 if winner is not None:
                     _close_on(loser, by=winner, day=said_on(today))
                 else:
@@ -1869,6 +2461,11 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                 # The manifest is a set of paths, not a per-claim tally.
                 if line not in extra_lines:
                     extra_lines.append(line)
+        if _write_lost_values(options, chosen, winner, claim_list, by_id, fm_item=fm_item, entity_id=entity_id,
+                              name=name, predicate=predicate, settings=settings, today=today):
+            line = f"entities/{entity_id}.md: updated (source: {path.stem}, trigger: inbox/conflict/resolved)"
+            if line not in extra_lines:
+                extra_lines.append(line)
         # The chosen label IS the answer, claim-backed or not. Sleep's reading of the person's words says the day
         # they said it (ruling 29, read on time): the sentence is dated by the words, not by when they were read.
         said = said_on(today)
@@ -1877,18 +2474,24 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
             f"(confirmed by {inbox_actor.confirmed_by()} on {today}"
             + (f", as said on {said}" if said != today else "") + ")."
         )
+        if inbox_actor.is_sleep() and winner_was_there and not closed_on_page:
+            sentence = ""   # no value on the page changed: Sleep adds no line saying so
 
     else:
         if option_key == "both":
             labels = []
-            for claim in option_claims:
-                if claim.context == "general":
+            for option in options:
+                if str(option.get("key")) in _NOT_A_VALUE:
+                    continue
+                claim = hold(option)
+                if claim is None:
+                    labels.append(str(option.get("label") or ""))
+                    continue
+                # A value just written copied the slot of what it stands beside: it takes its own, so the two coexist.
+                if claim.context == "general" or claim.id not in by_id:
                     claim.context = f"as of {claim.valid_from or today}"
-                labels.append(claim.object)
-            sentence = (
-                f"Both are true: {' and '.join(labels)} (confirmed by {inbox_actor.confirmed_by()} on {today})."
-                if labels else sentence
-            )
+                labels.append(str(claim.object))
+            sentence = _kept_values_sentence(labels, predicate, name, today) or sentence
 
         else:
             # `neither`, or free text with no option key.
@@ -1923,10 +2526,19 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                 for loser in option_claims:
                     if loser.valid_to is None:
                         loser.valid_to = today
-                sentence = (
-                    f"None of the previously recorded values for "
-                    f"'{predicate}' are current as of {today}."
-                )
+                if str(fm_item.get("asks") or "") == "still":
+                    # "Not anymore" on a "still?" question ends ONE value: the sentence the prose is rewritten from
+                    # names only it, never "none of the values" (an interest or a job beside it stays).
+                    from api.services import still_questions
+
+                    label = next((str(o.get("label") or "") for o in options
+                                  if str(o.get("key")) not in ("both", "neither")), "")
+                    sentence = still_questions.ended_sentence(predicate, name, label, today)
+                else:
+                    sentence = (
+                        f"None of the previously recorded values for "
+                        f"'{predicate}' are current as of {today}."
+                    )
 
     entity.body = write_claims(entity.body, claim_list)
 
@@ -2134,7 +2746,28 @@ async def _resolve_divergence(path, parsed, request, settings, item_id: str) -> 
     new = by_id.get(_opt_str(fm.get("claim_id")) or "")
     existing = by_id.get(_opt_str(fm.get("existing_claim_id")) or "")
     today = str(date.today())
-    if new is not None and existing is not None:
+    if new is not None and new.context == phone_numbers.ASKED:
+        # Ruling 55: the number waited closed on the page; the answer opens it or leaves it closed, in the
+        # person's own hand. "1" also ends the one it was asked against; "2" keeps both.
+        if key == "0":
+            new.context = phone_numbers.REFUSED
+            if existing is not None:
+                existing.confidence = max(float(existing.confidence or 0), 0.9)
+        elif key == "1" and existing is not None and existing.valid_to is not None:
+            # "Use the new one", answered after the one it was asked against was itself replaced: it was right for a
+            # while. History, in the person's hand; the number that replaced them both stays current.
+            new.context, new.source_trust, new.origin = "general", "user_stated", "clarification"
+            new.valid_to, new.superseded_by = existing.valid_to, existing.superseded_by
+        else:
+            new.context, new.valid_to, new.source_trust, new.origin = "general", None, "user_stated", "clarification"
+            new.confidence = max(float(new.confidence or 0), 0.9)
+            if key == "1" and existing is not None:
+                _close_today(existing, by=new, today=today)
+        efm = entity.frontmatter
+        efm["last_referenced"] = today
+        efm["version"] = int(efm.get("version", 1) or 1) + 1
+        markdown_parser.write(entity_path, efm, write_claims(entity.body, claims))
+    elif new is not None and existing is not None:
         if key == "0":  # keep my statement: the new reading loses
             _close_today(new, by=existing, today=today)
             existing.confidence = max(float(existing.confidence or 0), 0.9)
@@ -2371,6 +3004,36 @@ async def _resolve_where_to_check(path, parsed, request, settings) -> tuple[str,
     return first, False, [f"entities/{p}.md: updated (trigger: {trigger})" for p in pages[1:]]
 
 
+# ---------- G235: what may be sensitive, the person's alone ----------
+
+
+async def _resolve_sensitive(path, parsed, request, settings, label: str, before) -> tuple[str, bool, bool]:
+    """``remove`` takes the flagged text out of the row's conversation and everything that repeated it; ``keep`` leaves
+    it and remembers. ``row`` names one conversation; without it, every row is answered. ``skip`` writes nothing. Commits
+    its own answer: the item, the conversations and the pages together, as the person's."""
+    import asyncio
+
+    from api.services import sensitive_flags
+
+    if label == "skip":
+        return "", True, False
+    if label not in (sensitive_flags.REMOVE, sensitive_flags.KEEP):
+        raise HTTPException(400, f"This takes optionKey 'remove' or 'keep' — got {label!r}.")
+    rows = [r for r in parsed.frontmatter.get("rows") or [] if isinstance(r, dict)]
+    wanted = (request.row or "").strip()
+    target = [r for r in rows if r.get("id") == wanted] if wanted else rows
+    if not target:
+        raise HTTPException(404, "That conversation is no longer waiting in this review.")
+    try:
+        done = await asyncio.to_thread(sensitive_flags.answer, settings.memory_path, path, dict(parsed.frontmatter), target,
+                                       label, before)
+    except sensitive_flags.RemovalRefused as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if done["failed"]:
+        raise HTTPException(409, "Some of this could not be taken out. It is still there; try again.")
+    return "", False, True
+
+
 # ---------- G198: an agent's proposed page edit ----------
 
 PAGE_EDIT_STALE = ("The page changed since this edit was proposed, so it no longer applies: {why} Leave it as it "
@@ -2394,7 +3057,7 @@ async def _resolve_page_edit(path, parsed, settings, label: str, before) -> tupl
 
 
 def _answer_page_edit(path: Path, fm: dict, memory_path: Path, label: str, before) -> None:
-    from api.services import git_service, page_edits, page_lock
+    from api.services import git_service, page_edits, page_lock, wrong_aliases
 
     day = date.today().isoformat()
     rel_item = f"inbox/{path.name}"
@@ -2402,10 +3065,28 @@ def _answer_page_edit(path: Path, fm: dict, memory_path: Path, label: str, befor
     with page_lock.page_lock(memory_path):
         if label == "dismiss":
             path.unlink(missing_ok=True)
+            lines, touched = [f"{rel_item}: removed (trigger: {page_edits.TRIGGER_DISMISS})"], [rel_item]
+            if fm.get("origin") == wrong_aliases.ORIGIN:
+                # The person keeps the alias Cicada proposed removing: remembered on the page, never proposed again.
+                page = resolve_entity_file(memory_path, str(fm.get("entity_id") or ""))
+                edit = fm.get("edit") if isinstance(fm.get("edit"), dict) else {}
+                if page is not None and wrong_aliases.remember_kept(page, edit.get("remove_aliases")):
+                    lines.append(f"entities/{page.name}: updated (trigger: {page_edits.TRIGGER_DISMISS})")
+                    touched.append(f"entities/{page.name}")
             message = git_service.build_commit_message(
-                f"Inbox resolution (page_edit) {day}",
-                [f"{rel_item}: removed (trigger: {page_edits.TRIGGER_DISMISS})"], authors=["user"])
-            git_service.commit_touched_sync(memory_path, message, [rel_item], before=before, **kept)
+                f"Inbox resolution (page_edit) {day}", lines, authors=["user"])
+            git_service.commit_touched_sync(memory_path, message, touched, before=before, **kept)
+            return
+        if fm.get("join"):
+            # G227 follow-up: an agent's proposed merge or split, applied as proposed (`page_join`), its own commit.
+            from api.services import page_join
+
+            try:
+                page_join.apply_proposal(memory_path, fm, rel_item=rel_item, trigger=page_edits.TRIGGER_APPLY,
+                                         before=before)
+            except page_join.JoinError as exc:
+                raise HTTPException(409, PAGE_EDIT_STALE.format(why=str(exc))) from exc
+            bank_index.invalidate(memory_path)
             return
         page = resolve_entity_file(memory_path, str(fm.get("entity_id") or ""))
         if page is None:
@@ -2429,6 +3110,47 @@ def _answer_page_edit(path: Path, fm: dict, memory_path: Path, label: str, befor
             authors=[author, "user"], sessions=[session] if session else None)
         git_service.commit_touched_sync(memory_path, message, [rel, rel_item], before=before, **kept)
     bank_index.invalidate(memory_path)
+
+
+def _release_answered(memory_path: Path, mention: str, target_id: str, settings, *,
+                      subject_page: str = "") -> list[str]:
+    """G209 (2026-10-27): the person answered that a held name IS ``target_id``. The claims Sleep held on that name's
+    pending line — as its subject, or as another page's claim with it as the object — land now, on the page they named
+    (`pending_store.answered`, `claim_pipeline.land_answered`), instead of waiting for the name to be mentioned again.
+    The landed claims leave the line in the same write, so they are released once. Returns the manifest lines for
+    every page written and for the store: they ride in the answer's own commit, so the answer's undo takes the claims
+    back off and puts them back on the line. ``subject_page``: see `pending_store.answered` — an answer about a page
+    never releases a line Sleep held against that page."""
+    from api.services import claim_pipeline, pending_store
+
+    if not mention or not target_id:
+        return []
+    pending_store.clear_apart(memory_path, mention, target_id)   # G227: the person's join lifts their own "apart"
+    release = pending_store.answered(memory_path, mention, target_id, subject_page=subject_page)
+    if release is None:
+        return []
+    written, landed = claim_pipeline.land_answered(memory_path, release, settings)
+    if pending_store.drop_released(memory_path, release.name, landed):
+        written.append(pending_store.PENDING_STORE_FILE)
+    return [f"{rel}: updated (trigger: inbox/merge_suggestion/resolved:merge)" for rel in written]
+
+
+def _keep_apart(settings, fm: dict, pages: list[str]) -> list[str] | None:
+    """G227 (#546 review): "Another one" / "No, different" / dismiss on a question about a mention Sleep HELD keeps
+    THAT mention apart — on its pending line, with the conversations it holds (`pending_store.mark_apart`) — never as a
+    name→page rejection. The mention's slug is often a page's own id (the page it was held against), so a name-keyed
+    pair kept every later mention of that page from joining it. Returns the manifest lines, or ``None`` for a question
+    about a page (a page pair, a fold-page question, an older unflagged one), which keeps the page-pair rejection."""
+    from api.services import pending_store
+    from api.services.entity_resolver import HELD_MENTION_KEY
+
+    if fm.get(HELD_MENTION_KEY) is not True or fm.get("fold_page") is True:
+        return None
+    mention = str(fm.get("entity_name") or fm.get("entity_mention") or "").strip()
+    episode = str(fm.get("source_episode") or "").strip()
+    if pending_store.mark_apart(settings.memory_path, mention, pages, [episode] if episode else []):
+        return [f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/rejected)"]
+    return []   # nothing held under the name any more: a later mention is a new question, never a name-wide verdict
 
 
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
@@ -2467,12 +3189,20 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             raise HTTPException(status_code=400, detail="reject needs a merge target (hint or mergeTarget)")
         from api.services import merge_rejections
 
+        none = same_name_pick.is_another(request.option_key) and same_name_pick.applies(parsed.frontmatter)
+        pages = same_name_pick.rejected_ids(parsed.frontmatter) if none else [other]
+        if (kept := _keep_apart(settings, parsed.frontmatter, pages)) is not None:
+            path.unlink()
+            return entity_id, False, kept
         merge_rejections.add_rejected(settings.memory_path, entity_id, other)
+        # "Two people": an alias on either page that names the other is wrong, and leaves (`uncross_aliases`).
+        crossed = merge_rejections.uncross_aliases(settings.memory_path, entity_id, other)
         path.unlink()
         return (
             entity_id,
             False,
-            [f"{merge_rejections.FILE}: updated (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)"],
+            [f"{merge_rejections.FILE}: updated (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)",
+             *[f"{rel}: updated (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)" for rel in crossed]],
         )
 
     source_episode = str(parsed.frontmatter.get("source_episode", "") or "").strip()
@@ -2601,6 +3331,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             # Sleep raises the same question again (G209 W1, a held name re-read from the pending store).
             from api.services import merge_rejections
 
+            if (kept := _keep_apart(settings, parsed.frontmatter, [other])) is not None:
+                path.unlink()
+                return entity_id, False, kept
             merge_rejections.add_rejected(settings.memory_path, entity_id, other)
             path.unlink()
             return entity_id, False, [f"{merge_rejections.FILE}: updated (source: {path.stem}, "
@@ -2669,6 +3402,28 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         except MalformedClaimsBlockError as exc:
             raise HTTPException(409, f"'{target_path.stem}' has an unreadable claims block; repair it before merging ({exc})")
 
+        # G209: is this a question about the mention Sleep HELD (Stage 2 marks those, `HELD_MENTION_KEY`), or about a
+        # page? Its entity id may be both — the held mention's slug is the id of the page it was held against. A page
+        # question never releases a line held against that page, and Sleep's settle never folds the page a held
+        # mention shares its id with: who that page is takes the person's answer about the page.
+        from api.services import pending_store as _store
+        from api.services.entity_resolver import HELD_MENTION_KEY
+
+        fold_flag = parsed.frontmatter.get("fold_page") is True
+        subject_file = resolve_entity_file(settings.memory_path, entity_id) if entity_id else None
+        about_mention = parsed.frontmatter.get(HELD_MENTION_KEY) is True and not fold_flag
+        subject_page = subject_file.stem if subject_file is not None and not about_mention else ""
+        unflagged_recent = (not fold_flag
+                            and str(parsed.frontmatter.get("created_date") or "")[:10] >= UNFLAGGED_FOLD_CUTOFF)
+        held_here = about_mention or unflagged_recent or (
+            subject_file is not None and _store.held_against(settings.memory_path, mention) == subject_file.stem)
+        if (inbox_actor.folds_pages() and held_here and not fold_flag and subject_file is not None
+                and not subject_file.samefile(target_path)):
+            # Sleep's "same" would fold that page, and the fold is refused: settling without it would close the
+            # duplicate question with both pages left, so the person never sees it again. Sleep does not settle it —
+            # nothing written, the question left pending for the person (`inbox_tend.apply`).
+            raise HTTPException(409, "Sleep does not settle this: the fold is the person's call.")
+
         if not rename:
             # Survivor == existing target: absorb the mention into the target.
             from api.services import pending_store, person_leads
@@ -2682,21 +3437,24 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 # on instead of being asked about again.
                 names = [str(a) for a in target.frontmatter.get("aliases") or [] if str(a).strip()]
                 own = str(target.frontmatter.get("name") or "")
-                if mention.lower() != own.lower() and all(a.lower() != mention.lower() for a in names):
+                if (mention.lower() != own.lower() and all(a.lower() != mention.lower() for a in names)
+                        and alias_policy.admits(mention)):
                     target.frontmatter["aliases"] = [*names, mention]
             markdown_parser.write(target_path, target.frontmatter, new_body)
-            # Its pending line leaves the store; a line still holding claims stays until Stage 2 resolves the name to
-            # this page and Stage 5.56 writes them here (`pending_store.take`).
+            # G209: what Sleep held on the name's pending line lands on the page the person named, in this same write.
+            released = _release_answered(settings.memory_path, mention, target_path.stem, settings,
+                                         subject_page=subject_page)
+            # Its pending line leaves the store; a line still holding claims (one whose page is gone) stays until
+            # Stage 2 resolves the name and Stage 5.56 writes them (`pending_store.take`).
             taken = pageless and pending_store.take(settings.memory_path, mention)[1]
-            store_lines = ([f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/resolved:merge)"]
-                           if taken else [])
+            store_line = f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/resolved:merge)"
+            store_lines = [*released, *([store_line] if taken and store_line not in released else [])]
             # A question asked about a PAGE (a placeholder person named in the inbox, `role_people.answer_name`,
             # flagged `fold_page`) folds that page into the target through the one merge primitive — its claims,
             # sources and references follow. Any other item was asked about a mention: a page promoted under that
             # slug since is not what the person answered about, so it is left alone (the note above, as before).
-            mention_path = (resolve_entity_file(settings.memory_path, entity_id)
-                            if entity_id and (parsed.frontmatter.get("fold_page") is True
-                                              or inbox_actor.folds_pages()) else None)
+            mention_path = (subject_file
+                            if entity_id and (fold_flag or (inbox_actor.folds_pages() and not held_here)) else None)
             if mention_path is not None and not mention_path.samefile(target_path):
                 try:
                     merged = merge_entities(settings.memory_path, loser_id=mention_path.stem,
@@ -2704,9 +3462,10 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 except MalformedClaimsBlockError as exc:
                     raise HTTPException(
                         409, f"'{mention_path.stem}' has an unreadable claims block; repair it before merging ({exc})")
-                path.unlink()
-                return target_path.stem, False, _merge_manifest(merged["paths"],
-                                                                removed=f"entities/{mention_path.stem}.md")
+                path.unlink(missing_ok=True)  # the merge closed it too (`merge_closes`)
+                return target_path.stem, False, [*_merge_manifest(merged["paths"],
+                                                                  removed=f"entities/{mention_path.stem}.md"),
+                                                 *store_lines]
             path.unlink()
             return target_path.stem, False, store_lines
         else:
@@ -2763,8 +3522,11 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 renamed = rename_references(settings.memory_path, old_id, old_name, survivor_path.stem, survivor)
                 merge_lines = _merge_manifest([f"entities/{old_id}.md", *renamed],
                                               removed=f"entities/{old_id}.md")
+                # G209: the page the person named now lives under the mention's own name; a held line lands there.
+                merge_lines += _release_answered(settings.memory_path, mention, survivor_path.stem, settings,
+                                                 subject_page=subject_page)
 
-            path.unlink()
+            path.unlink(missing_ok=True)
             entity_id = survivor_slug
             return entity_id, False, merge_lines
 

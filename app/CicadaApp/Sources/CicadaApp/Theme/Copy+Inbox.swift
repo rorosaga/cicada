@@ -6,11 +6,39 @@ import Foundation
 extension Copy {
     enum Inbox {
         static let title = "Inbox"
+        /// Ruling 48 (2) — the full list is Home's sub-view: its eyebrow is the path back ("Home · All questions").
+        static let homePath = "Home · All questions"
+        static let backHome = "Back to Home"
         static func pending(_ n: Int) -> String { "\(UsageFormat.count(n)) pending" }
         static func position(_ i: Int, of n: Int) -> String { "\(UsageFormat.count(i)) of \(UsageFormat.count(n))" }
         static let all = "All"
         /// The kinds that did not fit, under one menu (owner 2026-10-16).
         static let moreKinds = "More kinds"
+
+        // The list in groups (owner 2026-10-26): a kind's group, and the page two or more questions are about.
+        static let groupOpenHelp = "Show these questions"
+        static let groupCloseHelp = "Hide these questions"
+        static func groupSpoken(_ kind: String, _ n: Int) -> String { "\(kind), \(UsageFormat.count(n)) questions" }
+        static let groupReview = "Review one at a time"
+        /// What a kind's questions ask, in one plain sentence, under its open group (inbox v2, owner 2026-10-26: a
+        /// first-time reader should not need to know what "decay" or a "fold" is). Says what each answer does.
+        static func kindExplainer(_ kind: InboxKind) -> String {
+            switch kind {
+            case .decay: "Pages you haven't mentioned in a while. Keep the ones that still matter; the rest fade and come back the next time you mention them."
+            case .conflict: "Two things on record disagree. Pick the one that's true now, or keep both."
+            case .clarification: "Names and details Cicada couldn't place on its own. Answer in a few words, or skip."
+            case .mergeSuggestion: "Two names that may be the same thing. Merge them into one page, or keep them apart."
+            case .divergence: "An agent wrote something different from what you said. Your words stay unless you change them."
+            case .normalization: "Two ways of saying the same relation. Say whether they mean the same thing."
+            case .removal: "Bookmarks you removed from your browser. Keep the saved page, or archive it."
+            case .followup: "Plans that went quiet or passed their date. Say how they went."
+            case .pageEdit: "Changes an agent proposed to a page's words. Apply each one, or dismiss it."
+            case .agentRequest: "Things an agent needs you to do."
+            case .sensitive: "Conversations that may hold a password, a card or an ID number."
+            case .unknown: "Questions from a newer version of Cicada."
+            }
+        }
+        static func pageQuestions(_ n: Int) -> String { "\(UsageFormat.count(n)) questions" }
 
         // "Settled by a check" (owner ruling 2026-10-16): questions a web lookup or the person's agent answered.
         static let settledTitle = "Settled by a check"
@@ -117,11 +145,16 @@ extension Copy {
         static let dismiss = "Dismiss"
         static let keepActive = "Keep active"
         static let archive = "Archive"
+        /// The two answers to "Still tracking X?" (a yes/no question answers yes/no); `keepActive`/`archive` say what
+        /// happened once it is answered.
+        static let decayYes = "Yes, keep it"
+        static let decayNo = "No, archive it"
         static func questions(_ n: Int) -> String { n == 1 ? "‹ 1 question" : "‹ \(UsageFormat.count(n)) questions" }
         static let showQuestions = "Show the questions"
         static let showFewer = "Show fewer"
         static func showAll(_ n: Int) -> String { "Show all \(UsageFormat.count(n))" }
         static let openQuestion = "Open this question"
+        static func openPageHelp(_ name: String) -> String { "Open \(name)'s page" }
 
         // The columns (Task 5 — DR-43, DR-50, R-DI10): the page states keep their pre-DS-2 words.
         static let dot = "·"
@@ -142,6 +175,32 @@ extension Copy {
 }
 
 extension Copy.Inbox {
+    /// A possible duplicate, in plain words (inbox v2, owner 2026-10-26: "I don't really get … possible duplicates").
+    /// Merge's sentence is what the backend's merge does (`inbox_service._resolve_clarification`): the name becomes
+    /// another name of the existing page, and a page of its own folds into it.
+    enum Duplicate {
+        static let newName = "Name from a conversation"
+        static let existingPage = "Existing page"
+        /// The page the person typed under "Something else" — what Merge will now use (review of #481).
+        static let typedPage = "Page you named"
+        static let noSuchPage = "No page by this name. Merge needs an existing page."
+        static let noPageYet = "No page yet — only mentioned in a conversation."
+        static let noSummary = "No summary yet."
+        static func mergeNames(_ mention: String, _ existing: String) -> String {
+            "Merge files \u{201C}\(mention)\u{201D} under \(existing) as another name for it."
+        }
+        static func mergeFolds(_ mention: String, _ existing: String) -> String {
+            "Merge folds \u{201C}\(mention)\u{201D} into \(existing): its facts, links and mentions move there, and its name stays as another name."
+        }
+        static let keepWords = "Keep separate, and Cicada won't suggest this pair again."
+        static let undoWords = "Each answer can be undone for a few seconds after."
+        static let noTarget = "Cicada didn't say which page this could be. Name it below."
+        static let somethingElse = "Something else"
+        static let somethingElseHelp = "Describe it instead, merge with a different page, or keep the other name"
+        static let mergeHelp = "Join the two into one page"
+        static let keepHelp = "They're different; don't ask about this pair again"
+    }
+
     /// The quick review (owner 2026-10-19): one kind at a time, the same answers in the same place.
     enum Review {
         static func kindTitle(_ kind: ReviewKind) -> String {
@@ -169,11 +228,11 @@ extension Copy.Inbox {
                 + "\(UsageFormat.count(left)) left"
         }
         static let end = "End review"
-        static let endHelp = "Back to the Inbox (Esc). Skipped questions stay there."
+        static let endHelp = "Back to all questions (Esc). Skipped questions stay there."
         static let openInInbox = "Open in Inbox"
-        static let openInInboxHelp = "Answer this one in the Inbox's full card — another answer, not now, the conversation"
+        static let openInInboxHelp = "Answer this one in its full card — another answer, not now, the conversation"
         static let skip = "Skip"
-        static let skipHelp = "Leave it in the Inbox and go to the next one (S)"
+        static let skipHelp = "Leave it with your questions and go to the next one (S)"
         static let undo = "Undo"
         static let undoHelp = "Take back the last answer or skip (⌘Z)"
 
@@ -231,7 +290,7 @@ extension Copy.Inbox {
         static func finishedDetail(answered: Int, skipped: Int) -> String {
             let a = "\(UsageFormat.count(answered)) answered"
             guard skipped > 0 else { return "\(a)." }
-            return "\(a), \(UsageFormat.count(skipped)) skipped — skipped questions stay in the Inbox."
+            return "\(a), \(UsageFormat.count(skipped)) skipped — skipped questions stay with the rest."
         }
         static let backToInbox = "Back to the Inbox"
     }

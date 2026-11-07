@@ -22,6 +22,8 @@ struct SourcesStep: View {
     var needsAccess: Set<FoundItemID> = []
     /// Calendar or Contacts refused in macOS's own prompt: the tile opens the exact list (`SourceTileGroups`).
     var denied: Set<FoundItemID> = []
+    /// An agent on this Mac is connected (`AgentLiveProbe.connectedLocally`): a list read in the browser is On only then.
+    var localAgent = false
     let onTick: (ImportEntry, Bool) -> Void
     let onSeeHow: (ChatVendor) -> Void
 
@@ -45,7 +47,7 @@ struct SourcesStep: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     DisclosureHeader(title: Copy.sourcesMore, summary: groups.more.map(\.title).joined(separator: " · "),
                                      isOpen: open) { moreOpen = !open }
-                    if open { grid(groups.more) }
+                    if open { grid(groups.more).disclosureReveal() }
                 }
             }
             if let error = intake.welcomeDropError {
@@ -181,19 +183,18 @@ struct SourcesStep: View {
 
     private func catalogRow(_ entry: SourceCatalogEntry) -> SourceCatalogRow {
         SourceCatalog.rows(entries: [entry], channels: store.channels.value ?? [],
-                           overview: store.sourcesOverview.value ?? [], readableSites: reading.readableSites)[0]
+                           overview: store.sourcesOverview.value ?? [], readableSites: reading.readableSites,
+                           savedListsOn: reading.savedListsOn, localAgent: localAgent,
+                           savedListsRead: reading.savedListsRead)[0]
     }
 
     /// The file panel the old Import page ran: the URLs go to the one intake, which stages them while onboarding
-    /// shows (R-IB15). ⌘⇧I and the menu bar's *Import a file…* land here too (`welcomeChooseRequest`).
+    /// shows (R-IB15). ⌘⇧I and the menu bar's *Import Chats or Files…* land here too (`welcomeChooseRequest`).
     static func chooseFile(_ intake: IntakeRouter) {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.zip, .json, .html, .folder, .commaSeparatedText, .plainText, .xml, .propertyList]
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = true
-        panel.message = Copy.intakeDropTitle
-        guard panel.runModal() == .OK else { return }
-        intake.accept(urls: panel.urls, from: .welcome)
+        // CIC8 — the intake's one picker (its types, opening in Downloads), not a copy that could drift.
+        let urls = IntakePicker.choose()
+        guard !urls.isEmpty else { return }
+        intake.accept(urls: urls, from: .welcome)
     }
 }
 

@@ -11,13 +11,29 @@ import SwiftUI
 struct HarnessConversationsView: View {
     let source: SourceOverview
     var onSelectEntity: ((String) -> Void)?
+    /// source-page-v3 — on a source page the page's one search drives this list (`external`), the list draws no head
+    /// or scroll of its own, shows at most `cap` conversations and then "All N" (`onAll`, DR-81).
+    var external: String? = nil
+    var cap: Int? = nil
+    var onAll: (() -> Void)? = nil
+
+    init(source: SourceOverview, onSelectEntity: ((String) -> Void)? = nil, query: String? = nil, cap: Int? = nil,
+         onAll: (() -> Void)? = nil) {
+        self.source = source
+        self.onSelectEntity = onSelectEntity
+        self.external = query
+        self.cap = cap
+        self.onAll = onAll
+    }
 
     @State private var viewModel = ConversationsViewModel()
     @State private var loadedOnce = false
-    @State private var query = ""
+    @State private var ownQuery = ""
     @State private var findOpen = false
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
+
+    private var query: String { external ?? ownQuery }
 
     /// R-SU20/R-SU22 — the loaded page filtered in place (newest first, never
     /// re-ranked), then any older matches the capped page could not hold.
@@ -27,6 +43,55 @@ struct HarnessConversationsView: View {
     }
 
     var body: some View {
+        if external != nil { embedded } else { standalone }
+    }
+
+    /// source-page-v3 — the rows alone, under the page's search.
+    private var embedded: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            if let err = viewModel.errorMessage {
+                Text(err).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
+                NeutralButton(title: "Retry", size: .compact, help: "Retry loading conversations") {
+                    Task { await load() }
+                }
+            } else if !viewModel.hasLoaded {
+                ListSkeleton(message: "Loading conversations…", rows: 3)
+            } else if visible.isEmpty {
+                Text(query.isEmpty ? "No conversations from this source yet." : Copy.SourcePage.noMatch(query))
+                    .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                if !query.isEmpty { SearchAllMemoryRow(query: query) }
+            } else {
+                let rows = cap.map { Array(visible.prefix($0)) } ?? visible
+                LazyVStack(spacing: CicadaTheme.spacingSM) {
+                    ForEach(rows) { conversation in
+                        ConversationRow(
+                            conversation: conversation,
+                            onResume: { Task { await act(await viewModel.resume(conversation.id)) } },
+                            onCopy: { Task { await act(await viewModel.copyCommand(for: conversation.id)) } },
+                            onSelectEntity: onSelectEntity,
+                            inSourceList: true
+                        )
+                    }
+                }
+                if let cap, visible.count > cap, let onAll {
+                    TextButton(title: Copy.SourcePage.all(visible.count), help: Copy.SourcePage.allHelp, action: onAll)
+                }
+            }
+        }
+        .task {
+            guard !loadedOnce else { return }
+            loadedOnce = true
+            await load()
+        }
+        .task(id: "\(viewModel.conversations.count)|\(query)") {
+            try? await Task.sleep(for: SearchTiming.serverDebounce)
+            guard !Task.isCancelled else { return }
+            await viewModel.searchBeyondCap(query: query, harness: source.harness,
+                                            origin: source.harness == nil ? source.origins.first : nil)
+        }
+    }
+
+    private var standalone: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(spacing: CicadaTheme.spacingSM) {
                 SectionLabel(Copy.conversationsTitle)
@@ -35,7 +100,7 @@ struct HarnessConversationsView: View {
             }
             .frame(minHeight: CicadaTheme.scaled(28))
             if findOpen {
-                PageFindRow(text: $query, isOpen: $findOpen, prompt: Copy.conversationsFind)
+                PageFindRow(text: $ownQuery, isOpen: $findOpen, prompt: Copy.conversationsFind)
             }
             if let err = viewModel.errorMessage {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -76,14 +141,14 @@ struct HarnessConversationsView: View {
         .padding(.horizontal, CicadaTheme.spacingXL)
         // G136 R-SU18 — a palette conversation row, until the Reader lands,
         // opens this list filtered to its title.
-        .onAppear { if let q = router.consumeConversationQuery() { query = q; findOpen = true } }
+        .onAppear { if let q = router.consumeConversationQuery() { ownQuery = q; findOpen = true } }
         .onChange(of: router.pendingConversationQuery) { _, _ in
-            if let q = router.consumeConversationQuery() { query = q; findOpen = true }
+            if let q = router.consumeConversationQuery() { ownQuery = q; findOpen = true }
         }
         // ⌘F opens the list's find while it is closed; once open the field publishes its own (R-SU10).
         .background { Color.clear.publishesPageFind(enabled: !findOpen) { findOpen = true } }
         // Closing find clears it, so a closed find never filters the list out of sight.
-        .onChange(of: findOpen) { _, open in if !open { query = "" } }
+        .onChange(of: findOpen) { _, open in if !open { ownQuery = "" } }
         .task {
             guard !loadedOnce else { return }
             loadedOnce = true

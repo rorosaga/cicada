@@ -36,7 +36,7 @@ from pathlib import Path
 from loguru import logger
 from thefuzz import fuzz
 
-from api.services import decay_policy, entity_body, episode_ids, git_service, markdown_parser, telemetry
+from api.services import decay_policy, entity_body, episode_ids, git_service, markdown_parser, phone_numbers, telemetry
 # Aliased on purpose: `write_claim` takes a keyword argument named `evidence`
 # (the MCP schema, the tests and the docs all use that name), and a bare
 # `from api.services import evidence` would be shadowed inside the function.
@@ -75,6 +75,14 @@ _TYPE_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
     )),
     ("deadline", ("due-by", "due by", "deadline")),
 ]
+
+
+def _person_subject(memory_path: Path, subject: str) -> bool:
+    """Whether a claim on ``subject`` lands on a person's page. With no page yet, yes: digits never wait in git on a guess."""
+    page = resolve_entity_file(memory_path, subject)
+    if page is None:
+        return True
+    return str(markdown_parser.parse(page).frontmatter.get("type") or "person") == "person"
 
 
 def _infer_entity_type(predicate: str) -> str:
@@ -356,6 +364,19 @@ def write_claim(
     predicate_raw = (predicate or "").strip()
     object_raw = (object or "").strip()
     observer = (observer or "agent").strip() or "agent"
+    # Ruling 55: an agent's write on a person's page holds no digits either, whatever door it came through. Only a
+    # claim naming a phone there adds to the vault; its sentence never does, and any other page's digits are not this rule's.
+    person_page = phone_numbers.enabled() and _person_subject(Path(memory_path), subject_raw)
+    try:
+        number = phone_numbers.claim_value(Path(memory_path), predicate_raw, object_raw) if person_page else None
+    except phone_numbers.VaultUnavailable as exc:
+        # Never the digits as a claim: the sentence says why, and nothing is written.
+        return {"subject": subject_raw, "entity_id": None, "claim_id": None, "action": "error", "observer": observer,
+                "error": str(exc)}
+    if number is not None:
+        predicate_raw, object_raw, object_kind, text = phone_numbers.PREDICATE, number, "literal", None
+    elif text and person_page:
+        text = phone_numbers.clean_prose(text, Path(memory_path), keep=False)   # a claim's sentence holds no number either
     from api.config import get_settings
     from api.services import owner_identity
     # `get_settings()` (not `None`) so a `CICADA_OBSERVER_OWNER` power-user
@@ -513,6 +534,16 @@ def write_claim(
             }
 
         settings = _ReconcileSettings(memory_path=memory_path)
+        if phone_numbers.is_number_claim(new_claim) and any(
+                c.predicate == phone_numbers.PREDICATE and c.valid_to is None
+                and not phone_numbers.same_number(c.object, new_claim.object, settings) for c in existing_claims):
+            # Ruling 55: asked here it would wait with no question (this door raises none), and an agent's word
+            # closes no number. Said to the person, their own words change it through Sleep.
+            phone_numbers.discard_unused(memory_path, phone_numbers.token_ids(new_claim.object)[0])
+            return {"subject": subject_raw, "entity_id": entity_id, "claim_id": None, "action": "error",
+                    "observer": observer,
+                    "error": "This page holds a different number. A number changes only on the person's own words, so "
+                             "nothing was written: tell them, and what they say will be read."}
         reconciled, nudges, audit = reconcile_stage3(
             [new_claim],
             {entity_id: existing_claims},
@@ -740,8 +771,11 @@ def retract_claim(
             "path": f"entities/{page.name}", "evidence": [e.to_dict() for e in spans]}
 
 
-def list_unprocessed_episodes(memory_path: Path, limit: int = 50) -> list[dict]:
-    """Return ``[{id, title, content, revision}]`` for episodes with ``processed: false``.
+def list_unprocessed_episodes(memory_path: Path, limit: int = 50, *, newest_first: bool = False,
+                              only: list[str] | None = None) -> list[dict]:
+    """Return ``[{id, title, content, revision}]`` for episodes with ``processed: false``, oldest first (the newest
+    first with ``newest_first``). ``only`` (G207): just these ids, in the order given — a bare save, which no model
+    reads (ruling 62), is left out of such a list.
 
     Missing ``processed`` key defaults to unprocessed (matches the episode
     schema's documented default). Never raises: a single malformed episode
@@ -760,8 +794,14 @@ def list_unprocessed_episodes(memory_path: Path, limit: int = 50) -> list[dict]:
         limit = 50
 
     out: list[dict] = []
-    for filepath in sorted(episodes_dir.glob("*.md")):
+    if only is not None:
+        paths = [episodes_dir / f"{ep}.md" for ep in only if ep and "/" not in ep and ".." not in ep]
+    else:
+        paths = sorted(episodes_dir.glob("*.md"), reverse=newest_first)
+    for filepath in paths:
         try:
+            if not filepath.is_file():
+                continue
             parsed = markdown_parser.parse(filepath)
         except Exception as exc:
             logger.warning(f"skipping unreadable episode {filepath.name}: {exc}")
@@ -769,6 +809,11 @@ def list_unprocessed_episodes(memory_path: Path, limit: int = 50) -> list[dict]:
         fm = parsed.frontmatter or {}
         if fm.get("processed", False):
             continue
+        if only is not None:
+            from api.services import history_index
+
+            if history_index.is_index_only(fm):
+                continue
         out.append({
             "id": fm.get("id", filepath.stem),
             "title": fm.get("title", filepath.stem),
@@ -850,16 +895,26 @@ def mark_episodes_processed(memory_path: Path, revisions: Mapping[str, str], *, 
 
 # --- the agent's own consolidation loop, as text (one body for the stdio server and the tool door) -----------------
 
-def pending_text(memory_path: Path, limit, listed: dict[str, str]) -> str:
-    """``cicada_pending``: unprocessed episodes, each with the revision its mark must match. ``listed`` is the
-    caller's session memory of what it was shown (the stdio process's own dict; the tool door's round-tripped state,
-    G181 phase 2), updated in place."""
+def pending_text(memory_path: Path, limit, listed: dict[str, str], query=None) -> str:
+    """``cicada_pending``: unprocessed episodes, each with the revision its mark must match, the newest first.
+    ``query`` (G207): only the ones that match it, best first, by the word and vector legs recall's conversation
+    excerpts use (``mcp_tools.unread_matches``); never logged. ``listed`` is the caller's session memory of what it
+    was shown (the stdio process's own dict; the tool door's round-tripped state, G181 phase 2), updated in place."""
     try:
         limit = int(limit) if limit is not None else 50
     except (TypeError, ValueError):
         limit = 50
 
-    episodes = list_unprocessed_episodes(memory_path, limit=limit)
+    query = query.strip() if isinstance(query, str) else ""
+    if query:
+        from api.services import mcp_tools
+
+        episodes = list_unprocessed_episodes(memory_path, limit=limit,
+                                             only=mcp_tools.unread_matches(memory_path, query, limit))[:limit]
+        if not episodes:
+            return "No unprocessed episodes match that query."
+    else:
+        episodes = list_unprocessed_episodes(memory_path, limit=limit, newest_first=True)
     if not episodes:
         return "No unprocessed episodes pending."
 

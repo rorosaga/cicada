@@ -453,7 +453,7 @@ def test_dismiss_with_no_key_still_400s_for_a_modern_question_item(tmp_path):
     repo = _workspace(tmp_path)
     item = repo / "inbox" / "inbox-001.md"
     parsed = markdown_parser.parse(item)
-    markdown_parser.write(item, {**parsed.frontmatter, "predicate": "part-of"}, parsed.body)
+    markdown_parser.write(item, {**parsed.frontmatter, "predicate": "takes-place-in"}, parsed.body)
     with pytest.raises(HTTPException) as exc:
         run(inbox_service.resolve(
             "inbox-001", InboxResolveRequest(action="dismiss"), _Settings(repo)

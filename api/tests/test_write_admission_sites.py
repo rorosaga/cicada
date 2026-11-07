@@ -108,6 +108,10 @@ PROBE_SITES = {
                                   "again (`_settle_one`)",
     "api/services/awake_read.py": "the early check before an embed or a quick read's model call (G207); the "
                                   "provisional record's write admits itself and asks again",
+    "api/services/connectors/tier2.py": "a scheduled sync's early skip before its network fetch (ruling 47); the "
+                                        "staging and its commit admit themselves and refuse while Sleep writes",
+    "api/services/capture_commit.py": "the capture commit's early skip (G132 51e1) before it takes any lock; its "
+                                      "commit runs inside admitted() and asks again",
 }
 
 
@@ -367,9 +371,15 @@ DOOR = ("door: runs one MCP tool's own body for another of the person's machines
 REMOTE = "remote: runs one remote tool through RemoteRuntime.call, which takes admission for a write itself"
 
 ROUTES: dict[str, tuple[str, str | None]] = {
-    "POST /ask": (NONE, None),
+    "POST /ask": (OUTSIDE, None),   # the pages it read are counted in $CICADA_HOME/page-reads (ruling 70)
     "POST /inbox/{item_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
+    "POST /sensitive/remove": (ADMITTED, None),   # G235: the person's Remove, run_admitted in the route itself
+    # Ruling 48 (8): the catch-up chat's turn reads and calls the engine, writing nothing (its answer is applied
+    # through /resolve above); its record is one source-keyed episode per session (capture-shaped, never a page).
+    "POST /inbox/catchup/turn": (NONE, None),
+    "POST /inbox/catchup/record": (CAPTURE, None),
     "POST /inbox/settled/{item_id}/undo": (ADMITTED, None),   # the web check's undo (owner ruling 2026-10-16)
+    "POST /entities/{entity_id}/web-context": (ADMITTED, "api.services.web_context.deeper"),   # ruling 44
     # Ruling 29: the one-time tidy settles each question under its own admission, refused while Sleep holds the pages.
     "POST /inbox/tidy": (ADMITTED, "api.services.inbox_tend._settle_one"),
     "POST /inbox/web-check": (ADMITTED, "api.services.web_lookup._settle_admitted"),   # the 2026-10-19 sweep
@@ -383,17 +393,32 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /entities/{entity_id}/picture/pdf": (ADMITTED, None),
     "DELETE /entities/{entity_id}/picture": (ADMITTED, None),
     "PUT /entities/{entity_id}/decay": (ADMITTED, None),
+    "PUT /entities/{entity_id}/coordinates": (ADMITTED, None),
+    "DELETE /entities/{entity_id}/coordinates": (ADMITTED, None),
     "POST /entities/{entity_id}/repos/observed": (OUTSIDE, None),
     "PATCH /entities/{entity_id}/repos": (ADMITTED, None),
     "POST /entities/{entity_id}/sources": (ADMITTED, None),
     "POST /entities/{entity_id}/sources/change": (ADMITTED, None),
     "DELETE /entities/{entity_id}/sources/{index}": (ADMITTED, None),
     "POST /entities/{entity_id}/edits": (ADMITTED, None),
+    # G227 follow-up: merge, split and undo a join — each one admitted transaction (`page_joins`).
+    "POST /entities/{entity_id}/merge": (ADMITTED, None),
+    "POST /entities/{entity_id}/split": (ADMITTED, None),
+    "POST /entities/{entity_id}/history/{commit_hash}/undo": (ADMITTED, None),
     "POST /projects/{project_id}/milestones": (ADMITTED, None),
     "PATCH /projects/{project_id}/milestones/{slug}": (ADMITTED, None),
     "POST /projects/{project_id}/happenings": (ADMITTED, None),
     "POST /projects/{project_id}/threads/{claim_id}": (ADMITTED, None),
     "POST /projects/{project_id}/withdraw": (ADMITTED, None),
+    # Ruling 45: the person's own projects, header, ties and influences.
+    "POST /projects": (ADMITTED, None),
+    "POST /projects/{project_id}/accept": (ADMITTED, None),
+    "POST /projects/{project_id}/dismiss": (ADMITTED, None),
+    "PATCH /projects/{project_id}": (ADMITTED, None),
+    "POST /projects/{project_id}/conversations": (ADMITTED, None),
+    "POST /projects/{project_id}/pages": (ADMITTED, None),
+    "POST /projects/{project_id}/influences": (ADMITTED, None),
+    "POST /projects/{project_id}/influences/withdraw": (ADMITTED, None),
     "POST /projects/{project_id}/backlog": (ADMITTED, None),
     "POST /backlog/{project_id}/{item_id}/notes": (ADMITTED, None),
     "PATCH /backlog/{project_id}/{item_id}": (ADMITTED, None),
@@ -405,13 +430,25 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /sleep/run-options": (OUTSIDE, None),
     "PUT /sleep/schedule": (OUTSIDE, None),
     "PUT /sleep/engine": (OUTSIDE, None),
-    "POST /conversations/upload": (CAPTURE, None),
+    # Engine picker v2: re-reads one card's model list; writes only the model cache in $CICADA_HOME.
+    "POST /sleep/engine/models/refresh": (OUTSIDE, None),
+    # Ruling 45: a Claude export's projects make or match pages, inside their own admission.
+    "POST /conversations/upload": (PER_WRITE, "api.services.provider_projects.after_import"),
     "POST /conversations/{conversation_id}/resume": (NONE, None),
     "POST /intake/sniff": (NONE, None),
-    "POST /intake/import": (CAPTURE, None),
+    # Ruling 45: a Claude export's projects make or match pages, inside their own admission.
+    "POST /intake/import": (PER_WRITE, "api.services.provider_projects.after_import"),
     "PUT /agent-methods": (HELD, "api.services.skill_pages.ensure"),
     "POST /agent-methods/skills/{skill}/page": (HELD, "api.services.skill_pages.ensure"),
     "POST /sources/save": (ADMITTED, "api.routers.sources._save_source"),   # G212: wrapped by its Idempotency-Key
+    # G230: the person's link of a repository to a project (or a new project from it), and its commit, admitted.
+    "POST /sources/github/repos/project": (ADMITTED, None),
+    # G230: connecting by a code writes only the token outside every bank (`secrets.env`) and the account's install
+    # state (`$CICADA_HOME/connectors`); never a page.
+    "POST /sources/github/connect": (OUTSIDE, None),
+    "POST /sources/github/connect/poll": (OUTSIDE, None),
+    "POST /sources/github/connect/installation": (OUTSIDE, None),
+    "DELETE /sources/github/connect": (NONE, None),
     "POST /sources/saved-why": (ADMITTED, None),       # G191: the answer on the link's episode, committed alone
     "PUT /sources/saved-why": (ADMITTED, None),        # G191 v3: the person's edit of one answer, committed alone
     "POST /sources/bookmarks/remove": (ADMITTED, None),   # G191 v3: the page archived, the episode tombstoned
@@ -436,13 +473,16 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "DELETE /banks/{name}": (BANKS, None),
     "POST /banks/demo": (BANKS, None),
     "POST /banks/leave-demo": (BANKS, None),
-    "POST /banks/{name}/import": (CAPTURE, None),
+    # Ruling 45: a Claude export's projects make or match pages, inside their own admission.
+    "POST /banks/{name}/import": (PER_WRITE, "api.services.provider_projects.after_import"),
     "PUT /settings/owner": (ADMITTED, None),
     "PUT /settings/editors": (OUTSIDE, None),         # G198: $CICADA_HOME/editors.json, never the bank
     "POST /sources/folders": (ADMITTED, None),
     "PUT /sources/folders/{folder_id}": (HELD, None),
     "DELETE /sources/folders/{folder_id}": (REGISTRY, None),
     "POST /sources/folders/{folder_id}/sync": (HELD, None),
+    "POST /capture/agent-memory": (HELD, None),   # ruling 43: notes stage while Sleep runs, as a session does
+    "PUT /capture/agent-memory/settings": (HELD, None),   # ruling 43: the source switch, its own commit
     "PUT /capture/local-source/wispr-flow/settings": (REGISTRY, None),
     "POST /capture/local-source/wispr-flow": (HELD, None),
     "POST /sources/calendar-local/sync": (CAPTURE, None),
@@ -455,16 +495,47 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # the app sends it once and a 409 would keep a disconnected address book's cards. It stamps a forget marker that
     # every Sleep read of the waiting set honours (Stage 2's index, Stage 5's seed, the rematch and its save back).
     "DELETE /sources/contacts-local/waiting": (MARKED, None),
+    "POST /people/numbers/reveal": (NONE, None),   # ruling 55: reads the vault, a POST so a token stays out of a URL
+    "PUT /people/numbers/switch": (OUTSIDE, None),
+    "POST /people/numbers/new-vault": (OUTSIDE, None),
+    # G154: the Contacts page's faces, outside every bank and read by no match; its forget is the same forget.
+    "PUT /sources/contacts-local/book": (OUTSIDE, None),
+    "DELETE /sources/contacts-local/book": (MARKED, None),
     # The LinkedIn forget is the person's click in a panel that shows a refusal in words: admitted, 409 while Sleep's
     # tail may be reading the kept export.
     "DELETE /sources/linkedin-connections": (ADMITTED, None),
     "POST /sources/messages/sync": (CAPTURE, None),            # G179: one ticked conversation's sittings
     "PUT /sources/messages/settings": (CAPTURE, None),         # G179: the registry file + a re-attributed sitting
     "POST /sources/messages/conversations": (NONE, None),      # G179: detection over names and counts, stores nothing
+    "PUT /sources/catch-up": (OUTSIDE, None),                  # G229: the readers' catch-up, held in memory only
     "PUT /sources/messages/photos": (OUTSIDE, None),           # 2026-10-16: a chat's shared photo, a cache outside every bank
+    # G179 (2026-10-28): WhatsApp and Telegram chats — the sittings and the tick registry, held through their commit.
+    "POST /sources/whatsapp/sync": (HELD, None),
+    "PUT /sources/whatsapp/settings": (HELD, None),
+    "POST /sources/whatsapp/conversations": (NONE, None),      # the person's tick per listed chat, stores nothing
+    "PUT /sources/telegram/settings": (HELD, None),            # a history ask reads in the background (per write)
+    # Ruling 47a: the sign-in steps and the log-out write only the session file outside every bank.
+    "POST /sources/telegram/qr": (OUTSIDE, None),         # owner 2026-10-29: the QR connect, the same session file
+    "POST /sources/telegram/connect": (OUTSIDE, None),
+    "POST /sources/telegram/code": (OUTSIDE, None),
+    "POST /sources/telegram/password": (OUTSIDE, None),
+    "POST /sources/telegram/disconnect": (OUTSIDE, None),
     "POST /capture/telegram": (INTAKE, None),
     "POST /capture/transcript": (CAPTURE, None),
     "POST /capture/turn": (CAPTURE, None),   # capture-everywhere: the same writer as the Stop hook
+    # G233: a scanned ISBN — the episode only; its page is made by `book_jobs`' admitted apply, in the background.
+    "POST /capture/isbn": (CAPTURE, None),
+    # G39/G233: episodes staged (capture), then the pages inside admission; while Sleep holds them the answer says
+    # `deferred` and the tail applies them — never refused.
+    "POST /sources/apple-books/sync": (HELD, "api.services.book_jobs.apply_admitted"),
+    "POST /sources/goodreads/import": (HELD, "api.services.book_jobs.apply_admitted"),
+    "POST /sources/goodreads/waiting/choose": (HELD, "api.services.book_jobs.apply_admitted"),
+    "PUT /sources/apple-books/settings": (REGISTRY, None),
+    # Ruling 61: covers kept outside every bank, each page's stamp by the same apply; a take-back inside admission.
+    "POST /sources/apple-books/covers": (HELD, "api.services.book_jobs.apply_admitted"),
+    "POST /entities/{entity_id}/book/not-this-book": (ADMITTED, None),   # ruling 71: takes back what a title match wrote
+    "POST /entities/{entity_id}/book-status/undo": (HELD, "api.services.write_admission.run_admitted"),
+    "POST /sources/goodreads/preview": (NONE, None),
     "POST /capture/note": (CAPTURE, None),   # G212: a note a device sent, staged like every source-keyed capture
     # G91 (ruling 38): a device's shared photo or file — its episode staged like a note, its bytes outside every bank.
     "POST /capture/file": (CAPTURE, None),
@@ -478,9 +549,23 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/traces/forget": (OUTSIDE, None),
     "POST /sources/traces/wipe": (OUTSIDE, None),     # what was already promoted stays the bank's, untouched
     "POST /sources/traces/search": (NONE, None),      # a POST only so the words never reach an access log
+    "POST /sources/traces/delete": (OUTSIDE, None),   # the person's pick from one day; what joined memory stays
+    # Meaning index 2: an added recording's words and frames, in $CICADA_HOME/files only — Sleep never reads them
+    # (G195), and their vectors are written later by the background refresher, never by the route.
+    "POST /files/media": (OUTSIDE, None),
+    "POST /files/voice-memos": (OUTSIDE, None),       # G43: the same store, keyed by the recording's own id
+    "POST /files/{file_id}/frames": (OUTSIDE, None),
+    "DELETE /files/{file_id}": (OUTSIDE, None),
+    # ROR-117 / ruling 68: `Read it now` writes one page's two sections; refused before any engine call while Sleep holds
+    # the pages, and the write itself inside run_admitted (the model call outside it).
+    "POST /files/{file_id}/read": (ADMITTED, "api.services.media_read.read_now"),
+    # 2026-10-28 "Remove from memory": closes the claims whose only evidence is a traces-day digest (and Undo reopens
+    # them) — entity pages, so the bank's admission through the one commit, 409 while Sleep holds the pages.
+    "POST /sources/traces/remove-from-memory": (ADMITTED, "api.services.trace_memory.remove"),
+    "POST /sources/traces/remove-from-memory/undo": (ADMITTED, "api.services.trace_memory.undo"),
     # The spans go outside every bank; `trace_memory.promote` then writes EPISODES ONLY into the bank — watched days
-    # and their month rollups through `watch_history.record` (the writer `/sources/watch-history/sync` uses) and the
-    # day summary through `episode_staging.stage`, each under STAGE_LOCK + episode_lock — committed alone by
+    # and their month rollups through `watch_history.record` (the writer `/sources/watch-history/sync` uses), the
+    # reading days and the day digest through `episode_staging.stage`, each under STAGE_LOCK + episode_lock — committed alone by
     # `commit_paths_for`. Awake capture never takes admission (write_admission's rail); pinned in test_trace_routes.
     "POST /sources/traces/sync": (CAPTURE, None),
     "POST /tools/call": (DOOR, None),
@@ -490,8 +575,40 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /devices/pairing": (OUTSIDE, None),
     "DELETE /devices/pairing/{pairing_id}": (OUTSIDE, None),
     "POST /pair": (OUTSIDE, None),
+    "POST /devices/me/key": (OUTSIDE, None),   # 2026-10-29: a device binds its own key, in $CICADA_HOME
+    "POST /devices/reach/serve": (OUTSIDE, None),   # 2026-10-29: the person's click runs one tailnet serve, no bank
+    "POST /remote/funnel": (OUTSIDE, None),         # ruling 59: the person's click runs one funnel of the connector, no bank
     "POST /devices": (OUTSIDE, None),
     "DELETE /devices/{device_id}": (OUTSIDE, None),
+    # G132 phase 1: the publishing switch ($CICADA_HOME/sync/settings.json) and "publish from here" (the log's sidecar).
+    "PUT /sync/publish": (OUTSIDE, None),
+    "POST /sync/publish/from-here": (OUTSIDE, None),
+    # G132 phase 1 B: this computer's copy — its `replica_of` and token ($CICADA_HOME), a restart of its own process,
+    # and "copy again", which rewrites the copy itself (the follower's apply, under the bank's write lock).
+    "PUT /sync/replica": (OUTSIDE, None),
+    "DELETE /sync/replica": (OUTSIDE, None),
+    "POST /sync/replica/restart": (OUTSIDE, None),
+    "POST /sync/replica/recopy": (BANKS, None),
+    # G132 phase 2: moving the home closes this computer to writes, parks Sleep, waits out the writers already admitted
+    # (`write_admission.wait_for_writers`, Sleep's own wait) and commits the hand-off record alone; a take-over commits
+    # it on a copy (the apply's exception). A device's announcement writes $CICADA_HOME's devices.db only.
+    "POST /sync/home/move": (BANKS, None),
+    "POST /sync/home/take-over": (BANKS, None),
+    "POST /sync/devices/me": (OUTSIDE, None),
+    # G132 phase 3b: the relay setting, joining and pairing over it, enrolment and the app's LAN finds — every one in
+    # $CICADA_HOME (the relay state, devices.db, the pairing codes, the discovered addresses), never the bank.
+    "PUT /sync/relay": (OUTSIDE, None),
+    "POST /sync/relay/join": (OUTSIDE, None),
+    "POST /sync/relay/join/confirm": (OUTSIDE, None),
+    "DELETE /sync/relay/join": (OUTSIDE, None),
+    "POST /sync/enrol": (OUTSIDE, None),
+    "POST /sync/discovered": (OUTSIDE, None),
+    # Ruling 51f: the app's word that the network changed: route state in memory and routes.json, outside every bank.
+    "POST /sync/network": (OUTSIDE, None),
+    "POST /devices/pairing/relay": (OUTSIDE, None),
+    "POST /devices/pairing/relay/{session_id}/confirm": (OUTSIDE, None),
+    "DELETE /devices/pairing/relay/{session_id}": (OUTSIDE, None),
+    "POST /capture/offered": (CAPTURE, None),   # an old home's set-aside episode, through the episode writer
     "POST /capture/hook-context": (OUTSIDE, None),   # G110: may refresh the continuity index in $CICADA_HOME
     "PUT /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
     "DELETE /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
@@ -500,6 +617,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /maintenance/dedup-sweep": (PER_WRITE, "api.services.dedup_sweep._merge_and_commit"),
     "POST /maintenance/enrich-links": (PROBE, None),
     "POST /maintenance/link-sources": (ADMITTED, None),
+    # Speed 2026-10-29: the person's --apply of the watched-rows move (episodes and their rows files, one commit).
+    "POST /maintenance/watched-rows": (ADMITTED, None),
     "POST /maintenance/verify-sites": (PROBE, None),
     # G61, ruling 26: the read runs before admission; the write and its commit (or the cadence / "asked") are admitted.
     "POST /entities/{entity_id}/sources/refresh": (ADMITTED, None),
@@ -536,6 +655,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # G166 exploring: the queue file in $CICADA_HOME only; the bank is written by cicada_record_capture alone.
     "POST /explore/batches": (OUTSIDE, None),
     "POST /explore/stop": (OUTSIDE, None),
+    "POST /export-requests/{vendor}": (OUTSIDE, None),
+    "DELETE /export-requests/{vendor}": (OUTSIDE, None),
     "POST /explore/queue/{key}/retry": (OUTSIDE, None),
     "POST /explore/look": (OUTSIDE, None),            # looks v2: "Save its look" writes the queue file only
     # The Skills page (2026-10-15): the agents' own skill folders and $CICADA_HOME/skills only (skill_store).
@@ -557,12 +678,21 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_record_read": (ADMITTED, "record_read"),
     "cicada_record_watch": (ADMITTED, "record_watch"),
     "cicada_add_backlog_item": (ADMITTED, "add_backlog_item"),
+    "cicada_create_project": (ADMITTED, "create_project"),          # ruling 45: the page, committed alone
+    "cicada_link_conversation": (ADMITTED, "link_conversation"),
+    "cicada_link_entity": (ADMITTED, "link_entity"),
+    "cicada_add_influence": (ADMITTED, "add_influence"),
     "cicada_add_backlog_note": (ADMITTED, "add_backlog_note"),
     "cicada_save_design": (ADMITTED, "save_design"),
     "cicada_edit_page": (ADMITTED, "_edit_page_locked"),        # G198: the page or the proposal, committed alone
+    "cicada_merge_pages": (ADMITTED, "_join_locked"),           # G227 follow-up: the join or the proposal, alone
+    "cicada_split_page": (ADMITTED, "_join_locked"),
+    "cicada_undo_join": (ADMITTED, "_join_locked"),
+    "cicada_add_book": (ADMITTED, None),                        # the staged episode is Awake; the page applies inside book_jobs.apply_admitted
     "cicada_save_url": (ADMITTED, "save_url"),                  # backend up: POST /sources/save admits itself
     "cicada_resolve_inbox": (ADMITTED, None),                   # posts to /inbox/{id}/resolve, which admits
     "cicada_save_episode": (CAPTURE, None),
+    "cicada_capture_turns": (CAPTURE, None),                    # ruling 57: the hook's writer, no commit, no Sleep gate
     "cicada_mark_processed": (CAPTURE, None),                   # an episode's cursor, revision-checked (A01)
     "cicada_video_claim": (OUTSIDE, None),
     # G166 exploring: the claim and the start touch only the queue file outside the bank; the record writes the
@@ -577,6 +707,8 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_record_youtube_list": (ADMITTED, "record_youtube_list"),
     # G206 (2026-10-22): saved posts become media pages and their episodes — committed alone, in one hold.
     "cicada_record_saved_list": (ADMITTED, "record_saved_list"),
+    # G89 (2026-11-04): Substack saves, reading days and followed feeds — committed alone, in one hold.
+    "cicada_record_substack_list": (ADMITTED, "record_substack_list"),
     # 2026-10-16: one person's LinkedIn profile — an episode and their page, committed alone, in one hold.
     "cicada_record_profile": (ADMITTED, "record_profile"),
     # G110: reads the bank's transcript episodes only (projection + paging); its metadata index and session registry
@@ -588,6 +720,7 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_skills": (NONE, None),
     "cicada_propose_skill": (OUTSIDE, None),
     "cicada_create_skill": (OUTSIDE, None),
+    "cicada_export_requests": (OUTSIDE, None),
     **{t: (NONE, None) for t in (
         "cicada_handshake", "cicada_recall", "cicada_recall_detail", "cicada_open_hub", "cicada_get_perspective",
         "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources", "cicada_ask",
@@ -600,6 +733,8 @@ HOLDING_SITES = {
     "api/services/state_dictionary.py": "refresh_admitted(): the `_state.md` refresh after the undo routes, the inbox "
                                         "tidy and the web sweep — inside its own run_admitted() transaction, skipped "
                                         "while Sleep holds the pages (GET /state's pattern)",
+    "api/services/media_read.py": "read_now(): the person's click is refused before any engine call while Sleep holds "
+                                  "the pages; the write itself is inside run_admitted()",
     "api/routers/maintenance.py": "the sweep's may_write: asked inside each merge's own hold (and, stale, before a "
                                   "judge call, where nothing is written)",
     "api/routers/local_sources.py": "folder update/sync and Wispr Flow: inside their route()'s hold",
@@ -610,6 +745,10 @@ HOLDING_SITES = {
     "api/routers/state.py": "GET /state's cursor refresh: inside its run_admitted",
     "api/services/claim_recovery.py": "apply(): asked inside its own shared() hold, before the page lock and its commit",
     "api/services/coexist_reopen.py": "apply(): asked inside its own shared() hold, before the page lock and its commit",
+    "api/services/past_roles_repair.py": "apply(): asked inside its own shared() hold, before the page lock and its "
+                                         "commit (coexist_reopen's order)",
+    "api/services/provider_projects.py": "after_import(): a Claude export's projects, asked inside its own shared() "
+                                         "hold before the page lock and the commit; deferred while Sleep writes",
 }
 
 
@@ -765,10 +904,13 @@ GET_ROUTES: dict[str, tuple[str, str]] = {
     "GET /contributors/calendar": (NONE, "reads commits"),
     "GET /contributors/top-entities": (NONE, "reads commits"),
     "GET /sleep/history/{commit}": (NONE, "reads a commit"),
+    "GET /sleep/history/{commit}/items": (NONE, "reads a commit's file list and the bank's names"),
+    "GET /sleep/runs/{drain_id}/items": (NONE, "reads its batch commits' file lists and the bank's names"),
     "GET /handshake": (OUTSIDE, "the telemetry ledger row (outside every bank) and the primer cache"),
     "GET /banks/{name}/export": (OUTSIDE, "a temporary archive outside the bank, removed after it is sent"),
     "GET /sources/folders": (NONE, "builds response records"),
     "GET /maintenance/search-index": (OUTSIDE, "the derived search index (never tracked, never a page)"),
+    "GET /sync/pack": (OUTSIDE, "G132: a temporary bundle outside the bank, removed after it is sent (git reads only)"),
 }
 
 

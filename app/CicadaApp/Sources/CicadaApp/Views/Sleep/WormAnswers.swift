@@ -100,11 +100,11 @@ private func lastTimeRung(_ ctx: RoomContext) -> SentenceLine? {
 private func inboxRung(_ ctx: RoomContext) -> SentenceLine? {
     guard let n = ctx.inboxTotal, n > 0 else { return nil }
     if n == 1 {
-        return SentenceLine(lead: "1 question waits for you.", numeral: "1", tail: "It's in the Inbox.", action: .openInbox)
+        return SentenceLine(lead: "1 question waits for you.", numeral: "1", tail: "It's on Home.", action: .openInbox)
     }
     let numeral = count(n, ctx)
     return SentenceLine(lead: "\(numeral) questions wait for you.", numeral: numeral,
-                        tail: "They're in the Inbox.", action: .openInbox)
+                        tail: "They're on Home.", action: .openInbox)
 }
 
 /// The person's engine choice, with its mark (Z-P26). A stopped run's

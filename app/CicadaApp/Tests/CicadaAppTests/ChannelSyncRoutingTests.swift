@@ -18,6 +18,10 @@ final class ChannelSyncRoutingTests: XCTestCase {
     static let registrySyncIds = [
         "chrome-bookmarks", "safari-bookmarks", "safari-tabs", "notes",
         "pinterest", "reddit", "x",
+        // Ruling 47 tier 2: the token connectors, routed like Reddit and X.
+        "notion-api",
+        // G230: GitHub's repositories and stars, a token connector like Notion's live one.
+        "github",
         "folder:alpha-project-1a2b3c", "wispr-flow",
         "calendar-local",
         // Round 4 (C9): the Chromium family, emitted once synced (R-SR15).

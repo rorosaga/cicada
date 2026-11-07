@@ -10,6 +10,18 @@ def test_fold_drops_case_and_diacritics_like_quickmatch():
     assert text_fold.fold("Zürich") == "zurich"
 
 
+def test_fold_of_anything_falsy_is_empty_and_ascii_is_lower():
+    """The ASCII shortcut (speed 2026-10-29) keeps the old contract: whatever ``text or ""`` read as empty folds to
+    empty (review of #530), and ASCII folds exactly as the NFD path would."""
+    for empty in (None, "", 0, False, [], {}):
+        assert text_fold.fold(empty) == ""
+    import unicodedata
+
+    for text in ("Plain ASCII, Mixed CASE 123!", "tab\tand\nnewline", "~`!@#$%^&*()_+"):
+        nfd = "".join(c for c in unicodedata.normalize("NFD", text) if not unicodedata.combining(c)).lower()
+        assert text_fold.fold(text) == nfd
+
+
 def test_query_tokens_split_like_unicode61_and_drop_one_letter_tokens():
     assert text_fold.query_tokens("  Zürich, a CAFÉ café x_y") == ["zurich", "cafe"]
     assert text_fold.query_tokens("a b") == []

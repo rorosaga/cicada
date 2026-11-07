@@ -25,6 +25,10 @@ struct CapturedItemsList: View {
     @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(Store.self) private var store: Store?
+    /// source-page-v3 — inside a source's page the page's own list is the one list: a source row's fold (Messages,
+    /// WhatsApp, Telegram, Calendar, Contacts, a folder, a browser…) draws nothing there, so "What came in" is never
+    /// said twice (owner 2026-10-29: a fold above a heading saying the same thing).
+    @Environment(\.sourceDetailHeadShown) private var onSourcePage
     @AppStorage private var remembered: Bool
 
     init(channel: String, interactive: Bool = true, style: Style = .disclosure) {
@@ -51,7 +55,7 @@ struct CapturedItemsList: View {
     }
 
     var body: some View {
-        if let cache {
+        if let cache, !(style == .disclosure && onSourcePage) {
             VStack(alignment: .leading, spacing: 0) {
                 switch style {
                 case .disclosure: disclosure
@@ -90,7 +94,8 @@ struct CapturedItemsList: View {
                     ForEach(list.items, id: \.self) { item in
                         SavedItemRow(item: item, today: today,
                                      route: CapturedItemRoute.of(item, interactive: interactive), open: go,
-                                     leftLine: CapturedItems.leftLine(item, channel: channel))
+                                     leftLine: CapturedItems.leftLine(item, channel: channel),
+                                            placeChannel: interactive ? channel : nil)
                     }
                 }
                 if list.hasMore { showMore(list, loading: cache.isLoadingMore(channel), cache: cache) }
@@ -107,7 +112,8 @@ struct CapturedItemsList: View {
                         } else {
                             CapturedItemRow(item: item, today: today,
                                             route: CapturedItemRoute.of(item, interactive: interactive), open: go,
-                                            leftLine: CapturedItems.leftLine(item, channel: channel))
+                                            leftLine: CapturedItems.leftLine(item, channel: channel),
+                                            placeChannel: interactive ? channel : nil)
                         }
                     }
                 }
@@ -169,18 +175,29 @@ struct CapturedItemsList: View {
 
 /// One captured item: its title and compact age on one 36 pt line (DR-34), the full date in `.help` (DR-58). A row
 /// that opens something is a button with the row hover (DR-48: a fill, never a lift); a preview row is plain text.
-private struct CapturedItemRow: View {
+struct CapturedItemRow: View {
     let item: ChannelItem
     let today: ISODay
     let route: CapturedItemRoute?
     let open: (CapturedItemRoute) -> Void
     /// G191 v4 — the bookmark left its browser: the row is dimmed and says so (help and spoken).
     var leftLine: String? = nil
+    /// G161 (ROR-111) — the channel to ask for this item's place; nil draws no control (a preview).
+    var placeChannel: String? = nil
 
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        row.modifier(ItemPlaceControl(kind: shownPlace, title: item.title) {
+            try await APIClient.shared.fetchItemPlace(channel: placeChannel ?? "", item: item.id)
+        })
+    }
+
+    private var shownPlace: ItemPlaceKind? { placeChannel == nil ? nil : item.placeKind }
+
+    @ViewBuilder
+    private var row: some View {
         let age = CapturedItems.age(item, today: today)
         if let route {
             Button { open(route) } label: { label(age) }
@@ -200,7 +217,7 @@ private struct CapturedItemRow: View {
         HStack(spacing: CicadaTheme.spacingSM) {
             // Sources v4 — a Messages row leads with the chat's face (its photo, else a ring with a letter).
             if let chat = item.chat {
-                ChatFace(id: chat.id, label: chat.label, photo: chat.photo, side: CicadaTheme.scaled(20))
+                ChatFace(chat: chat, side: CicadaTheme.scaled(20))
             }
             Text(item.title)
                 .font(CicadaTheme.bodyFont)
@@ -224,6 +241,7 @@ private struct CapturedItemRow: View {
             }
         }
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+        .padding(.trailing, ItemPlaceControl.reserve(shownPlace))
         .padding(.horizontal, CicadaTheme.scaled(10))
         .rowHoverFill(hovering: hovering && route != nil)
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
@@ -242,11 +260,22 @@ struct SavedItemRow: View {
     let route: CapturedItemRoute?
     let open: (CapturedItemRoute) -> Void
     var leftLine: String? = nil
+    /// G161 (ROR-111) — the channel to ask for this item's place; nil draws no control (a preview).
+    var placeChannel: String? = nil
 
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        row.modifier(ItemPlaceControl(kind: shownPlace, title: item.title) {
+            try await APIClient.shared.fetchItemPlace(channel: placeChannel ?? "", item: item.id)
+        })
+    }
+
+    private var shownPlace: ItemPlaceKind? { placeChannel == nil ? nil : item.placeKind }
+
+    @ViewBuilder
+    private var row: some View {
         let day = SavedItemText.day(item, today: today)
         let spoken = Copy.savedRowLabel(item.title, day: day?.help, why: SavedItemText.whySpoken(item),
                                         host: item.host, left: leftLine)
@@ -272,6 +301,9 @@ struct SavedItemRow: View {
     private var mark: some View {
         if let still = SavedItemText.stillPath(item) {
             VideoStill(path: still)
+        } else if item.book == true {
+            // Ruling 61: a book's cover, or nothing (owner 2026-10-28: no glyph or monogram stands in).
+            BookCoverThumb(path: item.cover)
         } else {
             SavedLinkMark(mark: SavedItemText.mark(item))
         }
@@ -317,6 +349,7 @@ struct SavedItemRow: View {
         }
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine),
                maxHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
+        .padding(.trailing, ItemPlaceControl.reserve(shownPlace))
         .padding(.horizontal, CicadaTheme.scaled(10))
         .rowHoverFill(hovering: hovering && route != nil)
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)

@@ -31,13 +31,22 @@ actor LogoStore {
         self.fetch = fetch
     }
 
-    private func key(_ entityId: String, _ bank: String) -> String { "\(bank)/\(entityId)" }
+    nonisolated private func key(_ entityId: String, _ bank: String) -> String { "\(bank)/\(entityId)" }
 
-    private func fileURL(_ entityId: String, _ bank: String) -> URL {
+    nonisolated private func fileURL(_ entityId: String, _ bank: String) -> URL {
         let safeBank = bank.replacingOccurrences(of: "/", with: "_")
         let safeId = entityId.replacingOccurrences(of: "/", with: "_")
         return root.appendingPathComponent(safeBank, isDirectory: true)
             .appendingPathComponent("\(safeId).img")
+    }
+
+    /// ROR snappy — the disk copy into `ImageMemory`, no network, no actor hop (`PictureStore.warm`).
+    nonisolated func warm(entityId: String, bank: String) {
+        guard !entityId.isEmpty else { return }
+        let k = key(entityId, bank)
+        guard ImageMemory.logos.image(k) == nil,
+              let data = try? Data(contentsOf: fileURL(entityId, bank)), let image = NSImage(data: data) else { return }
+        ImageMemory.logos.set(k, image)
     }
 
     func image(entityId: String, bank: String) async -> NSImage? {
@@ -49,6 +58,7 @@ actor LogoStore {
         let url = fileURL(entityId, bank)
         if let data = try? Data(contentsOf: url), let image = NSImage(data: data) {
             memory[k] = image
+            ImageMemory.logos.set(k, image)
             return image
         }
 
@@ -75,6 +85,7 @@ actor LogoStore {
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)
         memory[k] = image
+        ImageMemory.logos.set(k, image)
         return image
     }
 
@@ -93,6 +104,7 @@ actor LogoStore {
     func clear(bank: String) {
         let prefix = "\(bank)/"
         memory = memory.filter { !$0.key.hasPrefix(prefix) }
+        ImageMemory.logos.clear(prefix: prefix)
         misses = misses.filter { !$0.hasPrefix(prefix) }
         for (key, task) in inFlight where key.hasPrefix(prefix) {
             task.cancel()

@@ -51,12 +51,12 @@ from typing import Callable
 
 from loguru import logger
 
-from api.services import markdown_parser, owner_identity, pending_store, telemetry
+from api.services import episode_revision, markdown_parser, owner_identity, pending_store, phone_numbers, telemetry
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, is_event, parse_claims, write_claims
 from api.services.entity_extractor import entities_to_claims
-from api.services.entity_resolver import endpoint_id
-from api.services.id_utils import sanitize_id
+from api.services.entity_resolver import HELD_ENDPOINT, endpoint_id
+from api.services.id_utils import bank_file, sanitize_id
 from api.services.pending_store import HoldOutcome, Release
 
 #: What Stage 1 writes for an endpoint that IS the person (G169: one closed,
@@ -93,7 +93,12 @@ def subject_resolver(name_to_id: dict[str, str] | None, owner_id: str | None,
     def resolve(name: str) -> str:
         if owner_id and decision.is_speaker(name):
             return owner_id
-        return endpoint_id((name or "").strip().lower(), table) or sanitize_id(name)
+        key = (name or "").strip().lower()
+        if table.get(key) == HELD_ENDPOINT:
+            # Stage 2 held this name although a page bears it (2026-10-27): never that page by name. A subject no page
+            # and no pending line has, so its claims count as page-less (`hold_page_less`).
+            return f"{HELD_PREFIX}{sanitize_id(name)}"
+        return endpoint_id(key, table) or sanitize_id(name)
 
     return resolve
 
@@ -139,13 +144,17 @@ def _release_target(name_to_id: dict[str, str] | None) -> Callable[[str, str], s
     table = {str(k): str(v) for k, v in (name_to_id or {}).items()}
 
     def target(name: str, subject: str) -> str:
-        return table.get((name or "").strip().lower()) or subject
+        hit = table.get((name or "").strip().lower())
+        if hit == HELD_ENDPOINT:
+            return f"{HELD_PREFIX}{subject}"   # held again this cycle: its claims stay with the line (no such page)
+        return hit or subject
 
     return target
 
 
 def _releases(
     memory_path: Path, name_to_id: dict[str, str] | None, existing_by_subject: dict[str, list[Claim]],
+    decided: list[str] | None = None,
 ) -> tuple[list[Release], list[Claim], dict[str, list[str]]]:
     """G141 PJ-0b (R-HP5, R-HP6, R-HP8): the held claims whose name has a page now,
     read WITHOUT touching the store — the lines leave only after the write
@@ -155,22 +164,46 @@ def _releases(
     own claim. ``credit`` maps each target page to the episodes its claims
     were heard in. A store that cannot be read releases nothing this cycle."""
     try:
-        releases = pending_store.ready(memory_path, _release_target(name_to_id))
+        releases = pending_store.ready(memory_path, _release_target(name_to_id), decided or ())
     except Exception as e:  # noqa: BLE001 - a hold is never worth the cycle's claims
         logger.warning(f"pending-store release skipped: {type(e).__name__}: {e}")
         return [], [], {}
     offered: list[Claim] = []
     credit: dict[str, list[str]] = {}
     for rel in releases:
-        on_page = {c.id for c in existing_by_subject.get(rel.target, [])}
-        episodes = credit.setdefault(rel.target, [])
         for claim in rel.claims:
+            # A claim held as this name's object belongs to its subject's page (`pending_store.ready`).
+            on_page = {c.id for c in existing_by_subject.get(claim.subject, [])}
+            episodes = credit.setdefault(claim.subject, [])
             for ep in claim.source_episodes:
                 if ep and ep not in episodes:
                     episodes.append(ep)
             if claim.id not in on_page:
                 offered.append(claim)
     return releases, offered, credit
+
+
+HELD_PREFIX = "held:"
+
+
+def _split_held(claims: list[Claim]) -> tuple[list[Claim], dict[str, list[Claim]]]:
+    """The claims touching a held name (``held:<slug>`` from :func:`subject_resolver`), taken out of the page path and
+    keyed by the held name's plain slug — the pending line's (``pending_store.hold``) — with the marker removed."""
+    kept: list[Claim] = []
+    held: dict[str, list[Claim]] = {}
+    for claim in claims:
+        subject, obj = str(claim.subject or ""), str(claim.object or "")
+        if subject.startswith(HELD_PREFIX):
+            claim.subject = subject[len(HELD_PREFIX):]
+            if obj.startswith(HELD_PREFIX):
+                claim.object = obj[len(HELD_PREFIX):]
+            held.setdefault(claim.subject, []).append(claim)
+        elif obj.startswith(HELD_PREFIX):
+            claim.object = obj[len(HELD_PREFIX):]
+            held.setdefault(claim.object, []).append(claim)
+        else:
+            kept.append(claim)
+    return kept, held
 
 
 def _credit_episodes(frontmatter: dict, episodes: list[str] | None) -> bool:
@@ -188,6 +221,89 @@ def _credit_episodes(frontmatter: dict, episodes: list[str] | None) -> bool:
     return True
 
 
+def land_answered(memory_path: Path, release: Release, settings, *,
+                  now_date: str | None = None) -> tuple[list[str], list[str]]:
+    """G209 held release (2026-10-27): put an answered line's claims onto their pages — the person's inbox answer said
+    the held name IS ``release.target`` (`pending_store.answered`). Each claim goes to its subject's page (the target,
+    or for a claim held as the name's object, the other page that holds it) through Stage 3 exactly as Stage 5.56's
+    release sends them (R-HP6): the released claims as incoming against the page's own claims
+    (``reconcile_stage3``, decay left to Sleep), so a restated claim is reinforced, not written twice, and a
+    single-valued one supersedes or asks as it would have in a cycle. The reconciler's questions go to the inbox and
+    its audit to the ledger, as the cycle's do; the conversation each claim was heard in credits its page (R-HP8). A
+    claim whose page is missing, or whose page's fence cannot be read, stays held.
+
+    Returns ``(memory-relative paths written — pages and new or changed inbox questions, ids now on a page)``; the
+    caller drops exactly those ids from the line (`pending_store.drop_released`) and commits the paths."""
+    memory_path = Path(memory_path)
+    entities_dir = memory_path / "entities"
+    files: dict[str, Path] = {}
+    parsed_by: dict[str, object] = {}
+    existing_by_subject: dict[str, list[Claim]] = {}
+    by_subject: dict[str, list[Claim]] = {}
+    for claim in release.claims:
+        by_subject.setdefault(str(claim.subject or ""), []).append(claim)
+    for subject in by_subject:
+        filepath = bank_file(entities_dir, subject) if subject else None
+        if filepath is None or not filepath.is_file():
+            continue
+        try:
+            parsed = markdown_parser.parse(filepath)
+            existing_by_subject[subject] = parse_claims(parsed.body, strict=True)
+        except Exception as e:  # noqa: BLE001 - an unreadable fence keeps its claims held, never overwritten
+            logger.warning(f"answered release skipped a page: {type(e).__name__}")
+            continue
+        files[subject], parsed_by[subject] = filepath, parsed
+    if not existing_by_subject:
+        return [], []
+    as_read = {subject: [c.to_dict() for c in claims] for subject, claims in existing_by_subject.items()}
+    incoming: list[Claim] = []
+    for subject, claims in by_subject.items():
+        if subject in existing_by_subject:
+            have = {c.id for c in existing_by_subject[subject]}
+            incoming.extend(c for c in claims if c.id not in have)
+    reconciled, nudges, audit = reconcile_stage3(incoming, existing_by_subject, settings, now_date=now_date,
+                                                 decay=False)
+    for entry in audit:
+        try:
+            telemetry.record_audit([entry], subject_hint=release.target, bank=memory_path.name, stage="reconcile")
+        except Exception:  # noqa: BLE001 - the ledger is never worth the answer
+            pass
+    written: list[str] = []
+    for subject, filepath in files.items():
+        parsed = parsed_by[subject]
+        claims = reconciled.get(subject, existing_by_subject[subject])
+        episodes: list[str] = []
+        for claim in by_subject[subject]:
+            for ep in claim.source_episodes:
+                if ep and ep not in episodes:
+                    episodes.append(ep)
+        credited = _credit_episodes(parsed.frontmatter, episodes)
+        changed = [c.to_dict() for c in claims] != as_read[subject]
+        if not (changed or credited):
+            continue
+        body = write_claims(parsed.body, claims) if changed else parsed.body
+        if changed:
+            try:
+                from api.services import conflict_resolver
+
+                body = conflict_resolver.refresh_related(subject, parsed.frontmatter, body, memory_path,
+                                                         conflict_resolver._edges_by_entity(memory_path), claims)
+            except Exception as e:  # noqa: BLE001 - a derived view never costs the claims
+                logger.warning(f"Related refresh skipped for a page: {type(e).__name__}")
+        markdown_parser.write(filepath, parsed.frontmatter, body)
+        written.append(f"entities/{filepath.name}")
+    if nudges:
+        from api.services.inbox_generator import write_claim_nudges
+
+        inbox = memory_path / "inbox"
+        before = {p.name: p.read_bytes() for p in inbox.glob("inbox-*.md")} if inbox.is_dir() else {}
+        write_claim_nudges(nudges, memory_path)
+        after = {p.name: p.read_bytes() for p in inbox.glob("inbox-*.md")} if inbox.is_dir() else {}
+        written.extend(f"inbox/{name}" for name, data in sorted(after.items()) if before.get(name) != data)
+    landed = [c.id for subject in files for c in by_subject[subject]]
+    return written, landed
+
+
 def _settle_store(
     memory_path: Path, releases: list[Release], written: set[str],
     offers: dict[str, list[Claim]], stage1_ids: set[str], reserved: frozenset[str] = frozenset(),
@@ -198,7 +314,7 @@ def _settle_store(
     guarded (R-HP10): a failure is logged and costs only the hold — what could
     not be held is counted page-less by the caller. Returns R-HP12's counts."""
     counts = {"claims_held": 0, "claims_hold_capped": 0, "claims_released": 0, "claims_waiting": 0}
-    done = [rel for rel in releases if rel.target in written]
+    done = [rel for rel in releases if all(c.subject in written for c in rel.claims)]
     try:
         pending_store.release(memory_path, [rel.name for rel in done])
         counts["claims_released"] = sum(len(rel.claims) for rel in done)
@@ -223,6 +339,38 @@ def _settle_store(
     except Exception:  # noqa: BLE001 - a count is never worth a failure
         pass
     return counts
+
+
+def _ask_shared_numbers(memory_path: Path, reconciled: dict[str, list[Claim]], incoming: list[Claim],
+                        owner_id: str | None) -> None:
+    """One "is <a> the same as <b>?" per pair of person pages holding one current number (`phone_numbers.shared_pairs`)
+    — the record raising it, as `role_people` does (no conversation names both, and a household shares a line). The
+    answer is the person's: nothing is merged here. Never costs the cycle."""
+    touched = {c.object for c in incoming if phone_numbers.is_number_claim(c)}
+    if not touched:
+        return
+    try:
+        from api.services.clarification_manager import ClarificationManager
+
+        entities_dir = memory_path / "entities"
+        for a, b in phone_numbers.shared_pairs(reconciled, touched, owner_id=owner_id):
+            paths = bank_file(entities_dir, a), bank_file(entities_dir, b)
+            if not all(p is not None and p.is_file() for p in paths):
+                continue
+            names = [str(markdown_parser.parse(p).frontmatter.get("name") or "") for p in paths]
+            item = ClarificationManager(memory_path).create(
+                entity_name=names[0] or a, source_episode="", uncertainty_type=f"Possible duplicate of {names[1] or b}",
+                suggested_classification="person", suggested_confidence=0.6,
+                source_context=f"You gave the same number for {names[0] or a} and {names[1] or b}.")
+            if not item:
+                continue
+            item_path = memory_path / "inbox" / f"{item}.md"
+            parsed = markdown_parser.parse(item_path)
+            parsed.frontmatter["entity_id"] = a
+            parsed.frontmatter["merge_target_hint"] = b
+            markdown_parser.write(item_path, parsed.frontmatter, parsed.body)
+    except Exception as e:  # noqa: BLE001 - a question is never worth the claims
+        logger.warning(f"Shared-number question skipped: {type(e).__name__}")
 
 
 def _load_existing_claims_by_subject(memory_path: Path) -> dict[str, list[Claim]]:
@@ -302,6 +450,8 @@ def run_claim_pipeline(
     extra_claims: list[Claim] | None = None,
     name_to_id: dict[str, str] | None = None,
     decay: bool = True,
+    decided_names: list[str] | None = None,
+    revisions: dict | None = None,
 ) -> dict:
     """Emit → release → reconcile → write → hold claims over the live entity pages (additive).
 
@@ -322,11 +472,16 @@ def run_claim_pipeline(
             exact verdict for it (R-HP5). ``None`` keeps ``sanitize_id``.
         decay: ``False`` skips claim decay (a drain charges it once, in its last
             batch — ``sleep_drain``); everything else runs.
+        decided_names: Stage 2's ``resolve(...)["decided_names"]`` — the names it joined or created this cycle; a line
+            held against a page that bears its name is released there only on these (G209).
+        revisions: ``{episode id: episode_revision.Revision}`` — conversations read before and edited since (G104):
+            their spans move onto the new body, and what only the removed text said is closed (`episode_revision`).
 
     Returns a dict: ``{"nudges": [...], "audit": [...], "claims_written": int,
     "subjects_written": int, "subjects_skipped": int, "claims_page_less": int,
     "page_less_subjects": [ids], "relabelled_events": int, "claims_held": int,
-    "claims_hold_capped": int, "claims_released": int, "claims_waiting": int}``.
+    "claims_hold_capped": int, "claims_released": int, "claims_waiting": int,
+    "revision_closed": {page id: [the revised episodes that closed a claim on it]}}`` (G104).
     ``claims_page_less`` counts claims neither written nor held (G141 PJ-0b);
     ``page_less_subjects`` stays in memory only (R-CS3: a subject id is a slug
     of a name, so it is never logged); the four hold counts are R-HP12's;
@@ -347,21 +502,40 @@ def run_claim_pipeline(
     # Stage-1 only — never the person's extra_claims, never a released claim:
     # the only claims a hold ever takes (R-HP2).
     stage1_ids = {c.id for c in incoming}
+    # G209 (2026-10-27): a claim whose subject OR object is a name Stage 2 held although a page bears it never reaches a
+    # page: it is held on that name's pending line under the plain slug (as its subject, or as another page's claim
+    # with it as the object), never written with a ``held:`` value, never keyed to the page sharing its name.
+    incoming, held_offers = _split_held(incoming)
 
     # ---- G141 PJ-0b: release what was held for a name that has a page now ----
     # Released claims go FIRST, so they meet Stage 3 as the page's own claims
     # would have had it existed when they were heard (R-HP6): a newer
     # single-valued claim supersedes them, where the other order would ask.
+    if revisions:
+        # G104: what a name without a page holds from an edited conversation follows its words onto the new body
+        # before any of it is released onto a page (spans only; `pending_store.reanchor_held`).
+        try:
+            held_moved = pending_store.reanchor_held(
+                memory_path, lambda held: episode_revision.reanchor({"": held}, revisions).reanchored)
+            if held_moved:
+                logger.info(f"Claim pipeline: {held_moved} held span(s) re-anchored onto revised conversations")
+        except Exception as e:  # noqa: BLE001 - a store failure costs the move, never the cycle (R-HP10)
+            logger.warning(f"Held spans not re-anchored: {type(e).__name__}")
     existing_by_subject = _load_existing_claims_by_subject(memory_path)
     # What each page holds now, by value: the reconciler edits claims in place (decay, supersede), so the write-back
     # compares against this to render only the pages that changed (F6, benchmarks/scale).
     as_read = {subject: [c.to_dict() for c in claims] for subject, claims in existing_by_subject.items()}
-    releases, released, credit = _releases(memory_path, name_to_id, existing_by_subject)
+    releases, released, credit = _releases(memory_path, name_to_id, existing_by_subject, decided_names)
     incoming = released + incoming
     # G61 S1 reads this as "newly written by this pass" — true of a released claim too (R-HP8).
     emitted_ids = stage1_ids | {c.id for c in released}
     if extra_claims:
         incoming = incoming + list(extra_claims)
+    # Ruling 55: what the person's line says of each number, and whether its page may take it (held ones too).
+    incoming, number_audit = phone_numbers.annotate(incoming, memory_path, owner_id)
+
+    # ---- G104: an edited conversation's spans re-anchored, what only its removed text said marked ----
+    revision_plan = episode_revision.reanchor(existing_by_subject, revisions or {})
 
     # ---- Stage 3: reconcile against existing in-page claims (trust-gated) ----
     reconciled, nudges, audit = reconcile_stage3(
@@ -370,7 +544,15 @@ def run_claim_pipeline(
         settings,
         now_date=today,
         **({} if decay else {"decay": False}),
+        **({"revised": revision_plan.revised_out} if revision_plan.revised_out else {}),
     )
+    audit.extend(number_audit)
+    withdrawn = episode_revision.settle(reconciled, revision_plan, revisions or {}, today, audit)
+    if revisions:
+        superseded = sum(1 for a in audit if a.get("action") == "revised")
+        logger.info(f"Claim pipeline: {len(revisions)} revised conversation(s) — {revision_plan.reanchored} span(s) "
+                    f"re-anchored, {revision_plan.stale} no longer in the text, {superseded} claim(s) replaced by "
+                    f"the revision, {withdrawn} withdrawn")
     # G113 — every supersede/reject the reconciler decided lands in the ledger.
     # One pass covers every subject, so the subject is recovered per entry from
     # the claim ids involved rather than passed once for the whole batch.
@@ -381,6 +563,15 @@ def run_claim_pipeline(
             entry.get("closed") or entry.get("kept")
         )
         telemetry.record_audit([entry], subject_hint=subject, bank=memory_path.name, stage="reconcile")
+    # G104 slice 2: the pages where a revision closed a claim — their prose follows (`revision_prose`, Stage 5.58).
+    revision_closed: dict[str, list[str]] = {}
+    for entry in audit:
+        if entry.get("action") in ("revised", "revision_withdrew"):
+            closed_id = entry.get("closed")
+            ep = revision_plan.revised_out.get(closed_id)
+            subject = subject_by_id.get(closed_id)
+            if ep and subject and ep not in revision_closed.setdefault(subject, []):
+                revision_closed[subject].append(ep)
 
     # ---- Stage 5: write reconciled claims back INTO each entity page ----
     entities_dir = memory_path / "entities"
@@ -446,6 +637,13 @@ def run_claim_pipeline(
                 f"claim write-back skipped for {subject}: {type(e).__name__}: {e}"
             )
 
+    # Ruling 55: two people holding one current number is a duplicate-people signal (G209): a question.
+    _ask_shared_numbers(memory_path, reconciled, incoming, owner_id)
+
+    for slug, claims in held_offers.items():
+        page_less_offers.setdefault(slug, []).extend(claims)
+        page_less_claim_ids.extend(c.id for c in claims)
+
     # ---- G141 PJ-0b: settle the pending store — release, then hold (R-HP4, R-HP10) ----
     hold = _settle_store(memory_path, releases, set(written_subjects), page_less_offers, stage1_ids,
                          refs.reserved_slugs())
@@ -492,5 +690,6 @@ def run_claim_pipeline(
         "claims_page_less": claims_page_less,
         "page_less_subjects": sorted(page_less_subjects),
         "relabelled_events": relabelled,
+        "revision_closed": revision_closed,
         **hold,
     }

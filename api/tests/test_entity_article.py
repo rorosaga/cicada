@@ -115,6 +115,19 @@ def test_claims_are_inputs_with_their_own_evidence():
     assert c0.kind == "claim" and c0.said_on == ["2026-03-01"] and c0.evidence[0]["kind"] == "user"
 
 
+def test_an_inferred_claim_reaches_the_writer_marked_as_one():
+    """Ruling 48 (16), DR-80: what an agent only inferred is worded as an inference in the article."""
+    guess = Claim(id="clm_2", text="alpha-project seems to favour local files.", subject="alpha-project",
+                  predicate="prefers", object="local-files", epistemic="inductive", valid_from="2026-03-02")
+    said = Claim(id="clm_3", text="alpha-project uses SQLite.", subject="alpha-project", predicate="uses",
+                 object="sqlite", valid_from="2026-03-01")
+    inputs = _inputs(original_body=write_claims("## Summary\nA notes app.", [guess, said]))
+    texts = {s.text for s in inputs.sources if s.kind == "claim"}
+    assert f"{article.INFERRED} alpha-project seems to favour local files." in texts
+    assert "alpha-project uses SQLite." in texts
+    assert '"(inferred)"' in article.PROMPT
+
+
 def _answer(**over):
     answer = {
         "summary": {"text": "alpha-project is a notes app bob-example builds; it has 40 users as of March 2026.",

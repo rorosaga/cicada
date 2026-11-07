@@ -451,3 +451,22 @@ def test_recall_says_when_an_old_item_came_in(tmp_path):
     assert mcp_tools._unread_label(memory, "ep_2023-05-01_001") == f" (2023-05-01, added {day}, not yet read by Sleep)"
     assert mcp_tools._unread_label(memory, "ep_2023-05-02_001") == f" (added {day})"
     assert mcp_tools._unread_label(memory, "ep_2023-05-03_001") == ""
+
+
+def test_delivered_at_is_the_newest_receipt_and_mixed_shapes_order_by_instant():
+    """CIC8 (ruling 39): a source's recency is when Cicada got the episode; a stamp-less older episode keeps its own
+    date. `is_later` compares one shape as strings and parses only a mixed pair."""
+    from api.services import episode_time
+
+    assert episode_time.delivered_at({"timestamp": "2025-01-01T00:00:00Z",
+                                      "received_at": "2026-10-29T13:00:00+00:00"}) == "2026-10-29T13:00:00+00:00"
+    assert episode_time.delivered_at({"timestamp": "2025-01-01T00:00:00Z",
+                                      "received_at": "2026-10-28T09:00:00+00:00",
+                                      "captured_at": "2026-10-29T08:00:00Z"}) == "2026-10-29T08:00:00Z"
+    assert episode_time.delivered_at({"timestamp": "2024-01-01T09:00:00+00:00"}) == "2024-01-01T09:00:00+00:00"
+    assert episode_time.delivered_at({}) == ""
+    assert episode_time.is_later("2026-10-29T10:00:00+00:00", "2026-10-29T09:59:59+00:00")
+    assert episode_time.is_later("2026-10-29T10:00:00+02:00", "2026-10-29T07:00:00+00:00")   # 08:00 UTC is later
+    assert not episode_time.is_later("2026-10-29T10:00:00+02:00", "2026-10-29T09:00:00+00:00")
+    assert episode_time.is_later("2026-10-29T10:00:00Z", "2026-10-29T09:00:00.123456+00:00")
+    assert episode_time.is_later("2026-10-29", "") and not episode_time.is_later("", "2026-10-29")

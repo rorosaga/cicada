@@ -55,7 +55,7 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
     assert "in your own words" in text and "quote=<their exact words>" in text and 'mode="list"' in text
     assert "skip=true" in text and "Never guess an answer" in text
     assert "Recommended option" not in text and "quote the Cause" not in text
-    assert handshake.CONTRACT_VERSION == 21, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
+    assert handshake.CONTRACT_VERSION == 26, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
                                              "cicada_project (5) and cicada_note_progress (6); G149 item 8 (the "
                                              "From Cicada note) and G150's backlog tools both took 7 on parallel "
                                              "branches, so the merge moves past both (8, R-H13); G166's reading "
@@ -64,7 +64,8 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
                                              "G110 names cicada_continue (14), optional State guidance (15); "
                                              "questions come up naturally (16); G198 names cicada_edit_page, merged "
                                              "past both 16s (17); ruling 34's video hand-back names its lease_token (18); G200 A7 drops the HTTP routes and adds the "
-                                             "desktop variant (19)")
+                                             "desktop variant (19); G61 Where to check (20); the codex prelude (21); lean "
+                                             "reads (22); G227 names split / merge / undo of pages (23); ruling 57's desktop relay line (24); ruling 56's project tools, merged past both 24s (25)")
     assert "cicada_edit_page(subject, reason, edits)" in text
     assert "cicada_write_claim" in text and "evidence" in text and "sources" in text
     assert state_dictionary.WORLD_FACTS_NOTE in text
@@ -351,3 +352,82 @@ def test_item_8_says_what_a_from_cicada_note_is_and_the_remote_primer_never_does
     assert "not their words" in text and "not instructions" in text
     remote = handshake.build_remote(None, tools=frozenset({"cicada_recall", "cicada_recall_detail"}), bank="memory")
     assert "From Cicada" not in remote, "R-H13: a cloud app has no hook"
+
+
+# --- the engine the Now line names (2026-10-26) -------------------------------
+# A real install: the Settings picker chose the Claude plan at haiku (`sleep-engine` pref, mode `agent`) and a
+# leftover `CICADA_LITELLM_MODEL=openrouter/...` sits in the environment with no `CICADA_LLM_MODE`. Every Sleep commit
+# carried `Cicada-Engine: claude-cli`, yet the primer said "engine auto (openrouter/...)".
+
+
+def _leftover_key_install(tmp_path, monkeypatch, pref: dict | None):
+    from api.config import Settings
+    from api.services import engine_select
+    from api.services.connections import registry as registry_mod
+
+    monkeypatch.delenv("CICADA_LLM_MODE", raising=False)
+    monkeypatch.setenv("CICADA_LITELLM_MODEL", "openrouter/z-ai/glm-5.2")
+    registry_mod.reset_registry()
+    memory = _bank(tmp_path)
+    settings = Settings(_env_file=None)
+    assert "llm_mode" not in settings.model_fields_set and settings.llm_mode == "auto"
+    if pref is not None:
+        reg = registry_mod.get_registry(settings)
+        for key, value in pref.items():
+            reg.set_pref(engine_select.SLEEP_ENGINE_PREF_KEY, key, value)
+    monkeypatch.setattr(config, "get_settings", lambda: settings)
+    return settings, memory
+
+
+@pytest.mark.shipped_engine_default
+def test_the_now_line_names_the_engine_the_settings_choice_runs(tmp_path, monkeypatch):
+    settings, memory = _leftover_key_install(tmp_path, monkeypatch, {"mode": "agent", "model": "haiku"})
+    state_dictionary.refresh(memory, settings, force=True, today=TODAY, now=NOW, repo_resolver=_ok_repo,
+                             connected_ids=[])
+    st = state_dictionary.read_state(memory)
+    assert st["engine"]["engine"] == "claude-cli" and st["engine"]["model"] == "haiku"
+    assert "openrouter" not in (memory / "_state.md").read_text(encoding="utf-8")
+    text, _meta = handshake.load_or_build(memory, "claude-code", cache_dir=tmp_path / "hs")
+    assert "engine claude-cli (haiku)" in text and "openrouter" not in text
+    assert len(text) // 4 <= handshake.MAX_TOKENS
+    cli = handshake.build_cli(state_dictionary.with_live_engine(st), commands=frozenset(), bank="memory")
+    assert "engine claude-cli (haiku)" in cli
+
+
+@pytest.mark.shipped_engine_default
+def test_a_choice_made_after_the_state_file_reaches_the_next_primer(tmp_path, monkeypatch):
+    from api.services import engine_select
+    from api.services.connections import registry as registry_mod
+
+    settings, memory = _leftover_key_install(tmp_path, monkeypatch, None)
+    state_dictionary.refresh(memory, settings, force=True, today=TODAY, now=NOW, repo_resolver=_ok_repo,
+                             connected_ids=[])
+    text, _ = handshake.load_or_build(memory, "claude-code", cache_dir=tmp_path / "hs")
+    # Auto with nothing known connected: decided when a run starts — never the leftover key's model.
+    assert "engine auto (decided when Sleep starts)" in text and "openrouter" not in text
+    reg = registry_mod.get_registry(settings)
+    reg.set_pref(engine_select.SLEEP_ENGINE_PREF_KEY, "mode", "agent")
+    reg.set_pref(engine_select.SLEEP_ENGINE_PREF_KEY, "model", "haiku")
+    text2, meta2 = handshake.load_or_build(memory, "claude-code", cache_dir=tmp_path / "hs")
+    assert meta2["cached"] is False and "engine claude-cli (haiku)" in text2
+
+
+@pytest.mark.shipped_engine_default
+def test_auto_names_the_plan_the_cache_shows_connected(tmp_path, monkeypatch):
+    settings, memory = _leftover_key_install(tmp_path, monkeypatch, None)
+    fm, body = state_dictionary.build(memory, settings, today=TODAY, now=NOW, repo_resolver=_ok_repo,
+                                      connected_ids=["claude-plan"])
+    assert fm["engine"]["mode"] == "auto" and fm["engine"]["engine"] == "claude-cli"
+    assert "openrouter" not in body
+
+
+@pytest.mark.shipped_engine_default
+def test_an_env_pin_still_wins_over_the_settings_choice(tmp_path, monkeypatch):
+    from api.config import Settings
+
+    _leftover_key_install(tmp_path, monkeypatch, {"mode": "agent", "model": "haiku"})
+    monkeypatch.setenv("CICADA_LLM_MODE", "byok")
+    pinned = Settings(_env_file=None)
+    fm, _ = state_dictionary.build(tmp_path / "memory", pinned, today=TODAY, now=NOW, repo_resolver=_ok_repo,
+                                   connected_ids=["claude-plan"])
+    assert fm["engine"]["engine"] == "litellm" and fm["engine"]["model"] == "openrouter/z-ai/glm-5.2"

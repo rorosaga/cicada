@@ -150,7 +150,8 @@ def test_a_subscribed_feed_is_not_connected_while_this_backend_fetches_no_feeds(
         assert chans[cid]["connected"] is False
         assert chans[cid]["count"] == 1, "the subscription is kept"
         assert chans[cid]["last_error"] == channel_registry.FEED_FETCH_OFF
-        assert chans[cid]["detail"] == "Not fetched"
+        assert chans[cid]["detail"] == "Not checked"
+        assert "CICADA_" not in chans[cid]["last_error"], "words the person can act on, never a variable's name"
     assert _channels(tmp_path, feed_fetch_allowed=True)["rss"]["connected"] is True
     # Nothing subscribed says nothing either way.
     assert _channels(tmp_path / "empty", feed_fetch_allowed=False)["rss"]["last_error"] is None
@@ -313,8 +314,9 @@ def test_channel_ids_now_include_all_three_connectors(client):
     ids = [ch["id"] for ch in c.get("/sources/channels").json()["channels"]]
     assert ids == [
         "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini", "chrome-bookmarks",
-        "safari-bookmarks", "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x",
-        "telegram", "files", "calendar-local", "contacts-local", "reminders-local", "notion",
+        "safari-bookmarks", "safari-tabs", "notes", "rss", "substack-feeds", "calendar", "pinterest", "reddit", "x",
+        "notion-api", "github", "linear-api", "telegram", "files", "calendar-local", "contacts-local", "reminders-local", "notion", "goodreads",
+        "book-scan",
     ]
 
 
@@ -370,16 +372,24 @@ def test_channels_etag_moves_when_the_always_listed_rows_change(client, monkeypa
     assert c.get("/sources/channels", headers={"If-None-Match": etag}).status_code == 200
 
 
-def test_files_channel_counts_the_url_index(tmp_path):
-    sources = tmp_path / "sources"
-    sources.mkdir(parents=True)
-    (sources / "url_index.json").write_text(
-        json.dumps({"h1": {"url": "https://a.example"}, "h2": {"url": "https://b.example"}}),
-        encoding="utf-8")
+def test_files_channel_counts_the_links_the_person_saved_not_every_indexed_item(tmp_path):
+    entities = tmp_path / "entities"
+    entities.mkdir(parents=True)
+    for name, origin in (("media-a", ""), ("media-b", "origin: saved-link\n"), ("media-c", "origin: x-bookmarks\n"),
+                         ("media-d", "origin: safari-bookmark\n")):
+        (entities / f"{name}.md").write_text(
+            f"---\nid: {name}\ntype: media\nstatus: active\n{origin}source_episodes: []\n---\n\n# {name}\n",
+            encoding="utf-8")
     ch = _channels(tmp_path)["files"]
     assert ch["connected"] is True and ch["count"] == 2
     assert ch["count_noun"] == "saved item" and ch["detail"] is None
     assert ch["actions"] == ["import"]
+    # only another source's saves: Files & links is not connected
+    (entities / "media-a.md").unlink()
+    (entities / "media-b.md").unlink()
+    bank_index.invalidate()
+    ch = _channels(tmp_path)["files"]
+    assert ch["connected"] is False and ch["count"] == 0
 
 
 @pytest.fixture
@@ -403,8 +413,9 @@ def test_get_sources_channels_returns_every_known_channel(client):
     ids = [ch["id"] for ch in resp.json()["channels"]]
     assert ids == [
         "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini", "chrome-bookmarks",
-        "safari-bookmarks", "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x",
-        "telegram", "files", "calendar-local", "contacts-local", "reminders-local", "notion",
+        "safari-bookmarks", "safari-tabs", "notes", "rss", "substack-feeds", "calendar", "pinterest", "reddit", "x",
+        "notion-api", "github", "linear-api", "telegram", "files", "calendar-local", "contacts-local", "reminders-local", "notion", "goodreads",
+        "book-scan",
     ]
     assert all(ch["connected"] is False for ch in resp.json()["channels"])
 
@@ -507,3 +518,16 @@ def test_parts_ship_only_positive_known_counts(tmp_path):
     sync_state.record_sync(tmp_path, "safari-bookmarks", count=9,
                            extra={"reading_list": 2, "favorites": 0, "surprise": 4})
     assert _channels(tmp_path)["safari-bookmarks"]["parts"] == [{"key": "reading-list", "count": 2}]
+
+
+def test_a_connector_failure_ships_its_typed_code_beside_the_plain_words(tmp_path):
+    sync_state.record_error(tmp_path, "github", "GitHub asked Cicada to slow down. Nothing is lost.", kind="rate")
+    from api.services import channel_registry
+
+    row = {r["id"]: r for r in channel_registry.build_channels(
+        tmp_path, telegram_enabled=False, connectors_connected={"github": True})}["github"]
+    assert row["last_error_code"] == "rate" and row["last_error"].startswith("GitHub asked")
+    sync_state.record_sync(tmp_path, "github", count=2)
+    row = {r["id"]: r for r in channel_registry.build_channels(
+        tmp_path, telegram_enabled=False, connectors_connected={"github": True})}["github"]
+    assert row["last_error_code"] is None

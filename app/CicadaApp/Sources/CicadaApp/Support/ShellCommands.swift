@@ -45,6 +45,16 @@ struct ShellCommands: Commands {
                 .disabled(updates.state == .checking)
             }
         }
+        // Tester readiness (2026-10-26) — Help → Report a Problem…: the report is shown before anything is sent. With
+        // no window open (the app in the menu bar) one opens and shows the sheet.
+        CommandGroup(after: .help) {
+            Button(Copy.ReportProblem.menuItem) {
+                Task { @MainActor in
+                    router.reportProblemOpen = true
+                    if !router.activateMainWindow() { openWindow(id: CicadaApp.mainWindowID) }
+                }
+            }
+        }
         CommandGroup(before: .sidebar) {
             Button(labelled ? Copy.showIconRail : Copy.showLabelledSidebar) { labelled.toggle() }
                 .keyboardShortcut("s", modifiers: [.control, .command])

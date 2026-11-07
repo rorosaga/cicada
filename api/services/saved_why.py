@@ -500,3 +500,97 @@ def commit_message(episode_id: str) -> str:
     return git_service.build_commit_message(
         "Why it was saved", [f"episodes/{episode_id}.md: updated (trigger: {TRIGGER})"],
         authors=[git_service.USER_AUTHOR])
+
+
+# ---- the reason as a signal for reading (vision item 1, 2026-10-28) ------------------------------------------------
+#
+# The owner: "Reading the saved websites and if there was a reason written when saved take that as signal for
+# specifics." Before this, the reason reached only site exploration (``explore_plan``). These two functions are the one
+# way every other reader — the reading queue, link enrichment, Stage 1's note, the where-to-check step — gets it.
+
+#: A reason as a reader is handed it: one line, never a paragraph.
+REASON_CAP = 240
+#: The two headings a save's reason lives under: this module's, and a Telegram ``/save``'s (``media_ingestor``).
+REASON_HEADINGS = (HEADING, "## Saved because")
+
+
+@dataclass(frozen=True)
+class Reason:
+    """The newest reason the person gave for saving a link: ``text`` one scrubbed line (the reasons' labels, then their
+    own words), ``at`` when it was said (empty for a ``## Saved because`` reason, which is as old as the save), and
+    the ``episode`` it is written on."""
+
+    text: str
+    at: str
+    episode: str
+
+
+def _one_line(parts: list[str]) -> str:
+    text = "; ".join(" ".join(p.split()) for p in parts if p and p.strip())
+    text, _ = episode_scrub.scrub(text)
+    return text if len(text) <= REASON_CAP else text[: REASON_CAP - 1].rstrip() + "…"
+
+
+def reason_of(memory_path: Path, episode_ids) -> Reason | None:
+    """The newest reason on any of ``episode_ids`` (a saved link's episodes): G191's answer (its labels, a project as
+    "For <name>", the person's words) or, failing that, a ``## Saved because`` section. ``None`` when the person gave
+    none. Reads cached frontmatter (``bank_index``); a body is parsed only for an episode with no structured answer.
+    Never writes, never calls a model."""
+    from api.services import explore_plan
+
+    memory_path = Path(memory_path)
+    best: Reason | None = None
+    for raw in episode_ids or ():
+        ep = str(raw or "").strip()
+        if not ep.startswith("ep_"):
+            continue
+        f = bank_index.file(memory_path, "episodes", f"{ep}.md")
+        if f is None:
+            continue
+        records = records_of(f.frontmatter or {})
+        if records:
+            newest = wire(records[-1], added_at=None) or {}
+            labels = list(newest.get("labels") or [])
+            if newest.get("project"):
+                labels.append(f"For {_name_of(memory_path, newest['project'])}")
+            text = _one_line(labels + [str(newest.get("text") or "")])
+            at = str(newest.get("at") or "")
+        else:
+            # A `## Saved because` section has no frontmatter mark: a plain substring test on the file comes first, so
+            # a scan over every saved link parses only the bodies that hold one.
+            try:
+                raw = (memory_path / "episodes" / f"{ep}.md").read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            because = explore_plan.saved_because(memory_path, ep) if REASON_HEADINGS[1] in raw else None
+            text, at = (_one_line([because]) if because else ""), ""
+        if text and (best is None or at > best.at):
+            best = Reason(text=text, at=at, episode=ep)
+    return best
+
+
+def reason_span(memory_path: Path, episode_id: str) -> tuple[int, int] | None:
+    """``(start, end)`` of the reason's words in the episode's evidence text (``evidence.source_text``): the section
+    under :data:`REASON_HEADINGS`, heading excluded, trailing blank lines trimmed — what a where-to-check row cites as
+    the person's own words. ``None`` when the episode carries no reason section."""
+    import re
+
+    from api.services import evidence
+
+    text = evidence.source_text(Path(memory_path), episode_id)
+    if not text:
+        return None
+    for heading in REASON_HEADINGS:
+        m = re.search(rf"(?m)^{re.escape(heading)}[ \t]*$", text)
+        if m is None:
+            continue
+        start = m.end()
+        while start < len(text) and text[start] in "\r\n":
+            start += 1
+        nxt = re.search(r"(?m)^## ", text[start:])
+        end = start + (nxt.start() if nxt else len(text) - start)
+        while end > start and text[end - 1] in " \t\r\n":
+            end -= 1
+        if end > start:
+            return start, end
+    return None

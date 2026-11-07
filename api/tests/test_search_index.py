@@ -370,3 +370,15 @@ def test_an_odd_byte_in_a_git_file_is_not_an_error(tmp_path):
     memory = _bank(tmp_path)
     (memory / ".git").write_bytes(b"gitdir: /nowhere/caf\xe9\n")
     assert bank_registry.ensure_derived_excluded(memory) is False
+
+
+def test_episodes_with_words_finds_title_or_passage_and_every_token(tmp_path):
+    """source-page-v3 — a source page's search widens its title match with the words of the episodes behind it."""
+    memory = _bank(tmp_path)
+    _episode(memory, "ep_2026-09-01_001", "We booked the climbing wall for Saturday.", title="Chat one")
+    _episode(memory, "ep_2026-09-02_001", "Nothing here.", title="Climbing plans")
+    _episode(memory, "ep_2026-09-03_001", "Groceries: oats and lemons.", title="List")
+    search_index.rebuild(memory)
+    assert search_index.episodes_with_words(memory, "climb") == {"ep_2026-09-01_001", "ep_2026-09-02_001"}
+    assert search_index.episodes_with_words(memory, "climbing saturday") == {"ep_2026-09-01_001"}
+    assert search_index.episodes_with_words(memory, "x") == set(), "no usable token is no search"

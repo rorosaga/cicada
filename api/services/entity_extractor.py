@@ -13,9 +13,13 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import (correspondents, decay_policy, engine_errors, entity_types, episode_time, evidence, fact_policy,
-                          project_birth, promotion, section_provenance, source_dates)
+from api.services import (act_object, authorship, book_marks, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
+                          episode_revision, evidence, fact_policy, participation, phone_numbers, project_birth, promotion, section_provenance,
+                          sensitive_flags, source_dates)
 from api.services.json_parse import parse_json_object
+
+#: Stage 1's ``ask_person``: the model's one clause on why a question is worth the person's attention, kept for its card.
+MAX_ASK_REASON = 160
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
 Given a conversation transcript, extract meaningful entities and the relationships between them.
@@ -40,6 +44,9 @@ Output valid JSON with this exact structure:
       "confidence": 0.7,
       "decay_class": "durable|active|volatile",
       "website": "https://example.com   (optional; company, tool or project only)",
+      "application": {"status": "drafted|filled|sent|registered|accepted|rejected|attended", "by": "user|assistant"},
+      "reading_status": {"status": "reading|finished|want|not_started", "quote": "the user's exact words", "on": "YYYY-MM-DD   (optional)"},
+      "ask_person": "what rests on the answer, in one short clause   (optional; see ASK PERSON below)",
       "description": "Optional. Same content as summary; kept only for backward compatibility."
     }
   ],
@@ -49,6 +56,7 @@ Output valid JSON with this exact structure:
       "target": "Entity Name B",
       "label": "specific relationship verb phrase",
       "evidence_quote": "the exact words from the transcript this relationship rests on (verbatim, at most 240 characters)",
+      "starts": "YYYY-MM-DD   (optional; see STARTS below)",
       "ends": "YYYY-MM-DD   (optional; see ENDS below)",
       "at": "Organisation Name   (optional; reports to / managed by / manages only; see AT below)"
     }
@@ -79,16 +87,41 @@ SUMMARY (## Summary) — one paragraph, at most 600 characters:
 - skill: 1 sentence, written as an instruction. person, tool, concept, location, directory: 1-2
   sentences. project, company: 2-3 sentences.
 - Introduce the thing once. Atomic facts belong in key_facts, not in the summary.
+- A sentence about something other than the entity names it ("is applying to [[<event>]]; its form
+  was filled in on …"), never "the form", "the event" or "it" left for the sentence before to explain.
 
 KEY FACTS (## Key Facts) — facts about the thing worth remembering:
 - First the user's relation to it: what they built, chose, use it for, decided, plan, think of it.
 - Then durable facts about the thing that this conversation established: roles, components the
   user relies on, dates-as-facts, identifiers, quantities, prices, versions the user chose,
   locations, affiliations, contact handles.
+- Every fact stands alone: it is read without the facts around it, on a page that may hold thousands.
+  Name what it is about — "the [[<event>]] application form", never "the application form",
+  "the event", "the trip" or "it" when the thing has a name — on whichever entity it sits, the user's
+  own included.
 - Write each fact about the thing, not about the conversation: never "the assistant suggested /
   said / recommended / explained …", "was described as …", "was mentioned / discussed in a
-  conversation", "the user asked about …". When the user acted on an assistant's suggestion, write
-  what they did or decided; a suggestion nobody took up is not a fact about the thing.
+  conversation", "the user asked about …".
+- WHO DID IT. What the user did, decided, has or plans comes only from the user's own lines, or from a
+  record the conversation shows (a confirmation, a receipt, an order or booking number). An assistant's
+  explanation, suggestion or instruction ("the link is for registering", "register soon") is never
+  written as the user's act: "registered", "booked", "applied", "sent", "paid" need the user's own
+  words or such a record. A stated plan stays a plan ("planned to register"). When the user says they
+  acted on a suggestion, write what they did; a suggestion nobody took up is not a fact about the thing.
+- TAKING PART NEEDS A ROLE IN THE TEXT. "competed in", "took part in", "won", "attended", "worked at", "interned
+  at", "studied at" and "graduated from" are written only when the text says that role in those words or plainly
+  equivalent ones ("we competed", "I was on the team", "my internship at"). A mention, "the <event> story", "a story
+  about <event>", "the topic of", "an essay on" or a thing someone else did (coached, helped, watched, organised) is
+  never taking part: write what the text says ("<user> coached <person> for <event>", "<user>'s application essay
+  was about <event>"), or "mentioned". An assistant's summary or memory note compresses: read it for what it states,
+  never for what its shorthand could imply.
+- An act the assistant did itself in the user's tools — filled in a form, drafted, booked, uploaded,
+  sent — is the assistant's: write it with the assistant's name as the note before the conversation
+  gives it ("[[<agent>]] filled in the [[<event>]] application form on <date>"), never as the
+  user's, and never as "the assistant". A step it left to the user (submit, send, pay, confirm) is not
+  done: say so on the thing it belongs to ("the request to join had not been sent as of <date>"), add
+  an open question there ("Has <user> sent the [[<event>]] request to join?"), and give that
+  thing a status value (VALUES).
 - Leave out implementation trivia of a single debugging or how-to session — an artifact or file
   name, an action or package version, an error message, a command, a line of code — unless the user
   said it matters beyond that session.
@@ -130,6 +163,44 @@ WEBSITE (optional, company, tool or project ONLY) — the entity's own official 
 - An origin URL only ("https://example.com"): never a profile, an article, a repository host or a social page.
 - Omit it when unsure. A guess is worse than nothing: it is checked against the site itself and removed when wrong.
 
+APPLICATION (optional, per entity) — only on a SPECIFIC event, program, hackathon, fellowship, course or job
+opening the user acted on in this conversation: applied to it, registered or signed up for it, filled in its form —
+or the assistant did one of those for them in their tools ("by": "assistant").
+- status: where it stands at the end of the conversation — drafted, filled (form filled in, not sent), sent,
+  registered, accepted, rejected, attended.
+- The entity is the event or program itself (its own name), never the user, and never the place it is held or who
+  runs it: "I signed up for a <workshop> at the <venue>" is "<user> signed up for <workshop>" and "<workshop> held at
+  <venue>" — never "<user> signed up for <venue>". Its facts — the form, the dates, the
+  status, what is left to do — go on it, not on the user's own entity; the user keeps only the relationship
+  ("<user> applied to <event>").
+- Never for a bookmark, a link saved for later, a thing only mentioned or considered, or an assistant only
+  explaining how to apply. Omit the field otherwise.
+
+READING STATUS (optional, per entity) — only on a SPECIFIC book, named by its title, when the USER'S OWN line, read in
+the context of the conversation, says where THEY stand with it now:
+- status: reading (they started it or are in it), finished (they read it to the end), want (they mean to read it),
+  not_started (they have it and say they have not begun).
+- quote: their exact words, verbatim, at most 240 characters, from a line of the user's. "it" is fine when the
+  conversation makes plain which book ("How was <title>?" "Finished it last night.").
+- on: the day they started or finished it, only when the conversation states it (as ENDS says); else omit.
+- Omit the field for someone else's reading ("my friend finished <title>"), a wish or a plan about a book they are not
+  saying where they stand with ("I'd love to finish <title>"), a question, a thing they only asked about or looked up,
+  the film or series of the name, a book they are writing, and anything only the assistant said. This field is the
+  only place for it: no value for it in values[]. Unsure? Omit it.
+
+ASK PERSON (optional, per entity) — a question goes to the person's inbox and costs their attention, so it has to earn
+it. Set ask_person only when both of these hold, and write the stake itself in one short clause, in plain words ("the
+lease depends on him"), never that you do not know who this is:
+- Only they can answer: the conversation leaves open who or what this is to them, who holds it or where it stands, and no
+  public source could.
+- Something real rests on it: money, a deadline, a decision or a commitment in this conversation turns on this name, or
+  it is a thing still in motion that will matter later, such as an ongoing project whose owner or status is left unclear,
+  so memory would act differently knowing the answer.
+Omit it otherwise, which is nearly always. What the conversation itself explains needs no question, nor does a thing anyone
+could look up. A name in a to-do, a remark or a list with nothing depending on it ("call <name>", "<name> said no") has no stake memory
+could act on, however little is said about them: the person knows who they meant. A name you do not ask about is not lost: it waits with what
+was said about it, and it comes back if it is named again.
+
 TIME (every conversation is written up as of its own date):
 - A note before the conversation gives the date it took place and today's date. Write what it says as of the
   conversation's date, never as of today.
@@ -149,7 +220,9 @@ TIME (every conversation is written up as of its own date):
 
 VALUES (values[]) — a value of something about an entity that a later conversation can replace with a new one:
 a count ("korean restaurants tried": "4"), a time, score or personal best ("charity 5k personal best": "25:50"),
-a price or amount, a size, a version or plan in use, a current status. One entry per value the conversation
+a price or amount, a size, a version or plan in use, a current status — an application, booking, order or
+message the conversation leaves part-done included ("application status": "form filled in, not sent"), so a
+later conversation's "sent" or "accepted" replaces it. One entry per value the conversation
 states as true at the time; when it states two for the same thing, the later one.
 - attribute: the thing measured, in plain lowercase words, without the entity's name and without the value — the
   words someone would use for it again next time ("personal best 5k time", not "new record set last spring").
@@ -161,6 +234,9 @@ EXTRACTION GUIDELINES:
 - The agent's own runtime (its working directory, platform, shell, git status, the date of the session)
   is never conversation content: extract nothing from it, and never an entity for a path it shows you.
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
+- An entity's name is a name: what the thing is called, something a person could say again in another conversation. What
+  someone does, knows or is good at, said as a phrase ("maintains <x> checklists for <y>"), is a key_fact on whoever does
+  it or on the thing it is for, never an entity of its own. Write a name as it was said, with nothing added to it.
 - A detail of the assistant's answer is not an entity: a function or variable in a code example, a
   command, a library, tool or place the assistant only suggested or listed. Extract it only when the
   user engaged with it — used it, asked about it by name, chose it, built it, went there.
@@ -178,10 +254,12 @@ EXTRACTION GUIDELINES:
 - aliases: other NAMES the same thing goes by ("Mongo" for MongoDB, an acronym, a nickname). Never a
   reference that only makes sense inside this conversation ("the database", "this project", "my app",
   "the new format"), and never the name of a part, product, dataset, file format or version of the
-  entity — that is a different thing. Leave empty if there is only one name.
+  entity, nor of the larger thing it belongs to, its maker or an alternative to it ("<product>" is
+  not an alias of "<product> Desktop") — that is a different thing. Leave empty if there is only one name.
 - Use wikilinks `[[Entity Name]]` inside summary and key_facts to reference other entities.
   Do NOT fabricate links bullets — those come only from real URLs in the source.
 - Entity types must be exactly one of: person, project, company, concept, tool, skill, location, directory.
+- A language's built-in or a single function or method (len(), asyncio.gather) is no entity: at most a key_fact on its language or library.
 - DUE-DATES ARE NOT ENTITIES. Do NOT create a standalone entity for a deadline or a bare date.
   When something is due by a date, attach it as a relationship whose source is the thing that is
   due (the project/task), label is "due", and target is the date literal (e.g. "2026-06-30"). You
@@ -196,6 +274,12 @@ EXTRACTION GUIDELINES:
 - "works at" says the place is CURRENT. A job or role that ended is labelled by its ending — "left",
   "previously worked at" — never "works at". Two places at once (a job and a lab, a day job and a side
   project) are two "works at" relationships; one never replaces the other.
+- The same holds for where someone lives, studies and who they report to: "lives in", "studies at" and
+  "reports to" say it is CURRENT; one that ended is "previously lived in", "studied at", "graduated from",
+  "previously reported to". A job, home or school someone had before — a public figure's earlier employers
+  included, whether the conversation says it or you know it — is never written in the present tense.
+  A job that began ("joined", "started at", "was hired by") is "works at", a home someone moved to "lives in",
+  each with STARTS when the day is said; joining a club, a team, a course or a university is never "works at".
 - A SWITCH IS SAID ABOUT WHAT SWITCHED. When the user's words say they dropped, stopped using, moved off,
   moved from or switched away from something — "moved from A to B", "replaced A with B" included — FOR A PROJECT (the project is named in that turn, or is plainly what that turn is
   about), the source is the PROJECT: "<project> dropped <old thing>", and what takes its place is "<project> uses
@@ -207,6 +291,10 @@ EXTRACTION GUIDELINES:
   2026-03-11; "yesterday was my last day" is 2026-03-03. On an ending ("left", "dropped") it is the day it ended;
   on any other relationship ("works at" with a last day ahead) it is the day it will stop. Omit it when no day is
   stated, or when the day is unclear — never a relative phrase, never a guess.
+- STARTS (optional): the day a relationship began, when the conversation states that day — a first day at a
+  job, the day someone joined or moved. An absolute YYYY-MM-DD resolved from the conversation's date as TIME
+  says: said on 2026-05-20, "as of yesterday, joined" is 2026-05-19. Omit it when no day is stated or it is
+  unclear, and on an ending or a past tense ("left", "worked at") — never a relative phrase, never a guess.
 - AT (optional, only on "reports to", "managed by" and "manages"): the organisation that working relationship
   belongs to, when the conversation says it (the user's manager at the company they work at: "at" is that
   company).
@@ -359,6 +447,9 @@ MEMORY_SOURCE_NOTE = (
     "[Source: claude_memory — the assistant's own older summary about the user; "
     "dated, possibly outdated, lower trust.]\n\n"
 )
+#: Episode sources that get :data:`MEMORY_SOURCE_NOTE`: a chat export's memory entry and (ruling 43) an agent's own
+#: memory note — both the assistant's summary, dated when last edited, so a conversation's newer statement wins.
+MEMORY_SOURCES = frozenset({"claude_memory", "agent-memory"})
 
 
 #: G179: a message conversation's other side, told to the model before the conversation (the model sees the chunk,
@@ -391,6 +482,284 @@ def correspondent_observer(correspondent: dict | None) -> str | None:
 
     slug = sanitize_id(str(correspondent.get("name") or ""))
     return f"external:{slug}" if slug and slug != "unnamed" else None
+
+
+def _agent_name(episode: dict) -> str | None:
+    """The agent whose words are an episode's ``assistant:`` lines, from the episode's own record: the harness that
+    captured the session (``claude-code``, ``codex``…), else a chat export's app (``chatgpt-export`` → ``chatgpt``).
+    ``None`` for a message conversation (its correspondent says who), a relayed one (``evidence_kind``: stored as
+    relayed, its own rail) and anything else. An agent's saved note (ruling 50) is the harness or app that saved it,
+    named by its own record, so a claim resting on it is that agent's (``external:<harness>``)."""
+    if isinstance(episode.get("correspondent"), dict) or episode.get("evidence_kind"):
+        return None
+    from api.services.episode_title import assistant_of
+
+    harness = str(episode.get("harness") or "").strip().lower()
+    if authorship.of_episode(episode) == evidence.AGENT_KIND:
+        return assistant_of(harness) or (harness if harness not in ("", "unknown") else None)
+    return assistant_of(harness) or assistant_of(episode.get("origin"))
+
+
+def agent_save_note(episode: dict) -> str | None:
+    """Ruling 50: the note for an agent's saved note — its words are the agent's account, never the person's own
+    words, while what it records about the person is still worth keeping. ``None`` for every other episode."""
+    if authorship.of_episode(episode) != evidence.AGENT_KIND:
+        return None
+    from api.services.episode_title import PRODUCT
+
+    harness = str(episode.get("harness") or "").strip().lower()
+    who = PRODUCT.get(harness, harness) if harness not in ("", "unknown") else "an AI agent"
+    return (f"[Source: a note {who} saved to the person's memory. All of it is the agent's account, never the "
+            "person's own words: \"I\" or \"we\" in it is the agent (a \"speaker:\" line is that speaker). "
+            "Keep what it records about the person as the agent's statement.]\n\n")
+
+
+def agent_session_note(episode: dict) -> str | None:
+    """The note for a harness-captured session: its ``assistant:`` lines are that agent, acting in the person's tools
+    (its acts are its own, a step it left to the person is not done). ``None`` for every other episode."""
+    harness = str(episode.get("harness") or "").strip().lower()
+    if not harness or episode.get("capture_kind") != "transcript" or _agent_name(episode) is None:
+        return None
+    from api.services.episode_title import PRODUCT
+
+    name = PRODUCT.get(harness, harness)
+    return (f'[Source: a {name} session. Lines starting "user:" are the person\'s own messages; lines starting '
+            f'"assistant:" are {name}, an AI agent working for the person in their tools. What {name} says it did '
+            f"(filled in a form, wrote or sent something, booked) is {name}'s act, never the person's; a step it left "
+            "to the person (submit, send, pay, confirm) is not done.]\n\n")
+
+
+#: G95 (owner ruling 52, 2026-11-03, "Meetings ofc should also be consolidated in memory"): a meeting transcript from a
+#: recorder's folder is read like any conversation; only the lines the recorder labels as the person's are theirs (52a).
+MEETING_NOTE_PREFIX = "[Source: a recorded meeting's transcript"
+
+
+def meeting_note(episode: dict) -> str | None:
+    """The note for a meeting transcript (``meeting_transcripts``): ``user:`` lines are the person's own (the recorder
+    labelled them ``You``/``Me``), every ``speaker:<label>:`` line is someone else in the meeting, and ``assistant:``
+    lines are the recorder's own model-written summary, never the person's words. ``None`` for every other episode."""
+    meeting = episode.get("meeting")
+    if not isinstance(meeting, dict):
+        return None
+    from api.services import meeting_transcripts
+
+    recorder = meeting_transcripts.RECORDERS.get(str(meeting.get("recorder") or ""), "")
+    by = f", written by {recorder} on the person's computer" if recorder else ", kept in the person's meeting folder"
+    own = [str(x) for x in meeting.get("own_labels") or [] if str(x).strip()]
+    own_line = (f' Lines starting "user:" are the person\'s own words (the recorder labelled them '
+                f'"{own[0]}").' if own else " None of its lines is marked as the person's own words.")
+    return (f'{MEETING_NOTE_PREFIX}{by}.{own_line} Each line starting "speaker:<label>:" is someone else in the '
+            'meeting, labelled by the recorder: their words, never the person\'s, and "I" in such a line is that '
+            'speaker. Lines starting "assistant:" are the recorder\'s own model-written summary, never the person\'s '
+            "words. What someone says about the person is that speaker's statement, not something the person said.]\n\n")
+
+
+def linear_note(episode: dict) -> str | None:
+    """ROR-115: a Linear issue thread (``origin: linear-api``). Nothing in it is marked as the person's own words:
+    ``assistant:`` lines were written under the person's account or by an agent (Linear does not say which), and
+    ``speaker:<label>:`` lines are other people in the workspace."""
+    if str(episode.get("origin") or "").strip().lower() != "linear-api":
+        return None
+    return ('[Source: a Linear issue and its comments, read from the person\'s workspace. Lines starting '
+            '"assistant:" were written under the person\'s own Linear account or by an AI agent; Linear does not say '
+            'which, so they are not marked as the person\'s own words: treat what they state as the account\'s '
+            'statement, and a plan or decision there as recorded, not as something the person said. Lines starting '
+            '"speaker:<label>:" are other people in the workspace: their words, never the person\'s.]\n\n')
+
+
+#: ROR-15 (owner 2026-11-05: a pinned note "normally has a reason and can have some influence for consolidation"): one
+#: line, told as a fact about the note. The model judges what it means; there is no score and no rule, and a pin alone
+#: makes no page and no claim.
+PINNED_NOTE = "[Source: the person pinned this note in their Notes app.]\n\n"
+
+
+def pinned_note(episode: dict) -> str | None:
+    """``PINNED_NOTE`` for an Apple Note the person pinned (`notes_sync`), else ``None``."""
+    if episode.get("origin") == "apple-notes" and episode.get("pinned") is True:
+        return PINNED_NOTE
+    return None
+
+
+def relayed_note(episode: dict) -> str | None:
+    """Ruling 58: the note for a chat that went on after its import. ``None`` for every other episode."""
+    relay = episode.get("relay") if isinstance(episode.get("relay"), dict) else {}
+    if not isinstance(relay.get("tail_at"), int):
+        return None
+    return ('[Source: lines starting "relayed [" are what the person said later in this chat, as the app\'s model relayed '
+            'it: the model\'s account, which may paraphrase, never the person\'s own words.]\n\n')
+
+
+def project_note(episode: dict) -> str | None:
+    """Ruling 45 addendum: the provider's own project grouping (a ChatGPT ``g-p-`` id) or the relaying app's word on the
+    project, told to the model as context — the conversation sits in a project the person made there. Never a claim by
+    itself; ``None`` for every other episode."""
+    grouping = episode.get("provider_project")
+    relay = episode.get("relay") if isinstance(episode.get("relay"), dict) else {}
+    said = relay.get("project") if isinstance(relay.get("project"), str) else None
+    if isinstance(grouping, dict) and grouping.get("provider"):
+        app = {"chatgpt": "ChatGPT", "claude": "Claude"}.get(str(grouping["provider"]), str(grouping["provider"]))
+        name = str(grouping.get("name") or "").strip()
+        where = f'the person\'s {app} project "{name}"' if name else f"one of the person's {app} projects"
+        return f"[Context: this conversation was held inside {where}.]\n\n"
+    if said:
+        return f'[Context: the app that relayed this conversation said it belongs to the project "{said[:120]}".]\n\n'
+    return None
+
+
+def assistant_observer(episode: dict) -> str | None:
+    """``external:<name>`` — the observer of a claim drawn only from the other side's words: a message conversation's
+    correspondent (G179), else the agent whose ``assistant:`` lines they are (:func:`_agent_name`). ``None`` when the
+    episode names neither."""
+    observer = correspondent_observer(episode.get("correspondent"))
+    if observer:
+        return observer
+    from api.services.id_utils import sanitize_id
+
+    agent = _agent_name(episode)
+    slug = sanitize_id(agent) if agent else ""
+    return f"external:{slug}" if slug and slug != "unnamed" else None
+
+
+def _is_owner(entity: dict, owner: str | None) -> bool:
+    from api.services.owner_identity import is_self_reference
+    from api.services.text_fold import fold
+
+    name = " ".join(str(entity.get("name") or "").split())
+    return bool(name) and ((bool(owner) and fold(name) == fold(owner)) or is_self_reference(name))
+
+
+def _application_pages(entities: list, episode: dict, episode_id: str, content: str, *, owner: str | None,
+                       day: str | None, gaps=(), on_record=None) -> list[tuple[dict, bool]]:
+    """Ruling 42 at Stage 1 (`application_page`): mark each entity this conversation shows the person (or a harness
+    agent, for them) acted on, write its application onto it, and move what the owner's extraction says about it
+    there. The model's ``application`` field is consumed here and never reaches a page. Returns the status values to
+    add, each with whether an agent acted."""
+    from api.services import application_page
+
+    marked = []
+    for entity in entities:
+        if not isinstance(entity, dict):
+            continue
+        entity.pop(application_page.KEY, None)  # never the model's to set
+        birth = None
+        if not _is_owner(entity, owner):
+            birth = application_page.at_extraction(entity, episode_id=episode_id, frontmatter=episode, text=content,
+                                                   day=day, override=authorship.of_episode(episode), gaps=gaps)
+        entity.pop("application", None)
+        if birth is not None:
+            entity[application_page.KEY] = birth
+            marked.append(entity)
+    owners = [e for e in entities if isinstance(e, dict) and _is_owner(e, owner)]
+    if on_record is not None and owners:
+        # An application already on its own page (`application_page.standing`): what the owner's extraction says about
+        # it goes there whichever conversation says it, an act in this one or not (2026-10-29).
+        said = " ".join(application_page.owner_text(o) for o in owners)
+        for entity in entities:
+            if (isinstance(entity, dict) and all(entity is not m for m in marked) and not _is_owner(entity, owner)
+                    and application_page.names_it(said, entity) and on_record(entity)):
+                for owner_entity in owners:
+                    application_page.move_from_owner(owner_entity, entity, about_only=True)
+    if not marked:
+        return []
+    values = []
+    for entity in marked:
+        for owner_entity in owners:
+            application_page.move_from_owner(owner_entity, entity)
+        value = application_page.record_facts(entity, entity[application_page.KEY], owner=owner)
+        if value is not None:
+            values.append((value, entity[application_page.KEY]["by"] != "user"))
+    return values
+
+
+#: How the person's own reaction on the turn a claim rests on moves its confidence: agreement a little up (a 👍 often
+#: only means "got it"), doubt (❓, 👎) by half.
+AGREE_BONUS = 0.1
+AGREE_CAP = 0.95
+DOUBT_FACTOR = 0.5
+
+
+def _weigh_reaction(item: dict, episode: dict, content: str, episode_id: str) -> None:
+    """The person's own reaction on the one turn a claim rests on, read from the stored extras (`turn_signals`), never
+    from the model's word: it adjusts confidence and is recorded on the claim (``reactions``: who, stance, kind, and the
+    reacted turn's offset in the episode — the reaction's own key in ``turn_extras``, so its evidence by turn id). It
+    never changes the observer (#499 review): a texted agent's claim stays ``external:<agent>`` whatever the person
+    tapped. Never a claim by itself."""
+    found = turn_signals.person_stance(episode, content, item)
+    if found is None:
+        return
+    try:
+        confidence = float(item.get("confidence", 0.6) or 0.6)
+    except (TypeError, ValueError):
+        confidence = 0.6
+    if found["stance"] == "agree":
+        item["confidence"] = round(min(AGREE_CAP, max(confidence, confidence + AGREE_BONUS)), 2)
+    else:
+        item["confidence"] = round(confidence * DOUBT_FACTOR, 2)
+    item["reactions"] = [{**found, "episode": episode_id}]
+
+
+def group_members(episode: dict) -> list[dict]:
+    """A group chat's members as its episode records them (``participants``: ``[{marker, name?, kind?}]``), the
+    person excluded; ``[]`` for anything that is not a group."""
+    if not episode.get("group"):
+        return []
+    out = []
+    for p in episode.get("participants") or []:
+        if isinstance(p, dict) and str(p.get("marker") or "").startswith(("speaker:", "assistant")):
+            out.append({"marker": str(p["marker"]), "name": " ".join(str(p.get("name") or "").split())[:80],
+                        "kind": str(p.get("kind") or "person")})
+    return out
+
+
+def group_note(members: list[dict]) -> str:
+    """G179 groups: who each line's speaker is — each member's words are their own, never the person's."""
+    who = "; ".join(f'"{m["marker"]}:" is {m["name"] or "a member Cicada has no name for"}'
+                    + (", an AI agent" if m["kind"] == "agent" else "") for m in members[:30]) \
+        or "Cicada has no names for them"
+    return (f"{SOURCE_NOTE_PREFIX[:-1]} with several people (a group chat). Lines starting \"user:\" are the "
+            f"person's own messages; every other line is another member's: {who}. A member's words, and their "
+            "\"I\", are theirs, never the person's. Attribute a fact to the person only from their own lines.]\n\n")
+
+
+def _member_of(content: str, start: int) -> str | None:
+    """The marker of the last turn opened at or before ``start``."""
+    hit = None
+    for turn in evidence.turns(content):
+        if turn.start > start:
+            break
+        if turn.marker is not None:
+            hit = turn.marker
+    return hit
+
+
+#: A group claim resting on several members' lines (#499 re-check). One stable observer rather than the members'
+#: names joined: a joined name would mint a new observer for every combination and split one belief across them,
+#: while the evidence spans already say exactly who said what. It is never the person's.
+GROUP_OBSERVER = "external:group"
+
+
+def _observer_for(item: dict, their_observer: str | None, members: list[dict], content: str, *,
+                  group: bool = False) -> str | None:
+    """Who a claim is ``external:`` to, or ``None`` for the default reading. In a group, a claim with no span in the
+    person's own lines is never the default: one member's lines make it that member's, several members' (or a member
+    Cicada cannot name) :data:`GROUP_OBSERVER`. Otherwise the other side's when only their words carry it. A reaction
+    never changes it (`_weigh_reaction`). ``group`` is the episode's own flag: a group sitting that recorded no
+    members (unknown senders) is still a group (#499 re-check)."""
+    if group or members:
+        spans = [e for e in item.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
+        if not spans or any(e.get("kind") not in ("assistant", "speaker") for e in spans):
+            return None   # unlocated, or the person's own words back it
+        markers = {_member_of(content, int(e.get("start", 0))) for e in spans}
+        member = next((m for m in members if m["marker"] == next(iter(markers))), None) if len(markers) == 1 else None
+        if member is None:
+            return GROUP_OBSERVER
+        from api.services.id_utils import sanitize_id
+
+        slug = sanitize_id(member["name"] or member["marker"].partition(":")[2] or member["marker"])
+        return f"external:{slug}" if slug and slug != "unnamed" else GROUP_OBSERVER
+    if their_observer and _only_their_words(item):
+        return their_observer
+    return None
 
 
 def _only_their_words(rel: dict) -> bool:
@@ -458,6 +827,8 @@ async def _extract_chunk(
         )
         raw = response.choices[0].message.content
         return _parse_json_lenient(raw)
+    except engine_errors.EngineRefused:
+        raise   # the model declined this text: asking again is paying twice for the same answer (G237)
     except _EXTRACT_RETRYABLE as e:
         if _attempt >= 1:
             raise
@@ -487,6 +858,7 @@ async def extract(
     on_episode_read: Callable[[dict], None] | None = None,
     on_episode_failed: Callable[[dict, BaseException], None] | None = None,
     on_episode_skipped: Callable[[dict], None] | None = None,
+    on_sensitive: Callable[[dict, dict, str | None, dict], None] | None = None,
     stop_check: Callable[[], bool] | None = None,
     today: date | None = None,
     stage: str = "extraction",
@@ -541,6 +913,17 @@ async def extract(
 
     today = today or current_day()
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
+    themes_read: list[list[str]] = []
+    #: Ruling 64: one book at a time, each told the themes the last ones named, so two books can land on one name and
+    #: the 2+ rule can count them. A read at once saw nothing, and five themes across three books never met.
+    book_turn = asyncio.Lock()
+
+    def book_themes() -> list[str]:
+        """Theme names on the record plus this fan-out's so far, only if it holds a book's record."""
+        if not themes_read:
+            bank = getattr(settings, "memory_path", None)
+            themes_read.append(book_marks.theme_hints(Path(bank)) if bank else [])
+        return themes_read[0]
     results: list[dict | None] = [None] * len(episodes)
     success = 0
     failed = 0
@@ -561,12 +944,34 @@ async def extract(
         owner = owner_identity.owner_name(getattr(settings, "memory_path", None), settings)
     except Exception:  # noqa: BLE001 - a missing name costs the prompt line, never the read
         owner = None
+    owner_held: list[dict | None] = []
+
+    def owner_fm() -> dict | None:
+        """The owner page's frontmatter, read once and only for a book's record (ruling 64)."""
+        if not owner_held:
+            from api.services import role_people
+
+            bank = getattr(settings, "memory_path", None)
+            try:
+                owner_held.append(role_people.owner_frontmatter(Path(bank), settings) if bank else None)
+            except Exception:  # noqa: BLE001 - the read keeps less rather than fail: the name alone still decides
+                owner_held.append(None)
+            owner_held[0] = owner_held[0] or ({"name": owner} if owner else None)
+        return owner_held[0]
+
     # R-E22: the per-episode reasons name the engine that actually ran.
     from api.services import engine_select
 
     _engine = engine_select.engine_label(settings)
-    plan_name = engine_select.PLAN_NAMES.get(_engine, "Claude plan")
-    tool_name = "Codex" if _engine == "codex-cli" else "Claude Code"
+    # Ruling 42 (2026-10-29): which things already hold their application on a page of their own.
+    from api.services import application_page as _application_page
+
+    on_record = _application_page.standing(getattr(settings, "memory_path", None))
+    plan_name = engine_select.PLAN_NAMES.get(_engine, "The API key")
+    from api.services import cli_engines
+
+    _cli_spec = cli_engines.spec_for(_engine)
+    tool_name = _cli_spec.name if _cli_spec else ("Codex" if _engine == "codex-cli" else "Claude Code")
     entities_so_far = 0
     # Perf report 2026-10-24, item 1: the plan account's email rides the CLI's own context. It is read once here and
     # kept only in memory; an item carrying it is dropped below unless the conversation itself says it.
@@ -618,11 +1023,38 @@ async def extract(
             success += 1
             return
 
-        spans = _chunk_spans(content)
+        # G104 (owner 2026-11-03): a conversation read before and edited since is read where it changed; one whose
+        # edit changed nothing but whitespace, or only removed lines, needs no call (`episode_revision`).
+        revision = episode.get(episode_revision.KEY)
+        if revision is not None and not revision.windows:
+            results[i] = {
+                "episode_id": ep_id,
+                "episode_timestamp": episode.get("timestamp"),
+                "origin": episode.get("origin", "unknown"),
+                "entities": [],
+                "relationships": [],
+            }
+            success += 1
+            return
+
+        spans = _chunk_spans(content) if revision is None else [
+            (lo + s, lo + e) for lo, hi in revision.windows for s, e in _chunk_spans(content[lo:hi])]
+        # Ruling 64: a book's record is read for what its marks share, in one chunk whatever its size (`book_marks`).
+        book = book_marks.holds_marks(episode)
+        book_plan = book_marks.plan_read(content, revision.windows if revision is not None else None) if book else None
+        if book_plan is not None:
+            spans = book_plan[0]
         # G110 gate B2: blank the episode's own gap range on the WHOLE body, then slice.
         gaps = tuple(episode.get("gaps") or ())
         masked = evidence.mask_gaps(content, gaps)
-        chunks = [masked[s:e] for s, e in spans]
+        if book:
+            masked = book_marks.mask_status(masked)   # already records: Stage 1 never restates them
+        # G235: what these windows hold that is likely sensitive, found with no model before any is sent. Ruling 60: the
+        # engine reads a typed mark where a confident hit was; the stored body and every offset stay as they are.
+        guard = sensitive_flags.Guard.of(episode, spans)
+        chunks = [guard.chunk(masked, s, e) for s, e in spans]
+        if book_plan is not None:   # one chunk, located over the whole body
+            chunks, spans = ["\n\n".join(chunks)], [(0, len(content))]
         # G194 A1: every chunk is told when the conversation took place and what day it is now.
         ep_day = source_dates.episode_day(episode)
         # "Facts yes, activity no" (owner 2026-10-08): a memory export entry's date is the summary's, not a
@@ -637,8 +1069,33 @@ async def extract(
         else:
             date_note = source_dates.date_note(ep_day, today)
         # G179: a message conversation says who its other side is, before every chunk.
-        source_note = correspondent_note(episode.get("correspondent"))
-        their_observer = correspondent_observer(episode.get("correspondent"))
+        # A harness session says whose its assistant lines are, and that their acts are not the person's.
+        source_note = (correspondent_note(episode.get("correspondent")) or agent_session_note(episode)
+                       or agent_save_note(episode) or meeting_note(episode)
+                       or linear_note(episode)
+                       or book_marks.note(episode, themes=book_themes() if book else (),
+                                          shown=(book_plan[1], book_plan[2]) if book_plan else None))
+        # Ruling 45 addendum: the provider's project grouping, or the relaying app's word on it, as context.
+        if (pinned := pinned_note(episode)) is not None:
+            source_note = (source_note or "") + pinned
+        if (went_on := relayed_note(episode)) is not None:
+            source_note = (source_note or "") + went_on
+        if (in_project := project_note(episode)) is not None:
+            source_note = (source_note or "") + in_project
+        # G179 groups: who each member is, before every chunk; a claim resting on one member's lines is theirs.
+        members = group_members(episode)
+        in_group = bool(episode.get("group"))
+        if in_group:
+            source_note = group_note(members) + (source_note or "")
+        if revision is not None:
+            source_note = (source_note or "") + episode_revision.REVISION_NOTE
+        if phone_numbers.has_token(episode.get("content")):
+            source_note = (source_note or "") + phone_numbers.NOTE   # ruling 55: only with a token to explain
+            source_note += phone_numbers.card_note(episode.get("content"), getattr(settings, "memory_path", None) or "")
+        their_observer = assistant_observer(episode)
+        session_id = str(episode.get("session_id") or "").strip() or None
+        # The owner, 2026-10-28: replies, reactions, forwards and unsends, told to each chunk they fall in.
+        signals = list(episode.get("signals") or [])
 
         async with semaphore:
             # Sleep-control checkpoint 2: this task may have waited a while
@@ -652,21 +1109,26 @@ async def extract(
                 return
             if on_episode_started is not None:
                 on_episode_started(episode)
+            if guard.hits and on_sensitive is not None:
+                on_sensitive(episode, guard.kinds(), _engine, guard.held())   # before the send: the record outlives a crash
             try:
                 # Extract from all chunks and merge results
                 all_entities = []
                 all_relationships = []
                 all_values = []
+                held_participation = 0
                 for ci, chunk in enumerate(chunks):
                     note = _gap_note(gaps, *spans[ci])
+                    signal_note = turn_signals.chunk_note(signals, *spans[ci]) if signals else None
+                    chunk_note = (source_note or "") + (signal_note or "")
                     parsed = await _extract_chunk(
                         ep_id, chunk, ci, len(chunks), settings,
                         # Only a memory episode carries a note; every other call keeps its shape.
-                        **({"source": "claude_memory"} if episode.get("source") == "claude_memory" else {}),
+                        **({"source": "claude_memory"} if episode.get("source") in MEMORY_SOURCES else {}),
                         **({"gap_note": note} if note else {}),
                         **({"date_note": date_note} if date_note else {}),
                         **({"owner": owner} if owner else {}),
-                        **({"source_note": source_note} if source_note else {}),
+                        **({"source_note": chunk_note} if chunk_note else {}),
                         **({"stage": stage} if stage != "extraction" else {}),
                     )
                     all_entities.extend(parsed.get("entities", []))
@@ -675,15 +1137,50 @@ async def extract(
                     # chunk came from, preferring the chunk window (R11). The
                     # quote is consumed here — nothing downstream sees it.
                     for rel in chunk_rels:
-                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=episode.get("evidence_kind"),
+                        # A relationship tagged with a reply or a reaction is located in that turn first (`turn_signals`).
+                        window, _ = turn_signals.anchor(rel, signals, content, spans[ci])
+                        evidence.attach_relationship_evidence(rel, ep_id, content, window=window, kind_override=authorship.of_episode(episode),
                                                               gaps=gaps)
+                        # 2026-10-27: "competed in", "won", "worked at"… need the located words to say that role;
+                        # "a story about", a topic or a mention stays a mention (`participation`).
+                        if participation.hold(rel, content) is not None:
+                            held_participation += 1
                     all_relationships.extend(chunk_rels)
                     chunk_values = [v for v in (parsed.get("values", []) or []) if isinstance(v, dict)]
                     for value in chunk_values:
-                        evidence.attach_relationship_evidence(value, ep_id, content, window=spans[ci],
-                                                              kind_override=episode.get("evidence_kind"), gaps=gaps)
+                        window, _ = turn_signals.anchor(value, signals, content, spans[ci])
+                        evidence.attach_relationship_evidence(value, ep_id, content, window=window,
+                                                              kind_override=authorship.of_episode(episode), gaps=gaps)
                     all_values.extend(chunk_values)
 
+                # Ruling 55: what the model made of a number, resting on the person's own line or dropped;
+                # no token reaches a page's prose. Before any reading of these lists below.
+                phone_numbers.take(all_entities, all_relationships, all_values, content, ep_id,
+                                   bank=getattr(settings, "memory_path", None) or "",
+                                   override=authorship.of_episode(episode), gaps=gaps)
+
+                # 2026-10-28 (ruling 42): "signed up for an <event> at the <venue>" is an act on the event; the
+                # venue or organiser gets the event's link, never the act (`act_object`).
+                moved_acts = act_object.hold(all_relationships, content)
+                if moved_acts:
+                    logger.info(f"  {ep_id}: {moved_acts} act(s) on an application moved off its venue or organiser")
+                if held_participation:
+                    logger.info(f"  {ep_id}: {held_participation} relationship(s) of taking part kept as a mention: "
+                                "the cited words state no such role")
+                if revision is not None:
+                    # What the unchanged lines say is the first read's: never written twice, never a second
+                    # chance at a page for a name only they name.
+                    all_entities, all_relationships, all_values, left = episode_revision.keep_changed(
+                        revision, all_entities, all_relationships, all_values)
+                    if left:
+                        logger.info(f"  {ep_id}: revision — {left} item(s) from unchanged lines left as first read")
+                if book:
+                    # What a read of a book's record may add is its themes and the person's own notes (ruling 64).
+                    all_entities, all_relationships, all_values = book_marks.of_a_read(
+                        all_entities, all_relationships, all_values, episode, owner_fm=owner_fm())
+                # G235: a value is taken back out of what the model answered, whatever it was shown; a page never
+                # repeats it. After the spans above: a quote is consumed there and never stored.
+                all_entities, all_relationships, all_values = guard.clean(all_entities, all_relationships, all_values)
                 # What the model was given counts as said: the conversation, the owner's name and the source note.
                 given = "\n".join(t for t in (masked, owner or "", source_note or "") if t)
                 if plan_ids and engine_identity.scrub_extraction(all_entities, all_relationships, all_values,
@@ -693,7 +1190,21 @@ async def extract(
                 ep_origin = episode.get("origin", "unknown")
                 # The promotion rule's "more than 3 exchanges" and "the person's own words", counted on the
                 # conversation itself (`promotion`), never guessed from what the model wrote about it.
-                units = promotion.exchanges(content, override=episode.get("evidence_kind"), gaps=gaps)
+                units = promotion.exchanges(content, override=authorship.of_episode(episode), gaps=gaps,
+                                            persons=promotion.person_kinds(episode))
+                # Ruling 42: a specific event, program or application the person (or an agent, for them) acted on
+                # gets its page from this one conversation, and the application lives there, not on the owner's.
+                app_values = _application_pages(all_entities, episode, ep_id, content, owner=owner, on_record=on_record,
+                                                day=ep_day.isoformat() if ep_day and not untimed else None, gaps=gaps)
+                # Ruling 61: what the person said about a book's status — the model's reading, checked on the record
+                # and carried on the result, never on the entity (`book_said`).
+                from api.services import book_said
+
+                said_books = [m for m in (book_said.at_extraction(
+                    entity, episode_id=ep_id, frontmatter=episode, text=content,
+                    day=ep_day.isoformat() if ep_day and not untimed else None,
+                    override=authorship.of_episode(episode), gaps=gaps)
+                    for entity in all_entities if isinstance(entity, dict)) if m]
                 narration = 0
                 for entity in all_entities:
                     facts = entity.get("key_facts")
@@ -705,6 +1216,11 @@ async def extract(
                         narration += len(facts) - len(kept)
                         entity["key_facts"] = kept
                     entity["mention_exchanges"], entity["named_by_person"] = promotion.measure(entity, units)
+                    asked = entity.pop("ask_person", None)
+                    if isinstance(asked, str) and asked.strip():
+                        entity["ask_person"] = " ".join(asked.split())[:MAX_ASK_REASON]
+                    if promotion.label_only(entity, content):
+                        entity[promotion.LABEL_ONLY] = True   # named only by a folder, a list, a calendar
                     sanitize_entity_type(entity)
                     entity.pop("project_birth", None)   # computed here from the conversation, never the model's to say
                     if entity.get("type") == "project":
@@ -712,7 +1228,7 @@ async def extract(
                         born = project_birth.at_extraction(
                             entity, episode_id=ep_id, frontmatter=episode, text=content,
                             day=ep_day.isoformat() if ep_day and not untimed else None,
-                            override=episode.get("evidence_kind"), gaps=gaps)
+                            override=authorship.of_episode(episode), gaps=gaps)
                         if born is not None:
                             entity["project_birth"] = born
                     section_provenance.attach(entity, ep_id, content)
@@ -735,17 +1251,29 @@ async def extract(
                     rel["source_episode_timestamp"] = episode.get("timestamp")
                     rel["origin"] = ep_origin
                     # The observer is never the model's to set; G179: a claim resting only on the other side's
-                    # words is theirs (`external:<name>`), never the person's and never Cicada's own reading.
+                    # words is theirs (`external:<name>`), never the person's and never Cicada's own reading —
+                    # a texted agent's, a harness session's agent's or a chat export's assistant's alike.
                     rel.pop("observer", None)
-                    if their_observer and _only_their_words(rel):
-                        rel["observer"] = their_observer
+                    if signals:
+                        _weigh_reaction(rel, episode, content, ep_id)
+                    if (observer := _observer_for(rel, their_observer, members, content, group=in_group)) is not None:
+                        rel["observer"] = observer
                 for value in all_values:
                     value["source_episode"] = ep_id
                     value["source_episode_timestamp"] = episode.get("timestamp")
                     value["origin"] = ep_origin
                     value.pop("observer", None)
-                    if their_observer and _only_their_words(value):
-                        value["observer"] = their_observer
+                    if signals:
+                        _weigh_reaction(value, episode, content, ep_id)
+                    if (observer := _observer_for(value, their_observer, members, content, group=in_group)) is not None:
+                        value["observer"] = observer
+                for value, by_agent in app_values:
+                    value["source_episode"] = ep_id
+                    value["source_episode_timestamp"] = episode.get("timestamp")
+                    value["origin"] = ep_origin
+                    if by_agent and their_observer:
+                        value["observer"] = their_observer  # the agent's act, as the agent reported it
+                    all_values.append(value)
 
                 results[i] = {
                     "episode_id": ep_id,
@@ -755,9 +1283,18 @@ async def extract(
                     "relationships": all_relationships,
                     "values": all_values,
                 }
+                if said_books:
+                    results[i][book_said.KEY] = said_books
+                if session_id:
+                    # The session it was said in, from the episode's own record: every claim read from it carries
+                    # it (`entities_to_claims`), so an agent's act names the session that did it.
+                    results[i]["session_id"] = session_id
                 # G179: the other side of a message conversation is its own page, of its own type — the entity
                 # that names them is marked (and typed) here, from the episode's own record (`correspondents`).
                 correspondents.mark_extraction(results[i], episode.get("correspondent"))
+                # One person across sources (owner 2026-10-28): a participant with an address-book card is marked
+                # with its id, which Stage 2 reads before any name (`contact_identity`).
+                contact_identity.mark(results[i], episode)
 
                 success += 1
                 if on_episode_read is not None:
@@ -783,6 +1320,8 @@ async def extract(
             # G74(a): the agent rung's failures are subprocess-shaped. Each one
             # names its own fix so the Sleep page never says "check API credits"
             # for a plan that has no credits to check.
+            except engine_errors.SpendLimitReached:
+                _note_skipped(episode)   # never sent past the person's limit: nobody's failure, it goes back to wait
             except engine_errors.EngineThrottled as e:
                 failed += 1
                 _note_failed(episode, e)
@@ -813,7 +1352,12 @@ async def extract(
 
     async def process_one(i: int, episode: dict) -> None:
         try:
-            await _do_process(i, episode)
+            if book_marks.holds_marks(episode):
+                async with book_turn:
+                    await _do_process(i, episode)
+                    book_themes().extend(book_marks.new_themes(results[i], book_themes()))
+            else:
+                await _do_process(i, episode)
         finally:
             progress.update(1)
             if progress_callback is not None:
@@ -877,6 +1421,10 @@ def _emit_claim_id(subject: str, predicate: str, obj: str, valid_from: str) -> s
     return f"clm_{base}_{digest}"
 
 
+#: The non-explicit epistemic values a relationship may carry (`claims.Claim.epistemic`).
+_INFERRED = frozenset({"deductive", "inductive", "abductive"})
+
+
 def entities_to_claims(
     extracted: list[dict], memory_path: Path | None, *, resolve_id: Callable[[str], str] | None = None,
 ) -> list:
@@ -898,7 +1446,7 @@ def entities_to_claims(
     id is ``sanitize_id(name)`` — the pre-PJ-0 key every hermetic caller keeps.
     """
     from api.services import predicates
-    from api.services.claims import Claim, Evidence
+    from api.services.claims import Claim, Evidence, clean_reactions
     from api.services.id_utils import sanitize_id
 
     to_id = resolve_id or sanitize_id
@@ -912,6 +1460,8 @@ def entities_to_claims(
     for extraction in extracted:
         episode_id = str(extraction.get("episode_id", "") or "")
         origin = str(extraction.get("origin") or "unknown")
+        # The session the episode was captured in (its own record): which session said, or did, what a claim holds.
+        sessions = [str(extraction["session_id"])] if extraction.get("session_id") else []
         for rel in extraction.get("relationships", []) or []:
             source = str(rel.get("source", "") or "").strip()
             target = str(rel.get("target", "") or "").strip()
@@ -934,8 +1484,13 @@ def entities_to_claims(
             # belief it closes closes then, not on the day it was said; on any other label it is a stated end.
             ends = _stated_day(rel.get("ends"))
             expected_end = None
+            hit = endings(raw_label)
+            starts = _stated_day(rel.get("starts"))
+            if starts and hit is None and (not ends or starts <= ends):
+                # 2026-10-27: when it became true, as said ("as of yesterday, joined" is the day before) — never on an
+                # ending or a past tense, whose record is history dated when it was said.
+                valid_from = starts
             if ends:
-                hit = endings(raw_label)
                 if hit is not None and hit.mode == predicates.ENDING_OVER:
                     valid_from = ends
                 elif hit is None and (not valid_from or ends >= valid_from):
@@ -953,6 +1508,7 @@ def entities_to_claims(
                 for ev in rel_evidence:
                     if ev not in first.evidence:
                         first.evidence.append(ev)
+                first.reactions = clean_reactions(first.reactions + list(rel.get("reactions") or []))
                 if first.observer != observer:
                     # G179: the person's own words (or Cicada's reading) back it too — no longer only theirs.
                     first.observer = "agent"
@@ -967,7 +1523,9 @@ def entities_to_claims(
                 object_kind="node",
                 observer=observer,
                 context="general",
-                epistemic="explicit",
+                # A relation Stage 2's judge inferred from two descriptions (`entity_relations`, review of #545) is an
+                # inference, never something a conversation stated: the vocabulary's ``abductive``.
+                epistemic=str(rel.get("epistemic")) if rel.get("epistemic") in _INFERRED else "explicit",
                 source_trust="agent_extracted",
                 confidence=float(rel.get("confidence", 0.6) or 0.6),
                 valid_from=valid_from or None,
@@ -975,6 +1533,8 @@ def entities_to_claims(
                 origin=origin,
                 evidence=rel_evidence,
                 expected_end=expected_end,
+                session_ids=list(sessions),
+                reactions=clean_reactions(rel.get("reactions")),
             )
             # The pre-normalization label (for the Stage-3 normalization audit).
             setattr(claim, "predicate_raw", raw_label)
@@ -988,6 +1548,7 @@ def entities_to_claims(
             claim = _value_claim(value, episode_id, origin, to_id)
             if claim is None:
                 continue
+            claim.session_ids = list(sessions)
             if claim.id in by_id:
                 first = by_id[claim.id]
                 for ev in claim.evidence:
@@ -1004,12 +1565,13 @@ def _value_claim(value: dict, episode_id: str, origin: str, to_id: Callable[[str
     ``claims.value_predicate(attribute)``, object the value as stated. A value predicate is single-valued
     (``claims.is_value_claim``), so a later value of the same thing supersedes the earlier one in Stage 3 instead of
     sitting beside it in prose — the LongMemEval knowledge-update misses of 2026-10-17 had no claim to supersede."""
-    from api.services.claims import Claim, Evidence, value_predicate
+    from api.services.claims import Claim, Evidence, clean_reactions, value_predicate
 
     entity = str(value.get("entity", "") or "").strip()
     attribute = str(value.get("attribute", "") or "").strip()
     stated = " ".join(str(value.get("value", "") or "").split())
-    predicate = value_predicate(attribute)
+    # Ruling 55: a number is a fact of its own, not a value one later value replaces (a person has several).
+    predicate = "phone" if value.get("number_token") else value_predicate(attribute)
     if not entity or not predicate or not stated or len(stated) > 120:
         return None
     subject = str(value.get("source_page") or "") or to_id(entity)
@@ -1026,6 +1588,7 @@ def _value_claim(value: dict, episode_id: str, origin: str, to_id: Callable[[str
         context="general", epistemic="explicit", source_trust="agent_extracted", confidence=0.6,
         valid_from=valid_from or None, source_episodes=[ep] if ep else [], origin=origin,
         evidence=[Evidence.from_dict(e) for e in (value.get("evidence") or []) if isinstance(e, dict)],
+        reactions=clean_reactions(value.get("reactions")),
     )
 
 

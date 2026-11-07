@@ -10,6 +10,8 @@ final class FakeReminders: ReminderScheduling {
     func requestPermission() async -> Bool { permissionAsks += 1; return grant }
     func schedule(_ wait: ExportWait) async { scheduled.append(wait.id) }
     func cancel(_ wait: ExportWait) { cancelled.append(wait.id) }
+    var retiredRemovals = 0
+    func removeRetiredNudges() { retiredRemovals += 1 }
 }
 
 /// Track I part b (design §5.5, R-IB22) — a reminder is a per-viewer
@@ -26,6 +28,26 @@ final class ExportWaitsTests: XCTestCase {
     }
 
     private func suite() -> UserDefaults { UserDefaults(suiteName: "waits-\(UUID().uuidString)")! }
+
+    /// Ruling 58: exports are one-time. A saved weekly nudge goes with its notification, once; a one-off wait stays.
+    func testARetiredWeeklyNudgeIsRemovedOnceAndAWaitStays() throws {
+        let defaults = suite()
+        defaults.set(Data("[]".utf8), forKey: ExportWaits.retiredHabitsKey)
+        defaults.set(try JSONEncoder().encode([wait()]), forKey: ExportWaits.defaultsKey)
+        let reminders = FakeReminders(grant: true)
+        let store = ExportWaitStore(defaults: defaults, scheduler: reminders, now: { self.now })
+        XCTAssertEqual(store.waits.map(\.vendor), ["chatgpt"])
+        XCTAssertNil(defaults.object(forKey: ExportWaits.retiredHabitsKey))
+        XCTAssertEqual(reminders.retiredRemovals, 1)
+        _ = ExportWaitStore(defaults: defaults, scheduler: reminders, now: { self.now })
+        XCTAssertEqual(reminders.retiredRemovals, 1)
+    }
+
+    func testOnlyTheRetiredNoticesAreRemoved() {
+        XCTAssertTrue(LiveReminderScheduler.isRetired("cicada.exportWeekly.default|claude"))
+        XCTAssertTrue(LiveReminderScheduler.isRetired("cicada.exportArrived.claude"))
+        XCTAssertFalse(LiveReminderScheduler.isRetired("cicada.exportWait.default|claude"))
+    }
 
     func testOneWaitPerVendorPerBank() {
         let waits = ExportWaits.adding(wait(hoursAgo: 1), to: [wait(hoursAgo: 5), wait("claude")])

@@ -17,6 +17,12 @@ final class GraphBridgeTests: XCTestCase {
         XCTAssertEqual(GraphMessage.parse(json(["type": "hubExpanded", "id": "hub-1"])), .hubExpanded("hub-1"))
         XCTAssertEqual(GraphMessage.parse(json(["type": "nodeFocused", "id": "alpha-project", "hops": 2])),
                        .nodeFocused("alpha-project"))
+        // ROR-135 — the hover card's two messages (the JS half is Tests/graph/graph-hover.test.js).
+        XCTAssertEqual(GraphMessage.parse(json(["type": "nodeHovered", "id": "alpha-project", "x": 120, "y": 80.5, "r": 6])),
+                       .nodeHovered("alpha-project", x: 120, y: 80.5, r: 6))
+        XCTAssertEqual(GraphMessage.parse(json(["type": "hoverEnded"])), .hoverEnded)
+        XCTAssertNil(GraphMessage.parse(json(["type": "nodeHovered", "id": "alpha-project", "x": 1])),
+                     "a hover without its place shows no card")
     }
 
     func testAMalformedOrUnknownMessageIsIgnored() {

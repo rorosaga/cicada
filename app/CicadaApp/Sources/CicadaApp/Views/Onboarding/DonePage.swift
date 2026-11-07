@@ -58,11 +58,10 @@ struct DonePage: View {
                 .fixedSize(horizontal: false, vertical: true)
             quoteBlock
             HStack(spacing: CicadaTheme.spacingSM) {
-                TextButton(title: Copy.onboardingBack, flushLeading: true, action: onBack)
+                OnboardingLink(title: Copy.onboardingBack, leadingChevron: true, action: onBack)
                 Spacer()
-                PrimaryActionButton(title: Copy.onboardingOpenCicada) { onOpen(anchor.screenFrame()) }
+                PrimaryActionButton(title: Copy.onboardingOpenCicada, large: true) { onOpen(anchor.screenFrame()) }
                     .disabled(busy)
-                KeyHint("⏎")
             }
         }
         .padding(CicadaTheme.spacingXL)

@@ -24,6 +24,97 @@ struct SleepEngineCandidate: Codable, Identifiable, Hashable {
     var usage: SleepEngineUsage? = nil
     /// Model id → list price per million tokens, a parallel map so `models` keeps its type.
     var modelPrices: [String: SleepEngineModelPrice] = [:]
+    /// G49/G50 (2026-10-28) — the card says what it is, so a new engine renders without a release of its own. All
+    /// absent on an older backend, where `EngineOption`'s id tables keep answering exactly as before.
+    /// `"auto" | "plan" | "key" | "local"`.
+    var kind: String? = nil
+    /// The engine label a run on this card reports (`claude-cli`, `cursor-cli` …): a preview maps back to its card.
+    var engine: String? = nil
+    /// The bundled logo's name (`cursor`, `opencode`, `grok`).
+    var mark: String? = nil
+    /// How the engine is paid for when a metered path is possible, in words, shown before it is chosen.
+    var billingNote: String? = nil
+    /// A saved model the tool no longer offers, in words.
+    var modelNote: String? = nil
+    /// The exact command the person runs to sign in to the tool.
+    var signIn: String? = nil
+    /// ROR-52 — `available` is false, yet the tool's app (or an old copy of the tool) is here: "Not ready", never
+    /// "Not installed". Absent on an older backend.
+    var notReady: Bool = false
+    /// The one line to run when that isn't a sign-in (installing the tool the app doesn't carry).
+    var nextCommand: String? = nil
+    /// Engine picker v2 (ruling 48 part 11) — `models` described by the backend's catalogue (`model_catalogue`): each
+    /// model's family, newest first, its source and age, "New". Absent on an older backend: the list is then `models`.
+    var catalogue: ModelCatalogue? = nil
+
+    /// The command a card draws for this tool's next step: installing what's missing, else signing in.
+    var stepCommand: String? { nextCommand ?? (available && !connected ? signIn : nil) }
+}
+
+/// Wire mirror of `api.models.schemas.ModelCatalogue`: one card's model list as its own harness reported it.
+struct ModelCatalogue: Codable, Hashable {
+    struct Model: Codable, Hashable {
+        let id: String
+        let source: String
+        var asOf: String? = nil
+        var family: String = ""
+        var familyLabel: String = ""
+        var firstSeen: String? = nil
+        var new: Bool = false
+        var resolvesTo: String? = nil
+        /// Ruling 46a — how a model the tool bills outside the plan is billed (a third-party model in Cursor), said
+        /// before it is chosen; nil for a model the plan covers.
+        var billingNote: String? = nil
+
+        init(id: String, source: String, asOf: String? = nil, family: String = "", familyLabel: String = "",
+             firstSeen: String? = nil, new: Bool = false, resolvesTo: String? = nil, billingNote: String? = nil) {
+            self.id = id
+            self.source = source
+            self.asOf = asOf
+            self.family = family
+            self.familyLabel = familyLabel
+            self.firstSeen = firstSeen
+            self.new = new
+            self.resolvesTo = resolvesTo
+            self.billingNote = billingNote
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            source = (try? c.decodeIfPresent(String.self, forKey: .source)) ?? "harness"
+            asOf = (try? c.decodeIfPresent(String.self, forKey: .asOf)) ?? nil
+            family = (try? c.decodeIfPresent(String.self, forKey: .family)) ?? ""
+            familyLabel = (try? c.decodeIfPresent(String.self, forKey: .familyLabel)) ?? ""
+            firstSeen = (try? c.decodeIfPresent(String.self, forKey: .firstSeen)) ?? nil
+            new = (try? c.decodeIfPresent(Bool.self, forKey: .new)) ?? false
+            resolvesTo = (try? c.decodeIfPresent(String.self, forKey: .resolvesTo)) ?? nil
+            billingNote = (try? c.decodeIfPresent(String.self, forKey: .billingNote)) ?? nil
+        }
+    }
+
+    let engine: String
+    var asOf: String? = nil
+    let source: String
+    var drift: String? = nil
+    var models: [Model] = []
+
+    init(engine: String, asOf: String? = nil, source: String, drift: String? = nil, models: [Model] = []) {
+        self.engine = engine
+        self.asOf = asOf
+        self.source = source
+        self.drift = drift
+        self.models = models
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        engine = (try? c.decodeIfPresent(String.self, forKey: .engine)) ?? ""
+        asOf = (try? c.decodeIfPresent(String.self, forKey: .asOf)) ?? nil
+        source = (try? c.decodeIfPresent(String.self, forKey: .source)) ?? ""
+        drift = (try? c.decodeIfPresent(String.self, forKey: .drift)) ?? nil
+        models = (try? c.decodeIfPresent([Model].self, forKey: .models)) ?? []
+    }
 }
 
 extension SleepEngineCandidate {
@@ -38,6 +129,15 @@ extension SleepEngineCandidate {
         mode = try c.decodeIfPresent(String.self, forKey: .mode)
         usage = (try? c.decodeIfPresent(SleepEngineUsage.self, forKey: .usage)) ?? nil
         modelPrices = ((try? c.decodeIfPresent([String: SleepEngineModelPrice].self, forKey: .modelPrices)) ?? nil) ?? [:]
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? nil
+        engine = (try? c.decodeIfPresent(String.self, forKey: .engine)) ?? nil
+        mark = (try? c.decodeIfPresent(String.self, forKey: .mark)) ?? nil
+        billingNote = (try? c.decodeIfPresent(String.self, forKey: .billingNote)) ?? nil
+        modelNote = (try? c.decodeIfPresent(String.self, forKey: .modelNote)) ?? nil
+        signIn = (try? c.decodeIfPresent(String.self, forKey: .signIn)) ?? nil
+        notReady = ((try? c.decodeIfPresent(Bool.self, forKey: .notReady)) ?? nil) ?? false
+        nextCommand = (try? c.decodeIfPresent(String.self, forKey: .nextCommand)) ?? nil
+        catalogue = (try? c.decodeIfPresent(ModelCatalogue.self, forKey: .catalogue)) ?? nil
     }
 }
 
@@ -107,6 +207,8 @@ struct SleepEngineResponse: Codable, Hashable {
     /// Sleep page v5 — "Leave room in my plan": the line, its choices, whether it applies to the engine a run you
     /// start would use, and which windows the last run could enforce. `nil` on an older backend.
     var reserve: SleepReserveStatus? = nil
+    /// ROR-102: the spending limit, for a run you start that is charged per use. `nil` on an older backend.
+    var spend: SleepSpendStatus? = nil
     /// A run of this bank is reading on the engine it resolved at its start or Continue, which is not what the
     /// choice above resolves to now — the change applies from the next start or Continue. Absent on an older
     /// backend → false.
@@ -117,7 +219,7 @@ struct SleepEngineResponse: Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case mode, model, disambiguationModel, source, candidates, preview, allowOverage
-        case selected, provider, providers, reserve, runKeepsEngine, autoLocalKeptOn
+        case selected, provider, providers, reserve, spend, runKeepsEngine, autoLocalKeptOn
     }
 
     init(
@@ -154,6 +256,7 @@ struct SleepEngineResponse: Codable, Hashable {
         provider = (try? c.decodeIfPresent(String.self, forKey: .provider)) ?? nil
         providers = ((try? c.decodeIfPresent([SleepEngineProvider].self, forKey: .providers)) ?? nil) ?? []
         reserve = (try? c.decodeIfPresent(SleepReserveStatus.self, forKey: .reserve)) ?? nil
+        spend = (try? c.decodeIfPresent(SleepSpendStatus.self, forKey: .spend)) ?? nil
         runKeepsEngine = ((try? c.decodeIfPresent(Bool.self, forKey: .runKeepsEngine)) ?? nil) ?? false
         autoLocalKeptOn = (try? c.decodeIfPresent(String.self, forKey: .autoLocalKeptOn)) ?? nil
     }

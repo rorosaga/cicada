@@ -42,7 +42,7 @@ enum ReaderChat {
     /// `speaker:` family); an attachment, a video line or Cicada's gap are not a conversation by themselves.
     static func conversationMarker(_ marker: String?) -> Bool {
         guard let m = marker?.lowercased() else { return false }
-        return ["user", "human", "assistant", "ai"].contains(m) || m.hasPrefix("speaker")
+        return ["user", "human", "assistant", "ai"].contains(m) || m.hasPrefix("speaker") || relayedApp(m) != nil
     }
 
     /// Which side the WRITTEN marker puts a turn on, or nil when the turn has none (a block before the first marker,
@@ -50,7 +50,14 @@ enum ReaderChat {
     /// `assistant` while keeping each line's marker as written, so only the marker still says who spoke.
     static func markerSide(_ marker: String?) -> Side? {
         guard let m = marker?.lowercased(), m != "gap" else { return nil }
-        return ["user", "human", "system", "unknown"].contains(m) ? .person : .other
+        return ["user", "human", "system", "unknown"].contains(m) || relayedApp(m) != nil ? .person : .other
+    }
+
+    /// Ruling 58: the app named by a later turn's `relayed [Claude]` marker, in a chat that went on after its import.
+    static func relayedApp(_ marker: String?) -> String? {
+        guard let m = marker, m.lowercased().hasPrefix("relayed"), let open = m.firstIndex(of: "["),
+              let close = m.lastIndex(of: "]"), open < close else { return nil }
+        return String(m[m.index(after: open)..<close])
     }
 
     /// The party a chat's header already names — its correspondent, else its agent with the latest turn's model, as
@@ -147,6 +154,7 @@ enum ReaderChat {
             if self == .whole || self == .last {
                 out.reactions = extras.reactions
                 out.attachments = extras.attachments
+                out.files = extras.files
                 out.edited = extras.edited
             }
             return out.isEmpty ? nil : out
@@ -190,6 +198,9 @@ enum ReaderChat {
         var forwardedFrom: String? = nil
         var reactions: [ReactionChip] = []
         var attachments: [String] = []
+        /// Chat images (2026-11-04): a chat source's attachments, in `attachments`' order, for the tiles that show
+        /// the file itself where the chat app holds it (`ChatMediaTile`); empty for any other conversation.
+        var files: [ChatFile] = []
         var edited = false
         var isEmpty: Bool { reply == nil && forwardedFrom == nil && reactions.isEmpty && attachments.isEmpty && !edited }
     }
@@ -246,6 +257,7 @@ enum ReaderChat {
         calendar.timeZone = timeZone
         calendar.locale = locale
         let chat = messagesChat(doc) != nil
+        let files = ChatMedia.source(doc) == nil ? [:] : ChatMedia.files(doc)
 
         // A turn's blocks, grouped, so a folded turn draws one preview and a long one one bubble.
         var order: [Int] = []
@@ -275,7 +287,7 @@ enum ReaderChat {
         for (position, index) in order.enumerated() {
             guard var turnBlocks = pieces[index], let head = turnBlocks.first else { continue }
             let turn = turnsByIndex[index]
-            var extras = turn?.extras.map { chatExtras($0, doc: doc, pieces: pieces) }
+            var extras = turn?.extras.map { chatExtras($0, doc: doc, pieces: pieces, files: files[index] ?? []) }
             if extras?.isEmpty == true { extras = nil }
             if let attachments = turn?.extras?.attachments, !attachments.isEmpty, let tail = turnBlocks.last,
                let cut = withoutAttachmentNames(tail, count: attachments.count) {
@@ -308,7 +320,9 @@ enum ReaderChat {
 
             let side = markerSide(turn?.marker) ?? (turn?.marker == nil && position > 0 ? last?.side : nil)
                 ?? side(of: head)
-            let speaker = side == .person ? (relayed ?? head.speaker) : head.speaker
+            // Ruling 58: the imported part is theirs; a later relayed turn says who relayed it, turn by turn.
+            let laterRelay = relayedApp(turn?.marker).map { Copy.Provenance.relayedBy($0) }
+            let speaker = side == .person ? (laterRelay ?? relayed ?? head.speaker) : head.speaker
             let startsRun: Bool = {
                 guard let last else { return true }
                 if last.side != side || last.speaker != speaker { return true }
@@ -376,7 +390,8 @@ enum ReaderChat {
     /// The most of a reply's target the line above the bubble quotes.
     static let replyExcerpt = 60
 
-    static func chatExtras(_ extras: EpisodeTurnExtras, doc: EpisodeText, pieces: [Int: [ReaderBlock]]) -> Extras {
+    static func chatExtras(_ extras: EpisodeTurnExtras, doc: EpisodeText, pieces: [Int: [ReaderBlock]],
+                           files: [ChatFile] = []) -> Extras {
         var out = Extras()
         if let target = extras.replyTo, let block = pieces[target]?.first {
             let who = doc.turns.first { $0.index == target }.map { partyName($0.marker ?? "user", doc: doc) }
@@ -399,6 +414,7 @@ enum ReaderChat {
         out.attachments = extras.attachments.map {
             Copy.Provenance.attachment(kind: $0.kind, name: $0.name, size: $0.size, generated: $0.generated)
         }
+        out.files = files.count == extras.attachments.count ? files : []
         if let runs = extras.codeRuns, runs > 0 { out.attachments.append(Copy.Provenance.ranCode(runs)) }
         out.edited = extras.edited
         return out

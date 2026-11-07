@@ -25,14 +25,16 @@ tests inject both.
 from __future__ import annotations
 
 import json
+import dataclasses
 import re
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Callable
 
 from loguru import logger
 
 from api.config import Settings
-from api.services import ask_sources, json_parse, markdown_parser, section_provenance, text_fold
+from api.services import ask_failure, ask_sources, json_parse, markdown_parser, section_provenance, text_fold
 from api.services.claims import current_day, is_current, is_event, is_record, parse_claims, stated_end, strip_claims_block
 
 RetrieveFn = Callable[[str, int], list[dict]]
@@ -76,17 +78,28 @@ _SELF_PHRASES = ("the owner", "the user", "the person", "owner s", "user s", "my
 #: the owner page's citation listed several hundred ids, every conversation that ever touched the page).
 MAX_CITED_EPISODES = 5
 
-ASK_SYSTEM_PROMPT = """You answer questions using ONLY the retrieved memory context below. \
-This is a personal knowledge graph; the context is the ONLY source of truth you may use. \
-Do NOT use outside knowledge and do NOT invent facts.
+ASK_SYSTEM_PROMPT = """You answer a person from the retrieved memory context below, a personal knowledge graph. \
+A message is one of two kinds, in any language. Decide which by what it asks for, never by its words.
+
+A QUESTION ABOUT WHAT IS ON THE RECORD (what someone said, did, owns, likes or decided, when, how many): the context \
+is the ONLY source of truth. Do NOT use outside knowledge and do NOT invent facts. The rules below apply.
+
+A REQUEST FOR HELP (advice, a recommendation, a plan, a draft, how to do something, how something works, what would \
+suit them, what they would likely choose or do): answer it. Start with the answer and commit to one best choice, in \
+two or three sentences. Use general knowledge, and shape it by what the context shows about them: what they use, own, like, \
+avoid, are working on or have tried, naming those things. Never open with what memory lacks, and never decline for \
+want of a stated taste. End with one short sentence saying what came from memory and that the rest is your suggestion. \
+General knowledge never supplies a fact about the person. ``gaps`` lists only what would have changed the answer. Keep \
+confidence below 0.7.
 
 You are given ENTITIES with individually labeled claims and legacy body text.
 
 Rules:
 1. Ground every claim in the provided entities. If the context does not contain \
 the answer, say so plainly — never guess.
-2. List the entity ids you actually used in ``used_entities`` (only ids that appear \
-in the context).
+2. List in ``used_entities`` only the entity ids the answer rests on (ids that appear \
+in the context); an entity you read and did not use is not listed, and the list is empty when \
+the answer rests on none (a conversation line, or nothing).
 3. Populate ``gaps`` with explicit, honest statements of what you could NOT answer \
 or what is missing from memory (e.g. "No information about the database choice"). \
 If you are confident and the context fully answers the question, ``gaps`` may be empty.
@@ -136,6 +149,11 @@ earlier as history, never "the outcome is not recorded" when a later line states
 within one subject: a question about one past occasion (a day it names, the first time, one \
 conversation) is answered from that occasion, and a later line about something else, or the same \
 words in another context, never replaces it or what the entities and WHAT WAS SAID already show.
+12. A line of OTHER CONVERSATIONS marked "not yet read by Sleep" is from a conversation or note that \
+Sleep has not consolidated: it is the person's record word for word, shown whole when short and by its \
+matching passages when long (``…`` marks where text was left out, not that memory is cut). Answer from it \
+as from any line; when the answer rests on such a line, say it is not yet confirmed by Sleep. A line of \
+WHAT WAS SAID carries the same mark and means the same.
 
 Return ONLY a JSON object with exactly these keys:
 {
@@ -145,6 +163,10 @@ Return ONLY a JSON object with exactly these keys:
   "used_conversations": ["ep_... id of an OTHER CONVERSATIONS line you used", "..."],
   "gaps": ["explicit gap statement", "..."]
 }"""
+
+
+#: Said to the model when its reply could not be read: the same question, nothing else changes.
+_JSON_AGAIN = "\n\nYour last reply to this could not be read. Return ONLY the JSON object the instructions describe."
 
 
 def _snippet(body: str, limit: int = _SNIPPET_CHARS) -> str:
@@ -216,6 +238,10 @@ def _history_query(query: str) -> str:
     return " ".join(t for t in text_fold.query_tokens(query) if t not in stop)
 
 
+#: Ruling 64: a caller without ``sources`` gets no answer built on what the person marked in a book (`answer_query`).
+_HIDE_MARKS: ContextVar[bool] = ContextVar("ask_hide_marks", default=False)
+
+
 def _load_entity(memory_path: Path, entity_id: str) -> dict | None:
     """Read an entity's markdown to back a citation. Returns None if missing — and for an id that is not one page
     name (a separator, or a sentence longer than any file name: ``id_utils.is_page``)."""
@@ -231,9 +257,17 @@ def _load_entity(memory_path: Path, entity_id: str) -> dict | None:
     fm = parsed.frontmatter or {}
     if fm.get("status") == "dropped":
         return None
+    from api.services import same_name
+
+    if _HIDE_MARKS.get():
+        from api.services import book_marks
+
+        parsed = dataclasses.replace(parsed, body=book_marks.without_marks(parsed.body or ""))
     return {
         "entity_id": entity_id,
         "entity_name": str(fm.get("name", entity_id.replace("-", " ").title())),
+        # G227: when another page shares the title, the qualifier the answer and its citation name it by.
+        "qualifier": same_name.qualifier(memory_path, entity_id),
         "file_path": str(filepath),
         "snippet": _snippet(parsed.body),
         "source_episodes": list(fm.get("source_episodes", []) or []),
@@ -517,8 +551,12 @@ def _prose_context(prose: str, summary: str, terms: set[str], budget: int) -> st
 
 
 def _header_lines(ent: dict, scale: float) -> list[str]:
-    lines = [f"### entity_id: {ent['entity_id']}", f"name: {ent['entity_name']}",
+    from api.services import same_name
+
+    lines = [f"### entity_id: {ent['entity_id']}", f"name: {same_name.display(ent['entity_name'], ent.get('qualifier'))}",
              f"type: {ent.get('type', 'concept')}"]
+    if ent.get("qualifier"):
+        lines.append(f"another page has the same name; call this one \"{same_name.display(ent['entity_name'], ent['qualifier'])}\"")
     if ent.get("owner"):
         lines.append("this is the page of the person this memory belongs to")
     aliases = [a for a in ent.get("aliases") or [] if a != ent["entity_name"]]
@@ -768,7 +806,7 @@ _INFERENCE_NOTE = (
     "THIS QUESTION ASKS FOR A JUDGEMENT (what is likely, would or might be), not only for a recorded fact. Rule 1's "
     "\"never guess\" is about facts; a judgement is reasoned from them. When the context bears on it — what the people "
     "said they like, do, plan, value, own, where they go, how they reacted — give the most likely answer and mark it "
-    "as an inference: \"Probably …, because …\", naming the lines it rests on and their days. General knowledge may "
+    "as an inference, in two or three sentences: \"Probably …, because …\", naming the lines it rests on and their days. General knowledge may "
     "connect what the record says to the question's terms (a city's state or country, what a described thing is "
     "commonly called, what suits an interest) — say when you use it — but never supplies a fact about the people. "
     "Do not stop at \"memory doesn't say\": say what it does not state, then still give the likely answer. Only when "
@@ -790,6 +828,16 @@ _IMPLIED_NOTE = (
     "the lines say of someone else is theirs, not the asked person's — say whose it is instead of transferring it. "
     "When the lines only touch the subject loosely, or not at all, say what memory does not hold, as rule 1 says. "
     "Keep confidence below 0.7 for an inference.")
+
+#: "What has come up lately?" (owner, 2026-11-06): only for a question the search model reads as that (``Searched.lately``).
+_LATELY_NOTE = (
+    "THIS QUESTION ASKS WHAT HAS COME UP LATELY, about no subject in particular. The pages first are those said most "
+    "lately, and OTHER CONVERSATIONS holds the newest ones, whatever their words. Say who and what comes up most and on "
+    "which days, the newest first; a line from a conversation Sleep has not read is still what was said. Say so only if "
+    "the newest day shown is long past.")
+#: The pages said most lately that lead such an answer, and how many of what its words found stay beside them.
+LATELY_PAGES = 5
+LATELY_OTHER_PAGES = 3
 
 #: 2026-10-20 (G148): the owner's Spanish questions answered half as often as their English counterparts.
 _SPANISH_NOTE = (
@@ -896,10 +944,11 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
             "\n".join(_header_lines(p, 0.5) + [f"linked: {line}" for line in p.get("linked_lines", [])])
             for p in people)
     excerpts: list = []
+    unread_budget = {"left": ask_sources.UNREAD_EXTRA_CHARS}   # ROR-29: one budget for both legs
     if source_words and memory_path is not None and found:
         try:
             excerpts = ask_sources.gather(memory_path, query, found, owner_name=owner_name, terms=terms,
-                                          follow=meaning,
+                                          follow=meaning, deep=unread_budget,
                                           **({"breadth": True, "max_episodes": ask_sources.ENUM_EPISODES,
                                               "max_excerpts": ask_sources.BREADTH_EXCERPTS,
                                               "total_chars": ask_sources.BREADTH_CHARS} if enumerate_ else {}))
@@ -913,10 +962,12 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
         if said:
             context += ("\n\nWHAT WAS SAID (word for word, from the conversations the claims and lines above cite; "
                         "oldest first):\n" + said)
-    if source_words and memory_path is not None and searched is not None and searched.episodes:
+    if source_words and memory_path is not None and searched is not None and (searched.episodes or searched.lately):
         try:
             more = ask_sources.gather_search(memory_path, query, searched, owner_name=owner_name,
-                                             taken=ask_sources.shown_turns(excerpts))
+                                             taken=ask_sources.shown_turns(excerpts), deep=unread_budget,
+                                             meaning_room=ask_sources.ASK_WINDOW_CHARS - len(context),
+                                             **ask_sources.window_limits())
         except Exception as exc:  # noqa: BLE001 — the words are context; their absence never fails an answer
             logger.debug(f"ask search leg skipped ({type(exc).__name__})")
             more = []
@@ -956,6 +1007,8 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
     elif getattr(searched, "record_lang", ""):
         language = _LANGUAGE_NAMES.get(searched.record_lang, "another language")
         notes += _RECORD_LANGUAGE_NOTE.format(language=language) + "\n\n"
+    if getattr(searched, "lately", None):
+        notes += _LATELY_NOTE + "\n\n"
     if inference:
         notes += _INFERENCE_NOTE + "\n\n"
     elif implied:
@@ -1170,6 +1223,23 @@ def _watch_history_lines(memory_path: Path, query: str) -> list[str]:
         return []
 
 
+def _saved_lines(memory_path: Path, query: str, *, episodes: bool) -> tuple[list[str], list[str]]:
+    """Ruling 62: saved links the question's words find, and those only its meaning does. Engine-free, and context only:
+    never a reason an answer fails. A short question takes one rare word; a long one must share two. ``episodes``: also
+    tab groups, only for a caller with the source scope, as recall (G135)."""
+    from api.services import saved_lookup
+
+    try:
+        need = 1 if len(saved_lookup.subject_stems(query)) <= 2 else 2
+        by_words = saved_lookup.find(memory_path, query, k=_SAVED_SHOWN, min_shared=need, episodes=episodes)
+        by_meaning = saved_lookup.by_meaning(memory_path, query, k=_SAVED_SHOWN - len(by_words),
+                                             exclude=frozenset(h.id for h in by_words))
+        return [saved_lookup.line(h) for h in by_words], [saved_lookup.line(h) for h in by_meaning]
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"ask saved leg skipped ({type(exc).__name__})")
+        return [], []
+
+
 def _gap_response(query: str) -> dict:
     """The honest-ignorance answer when nothing relevant was retrieved."""
     return {
@@ -1218,8 +1288,29 @@ def _default_llm_fn(settings: Settings | None = None, *, extra_body: dict | None
     return _call
 
 
+def scoped_llm_fn(resolved: Settings) -> LlmFn:
+    """Ask's model call on the engine a resolved ``Settings`` chose, each call in its OWN self-purging breaker scope.
+
+    The shared ``_unscoped`` bucket is never reset, so once Ask ran on a plan one throttle there (Claude, a Codex usage
+    limit) left every later Ask — and the link backfill sharing that bucket — failing fast without spawning until the
+    backend restarted, even after the window reset (final review H1). A throttle seen here still stops THIS call;
+    ``use_scope`` purges the trip on exit. One body for the router and the MCP tool's direct path, so a door that
+    answers without the backend resolves the engine the same way (`engine_select.resolve_settings`)."""
+    import uuid
+
+    from api.services import agent_engine
+
+    def llm_fn(prompt: str) -> str:
+        with agent_engine.use_scope(f"ask:{uuid.uuid4().hex}"):
+            return _default_llm_fn(resolved)(prompt)
+
+    return llm_fn
+
+
 #: The most pages the question's own names add to Ask's retrieval.
 _NAMED_PAGES = 3
+#: Ruling 62: the most saved links an answer sees.
+_SAVED_SHOWN = 4
 #: The most subject words of a question the name leg looks up (each one lexical query, ~ms on a warm index).
 _NAME_PROBES = 8
 
@@ -1447,7 +1538,7 @@ def answer_query(
     source_words: bool = True,
     search_fn: Callable[[Path, str], "ask_sources.Searched"] | None = None,
 ) -> dict:
-    """Synthesize an auditable, gap-aware answer grounded only in retrieved memory.
+    """Synthesize an auditable, gap-aware answer; what it says about the person is grounded in retrieved memory.
 
     ``no_engine``: the engine the caller resolved would call an API model with no key
     (``engine_readiness.key_missing``); ``None`` asks the environment's settings when no ``llm_fn`` is given.
@@ -1468,6 +1559,7 @@ def answer_query(
     CONVERSATIONS the answer used).
     """
     memory_path = Path(memory_path)
+    _HIDE_MARKS.set(not source_words)
     query = (query or "").strip()
 
     # Empty/whitespace query: nothing to ground on — short-circuit before
@@ -1503,6 +1595,9 @@ def answer_query(
     # engine-free (`watch_history.lookup`) — the lines are what the platform recorded, never the person's words,
     # and go to the model only for a caller that may see the record's own text (`source_words`).
     watched = _watch_history_lines(memory_path, query) if source_words else []
+    # Ruling 62: a save no model has read holds no claim, so no leg above can reach it. A page's title and link are the
+    # page's, not the person's words: no scope gates them. A tab group's is the same record recall gates (G135).
+    saved, saved_near = _saved_lines(memory_path, query, episodes=source_words)
 
     # 2026-10-19: the conversations the question's own words find. Ask is page-first, and a conversation's words
     # reached the model only through a shown page's evidence or provenance — when Sleep left the detail off the page,
@@ -1512,13 +1607,23 @@ def answer_query(
     searched = None
     if source_words:
         try:
-            searched = (search_fn or ask_sources.search)(memory_path, query)
+            searched = (search_fn(memory_path, query) if search_fn
+                        else ask_sources.search(memory_path, query, any_language=True))
         except Exception as exc:  # noqa: BLE001 — the leg is context; its absence never fails an answer
             logger.debug(f"ask search leg skipped ({type(exc).__name__})")
 
+    # What's come up lately names no subject: the pages said most lately lead, ahead of a few of what its words found.
+    if searched is not None and searched.lately:
+        from api.services import page_use
+
+        lead = _retrieved_entities(memory_path, [{"entity_id": e} for e in page_use.top_lately(memory_path, LATELY_PAGES)],
+                                   include_history=include_history, query=query)
+        ids = {e["entity_id"] for e in lead}
+        entities = lead + [e for e in entities if e["entity_id"] not in ids][:LATELY_OTHER_PAGES]
+
     # Honest-gap fast path: nothing to ground on => do NOT call the LLM, do NOT
     # hallucinate. This is the key auditable-synthesis behaviour.
-    if not entities and not watched and not (searched and searched.episodes):
+    if not entities and not watched and not saved and not (searched and (searched.episodes or searched.lately)):
         return _gap_response(query)
 
     if entities:
@@ -1528,14 +1633,25 @@ def answer_query(
             logger.debug(f"ask linked people skipped ({type(exc).__name__})")
 
     retrieved_ids = [e["entity_id"] for e in entities]
+    # The pages this answer read count as SHOWN reads (`page_reads`, ruling 70): once a page a day, never raising.
+    from api.services import page_reads
+
+    for _eid in retrieved_ids:
+        page_reads.count(memory_path, _eid, "ask")
     shown: dict = {}
     prompt = _build_prompt(query, entities, memory_path=memory_path, source_words=source_words,
                            owner_name=_owner_name(memory_path, entities, people) if source_words else None,
                            searched=searched, shown=shown)
     conversations: dict[str, dict] = shown.get("conversations") or {}
-    if not entities and not watched and not conversations:
+    if not entities and not watched and not saved and not conversations:
         # The words found nothing a turn holds: still nothing to ground on.
         return _gap_response(query)
+    # A line only the vectors found never earns a model call by itself (the honest gap above), and is judged by it here.
+    if saved or saved_near:
+        prompt += ("\n\nSAVED LINKS (links the person saved, found by the question's words or meaning: a line is about "
+                   "the question only when it means what the question asks. Each is a title and a link with no reason "
+                   "given; nobody has read them, so they say what exists, never what the person thinks or did. Name "
+                   "the link when it answers the question):\n" + "\n".join([*saved, *saved_near]))
     if watched:
         from datetime import datetime
 
@@ -1570,7 +1686,7 @@ def answer_query(
     if no_engine:
         # Owner decision 2 (2026-10-16): with no engine here, say so — never a keyless call that fails into "could
         # not synthesize". The pages it found are still named.
-        names = _found_names(entities, watched, conversations)
+        names = _found_names(entities, watched, conversations, saved)
         return {
             "answer": f"{engine_readiness.ASK_NO_ENGINE} Relevant pages: {names}.",
             "confidence": 0.0,
@@ -1578,17 +1694,49 @@ def answer_query(
             "gaps": ["No engine to answer with on this machine."],
             "used_entities": retrieved_ids,
             "conversations": _conversation_list(conversations, list(conversations)),
+            "failure": ask_failure.NO_ENGINE,
         }
     llm = llm_fn or _default_llm_fn()
     parsed: dict | None = None
-    try:
-        raw = llm(prompt)
-        parsed = json_parse.parse_json_object(raw)
-        if not isinstance(parsed, dict):
-            parsed = None
-    except Exception as exc:  # noqa: BLE001 — malformed reply must degrade, not 500
-        logger.warning(f"ask synthesis parse failed: {exc}")
+    failed: ask_failure.AskFailure | None = None
+    # 2026-11-06: the whole answer was thrown away for a reply that wasn't JSON (1 of 100 on a 15k-character prompt, a
+    # right answer before), so it is asked once more, which spends a call only when the first was lost. A failure the
+    # engine names (a plan limit, a sign-out, a timeout) is not a lost reply: asking again would only spend another
+    # call on the same wall, so it ends the loop and is told to the person with its fix (`ask_failure`).
+    for attempt in (prompt, prompt + _JSON_AGAIN):
         parsed = None
+        try:
+            raw = llm(attempt)
+        except Exception as exc:  # noqa: BLE001 — a failed call must degrade, not 500
+            failed = ask_failure.failure_for(exc)
+            logger.warning(f"ask synthesis call failed ({type(exc).__name__}"
+                           f"{', ' + failed.code if failed else ', unnamed'})")
+            if failed:
+                break
+            continue
+        try:
+            parsed = json_parse.parse_json_object(raw)
+            if not isinstance(parsed, dict):
+                parsed = None
+        except Exception as exc:  # noqa: BLE001 — a malformed reply must degrade, not 500 (and is never a cause)
+            logger.warning(f"ask synthesis parse failed ({type(exc).__name__})")
+            parsed = None
+        if parsed is not None:
+            break
+
+    if failed:
+        # The engine did not answer, and the person is told why and what to do; the pages it found are still named.
+        names = _found_names(entities, watched, conversations, saved)
+        return {
+            "answer": f"{failed.sentence} Relevant pages: {names}.",
+            "confidence": 0.0,
+            "citations": _citations_for(entities, retrieved_ids),
+            "gaps": ["The engine did not answer, so nothing here is a written answer."],
+            "used_entities": retrieved_ids,
+            "conversations": _conversation_list(conversations, list(conversations)),
+            "failure": failed.code,
+            "resets_at": failed.resets_at,
+        }
 
     if parsed is None:
         # Degrade to an honest low-confidence answer over the retrieved entities
@@ -1604,6 +1752,7 @@ def answer_query(
             "gaps": ["Could not synthesize a grounded answer from the retrieved context."],
             "used_entities": retrieved_ids,
             "conversations": _conversation_list(conversations, list(conversations)),
+            "failure": ask_failure.UNREADABLE,
         }
 
     answer = str(parsed.get("answer", "")).strip()
@@ -1611,6 +1760,8 @@ def answer_query(
     # which must not be iterated character-by-character into the flagship fields.
     gaps = _coerce_str_list(parsed.get("gaps"))
     cited_raw = _coerce_str_list(parsed.get("used_entities"))
+    # The model returned its list (even an empty one: "no page rests this answer"): it is used as given.
+    listed = isinstance(parsed.get("used_entities"), list)
     # The OTHER CONVERSATIONS the model says it used — only ids that were shown. Omitted: every one shown (the same
     # fallback as entities); an id put in used_entities instead is moved here, never read as an invented entity.
     named = _coerce_str_list(parsed.get("used_conversations")) if "used_conversations" in parsed else None
@@ -1663,7 +1814,9 @@ def answer_query(
     # used_entities reflects the model's actual selection where it named valid
     # sources; only when it omitted the field do we fall back to the retrieved
     # set. citations and used_entities therefore agree.
-    cite_ids = used if used else retrieved_ids
+    # 2026-11-05 (G207): a page is cited because the answer rests on it, never because it was retrieved. The list the
+    # model returned is used as given; with none returned, the pages the answer itself names.
+    cite_ids = used if (used or listed) else _named_in(entities, answer)
     return {
         "answer": answer,
         "confidence": confidence,
@@ -1674,10 +1827,26 @@ def answer_query(
     }
 
 
-def _found_names(entities: list[dict], watched: list[str], conversations: dict[str, dict]) -> str:
+def _named_in(entities: list[dict], answer: str) -> list[str]:
+    """The retrieved pages whose title or alias the ``answer`` says, in retrieval order: the smallest honest
+    citation for a model that returned no list. A page is not cited for having been retrieved."""
+    text = text_fold.fold(answer)
+    out: list[str] = []
+    for ent in entities:
+        names = [ent.get("entity_name") or "", *(ent.get("aliases") or [])]
+        if any(len(n) >= 3 and re.search(r"(?<!\w)" + re.escape(text_fold.fold(n)) + r"(?!\w)", text)
+               for n in names if isinstance(n, str)):
+            out.append(ent["entity_id"])
+    return out
+
+
+def _found_names(entities: list[dict], watched: list[str], conversations: dict[str, dict],
+                 saved: list[str] | None = None) -> str:
     names = [e["entity_name"] for e in entities]
     if conversations:
         names.append(f"{len(conversations)} conversation(s)")
+    if saved:
+        names.append(f"{len(saved)} saved link(s)")
     return ", ".join(names) or ("the watch history" if watched else "nothing")
 
 
@@ -1714,6 +1883,8 @@ def _citations_for(entities: list[dict], cite_ids: list[str]) -> list[dict]:
         citation = {
             "entity_id": ent["entity_id"],
             "entity_name": ent["entity_name"],
+            **({"qualifier": ent["qualifier"], "display_name": f"{ent['entity_name']} ({ent['qualifier']})"}
+               if ent.get("qualifier") else {}),
             "file_path": ent["file_path"],
             "snippet": ent["snippet"],
             "source_episodes": episodes,

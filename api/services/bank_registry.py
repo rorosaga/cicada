@@ -83,11 +83,13 @@ DERIVED_ARTIFACTS = (
     "vector_index.db",
     "vector_index.db-wal",
     "vector_index.db-shm",
+    "vector_index.db-journal",
     # G136: the FTS5 lexical index (`search_index.py`) — same rule, same
     # directory, same reason.
     "search_index.db",
     "search_index.db-wal",
     "search_index.db-shm",
+    "search_index.db-journal",
     # Audit A02/K01: an atomic page write's staging file (`markdown_parser._stage`)
     # and the other temp-then-replace writers' — never a page, never versioned.
     ".*.tmp",
@@ -694,6 +696,15 @@ def activate_bank(root: Path, name: str) -> None:
     banks = registry.get("banks", {}) or {}
     if name not in banks:
         raise ValueError(f"Unknown bank '{name}'")
+    record = banks.get(name)
+    if isinstance(record, dict) and record.get("replica"):
+        from api.services import replica_guard
+
+        if not replica_guard.active():
+            # G132 phase 1 B (review of #567): a copy only follows its home; opened here it would run Sleep and
+            # capture and drift. It is opened again by keeping a copy (Settings → Devices), never by a switch.
+            raise ValueError(f"'{name}' is a copy of a memory another computer holds; it opens only while this "
+                             "computer keeps a copy")
     previous = registry.get("active")
     if previous and previous != name and isinstance(banks.get(previous), dict):
         banks[previous]["last_active_at"] = datetime.now(timezone.utc).isoformat()

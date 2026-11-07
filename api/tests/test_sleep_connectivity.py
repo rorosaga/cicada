@@ -8,7 +8,8 @@ import pytest
 
 from drain_harness import episode_ids, git, install, seed_bank, settings, waiting
 from api.config import Settings
-from api.services import agent_engine, codex_engine, engine_errors, providers, sleep_cycle, sleep_paused, sleep_parked
+from api.services import (agent_engine, codex_engine, engine_errors, providers, sleep_cycle, sleep_drain,
+                          sleep_paused, sleep_parked)
 from api.services.connections.base import CliResult
 
 
@@ -174,12 +175,15 @@ def test_repeated_extraction_connection_loss_never_parks_and_recovers_on_continu
     for leg in range(2):
         asyncio.run(sleep_cycle.run(settings(memory), "sleep_connection", user_triggered=True,
                                    drain=True, continue_from=rec))
+        # 2026-11-03: a lost connection waits and reads the batch again on its own (`OFFLINE_RETRIES` waits),
+        # then pauses in words about the network — never the engine's fault, never the conversation's.
         rec = sleep_paused.get_paused(memory)
-        assert rec and rec["reason"] == "engine" and rec["engine_kind"] == "transient"
+        assert rec and rec["reason"] == "engine" and rec["engine_kind"] == "offline"
         assert rec["attempts"] == {} and rec["timeout_attempts"] == {}
         assert sleep_parked.ids(memory) == set() and waiting(memory) == ids
         assert git(memory, "status", "--porcelain") == ""
-    assert calls.count(ids[0]) == 4 and backoffs == [2, 2]
+    tries = 2 * (1 + sleep_drain.OFFLINE_RETRIES)        # two legs, each the first read and its waits
+    assert calls.count(ids[0]) == 2 * tries and [d for d in backoffs if d >= 1] == [2] * tries
     outage = False
     asyncio.run(sleep_cycle.run(settings(memory), "sleep_connection", user_triggered=True,
                                drain=True, continue_from=rec))
@@ -220,19 +224,12 @@ def test_real_cli_seam_retries_connection_once_then_pauses_and_continue_recovers
 
     try:
         run()
-        if persistent:
-            for calls in (2, 4):
-                rec = sleep_paused.get_paused(memory)
-                assert rec and rec["reason"] == "engine" and rec["engine_kind"] == "transient"
-                assert rec["can_continue"] and rec["calls"] == calls and rec["frozen_ids"] == ids
-                assert state.error is None and waiting(memory) == ids and sleep_parked.ids(memory) == set()
-                assert rec["attempts"] == {} and rec["timeout_attempts"] == {}
-                assert "workspace routing discovery failed" in rec["sentence"]
-                assert git(memory, "status", "--porcelain") == ""
-                run(continue_from=rec)
+        # 2026-11-03: the batch whose later-stage call lost the connection is read again by the same run, once the
+        # wait is over — no pause and no Continue; the seam's own one retry still comes first each time.
+        assert state.drain.offline_waits == (2 if persistent else 0)
         assert state.drain.finished and state.error is None and waiting(memory) == []
         assert sleep_paused.get_paused(memory) is None
         assert len(runner.calls) == (5 if persistent else 2)
-        assert backoffs == ([2, 2] if persistent else [2])
+        assert [d for d in backoffs if d >= 1] == ([2, 2] if persistent else [2])
     finally:
         state.status, state.drain, state.drain_run, state.cancel_requested = "idle", None, False, False

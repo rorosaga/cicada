@@ -81,6 +81,29 @@ final class InboxQuestionTests: XCTestCase {
         XCTAssertEqual(titleless.questionText, "B")
     }
 
+    func testWhatAPersonIsAskedIsTheSpokenQuestionElseTheStoredOne() throws {
+        let spoken = try decode("""
+        {"id":"a","kind":"conflict","requiredInput":"choice","title":"T","question":"Which is true about Alpha (p)?",
+         "spokenQuestion":"Which is right for Alpha's team size: 6 or 10?","spokenReason":"Both came up in one chat."}
+        """)
+        XCTAssertEqual(spoken.askText, "Which is right for Alpha's team size: 6 or 10?")
+        XCTAssertEqual(spoken.questionText, "Which is true about Alpha (p)?")
+        XCTAssertEqual(spoken.askReason, "Both came up in one chat.")
+
+        let stored = try decode("""
+        {"id":"b","kind":"page_edit","requiredInput":"choice","title":"T","question":"An agent suggests a change."}
+        """)
+        XCTAssertEqual(stored.askText, "An agent suggests a change.")
+        XCTAssertNil(stored.askReason)
+    }
+
+    func testTheDecayAnswersAnswerTheQuestionAndTheNotedCopyStaysAsIs() {
+        XCTAssertEqual(Copy.Inbox.decayYes, "Yes, keep it")
+        XCTAssertEqual(Copy.Inbox.decayNo, "No, archive it")
+        XCTAssertEqual(Copy.Inbox.keepActive, "Keep active")
+        XCTAssertEqual(Copy.Inbox.archive, "Archive")
+    }
+
     func testAgeCapsuleIsShort() throws {
         func capsule(_ days: Int?) -> String? {
             InboxOption(key: "k", label: "L", description: nil, claimId: nil,

@@ -89,17 +89,30 @@ struct ReadingSettingsResponse: Decodable, Equatable {
     var exploreSignedIn: Bool
     /// `{site: day}` the person said never to explore (D3).
     var neverExplore: [String: String]
-    /// G71 (2026-10-16): the YouTube lists the person asked their own agent to keep current, off by default.
+    /// G71 (2026-10-16): the YouTube lists the person asked their own agent to keep current (on by default since
+    /// 2026-10-26 — onboarding asks once, pre-ticked).
     var youtubeLists: YouTubeListSwitches
     /// When each list was last read for this memory, and whether the lists are paused (a sign-in the agent lacked).
     var youtube: YouTubeListsStatus?
     /// G206 (2026-10-22): `{x|instagram|linkedin: on}` — the saved lists the person asked their own agent to keep
     /// current from their signed-in browser. Off, and absent from an older backend, by default.
     var savedLists: [String: Bool] = [:]
+    /// 2026-10-26 — the lists the person turned off. Lists are on by default since then (asked once, pre-ticked, in
+    /// onboarding), so an off is remembered and onboarding's rerun leaves these unticked. Absent from an older backend.
+    var youtubeListsOff = YouTubeListSwitches()
+    var savedListsOff: [String: Bool] = [:]
+    /// G89 (2026-11-04): `{saved|history|subscriptions: on}` — the Substack lists the person asked their own agent to
+    /// keep current. Off until they turn one on; absent from an older backend.
+    var substackLists: [String: Bool] = [:]
+    /// When each Substack list was last read for this memory, and the pause.
+    var substack: SubstackListsStatus?
+    /// ROR-114 — per saved list (x, instagram, linkedin, reddit, pinterest, tiktok): where it stands (read, signed out,
+    /// couldn't read, not read yet), the last read, and whose list it is. Absent from an older backend.
+    var saved: SavedListsStatus?
 
     enum CodingKeys: String, CodingKey {
         case agentEnabled, allowedSites, ackedAt, ackCurrent, lastAgentRead, exploreSignedIn, neverExplore
-        case youtubeLists, youtube, savedLists
+        case youtubeLists, youtube, savedLists, youtubeListsOff, savedListsOff, substackLists, substack, saved
     }
 
     init(agentEnabled: Bool = false, allowedSites: [String: String] = [:], ackedAt: String? = nil,
@@ -129,6 +142,128 @@ struct ReadingSettingsResponse: Decodable, Equatable {
         youtubeLists = (try? c.decode(YouTubeListSwitches.self, forKey: .youtubeLists)) ?? YouTubeListSwitches()
         youtube = try? c.decodeIfPresent(YouTubeListsStatus.self, forKey: .youtube)
         savedLists = (try? c.decode([String: Bool].self, forKey: .savedLists)) ?? [:]
+        youtubeListsOff = (try? c.decode(YouTubeListSwitches.self, forKey: .youtubeListsOff)) ?? YouTubeListSwitches()
+        savedListsOff = (try? c.decode([String: Bool].self, forKey: .savedListsOff)) ?? [:]
+        substackLists = (try? c.decode([String: Bool].self, forKey: .substackLists)) ?? [:]
+        substack = try? c.decodeIfPresent(SubstackListsStatus.self, forKey: .substack)
+        saved = try? c.decodeIfPresent(SavedListsStatus.self, forKey: .saved)
+    }
+
+    func isOn(_ list: SubstackList) -> Bool { substackLists[list.rawValue] ?? false }
+}
+
+/// ROR-114 — `GET /reading/settings`' `saved` block: per saved list, how it stands and whose it is. `state` is the
+/// backend's own word (`read | signed_out | couldnt_read | not_read`), learned only when an agent tries the page.
+struct SavedListsStatus: Decodable, Equatable {
+    struct List: Decodable, Equatable {
+        var state: String = "not_read"
+        var lastReadAt: String?
+        var handle: String?
+        var profileUrl: String?
+
+        init(state: String = "not_read", lastReadAt: String? = nil, handle: String? = nil, profileUrl: String? = nil) {
+            self.state = state; self.lastReadAt = lastReadAt; self.handle = handle; self.profileUrl = profileUrl
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            state = (try? c.decode(String.self, forKey: .state)) ?? "not_read"
+            lastReadAt = try? c.decodeIfPresent(String.self, forKey: .lastReadAt)
+            handle = try? c.decodeIfPresent(String.self, forKey: .handle)
+            profileUrl = try? c.decodeIfPresent(String.self, forKey: .profileUrl)
+        }
+
+        enum CodingKeys: String, CodingKey { case state, lastReadAt, handle, profileUrl }
+    }
+
+    var lists: [String: List] = [:]
+
+    init(lists: [String: List] = [:]) { self.lists = lists }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lists = (try? c.decode([String: List].self, forKey: .lists)) ?? [:]
+    }
+
+    enum CodingKeys: String, CodingKey { case lists }
+}
+
+/// G89 (2026-11-04) — the Substack lists an agent may keep current, by the backend's own keys.
+enum SubstackList: String, CaseIterable, Identifiable {
+    case saved, liked, history, subscriptions
+    var id: String { rawValue }
+}
+
+/// `GET /reading/settings`' `substack` block: per list, the last read; the one pause (a sign-in covers all three).
+struct SubstackListsStatus: Decodable, Equatable {
+    struct List: Decodable, Equatable {
+        var lastReadAt: String?
+        var lastOutcome: String?
+        var items: Int = 0
+
+        init(lastReadAt: String? = nil, lastOutcome: String? = nil, items: Int = 0) {
+            self.lastReadAt = lastReadAt; self.lastOutcome = lastOutcome; self.items = items
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            lastReadAt = try? c.decodeIfPresent(String.self, forKey: .lastReadAt)
+            lastOutcome = try? c.decodeIfPresent(String.self, forKey: .lastOutcome)
+            items = (try? c.decode(Int.self, forKey: .items)) ?? 0
+        }
+
+        enum CodingKeys: String, CodingKey { case lastReadAt, lastOutcome, items }
+    }
+
+    var pausedUntil: String?
+    var lists: [String: List] = [:]
+
+    init(pausedUntil: String? = nil, lists: [String: List] = [:]) { self.pausedUntil = pausedUntil; self.lists = lists }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pausedUntil = try? c.decodeIfPresent(String.self, forKey: .pausedUntil)
+        lists = (try? c.decode([String: List].self, forKey: .lists)) ?? [:]
+    }
+
+    enum CodingKeys: String, CodingKey { case pausedUntil, lists }
+}
+
+/// G89 — how many publications the person follows: the count the backend gives their channel, by its one rule. Pure.
+enum SubstackFollowing {
+    static func count(_ channels: [SourceChannel]) -> Int {
+        channels.first { $0.id == FeedChannelText.substackChannel }?.count ?? 0
+    }
+}
+
+/// The words under each Substack list's switch — pure, so a test reads them.
+enum SubstackListWords {
+    static func title(_ list: SubstackList) -> String {
+        switch list {
+        case .saved: Copy.Reading.substackSavedTitle
+        case .liked: Copy.Reading.substackLikedTitle
+        case .history: Copy.Reading.substackHistoryTitle
+        case .subscriptions: Copy.Reading.substackSubscriptionsTitle
+        }
+    }
+
+    static func detail(_ list: SubstackList, on: Bool, status: SubstackListsStatus?,
+                       locale: Locale = .autoupdatingCurrent) -> String {
+        guard on else {
+            switch list {
+            case .saved: return Copy.Reading.substackSavedOff
+            case .liked: return Copy.Reading.substackLikedOff
+            case .history: return Copy.Reading.substackHistoryOff
+            case .subscriptions: return Copy.Reading.substackSubscriptionsOff
+            }
+        }
+        if let until = status?.pausedUntil {
+            return Copy.Reading.substackPaused(ReadWords.day(until, locale: locale) ?? until)
+        }
+        if let last = status?.lists[list.rawValue]?.lastReadAt {
+            return Copy.Reading.youtubeLastRead(ReadWords.day(last, locale: locale) ?? last)
+        }
+        return Copy.Reading.youtubeWaiting
     }
 }
 

@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import OriginsResponse
-from api.services import origin_stats, sync_service
+from api.services import origin_stats, sync_service, sync_ticker
 
 router = APIRouter()
 
@@ -22,8 +22,9 @@ async def get_origins(
     response: Response,
     settings: Settings = Depends(get_settings),
 ):
-    etag = sync_service.etag_for(settings.memory_path, "episodes", "entities")
-    if (early := sync_service.conditional(request, response, etag)) is not None:
-        return early
-    origins = await run_in_threadpool(origin_stats.aggregate_origins, settings.memory_path)
+    with sync_ticker.request_scans(settings.memory_path):   # one listing per folder for ETag and count (speed 2026-10-29)
+        etag = sync_service.etag_for(settings.memory_path, "episodes", "entities")
+        if (early := sync_service.conditional(request, response, etag)) is not None:
+            return early
+        origins = await run_in_threadpool(origin_stats.aggregate_origins, settings.memory_path)
     return OriginsResponse(origins=origins)

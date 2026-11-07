@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 
 import pytest
+
+import _bench
 from fastapi.testclient import TestClient
 
 from _demo_scenario import demo
@@ -233,12 +235,12 @@ def test_fifty_claims_across_twenty_episodes_stay_in_budget(tmp_path, monkeypatc
     calls: list[str] = []
     real = markdown_parser.parse
     monkeypatch.setattr(markdown_parser, "parse", lambda p: (calls.append(Path(p).name), real(p))[1])
-    t0 = time.perf_counter()
+    t0, c0 = time.perf_counter(), time.process_time()
     result = provenance.entity_provenance(memory, page)
-    elapsed = time.perf_counter() - t0
+    elapsed, cpu = time.perf_counter() - t0, time.process_time() - c0
     assert (result.totals.claims, result.totals.with_span, result.totals.conversations) == (50, 50, 20)
     assert len(calls) <= 21, calls  # the page + at most one body read per episode; no frontmatter re-parse
-    assert elapsed < 1.0  # smoke bound; the 150 ms design budget is measured by the orchestrator
+    _bench.within(cpu, elapsed, 1.0, "provenance")  # smoke bound in CPU time; the 150 ms design budget is the bench's
 
 
 def test_the_demo_bank_answers_with_an_exact_quote(tmp_path):

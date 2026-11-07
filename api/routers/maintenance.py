@@ -235,6 +235,11 @@ async def verify_sites(
         report = site_sources.Report()
         try:
             await asyncio.to_thread(site_sources.propose, memory_path, skip, report)
+            # Ruling 40: the person's click — an organisation's own site from the record or Wikidata (`org_sites`).
+            from api.services import org_sites
+
+            await org_sites.run(memory_path, report=report, skip=skip, page_budget=budget,
+                                lookup_budget=org_sites.ROUTE_LOOKUP_BUDGET)
             await site_sources.verify(memory_path, budget=budget, skip=skip, settings=settings, report=report)
         except Exception:
             # A page written before the failure must not ride the next `git add -A` writer's commit (the G85 smear).
@@ -249,7 +254,8 @@ async def verify_sites(
                 await asyncio.to_thread(site_sources.restore, memory_path, report)
                 raise HTTPException(500, "the site check could not be committed; nothing was changed")
     return {"pages": len(report.paths), **{k: report.counts.get(k, 0) for k in (
-        "proposed", "fetched", "verified", "unconfirmed", "mismatch", "platform", "unreachable", "deferred")},
+        "proposed", "fetched", "verified", "unconfirmed", "mismatch", "platform", "unreachable", "deferred",
+        "org_trusted", "org_proposal")},
             "budget": budget}
 
 
@@ -265,6 +271,34 @@ def _built_at(memory_path: Path) -> str | None:
     if not db.exists():
         return None
     return datetime.fromtimestamp(db.stat().st_mtime, tz=timezone.utc).isoformat()
+
+
+@router.get("/maintenance/watched-rows")
+async def watched_rows_survey(settings: Settings = Depends(get_settings)):
+    """What moving the watched days' rows out of their frontmatter would do (`watch_rows_migration.survey`): counts and
+    a few day ids, nothing written. The dry run behind ``cicada maintenance move-watched-rows``."""
+    from api.services import watch_rows_migration
+
+    return await run_in_threadpool(watch_rows_migration.survey, settings.memory_path)
+
+
+@router.post("/maintenance/watched-rows")
+async def watched_rows_apply(settings: Settings = Depends(get_settings)):
+    """Move them, on the person's word (``--apply``): one `cicada` commit, a second apply a no-op. 409 while Sleep holds
+    the pages. Counts only in the body."""
+    from api.services import watch_rows_migration, write_admission
+
+    memory_path = settings.memory_path
+    busy = lambda: SleepWriting("a Sleep cycle is running and writes the same episodes — retry when it finishes")  # noqa: E731
+
+    async def transaction():
+        return await asyncio.to_thread(watch_rows_migration.move_rows, memory_path)
+
+    try:
+        moved = await write_admission.run_admitted(memory_path, transaction, refuse=busy)
+    except write_admission.SleepHolding:
+        raise busy()
+    return {"moved": moved, **await run_in_threadpool(watch_rows_migration.survey, memory_path)}
 
 
 @router.get("/maintenance/search-index", response_model=SearchIndexStatus)

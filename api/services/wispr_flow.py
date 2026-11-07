@@ -32,6 +32,7 @@ from datetime import datetime
 from pathlib import Path
 
 from api.services import episode_ids, episode_scrub, episode_staging, evidence, markdown_parser
+from api.services import meeting_transcripts
 from api.services.episode_staging import EpisodeDraft, Turn
 from api.services.id_utils import sanitize_id
 
@@ -339,10 +340,13 @@ def meeting_draft(item: dict, todos: list[dict], owner_names: set[str]) -> tuple
     turns: list[Turn] = []
     summary = _plain(row["summary"])
     if summary:
-        turns.append(Turn(f"Summary (written by Wispr Flow)\n{summary}", "assistant"))
+        # Every line quoted (`meeting_transcripts.summary_text`, #579 review): a model line reading "User: …" never
+        # opens a turn of the person's.
+        turns.append(Turn(meeting_transcripts.summary_text(summary, "Wispr Flow"), "assistant"))
     notes = _plain(row["notes"])
     if notes:
-        turns.append(Turn(f"Notes (Wispr Flow)\n{notes}", "assistant"))
+        turns.append(Turn(meeting_transcripts.summary_text(notes, "Wispr Flow", heading="Notes (Wispr Flow)"),
+                          "assistant"))
     open_todos: list[str] = []
     for todo in todos:
         todo = {k: todo.get(k) for k in TODO_COLUMNS}

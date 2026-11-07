@@ -24,6 +24,8 @@ struct ProvenanceSpan: Codable, Hashable {
     let stale: Bool
     let grown: Bool
     let derived: Bool
+    /// ROR-16 (G235) — the words are held back: no offsets and no excerpt travelled.
+    var held = false
 
     init(episode: String, start: Int?, end: Int?, hash: String = "", kind: EvidenceKind,
          excerpt: String, excerptStart: Int = 0, mentionOffsets: [[Int]] = [],
@@ -42,7 +44,7 @@ struct ProvenanceSpan: Codable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case episode, start, end, hash, kind, excerpt, excerptStart, mentionOffsets, stale, grown, derived
+        case episode, start, end, hash, kind, excerpt, excerptStart, mentionOffsets, stale, grown, derived, held
     }
 
     init(from decoder: Decoder) throws {
@@ -58,6 +60,7 @@ struct ProvenanceSpan: Codable, Hashable {
         stale = try c.decodeIfPresent(Bool.self, forKey: .stale) ?? false
         grown = try c.decodeIfPresent(Bool.self, forKey: .grown) ?? false
         derived = try c.decodeIfPresent(Bool.self, forKey: .derived) ?? false
+        held = try c.decodeIfPresent(Bool.self, forKey: .held) ?? false
     }
 
     /// A derived match is never "You said" (§4.9): the kind the chip renders
@@ -79,11 +82,18 @@ struct ProvenanceContributor: Codable, Hashable, Identifiable {
     /// written with, joined to their turns at read. `[]` for every other kind,
     /// before D1, and for an app that never tells its model.
     let models: [ContributorModel]
+    /// ROR-117 — `transcribed`: listed because it made the words of the recording this page is about, with no beliefs
+    /// or edits of its own. nil for every other contributor.
+    let role: String?
 
     var id: String { author }
 
+    var transcribedTheWords: Bool { role == "transcribed" }
+    var summarizedTheWords: Bool { role == "summarized" }
+
     init(author: String, kind: String, provider: String? = nil, claims: Int = 0, commits: Int = 0,
-         models: [ContributorModel] = []) {
+         models: [ContributorModel] = [], role: String? = nil) {
+        self.role = role
         self.author = author
         self.kind = kind
         self.provider = provider
@@ -92,7 +102,7 @@ struct ProvenanceContributor: Codable, Hashable, Identifiable {
         self.models = models
     }
 
-    enum CodingKeys: String, CodingKey { case author, kind, provider, claims, commits, models }
+    enum CodingKeys: String, CodingKey { case author, kind, provider, claims, commits, models, role }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -104,6 +114,7 @@ struct ProvenanceContributor: Codable, Hashable, Identifiable {
         // `try?`: a mistyped list from a backend a shape ahead must not drop the
         // whole contributor row (round-4 decode tolerance).
         models = (try? c.decodeIfPresent([ContributorModel].self, forKey: .models)) ?? []
+        role = try? c.decodeIfPresent(String.self, forKey: .role)
     }
 }
 

@@ -10,6 +10,9 @@ struct QuestionResolution: Equatable {
     var remindDays: Int? = nil
     var mergeTarget: String? = nil
     var mergeSurvivor: String? = nil
+    /// Ruling 48 (8) — the person's located words a catch-up reading rests on (nil for a tap), and the chat's session.
+    var quote: String? = nil
+    var sessionId: String? = nil
 }
 
 /// "Keep separate" on a merge suggestion — a REMEMBERED verdict, not a

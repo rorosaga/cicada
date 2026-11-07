@@ -73,8 +73,10 @@ def test_the_create_branch_holds_the_set_even_when_a_payload_slipped_through(tmp
          {"id": "study-example", "action": "create", "entity": {"name": "Study Example", "type": "program"}}],
         tmp_path,
     )
+    # `program` maps to `project`, and Stage 5 never makes one (ruling 56): the fallback concept, marked.
     assert [_fm(tmp_path, e)["type"] for e in ("acme-example", "widget-example", "study-example")] == [
-        "company", "tool", "project"]
+        "company", "tool", "concept"]
+    assert _fm(tmp_path, "study-example")["proposed_type"] == "project"
 
 
 def test_an_inbox_answer_that_creates_a_page_holds_the_set(tmp_path):
@@ -182,8 +184,20 @@ def test_an_override_must_name_a_page_needing_repair_and_a_producible_type(bank)
         entity_type_repair.survey(bank, overrides={"alice-example": "company"})
 
 
+def test_an_unreachable_backend_is_said_as_such_and_repairs_nothing(bank, capsys, monkeypatch):
+    class Unreachable:
+        def open(self, *args, **kw):
+            raise OSError("no backend here")
+
+    monkeypatch.setattr("urllib.request.build_opener", lambda *args: Unreachable())
+    assert repair_entity_types.main(["--bank", str(bank), "--apply", "--as", "odd-example=tool"]) == 3
+    assert "unreachable" in json.loads(capsys.readouterr().out)["refused"]
+    assert _fm(bank, "odd-example")["type"] != "tool"
+
+
 def test_the_command(bank, capsys, monkeypatch):
-    monkeypatch.setattr(repair_entity_types, "backend_running", _idle)
+    # The whole guard, never `backend_running` alone: the guard's first step asks this Mac's real backend.
+    monkeypatch.setattr(repair_entity_types, "_sleep_running", _idle)
     assert repair_entity_types.main(["--bank", str(bank)]) == 0
     assert json.loads(capsys.readouterr().out)["out_of_set"] == 4
     assert repair_entity_types.main(["--bank", str(bank), "--list"]) == 0

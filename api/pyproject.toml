@@ -1,10 +1,12 @@
 [project]
 name = "cicada-api"
-version = "0.7.3"
+version = "0.8.0"
 description = "Cicada companion app backend — filesystem-backed API for the personal knowledge graph"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    # A Claude API key's calls, direct (api/services/anthropic_engine.py, G237); every other key stays on litellm.
+    "anthropic==2.1.0",
     "apscheduler>=3.10",
     "beautifulsoup4>=4.14.3",
     # EmbeddingGemma 2 on the Neural Engine (api/services/coreml_embedder.py; macOS 15+, owner 2026-10-09).
@@ -19,6 +21,9 @@ dependencies = [
     "pydantic-settings>=2.13.1",
     "pypdfium2>=4.30",
     "python-multipart>=0.0.24",
+    # G132 phase 3a: the relay's end-to-end layer (services/relay_e2e.py, relay_pairing.py): Ed25519 signatures,
+    # XChaCha20-Poly1305 frames, sealed-box key wraps, Argon2id for the typed-code slot. Pinned (libsodium 1.0.22).
+    "pynacl==1.6.2",
     "pyyaml>=6.0.3",
     # `cicada setup` (G213, owner 2026-10-22): the spinner, checklist and prompts. Imported only by that command.
     "questionary>=2.0",
@@ -27,10 +32,19 @@ dependencies = [
     "rich>=13.7",
     "sentence-transformers>=5.0.0",
     "sqlite-vec>=0.1.9",
+    # Telegram chats on the person's own account (ruling 47a, G179): MTProto in pure Python, MIT; imported only once
+    # the person connects (api/services/telegram_port.py).
+    "telethon>=1.45,<2",
+    # Telethon's fast AES (a wheel); its pure-Python fallback pyaes is sdist-only, so a release carries it as source
+    # (api/vendor/pyaes, #504 review B5).
+    "cryptg>=0.6",
     "thefuzz[speedup]>=0.22.1",
     "tokenizers>=0.22.2",
     "tqdm>=4.66.0",
     "uvicorn[standard]>=0.44.0",
+    # G132 phase 3a: the device side of the relay (services/relay_client.py) dials out over a websocket. Already in
+    # the lock through uvicorn[standard]; pinned here because the client depends on its asyncio API directly.
+    "websockets==16.0",
 ]
 
 [project.optional-dependencies]

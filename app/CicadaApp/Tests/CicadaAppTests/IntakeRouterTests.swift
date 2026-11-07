@@ -30,7 +30,7 @@ final class FakeIntakeAPI: IntakeAPI, @unchecked Sendable {
         return sniffs[name] ?? IntakeSniff(reason: "unknown")
     }
 
-    func importIntake(fileURL: URL, bank: String?) async throws -> IntakeImportResponse {
+    func importIntake(fileURL: URL, bank: String?, choice: ImportChoice) async throws -> IntakeImportResponse {
         importedBanks.append(bank)
         if failImport.contains(fileURL.lastPathComponent) { throw APIError.serverUnreachable }
         return imports[fileURL.lastPathComponent] ?? IntakeImportResponse()
@@ -525,6 +525,12 @@ final class IntakeRouterTests: XCTestCase {
         XCTAssertTrue(IntakeLayer.showsVeil(windowTargeted: true, nearerDrop: nil))
         XCTAssertFalse(IntakeLayer.showsVeil(windowTargeted: true, nearerDrop: .sleepRoom))
         XCTAssertFalse(IntakeLayer.showsVeil(windowTargeted: false, nearerDrop: nil))
+    }
+
+    /// CIC8 (2026-10-29) — the picker opens where every chat app's export link downloads to. Only a path: the panel
+    /// draws the folder, so nothing in it is read by Cicada and no Files and Folders prompt is raised.
+    func testThePickerOpensInDownloads() {
+        XCTAssertEqual(IntakePicker.startFolder?.lastPathComponent, "Downloads")
     }
 
     /// Z-B17 — one picker, one list of types, for every door.

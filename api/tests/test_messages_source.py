@@ -138,6 +138,30 @@ def test_first_sync_splits_into_sittings_and_names_who_is_who(bank, chat):
     assert not any("someone else" in d.body for d in _episodes(bank, live_only=False))
 
 
+def test_a_texted_agents_chat_lists_under_messages_and_never_under_other_agents(bank, chat):
+    """ROR-109: a chat with an agent is a chat. The display moves; its turns stay the agent's (the G179 rail)."""
+    from api.services import bank_index, session_stats, source_overview
+    _tick(bank, chat.chat_guid(chat.instinct))
+    _sync(bank, chat, chat.instinct, name="Instinct", **AGENT_CADENCE)
+    assert any("assistant:" in d.body for d in _episodes(bank)), "still the agent's turns"
+    # A legacy agent note beside it: a session id, no harness. This is what "Other agents" means.
+    note = "00000000-0000-4000-8000-000000000001"
+    (bank / "episodes" / "ep_2020-01-01_001.md").write_text(
+        f"---\nid: ep_2020-01-01_001\ntimestamp: '2020-01-01T09:00:00Z'\ntitle: A note\nprocessed: true\n"
+        f"origin: mcp\nsession_id: {note}\n---\n\nbody\n", encoding="utf-8")
+    bank_index.invalidate()
+
+    def listed(**kw):
+        return session_stats.aggregate_conversations(bank, limit=200, transcript_exists=lambda *_: False, **kw)
+
+    assert [r["conversation_id"] for r in listed(harness="unknown")] == [note]
+    chats = listed(origin="imessage")
+    assert chats and {r["harness"] for r in chats} == {""}
+    rows = {r["id"]: r for r in source_overview.build_overview(bank, channels=[])}
+    assert rows["harness:unknown"]["conversations"] == 1
+    assert rows["imessage"]["conversations"] == len(chats)
+
+
 def test_a_tapback_never_puts_the_agents_words_under_the_persons_marker(bank, chat):
     _tick(bank, chat.chat_guid(chat.instinct))
     _sync(bank, chat, chat.instinct, **AGENT_CADENCE)
@@ -339,8 +363,9 @@ def test_an_unticked_conversation_is_refused_and_unticking_keeps_what_was_saved(
     assert len(_episodes(bank)) == 2
 
 
-def test_group_chats_and_bad_ids_are_refused(bank):
-    with pytest.raises(messages_source.PayloadError):
+def test_an_unticked_group_and_bad_ids_are_refused(bank):
+    # Group chats are read since 2026-10-28 (`test_turn_signals`), only once ticked like any other.
+    with pytest.raises(messages_source.NotSelected):
         messages_source.ingest(bank, {"conversation": {"id": "a" * 24, "group": True}, "messages": []})
     with pytest.raises(messages_source.PayloadError):
         messages_source.ingest(bank, {"conversation": {"id": "+15550000001"}, "messages": []})
@@ -532,3 +557,18 @@ def test_a_sitting_that_cannot_be_rebuilt_is_left_as_it_is(bank, chat):
     assert out["tombstoned"] == 0
     kept = markdown_parser.parse(Path(first.path))
     assert kept.body.endswith("a line someone typed in")          # never overwritten with a partial sitting
+
+
+def test_a_note_to_self_is_the_persons_own_words_with_no_correspondent(bank, chat):
+    """chats-ux-v2 (owner 2026-10-29) — Messages' note to self, as WhatsApp's "You": every line the person's (a copy
+    from another of their devices arrives as received), no correspondent, no card, named for what it is."""
+    _tick(bank, chat.chat_guid(chat.instinct), name="Notes to yourself")
+    rows = read_rows(chat.path, chat.instinct)
+    body = payload(chat.chat_guid(chat.instinct), rows, name="Notes to yourself")
+    body["conversation"].update({"selfChat": True, "contact": "PLACEHOLDER-ME-CARD"})
+    _ingest(bank, body)
+    eps = _episodes(bank)
+    assert eps and all(e.frontmatter.get("self_chat") is True and "correspondent" not in e.frontmatter for e in eps)
+    assert all(e.frontmatter["title"].startswith("Messages · notes to yourself · ") for e in eps)
+    assert all(line.startswith("user: ") for e in eps for line in e.body.splitlines()), eps[0].body
+    assert not any("PLACEHOLDER-ME-CARD" in e.path.read_text() for e in eps)

@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -9,7 +10,8 @@ from pathlib import Path
 from loguru import logger
 
 from api.config import Settings
-from api.services import bank_index, episode_ids, evidence, git_service, markdown_parser, sleep_drain, sleep_reserve
+from api.services import authorship, bank_index, episode_ids, episode_revision, episode_scrub, evidence, git_service, machine_state, markdown_parser
+from api.services import sleep_drain, sleep_reserve, sleep_spend
 
 
 @dataclass
@@ -361,6 +363,22 @@ def _cycle_cancelled() -> "_StageOutcome":
     return _StageOutcome()
 
 
+async def _commit_graph_safely(memory_path: Path) -> None:
+    """Keep git's commit-graph (with changed-path filters) current after the run's last commit, so the History tab
+    and every per-page history read skip the commits that never touched their page (`git_service.
+    write_commit_graph_sync`). A git-internal derived file, written under the bank's git lock — never a commit, never
+    a page. On every exit path; never raises (git simply reads without it)."""
+    import time
+
+    try:
+        started = time.perf_counter()
+        wrote = await asyncio.to_thread(git_service.write_commit_graph_sync, memory_path)
+        if wrote:
+            logger.info(f"Commit graph refreshed in {(time.perf_counter() - started) * 1000:.0f} ms")
+    except Exception as exc:  # noqa: BLE001 — a derived index never fails a run
+        logger.warning(f"Commit graph not refreshed: {type(exc).__name__}")
+
+
 async def _warm_logos_safely(memory_path: Path) -> None:
     """G59: warm the logo cache for the busiest company/tool pages so the
     common marks are on disk before the user opens the graph. Bounded,
@@ -418,6 +436,8 @@ async def _poll_connectors_safely(memory_path: Path) -> None:
         return
 
     for adapter in ADAPTERS.values():
+        if getattr(adapter, "TIER", 1) == 2:
+            continue    # ruling 47 tier 2 runs on its own schedule and yields to Sleep; never inside a Sleep run
         try:
             result = await adapter.sync(memory_path)
             if result.get("status") == "ok" and result.get("new"):
@@ -579,14 +599,24 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
         # Final review H1: the tail runs after the cycle's own `sleep:<id>`
         # scope has closed, so without this it would share the never-reset
         # ``_unscoped`` bucket with Ask — one throttle there would block every
-        # later backfill until a restart. Its own scope purges on exit.
-        with agent_engine.use_scope(f"links:{uuid.uuid4().hex}"):
-            report = await link_enrichment.backfill(
-                memory_path, resolved, limit=per_cycle,
-                summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
-                fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
-                engine=engine,
-            )
+        # later backfill until a restart. Its own scope purges on exit. On a drain
+        # its calls are the run's, like the web check's: counted, and held to the limit.
+        drain, batch_id = _state.drain, f"{_state.cycle_id}-links"
+        in_drain = drain is not None and bool(_state.cycle_id)
+        scope = f"sleep:{batch_id}" if in_drain else f"links:{uuid.uuid4().hex}"
+        if in_drain:
+            sleep_drain.register_batch(batch_id, drain)
+        try:
+            with agent_engine.use_scope(scope):
+                report = await link_enrichment.backfill(
+                    memory_path, resolved, limit=per_cycle,
+                    summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
+                    fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
+                    engine=engine,
+                )
+        finally:
+            if in_drain:
+                sleep_drain.unregister_batch(batch_id)
         if report.selected or report.related or report.skipped:
             logger.info(
                 f"Link backfill: {report.reused} reused, {report.summarized} summarized, "
@@ -632,6 +662,36 @@ async def _resolve_papers_safely(memory_path: Path) -> None:
         logger.warning(f"Paper details failed: {type(e).__name__}: {e}")
 
 
+async def _resolve_books_safely(memory_path: Path, settings: Settings | None = None) -> None:
+    """G233/G39: the book episodes a door staged while this cycle held the pages, and the scans whose ISBN waited for
+    its lookup, made pages. The lookup (Open Library, then Google Books) is the unattended background call
+    ``CICADA_ALLOW_CONNECTOR_FETCH`` gates (``book_jobs.lookup_waiting`` records a gated skip); the apply is
+    deterministic and runs regardless — a book from Apple Books or Goodreads needs no lookup. Bounded
+    (``book_lookup.RUN_MAX`` numbers, ``books.MAX_APPLY`` episodes), never fatal, in the clean-tree-guarded branch for
+    the paper step's reason, committing only its own paths under ``cicada``. No LLM."""
+    try:
+        from api.services import book_jobs, books, folder_source
+
+        # Ruling 61: every tail, with or without a new episode: a status a conversation said may have its page by now
+        # (a merge, an alias), a cover the app posted during the window waits for its stamp.
+        await book_jobs.lookup_waiting(memory_path)
+        report = await asyncio.to_thread(books.apply_pending, memory_path)
+        # Ruling 71 (a): one bounded read of each described book's public description (`book_why`), after the apply.
+        if settings is not None:
+            from api.services import book_why
+            report["cicada_paths"] = list(report["cicada_paths"]) + await book_why.run(
+                memory_path, settings, today=date.today().isoformat())
+        if report["paths"] or report["cicada_paths"]:
+            await folder_source.commit_paths_for(memory_path, report["paths"] + report["cicada_paths"],
+                                                 subject="Books", trigger="books/apply",
+                                                 author="cicada", channel=book_jobs.CHANNEL)
+        if report["applied"] or report["waiting"]:
+            logger.info(f"Books: {report['applied']} applied, {report['pages_created']} new pages, "
+                        f"{report['waiting']} waiting for a lookup")
+    except Exception as e:
+        logger.warning(f"Books failed: {type(e).__name__}")
+
+
 async def _replay_wispr_todos_safely(memory_path: Path) -> None:
     """G134: write the Wispr Flow to-do claims a sync deferred because this cycle
     was running (L final review, finding 5 — the owner's page is Stage 5's to
@@ -669,11 +729,14 @@ async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> No
         from api.services.claim_pipeline import claims_on_demand
 
         today = str(datetime.now().date())
+        from api.services import inbox_service
+
         refresh = inbox_questions.refresh_open_questions(
             memory_path,
             claims_on_demand(memory_path),
             today,
             stale_after_days=settings.inbox_stale_after_days,
+            keep_values=lambda item: inbox_service.keep_values_of_closed_question(settings, item),
         )
         _state.questions_refreshed = refresh["bumped"] + refresh["escalated"]
         _state.organic_resolutions = refresh["organic_resolutions"]
@@ -691,8 +754,10 @@ async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> No
         # `inbox` directory, which would sweep an unrelated dirty file under
         # `inbox/` into this `cicada`-authored commit (mirrors the H2 pattern
         # in `decay_migration._commit_backfill`).
-        touched_paths = sorted(resolved | rewritten)
-        lines = [f"{p}: resolved (trigger: inbox/organic_resolution)" for p in sorted(resolved)]
+        written = set(refresh.get("written_paths") or [])   # a value only the question held, kept closed (G98)
+        touched_paths = sorted(resolved | rewritten | written)
+        lines = [f"{p}: updated (trigger: inbox/organic_resolution)" for p in sorted(written)]
+        lines += [f"{p}: resolved (trigger: inbox/organic_resolution)" for p in sorted(resolved)]
         lines += [
             f"{p}: refreshed (trigger: inbox/stale_refresh)"
             for p in sorted(rewritten - resolved)
@@ -772,6 +837,13 @@ class BatchPlan:
     ds: "sleep_drain.DrainState | None" = None
 
 
+def _words_taken(rev) -> frozenset[str]:
+    """The words a revision's edit took away (G104 slice 2, `revision_prose.changes_of`); empty for none."""
+    from api.services import revision_prose
+
+    return frozenset().union(*(c.gone for c in revision_prose.changes_of(rev)))
+
+
 def _accepting(fn, **kw) -> dict:
     """The optional keyword arguments ``fn`` accepts. Tests stub the pipeline's
     seams with fixed signatures; a new progress or stop hook is offered only to a
@@ -834,8 +906,10 @@ def _stage1_failure_message(engine: str, engine_detail: str | None = None, *,
     if breaker:
         n = _state.episodes_total
         # R-E22: name the plan that actually ran — the breaker is shared by
-        # both plan engines (R-E19).
-        plan = engine_select.PLAN_NAMES.get(engine, "Claude plan")
+        # both plan engines (R-E19). G237: a key's limit is the key's; its sentence says so, no plan named.
+        plan = engine_select.PLAN_NAMES.get(engine)
+        if plan is None:
+            return f"Stopped cleanly, {n} episode(s) left queued. {breaker}"
         return f"{plan} throttled — stopped cleanly, {n} episode(s) left queued. ({breaker})"
     if engine == "claude-cli":
         return (
@@ -847,6 +921,15 @@ def _stage1_failure_message(engine: str, engine_detail: str | None = None, *,
         return (
             "Stage 1 extracted nothing — every episode failed on the ChatGPT plan engine. "
             "Check ChatGPT is still signed in on Settings → Intelligence → Plans & keys. "
+            "The queue is intact; trigger Sleep again once it is."
+        )
+    if engine in engine_select.CLI_ENGINE_LABELS:
+        from api.services import cli_engines
+
+        spec = cli_engines.BY_LABEL[engine]
+        return (
+            f"Stage 1 extracted nothing — every episode failed on {spec.name}. "
+            f"Check it is still signed in (`{spec.sign_in}`). "
             "The queue is intact; trigger Sleep again once it is."
         )
     if engine == "ollama":
@@ -1032,6 +1115,50 @@ async def _propose_followups_safely(memory_path: Path) -> None:
         await asyncio.to_thread(followups.restore, memory_path, report)
 
 
+async def _catchup_questions_safely(memory_path: Path) -> None:
+    """Vision item 10 — the engine-free proposers that feed the catch-up chat: "are you still …?" about a quiet fact on
+    the person's own page (`still_questions`) and "are these the same person?" for a nickname and its long form
+    (`inbox_catchup.propose_nicknames`), under ONE per-drain budget of new questions (`inbox_catchup.Budget`), each in
+    its own `cicada` commit. The follow-ups' rules: pages dirty before it ran are skipped, an unreadable tree means
+    nothing tonight, a failed commit undoes what it wrote. Never raises."""
+    from api.services import inbox_catchup, person_duplicates, still_questions
+
+    today = date.today()
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Catch-up questions skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    budget = inbox_catchup.Budget(inbox_catchup.NEW_PER_DRAIN)
+    steps = (
+        (lambda: still_questions.propose(memory_path, today, budget=budget, skip=skip),
+         lambda r: still_questions.commit_message(r.written, today)),
+        (lambda: inbox_catchup.propose_nicknames(memory_path, today, budget=budget, skip=skip),
+         lambda r: inbox_catchup.nickname_commit_message(r.written, today)),
+        # ROR-136: a misspelling, a first name beside the full one, a shared account — the same-person question a
+        # person spots at a glance, engine-free (`person_duplicates`).
+        (lambda: person_duplicates.propose(memory_path, today, budget=budget, skip=skip),
+         lambda r: person_duplicates.commit_message(r.written, today)),
+    )
+    for propose, message in steps:
+        try:
+            report = await asyncio.to_thread(propose)
+        except Exception as exc:
+            logger.warning(f"Catch-up questions failed: {type(exc).__name__}: {exc}")
+            continue
+        if not report.written or not (memory_path / ".git").exists():
+            continue
+        try:
+            async with _lock:
+                await git_service.commit_paths(memory_path, message(report), report.written)
+            logger.info(f"Catch-up questions: {len(report.written)} asked")
+        except Exception as exc:
+            logger.warning(f"Catch-up questions commit failed — undoing: {type(exc).__name__}: {exc}")
+            await asyncio.to_thread(still_questions.restore, memory_path, report.written)
+
+
 async def _link_sources_safely(memory_path: Path) -> None:
     """G61 S3-a (D8) — link a source to its own memory node when it is EXACTLY that node (a saved page's URL, a
     directory page's path). Engine-free, in its own `cicada` commit; same rules as follow-ups: pages dirty before
@@ -1167,7 +1294,9 @@ async def _where_to_check_safely(memory_path: Path) -> None:
 
 async def _site_sources_safely(memory_path: Path) -> None:
     """G61 S3-b — propose an official site from what a page already says (its `website` claim, a `## Links` host that
-    is its own name) and confirm proposed sites on Cicada's OWN rail (`link_enrichment.fetch_identity`): at most
+    is its own name), find an organisation's own site from the record or one unambiguous Wikidata match (`org_sites`,
+    ruling 40 — trusted only when its homepage names it, otherwise proposed for the grouped review, which is re-synced
+    after the commit) and confirm proposed sites on Cicada's OWN rail (`link_enrichment.fetch_identity`): at most
     `site_sources.TAIL_BUDGET` fetches a night, one per site, never a walled or platform host. Behind
     `CICADA_ALLOW_CONNECTOR_FETCH` (the unattended-fetch gate; a skipped night writes nothing and asks nothing). One
     path-scoped `cicada` commit (`Site check <date>`, trigger `sleep/site-check`, no engine trailer); pages dirty
@@ -1185,9 +1314,14 @@ async def _site_sources_safely(memory_path: Path) -> None:
         except Exception as exc:
             logger.warning(f"Site check skipped: tree status unreadable ({type(exc).__name__})")
             return
-    report = site_sources.Report()   # built first and handed to both steps, so a page written before a failure is on it
+    from api.services import org_sites
+
+    report = site_sources.Report()   # built first and handed to every step, so a page written before a failure is on it
     try:
         await asyncio.to_thread(site_sources.propose, memory_path, skip, report)
+        # Ruling 40: an organisation's own site from the record or one unambiguous Wikidata match, trusted only when its
+        # homepage names it; anything less is a proposal for the "Confirm N links" review.
+        await org_sites.run(memory_path, report=report, skip=skip)
         await site_sources.verify(memory_path, budget=site_sources.TAIL_BUDGET, skip=skip, report=report)
     except Exception as exc:
         # A page written before the failure must not ride the next `git add -A` writer's commit (the G85 smear).
@@ -1204,6 +1338,10 @@ async def _site_sources_safely(memory_path: Path) -> None:
     except Exception as exc:
         logger.warning(f"Site check commit failed — undoing: {type(exc).__name__}: {exc}")
         await asyncio.to_thread(site_sources.restore, memory_path, report)
+        return
+    if report.counts.get("org_proposal"):
+        # The night's new website proposals join the one grouped review now, not at the next run (ruling 36 D5).
+        await _where_to_check_safely(memory_path)
 
 
 async def _source_refresh_safely(memory_path: Path) -> None:
@@ -1281,7 +1419,9 @@ async def _web_check_safely(memory_path: Path, settings: Settings, *, user_trigg
             sleep_drain.unregister_batch(batch_id)
     # Counts and enums only — never a name, a query, a link or an answer.
     logger.info(f"Web check: {report.looked_up} looked up, {report.settled} settled, skipped {report.skipped}"
-                + (f" ({report.reason})" if report.reason else ""))
+                + (f" ({report.reason})" if report.reason else "")
+                + (f"; settling step {report.totals()}" if report.questions else "")
+                + (f"; sources held {report.source_kinds}" if report.source_kinds else ""))
     if not report.paths or not (memory_path / ".git").exists():
         return
     message = web_settle.commit_message("Web check", report.lines, authors=report.models or [report.engine or "agent"],
@@ -1292,6 +1432,144 @@ async def _web_check_safely(memory_path: Path, settings: Settings, *, user_trigg
     except Exception as exc:
         # Never left dangling for a later `git add -A` to commit under the wrong author (the G85 smear): undone.
         logger.warning(f"Web check commit failed — undoing {report.settled} settle(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
+
+
+async def _web_context_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """Owner ruling 44 (G121): light web context for public pages that are new or whose world facts are due — cited,
+    dated world-tier claims, the newest replacing an older one, never the person's own words (`web_context`). Plan
+    only (a metered key is skipped, said in words); behind `CICADA_ALLOW_CONNECTOR_FETCH`; `web_context_per_run`
+    lookups a run. One commit (`Web context <date>`, trigger `sleep/web-context`) under the model that looked; pages
+    dirty before it ran are left alone; a failed step or commit puts every page back. Never raises."""
+    from api.services import agent_engine, web_context, web_lookup, web_settle
+
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Web context skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    cycle_id = _state.cycle_id
+    drain = _state.drain
+    batch_id = f"{cycle_id}-ctx" if (cycle_id and drain is not None) else cycle_id
+    report = web_context.Report()
+    try:
+        if drain is not None and batch_id:
+            sleep_drain.register_batch(batch_id, drain)
+        with agent_engine.use_scope(web_lookup.scope_name(batch_id)):
+            await web_context.run_tail(memory_path, settings, user_triggered=user_triggered, skip=skip, report=report)
+    except Exception as exc:
+        logger.warning(f"Web context failed — undoing {report.written} page(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
+        return
+    finally:
+        if drain is not None and batch_id:
+            sleep_drain.unregister_batch(batch_id)
+    # Counts and enums only — never a name, a query, a link or a fact.
+    logger.info(f"Web context: {report.looked_up} looked up, {report.written} page(s) written, "
+                f"{report.wikidata} public-test request(s), skipped {report.skipped}"
+                + (f" — {report.words or report.reason}" if report.reason else ""))
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    message = web_settle.commit_message("Web context", report.lines,
+                                        authors=report.models or [report.engine or "agent"], engine=report.engine)
+    try:
+        async with _lock:
+            await asyncio.to_thread(web_settle.commit_sync, memory_path, message, report.paths)
+    except Exception as exc:
+        logger.warning(f"Web context commit failed — undoing {report.written} page(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
+
+
+async def _in_short_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """Ruling 48 part 5: the 2–3 sentence In short for long pages the person talks about often (`in_short`) — bank
+    facts only, at most `in_short_per_run` pages, on the person's engine's small tier (a scheduled run on a plan only
+    through ruling 4b's switch). One commit (`In short <date>`, trigger `sleep/in-short`) under the model that wrote
+    them; pages dirty before it ran are left alone; a failed commit puts every page back. Never raises."""
+    from api.services import agent_engine, in_short, web_lookup, web_settle
+
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"In short skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    cycle_id = _state.cycle_id
+    drain = _state.drain
+    batch_id = f"{cycle_id}-short" if (cycle_id and drain is not None) else cycle_id
+    report = in_short.Report()
+    try:
+        if drain is not None and batch_id:
+            sleep_drain.register_batch(batch_id, drain)
+        with agent_engine.use_scope(web_lookup.scope_name(batch_id)):
+            await in_short.run_tail(memory_path, settings, user_triggered=user_triggered, skip=skip, report=report)
+    except Exception as exc:
+        logger.warning(f"In short failed — undoing {report.written} page(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
+        return
+    finally:
+        if drain is not None and batch_id:
+            sleep_drain.unregister_batch(batch_id)
+    # Counts and enums only — never a name or a line.
+    logger.info(f"In short: {report.looked} read, {report.written} written, skipped {report.skipped}"
+                + (f" ({report.reason})" if report.reason else ""))
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    message = web_settle.commit_message("In short", report.lines,
+                                        authors=report.models or [report.engine or "agent"], engine=report.engine)
+    try:
+        async with _lock:
+            await asyncio.to_thread(web_settle.commit_sync, memory_path, message, report.paths)
+    except Exception as exc:
+        logger.warning(f"In short commit failed — undoing {report.written} page(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
+
+
+async def _media_read_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """ROR-117 / ruling 68: the Summary and Why it matters of an added recording or file whose words were not read
+    (`media_read`) — prose only, one bounded call each, at most `media_read_per_run` pages, on the person's engine's
+    small tier (a scheduled run on a plan only through ruling 4b's switch). One commit (`Recording notes <date>`,
+    trigger `sleep/media-read`) under the model that wrote them; pages dirty before it ran are left alone; a failed
+    commit puts every page back. Never raises."""
+    from api.services import agent_engine, media_read, web_lookup, web_settle
+
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Recording notes skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    cycle_id = _state.cycle_id
+    drain = _state.drain
+    batch_id = f"{cycle_id}-media" if (cycle_id and drain is not None) else cycle_id
+    report = media_read.Report()
+    try:
+        if drain is not None and batch_id:
+            sleep_drain.register_batch(batch_id, drain)
+        with agent_engine.use_scope(web_lookup.scope_name(batch_id)):
+            await media_read.run_tail(memory_path, settings, user_triggered=user_triggered, skip=skip, report=report)
+    except Exception as exc:
+        logger.warning(f"Recording notes failed — undoing {report.written} page(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
+        return
+    finally:
+        if drain is not None and batch_id:
+            sleep_drain.unregister_batch(batch_id)
+    # Counts and enums only — never a name or a line.
+    logger.info(f"Recording notes: {report.looked} read, {report.written} written, skipped {report.skipped}"
+                + (f" ({report.reason})" if report.reason else ""))
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    message = web_settle.commit_message("Recording notes", report.lines,
+                                        authors=report.models or [report.engine or "agent"], engine=report.engine)
+    try:
+        async with _lock:
+            await asyncio.to_thread(web_settle.commit_sync, memory_path, message, report.paths)
+    except Exception as exc:
+        logger.warning(f"Recording notes commit failed — undoing {report.written} page(s): {type(exc).__name__}")
         await asyncio.to_thread(web_lookup.restore, memory_path, report)
 
 
@@ -1312,6 +1590,29 @@ async def _tend_inbox_safely(memory_path: Path, settings: Settings, episodes: li
         logger.info(f"Inbox tending: {report.settled} settled, {report.read} read in conversations, "
                     f"{report.judged} duplicate pair(s) judged" + (f" — stopped ({report.stopped})"
                                                                    if report.stopped else ""))
+
+
+async def _sensitive_review_safely(memory_path: Path) -> None:
+    """G235: the one review of what may be sensitive, kept in step, plus (once per detector version) a look through the
+    conversations already read, which writes nothing on them. Engine-free. One path-scoped `cicada` commit, an item dirty
+    before it ran left alone. Counts only in the log. Never raises."""
+    from api.services import sensitive_flags
+
+    skip: frozenset[str] = frozenset()
+    has_git = (memory_path / ".git").exists()
+    try:
+        if has_git:
+            skip = await _dirty_paths(memory_path)
+        await asyncio.to_thread(sensitive_flags.sweep_read, memory_path)
+        report = await asyncio.to_thread(sensitive_flags.sync_review, memory_path, skip)
+        if report.paths and has_git:
+            async with _lock:
+                await asyncio.to_thread(git_service.commit_touched_sync, memory_path,
+                                        sensitive_flags.commit_message(report, date.today()), report.paths)
+        if report.paths:
+            logger.info(f"Sensitive review: {report.rows} conversation(s) waiting")
+    except Exception as exc:
+        logger.warning(f"Sensitive review skipped: {type(exc).__name__}")
 
 
 async def _run_engine_independent_tail(
@@ -1394,6 +1695,8 @@ async def _run_engine_independent_tail(
         await _expire_claims_safely(memory_path)
         # G141 PJ-6: after expiry (the night's ends are visible), before any poll's `git add -A`.
         await _propose_followups_safely(memory_path)
+        # Vision item 10: "still?" and same-person questions for the catch-up, one shared budget per drain.
+        await _catchup_questions_safely(memory_path)
         # G61 S3-a (D8): exact-match source -> its own page links, before any poll's `git add -A`.
         await _link_sources_safely(memory_path)
         # LinkedIn connections kept outside the bank, matched against tonight's pages — before any poll's `git add -A`.
@@ -1403,6 +1706,16 @@ async def _run_engine_independent_tail(
         # G61 "Where to check" (ruling 36 D5): links already on the record proposed as sources — after the imports
         # above (a link they put on a page is not proposed again), before any poll's `git add -A`.
         await _where_to_check_safely(memory_path)
+        # G235: before any poll's `git add -A`, so it cannot sweep this step's item.
+        await _sensitive_review_safely(memory_path)
+        # Ruling 48 part 5: In short for long, busy pages — a model call on the bank alone (nothing from outside), so a
+        # demo bank gets it too; never past a run that stopped at the plan's limit.
+        if skip_links:
+            logger.info("In short skipped: the run stopped at its limit")
+        else:
+            await _in_short_safely(memory_path, settings, user_triggered=user_triggered)
+            # ROR-117 / ruling 68: an added recording's words read once for its page's Summary and Why it matters.
+            await _media_read_safely(memory_path, settings, user_triggered=user_triggered)
         from api.services import demo_guard
 
         if demo_guard.is_demo(memory_path):
@@ -1418,17 +1731,20 @@ async def _run_engine_independent_tail(
             await _source_refresh_safely(memory_path)
             # Owner ruling 2026-10-16: public-thing questions looked up and settled, before any poll's `git add -A`.
             if skip_links:
-                logger.info("web check skipped: the run stopped at the plan's limit")
+                logger.info("web check and light context skipped: the run stopped at its limit")
             else:
                 await _web_check_safely(memory_path, settings, user_triggered=user_triggered)
+                # Owner ruling 44 (G121): public pages' world facts looked up and kept current, same slot.
+                await _web_context_safely(memory_path, settings, user_triggered=user_triggered)
             await _poll_connectors_safely(memory_path)
             await _poll_feeds_and_calendars_safely(memory_path)
             if skip_links:
-                # A drain that stopped on the plan's limit: the backfill would meet the same one.
-                logger.info("link backfill skipped: the run stopped at the plan's limit")
+                # A drain that stopped on the plan's limit, or passed the person's own: the backfill would meet the same one.
+                logger.info("link backfill skipped: the run stopped at its limit")
             else:
                 await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
             await _resolve_papers_safely(memory_path)
+            await _resolve_books_safely(memory_path, None if skip_links else settings)
             await _replay_wispr_todos_safely(memory_path)
     else:
         logger.warning(
@@ -1445,6 +1761,8 @@ async def _run_engine_independent_tail(
         # reached Stage 5.56 must still escalate questions everyone stopped
         # talking about (and clear ones answered organically).
         await _refresh_questions_safely(memory_path, settings)
+    # Last: after every commit the tail made, git's commit-graph covers tonight's history (derived, never a commit).
+    await _commit_graph_safely(memory_path)
 
 
 async def _index_without_model_safely(memory_path: Path) -> None:
@@ -1456,8 +1774,11 @@ async def _index_without_model_safely(memory_path: Path) -> None:
     summary (``watch_history.rollup``), in ``cicada`` commits of at most ``COMMIT_STEP`` files. No model, no fetch.
     Files dirty before it ran are skipped (an uncommitted capture keeps its own author); they stay out of every
     model batch meanwhile (``history_index.waits_for_model``). A failed commit restores what it wrote. Never raises."""
-    from api.services import history_index, watch_history
+    from api.services import history_index, notes_sync, watch_history
 
+    # G234: first, and whatever the tree's state: a Notes episode that holds no text is a locked note's stub, retired
+    # before anything is frozen so a run that starts ahead of the next sync reads none of it.
+    await notes_sync.retire_stubs_safely(memory_path)
     skip: frozenset[str] = frozenset()
     has_git = (memory_path / ".git").exists()
     if has_git:
@@ -1472,7 +1793,16 @@ async def _index_without_model_safely(memory_path: Path) -> None:
     except Exception as exc:
         logger.warning(f"Indexing without a model failed: {type(exc).__name__}: {exc}")
         return
-    paths = sorted(set(retired.paths) | {p for p in months.paths if p not in skip})
+    # Ruling 62: an indexed save whose page a conversation lit since gets its one real read. After `retire`: a save that
+    # just went in was checked by it. Its own failure never costs the commit below what `retire` wrote.
+    woken: list[str] = []
+    try:
+        from api.services import saved_mentions
+
+        woken = await asyncio.to_thread(saved_mentions.wake_lit, memory_path, at=episode_ids.utc_now_iso(), skip=skip)
+    except Exception as exc:  # noqa: BLE001 - a later run wakes it
+        logger.warning(f"Saved pages not checked for mentions: {type(exc).__name__}")
+    paths = sorted(set(retired.paths) | {p for p in [*months.paths, *woken] if p not in skip})
     if retired.paths or months.created or months.updated:
         logger.info(f"Indexed without a model: {len(retired.paths)} queued episode(s) marked read "
                     f"({dict(sorted(retired.by_kind.items()))}), {months.created} month summary(ies) written, "
@@ -1482,11 +1812,13 @@ async def _index_without_model_safely(memory_path: Path) -> None:
     step = max(1, history_index.COMMIT_STEP)
     chunks = [paths[i:i + step] for i in range(0, len(paths), step)]
     today = date.today().isoformat()
+    queued = frozenset({*retired.queued, *woken})
     for n, chunk in enumerate(chunks, start=1):
         try:
             async with _lock:
                 await git_service.commit_paths(
-                    memory_path, history_index.commit_message(chunk, today, part=n, parts=len(chunks)), chunk)
+                    memory_path, history_index.commit_message(chunk, today, part=n, parts=len(chunks), queued=queued),
+                    chunk)
         except Exception as exc:
             rest = [p for c in chunks[n - 1:] for p in c]
             logger.warning(f"Indexing commit failed — restoring {len(rest)} file(s): {type(exc).__name__}: {exc}")
@@ -1498,8 +1830,11 @@ async def _embed_indexed_episodes_safely(memory_path: Path) -> None:
     """The vector half of "indexed, not consolidated" (owner ruling 2026-10-18): an index-only episode (a watched day,
     a month's summary, a list save) never reaches a model batch, whose end is where the episode vectors are synced —
     so the tail syncs them when one was written after the vector index last was. Incremental by content hash (only
-    the new passages are embedded), with the model the table already holds (``defer_model_switch``). A bank with no
-    vector index yet waits for its first sync. No git, no model call. Never raises."""
+    the new passages are embedded), with the model the table already holds (``defer_model_switch``). No git, no model
+    call. Never raises.
+
+    Ruling 62: a bare save's page (``media``) is found by meaning too, and no batch may ever come to sync it: a page
+    written after the last sync is embedded here, also incrementally."""
     from api.services import history_index, vector_index
 
     db = memory_path / vector_index.INDEX_DB_FILE
@@ -1509,15 +1844,21 @@ async def _embed_indexed_episodes_safely(memory_path: Path) -> None:
             stamps.append(p.stat().st_mtime_ns)
         except OSError:
             continue
-    if not stamps:
-        return
-    since = max(stamps)
+    # Ruling 62: with nothing but saved links in a bank, no batch ever makes the first sync: this one may.
+    since = max(stamps) if stamps else 0
 
     def sync() -> None:
-        if not any(f.mtime_ns > since and history_index.is_index_only(f.frontmatter)
-                   for f in bank_index.files(memory_path, "episodes")):
+        episodes = any(f.mtime_ns > since and history_index.is_index_only(f.frontmatter)
+                       for f in bank_index.files(memory_path, "episodes"))
+        pages = any(f.mtime_ns > since and (f.frontmatter or {}).get("type") == "media"
+                    for f in bank_index.files(memory_path, "entities"))
+        if not episodes and not pages:
             return
-        vector_index.SqliteVecIndexer(memory_path, defer_model_switch=True).index_episodes()
+        indexer = vector_index.SqliteVecIndexer(memory_path, defer_model_switch=True)
+        if episodes:
+            indexer.index_episodes()
+        if pages:
+            indexer.index_entities()
 
     try:
         await asyncio.to_thread(sync)
@@ -1538,6 +1879,18 @@ async def _flush_pending_commits_safely(memory_path: Path) -> None:
             logger.info(f"Landed {landed} kept commit(s) before the cycle")
     except Exception as e:
         logger.warning(f"Kept commits not landed: {type(e).__name__}: {e}")
+
+
+def _hold_awake_if_chosen(settings: Settings, cycle_id: str) -> None:
+    """G243: the person's "keep my Mac awake while Sleep reads" switch. Never fails a run."""
+    try:
+        from api.services import keep_awake, sleep_run_prefs
+        from api.services.connections.registry import get_registry
+
+        if sleep_run_prefs.load(get_registry(settings)).keep_awake:
+            keep_awake.acquire(cycle_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("keep-awake: not held (%s)", type(e).__name__)
 
 
 async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True, drain: bool = False,
@@ -1585,6 +1938,17 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
 
     device_context.clear()
 
+    # G132 phase 2 (ruling 51a): Sleep runs only on the home. A home that is handing off (or handed off) starts no
+    # run — scheduled, caught up or pressed — and lets go of a slot a trigger reserved.
+    from api.services import home_move
+
+    if home_move.writes_closed():
+        if _state.cycle_id == cycle_id and _state.status == "running":
+            _state.status = "idle"
+            _state.writing = False
+        logger.info("Sleep: not started — this computer's memory is moving to another computer")
+        return
+
     # Sleep control (Devin PR #27 round 1, finding 2): if `reserve_cycle`
     # already claimed this EXACT cycle_id (the synchronous trigger-time
     # reservation that closes the "background task hasn't started yet"
@@ -1601,6 +1965,13 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
 
     _state.status = "running"
     _state.cycle_id = cycle_id
+    if home_move.writes_closed():
+        # Review of #569: a move closed the doors between the check above and the slot taken here — the move parks
+        # what it sees running and waits out admission, so a run must never start behind it: let go at once.
+        _state.status = "idle"
+        _state.writing = False
+        logger.info("Sleep: not started — this computer's memory is moving to another computer")
+        return
     _state.started_at = datetime.now().isoformat()
     _state.started_monotonic = time.monotonic()
     _state.progress = "Starting..."
@@ -1659,6 +2030,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     outcome = _StageOutcome()
     window_refused = False
     try:
+        _hold_awake_if_chosen(settings, cycle_id)
         # status/writing are set above; no page is read, flushed or committed before writers are out.
         if not await _open_window(memory_path):
             window_refused = True
@@ -1695,7 +2067,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
         logger.error(f"Sleep cycle failed: {e}")
         logger.exception("Full traceback:")
     finally:
-        from api.services import cycle_usage
+        from api.services import cycle_usage, keep_awake
         cycle_usage.discard(cycle_id)  # bounded: a cycle that never finalized frees its windows
         # Spec §1: this runs on EVERY exit path — idle, aborted before Stage
         # 1, aborted after Stage 1, raised, or fully completed — so capturing
@@ -1721,6 +2093,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
                     **({"skip_links": True} if outcome.skip_links else {}),
                 )
         finally:
+            keep_awake.release(cycle_id)  # G243: after the tail, on every exit path; it also dies with this process
             _state.status = "idle"
             _state.writing = False
             _state.tail_only = False
@@ -1738,6 +2111,19 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
                 embedding_models.start_reindex_if_needed(memory_path, settings)
             except Exception as e:  # noqa: BLE001 — never a reason for a run to fail
                 logger.debug(f"re-embed check skipped: {type(e).__name__}")
+            # The picture index gave way to this run (or a picture arrived during it): it goes on now.
+            try:
+                from api.services import image_index
+
+                image_index.start_refresh(memory_path, delay_s=image_index.SETTLE_S)
+            except Exception as e:  # noqa: BLE001 — never a reason for a run to fail
+                logger.debug(f"picture refresh skipped: {type(e).__name__}")
+            try:
+                from api.services import media_pages
+
+                media_pages.start_sync(memory_path, delay_s=media_pages.SETTLE_S)   # pages that waited for this run
+            except Exception as e:  # noqa: BLE001 — never a reason for a run to fail
+                logger.debug(f"media pages skipped: {type(e).__name__}")
 
 
 def _reset_batch_counters() -> None:
@@ -1787,6 +2173,7 @@ async def _run_batch(
     from api.services import agent_engine, cycle_usage
 
     _state.batch_started_monotonic = time.monotonic()
+    batch_mark = machine_state.mark()
     if batch is not None:
         agent_engine.reset_models_used()
         if batch.ds is not None:
@@ -1806,6 +2193,12 @@ async def _run_batch(
                 stop = sleep_drain.classify(
                     exc, agent_engine.breaker_reason(), agent_engine.breaker_resets_at(),
                     agent_engine.breaker_kind())
+                if stop.reason != "plan_limit" and not _state.write_started and not agent_engine.breaker_reason():
+                    # A later stage's call lost the network: nothing is on disk yet, so the batch is read again
+                    # once the network is back, like a Stage 1 read that lost it.
+                    cause = _offline_cause(exc, batch_mark)
+                    if cause is not None:
+                        stop = sleep_drain.offline_stop(cause)
                 if stop.transient:
                     logger.warning(f"Sleep batch {batch_cycle_id} paused: {stop.sentence}")
                 elif stop.reason != "plan_limit":
@@ -1929,10 +2322,11 @@ async def _drain(
     opts = sleep_run_prefs.load(registry) if registry is not None else sleep_run_prefs.RunOptions()
     size = sleep_run_prefs.effective_batch_size(opts, settings)
 
-    parked_map = sleep_parked.valid(memory_path)
+    # Every read of the run's start walks the bank (9,500 headers on the owner's): off the event loop.
+    parked_map = await asyncio.to_thread(sleep_parked.valid, memory_path)
     parked_now = set(parked_map)
-    waiting_map = sleep_progress.unprocessed_ids(memory_path)
-    queue = [e["id"] for e in _get_unprocessed_episodes(memory_path, with_body=False)]
+    waiting_map = await asyncio.to_thread(sleep_progress.unprocessed_ids, memory_path)
+    queue = [e["id"] for e in await asyncio.to_thread(_get_unprocessed_episodes, memory_path, with_body=False)]
     if continue_from:
         ids = [str(i) for i in continue_from.get("frozen_ids") or []]
         remaining = [i for i in ids if i in waiting_map and i not in parked_now]
@@ -1963,7 +2357,7 @@ async def _drain(
     )
     ds.catch_up_for = catch_up_for if not user_triggered else None
     ds.memory_path = memory_path
-    ds.origin_of = sleep_progress.origin_of_ids(memory_path, ids)
+    ds.origin_of = await asyncio.to_thread(sleep_progress.origin_of_ids, memory_path, ids)
     ds.parked = {i: str((parked_map.get(i) or {}).get("reason") or "other") for i in ids if i in parked_now}
     ds.settled = set(ds.parked)
     if continue_from:
@@ -1998,8 +2392,10 @@ async def _drain(
             ds.first_run = (await sleep_debt._last_cycle_at(memory_path)) is None
         except Exception:  # noqa: BLE001
             ds.first_run = False
-        _sample_owner(ds, memory_path, "at_start")
-    ds.batches = ds.batch + sleep_drain.batches_for(len(remaining), size)
+        await asyncio.to_thread(_sample_owner, ds, memory_path, "at_start")
+    # Ruling 62: a batch is bounded by what it holds as well as by count (`sleep_drain.BATCH_BYTES`).
+    sizes = await asyncio.to_thread(sleep_progress.sizes_of, memory_path, remaining)
+    ds.batches = ds.batch + sleep_drain.batches_left(remaining, size, sizes)
     ds.new_since = sleep_progress.new_since_by_origin(
         {i: o for i, o in waiting_map.items() if i not in parked_now}, set(ids))
     ds.arrived_since = sum(ds.new_since.values())
@@ -2030,7 +2426,7 @@ async def _drain(
         ds.engine_model = None
     if continue_from:
         ds.auto_used = sleep_paused.auto_used(continue_from)
-    if ds.reserve_pct and engine_lbl in engine_select.PLAN_ENGINES:
+    if ds.reserve_pct and engine_lbl in engine_select.RESERVE_ENGINES:
         ds.guard = sleep_reserve.ReserveGuard(ds.reserve_pct, engine=engine_lbl)
         if engine_lbl == "claude-cli" and hasattr(resolved[0], "model_copy"):
             # With a reserve set, the reserve is the line: R-E12's own 90% stop would pre-empt a 5% one.
@@ -2047,6 +2443,8 @@ async def _drain(
                 pass
     else:
         ds.reserve_pct = None
+    if engine_lbl == "litellm":   # ROR-102: a key's run stops at the person's figure
+        ds.spend = sleep_spend.guard_for(resolved[0], opts.spend_limit_usd)
     _write_run_record(ds, memory_path, phase="running", engine_label=engine_lbl)
     _record_leg(ds, memory_path, "running")
     try:
@@ -2056,6 +2454,7 @@ async def _drain(
 
     last = _StageOutcome()
     stop: "sleep_drain.DrainStop | None" = None
+    offline_streak = 0          # network waits in a row; a committed batch starts it over
 
     def _park(i: str, reason: str) -> None:
         ds.parked[i] = reason
@@ -2106,29 +2505,32 @@ async def _drain(
                 f"The memory bank changed — stopped after batch {ds.committed_batches} of {ds.batches}; "
                 "what was already filed stays filed.")
             break
-        waiting_map = sleep_progress.unprocessed_ids(memory_path)
+        waiting_map = await asyncio.to_thread(sleep_progress.unprocessed_ids, memory_path)
         waiting = set(waiting_map)
-        parked_all = sleep_parked.ids(memory_path)
+        parked_all = await asyncio.to_thread(sleep_parked.ids, memory_path)
         ds.new_since = sleep_progress.new_since_by_origin(
             {i: o for i, o in waiting_map.items() if i not in parked_all}, set(ids))
         gone = {i for i in ids if i not in ds.settled and i not in waiting}
         ds.skipped += len(gone)
         ds.skipped_ids |= gone
         ds.settled |= gone
-        batch_ids, more = sleep_drain.next_batch_retrying(ids, waiting, ds.settled, size, ds.attempts)
+        batch_ids, more = sleep_drain.next_batch_retrying(
+            ids, waiting, ds.settled, ds.spend.batch_size(size) if ds.spend else size, ds.attempts, sizes=sizes)
         if not batch_ids:
             ds.finished = True   # a cancel that came too late has nothing left to stop
             break
         if _state.cancel_requested:
             stop = sleep_drain.DrainStop("cancelled")
             break
-        if ds.guard is not None and ds.guard.is_reached():
-            resets, kind = ds.guard.stop_values()
-            stop = sleep_drain.DrainStop("reserve", sleep_reserve.SENTENCE, resets, kind)
+        line = ds.guard or ds.spend
+        if line is not None and line.is_reached():
+            stop = _line_stop(line)
             break
 
         ds.batch += 1
-        ds.batches = ds.batch + sleep_drain.batches_for(more, size)
+        taken = set(batch_ids)
+        ds.batches = ds.batch + sleep_drain.batches_left(
+            [i for i in ids if i not in ds.settled and i in waiting and i not in taken], size, sizes)
         is_last = more == 0
         before_read, before_total = dict(_state.read_by_origin), _state.episodes_total
         _reset_batch_counters()
@@ -2149,11 +2551,25 @@ async def _drain(
         if not last.committed:
             _state.read_by_origin, _state.episodes_total = before_read, before_total
         _fold(last, batch_ids, decays=plan.decay, links=plan.links)
+        if ds.spend is not None and last.committed:
+            ds.spend.note_filed(len(last.filed_ids))
         if last.committed and ds.owner_beliefs is not None and ds.owner_beliefs.get("after_first_batch") is None:
-            _sample_owner(ds, memory_path, "after_first_batch")
+            await asyncio.to_thread(_sample_owner, ds, memory_path, "after_first_batch")
         if last.committed:
             _write_run_record(ds, memory_path, phase="running", engine_label=engine_lbl)
 
+        if last.committed:
+            offline_streak = 0
+        if last.stop is not None and last.stop.offline and not last.committed:
+            # The network left (2026-11-03): the batch was discarded before its first write. Wait for the network and
+            # read the same batch again under its own number (as a Continue does), bounded; stop only on the
+            # person's Pause or a network that does not come back.
+            waited = await _wait_for_network(ds, last.stop.offline, offline_streak)
+            offline_streak += 1
+            if waited is None:
+                ds.batch -= 1
+                continue
+            last.stop = waited
         if last.stop is not None:
             stop = last.stop
             if stop.reason == "reserve" and not any(
@@ -2168,7 +2584,7 @@ async def _drain(
             # late — but only when frozen ids are still waiting beyond this batch. A last batch
             # is a finished run: what it could not read stays queued for the next one, the note
             # is logged, and the tail's link backfill still runs.
-            left = set(sleep_progress.unprocessed_ids(memory_path))
+            left = set(await asyncio.to_thread(sleep_progress.unprocessed_ids, memory_path))
             own = set(batch_ids)
             if not is_last and any(i not in ds.settled and i in left and i not in own for i in ids):
                 if last.breaker:
@@ -2208,11 +2624,12 @@ async def _drain(
         stop = last.stop
 
     try:
-        now_waiting = sleep_progress.unprocessed_ids(memory_path)
-        ds.arrived_since = len({i for i, _ in now_waiting.items()} - set(ids) - set(sleep_parked.ids(memory_path)))
+        now_waiting = await asyncio.to_thread(sleep_progress.unprocessed_ids, memory_path)
+        parked_end = await asyncio.to_thread(sleep_parked.ids, memory_path)
+        ds.arrived_since = len({i for i, _ in now_waiting.items()} - set(ids) - set(parked_end))
     except Exception:  # a count for the sentence, never worth failing a run
         ds.arrived_since = None
-    _sample_owner(ds, memory_path)
+    await asyncio.to_thread(_sample_owner, ds, memory_path)
 
     if stop is not None:
         _apply_drain_stop(ds, stop)
@@ -2241,7 +2658,9 @@ async def _drain(
     _record_leg(ds, memory_path, _run_state(ds, stop), stop=stop, questions_leg=questions_leg)
     return _StageOutcome(
         committed=last.committed, questions_refreshed=last.questions_refreshed,
-        skip_links=bool(stop is not None and stop.reason in ("plan_limit", "reserve")),
+        # A run past the spending limit with nothing left to read ends as a finished run; its tail still stops.
+        skip_links=bool((stop is not None and stop.reason in ("plan_limit", "reserve"))
+                        or (ds.spend is not None and ds.spend.is_reached())),
     )
 
 
@@ -2275,8 +2694,11 @@ def _record_leg(ds: "sleep_drain.DrainState", memory_path: Path, state: str, *, 
     from api.services import sleep_paused, sleep_runs
 
     try:
-        sleep_runs.record_leg(memory_path, ds, state=state, stop=stop,
-                              reason=sleep_paused.reason_for(stop) if stop is not None else None,
+        reason = sleep_paused.reason_for(stop) if stop is not None else None
+        if reason == "engine" and getattr(stop, "offline", None):
+            # Past reads says what left — the network, or a connection that kept dropping — never "the engine stopped"
+            reason = "connection" if stop.offline == "connection" else "offline"
+        sleep_runs.record_leg(memory_path, ds, state=state, stop=stop, reason=reason,
                               questions_leg=questions_leg)
     except Exception as e:  # noqa: BLE001 - a summary for Past nights, never worth failing a run
         logger.warning(f"run summary not written: {type(e).__name__}: {e}")
@@ -2370,12 +2792,84 @@ def _plan_hint(scheduled: bool) -> bool:
     return bool(scheduled) and _state.engine_detail == engine_select.SCHEDULE_DEGRADED
 
 
+def _offline_cause(exc: BaseException, mark: "machine_state.Mark | None") -> str | None:
+    """Whether a failed engine call lost the network (``sleep_drain.OFFLINE_CAUSES``), read from this machine's own
+    clocks and route table — nothing is sent. Never raises: a check that fails is no evidence."""
+    try:
+        slept = machine_state.slept_s(mark)
+        route = True if slept >= sleep_drain.SLEPT_S else machine_state.has_route()
+        return sleep_drain.offline_cause(exc, slept_s=slept, route=route)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _wait_for_network(ds: "sleep_drain.DrainState", cause: str,
+                            attempt: int) -> "sleep_drain.DrainStop | None":
+    """A batch lost the network (2026-11-03): wait for it, then let the drain read that batch again.
+
+    ``None`` means read again; a stop means the run stops with it — the person's Pause (honoured on every poll, never
+    waited past), or, after ``OFFLINE_RETRIES`` waits in a row or a wait the network never ended, the offline pause
+    in words about the network. The wait counts in ``asyncio.sleep`` steps, whose clock stops while the machine
+    sleeps: a closed lid spends none of the bound. With no route the wait ends when one comes back, then settles;
+    with a route and a dropping connection it backs off. No page is held and no engine is called while it waits
+    (the write window is shut), and the engine the run resolved is the one it reads with again (ruling 4). Distinct
+    from ruling 15's continue-after-reset: no plan limit is involved, and nothing is armed past this run."""
+    if attempt >= sleep_drain.OFFLINE_RETRIES:
+        return sleep_drain.offline_stop(cause, gave_up=True)
+    _state.writing = False
+    ds.waiting = cause
+    ds.offline_waits += 1
+    ds.live = sleep_drain.BatchLive()          # the discarded batch's counts leave the page
+    ds.batch_counted = True
+    _state.stage = 0
+    _state.progress = sleep_drain.waiting_sentence(cause)
+    logger.warning(f"Drain {ds.drain_id}: the network left ({cause}); waiting to read the batch again "
+                   f"(wait {attempt + 1} of {sleep_drain.OFFLINE_RETRIES})")
+    poll = max(0.001, sleep_drain.OFFLINE_POLL_S)
+
+    async def nap(seconds: float) -> bool:
+        """Sleep ``seconds`` in poll steps; False when the person paused meanwhile."""
+        for _ in range(max(1, math.ceil(seconds / poll))):
+            if _state.cancel_requested:
+                return False
+            await asyncio.sleep(poll)
+        return not _state.cancel_requested
+
+    try:
+        if cause == "connection" and machine_state.has_route():
+            backoff = sleep_drain.CONNECTION_BACKOFF_S
+            if not await nap(backoff[min(attempt, len(backoff) - 1)]):
+                return sleep_drain.DrainStop("cancelled")
+            return None
+        for _ in range(max(1, math.ceil(sleep_drain.OFFLINE_WAIT_S / poll))):
+            if _state.cancel_requested:
+                return sleep_drain.DrainStop("cancelled")
+            if machine_state.has_route():
+                break
+            await asyncio.sleep(poll)
+        else:
+            if not machine_state.has_route():
+                return sleep_drain.offline_stop(cause, gave_up=True)
+        if not await nap(sleep_drain.OFFLINE_SETTLE_S):
+            return sleep_drain.DrainStop("cancelled")
+        return None
+    finally:
+        ds.waiting = None
+
+
+def _line_stop(line) -> "sleep_drain.DrainStop":
+    """The soft stop for a line the person set: the reserve on a plan, the spending limit on a key."""
+    resets, kind = line.stop_values()
+    return sleep_drain.DrainStop("reserve", line.sentence, resets, kind)
+
+
 def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainState") -> dict:
     """Stage 1's per-conversation hooks for a drain's batch: what started, what was
     read, what failed and whether that was the conversation's or the engine's, what
     the reserve line or engine interruption stopped from starting."""
     def started(ep: dict) -> None:
         live.started.add(ep["id"])
+        live.marks[ep["id"]] = machine_state.mark()
 
     def read(ep: dict) -> None:
         live.read.add(ep["id"])
@@ -2383,6 +2877,18 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
     def failed(ep: dict, exc: BaseException) -> None:
         from api.services import engine_cause, engine_errors
 
+        cause = _offline_cause(exc, live.marks.get(ep["id"]))
+        if cause is not None:
+            # The network left (the Mac asleep, offline, the connection dropping): never the conversation's and
+            # never a fix the person owes. The batch is discarded before its first write and read again once the
+            # network is back (`_drain`); no attempt or timeout is charged against this conversation.
+            live.engine_failed.add(ep["id"])
+            # A plan limit, a sign-out or a refused model in the same batch outranks the network: its stop carries
+            # the vendor's reset time (ruling 15 arms on it) or the fix the person owes (#575 review).
+            if not live.pause_class and not _ae_breaker() and (
+                    live.transient_stop is None or live.transient_stop.offline is None):
+                live.transient_stop = sleep_drain.offline_stop(cause)
+            return
         if isinstance(exc, engine_errors.EngineTimeout):
             live.timeouts.add(ep["id"])
             if not ds.timeout_attempts.get(ep["id"]):
@@ -2407,6 +2913,8 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
             live.pause_sentence = live.pause_sentence or str(exc).strip()[:300]
             if isinstance(exc, engine_errors.TRANSIENT):
                 live.transient_stop = live.transient_stop or sleep_drain.classify(exc)
+            elif live.transient_stop is not None and live.transient_stop.offline:
+                live.transient_stop = None      # the engine's own stop outranks a network wait (#575 review)
         else:
             live.failed[ep["id"]] = reason or "other"
             if isinstance(exc, engine_errors.EngineFailed):
@@ -2414,6 +2922,7 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
 
     def skipped(ep: dict) -> None:
         live.skipped.add(ep["id"])
+        live.started.discard(ep["id"])   # a read the limit refused after it started is not in flight
 
     hooks = {"on_episode_started": started, "on_episode_read": read,
              "on_episode_failed": failed, "on_episode_skipped": skipped}
@@ -2448,7 +2957,7 @@ async def _run_stages(
     label = batch.label if batch is not None else ""
     ds = batch.ds if batch is not None else None
     live = ds.live if ds is not None else None
-    guard = getattr(ds, "guard", None) if ds is not None else None
+    guard = (getattr(ds, "guard", None) or getattr(ds, "spend", None)) if ds is not None else None
     decay_only = bool(batch is not None and batch.decay_only)
     # Only ever a kwarg when False: tests stub these seams with fixed signatures.
     decay_kw = {} if (batch is None or batch.decay) else {"decay": False}
@@ -2467,11 +2976,18 @@ async def _run_stages(
 
     # Collect unprocessed episodes
     if batch is None:
-        episodes = _get_unprocessed_episodes(memory_path)
+        episodes = await asyncio.to_thread(_get_unprocessed_episodes, memory_path)
     elif decay_only:
         episodes = []
     else:
-        episodes = _get_unprocessed_episodes(memory_path, only_ids=set(batch.only_ids))
+        episodes = await asyncio.to_thread(_get_unprocessed_episodes, memory_path, only_ids=set(batch.only_ids))
+    # G235: text the person removed that some writer brought back comes out again, before anything below reads it.
+    from api.services import sensitive_flags
+
+    await asyncio.to_thread(sensitive_flags.reapply_waiting, episodes)
+    # G104 (owner 2026-11-03): a conversation read before and edited since is a revision of it — diffed against the
+    # version Sleep read (git's), read where it changed, its spans moved and what only the removed text said closed.
+    revisions = await asyncio.to_thread(episode_revision.attach, memory_path, episodes) if episodes else {}
     if not episodes and not decay_only:
         logger.info("No unprocessed episodes found — skipping")
         _state.progress = "No unprocessed episodes"
@@ -2603,6 +3119,33 @@ async def _run_stages(
         if guard is not None:
             # The reserve line, read from the snapshot this pre-flight already took (no second probe).
             guard.observe_snapshot(codex_engine.last_snapshot())
+    elif engine_select.claude_key_model(settings):
+        # G237: a run on a Claude key reads the key's model list when the last answer is over a day old (a read that
+        # bills nothing, 6 s at most; a failure waits a day), and says when a retired id moved forward.
+        from api.services import anthropic_models
+
+        await asyncio.to_thread(anthropic_models.refresh_if_stale)
+        moved = anthropic_models.forwarded_sentence(engine_select.claude_key_model(settings))
+        if moved:
+            _state.engine_detail = engine_select.run_detail(engine_why, moved)
+    elif _state.last_engine in engine_select.CLI_ENGINE_LABELS:
+        # G49/G50: the person's own Cursor, OpenCode or Grok — installed, signed in, the saved model still offered
+        # and on a plan, all BEFORE the first spawn; a refusal names the exact command or choice that fixes it.
+        from api.services import cli_engines
+
+        spec = cli_engines.BY_LABEL[_state.last_engine]
+        ok, detail, fill_model = await cli_engines.preflight(spec, settings)
+        # Ruling 46: a run keeps the sentence that names what ran (Auto's landing, Cursor's billing note) before the
+        # pre-flight's own line; a refusal says only what fixes it.
+        _state.engine_detail = engine_select.run_detail(engine_why, detail) if ok else detail
+        if not ok:
+            logger.error(f"Sleep cycle {cycle_id} aborted before Stage 1 — {detail}")
+            _state.error = detail
+            _state.progress = f"Failed: {detail}"
+            return _StageOutcome(stop=sleep_drain.DrainStop("engine", detail))
+        if fill_model:
+            settings = settings.model_copy(update={"cli_engine_model": fill_model})
+            logger.info(f"Sleep cycle {cycle_id} — {spec.name} model: {fill_model}")
 
     # Stage 1: Entity & Relationship Extraction
     _say(f"Stage 1/5: Extracting entities from {len(episodes)} episodes...")
@@ -2616,12 +3159,12 @@ async def _run_stages(
         origin = str(ep.get("origin") or "unknown")
         _state.read_by_origin[origin] = _state.read_by_origin.get(origin, 0) + 1
 
+    flagged: dict[str, list[str]] = {}
     reserve_stop = None
     if guard is not None and guard.is_reached() and not decay_only:
         # Still past the line before a single paid read (a Continue into a window that is
         # still full, or the ChatGPT snapshot the pre-flight just took): pause at once.
-        resets, kind = guard.stop_values()
-        return _StageOutcome(stop=sleep_drain.DrainStop("reserve", sleep_reserve.SENTENCE, resets, kind))
+        return _StageOutcome(stop=_line_stop(guard))
 
     if decay_only:
         extracted = []
@@ -2629,15 +3172,27 @@ async def _run_stages(
         hooks: dict = {}
         if live is not None:
             hooks = _batch_hooks(live, guard, batch.ds)
+
+        def _on_sensitive(ep: dict, kinds: dict, engine: str | None, held: dict) -> None:
+            # G235: recorded before the send, so what an engine was handed is on the record whatever happens next.
+            sensitive_flags.note_read(ep, kinds, engine, held=held)
+            flagged[str(ep["id"])] = sorted(kinds)
+
+        hooks["on_sensitive"] = _on_sensitive
         extracted = await extract(
             episodes, settings, cancel_check=_cancel_requested,
             progress_callback=_tick_stage1, on_episode_done=_on_episode_done,
             **(_accepting(extract, **hooks) if hooks else {}),
         )
+    if ds is not None:
+        # G235: what the run line says, kept on the run across its batches. Ids and kinds, never a word.
+        ds.sensitive.update(flagged)
+        ds.replaced_ids.update(str(e["id"]) for e in episodes if episode_scrub.REDACTED in str(e.get("content") or ""))
     total_entities = sum(len(e.get("entities", [])) for e in extracted)
     total_rels = sum(len(e.get("relationships", [])) for e in extracted)
     logger.info(f"Stage 1 complete: {total_entities} entities, {total_rels} relationships extracted")
-    _state.stage = 1
+    # `_state.stage` (stages COMPLETED) moves to 1 only once Stage 1 is known to have read something (below): a batch
+    # Stage 1 failed outright leaves it at 0, so the strip's failed stage is Read, never Sort (2026-11-03).
 
     # Sleep control — safe point: Stage 1 only ever computed `extracted` in
     # memory (no disk write, `write_started` is still False), so a cancel
@@ -2647,11 +3202,16 @@ async def _run_stages(
     # Checked BEFORE the total-Stage-1-failure check below: a cancelled
     # cycle is not a failure and must not be reported as one.
     if _state.cancel_requested:
+        _state.stage = 1
         return _cycle_cancelled()
 
     if live is not None:
         for ep_id in live.timeouts:
             batch.ds.timeout_attempts[ep_id] = batch.ds.timeout_attempts.get(ep_id, 0) + 1
+        if live.transient_stop is not None and live.transient_stop.offline and (live.pause_class or _ae_breaker()):
+            # A plan limit or an engine fix met in the same batch outranks the network wait: the batch takes the
+            # pause-class path below (the breaker's reset time, or the fix); the offline ids stay requeued.
+            live.transient_stop = None
         if live.transient_stop is not None:
             # A newly affected id or a positive connection interruption dooms
             # this leg. Keep per-id observations but discard its content work.
@@ -2685,8 +3245,7 @@ async def _run_stages(
             unread_content[i] = live.failed.get(i, "other")   # no hook fired (a stub): unknown, content-class
         pause_class, pause_sentence = live.pause_class, live.pause_sentence
     if guard is not None and guard.is_reached() and not decay_only:
-        resets, kind = guard.stop_values()
-        reserve_stop = sleep_drain.DrainStop("reserve", sleep_reserve.SENTENCE, resets, kind)
+        reserve_stop = _line_stop(guard)
 
     # An unnamed rejection can be the input's fault only with evidence that
     # the engine works. A sole retry may use this run's already-filed work:
@@ -2738,6 +3297,7 @@ async def _run_stages(
         return _StageOutcome(stop=(
             sleep_drain.DrainStop("plan_limit", breaker, _ae.breaker_resets_at(), _ae.breaker_kind()) if breaker
             else sleep_drain.DrainStop("engine", msg)))
+    _state.stage = 1
 
     # Stage 2: Entity Resolution & Deduplication
     _say("Stage 2/5: Resolving entities...")
@@ -2753,11 +3313,11 @@ async def _run_stages(
     # below — on the loop each step froze every request (`GET /sleep/status` measured at seconds
     # per batch on a 3,600-page bank) for as long as it ran.
     existing = await asyncio.to_thread(_load_existing_entities, memory_path)
-    from api.services.entity_resolver import resolve
+    from api.services.entity_resolver import resolve, resolve_off_loop
     if decay_only:
         resolved_result = {"changes": [], "relationships": [], "episode_cooccurrences": {}, "name_to_id": {}}
     else:
-        resolved_result = await resolve(
+        resolved_result = await resolve_off_loop(
             extracted, existing, settings, cancel_check=_cancel_requested,
             **(_accepting(resolve, progress_callback=_sort_progress(live)) if live is not None else {}))
     resolved_changes = resolved_result["changes"]
@@ -2782,8 +3342,13 @@ async def _run_stages(
     _say("Stage 3/5: Resolving conflicts...")
     logger.info("Stage 3: Conflict resolution & temporal decay")
     from api.services.conflict_resolver import resolve_and_prune
+    # G104 slice 2: an update resting only on revisions that took words away is the source correcting itself.
+    read_ids = {e.get("episode_id") for e in extracted}
+    correcting = {i: g for i, r in revisions.items() if i in read_ids and (g := _words_taken(r))} \
+        if revisions else {}
     changes = await resolve_and_prune(
         resolved_changes, existing, settings, **decay_kw,
+        **(_accepting(resolve_and_prune, revised=correcting) if correcting else {}),
         # A pause must be able to land between pages (each is a paid call), and the strip counts them.
         **(_accepting(resolve_and_prune, cancel_check=_cancel_requested,
                       progress_callback=_decide_progress(live)) if live is not None else {}))
@@ -2889,6 +3454,17 @@ async def _run_stages(
             logger.info(f"Stage 5.4: asked for {len(asked)} unnamed person name(s)")
     except Exception as e:
         logger.warning(f"Stage 5.4 name questions failed: {type(e).__name__}: {e}")
+    # Stage 5.4b: two person pages holding a relation one person holds at a time (partner, mother, father) — one of
+    # them touched by this batch — raise "Is <A> the same as <B>?" once per pair (`role_people.ask_exclusive`); never a
+    # merge without the person's answer.
+    try:
+        from api.services import role_people
+
+        same = await asyncio.to_thread(role_people.ask_exclusive, memory_path, changes, settings)
+        if same:
+            logger.info(f"Stage 5.4b: asked {len(same)} same-person question(s) about an exclusive relation")
+    except Exception as e:
+        logger.warning(f"Stage 5.4b exclusive relation questions failed: {type(e).__name__}")
 
     # Stage 5.5: Materialize entity-body wikilinks as `mentions` edges so the
     # graph stops ignoring them. Runs after relationships are written so the
@@ -2923,13 +3499,24 @@ async def _run_stages(
     # exact deletions get the specific `inbox/organic_resolution` trigger.
     organic_resolution_paths: set[str] = set()
     questions_refreshed = False
+    # Only a revision Stage 1 read: one it could not stays queued, its claims and prose untouched.
+    revisions_read = {i: r for i, r in revisions.items()
+                      if i in {e.get("episode_id") for e in extracted}} if revisions else {}
+    claim_result: dict = {}
     try:
         from api.services.claim_pipeline import run_claim_pipeline
         from api.services.inbox_generator import write_claim_nudges
+        # 2026-10-29 (`entity_relations`): what Stage 2's judge said two names are to each other, written as claims by
+        # the same projection as Stage 1's relationships (origin ``sleep``: Cicada's reading, never the person's words).
+        judged = resolved_result.get("relations") or []
+        claim_input = [*extracted, {"episode_id": "", "origin": "sleep", "relationships": judged}] if judged \
+            else extracted
         claim_result = await asyncio.to_thread(
-            run_claim_pipeline, extracted, existing, memory_path, settings,
+            run_claim_pipeline, claim_input, existing, memory_path, settings,
             # G141 PJ-0: Stage 2's own map, so a claim lands where its edge did.
             name_to_id=resolved_result.get("name_to_id"),
+            decided_names=resolved_result.get("decided_names"),
+            **({"revisions": revisions_read} if revisions_read else {}),
             **decay_kw,
         )
         _state.claims_page_less = int(claim_result.get("claims_page_less", 0) or 0)
@@ -2950,11 +3537,14 @@ async def _run_stages(
         from api.services.claim_pipeline import claims_on_demand
 
         def _refresh_questions():
+            from api.services import inbox_service
+
             return inbox_questions.refresh_open_questions(
                 memory_path,
                 claims_on_demand(memory_path),
                 str(datetime.now().date()),
                 stale_after_days=settings.inbox_stale_after_days,
+                keep_values=lambda item: inbox_service.keep_values_of_closed_question(settings, item),
             )
 
         refresh = await asyncio.to_thread(_refresh_questions)
@@ -2980,6 +3570,17 @@ async def _run_stages(
     except Exception as e:
         logger.warning(f"Stage 5.56 claim pipeline failed: {type(e).__name__}: {e}")
 
+    # Stage 5.565 (ruling 61): what the person said about a book's status, through the book writers, on the claim layer
+    # above so a page's fence is read as it now stands. The batch's commit carries it.
+    try:
+        from api.services import book_said
+        said_paths = await asyncio.to_thread(book_said.settle, memory_path, extracted,
+                                             name_to_id=resolved_result.get("name_to_id"))
+        if said_paths:
+            logger.info(f"Stage 5.565: book statuses said in a conversation, {len(said_paths)} file(s) written")
+    except Exception as e:
+        logger.warning(f"Stage 5.565 book statuses failed: {type(e).__name__}")
+
     # The decay questions this cycle opened, refreshed or turned away — the cap
     # never drops one silently: a deferred page is still below its threshold and
     # raises again next cycle (see `DecayBudget`).
@@ -2991,6 +3592,23 @@ async def _run_stages(
             f"{decay_budget.refreshed} refreshed (already open), "
             f"{len(decay_budget.deferred)} deferred by the cap of {decay_budget.cap}"
         )
+
+    # Stage 5.58 (G104 slice 2, owner 2026-11-03): a page whose prose was written from a conversation that has since
+    # revised itself says what the conversation says now — the passages that carried the old words, one engine call a
+    # page at most, never over the person's or an agent's own words (those become one inbox question a page), History
+    # keeping the change dated. Provenance rows into a revised conversation move onto its new body. Before the hubs and
+    # index, so they project the corrected pages; committed with this batch under Sleep's trailers.
+    if revisions_read:
+        try:
+            from api.services import revision_prose
+
+            prose_report = await revision_prose.run(
+                memory_path, settings, revisions_read, closed=claim_result.get("revision_closed") or {},
+                days=revision_prose.revised_days(episodes))
+            if prose_report.calls or prose_report.rows_moved:
+                logger.info(f"Stage 5.58: revised conversations — {revision_prose.summary(prose_report)}")
+        except Exception as e:  # noqa: BLE001 - prose correction never costs the cycle
+            logger.warning(f"Stage 5.58 revision prose failed: {type(e).__name__}")
 
     # Stage 5.6: Regenerate the hub tier + root _index.md from current entities.
     # Deterministic, no LLM; gives small LLMs a filesystem traversal path.
@@ -3047,6 +3665,17 @@ async def _run_stages(
     requeued = len(episodes) - len(processed_episodes)
     _state.episodes_processed = await asyncio.to_thread(_mark_episodes_processed, processed_episodes)
     _state.episodes_requeued = requeued
+    # Ruling 62: a bare save these conversations name in the person's own words gets its one real read, next run.
+    # Inside the batch's window, committed with it (`_finalize`).
+    try:
+        from api.services import saved_mentions
+
+        woken = await asyncio.to_thread(saved_mentions.wake_mentioned, memory_path, processed_episodes,
+                                        at=episode_ids.utc_now_iso())
+        if woken:
+            logger.info(f"Saved items mentioned: {len(woken)} queued for a read")
+    except Exception as e:  # noqa: BLE001 - a later mention wakes it
+        logger.warning(f"Saved mentions skipped: {type(e).__name__}")
     # G207: Sleep's reading is the one that counts — what a quick read held provisionally for these is settled.
     try:
         from api.services import awake_read
@@ -3092,6 +3721,15 @@ async def _run_stages(
 
     if index_warnings:
         _state.index_warning = "; ".join(index_warnings)
+
+    if flagged:
+        # G235: whatever a later stage wrote, a value of this batch's conversations does not reach the commit.
+        try:
+            dirty = await _dirty_paths(memory_path)
+            await asyncio.to_thread(sensitive_flags.sweep_written, memory_path,
+                                    [e for e in episodes if str(e["id"]) in flagged], dirty)
+        except Exception as exc:  # noqa: BLE001 - a guard on the way to a commit, never the reason it fails
+            logger.warning(f"Sensitive sweep skipped: {type(exc).__name__}")
 
     # Commit
     from api.services import agent_engine, engine_select
@@ -3210,9 +3848,11 @@ def _get_unprocessed_episodes(
     episode timestamps to set ``created`` and ``last_referenced``.
     """
     results: list[dict] = []
-    from api.services import history_index
+    from api.services import history_index, sensitive_flags, turn_extras, turn_signals
 
-    for f in bank_index.files(memory_path, "episodes"):
+    files = bank_index.files(memory_path, "episodes")
+    keys: turn_signals.KeyIndex | None = None
+    for f in files:
         fm = f.frontmatter
         # Owner ruling 2026-10-18: watch history and list saves are indexed, never read by a model.
         if not history_index.waits_for_model(fm):
@@ -3221,6 +3861,13 @@ def _get_unprocessed_episodes(
         if only_ids is not None and str(fm.get("id", f.stem)) not in only_ids:
             continue
         content = f.body() if with_body else ""
+        # The owner, 2026-10-28: replies, reactions, forwards and unsends are read by Sleep (`turn_signals`). A reply
+        # into another sitting is looked up in the conversation's own record, indexed once per load.
+        lookup = None
+        if with_body and turn_signals.needs_keys(fm):
+            keys = keys or turn_signals.KeyIndex(files)
+            lookup = keys.lookup_for(fm)
+        signals = turn_signals.signals(fm, content, lookup=lookup) if with_body else []
         results.append({
             "id": fm.get("id", f.stem),
             "content": content,
@@ -3242,16 +3889,38 @@ def _get_unprocessed_episodes(
             # `Cicada-Session:` trailers.
             "session_id": str(fm.get("session_id") or "") or None,
             "source_id": str(fm.get("source_id") or "") or None,
+            # Who the `assistant:` lines are (the harness that captured the session): Stage 1 names the agent behind
+            # an act in the person's tools, and a claim resting only on its words is its own (`external:<harness>`).
+            "harness": str(fm.get("harness") or "") or None,
+            "capture_kind": str(fm.get("capture_kind") or "") or None,
             # R-F2 / R-LS7: whose words a folder file holds, for Stage-1 evidence.
             "evidence_kind": str(fm.get("evidence_kind") or "") or None,
+            # 2026-10-29: whose words every span is read as — the declared kind, or a saved item's (`authorship`).
+            authorship.KEY: authorship.of(fm),
             # G110 gate B2: the dropped-middle marker's range, from the episode's own record.
             "gaps": evidence.gap_ranges(fm, content) if with_body else (),
             # G179: who the other side of a message conversation is (an agent's turns are never the person's).
             "correspondent": fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else None,
+            # G179 groups: who each member is; in a group only the person's own lines are theirs (`promotion`).
+            "participants": fm.get("participants") if isinstance(fm.get("participants"), list) else None,
+            "group": bool(fm.get("group")),
+            # G95 (2026-11-03): a meeting transcript's own record — its recorder and microphone label (`meeting_note`).
+            **({"meeting": fm["meeting"]} if isinstance(fm.get("meeting"), dict) else {}),
+            # Ruling 64: a book's own record, which makes it read for what its marks share (`book_marks`).
+            **({"book": fm["book"]} if isinstance(fm.get("book"), dict) else {}),
+            **({"signals": signals, turn_extras.EXTRAS_KEY: fm.get(turn_extras.EXTRAS_KEY)} if signals else {}),
             # Ruling 36 D4: the hook's own observation of the checkout a harness session ran in (`project_birth`
             # reads the two stored values; nothing opens the path).
             "project_dir": fm.get("project_dir") if isinstance(fm.get("project_dir"), str) else None,
             "workspace_identity": fm.get("workspace_identity") if isinstance(fm.get("workspace_identity"), dict) else None,
+            # Ruling 58: Stage 1 is told what a `relayed [...]:` line means, and what project the app said (`relayed_note`,
+            # `project_note`); both read this record.
+            **({"relay": fm["relay"]} if isinstance(fm.get("relay"), dict) else {}),
+            # G235: who read what, and what the person removed (kinds and engines, never a word).
+            **({sensitive_flags.KEY: fm[sensitive_flags.KEY]} if isinstance(fm.get(sensitive_flags.KEY), dict) else {}),
+            # G95/G104: the stager's edit-in-place record — which body was last consolidated (`episode_revision`).
+            **({episode_revision.REVISED_KEY: fm[episode_revision.REVISED_KEY]}
+               if isinstance(fm.get(episode_revision.REVISED_KEY), dict) else {}),
         })
     # Order by INSTANT, not by string (G114 R2): a bank holds legacy
     # naive-local stamps beside `Z` and `+00:00` UTC ones, and a lexical sort
@@ -3303,10 +3972,16 @@ def episode_headers(memory_path: Path, processed: bool | None = None) -> list[ba
     cycle's chronology, optionally only the waiting (``processed=False``) or the read ones. No body is read: the Sleep
     page asks for its handful of waiting rows out of thousands, and a body read per episode is what made
     ``GET /sleep/episodes`` cost seconds on a large bank (2026-10-19)."""
+    from api.services import history_index
+
     out: list[bank_index.IndexedFile] = []
     for f in bank_index.files(memory_path, "episodes"):
         if processed is not None and bool(f.frontmatter.get("processed", False)) != processed:
             continue
+        if processed is False and not history_index.waits_for_model(f.frontmatter):
+            continue   # ruling 62: a queued save a run has not yet indexed waits for nothing; no row, no count
+        if f.frontmatter.get(evidence.LOCKED_NOTE_KEY):
+            continue   # G234: a retired locked note is no read to list
         out.append(f)
     out.sort(key=lambda f: _episode_sort_key({"timestamp": str(f.frontmatter.get("timestamp", "") or ""),
                                               "id": str(f.frontmatter.get("id", f.stem))}))
@@ -3392,6 +4067,8 @@ def _mark_episodes_processed(episodes: list[dict]) -> int:
     that keeps growing can never keep one drain re-reading it. A dict without
     a ``revision`` (a caller that built it by hand) retires as before.
     """
+    from api.services import sensitive_flags
+
     retired = 0
     for ep in episodes:
         filepath = ep["filepath"]
@@ -3407,6 +4084,9 @@ def _mark_episodes_processed(episodes: list[dict]) -> int:
                 continue
             parsed.frontmatter["processed"] = True
             parsed.frontmatter["processed_by"] = "sleep"
+            # G95/G104: an episode edited in place says which body was consolidated — this one, now.
+            episode_revision.mark_consolidated(parsed.frontmatter)
+            sensitive_flags.mark_read(parsed.frontmatter)
             markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
             retired += 1
     return retired
@@ -3729,6 +4409,9 @@ async def _finalize(
         disambig = (settings.litellm_disambiguation_model or "").strip()
         if disambig and disambig not in resolved_authors:
             resolved_authors.append(disambig)
+    from api.services import direct_engines
+
+    engine = direct_engines.trailer_engine(engine, resolved_authors) or engine
 
     message = git_service.build_commit_message(
         f"Sleep cycle {date_str}{subject_suffix}", body_lines, authors=resolved_authors,

@@ -44,6 +44,9 @@ TOOL_SCOPE: dict[str, str | None] = {
     "cicada_add_source": "record",
     "cicada_change_source": "record",   # G61 S3-a: only an entry this connection added
     "cicada_save_url": "record",
+    # Books (piece 2b, owner 2026-11-06): the same tool on every door. `record` like a saved link: a write into memory,
+    # never the person's words, withdrawable only as what the app added; no new power over what `record` already has.
+    "cicada_add_book": "record",
     "cicada_record_watch": "record",
     "cicada_video_claim": "record",   # G162: leases queued videos; touches only the queue file
     "cicada_record_check": "record",   # G61 S3: a report on a listed source; settles nothing
@@ -51,8 +54,19 @@ TOOL_SCOPE: dict[str, str | None] = {
     "cicada_note_progress": "record",   # G141 R-PJ23: a write, never the person's own words
     "cicada_add_backlog_item": "record",
     "cicada_add_backlog_note": "record",   # G150: the harness writes, never the person
-    # Ruling 32 (owner 2026-10-19): a hookless app (claude.ai, ChatGPT, their phone apps) relays each turn.
-    # Remote only: a stdio harness is captured by its own hook (G105), never by a model's call.
+    # Ruling 45: a remote app's project is always a suggestion (never on the G198 trust list); a tie and an influence
+    # are the app's own, withdrawable only by it.
+    "cicada_create_project": "record",
+    "cicada_link_conversation": "record",
+    "cicada_link_entity": "record",   # decision 10: a remote app's tie is always a proposal (never on the trust list)
+    "cicada_add_influence": "record",
+    # G227 follow-up (coordinator 2026-10-29): a remote app's merge or split is always a proposal in the person's inbox —
+    # never on the G198 trust list (`page_editors.is_trusted(remote=True)` is False), so it applies nothing itself.
+    "cicada_merge_pages": "record",
+    "cicada_split_page": "record",
+    "cicada_undo_join": "record",
+    # Ruling 32 (owner 2026-10-19): a hookless app (claude.ai, ChatGPT, their phone apps) relays each turn. Ruling 57
+    # adds the Claude desktop app's local connection; every other stdio client has a hook (G105) and is not offered it.
     "cicada_capture_turns": "record",
     "cicada_sources": "sources",
     "cicada_resolve_inbox": "answer",
@@ -69,6 +83,8 @@ NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_rep
                           # G166 exploring (2026-10-14): stdio only in slice 1 — the record reads image files the agent
                           # saved, and a run starts only from the person in a local conversation (D5: never remote).
                           "cicada_explore_queue", "cicada_explore_claim", "cicada_record_capture",
+                          # ROR-126: the person's own agent in their own browser — a local agent's job, like the explore seat.
+                          "cicada_export_requests",
                           "cicada_explore_start", "cicada_site_map",
                           # G61, ruling 26: a tracked source's re-check reads in the person's own browser session —
                           # a local agent's job; a remote one is the owner's open question.
@@ -78,19 +94,21 @@ NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_rep
                           "cicada_record_youtube_list",
                           # G206 (2026-10-22): the person's saved lists on X, Instagram and LinkedIn — the same seat.
                           "cicada_record_saved_list",
+                          # G89 (2026-11-04): the person's Substack Saved, History and Subscriptions — the same seat.
+                          "cicada_record_substack_list",
                           # 2026-10-16: one person's LinkedIn profile, read in the person's own browser session by a
                           # local agent the person asked — the same seat.
                           "cicada_record_profile",
                           # The Skills page (2026-10-15): skills live in this Mac's agent folders, and a remote app is
                           # no coding agent here; whether one may ever ask for a skill is the owner's open question.
                           "cicada_skills", "cicada_propose_skill", "cicada_create_skill"})
-#: Tools only the remote connector serves — a stdio harness has a hook for what they do.
-REMOTE_ONLY = frozenset({"cicada_capture_turns"})
 WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_capture_turns", "cicada_write_claim", "cicada_retract_claim",
-                         "cicada_save_url", "cicada_record_watch", "cicada_record_read", "cicada_record_check", "cicada_add_source",
+                         "cicada_save_url", "cicada_add_book", "cicada_record_watch", "cicada_record_read", "cicada_record_check", "cicada_add_source",
                          "cicada_change_source",
                          "cicada_note_progress", "cicada_add_backlog_item", "cicada_add_backlog_note",
-                         "cicada_video_claim"})
+                         "cicada_video_claim", "cicada_create_project", "cicada_link_conversation",
+                         "cicada_link_entity", "cicada_add_influence", "cicada_merge_pages", "cicada_split_page",
+                         "cicada_undo_join"})
 READ_TOOLS = frozenset({"cicada_recall", "cicada_open_hub", "cicada_recall_detail", "cicada_get_perspective",
                         "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources",
                         "cicada_ask", "cicada_backlog", "cicada_reading_queue", "cicada_video_queue"})
@@ -126,7 +144,7 @@ APPS: dict[str, RemoteApp] = {a.id: a for a in (
     RemoteApp("claude-code", "Claude Code", "claude-code-remote", "header"),
     RemoteApp("codex", "Codex", "codex-remote", "header"),
     RemoteApp("cursor", "Cursor", "cursor", "header"),
-    RemoteApp("vscode", "VS Code", "vscode", "header"),
+    RemoteApp("vscode", "GitHub Copilot", "vscode", "header"),   # in VS Code (owner, 2026-10-26)
     RemoteApp("gemini-cli", "Gemini CLI", "gemini-cli", "header"),
     RemoteApp("other", "Other app", "remote-app", "both"),
 )}

@@ -23,7 +23,9 @@ from api.routers import (
     ask,
     backlog,
     banks,
+    books,
     capture,
+    chat_sources,
     claims,
     clarifications,
     connections,
@@ -33,9 +35,13 @@ from api.routers import (
     conversations,
     design,
     devices,
+    diagnostics,
     embeddings,
     explore,
+    export_requests,
+    files,
     entities,
+    github_repos,
     episodes,
     graph,
     inbox,
@@ -45,6 +51,7 @@ from api.routers import (
     memory,
     nudges,
     origins,
+    page_joins,
     projects,
     reading,
     remote,
@@ -57,10 +64,14 @@ from api.routers import (
     state,
     status,
     sync,
+    sync_net as sync_net_routes,
     tools,
     traces,
+    ways_in as ways_in_router,
 )
 from api.services import bank_binding, bank_registry, response_compression, search_index, sleep_refusal, sleep_scheduler
+from api.services import question_order, sensitive_hold
+from api.services import bank_index
 from api.services.providers import warm_query_embedder
 from api.services.auth import auth_enabled, get_token, require_token
 from api.services.bank_migrations import run_bank_migrations
@@ -93,6 +104,19 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 # uvicorn configures its loggers before it imports this module, so the
 # filter attached here is never replaced.
 _QUERY_PATHS = frozenset({"/search", "/conversations/recent"})
+#: source-page-v3 review (#561): the class, not a list of paths — ANY request whose query names a parameter that
+#: carries the person's words (`q`/`query`: a search, a source page's search; `focus`: the Reader's quote to land on)
+#: or a credential (`code`: an OAuth landing's authorization code) is logged with its query cut, whatever route took
+#: it. A new route that takes a person's words names its parameter one of these (`test_main_access_log`'s gate walks
+#: every route's query parameters and refuses another word-like name).
+_REDACTED_PARAMS = frozenset({"q", "query", "focus", "code"})
+
+
+def _redacts(path: str, query: str) -> bool:
+    """Whether an access-log line's query string is cut: a word or credential parameter anywhere in it, a search
+    path, or an OAuth landing."""
+    names = {part.split("=", 1)[0].strip().lower() for part in query.split("&") if part}
+    return bool(names & _REDACTED_PARAMS) or path in _QUERY_PATHS or _is_callback(path)
 
 
 def _is_callback(path: str) -> bool:
@@ -108,8 +132,8 @@ class _RedactQueryString(logging.Filter):
         args = record.args
         # uvicorn's access record: (client, method, path?query, http_version, status)
         if isinstance(args, tuple) and len(args) == 5 and isinstance(args[2], str):
-            path, sep, _query = args[2].partition("?")
-            if sep and (path in _QUERY_PATHS or _is_callback(path)):
+            path, sep, query = args[2].partition("?")
+            if sep and _redacts(path, query):
                 record.args = (args[0], args[1], f"{path}?…", args[3], args[4])
         return True
 
@@ -129,6 +153,54 @@ price_supplement.apply(litellm)
 SHUTDOWN_DRAIN_S = 30.0
 
 
+def _warm_page_headers(memory_path) -> None:
+    """The page and conversation headers, read once and alone (``bank_index``); never raises."""
+    try:
+        for subdir in ("entities", "episodes"):
+            bank_index.files(memory_path, subdir)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"start-up warm: page headers skipped ({type(exc).__name__})")
+
+
+async def _staged_warm(memory_path) -> None:
+    """Speed 2026-11-06: the launch warm-ups ran together and the app's first requests with them, every one wanting the
+    page headers (9,000-page memory, backend just started: first `/status` 22 s, first `/graph` 45 s, past the app's
+    30 s refresh timeout). The headers are read first, alone; then the rest start: the search model and index (G136),
+    the sensitive hold (G235, the door to every engine) and the question order (ruling 70: the first hook after launch
+    finds its tables warm). The app's own first requests wait on the same read (``bank_index``'s per-folder guard)."""
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _warm_page_headers, memory_path)
+    loop.run_in_executor(None, warm_query_embedder, memory_path)
+    search_index.warm_in_background(memory_path)
+    loop.run_in_executor(None, sensitive_hold.warm, memory_path)
+    loop.run_in_executor(None, question_order.warm, memory_path)
+
+
+@asynccontextmanager
+async def _replica_lifespan(app: FastAPI, settings):
+    """A replica's start and stop (G132 phase 1 B): the follower (first copy, then fast-forwards) and nothing that
+    writes a bank. ``app.state.scheduler`` stays None: a replica never schedules Sleep (ruling 4 runs at the home)."""
+    from api.services import replica
+
+    logger.info("This computer keeps a copy of a memory held elsewhere (replica mode)")
+    app.state.scheduler = None
+    asyncio.get_running_loop().create_task(_staged_warm(settings.memory_path))
+    # G132 phase 3b: the relay link (when the person set a relay) before the follower, so its first ask can take
+    # either path; the direct listener when CICADA_DEVICE_URL names this computer's private address.
+    from api.services import sync_net
+
+    await sync_net.on_start(app, settings)
+    replica.start()
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(replica.stop)
+        await sync_net.on_stop()
+        from api.services import bank_watch
+
+        bank_watch.stop_all()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -144,17 +216,50 @@ async def lifespan(app: FastAPI):
     if loaded:
         logger.info(f"Loaded {len(loaded)} provider key(s) from {connection_secrets.secrets_path()}")
 
-    # Preload the query embedder recorded in the bank's index in the
-    # background so the first /search request doesn't pay the model-load
-    # cost. Never awaited — must not block startup — and warm_query_embedder
-    # swallows its own errors so a slow/missing index can't crash boot.
-    asyncio.get_running_loop().run_in_executor(None, warm_query_embedder, settings.memory_path)
+    from api.services import replica_guard, runtime_layout
+
+    # G132 phase 2: a hand-off cut short is finished (or a move that never committed its record undone) before this
+    # backend reads which part it plays — the home or a replica — so it never starts half one and half the other.
+    from api.services import home_move
+
+    home_move.finish_at_start()
+    if runtime_layout.mode_conflict():
+        logger.warning(runtime_layout.mode_conflict())
+    # The mode this backend runs in is the one it started in: `replica_of` written or removed while it runs changes
+    # nothing until it starts again (review of #567 — never a half-switched backend).
+    if replica_guard.freeze():
+        # G132 phase 1 B (ruling 51e2): this computer keeps a read-only copy. No scaffold, migration, seed, schedule,
+        # catch-up, poll, listener or reindex job — only the follower, the words index and the query embedder.
+        try:
+            async with _replica_lifespan(app, settings):
+                yield
+        finally:
+            replica_guard.thaw()
+        return
+    # Not a copy (any more): a copy left active from when it was one is never opened here (review of #567) — this
+    # computer's own memory is active again before anything is scaffolded, scheduled or captured.
+    from api.services import replica as _replica
+
+    _replica.leave_copy(settings.memory_root)
+
+    # The query embedder is preloaded (so the first /search request doesn't pay the model-load cost) by `_staged_warm`,
+    # after the page headers: never awaited here, and `warm_query_embedder` swallows its own errors.
     # A search-model change that hasn't reached every table yet (a download that landed while the backend was
     # down, an interrupted re-embed) resumes in the background; it never runs while Sleep does.
     from api.services import embedding_models
 
     asyncio.get_running_loop().run_in_executor(
         None, embedding_models.start_reindex_if_needed, settings.memory_path, settings)
+    # Pictures already on this Mac that the meaning index lacks (vision item 3): in the background, a little after
+    # the start, only where the person installed the image encoder, never while Sleep runs.
+    from api.services import image_index
+
+    image_index.start_refresh(settings.memory_path, delay_s=image_index.SETTLE_S)
+    # Added recordings, videos and photos that have no page yet (items added before pages existed, or while Sleep ran):
+    # made once, in batches, in the background (ROR-117, `media_pages`).
+    from api.services import media_pages
+
+    media_pages.start_sync(settings.memory_path, delay_s=media_pages.SETTLE_S)
 
     logger.info(f"Memory path: {settings.memory_path}")
     logger.info(f"LLM model: {settings.litellm_model}")
@@ -209,7 +314,8 @@ async def lifespan(app: FastAPI):
     # the first keystroke after launch finds it warm. Never blocks startup,
     # never raises (a cold build takes a few seconds; until it lands, /search
     # serves the frontmatter fallback and says `indexState: building`).
-    search_index.warm_in_background(settings.memory_path)
+    # G235 (sensitive hold) and ruling 70 (question order) warm in the same staged pass.
+    asyncio.get_running_loop().create_task(_staged_warm(settings.memory_path))
 
     entities_count = len(list((settings.memory_path / "entities").glob("*.md")))
     episodes_count = len(list((settings.memory_path / "episodes").glob("*.md")))
@@ -229,6 +335,12 @@ async def lifespan(app: FastAPI):
 
     asyncio.get_running_loop().run_in_executor(None, trace_store.sweep_if_present)
     scheduler.add_job(trace_store.sweep_if_present, "interval", hours=1, id="traces-sweep", replace_existing=True)
+    # Ruling 47 tier 2: the connected official-API sources (Notion) sync on their own, every few hours —
+    # behind CICADA_ALLOW_CONNECTOR_FETCH, never while Sleep holds the pages, nothing at all until one is connected.
+    from api.services.connectors import tier2
+
+    scheduler.add_job(tier2.scheduled_sync, "interval", hours=tier2.SCHEDULE_HOURS, id="connectors-tier2",
+                      replace_existing=True)
     # Sleep page v5: the opt-in continue-after-reset (TODO ruling 15) needs the scheduler, and a
     # paused run that had armed it re-arms after a restart (its sidecar says when).
     from api.services import sleep_autocontinue
@@ -241,11 +353,37 @@ async def lifespan(app: FastAPI):
     from api.remote import listener as remote_listener
 
     await remote_listener.start_if_enabled()
+    asyncio.get_running_loop().create_task(remote_listener.warn_if_exposed())
+
+    # Ruling 47a: a Telegram session the person connected resumes listening; with none kept, nothing at all happens
+    # (no import of the client, no socket). Never raises into boot.
+    from api.services import telegram_account
+
+    asyncio.get_running_loop().create_task(telegram_account.ACCOUNT.resume())
+
+    # Speed 2026-10-29: everything start-up made lives as long as the process; freeze it out of the cyclic collector
+    # once, so a full collection in a request never walks the app itself (`gc_tuning`).
+    # G132 phase 2: a home that shares its memory asks the group, at its start and every minute, whether another device
+    # took over while it was away; a home closed by a move it already recorded goes on handing off. Nothing at all
+    # while it shares nothing.
+    await asyncio.to_thread(home_move.at_start, settings.memory_path)
+    # G132 phase 3b: the relay link and the direct listener — nothing at all while this memory is not shared.
+    from api.services import sync_net
+
+    await sync_net.on_start(app, settings)
+
+    from api.services import gc_tuning
+
+    gc_tuning.freeze_after_start()
 
     try:
         yield
     finally:
+        home_move.stop_peer_watch()
+        replica_guard.thaw()
+        await sync_net.on_stop()
         await remote_listener.LISTENER.stop()
+        await telegram_account.ACCOUNT.stop()
         scheduler.shutdown(wait=False)
         from api.services import bank_watch
 
@@ -284,6 +422,17 @@ from api.services.request_limits import RequestLimits  # noqa: E402
 
 app.add_middleware(RequestLimits)
 
+# G132 phase 1 B: a replica's route table (forward / capture / refuse / local) and a publishing home's `X-Cicada-Seq`
+# on its writes; inert otherwise (`replica_forward`).
+from api.services.replica_forward import ReplicaRouting  # noqa: E402
+
+app.add_middleware(ReplicaRouting)
+
+# Speed 2026-10-29: count this process's writes, the gate on an ETag reusing the SSE tick's listings (`local_writes`).
+from api.services.local_writes import CountWrites  # noqa: E402
+
+app.add_middleware(CountWrites)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=LOCAL_ORIGIN_REGEX,
@@ -303,10 +452,12 @@ app.include_router(status.router, tags=["status"])
 app.include_router(nudges.router, tags=["nudges"])
 app.include_router(clarifications.router, tags=["clarifications"])
 app.include_router(entities.router, tags=["entities"])
+app.include_router(page_joins.router, tags=["entities"])
 app.include_router(claims.router, tags=["claims"])
 app.include_router(projects.router, tags=["projects"])
 app.include_router(backlog.router, tags=["backlog"])
 app.include_router(design.router, tags=["design"])
+app.include_router(files.router, tags=["files"])
 app.include_router(episodes.router, tags=["episodes"])
 app.include_router(contributors.router, tags=["contributors"])
 app.include_router(origins.router, tags=["origins"])
@@ -320,20 +471,27 @@ app.include_router(state.router, tags=["state"])
 app.include_router(banks.router, tags=["banks"])
 app.include_router(settings_router.router, tags=["settings"])
 app.include_router(local_sources.router, tags=["local-sources"])
+app.include_router(chat_sources.router, tags=["chat-sources"])
 app.include_router(traces.router, tags=["traces"])
 app.include_router(capture.router, tags=["capture"])
+app.include_router(books.router, tags=["books"])
 app.include_router(connectors.router, tags=["connectors"])
+app.include_router(github_repos.router, tags=["github"])
+app.include_router(ways_in_router.router, tags=["connectors"])
 app.include_router(maintenance.router, tags=["maintenance"])
 app.include_router(memory.router, tags=["memory"])
 app.include_router(connections.router, tags=["connections"])
 app.include_router(sync.router, tags=["sync"])
+app.include_router(sync_net_routes.router, tags=["sync"])
 app.include_router(consumption.router, tags=["consumption"])
 app.include_router(reading.router, tags=["reading"])
 app.include_router(remote.router, tags=["remote"])
 app.include_router(skills.router, tags=["skills"])
 app.include_router(videos.router, tags=["videos"])
 app.include_router(explore.router, tags=["explore"])
+app.include_router(export_requests.router, tags=["export-requests"])
 app.include_router(embeddings.router, tags=["embeddings"])
 app.include_router(devices.router, tags=["devices"])
+app.include_router(diagnostics.router, tags=["diagnostics"])
 app.include_router(tools.router, tags=["tools"])
 app.include_router(agent_api.router, tags=["agent-api"])

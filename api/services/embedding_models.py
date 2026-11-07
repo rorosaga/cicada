@@ -254,7 +254,9 @@ def pending_switch(bank: Path, settings, environ=os.environ) -> tuple[str, list[
     if not is_available(target, environ):
         return None
     indexer = SqliteVecIndexer(Path(bank))
-    models = indexer.table_models()
+    # Only the text tables move with the bank's model: the picture table (``image_index``) is EmbeddingGemma 2's by
+    # construction and is refreshed by its own job, never this re-embed.
+    models = {kind: model for kind, model in indexer.table_models().items() if kind in REINDEX_ORDER}
     stale = [kind for kind, model in models.items() if model != target]
     if "episodes" in models and "episodes" not in stale and indexer.episode_chunking() not in (None, EPISODE_CHUNKING):
         stale.append("episodes")
@@ -451,6 +453,13 @@ def _run_vision_download(environ) -> None:
         model_fetch.install_vision(_home(environ) / "models", progress=_pinned_progress)
         JOB._set(state="done", step="", finished_at=time.time())
         logger.info("embedding_models: the image model is installed")
+        try:   # the pictures already on this Mac join the meaning index, in the background
+            from api.config import get_settings
+            from api.services import image_index
+
+            image_index.start_refresh(get_settings().memory_path)
+        except Exception as exc:  # noqa: BLE001 — never a reason for the install to fail
+            logger.debug(f"embedding_models: no picture refresh: {type(exc).__name__}")
     except Exception as exc:  # noqa: BLE001 — every failure becomes a sentence the person reads
         message = str(exc) if isinstance(exc, model_fetch.FetchError) else "The download stopped unexpectedly. Try again."
         JOB._set(state="failed", step="", error=message, finished_at=time.time())

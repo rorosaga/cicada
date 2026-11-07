@@ -92,6 +92,103 @@ def inputs(rgb: np.ndarray, table: np.ndarray, tokens: int = BUDGET) -> tuple[di
              "pool": pool}, real)
 
 
+# --- the preprocessing's fingerprint (vision item 3, 2026-10-28) ---------------------------------------------------
+#
+# A stored image vector is only comparable with a new one when both went through the SAME preprocessing: the recipe
+# above AND the decoder that resizes the bytes (`image_decode`, macOS's `sips` — its resampling can change with an OS
+# update, and nothing in Cicada would notice). So a vector is stamped with the model id plus a fingerprint of the
+# preprocessing, measured: one built-in reference picture (`reference_png`) is decoded through the real decoder at its
+# planned size and cut into the vision function's feed, and the feed's bytes are hashed together with the recipe. An
+# unchanged pipeline gives the same stamp and nothing re-embeds; a changed recipe or a decoder that now draws other
+# pixels gives a new stamp, and the design index re-embeds every picture once (`design_index.refresh`).
+
+#: The reference picture's size: not a multiple of 48, so the decoder's resampling is exercised on every axis.
+REFERENCE_SIZE = (150, 100)
+#: The fingerprint of the pipeline every image vector stored before stamps existed was made with (this recipe, macOS
+#: 27's `sips`, measured 2026-10-28). A row stamped with the bare model id is current only while the pipeline still
+#: measures this — so adding the stamp re-embeds nothing.
+LEGACY_FINGERPRINT = "0fe2d32892e5"
+
+
+def recipe() -> dict:
+    """Every constant the feed depends on, beside the code that uses them."""
+    return {"patch": PATCH, "group": GROUP, "budget": BUDGET, "slots": FUNCTIONS[BUDGET], "positions": POSITION_ROWS,
+            "specials": [BOS, BOI, EOI, EOS], "scale": "rgb/255", "flatten": "alpha over white", "version": 1}
+
+
+def reference_rgb() -> np.ndarray:
+    """``uint8 [100, 150, 3]``: a deterministic picture with edges, gradients and flat areas (no randomness)."""
+    w, h = REFERENCE_SIZE
+    y, x = np.mgrid[0:h, 0:w]
+    rgb = np.stack([(x * 255) // (w - 1), (y * 255) // (h - 1), ((x // 10 + y // 10) % 2) * 255], axis=-1)
+    rgb[30:60, 40:90] = (200, 40, 40)
+    return rgb.astype(np.uint8)
+
+
+def reference_png() -> bytes:
+    """:func:`reference_rgb` as a PNG, built here (no image library): the bytes the decoder is fingerprinted on."""
+    import struct
+    import zlib
+
+    rgb = reference_rgb()
+    h, w = rgb.shape[:2]
+    raw = b"".join(b"\x00" + rgb[row].tobytes() for row in range(h))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+
+
+def feed_digest(rgb: np.ndarray, tokens: int = BUDGET) -> str:
+    """sha256 of the feed :func:`inputs` cuts from ``rgb`` (a zero position table: positions are the recipe's, the
+    table is the model's)."""
+    import hashlib
+
+    table = np.zeros((2, POSITION_ROWS, 8), dtype=np.float16)
+    feed, real = inputs(rgb, table, tokens)
+    digest = hashlib.sha256(str(real).encode())
+    for key in sorted(feed):
+        digest.update(key.encode())
+        digest.update(np.ascontiguousarray(feed[key], dtype=np.float32).tobytes())
+    return digest.hexdigest()
+
+
+_FINGERPRINTS: dict[int, str] = {}
+
+
+def fingerprint(decode=None, tokens: int = BUDGET) -> str:
+    """The preprocessing's fingerprint (12 hex): the recipe plus the feed of :func:`reference_png` decoded by the real
+    decoder (or ``decode``, for tests). Measured once per process; a decoder that cannot run raises ``DecodeError``."""
+    import hashlib
+
+    from api.services import image_decode
+
+    key = id(decode) if decode is not None else 0
+    if key in _FINGERPRINTS and decode is None:
+        return _FINGERPRINTS[key]
+    data = reference_png()
+    size = plan_size(*REFERENCE_SIZE, tokens=tokens)
+    rgb = (decode or image_decode.decode)(data, size=size)
+    text = json.dumps(recipe(), sort_keys=True) + feed_digest(np.asarray(rgb, dtype=np.uint8), tokens)
+    out = hashlib.sha256(text.encode()).hexdigest()[:12]
+    if decode is None:
+        _FINGERPRINTS[key] = out
+    return out
+
+
+def stamp_for(model_id: str, fp: str) -> str:
+    """What an image vector is stamped with: the model and the preprocessing that fed it."""
+    return f"{model_id}#pre-{fp}"
+
+
+def stamp_current(stored: str, model_id: str, fp: str) -> bool:
+    """Whether a stored vector's stamp still matches: the full stamp, or — for a vector stored before stamps — the
+    bare model id while the pipeline still measures :data:`LEGACY_FINGERPRINT`."""
+    return stored == stamp_for(model_id, fp) or (stored == model_id and fp == LEGACY_FINGERPRINT)
+
+
 def sequence_rows(text_embedder, image_tokens: np.ndarray) -> np.ndarray:
     """``<bos> <|image> tokens <image|> <eos>`` as rows of the text model's input (the specials from its table)."""
     head = text_embedder.token_rows([BOS, BOI])
@@ -151,6 +248,11 @@ class VisionEmbedder:
 
     def embed_text(self, texts: list[str], *, is_query: bool = True) -> np.ndarray:
         return self.text(texts, is_query=is_query)
+
+    @property
+    def stamp(self) -> str:
+        """The stamp every vector this embedder makes carries (:func:`stamp_for`); the fingerprint is measured once."""
+        return stamp_for(self.model_id, fingerprint(self._decode, self.tokens))
 
 
 def _input_dtypes(compiled: Path, function: str) -> dict[str, type]:

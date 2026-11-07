@@ -9,12 +9,14 @@ import XCTest
 final class SettingsAnchorsTests: XCTestCase {
     /// Which files draw each section's page, from the panel's `detailView` down. A new row file joins its section here.
     static let pageFiles: [SettingsSection: [String]] = [
-        .general: ["Views/Settings/SettingsGeneralView.swift", "Views/Settings/SettingsDemoTourGroup.swift"],
+        .general: ["Views/Settings/SettingsGeneralView.swift", "Views/Settings/SettingsDemoTourGroup.swift",
+                   "Views/Settings/ConnectSuggestSetting.swift"],
         .you: ["Views/Settings/YouView.swift"],
         .intelligence: ["Views/Settings/IntelligenceView.swift"],
         .sleep: ["Views/Settings/SettingsSleepView.swift", "Views/Settings/ScenerySettings.swift",
                  "Views/Settings/MascotSettings.swift"],
-        .devices: ["Views/Settings/DevicesSettingsView.swift"],
+        .devices: ["Views/Settings/DevicesSettingsView.swift", "Views/Settings/MemoryCopySetting.swift",
+                   "Views/Settings/RelaySection.swift"],
         .privacy: ["Views/Settings/PrivacyView.swift", "Views/Settings/SearchFilesView.swift",
                    "Views/Settings/FadePaceCard.swift"],
     ]

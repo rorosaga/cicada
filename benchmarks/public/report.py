@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from math import comb
 from pathlib import Path
 
 
@@ -39,6 +40,28 @@ def _pct(hits: int, n: int) -> float | None:
     return round(100.0 * hits / n, 1) if n else None
 
 
+def gain_over_closed_book(paths: dict, judged: list[dict], cfg: dict) -> dict:
+    """Each path's accuracy beside closed-book's, over the questions both have a verdict on: right counts, the points
+    gained, and the questions only one of them got right. A personalization question can be answered by general
+    knowledge and by guessing what the question implies, so the memory's worth is this gain, not the accuracy."""
+    if "closed-book" not in paths:
+        return {}
+    verdicts = {p: {r["qid"]: r["correct"] for r in judged if r["path"] == p and r["correct"] is not None}
+                for p in paths}
+    base = verdicts["closed-book"]
+    out = {}
+    for path in paths:
+        if path == "closed-book":
+            continue
+        both = [q for q in verdicts[path] if q in base]
+        this, closed = sum(verdicts[path][q] for q in both), sum(base[q] for q in both)
+        out[path] = {"n": len(both), "right": this, "closed_book_right": closed,
+                     "gain_points": round(100.0 * (this - closed) / len(both), 1) if both else None,
+                     "only_this": sum(1 for q in both if verdicts[path][q] and not base[q]),
+                     "only_closed_book": sum(1 for q in both if base[q] and not verdicts[path][q])}
+    return out
+
+
 def summarize(run_dir: Path) -> dict:
     cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
     judged, answers, calls, units, expected = [], [], [], [], []
@@ -54,7 +77,7 @@ def summarize(run_dir: Path) -> dict:
                       (state.get("sleep") or {}).get("seconds"), "bank": state.get("bank")})
     locomo = cfg["dataset"] == "locomo"
     paths: dict[str, dict] = {}
-    for path in cfg["paths"]:
+    for path in [p for p in cfg["paths"] if p != "doors"]:
         rows = [r for r in judged if r["path"] == path]
         cats: dict[str, list] = defaultdict(list)
         for r in rows:
@@ -97,6 +120,12 @@ def summarize(run_dir: Path) -> dict:
         block["abstained"] = sum(1 for a in ans if not a.get("cited") and path == "ask")
         if path == "ask":
             block["retrieval"] = retrieval_stats(ans, by_cat={r["key"]: c for c, rs in cats.items() for r in rs})
+        spent = [int(a["tokens"]) for a in ans if a.get("tokens")]
+        right = sum(1 for r in head if r["correct"])
+        block["tokens"] = {"n": len(spent), "spent": sum(spent), "p50": _quantile(spent, 0.5) or 0,
+                           "per_right": round(sum(spent) / right) if right else None,
+                           "door_chars_p50": _quantile([a["door_chars"] for a in ans if "door_chars" in a], 0.5),
+                           "door_chars_p95": _quantile([a["door_chars"] for a in ans if "door_chars" in a], 0.95)}
         secs = sorted(a["seconds"] for a in ans if a.get("seconds") is not None)
         block["answer_seconds_p50"] = secs[len(secs) // 2] if secs else None
         block["answer_seconds_p95"] = secs[min(len(secs) - 1, int(0.95 * len(secs)))] if secs else None
@@ -111,9 +140,97 @@ def summarize(run_dir: Path) -> dict:
     for c in calls:
         by_phase[c["phase"]]["calls"] += 1
         by_phase[c["phase"]]["seconds"] = round(by_phase[c["phase"]]["seconds"] + c["seconds"], 1)
-    return {"config": cfg, "units": units, "paths": paths, "calls_by_stage": dict(cost),
+    gain = gain_over_closed_book(paths, judged, cfg)
+    doors = door_stats([row for unit_dir in sorted((run_dir / "units").glob("*")) if (run_dir / "units").is_dir()
+                        for row in _rows(unit_dir / "doors.jsonl")])
+    return {"config": cfg, "units": units, "paths": paths, "gain_over_closed_book": gain, "doors": doors, "calls_by_stage": dict(cost),
             "calls_by_phase": dict(by_phase), "calls_total": len(calls),
             "sleep_wall_seconds": round(sum(u["sleep_seconds"] or 0 for u in units), 1)}
+
+
+def door_stats(rows: list[dict]) -> dict:
+    """Per door and category: questions with at least one answer turn handed over, answer turns handed over, and how
+    much the door said. The abstention questions count only as how often a door said anything."""
+    out: dict[str, dict] = {}
+    for door in sorted({d for r in rows for d in r["doors"]}):
+        cats: dict[str, list] = defaultdict(list)
+        for r in rows:
+            cats["abstention" if r["abstention"] else r["category"]].append(r["doors"][door])
+            cats["(all)"].append(r["doors"][door])
+        block = {}
+        for cat, ds in sorted(cats.items()):
+            marked = [d for d in ds if d["evidence_turns"]]
+            block[cat] = {"n": len(ds), "any": sum(1 for d in marked if d["evidence_shown"]), "marked": len(marked),
+                          "turns": sum(d["evidence_shown"] for d in marked),
+                          "turns_marked": sum(d["evidence_turns"] for d in marked),
+                          "spoke": sum(1 for d in ds if d["chars"]), "chars_p50": _quantile([d["chars"] for d in ds], .5),
+                          "ms_p50": _quantile([d["ms"] for d in ds], .5), "ms_p95": _quantile([d["ms"] for d in ds], .95),
+                          "errors": sum(1 for d in ds if d.get("error"))}
+        out[door] = block
+    return out
+
+
+def per_question(run_dir: Path, path: str) -> dict[str, dict]:
+    """Every graded question on ``path``: its category and verdict, the row a method comparison reads."""
+    out: dict[str, dict] = {}
+    for unit_dir in sorted((run_dir / "units").glob("*")) if (run_dir / "units").is_dir() else []:
+        for r in _rows(unit_dir / "judgments.jsonl"):
+            if r["path"] == path and r["correct"] is not None:
+                out[r["qid"]] = {"category": "abstention" if r["abstention"] else r["category"],
+                                 "correct": bool(r["correct"])}
+    return out
+
+
+def _sign_p(wins: int, losses: int) -> float:
+    """The two-sided sign test over the questions that changed."""
+    n = wins + losses
+    if not n:
+        return 1.0
+    tail = sum(comb(n, k) for k in range(0, min(wins, losses) + 1)) / 2 ** n
+    return min(1.0, 2 * tail)
+
+
+def compare(a: dict[str, dict], b: dict[str, dict], *, a_name: str = "A", b_name: str = "B") -> dict:
+    """Which method got what right, question by question, over the questions both graded: the score per category, what
+    each alone got, both, neither, and the sign test on the difference. The same question can flip between runs of one
+    method: a difference is read against a repeat, never on its own."""
+    shared = sorted(set(a) & set(b))
+    cats: dict[str, list] = defaultdict(list)
+    for qid in shared:
+        cats[a[qid]["category"]].append(qid)
+        cats["(all)"].append(qid)
+    rows = {}
+    for cat, qids in sorted(cats.items()):
+        only_a = [q for q in qids if a[q]["correct"] and not b[q]["correct"]]
+        only_b = [q for q in qids if b[q]["correct"] and not a[q]["correct"]]
+        rows[cat] = {"n": len(qids), a_name: sum(a[q]["correct"] for q in qids), b_name: sum(b[q]["correct"] for q in qids),
+                     f"only_{a_name}": only_a, f"only_{b_name}": only_b,
+                     "neither": sum(1 for q in qids if not a[q]["correct"] and not b[q]["correct"]),
+                     "sign_p": round(_sign_p(len(only_a), len(only_b)), 4)}
+    return rows
+
+
+def render_compare(rows: dict, a_name: str, b_name: str, *, show_ids: bool = True) -> str:
+    lines = [f"{'category':28} {'n':>4} {a_name:>12} {b_name:>12} {'only ' + a_name:>12} {'only ' + b_name:>12} "
+             f"{'neither':>8} {'sign p':>7}"]
+    for cat, r in rows.items():
+        lines.append(f"{cat:28} {r['n']:>4} {r[a_name]:>12} {r[b_name]:>12} {len(r['only_' + a_name]):>12} "
+                     f"{len(r['only_' + b_name]):>12} {r['neither']:>8} {r['sign_p']:>7}")
+    if show_ids and "(all)" in rows:
+        lines.append(f"only {a_name}: {' '.join(rows['(all)']['only_' + a_name]) or '-'}")
+        lines.append(f"only {b_name}: {' '.join(rows['(all)']['only_' + b_name]) or '-'}")
+    return "\n".join(lines)
+
+
+def render_doors(doors: dict) -> str:
+    lines = ["\n  what each door hands over (no model): questions with an answer turn · answer turns · spoke · chars p50 · ms p50/p95"]
+    for door, block in doors.items():
+        lines.append(f"  {door}")
+        for cat, c in block.items():
+            lines.append(f"    {cat:28} {c['any']:>4}/{c['marked']:<4} {c['turns']:>4}/{c['turns_marked']:<4} "
+                         f"spoke {c['spoke']:>4}/{c['n']:<4} {str(c['chars_p50']):>7} ch  {c['ms_p50']}/{c['ms_p95']} ms"
+                         + (f"  {c['errors']} errors" if c["errors"] else ""))
+    return "\n".join(lines)
 
 
 def _quantile(values: list[float], q: float) -> float | None:
@@ -160,6 +277,12 @@ def render(s: dict) -> str:
                          f"counting them as not correct: {b['accuracy_all']}% (--resume retries them)")
         if b.get("wrong_with_gap") or b.get("wrong_confident"):
             lines.append(f"    wrong: {b['wrong_with_gap']} named a gap, {b['wrong_confident']} confidently wrong")
+        cost = b.get("tokens")
+        if cost and cost.get("spent"):
+            lines.append(f"    tokens: {cost['spent']:,} on {cost['n']} answers · p50 {cost['p50']:,} · "
+                         f"per right answer {cost['per_right'] or 0:,}"
+                         + (f" · door chars p50 {cost['door_chars_p50']:,} p95 {cost['door_chars_p95']:,}"
+                            if cost.get("door_chars_p50") is not None else ""))
         rv = b.get("retrieval")
         if rv and rv.get("n"):
             lines.append(f"    answer turn in the prompt: {rv['answer_turn_shown']}/{rv['answer_turn_marked']} "
@@ -170,10 +293,19 @@ def render(s: dict) -> str:
             f1 = f"  F1 {c['f1']}" if locomo and c.get("f1") is not None else ""
             lines.append(f"    {cat:28} {str(c['accuracy']):>6}%  (n={c['n']}){f1}"
                          + (f"  ungraded {c['ungraded']}" if c["ungraded"] else ""))
+    for path, g in (s.get("gain_over_closed_book") or {}).items():
+        lines.append(f"\n  {path} above closed-book: {g['right']} v {g['closed_book_right']} right of {g['n']} "
+                     f"({g['gain_points']:+} points) · only {path} right {g['only_this']}, only closed-book right "
+                     f"{g['only_closed_book']}")
+    if s.get("doors"):
+        lines.append(render_doors(s["doors"]))
     lines.append(f"\n  plan calls: {s['calls_total']} · Sleep wall {s['sleep_wall_seconds']} s")
     for phase, c in sorted(s["calls_by_phase"].items()):
         lines.append(f"    {phase:8} {c['calls']:5} calls  {c['seconds']:8.1f} call-seconds")
-    if locomo:
+    if cfg["dataset"] in ("personalizationv4", "personamem-v2"):
+        lines.append("\n  Graded by the judge against the reference answer, not by the nearest choice: not comparable "
+                     "with the papers' accuracy. Read a path by its gain above closed-book.")
+    elif locomo:
         lines.append("\n  Published LoCoMo J (categories 1-4, gpt-4o-mini readers, different judges): Mem0 66.9, "
                      "Mem0g 68.4, full-context 72.9, Zep 75.1 (its re-run), Letta filesystem 74.0. Indicative only.")
     else:

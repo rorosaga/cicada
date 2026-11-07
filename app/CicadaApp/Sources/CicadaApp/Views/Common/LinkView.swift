@@ -8,15 +8,18 @@ import Foundation
 // `api/tests/fixtures/link_views.json` (`LinkViewTests`), the way `video_urls.json` pins `VideoRef` (R-V8: a second
 // parser is how drift starts). Pure: no network, no I/O.
 
-/// The ways a link can be drawn. The first three sit inside a sentence; the rest need a line to themselves.
+/// The ways a link can be drawn. `link`, `raw`, `mention` and `url` sit inside a sentence; the rest need a line to
+/// themselves. `link` is a link that names no view (Sleep's plain `[T](url)`), drawn by context (`LinkGrammar.drawn`);
+/// `url` is the plain link the person chose from a link's menu (owner 2026-10-26).
 enum LinkViewKind: String, CaseIterable, Sendable, Equatable, Hashable {
-    case link, raw, mention, bookmark, screenshot, captures, look, embed
+    case link, raw, mention, url, bookmark, screenshot, captures, look, embed
 
-    static let inline: Set<LinkViewKind> = [.link, .raw, .mention]
+    static let inline: Set<LinkViewKind> = [.link, .raw, .mention, .url]
     /// The views a date may pin.
     static let dated: Set<LinkViewKind> = [.screenshot, .look]
-    /// What the person's switcher offers, in order (`raw` and `embed` are read, never offered).
-    static let switcher: [LinkViewKind] = [.link, .mention, .bookmark, .screenshot, .captures, .look]
+    /// What a link's menu offers, in order — Notion's four (Mention, Bookmark, Embed, URL), then the views of what
+    /// Cicada captured; each only where it fits (`LinkCardModel.offered`). `link` and `raw` are read, never offered.
+    static let switcher: [LinkViewKind] = [.mention, .bookmark, .embed, .url, .screenshot, .captures, .look]
 
     var isBlock: Bool { !Self.inline.contains(self) }
 }
@@ -162,6 +165,15 @@ enum LinkGrammar {
     private static func blank(_ text: inout String, _ range: NSRange) {
         let ns = text as NSString
         text = ns.replacingCharacters(in: range, with: String(repeating: " ", count: range.length))
+    }
+
+    /// How `ref` draws (owner 2026-10-26, Notion's model): its own view word, else the context's default — a plain
+    /// markdown link alone on its line (a paragraph or any bullet, before an optional note) is a bookmark, one inside a
+    /// sentence a mention; a bare URL or autolink its address. Never `embed` by default. `link_views.drawn`'s twin,
+    /// pinned by the fixture's `drawn` cases.
+    static func drawn(_ ref: LinkRef) -> LinkViewKind {
+        guard ref.asked == .link else { return ref.view }
+        return ref.block && ref.markdown.hasPrefix("[") ? .bookmark : .mention
     }
 
     /// A bare URL without the sentence's trailing punctuation — a closing `)` only when it closes nothing in the URL.

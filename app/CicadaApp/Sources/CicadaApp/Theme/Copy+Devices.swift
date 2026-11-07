@@ -85,7 +85,8 @@ extension Copy {
         static let addOnServer = "Add or revoke a device on the server with `cicada device add <name>` and `cicada device revoke <id>`."
         static let revoke = "Revoke"
         static func revokeTitle(_ name: String) -> String { "Revoke \(name)?" }
-        static let revokeMessage = "It stops reaching your memory right away. What it already sent stays, and still says it came from it."
+        static let revokeMessage = "It stops reaching your memory right away, and nothing new reaches it. Revoking "
+            + "cannot take back the copy it already holds. What it already sent stays, and still says it came from it."
         static let thisDevice = "this Mac"
         static let thisServer = "this server"
         static let aDevice = "a device"
@@ -108,5 +109,37 @@ extension Copy {
         // MARK: Provenance — one quiet word
         static func from(_ label: String) -> String { "from \(label)" }
         static func onServer(_ host: String) -> String { "on \(host)" }
+    }
+
+    /// G132 phase 1 — sharing this computer's memory with the person's other computers, and keeping a copy of another
+    /// computer's here. DR-59: sentence case, plain verbs; provider-neutral; no path, variable or seq number shown.
+    enum MemoryCopy {
+        static let group = "One memory on your computers"
+        static let shareTitle = "Share this memory with my other computers"
+        static let shareDetail = "Your other computers can keep a full copy, read it when this one is asleep, and send "
+            + "what they capture and change here. This computer still consolidates."
+        static let shareFixed = "Cicada's setup on this computer fixes this choice, so it can't be changed here."
+        static let copyTitle = "Keep a full copy here"
+        static let copyDetail = "This computer keeps a copy of the memory another of your computers holds, reads from it "
+            + "when that computer is away, and sends its changes there."
+        static let copyOff = "Turn on sharing on the computer that holds your memory, then pair this one with the code its "
+            + "Devices page shows."
+        static let homeTitle = "That computer's address"
+        static let homePlaceholder = "https://your-computer.example.net"
+        static let codeTitle = "Pairing code"
+        static let codePlaceholder = "The code its Devices page shows"
+        static let keep = "Keep a copy"
+        static let stop = "Stop keeping a copy"
+        static let copyAgain = "Copy again"
+        static let restarting = "Cicada is starting again to switch…"
+        static let failed = "That didn't work. Nothing was changed."
+        static let waitForSleep = "Sleep is running on this computer; this can change once it is done."
+        static let notForDemo = "A demo memory is never shared or copied. Open your own memory to use this."
+        static let whileSharing = "This computer shares its own memory with your other computers, so it doesn't keep "
+            + "a copy of another's. Turn sharing off first."
+        static func behind(_ n: Int) -> String { n == 1 ? "1 change still to copy." : "\(n) changes still to copy." }
+        static func onItsWay(_ n: Int) -> String {
+            n == 1 ? "1 change made here is on its way." : "\(n) changes made here are on their way."
+        }
     }
 }

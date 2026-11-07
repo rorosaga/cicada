@@ -42,6 +42,12 @@ struct AgentsStep: View {
                                                              claudeAppInstalled: claudeAppInstalled))
     }
 
+    /// An agent is connected here (it called Cicada, or this step connected it): the point after which the live check and
+    /// not the prerequisite is what the step says.
+    private var anyConnected: Bool {
+        rows.contains { AgentStepRows.status($0, started: started).word != Copy.Status.notConnected }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             OnboardingHeadline(title: Copy.agentsTitle, subline: Copy.agentsSubline)
@@ -57,9 +63,18 @@ struct AgentsStep: View {
                 }
             }
             .settingsCardSurface()
-            tryIt
+            // Tester readiness (2026-10-26): the one thing a tester must already have, said under the rows it is about
+            // and only until something is connected (ROR-118: it sat between the headline and the rows as a third layer).
+            if !anyConnected {
+                Text(Copy.agentsNeedsPlan)
+                    .font(CicadaTheme.font(size: 15)).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // "Then try it" follows a connection: before one there is nothing for the words to be said to.
+            if anyConnected || live.firstCall != nil { tryIt }
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                DisclosureHeader(title: Copy.agentsOther, summary: Copy.agentsOtherSummary, isOpen: otherOpen) {
+                DisclosureHeader(title: Copy.agentsOther, isOpen: otherOpen,
+                                 font: CicadaTheme.font(size: 15, weight: .medium)) {
                     otherOpen.toggle()
                 }
                 if otherOpen {
@@ -67,12 +82,13 @@ struct AgentsStep: View {
                         anotherAgent
                         SettingsDivider()
                         // Five agents, so no one agent's mark speaks for them: a glyph, like "Another agent" (looks pass).
-                        ConnectionLine(logo: nil, name: Copy.agentsPersonal, systemFallback: "person",
-                                       detail: Copy.agentsPersonalNames, detailLines: 1) {
+                        OnboardingRowLine(logo: nil, name: Copy.agentsPersonal, systemFallback: "person",
+                                          detail: Copy.agentsPersonalNames) {
                             NeutralButton(title: Copy.AgentsPage.addToken, size: .compact) { addingToken = true }
                         }
                     }
                     .settingsCardSurface()
+                    .disclosureReveal()
                 }
             }
         }
@@ -136,11 +152,16 @@ struct AgentsStep: View {
     // MARK: An umbrella
 
     private func umbrellaRow(_ row: AgentUmbrellaRow) -> some View {
+        // ROR-118: four rows each saying "Not connected" beside a Connect button said it four times. The absence of a
+        // dot is the state; a dot and a word come only once there is something to say (Waiting, Connected).
         let status = AgentStepRows.status(row, started: started)
-        return ConnectionLine(logo: row.logo, name: row.label, systemFallback: "sparkles", detail: row.detail,
-                              status: status, detailLines: 1) {
+        let shown = status.word == Copy.Status.notConnected ? nil : status
+        // No repetition: a line that only says the name again ("OpenCode" under "OpenCode") is left out.
+        let detail = row.label.lowercased().contains(row.detail.lowercased()) ? nil : row.detail
+        return OnboardingRowLine(logo: row.logo, name: row.label, systemFallback: "sparkles", detail: detail,
+                                 status: shown) {
             if !row.actionable.isEmpty, expanded != row.id {
-                NeutralButton(title: Copy.agentsConnect, size: .compact) { expanded = row.id }
+                OnboardingRowAction(title: Copy.agentsConnect) { expanded = row.id }
             }
         } below: {
             if expanded == row.id {
@@ -154,6 +175,7 @@ struct AgentsStep: View {
                 .padding(.leading, LogoTile.tileSide(.regular) + CicadaTheme.spacingMD)
             }
         }
+        .padding(.vertical, CicadaTheme.spacingXS)
     }
 
     /// One found product under its umbrella: its name, then its own action (Settings' path).
@@ -215,7 +237,7 @@ struct AgentsStep: View {
     private var anotherAgent: some View {
         let other = AgentCatalog.entry(for: "other")
         let prompt = model.setups["other"].flatMap { $0.kind == "prompt" ? $0.prompt : nil }
-        return ConnectionLine(logo: nil, name: Copy.agentsAnother, systemFallback: other?.symbol ?? "ellipsis") {
+        return OnboardingRowLine(logo: nil, name: Copy.agentsAnother, systemFallback: other?.symbol ?? "ellipsis") {
             if let prompt, !prompt.isEmpty {
                 NeutralButton(title: copied == "other" ? Copy.agentCopied : Copy.agentCopyPrompt,
                               systemImage: copied == "other" ? "checkmark" : "doc.on.doc", size: .compact) {

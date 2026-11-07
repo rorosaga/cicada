@@ -10,6 +10,9 @@ struct ResolveGrace {
     static var window: Duration { .seconds(CicadaTiming.undoWindow) }
 
     let resolve: InboxResolve
+    /// The rest of the same answer: one message that settled several questions (owner 2026-11-05). One window, one
+    /// Undo, sent in order after `resolve`.
+    var also: [InboxResolve] = []
     /// "Answered · sqlite-vec" in the list; the short form beside the Reader (R-DI5).
     let label: String
     let shortLabel: String
@@ -22,6 +25,7 @@ struct ResolveGrace {
     let token: Int
 
     var id: String { resolve.id }
+    var ids: [String] { ([resolve] + also).map(\.id) }
 }
 
 extension Store {
@@ -34,7 +38,7 @@ extension Store {
     /// What the send delay hides from `visibleInbox`.
     var graceHiddenIds: Set<String> {
         var ids = sendingInboxIds
-        if let held = currentHeld { ids.insert(held.id) }
+        if let held = currentHeld { ids.formUnion(held.ids) }
         return ids
     }
 
@@ -44,17 +48,17 @@ extension Store {
     /// G183(d) — refused while a bank switch is in flight (false, with a toast): the server may already be on
     /// the new bank, so the answer could only be sent into the wrong one. The question stays where it is.
     @discardableResult
-    func hold(_ resolve: InboxResolve, label: String, shortLabel: String, question: String,
+    func hold(_ resolve: InboxResolve, also: [InboxResolve] = [], label: String, shortLabel: String, question: String,
               kind: InboxKind, channel: String?) -> Bool {
         if refusesWriteWhileSwitching() { return false }
         if let previous = heldResolve {
             heldResolve = nil
-            sendingInboxIds.insert(previous.id)
+            sendingInboxIds.formUnion(previous.ids)
             Task { await self.send(previous) }
         }
         graceToken &+= 1
         let token = graceToken
-        heldResolve = ResolveGrace(resolve: resolve, label: label, shortLabel: shortLabel, question: question,
+        heldResolve = ResolveGrace(resolve: resolve, also: also, label: label, shortLabel: shortLabel, question: question,
                                    kind: kind, channel: channel, bank: bank, token: token)
         graceTask?.cancel()
         let wait = graceWait
@@ -107,7 +111,7 @@ extension Store {
         graceTask?.cancel()
         graceTask = nil
         heldResolve = nil
-        sendingInboxIds.insert(held.id)
+        sendingInboxIds.formUnion(held.ids)
         await send(held)
     }
 
@@ -116,16 +120,19 @@ extension Store {
     /// it was made in, so one that still arrives after the server moved is refused by the server (`bank_mismatch`),
     /// rolled back and its question reopened, never filed in the other bank.
     private func send(_ held: ResolveGrace) async {
-        defer { sendingInboxIds.remove(held.id) }
+        defer { sendingInboxIds.subtract(held.ids) }
         guard held.bank == bank else {
             toast = Copy.Inbox.answerNotSaved
             return
         }
-        // R-DI3 — answered elsewhere inside the window: a fresh snapshot without the id means the server
-        // already closed it, and a POST would 404 into a "reverted" toast. No snapshot at all (a cache
-        // miss) is not evidence of that, so it still sends.
-        if let items = inbox.value, !items.contains(where: { $0.id == held.id }) { return }
-        let sent = await BankScope.bound(to: held.bank) { await perform(held.resolve, duringSwitch: true) }
-        if sent { await onHeldResolveSent?() }
+        var anySent = false
+        for resolve in [held.resolve] + held.also {
+            // R-DI3 — answered elsewhere inside the window: a fresh snapshot without the id means the server
+            // already closed it, and a POST would 404 into a "reverted" toast. No snapshot at all (a cache
+            // miss) is not evidence of that, so it still sends.
+            if let items = inbox.value, !items.contains(where: { $0.id == resolve.id }) { continue }
+            if await BankScope.bound(to: held.bank, { await perform(resolve, duringSwitch: true) }) { anySent = true }
+        }
+        if anySent { await onHeldResolveSent?() }
     }
 }

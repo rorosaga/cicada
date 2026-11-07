@@ -116,7 +116,7 @@ extension EntityStatus {
 enum GraphChromeLayout {
     /// The approved mock's breakpoint for the whose-beliefs tabs.
     static let tabsInGroupMinWidth: CGFloat = 640
-    /// The widest group ("Legend · filtered" with three hues, a spacer, − + fit and pan, ≈ 303, measured) plus its 16-unit
+    /// The widest group ("Legend · filtered" with three hues, a spacer, − + fit and pan, ≈ 308, measured) plus its 16-unit
     /// inset on each side; narrower than this, the group would clip. `testTheWidestGroupFitsItsFloor` renders it.
     static let groupMinWidth: CGFloat = 340
 

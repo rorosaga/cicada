@@ -254,6 +254,9 @@ def test_an_inbox_cause_parses_only_the_pages_it_lands_on(tmp_path, parses):
 
 def test_a_cold_recall_reads_a_handful_of_pages_not_the_bank(tmp_path, parses, monkeypatch):
     memory = _bank(tmp_path, n=300)
+    # A bank has an owner page from its first commit, and recall's turns name the owner (#684): without one, that lookup
+    # falls back to a header scan of every page.
+    _entity(memory, "owner", name="Sam Example", type="person", owner=True)
     _entity(memory, "alpha-project", name="Alpha Project", related=["Filler 010", "Filler 020"])
     (memory / "hubs" / "topic-alpha.md").write_text(
         "---\ntype: hub\nname: alpha\nhub_kind: topic\n---\n- [[Filler 030]]\n- [[Alpha Project]]\n",
@@ -278,6 +281,17 @@ def test_a_cold_recall_reads_a_handful_of_pages_not_the_bank(tmp_path, parses, m
     out = str(mcp_tools.recall(ctx, "alpha project"))
     assert "Alpha Project" in out and "Related (one hop out)" in out
     assert len(parses) + len(reads) < 40, (len(parses), len(reads))
+
+
+def test_a_cold_recall_never_scans_for_an_owner_who_gave_no_name(tmp_path, parses):
+    memory = _bank(tmp_path, n=300)
+    _entity(memory, "alpha-project", name="Alpha Project")
+    search_index.rebuild(memory)
+    _cold()
+    parses.clear()
+    ctx = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s", harness="unknown")
+    assert "Alpha Project" in str(mcp_tools.recall(ctx, "alpha project"))
+    assert len(parses) < 40, len(parses)
 
 
 def test_importing_the_recall_path_never_imports_litellm():

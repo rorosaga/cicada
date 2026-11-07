@@ -11,6 +11,7 @@ import subprocess
 from _cli import REPO, cli_env, envelope
 from _synthetic_bank import _bank
 from api.version import __version__
+from _checkout_venv import needs_checkout_venv
 
 LAUNCHER = REPO / "scripts" / "cicada"
 
@@ -24,6 +25,7 @@ def test_the_launcher_is_executable_posix_sh():
     assert LAUNCHER.read_text().startswith("#!/bin/sh\n")
 
 
+@needs_checkout_venv
 def test_a_two_link_chain_resolves_the_checkout_and_keeps_the_cwd(tmp_path):
     memory = _bank(tmp_path, git=False)
     env = cli_env(tmp_path, memory)

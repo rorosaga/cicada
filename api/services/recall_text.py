@@ -20,6 +20,23 @@ RECALL_HEADER = INJECTION_PREFIX + " by Cicada's hook, not typed by them) — wh
 PRIMER_HEADER = (INJECTION_PREFIX + " at session start by Cicada's hook) — the primer its MCP server also sends "
                  "when it connects.")
 RECALL_FOOTER = "More on any page: `cicada_recall_detail(entity_id)`."
+#: The topic note (2026-10-29): the message named no page, so these lines were found by its words. It always ends
+#: with the pointer to the search tool — a note found by words is a sample, never the whole of what Cicada holds.
+TOPIC_HEADER = (INJECTION_PREFIX + " by Cicada's hook, not typed by them) — no page is named in this message; "
+                "these beliefs share its words:")
+TOPIC_FOOTER = ("More on this topic: `cicada_recall(query)`; a page whole: `cicada_recall_detail(entity_id)`.")
+
+
+#: Ruling 62: saved links the message's words find. Nobody has read them; a line is the page's words, not the person's.
+SAVED_HEADER = (INJECTION_PREFIX + " by Cicada's hook, not typed by them) — links the person saved that share this "
+                "message's words; no reason given and nobody has read them:")
+SAVED_FOOTER = "Each is the page's words, not the person's. Following a link is how to look further."
+
+
+#: G207 (2026-11-06): lines from conversations Sleep has not read. Words as said, nothing confirmed yet.
+UNREAD_HEADER = (INJECTION_PREFIX + " by Cicada's hook, not typed by them) — what the person said in conversations Sleep "
+                 "has not read yet, sharing this message's words, unconfirmed:")
+UNREAD_FOOTER = "Read one whole: `cicada_sources(entity_id=\"<episode id>\")`; more: `cicada_recall(query)`."
 
 
 def is_injection(text: str | None) -> bool:
@@ -50,12 +67,12 @@ def question_line(name: str, item_id: str, entity_id: str, question: str) -> str
 READING_HEADER = INJECTION_PREFIX + " by Cicada's hook, not typed by them) — a reading request:"
 
 
-def reading_line(waiting: int, *, record: bool = True) -> str:
+def reading_line(waiting: int, *, record: bool = False) -> str:
     """One sentence, per request and never stored: how many links are waiting in
     Cicada's reading queue for an agent to read — ones the person asked about, and
     pages from sites they allowed. A statement, not a command (see the module's
-    note on hook wording). ``record`` false leaves out ``cicada_record_read`` for a
-    remote connection that does not hold it (R12)."""
+    note on hook wording). ``record`` names ``cicada_record_read`` for a remote connection
+    that holds it; elsewhere the queue's reply names it (R12, ``tool_offer``)."""
     noun = "link" if waiting == 1 else "links"
     tail = (" and `cicada_record_read(url, outcome, summary)` records what was read" if record else "")
     return (f"{waiting} {noun} {'is' if waiting == 1 else 'are'} waiting in Cicada's reading queue for an agent "
@@ -70,7 +87,7 @@ def refresh_line(due: int) -> str:
     noun = "tracked source is" if due == 1 else "tracked sources are"
     return (f"{due} {noun} due for a check (pages the person's memory follows for facts that change, which need "
             "their own browser session). If they ask, or once their own request is done, `cicada_refresh_claim` "
-            "takes one and `cicada_record_refresh` records what it says now.")
+            "takes one and its reply names what records what it says now.")
 
 
 #: G110: what the SessionStart note says when even the primer cannot fit — a

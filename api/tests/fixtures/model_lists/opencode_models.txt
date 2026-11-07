@@ -1,0 +1,4 @@
+github-copilot/gpt-5.5
+github-copilot/claude-sonnet-5
+opencode-go/kimi-k3
+anthropic/claude-opus-5

@@ -135,7 +135,7 @@ def record_skip(
 
 
 def record_error(
-    memory_path: Path, channel: str, error: str, *, at: str | None = None
+    memory_path: Path, channel: str, error: str, *, at: str | None = None, kind: str | None = None
 ) -> dict:
     """Record that ``channel``'s last poll FAILED, preserving its last success.
 
@@ -148,6 +148,11 @@ def record_error(
     entry = dict(state.get(channel) or {})
     entry["last_error"] = str(error)[:400]
     entry["last_error_at"] = at or _now_iso()
+    # The typed code the app reads (``sign-in``, ``rate``, ``network``, ``server``, ``other``); none for a legacy line.
+    if kind:
+        entry["last_error_kind"] = str(kind)[:20]
+    else:
+        entry.pop("last_error_kind", None)
     state[channel] = entry
     _write_state(memory_path, state)
     return state
@@ -165,5 +170,6 @@ def clear_error(memory_path: Path, channel: str, error: str) -> None:
     entry = dict(entry)
     entry.pop("last_error", None)
     entry.pop("last_error_at", None)
+    entry.pop("last_error_kind", None)
     state[channel] = entry
     _write_state(memory_path, state)

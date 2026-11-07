@@ -19,7 +19,10 @@ words are already the question's cause or one option's evidence).
 
 * any kind but a proposed edit — what it asks about is gone (merged away, archived, dropped): retired;
 * ``merge_suggestion`` — the same name once spelling is folded, same type, not a person: merged; else the judge reads
-  both pages: ``same`` ≥ 0.9 merges, ``different`` ≥ 0.9 keeps the pair apart; unsure stays;
+  both pages: ``same`` ≥ 0.9 merges, ``different`` ≥ 0.9 keeps the pair apart; unsure stays. A person pair that
+  should never have been asked (owner 2026-11-04, ``pair_evidence``) is retired with nothing written:
+  ``owner_unsaid`` (the owner's page, no words of theirs naming themselves so), ``no_pair_evidence`` (no conversation
+  names the two together);
 * ``normalization`` — the two labels differ only in spelling (case, separators, a plural): "Correct fold";
 * ``decay`` — a one-off nobody would miss (a concept, tool, media or company page on one conversation, never kept, no
   words of the person's on it): archived;
@@ -28,7 +31,10 @@ words are already the question's cause or one option's evidence).
 * ``conflict`` / ``clarification`` about Cicada's OWN runtime settings, on its own page — which engine Sleep runs read
   with, whether scheduled runs use the plan, the schedule's time (``web_settle.own_settings``; owner 2026-10-19) — retired as ``own_settings`` (no claim touched): the system
   knows them and Settings shows them, so they are never asked;
-* everything else — a clarification, a follow-up, a proposed edit — stays for the person (move 1 aside).
+* ``followup`` — one on a page not in the person's list, never started or taken out (ruling 56, ``not_started``):
+  retired with nothing written;
+* everything else — a clarification, a follow-up on a project they started, a proposed edit — stays for the person (move
+  1 aside).
 
 Never a question about who a person is, or merging two people, without the person's own words on the record (move 1).
 
@@ -69,6 +75,7 @@ import os
 import re
 import subprocess
 import tempfile
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -77,7 +84,7 @@ from typing import Any
 
 from loguru import logger
 
-from api.services import bank_index, inbox_actor, inbox_questions, markdown_parser, text_fold
+from api.services import authorship, bank_index, inbox_actor, inbox_questions, markdown_parser, text_fold
 
 GROUP = "sleep"
 SETTLED_DIR = "settled"
@@ -107,10 +114,23 @@ RULES: dict[str, str] = {
     "newest_words": "Your newest words on it say this",
     "own_settings": "About Cicada's own settings, which Cicada already knows: Settings shows them",
     "named_account": "You gave this link for them in your own words",
+    "owner_unsaid": "Nothing you said names you that: it is not a question about you",
+    "no_pair_evidence": "No conversation names the two together",
+    "not_started": "It is not one of your projects",
+    "same_value": "The same value, said two ways",
+    "moved_on": "It moved: the latest is current, the earlier ones are kept as past",
+    "own_bookkeeping": "About Cicada's own counters, which Cicada already knows",
+    "already_described": "Sleep already read what it is; nothing was changed",
+    "not_fading": "It is not fading any more; nothing was changed",
 }
+#: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
+RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
+           "no_pair_evidence": "Not asked: no conversation names them together"}
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
-                         "multi_valued", "in_passing", "newest_words", "own_settings", "named_account"})
+                         "multi_valued", "in_passing", "newest_words", "own_settings", "named_account",
+                         "owner_unsaid", "no_pair_evidence", "not_started", "same_value", "moved_on",
+                         "own_bookkeeping", "already_described", "not_fading"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
 MAX_REASON_CHARS = 160
@@ -118,7 +138,7 @@ MAX_EVIDENCE_LINES = 2
 #: Kinds the person's words in a conversation may answer (decay is answered by the mention itself; a fold and a
 #: proposed edit are the app's; a follow-up is progress, written only by `progress.py`).
 CONVERSATION_KINDS = frozenset({"conflict", "clarification", "merge_suggestion"})
-NEVER = frozenset({"page_edit"})
+NEVER = frozenset({"page_edit", "sensitive"})
 #: The page types a decay question may be assumed for ("pages nobody would miss").
 ONE_OFF_TYPES = frozenset({"concept", "tool", "media", "company"})
 JUDGE_THRESHOLD = 0.9
@@ -338,10 +358,24 @@ def _merge_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | N
     mention_fm = mention[1] if mention else {}
     mention_type = _type_of(mention_fm, str(fm.get("suggested_classification") or ""))
     target_type = _type_of(target[1])
-    if "person" in (mention_type, target_type):
+    if "person" in (mention_type, target_type) or _is_owner_page(target[1]) or _is_owner_page(mention_fm):
+        # Owner 2026-11-04 (`pair_evidence`): a question that should never have been asked is retired, nothing
+        # written — the owner's page beside someone with no words of theirs naming themselves so, or two people no
+        # conversation names together. Never a merge and never "different": who someone is stays the person's.
+        from api.services import pair_evidence
+
+        verdict = pair_evidence.judge(
+            memory_path, a_id=str(fm.get("entity_id") or ""), a_name=str(fm.get("entity_name") or ""),
+            b_id=target[0].stem, b_name=str(target[1].get("name") or ""), person=True,
+            source_episode=str(fm.get("source_episode") or ""), two_places=bool(fm.get("heard_in")))
+        if not verdict.ask:
+            return Decision(item_id, "merge_suggestion", verdict.reason, None, answer=RETIRED[verdict.reason],
+                            guard=_guard(memory_path, str(fm.get("entity_id") or ""), target[0].stem)), ""
         return None, "person"     # who someone is: only the person's own words settle it (move 1)
     if mention is not None and mention[0] == target[0]:
         return None, "same_page"
+    if mention is not None and _split_apart(memory_path, mention[0].stem, target[0].stem):
+        return None, "kept_apart"   # the person split these two pages: Sleep never joins them back (G227 follow-up)
     if mention_type and target_type and mention_type != target_type:
         return None, "judgement"
     name = _fold_name(fm.get("entity_name") or fm.get("entity_mention") or mention_fm.get("name"))
@@ -351,6 +385,15 @@ def _merge_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | N
                         answer=f"Same as {target[1].get('name') or target[0].stem}",
                         guard=_guard(memory_path, str(fm.get("entity_id") or ""), target[0].stem)), ""
     return None, "needs_judge"
+
+
+def _split_apart(memory_path: Path, a: str, b: str) -> bool:
+    from api.services import merge_rejections
+
+    try:
+        return merge_rejections.is_split(memory_path, a, b)
+    except Exception:  # noqa: BLE001 — an unreadable list keeps nothing apart here; the rule asks as before
+        return False
 
 
 def _spelling(label: str) -> str:
@@ -388,6 +431,13 @@ def _shipped_fold(raw: str, canonical: str) -> bool:
                               for k, v in synonyms.items() if isinstance(synonyms, dict))
 
 
+def _confidence(fm: dict) -> float:
+    try:
+        return float(fm.get("confidence"))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _decay_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
     from api.services import decay_policy
     from api.services.claims import MalformedClaimsBlockError, parse_claims
@@ -396,6 +446,13 @@ def _decay_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | N
     if page is None:
         return None, "judgement"
     _path, pfm, body = page
+    from api.services.age_recompute import NUDGE_THRESHOLD
+
+    if str(pfm.get("status") or "") == "active" and _confidence(pfm) >= NUDGE_THRESHOLD:
+        # The question asks whether something fading still matters; a later mention already lifted it back over the
+        # line a decay question needs. Retired, no claim and no confidence touched: it raises again if it fades again.
+        return Decision(item_id, "decay", "not_fading", None, answer="Not fading any more",
+                        guard=_guard(memory_path, _path.stem)), ""
     if _type_of(pfm) not in ONE_OFF_TYPES or _is_owner_page(pfm):
         return None, "judgement"   # the person's projects, skills, people and places stay theirs
     cls, _rate = decay_policy.resolve(pfm)
@@ -495,11 +552,17 @@ def _conflict_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision 
     page = _page(memory_path, str(fm.get("entity_id") or ""))
     if page is None:
         return None, "judgement"
+    if (moved := _moved_rule(memory_path, item_id, fm, predicate, page)) is not None:
+        return moved, ""
     if predicates.cardinality(memory_path, predicate) == "multi":
         # G98: a set, not a contradiction — Stage 3 already kept every value open; the question asks for a winner
         # that does not exist. The resolver's own "informational" dismiss closes nothing.
         return Decision(item_id, "conflict", "multi_valued", {"action": "dismiss"}, answer="Kept every value",
                         guard=_guard(memory_path, page[0].stem)), ""
+    if predicate.startswith("value-of-"):
+        decided = _value_rule(memory_path, item_id, fm, predicate, page)
+        if decided is not None:
+            return decided, ""
     if _is_owner_page(page[1]) or (_type_of(page[1]) == "person"
                                    and predicate in ("is-a", "type", "kind", "name", "description")):
         return None, "person"
@@ -543,6 +606,100 @@ def _conflict_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision 
                     answer=str(newest[0].get("label") or ""), guard=_guard(memory_path, page[0].stem)), ""
 
 
+def _value_rule(memory_path: Path, item_id: str, fm: dict, predicate: str, page) -> Decision | None:
+    """A value conflict that is not a contradiction: the same value said two ways (question audit A8). Closes no value
+    it has not already said again; keeps the fuller wording, or the page's own when it rests on the person's words.
+    Two values from one conversation are NOT assumed compatible (a conversation can change its mind): they stay a
+    question."""
+    from api.services import value_words
+    from api.services.claims import MalformedClaimsBlockError, parse_claims
+
+    try:
+        claims = {c.id: c for c in parse_claims(page[2], strict=True)}
+    except MalformedClaimsBlockError:
+        return None
+    options = [o for o in inbox_questions.normalize_options(fm.get("options"))
+               if str(o.get("key")) not in _GENERIC_KEYS and str(o.get("label") or "").strip()]
+    if len(options) < 2:
+        return None
+    on_page = {str(o.get("key")): claims.get(str(o.get("claim_id") or "")) for o in options}
+    if any(c is not None and c.valid_to is not None for c in on_page.values()):
+        return None
+    labels = [str(o["label"]) for o in options]
+    if not value_words.same_value(labels):
+        return None
+    mine = next((o for o in options if on_page[str(o["key"])] is not None
+                 and persons_words(on_page[str(o["key"])])), None)
+    kept = mine or max(options, key=lambda o: (len(value_words.fold(o["label"])), on_page[str(o["key"])] is not None))
+    return Decision(item_id, "conflict", "same_value", {"action": "resolve", "option_key": str(kept["key"])},
+                    answer=str(kept["label"]), guard=_guard(memory_path, page[0].stem))
+
+
+#: Predicates whose value moves: a part belongs to a new whole when the project moves (question audit A10, owner
+#: 2026-11-06 "the latest stays current, older ones close"). Every other multi-valued predicate keeps every value.
+MOVES = frozenset({"part-of"})
+
+
+def _moved_rule(memory_path: Path, item_id: str, fm: dict, predicate: str, page) -> Decision | None:
+    """Values said on different days for a predicate that moves: the one said last stays current, the earlier ones are
+    written closed (the resolver's pick keeps what only the question held). Values said the same day are a set."""
+    if predicate not in MOVES:
+        return None
+    options = [o for o in inbox_questions.normalize_options(fm.get("options"))
+               if str(o.get("key")) not in _GENERIC_KEYS and str(o.get("label") or "").strip()]
+    if len(options) < 2:
+        return None
+    dated = []
+    for o in options:
+        try:
+            dated.append((date.fromisoformat(str(o.get("observed_at") or "")[:10]), o))
+        except ValueError:
+            return None
+    dated.sort(key=lambda row: row[0])
+    if dated[-1][0] == dated[-2][0]:
+        return None
+    latest = dated[-1][1]
+    return Decision(item_id, "conflict", "moved_on", {"action": "resolve", "option_key": str(latest["key"])},
+                    answer=str(latest["label"]), guard=_guard(memory_path, page[0].stem))
+
+
+#: The words a Stage 1 reading uses when it does not actually know what a name is, or hedges, or leaves an ask open:
+#: then the question is a real one. Read over the item's WHOLE text (its body), not the cut-off classification line.
+_ADMITS_NOT_KNOWING = re.compile(
+    r"(?i)\b(?:does(?: not|n't) (?:say|state|describe|explain|give|specify|identify|name)|(?:is|are|was|were) not "
+    r"(?:stated|named|explained|specified|identified|known)|gives? no|no (?:further |other )?"
+    r"(?:detail|context|description|explanation)|unclear|not clear|not known|unknown|unnamed|its nature|"
+    r"probably|possibly|perhaps|may be|might be|presumably|"
+    r"if (?:rodrigo|he|the user|the person|you) (?:confirms?|wants?|agrees?|asks?)|(?:had|has|have) not answered|"
+    r"awaiting (?:his|an|the) (?:answer|confirmation)|login|password|credential|passcode|api key|secret)\b")
+_NOT_ASKED_ABOUT_TYPE = frozenset({"person", ""})
+_TYPE_QUESTIONS = frozenset({"Insufficient context to classify", "Ambiguous type or role"})
+
+
+def already_described(memory_path: Path, item_id: str, fm: dict, body: str = "") -> Decision | None:
+    """"Who or what is <name>?" asked only because Stage 1 was unsure of a type, on a name it did describe (question
+    audit C1, C3). Retired with nothing written: the description stays in the settled record and the pending store, and
+    what the name is stays where it was. Never a person, a relation, or a question asked on purpose; never one whose
+    own words say it does not know, hedge, or leave an ask to the person (read over the whole text)."""
+    from api.services import role_people
+
+    if (str(fm.get("asks") or "") or fm.get("owner_role") or fm.get("why_asked")
+            or str(fm.get("uncertainty_type") or "") == role_people.UNCERTAINTY):
+        return None
+    if str(fm.get("uncertainty_type") or "") not in _TYPE_QUESTIONS:
+        return None
+    typ, _, words = str(fm.get("suggested_classification") or "").partition("—")
+    typ, words = _type_of({}, typ.strip()), words.strip()
+    page = _page(memory_path, str(fm.get("entity_id") or ""))
+    if page is not None and (_type_of(page[1]) in _NOT_ASKED_ABOUT_TYPE or _is_owner_page(page[1])):
+        return None
+    text = " ".join(part for part in (words, str(body or "").strip()) if part)
+    if typ in _NOT_ASKED_ABOUT_TYPE or not text or _ADMITS_NOT_KNOWING.search(text):
+        return None
+    return Decision(item_id, "clarification", "already_described", None, answer="Sleep already read what it is",
+                    guard=_guard(memory_path, str(fm.get("entity_id") or "")))
+
+
 def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None) -> tuple[Decision | None, str]:
     """The engine-free rule for one open question: ``(decision, "")`` or ``(None, why it stays)``. ``needs_judge``
     means a duplicate pair only the judge can read."""
@@ -557,20 +714,38 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
                         guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
     if page_state == "unreadable":
         return None, "unreadable_page"   # never retired on a read error: the person (or a repair) looks at it
+    if kind == "conflict" and str(fm.get("asks") or "") == "still":
+        # "Are you still …?" (`still_questions`) asks the person whether a quiet fact about their own life holds: no
+        # rule and no judge may assume it — only their own located words (part 1) settle it.
+        return None, "needs_person"
     if kind == "clarification" and str(fm.get("asks") or "") == "sources":
         # G61 "Where to check" (ruling 36 D5): only the person's own located words giving that very link for this page
         # settle it; nothing else (no engine, no other rule) ever reads it.
         from api.services import source_proposals
 
         return source_proposals.settle_rule(memory_path, item_id, fm)
-    if kind in ("conflict", "clarification"):
-        from api.services import web_settle
+    from api.services import web_settle
 
+    if kind in ("conflict", "clarification"):
         if web_settle.own_settings(fm):
             # Owner 2026-10-19: Cicada's own engine, schedule or plan switch is the system's to know — never asked.
             # Retired like a question whose subject is gone: moved to its record, no claim touched, one Sleep commit.
             return Decision(item_id, kind, "own_settings", None, answer="Cicada's own settings",
                             guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
+    if kind == "conflict" and web_settle.own_bookkeeping(str(fm.get("entity_id") or ""), str(fm.get("predicate") or "")):
+        # Owner 2026-11-06: Cicada's own counters (a plan's usage, a count of its bank, its test results) are never asked
+        # and never lead. Retired as `own_settings` is: no claim touched, one Sleep commit, undoable.
+        return Decision(item_id, kind, "own_bookkeeping", None, answer="Cicada's own counters",
+                        guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
+    if kind == "followup":
+        # Ruling 56 (owner 2026-11-04: "Yeah only projects I started."): one asked before that rule is retired like a
+        # question whose subject is gone, moved to its record, no claim touched, one Sleep commit. What it asked stays.
+        from api.services import followups
+
+        if not followups.on_started_project(memory_path, fm):
+            return Decision(item_id, kind, "not_started", None, answer="Not asked: it is not one of your projects",
+                            guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
+        return None, "needs_person"
     if kind == "merge_suggestion":
         return _merge_rule(memory_path, item_id, fm)
     if kind == "normalization":
@@ -580,7 +755,12 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
     if kind == "conflict":
         return _conflict_rule(memory_path, item_id, fm)
     if kind == "clarification":
-        return passing_rule(memory_path, item_id, fm)
+        decided, why = passing_rule(memory_path, item_id, fm)
+        if decided is None:
+            described = already_described(memory_path, item_id, fm, markdown_parser.parse(path).body)
+            if described is not None:
+                return described, ""
+        return decided, why
     return None, "needs_person"
 
 
@@ -671,33 +851,16 @@ def _about_self(text: str) -> bool:
     return bool(set(_words(_prose(text))) & _FIRST_PERSON)
 
 
-#: Where something saved comes from (a bookmark, a saved post, a feed, a watch or web history, a read page): its text
-#: is the page's, not the person's — a name in its title, link or byline is never "their own words".
-_SAVED_ORIGINS = frozenset({"bookmark", "saved-link", "media", "rss", "pdf", "ingest", "watch-history",
-                            "video-watch", "page-read", "profile-read", "web-check", "source-check", "web-history",
-                            "safari-tab", "chrome-tab-group", "tab-group"})
-_SAVED_SUFFIXES = ("-bookmark", "-bookmarks", "-saved", "-history", "-likes", "-playlist", "-tab", "-tabs")
-
-
 def _saved_item(ep_fm: dict, spans) -> bool:
-    """A saved item, not a conversation: no turn marker anywhere (nothing a person typed as a turn), and it came
-    from a saving door (its origin or source) or carries the page's ``url``."""
+    """A saved item, not a conversation: no turn marker anywhere (nothing a person typed as a turn), and its own
+    record says a saving door wrote it (``authorship.is_saved``)."""
     if any(getattr(t, "marker", None) is not None for t in spans):
         return False
-    return bool(ep_fm.get("url")) or any(saved_origin(ep_fm.get(k)) for k in ("origin", "source"))
+    return authorship.is_saved(ep_fm)
 
 
-def saved_origin(tag) -> bool:
-    """Whether an episode's ``origin`` or ``source`` is a saving door (a bookmark, a saved post, a feed, a history):
-    what came through it is the saved page's text, not something the person said."""
-    from api.services import source_overview
-
-    t = str(tag or "").strip().lower()
-    if not t:
-        return False
-    saved = set(_SAVED_ORIGINS)
-    saved |= {o for spec in source_overview.CATALOG if spec.kind in ("browser", "social", "feed") for o in spec.origins}
-    return t in saved or t.endswith(_SAVED_SUFFIXES)
+#: The saving doors — one list, `authorship`'s, which also makes a save's text the page's words for every reader.
+saved_origin = authorship.saved_origin
 
 
 #: Calendar entries: an event's title is the calendar's words (``entity_resolver.CARD_REFUSED_SOURCES``' rule).
@@ -757,9 +920,10 @@ def _owner_pages_name(memory_path: Path, full: dict) -> bool:
 
 
 def _from_messages(ep_fm: dict) -> bool:
-    from api.services import messages_source
+    """A texted conversation — Messages, WhatsApp or Telegram (`chat_live.CHAT_ORIGINS`)."""
+    from api.services import chat_live
 
-    return messages_source.SOURCE in (str(ep_fm.get("source") or ""), str(ep_fm.get("origin") or ""))
+    return bool(chat_live.CHAT_ORIGINS & {str(ep_fm.get("source") or ""), str(ep_fm.get("origin") or "")})
 
 
 def _search(memory_path: Path, names: list[str], per_name: int) -> list[str] | None:
@@ -809,9 +973,9 @@ def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | 
     A code identifier (``<field_id>``) is assumed however many conversations name it: who or what it is is the code."""
     from api.services import evidence, inbox_ask_gate, promotion, role_people
 
-    if (str(fm.get("asks") or "") or fm.get("owner_role")
+    if (str(fm.get("asks") or "") or fm.get("owner_role") or fm.get("why_asked")
             or str(fm.get("uncertainty_type") or "") == role_people.UNCERTAINTY):
-        return None, "needs_person"   # a relation's name: only the person knows it
+        return None, "needs_person"   # a relation's name, or a question asked on purpose (G239): only the person knows it
     name = str(fm.get("entity_name") or fm.get("entity_mention") or "").strip()
     if not name:
         return None, "needs_person"
@@ -832,11 +996,11 @@ def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | 
     if not inbox_ask_gate.named_in(full, text):
         return None, "unmeasured"
     gaps = evidence.gap_ranges(ep_fm, text)
-    spans = evidence.turns(text, override=ep_fm.get("evidence_kind"), gaps=gaps)
+    spans = evidence.turns(text, override=authorship.of(ep_fm), gaps=gaps)
     saved = _saved_item(ep_fm, spans)    # a saved page's title, link or byline is no one's own words
     turns: list[tuple[bool, str]] = []   # (the person's own turn, its words), in order
     for t in spans:
-        mine = t.role in promotion.PERSON_KINDS and not _agent_note(ep_fm.get("source"), t) and not saved
+        mine = t.role in promotion.person_kinds(ep_fm) and not saved   # an agent's note is `assistant` (ruling 50)
         turns.append((mine, text[t.content_start:t.end]))
     named = [i for i, (_mine, words) in enumerate(turns) if inbox_ask_gate.named_in(full, words)]
     code = code_identifier(name) and typ not in _PERSON_LIKE
@@ -855,7 +1019,7 @@ def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | 
     if _owner_pages_name(memory_path, full):
         return None, "owners_page"
     if not code:
-        units = promotion.exchanges(text, override=ep_fm.get("evidence_kind"), gaps=gaps)
+        units = promotion.exchanges(text, override=authorship.of(ep_fm), gaps=gaps, persons=promotion.person_kinds(ep_fm))
         if sum(1 for _p, whole in units if inbox_ask_gate.named_in(full, whole)) > PASSING_EXCHANGES:
             return None, "said_more"
     others = _other_conversations(memory_path, full, source)
@@ -979,7 +1143,7 @@ def label_lines(memory_path: Path, fm: dict, options: list[dict]) -> list[LabelL
         if doc is None:
             continue
         ep_fm, text = doc
-        turns = person_turns({"content": text, "evidence_kind": ep_fm.get("evidence_kind"),
+        turns = person_turns({"content": text, authorship.KEY: authorship.of(ep_fm),
                               "gaps": evidence.gap_ranges(ep_fm, text), "source": ep_fm.get("source")})
         order = 0
         for turn in turns:
@@ -1065,7 +1229,9 @@ def default_llm_fn(settings, *, sink: Callable[..., None] | None = None) -> Call
     from api.services import providers
 
     model = (getattr(settings, "litellm_disambiguation_model", "") or None)
-    if str(getattr(settings, "llm_mode", "")).lower() in ("agent", "codex"):
+    from api.services.engine_select import CLI_MODES
+
+    if str(getattr(settings, "llm_mode", "")).lower() in CLI_MODES:
         return providers.resolve_llm_fn(settings, stage=STAGE, is_async=False, sink=sink)
     import litellm
 
@@ -1097,12 +1263,16 @@ async def judge_merge(memory_path: Path, path: Path, fm: dict, body: str, llm_fn
         return None, "no_target"
     guard = _guard(memory_path, str(fm.get("entity_id") or ""), target[0].stem)   # what the judge reads, as read
     mention = _page(memory_path, str(fm.get("entity_id") or ""))
+    if mention is not None and _split_apart(memory_path, mention[0].stem, target[0].stem):
+        return None, "kept_apart"   # never a judge call on two pages the person split
     mention_text = _page_text(mention, f"name: {fm.get('entity_name') or ''}\n"
                                        f"type: {fm.get('suggested_classification') or ''}\n{body}")
     prompt = (
         "Two entries in one person's memory may name the SAME real-world thing. Read both and decide. "
         "Say \"same\" only when they are clearly one thing, \"different\" only when they are clearly two, and "
-        "\"unsure\" otherwise. Reply JSON {\"verdict\":\"same|different|unsure\",\"confidence\":0..1,"
+        "\"unsure\" otherwise. A part, feature, stage or pull request of the other, a product of the other's maker, "
+        "an alternative to it, or one version, model or unit of it is two things: \"different\", never \"same\" "
+        "(2026-10-29, `entity_relations`). Reply JSON {\"verdict\":\"same|different|unsure\",\"confidence\":0..1,"
         "\"reason\":\"<one short line>\"}.\n\n"
         f"ENTRY A:\n{mention_text}\n\nENTRY B:\n{_page_text(target)}"
     )
@@ -1350,25 +1520,17 @@ async def judge_item(memory_path: Path, path: Path, fm: dict, body: str, llm_fn)
 # --------------------------------------------------------------------------- move 1: answered in conversation
 
 
-def _agent_note(source, turn) -> bool:
-    """An unmarked block of an episode an agent saved through a tool door (``ask_sources.AGENT_SOURCES``): the
-    evidence reader calls it the person's (R4), but it is the agent's note — never the person's own words here."""
-    from api.services import ask_sources
-
-    return str(source or "") in ask_sources.AGENT_SOURCES and getattr(turn, "marker", None) is None
-
-
 def person_turns(episode: dict) -> list[str]:
     """The person's own turns of one conversation (``kind: user``), never an agent's, someone else's, or an agent's
-    saved note (an unmarked block of an episode a tool door wrote)."""
+    saved note (ruling 50: its turns are ``assistant``, ``authorship.of``)."""
     from api.services import evidence
 
     text = str(episode.get("content") or "")
     if not text:
         return []
     out = []
-    for t in evidence.turns(text, override=episode.get("evidence_kind"), gaps=episode.get("gaps") or ()):
-        if t.role == "user" and not _agent_note(episode.get("source"), t):
+    for t in evidence.turns(text, override=authorship.of_episode(episode), gaps=episode.get("gaps") or ()):
+        if t.role == "user":
             line = text[t.content_start:t.end].strip()
             if line:
                 out.append(line)
@@ -1469,7 +1631,8 @@ def _question_prompt(memory_path: Path, fm: dict, lines: list[str], *,
         choices = {"merge": f"{name} is {other}", "different": f"{name} is not {other}"}
         how = "Options:\n" + "\n".join(f"- {k}: {v}" for k, v in choices.items())
     elif str(fm.get("asks") or "") == "name":
-        how = "Give only the person's name, exactly as they wrote it, in \"answer\"."
+        how = ("Give only the person's name, exactly as they wrote it, in \"answer\". If their words call the person "
+               "only by a nickname or pet name, give that in \"answer\" and add \"nickname\": true.")
     else:
         how = (f"Give the answer as a short phrase (at most {MAX_ANSWER_CHARS} characters) in their words, "
                "in \"answer\".")
@@ -1492,7 +1655,8 @@ def _question_prompt(memory_path: Path, fm: dict, lines: list[str], *,
 
 def persons_span(memory_path: Path, episode_id: str, quote: str):
     """The person's own words, located: ``evidence.verify`` exact → whitespace → case (never fuzzy), in a ``user``
-    turn that is not an agent's saved note. ``None`` otherwise."""
+    turn — never an agent's saved note, whose turns are ``assistant`` (ruling 50, ``authorship.of``). ``None``
+    otherwise."""
     from api.services import evidence
 
     if not quote or not episode_id:
@@ -1500,14 +1664,7 @@ def persons_span(memory_path: Path, episode_id: str, quote: str):
     ev = evidence.verify(memory_path, episode_id, quote)
     if ev is None or not ev.is_span() or ev.kind != "user":
         return None
-    doc = evidence.source_document(Path(memory_path), episode_id)
-    if doc is None:
-        return None
-    fm, text = doc
-    for t in evidence.turns(text, override=fm.get("evidence_kind"), gaps=evidence.gap_ranges(fm, text)):
-        if t.start <= ev.start < t.end:
-            return None if _agent_note(fm.get("source"), t) else ev
-    return None
+    return ev
 
 
 #: Words an answer may carry that its quote need not ("a soldering station" ← "the soldering station on the desk").
@@ -1526,6 +1683,39 @@ _FOLLOWUP_WORDS = {
     "dropped": frozenset("""dropped cancelled canceled abandoned scrapped cancele cancelado cancelada
                          abandonado""".split()),
 }
+
+
+#: A name question answered only by a nickname (owner ruling 2026-10-27): not a settle — the page is titled by the
+#: nickname and the question stays open (`_nickname`).
+NICKNAME_RULE = "nickname_in_conversation"
+NICKNAME_ACTION = "nickname"
+
+
+def _nickname_known(memory_path: Path, fm: dict, nickname: str) -> bool:
+    page = _page(memory_path, str(fm.get("entity_id") or ""))
+    if page is None:
+        return True   # nothing to title
+    names = {_fold_name(page[1].get("name")), *(_fold_name(a) for a in page[1].get("aliases") or [])}
+    return _fold_name(nickname) in names
+
+
+def written_as_name(answer, quote: str) -> bool:
+    """Did the person WRITE the answer as a name where they said it (2026-10-27)? A name question ("What's the name of
+    your partner?") is answered by a name, and a word the person only calls someone by in passing — a nickname, a pet
+    name, "send it to <nickname>" — is their word for the person but not the name the question asks. The rule, no
+    model: in the quote, the answer starts with a capital letter, unless the person wrote nothing in that quote with a
+    capital at all (someone who types everything lowercase). A name settle that fails it stays a question."""
+    def bare(s) -> str:   # accents off, case kept: "José" is written as "Jose" is
+        return "".join(c for c in unicodedata.normalize("NFD", str(s or "")) if not unicodedata.combining(c))
+
+    text = bare(quote)
+    if not any(ch.isupper() for ch in text):
+        return True
+    words = [w for w in bare(answer).split() if w]
+    if not words:
+        return False
+    pattern = r"(?<!\w)" + r"\s+".join(re.escape(w) for w in words) + r"(?!\w)"
+    return any(m.group(0)[:1].isupper() for m in re.finditer(pattern, text, flags=re.IGNORECASE))
 
 
 def answer_supported(memory_path: Path, fm: dict, request: dict, quote: str, *, label: str = "") -> bool:
@@ -1549,7 +1739,7 @@ def answer_supported(memory_path: Path, fm: dict, request: dict, quote: str, *, 
         if not wanted:
             return False   # an answer of fillers alone ("the") says nothing
         if str(fm.get("asks") or "") == "name":
-            return _phrase_in(" ".join(wanted), said)
+            return _phrase_in(" ".join(wanted), said) and written_as_name(request.get("answer"), quote)
         return all(w in words for w in wanted)
     if action != "resolve":
         return True
@@ -1605,6 +1795,15 @@ def _answer_decision(memory_path: Path, path: Path, fm: dict, reply: dict, choic
     answer = " ".join(str(reply.get("answer") or "").split())[:MAX_ANSWER_CHARS]
     if not answer:
         return None, "no_answer"
+    if str(fm.get("asks") or "") == "name" and answer_supported(
+            memory_path, {**fm, "asks": ""}, {"action": "answer", "answer": answer}, quote) and (
+            reply.get("nickname") is True or not written_as_name(answer, quote)):
+        # Owner ruling 2026-10-27: a nickname the person uses titles a page that has no name and stays its alias; the
+        # name question stays open, so a name, when it comes, still takes the title.
+        if _nickname_known(memory_path, fm, answer):
+            return None, "nickname_known"
+        return Decision(path.stem, kind, NICKNAME_RULE, {"action": NICKNAME_ACTION, "answer": answer},
+                        answer=answer, quote=words, model=model), ""
     if not answer_supported(memory_path, fm, {"action": "answer", "answer": answer}, quote):
         return None, "quote_says_otherwise"   # the person's words, but not saying this answer
     return Decision(path.stem, kind, rule, {"action": "answer", "answer": answer},
@@ -1753,7 +1952,7 @@ def record_lines(memory_path: Path, fm: dict) -> list[tuple[str, str, str]]:
         if doc is None:
             continue
         ep_fm, text = doc
-        lines = person_turns({"content": text, "evidence_kind": ep_fm.get("evidence_kind"),
+        lines = person_turns({"content": text, authorship.KEY: authorship.of(ep_fm),
                               "gaps": evidence.gap_ranges(ep_fm, text), "source": ep_fm.get("source")})
         about = [ln for ln in lines if inbox_ask_gate.named_in(full, ln)]
         if not about or not inbox_ask_gate.relevant(full, "\n".join(about))[0]:
@@ -1889,6 +2088,9 @@ async def apply(memory_path: Path, settings, d: Decision, *, engine: str | None 
                               extra_paths=[record_rel], extra_lines=[line],
                               record=(record_path, {**fm, "settled": _record(fm, d, authors[0], span)}, body),
                               fold_pages=bool(d.request and d.request.get("action") == "merge"))
+    if d.request and d.request.get("action") == NICKNAME_ACTION:
+        # Not a settle (ruling 41): no record, no Sleep actor, no answer quote set — its own commit (`_nickname`).
+        return await asyncio.to_thread(_nickname, memory_path, path, d, settings)
     token = inbox_actor.set_actor(actor)
     quote_token = inbox_service._ANSWER_QUOTE.set([d.quote] if d.quote else None)
     try:
@@ -1927,6 +2129,43 @@ def _resolve_page_locked(memory_path: Path, d: Decision, settings) -> None:
 
     with page_lock.page_lock(memory_path):
         asyncio.run(inbox_service._resolve_admitted(d.item_id, InboxResolveRequest(**d.request), settings, None))
+
+
+def _nickname(memory_path: Path, path: Path, d: Decision, settings) -> bool:
+    """Title the question's page by the nickname the person's own words call them (owner ruling 2026-10-27), as one
+    Sleep commit, under the page lock. The name question stays open and follows the page; a nickname exactly one other
+    person page answers to raises "Is <A> the same as <B>?" — never a merge. Returns False when nothing changed."""
+    from api.services import git_service, page_lock, role_people
+
+    with page_lock.page_lock(memory_path):
+        parsed = markdown_parser.parse(path)
+        qfm = dict(parsed.frontmatter)
+        page_id = str(qfm.get("entity_id") or "")
+        if not (memory_path / "entities" / f"{page_id}.md").is_file() or _nickname_known(memory_path, qfm, d.answer):
+            return False
+        before = git_service.snapshot_dirty_sync(memory_path)
+        owner_fm = role_people.owner_frontmatter(memory_path, settings)
+        outcome = role_people.title_by_nickname(memory_path, page_id, d.answer, owner_fm)
+        qfm["entity_id"], qfm["entity_name"] = outcome.page_id, d.answer
+        markdown_parser.write(path, qfm, parsed.body)
+        rel = path.relative_to(memory_path).as_posix()
+        paths = [*outcome.paths, rel]
+        others = role_people.same_name(memory_path, d.answer, exclude=outcome.page_id)
+        if len(others) == 1:
+            asked = role_people.ask_same(
+                memory_path, outcome.page_id, others[0],
+                f"You call this person {d.answer}, a name another person in this memory also goes by.")
+            if asked:
+                paths.append(asked)
+        bank_index.invalidate(memory_path)
+        lines = [f"{p}: updated (source: {d.item_id}, trigger: {TRIGGER}:{d.rule})" for p in dict.fromkeys(paths)]
+        message = git_service.build_commit_message(
+            f"Titled by a nickname by Sleep {date.today().isoformat()}", lines,
+            authors=[d.model] if d.model else ["cicada"])
+        git_service.commit_touched_sync(memory_path, message, list(dict.fromkeys(paths)), before=before,
+                                        kept_subject=f"Uncommitted edit kept apart {date.today().isoformat()}",
+                                        kept_trigger="inbox/kept-apart")
+    return True
 
 
 def _retire(memory_path: Path, path: Path, fm: dict, d: Decision, actor: inbox_actor.Actor) -> None:
@@ -2316,6 +2555,14 @@ VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
     "judged_keep": (frozenset({"decay"}), frozenset({"keep_active"})),
     "said_on_record": (RECORD_KINDS, frozenset({"resolve", "answer"})),
     "named_account": (frozenset({"clarification"}), frozenset({"resolve"})),
+    "owner_unsaid": (frozenset({"merge_suggestion"}), frozenset({None})),
+    "no_pair_evidence": (frozenset({"merge_suggestion"}), frozenset({None})),
+    "not_started": (frozenset({"followup"}), frozenset({None})),
+    "same_value": (frozenset({"conflict"}), frozenset({"resolve"})),
+    "moved_on": (frozenset({"conflict"}), frozenset({"resolve"})),
+    "own_bookkeeping": (frozenset({"conflict"}), frozenset({None})),
+    "already_described": (frozenset({"clarification"}), frozenset({None})),
+    "not_fading": (frozenset({"decay"}), frozenset({None})),
 }
 #: The rules an engine read: only these may carry the judging model and its engine as the commit's author.
 VETTED_ENGINE_RULES = frozenset({"judged_same", "judged_different", "judged_fold", "judged_conflict",
@@ -2326,6 +2573,10 @@ _ENGINE_MODELS = {
     "codex-cli": re.compile(r"(?:gpt-[a-z0-9.-]{1,40}|o[0-9][a-z0-9-]{0,30}|codex-[a-z0-9.-]{1,40})"),
     "litellm": re.compile(r"(?:(?:openrouter|anthropic|openai|gemini|groq|mistral)/)?[a-z0-9][a-z0-9._:/-]{1,100}"),
     "ollama": re.compile(r"(?:ollama/)?[a-z0-9][a-z0-9._:-]{0,60}"),
+    # G49/G50: the id the tool itself reported (Cursor's, OpenCode's `provider/model`, Grok's).
+    "cursor-cli": re.compile(r"[a-z0-9][a-z0-9._:-]{0,80}"),
+    "opencode-cli": re.compile(r"[a-z0-9][a-z0-9._-]{0,40}/[a-z0-9][a-z0-9._:/-]{0,80}"),
+    "grok-cli": re.compile(r"[a-z0-9][a-z0-9._:-]{0,80}"),
 }
 MAX_VETTED = 500
 _VETTED_ID = re.compile(r"inbox-[A-Za-z0-9_-]{1,96}")
@@ -2688,7 +2939,7 @@ def _reverse(memory_path: Path, current: bytes, after: bytes, before: bytes) -> 
     return proc.stdout if proc.returncode == 0 else None
 
 
-_LIST_FILES = frozenset({"_merge_rejected.yaml", "_predicates.yaml"})
+_LIST_FILES = frozenset({"_merge_rejected.yaml", "_predicates.yaml", "_redirects.yaml"})
 
 
 def _reverse_list(rel: str, current: bytes, after: bytes, before: bytes) -> bytes | None:
@@ -2704,11 +2955,23 @@ def _reverse_list(rel: str, current: bytes, after: bytes, before: bytes) -> byte
     if not all(isinstance(x, dict) for x in (b, a, c)):
         return None
     if rel == "_merge_rejected.yaml":
-        def pairs(x):
-            return [tuple(sorted(map(str, r))) for r in (x.get("rejected") or []) if isinstance(r, (list, tuple))]
-        added = set(pairs(a)) - set(pairs(b))
-        c["rejected"] = [list(p) for p in sorted(set(pairs(c)) - added)]
+        # Both lists (the person's "different" answers and their splits, G227 follow-up), each by meaning: what the
+        # change added leaves, what it removed (a join clears its pair) comes back, anything written since stays.
+        for key in ("rejected", "split"):
+            def pairs(x, key=key):
+                return [tuple(sorted(map(str, r))) for r in (x.get(key) or []) if isinstance(r, (list, tuple))]
+            added = set(pairs(a)) - set(pairs(b))
+            removed = set(pairs(b)) - set(pairs(a))
+            kept = (set(pairs(c)) - added) | removed
+            if kept or key == "rejected":
+                c[key] = [list(p) for p in sorted(kept)]
+            else:
+                c.pop(key, None)
         return yaml.safe_dump(c, allow_unicode=True, sort_keys=False).encode("utf-8")
+    if rel == "_redirects.yaml":
+        from api.services import page_redirects
+
+        return page_redirects.reverse(current, after, before)
     if rel == "_predicates.yaml":
         bf, af = dict(b.get("confirmed_folds") or {}), dict(a.get("confirmed_folds") or {})
         cf = dict(c.get("confirmed_folds") or {})

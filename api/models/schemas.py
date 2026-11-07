@@ -160,6 +160,10 @@ class EntityHistoryEntry(CamelModel):
     date: str
     change_type: str
     description: str
+    # G227 follow-up (owner 2026-10-29): ``merge`` / ``split`` / ``undo`` for a page join's commit (``page_join``),
+    # else None; ``undoable`` — a merge or split the History tab offers to take back (none later in the rows read).
+    join: Optional[str] = None
+    undoable: bool = False
     # Commit-level provenance (M3 / backlog A2). ``author`` is the model id that
     # wrote this commit (e.g. "gpt-5.4-mini") or "user" for manual/companion-app
     # writes, parsed from the commit's ``Cicada-Author:`` trailer; "unknown" for
@@ -184,6 +188,38 @@ class EntityHistoryEntry(CamelModel):
     # commit). Empty for every pre-G48 commit and for user-action writes, so
     # the app's "from conversation" affordance simply doesn't render there.
     sessions: list[str] = []
+    # Vision item 5 (2026-10-28): this page's own manifest-line trigger (`sleep/extraction`, `user/companion_app`,
+    # `mcp/claude-code`…; "" when the commit has none) and the door it names (`git_service.history_via`: sleep | app |
+    # agent | remote | inbox | sync | cicada | unknown) — so Sleep reads as a tag beside the contributor, whose picture
+    # `author_kind`/`author_provider` already identify. Derived on read. Additive: an older client ignores both.
+    trigger: str = ""
+    via: str = "unknown"
+    # Ruling 48 part 14 / DR-77 (2026-10-29): the History tab's filter (you | agents | sleep | upkeep,
+    # `page_history.bucket`), the commit's time (ISO 8601) and what it changed (`page_history.summarize`). Filled by
+    # `GET /entities/{id}/history?summary=true` only; additive, so an older app ignores them.
+    at: str = ""
+    bucket: str = ""
+    summary: Optional["HistorySummary"] = None
+
+
+class HistorySummaryLine(CamelModel):
+    sign: str           # "+" added, "-" removed
+    text: str           # the changed prose line, as words, clipped
+
+
+class HistorySummary(CamelModel):
+    """What one commit changed in one page (DR-77's "+N beliefs" and up to four changed lines)."""
+    plus_claims: int = 0
+    ended_claims: int = 0
+    removed_claims: int = 0
+    changed_claims: int = 0
+    fields: list[str] = []
+    prose_added: int = 0
+    prose_removed: int = 0
+    lines: list[HistorySummaryLine] = []
+
+
+EntityHistoryEntry.model_rebuild()
 
 
 # --- Contributors (git-trailer attribution, backlog A2) ---
@@ -362,6 +398,8 @@ class SourceOverview(CamelModel):
     # stored) or the site a saved thing came from (`kind: site`, `id` = the saved page the site's mark is asked by) —
     # with how many more there are.
     waiting: int = 0
+    # Ruling 62: this source's saves kept for lookup, unread until the person talks about one (the detail's one line).
+    kept: int = 0
     faces: list[SourceFace] = Field(default_factory=list)
     faces_more: int = 0
 
@@ -472,6 +510,10 @@ class EntityMedia(CamelModel):
     # G133 — `paper` for a paper page (`papers.KIND`); absent for every other
     # media page.
     kind: Optional[str] = None
+    # ROR-117 — an added recording, video or photo (`kind: file`, `media_pages`): the store's id for it (the app plays it
+    # and draws its words by this) and the item's own date. It has no link, so `url` is empty.
+    file_id: Optional[str] = None
+    recorded_at: Optional[str] = None
 
 
 class EntityDecay(CamelModel):
@@ -483,6 +525,240 @@ class EntityDecay(CamelModel):
     decay_class: DecayClass = Field(alias="class")
     effective_rate_per_week: float
     mention_weeks: int
+
+
+class EntityRelevance(CamelModel):
+    """Owner ruling 44 (G121) — why the page matters to the person, derived at read from the record
+    (`page_relevance`): ``tense`` self|is|will_be|was|none, ``line`` the sentence, the claims it rests on."""
+
+    tense: str
+    line: str
+    conversations: int = 0
+    last_mentioned: str = ""
+    basis: list[dict] = []
+
+
+# --- Page blocks (vision item 5, 2026-10-28): what a page holds, for a layout and an agent alike ---
+
+
+class PageBlockMark(CamelModel):
+    """One passage the person highlighted in a book, with their note under it, or a note of its own (``book_marks``,
+    ruling 64). Both words are null for a caller without ``sources``."""
+
+    claim_id: str
+    day: str = ""
+    text: Optional[str] = None
+    note: Optional[str] = None
+    # ROR-16: where the mark stands in its record, so a mark can open on its own words. Offsets, never the words.
+    evidence: Optional[dict] = None
+
+
+class PageBlockMarks(CamelModel):
+    items: list[PageBlockMark] = []
+    total: int = 0
+
+
+class PageBlockOngoing(CamelModel):
+    """An open event on the page (G141): a happening still ``ongoing`` or a milestone still ``planned``, its head only.
+    ``verbatim`` — its words are the person's own sentence (``claims.is_persons_words``)."""
+
+    claim_id: str
+    kind: str                 # happening | milestone
+    status: str               # ongoing | planned
+    text: str
+    since: str = ""
+    target: str = ""
+    verbatim: bool = False
+
+
+class PageBlockCoordinates(CamelModel):
+    """Coordinates the page itself stores (top-level ``lat``/``lon`` or ``latitude``/``longitude``). Never geocoded.
+    ``label``: the pin's caption, the page's name."""
+
+    lat: float
+    lon: float
+    label: str = ""
+    source: str = "page"
+    # Part B (2026-10-29): who placed it — `geocoder` (the Mac's own, on the person's open) or `person`; None when
+    # written by hand. Additive.
+    by: Optional[str] = None
+
+
+class PageBlockSummary(CamelModel):
+    """"In short" (ruling 48 part 5): the 2–3 sentences Sleep wrote for a long page the person talks about often
+    (`in_short`). Derived and regenerated, never hand-edited, never part of the prose. ``by`` is always ``sleep``;
+    ``model`` the model that wrote it; ``writtenAt`` its day; ``conversations`` the 30-day count that qualified it."""
+
+    text: str
+    written_at: str = ""
+    by: str = "sleep"
+    model: Optional[str] = None
+    conversations: int = 0
+
+
+class PlaceNearby(CamelModel):
+    id: str
+    name: str
+    lat: float
+    lon: float
+    km: float
+
+
+class PlaceGeocode(CamelModel):
+    """Whether the app may resolve the place without asking (`place_coordinates.geocode_verdict`), why, and what it
+    would ask the Mac's geocoder."""
+
+    allowed: bool
+    reason: str
+    query: str
+
+
+class PlaceState(CamelModel):
+    """``GET /entities/{id}/place``: read when the map draws, never when the card opens."""
+
+    entity_id: str
+    type: str = ""
+    coordinates: Optional[PageBlockCoordinates] = None
+    by: Optional[str] = None
+    at: Optional[str] = None
+    nearby: list[PlaceNearby] = []
+    geocode: Optional[PlaceGeocode] = None
+
+
+class PlaceCoordinatesUpdate(CamelModel):
+    """``PUT /entities/{id}/coordinates`` — what the app's geocoder (or the person's own click) found. ``by``:
+    ``geocoder`` (automatic, public places only), ``person`` (their click), ``unfound`` (no match: stop resolving
+    automatically). ``none`` (the person took the pin back) is written by ``DELETE`` only."""
+
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    by: str = "geocoder"
+
+
+class UnplacedPlace(CamelModel):
+    entity_id: str
+    name: str
+    query: str
+
+
+class PageBlockLook(CamelModel):
+    """A look attached to the page (`design_refs`): its colours and type, and the route its screenshot is served on."""
+
+    id: str
+    title: str = ""
+    site: Optional[str] = None
+    day: str = ""
+    palette: list[str] = []
+    fonts: list[str] = []
+    image: Optional[str] = None
+
+
+class PageBlockSource(CamelModel):
+    """One "where to check" entry in one word of state: proposed | dead | due | checked | trusted | unconfirmed."""
+
+    ref: str
+    kind: str = "note"
+    label: Optional[str] = None
+    link_kind: Optional[str] = None
+    state: str
+    site: Optional[str] = None
+    checked_at: Optional[str] = None
+    added_by: str = "user"
+    icon_site: Optional[str] = None
+
+
+class PageBlockSources(CamelModel):
+    total: int
+    proposed: int = 0
+    tracked: int = 0
+    items: list[PageBlockSource] = []
+
+
+class PageBlockContributor(CamelModel):
+    """Who changed the page (a model id or ``user``), bucketed by ``git_service.author_identity`` for a picture."""
+
+    author: str
+    kind: str = "unknown"
+    provider: Optional[str] = None
+    changes: int = 0
+    last: str = ""
+
+
+class PageBlockHistory(CamelModel):
+    changes: int
+    truncated: bool = False
+    by_sleep: int = 0
+    last_change: str = ""
+    contributors: list[PageBlockContributor] = []
+
+
+class PageBlocks(CamelModel):
+    """``page_blocks.build``: ``order`` names the blocks this page has, in the order a page reads them; each present
+    block's data rides its own key (an absent block is null or empty). Derived on read, never stored, never fetched.
+    Pinned on both sides by ``api/tests/fixtures/page_blocks.json``."""
+
+    shape: str
+    order: list[str] = []
+    relevance: Optional[EntityRelevance] = None
+    summary: Optional[PageBlockSummary] = None
+    ongoing: list[PageBlockOngoing] = []
+    ongoing_total: int = 0
+    marks: Optional[PageBlockMarks] = None
+    coordinates: Optional[PageBlockCoordinates] = None
+    looks: list[PageBlockLook] = []
+    sources: Optional[PageBlockSources] = None
+    citations: Optional["PageBlockCitations"] = None
+    history: Optional[PageBlockHistory] = None
+
+
+class PageCitationRef(CamelModel):
+    """One numbered source of a page's article (``page_citations``): a conversation (a session's or an import's
+    episodes together), a looked-up page (``web``) or another page of the bank (``page``); who and when, in fields."""
+
+    n: int
+    kind: str
+    title: str = ""
+    origin: Optional[str] = None
+    harness: Optional[str] = None
+    correspondent: Optional[str] = None
+    first: Optional[str] = None
+    last: Optional[str] = None
+    episode_id: Optional[str] = None
+    conversation_id: Optional[str] = None
+    #: ROR-16: what the source is (`source_spans.kind_of`), so a citation says what it opens.
+    source_kind: str = "conversation"
+
+
+class PageCitationBelief(CamelModel):
+    """A current or ended belief drawn as a sentence on a page whose prose cites nothing yet (DR-80): ``until`` is the
+    day it ended, ``inferred`` an agent's inference — both worded in the sentence by the client."""
+
+    claim_id: str
+    text: str
+    refs: list[int] = []
+    until: Optional[str] = None
+    inferred: bool = False
+    verbatim: bool = False
+
+
+class PageBlockCitations(CamelModel):
+    """Ruling 48 (16): the article's citation markers (``[offset in the served prose, n, …]``, one per cited line),
+    the first six References, the counts behind References' closing line, and belief sentences. A marker's popover is
+    read lazily (``GET /entities/{id}/citations/{n}``)."""
+
+    markers: list[list[int]] = []
+    markers_total: int = 0
+    refs: list[PageCitationRef] = []
+    total: int = 0
+    conversations: int = 0
+    web: int = 0
+    pages: int = 0
+    beliefs: list[PageCitationBelief] = []
+    #: None: the page keeps part of its beliefs in its claims ledger, which the card never reads — "more" without a count.
+    beliefs_total: Optional[int] = 0
+
+
+PageBlocks.model_rebuild()
 
 
 class EntityBands(CamelModel):
@@ -564,7 +840,8 @@ class EntityResponse(CamelModel):
     # builds an EntityResponse without a page. Additive: an older client
     # ignores it and keeps showing the class.
     decay: Optional[EntityDecay] = None
-    # G180 parity: additive; `GET /entities/{id}` has no ETag and is not a Store domain, so no VersionVector change.
+    # G180 parity: additive. `GET /entities/{id}` is not a Store domain (no VersionVector change); since 2026-10-28 it
+    # carries an ETag (`page_blocks.card_etag`) the app's `EntityCardCache` revalidates with.
     bands: Optional[EntityBands] = None
     # C11 (G146) — the page's picture (`entity_picture.resolve`): a path on this API the app loads with the bearer
     # (`/entities/{id}/picture?v=…`, `/entities/{id}/logo`, `/entities/{id}/preview?v=…` — a media page's stored
@@ -575,6 +852,15 @@ class EntityResponse(CamelModel):
     picture_inputs: Optional[PictureInputsModel] = None
     # Owner ruling 2026-10-20 — `GraphNode.quiet`'s twin from the same rule (`quiet_pages`), derived at read.
     quiet: bool = False
+    # Owner ruling 44 (G121) — "why it matters to you", derived at read (`page_relevance`), never stored. Additive.
+    relevance: Optional[EntityRelevance] = None
+    # G227 (owner 2026-10-29): when another page shares this title, a short qualifier and the name to show —
+    # "<name> (<qualifier>)" (`same_name`); derived on read, the stored title stays clean. Additive: None, and the
+    # bare name, for a title of its own.
+    qualifier: Optional[str] = None
+    display_name: Optional[str] = None
+    # Vision item 5 (2026-10-28) — which blocks the page has and their data (`page_blocks`), derived at read. Additive.
+    blocks: Optional[PageBlocks] = None
 
 
 class PaperSummary(CamelModel):
@@ -1089,6 +1375,7 @@ class EpisodeSpan(CamelModel):
     turn_count: Optional[int] = None
     turn_ts: Optional[str] = None
     turn_speaker: Optional[str] = None
+    held: bool = False   # ROR-16 (G235): the words are held back; `text`, `before` and `after` are empty
 
 
 class EpisodeTurn(CamelModel):
@@ -1166,6 +1453,49 @@ class EpisodeUnsent(CamelModel):
     ts: Optional[str] = None
 
 
+class SpanAt(CamelModel):
+    """Where in a source (ROR-16). ``type: text``: code points into ``/episodes/{id}/text``'s ``text``. A later medium is a
+    new ``type`` (a recording's time range, a PDF's page) with its own fields; a client that does not know a type draws no
+    highlight and still opens the source."""
+
+    type: str = "text"
+    start: int
+    end: int
+
+
+class SourceSpan(CamelModel):
+    """The one shape of "this part of this source" (ROR-16, ``source_spans``). ``status`` is ``current`` | ``grown`` |
+    ``derived`` (each with ``at``) or ``stale`` | ``held`` | ``unlocated`` (never with ``at``: the citation opens the
+    source and draws nothing). ``kind`` is the evidence kind. ``current`` is the claim's: whether it is still believed."""
+
+    source: str
+    status: str = "current"
+    kind: str = "user"
+    hash: str = ""
+    at: Optional[SpanAt] = None
+    claim_id: Optional[str] = None
+    current: bool = True
+
+
+class SourceSpanGroup(CamelModel):
+    """One page's spans into one source."""
+
+    page: str
+    name: str = ""
+    type: str = ""
+    spans: list[SourceSpan] = []
+
+
+class SourceSpans(CamelModel):
+    """``GET /episodes/{id}/spans``: every span pointing into this source, grouped by page (ROR-16)."""
+
+    source: str
+    source_kind: str = "conversation"
+    hash: str = ""
+    length: int = 0
+    groups: list[SourceSpanGroup] = []
+
+
 class EpisodeFocus(CamelModel):
     """The span the Reader lands on (G118 slice 2). Asserted
     (``?start&end&hash``): ``kind`` is the speaker at ``start`` and
@@ -1180,6 +1510,8 @@ class EpisodeFocus(CamelModel):
     derived: bool = False
     stale: bool = False
     grown: bool = False
+    #: ROR-16: the one shape. An asked span the source cannot show (stale, held, a gap line) has no ``at``.
+    span: Optional[SourceSpan] = None
 
 
 class EpisodeAgent(CamelModel):
@@ -1225,6 +1557,7 @@ class EpisodeText(CamelModel):
 
     episode: str
     kind: str = "episode"
+    source_kind: str = "conversation"   # ROR-16: conversation | note | meeting | book | save | page | web | video | item
     text: str = ""
     length: int = 0
     hash: str = ""
@@ -1253,6 +1586,9 @@ class EpisodeText(CamelModel):
     #: Owner 2026-10-20: a saved link's site key (``channel_items.saved_episode_url`` → ``reading_hosts.mark_key``), so
     #: the Reader's header wears the link's own site mark; null for every other episode and for a page.
     site: Optional[str] = None
+    #: ROR-15: Notes' own id for an Apple Note, so the app can ask Notes for the note on screen as Notes draws it. Null
+    #: for every other episode and for a page.
+    note_id: Optional[str] = None
     turns: list[EpisodeTurn] = []
     focus: Optional[EpisodeFocus] = None
     agent: Optional[EpisodeAgent] = None
@@ -1286,6 +1622,20 @@ class ProvenanceSpan(CamelModel):
     stale: bool = False
     grown: bool = False
     derived: bool = False
+    #: ROR-16 (G235): the words are held back; no offsets and no excerpt travel.
+    held: bool = False
+
+
+class PageCitationDetail(PageCitationRef):
+    """A citation marker's popover (DR-80): the reference, the best evidence row's kind (``user`` | ``assistant`` |
+    ``page`` | ``reasoning`` …), its located words with the cited span (``span``, DR-18) and the span's ``status``;
+    ``lines`` is how many lines of the page cite it."""
+
+    evidence_kind: Optional[str] = None
+    status: Optional[str] = None
+    span: Optional[ProvenanceSpan] = None
+    conversations: int = 0
+    lines: int = 0
 
 
 class ProvenanceModel(CamelModel):
@@ -1310,6 +1660,9 @@ class ProvenanceContributor(CamelModel):
     # Round 4 C4: a `harness` contributor's joined turn models; empty when the
     # app did not share them (no capture hook, or a Codex MCP session).
     models: list[ProvenanceModel] = []
+    # ROR-117: why a contributor with no beliefs and no edits is listed — "transcribed", the model that made the
+    # words of the recording the page is about. Absent for every other contributor.
+    role: Optional[str] = None
 
 
 class ProvenanceConversation(CamelModel):
@@ -1546,6 +1899,7 @@ class EpisodeCitation(CamelModel):
     event_day: Optional[str] = None
     # G162: on a `media` row only — how faithful the video's words are.
     fidelity: Optional[str] = None
+    span: Optional[SourceSpan] = None   # ROR-16: the one shape; `start`/`end` above stay for an older client
 
 
 class EpisodeCitationEntity(CamelModel):
@@ -1654,6 +2008,9 @@ class OpenThread(CamelModel):
     last_heard: str
     on: Optional[str] = None
     verbatim: bool = False
+    # g141-8 (decision 9): who the thread waits on — its `from` participant's name, a structural fact on the claim
+    # (`progress` writes the roles), never read from its words. The pulse's "Waiting on".
+    waiting_on: Optional[str] = None
 
 
 class ActivityDay(CamelModel):
@@ -1688,14 +2045,25 @@ class ProjectProgress(CamelModel):
     total: int = 0
 
 
+class ProjectDescriptionBy(CamelModel):
+    by: str = "user"             # `user`, or the harness that set it on the person's ask
+    day: Optional[str] = None
+    session: Optional[str] = None
+
+
 class ProjectRef(CamelModel):
     id: str
     name: str
-    one_liner: str = ""
+    one_liner: str = ""          # the person's description when set (ruling 45, Q5), else Sleep's first line
     parent: Optional[str] = None
     children: list[str] = []
     status: str = "active"
     created: Optional[str] = None
+    # g141-7 (ruling 45): whose list it is in, and the person's own header line.
+    mine: bool = False
+    mine_via: Optional[str] = None   # app | cli | agent | accepted | folder | import | progress
+    description: Optional[str] = None
+    description_by: Optional[ProjectDescriptionBy] = None
 
 
 class ProjectNow(CamelModel):
@@ -1770,10 +2138,33 @@ class ProjectRow(ProjectRef):
     followups: int = 0
 
 
+class SuggestedProject(CamelModel):
+    """Deprecated by ruling 56: nothing is suggested any more, and ``ProjectsResponse.suggested`` is always empty. Kept
+    one release so a client built against g141-7..9 still reads the shape (remove after 0.9)."""
+    id: str
+    kind: str = "page"
+    name: str = ""
+    page_type: Optional[str] = None      # project | concept (a fallback page)
+    why_kind: str = "none"               # repo | words | agent | provider | export | none | fallback
+    why: str = ""
+    quote: Optional[str] = None          # the person's located sentence, for a words birth
+    episode: Optional[str] = None
+    day: Optional[str] = None
+    repo_name: Optional[str] = None
+    sessions: int = 0
+    by: Optional[str] = None
+    provider: Optional[str] = None
+    dismissed: bool = False
+
+
 class ProjectsResponse(CamelModel):
     projects: list[ProjectRow] = []
     tz_name: str = "UTC"
     partial: bool = False
+    # Ruling 56 (g141-10): the route sends the person's own rows; every other page stays reachable as a page. The two
+    # fields below are always empty, kept one release for a client built against g141-7..9 (remove after 0.9).
+    suggested: list[SuggestedProject] = []
+    dismissed: int = 0
 
 
 class ProjectTimeline(CamelModel):
@@ -1795,6 +2186,146 @@ class ProjectTimeline(CamelModel):
     origin: ProjectOrigin = Field(default_factory=ProjectOrigin)
     sections: list[ProjectSection] = []
     people: list[ProjectPerson] = []
+    # g141-7 (ruling 45): the side panel — sources and influences, how many conversations are tied, and what a provider
+    # project carried (its instructions, quoted by span, and its documents by name).
+    influences: list["ProjectInfluence"] = []
+    conversation_count: int = 0
+    knowledge: list["ProjectKnowledge"] = []
+    # g141-8 (decisions 9 and 10, owner 2026-10-28): the tied conversations per local day, each counted once on its
+    # newest day (the pulse's weekly bars; absolute days, read at the viewer's today), and "Pages in this project" —
+    # the pages around it plus the ones tied by hand, less the ones the person said are not part of it.
+    conversation_days: list[ActivityDay] = []
+    pages: list["ProjectPageRow"] = []
+    pages_total: int = 0
+    page_counts: dict[str, int] = {}
+
+
+class ProjectPageRow(CamelModel):
+    """One page in "Pages in this project". ``tie`` says why it is listed: ``said`` (a claim or an event ties it — the
+    automatic layer), ``user`` (the person tied it by hand), ``agent`` (a trusted agent tied it, ``by`` its name) or
+    ``proposed`` (an agent not on the trust list proposed it: shown for the person to take, never as part of the
+    project until they do)."""
+    id: str
+    name: str = ""
+    type: Optional[str] = None
+    role_phrase: str = ""
+    fact: str = ""
+    count: int = 0
+    last_seen: Optional[str] = None
+    tie: str = "said"
+    by: Optional[str] = None
+    # G227 (g141-9): when another page shares this title, the qualifier and the name to show. Additive.
+    qualifier: Optional[str] = None
+    display_name: Optional[str] = None
+    reason: Optional[str] = None    # ruling 56 (g141-10): an agent's one sentence on why it tied or proposed it
+
+
+class ProjectInfluence(CamelModel):
+    id: str                      # `s:<index>` for a source, `c:<claim id>` for a claim
+    source: str = "claim"        # link | note | path | claim
+    label: str = ""
+    url: Optional[str] = None
+    entity: Optional[str] = None
+    entity_type: Optional[str] = None
+    tag: str = "Thing"           # Film, Book, Paper, Video, Link, Person, Tool, … (the side panel's group)
+    how: Optional[str] = None    # inspired | reference | uses | person
+    by: str = "user"             # user | a harness label | sleep
+    day: Optional[str] = None
+    claim_id: Optional[str] = None
+    predicate: Optional[str] = None
+    ref: Optional[str] = None
+    page: Optional[str] = None   # the page the claim or source is on (a person's, for works-on)
+    reversed: bool = False
+
+
+class ProjectKnowledge(CamelModel):
+    """A provider project's own knowledge (the addendum): Claude's instructions as a span into the imported episode,
+    and its documents by name — never their contents."""
+    provider: str
+    project_id: str
+    name: str = ""
+    episode: Optional[str] = None
+    instructions: Optional[str] = None
+    start: Optional[int] = None
+    end: Optional[int] = None
+    docs: list[str] = []
+
+
+class ProjectConversationRow(TimelineConversation):
+    day: Optional[str] = None
+    why: list[str] = []          # repo | named | claims | added | provider | relay
+    relayed: bool = False
+    provider_label: Optional[str] = None
+    manual: bool = False
+    by: Optional[str] = None        # ruling 56 (g141-10): the agent that tied or proposed it, and its one sentence why
+    reason: Optional[str] = None
+
+
+class ProjectConversations(CamelModel):
+    project: str
+    total: int = 0
+    counts: dict[str, int] = {}
+    conversations: list[ProjectConversationRow] = []
+    offset: int = 0
+    partial: bool = False
+    proposed: list[ProjectConversationRow] = []   # ruling 56: an agent's proposals, never counted until the person takes one
+
+
+class ProjectCreate(CamelModel):
+    name: str
+    description: str = ""
+    via: Optional[str] = None    # `cli` from the person's own shell (`cicada projects new`); the app sends none
+    # New project's attached pages (owner 2026-11-04): ids or names of pages already in memory, of any kind — a
+    # repository becomes one of the project's repositories (ruling 53), every other page a hand tie. All or nothing.
+    pages: list[str] = []
+
+
+class ProjectAccept(CamelModel):
+    name: Optional[str] = None   # a provider grouping is named on accept
+
+
+class ProjectPatch(CamelModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ConversationTie(CamelModel):
+    episode: str
+    remove: bool = False
+
+
+class PageTie(CamelModel):
+    """"Add" (a page id) or "Not part of it" (``remove``) on "Pages in this project"."""
+    entity: str
+    remove: bool = False
+
+
+class InfluenceCreate(CamelModel):
+    url: Optional[str] = None
+    what: Optional[str] = None
+    entity: Optional[str] = None
+    how: Optional[str] = None
+    note: Optional[str] = None
+
+
+class InfluenceWithdraw(CamelModel):
+    claim_id: Optional[str] = None
+    page: Optional[str] = None
+    ref: Optional[str] = None
+    predicate: Optional[str] = None
+
+
+class ProjectOwnershipResponse(CamelModel):
+    id: str
+    action: str
+    mine: bool = False
+    claim_id: Optional[str] = None
+    page: Optional[str] = None
+    episode_id: Optional[str] = None
+    retyped: bool = False   # ruling 56: Remove gave the page back as what it was, so it has no project view now
+
+
+ProjectTimeline.model_rebuild()
 
 
 # G141 PJ-3b (§5.3) — the person's writes from the Projects page. Every day on
@@ -2007,12 +2538,28 @@ class GraphNode(CamelModel):
     # not mentioned yet (`quiet_pages`): drawn dimmed, never asked about. Derived on every read, never stored; OMITTED
     # when false, like an absent picture, so the largest snapshot pays only for the quiet few.
     quiet: bool = False
+    # G227 (owner 2026-10-29) — when another page shares this page's title, a short qualifier and the name to show,
+    # "<name> (<qualifier>)" (`same_name`): derived on every read, never stored; OMITTED when the title is its own, so
+    # the largest snapshot pays only for the few that collide.
+    qualifier: Optional[str] = None
+    display_name: Optional[str] = None
+    # ROR-135 (owner 2026-11-06) — the graph's hover card names a book's author beside its cover and title. Only a
+    # book page (``media.kind: book``) has one: its ``book.authors`` joined, capped. Derived on every read, never
+    # stored; OMITTED when there is none, so the largest snapshot pays only for the books.
+    byline: Optional[str] = None
+    # ROR-138 (`media_kinds`) — a media page's kind (book, article, video, picture, … feed) and the origin that brought
+    # it in, for Clusters' split of Media and its small provenance mark. Derived on every read; OMITTED on every other
+    # page (and when absent), like an absent picture, so the largest snapshot pays only for its media pages.
+    media_kind: Optional[str] = None
+    origin: Optional[str] = None
+    media_channel: Optional[str] = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_picture(self, handler) -> dict[str, Any]:
         data = handler(self)
         if isinstance(data, dict):
-            for key in ("picture", "pictureSource", "picture_source"):
+            for key in ("picture", "pictureSource", "picture_source", "qualifier", "displayName", "display_name",
+                        "byline", "mediaKind", "media_kind", "origin", "mediaChannel", "media_channel"):
                 if key in data and data[key] is None:
                     del data[key]
             if data.get("quiet") is False:
@@ -2098,6 +2645,23 @@ class SearchHit(CamelModel):
     # G141 — an event claim hit keeps its status, day and closure metadata.
     event_status: str | None = None
     event_day: str | None = None
+    # Vision item 3 (2026-10-28) — an ``image`` hit (asked for with ``kinds=image``, hybrid only): ``id`` is the
+    # picture's key, ``name`` its title, ``type`` ``image``; ``thumbnail`` is the API path that serves the picture and
+    # ``image_source`` where it came from (``look | capture | preview | still | frame | photo``); ``subject_id`` is its page and
+    # ``episode_id`` the watched day it came from, when it has one; ``score`` is its lift over the query's mean
+    # cosine across every picture (``image_index``), comparable between image hits only.
+    thumbnail: str | None = None
+    image_source: str | None = None
+    # Meaning index 2 (2026-10-28) — a ``file`` hit (``kinds=file``: the words of a recording or video the person
+    # added) and an ``image`` hit of ``image_source: frame`` (or ``photo``, with no time) carry the added file's id and where in it: ``at_seconds``
+    # (and, for words, ``end_seconds``). A ``file`` hit's ``snippet`` is the recording's words, never the person's.
+    file_id: str | None = None
+    at_seconds: float | None = None
+    end_seconds: float | None = None
+    # G227 (owner 2026-10-29) — an ``entity`` / ``media`` hit whose title another page shares: the short qualifier and
+    # the name to show, "<name> (<qualifier>)" (`same_name`). Additive; None for a title of its own.
+    qualifier: str | None = None
+    display_name: str | None = None
 
 
 class SearchResponse(CamelModel):
@@ -2131,6 +2695,9 @@ class AskRequest(CamelModel):
 class AskCitation(CamelModel):
     entity_id: str
     entity_name: str
+    # G227 — when another page shares the title: the qualifier and the name to show. Additive; None otherwise.
+    qualifier: Optional[str] = None
+    display_name: Optional[str] = None
     file_path: str
     snippet: str
     # The conversations this answer was grounded in (at most `ask_service.MAX_CITED_EPISODES`), and how many more
@@ -2161,6 +2728,10 @@ class AskResponse(CamelModel):
     used_entities: list[str] = []
     # Additive (2026-10-19): the OTHER CONVERSATIONS the answer used — found by the question's words, cited by no page.
     conversations: list[AskConversation] = []
+    # Additive (2026-11-06, G148): why the engine did not write this answer, one of ``ask_failure.CODES`` (the sentence
+    # is in ``answer``), and the vendor's own reset time when it gave one (unix seconds). Both absent on an answer.
+    failure: Optional[str] = None
+    resets_at: Optional[int] = None
 
 
 # --- Entity context (progressive disclosure) ---
@@ -2270,6 +2841,8 @@ class InboxKind(str, Enum):
     # so it can read a page). Machine-wide outside the bank (`agent_requests`), served here above the questions,
     # resolved only by the person's tap (`done` | `dismiss`), never in a conversation.
     agent_request = "agent_request"
+    # G235: the one review of what may be sensitive, one row per conversation. The person's alone (`sensitive_flags`).
+    sensitive = "sensitive"
 
 
 class RequiredInput(str, Enum):
@@ -2294,6 +2867,11 @@ class InboxOption(CamelModel):
     label: str
     description: Optional[str] = None
     claim_id: Optional[str] = None
+    # G227 (additive): a same-title question's option names one page — its id, its plain name and its qualifier, so
+    # the app draws the name with the qualifier as a tag; ``label`` keeps "<name> (<qualifier>)" for every other reader.
+    page_id: Optional[str] = None
+    page_name: Optional[str] = None
+    qualifier: Optional[str] = None
     observed_at: Optional[str] = None
     last_referenced: Optional[str] = None
     age_days: Optional[int] = None
@@ -2412,6 +2990,22 @@ class WhereToCheckRow(CamelModel):
     evidence: Optional[dict] = None
 
 
+class SensitiveRow(CamelModel):
+    """One conversation of the sensitive review (G235): where and what kind. Never the words."""
+
+    id: str
+    episode: str
+    title: str = ""
+    day: str = ""
+    kinds: list[str] = Field(default_factory=list)
+    # The engines that read something here, in the person's words; which kinds were held back, and from whom (ruling 60);
+    # read before this check existed.
+    read_by: list[str] = Field(default_factory=list)
+    held_kinds: list[str] = Field(default_factory=list)
+    held_from: list[str] = Field(default_factory=list)
+    earlier: bool = False
+
+
 class AgentRequestNotification(CamelModel):
     """G205: what the app posts as a Mac notification — ids and the agent's own words, never episode text."""
 
@@ -2446,6 +3040,12 @@ class InboxItem(CamelModel):
     priority: float = 0.0
     entity_id: str = ""
     entity_name: str = ""
+    # G227 (owner 2026-10-29) — when the item's page, or a merge question's other page, shares its title with another
+    # page: the name to show, "<name> (<qualifier>)" (`same_name`); and, for a question about a name several pages
+    # share, every one of those pages' ids. Additive: None when the title is its own.
+    entity_display_name: Optional[str] = None
+    merge_target_display_name: Optional[str] = None
+    same_title: Optional[list[str]] = None
     title: str
     body: str
     options: list[InboxOption] = []
@@ -2477,6 +3077,9 @@ class InboxItem(CamelModel):
     # it is one Sleep may settle on the person's own words). Additive: an older build draws the yes/no options.
     rows: Optional[list[WhereToCheckRow]] = None
     review: bool = False
+    # G235: a `sensitive` item's rows, and how many conversations hold something replaced before it was stored.
+    sensitive_rows: Optional[list[SensitiveRow]] = None
+    replaced: Optional[int] = None
     # G115 Phase 1 — all additive so an older app build still decodes.
     entity_type: Optional[str] = None
     source_episode: Optional[str] = None
@@ -2498,6 +3101,42 @@ class InboxItem(CamelModel):
     fold: Optional[InboxFold] = None
     # G205: set on an ``agent_request`` item only.
     request: Optional[AgentRequestInfo] = None
+    # Vision item 10 / ruling 48 (1): the question as a person would ask it and its reason (`inbox_wording`), derived
+    # at read and never stored — Home's rows, a page's questions strip and the catch-up chat say these. Additive: an
+    # older app draws `question`/`title` as before.
+    spoken_question: Optional[str] = None
+    spoken_reason: Optional[str] = None
+    # #501's same-person chains, at read (`inbox_catchup.groups`): when this duplicate question about people chains
+    # with others (A~B, B~C) into one person, every member carries the chain's item ids in served order, its one
+    # question ("Are A, B and C the same person?") and reason, and each pair's spoken names (`{id, a, b}`) so the app
+    # asks it once and answers it pair by pair — never joined by the question itself (ruling 41). Additive.
+    chain: Optional[list[str]] = None
+    chain_question: Optional[str] = None
+    chain_reason: Optional[str] = None
+    chain_pairs: Optional[list[dict]] = None
+    # Ruling 70 (2026-11-06): this question's place in the served list, 0 first, set by `GET /inbox` after the agent
+    # requests are placed above the questions. The order is derived at read (`question_order`) and carries no magnitude;
+    # a client that has it for EVERY item sorts by it, else by `priority` then newest (an older server). Additive.
+    order_index: Optional[int] = None
+
+
+class CatchupTurnRequest(CamelModel):
+    """``POST /inbox/catchup/turn`` — one turn of the in-app catch-up chat (ruling 48 (8)). ``message`` is what the
+    person just typed about ``item_id``; ``history`` the chat so far (``who``: ``you`` | ``cicada``); ``upcoming`` the
+    ids the app would ask next, so a reply may move to a related one. Nothing is written by this call."""
+
+    item_id: str
+    message: str
+    history: list[dict] = []
+    upcoming: list[str] = []
+
+
+class CatchupRecordRequest(CamelModel):
+    """``POST /inbox/catchup/record`` — the chat so far, kept as ONE episode per catch-up session (source-keyed, so a
+    later post updates it in place): the person's turns as their own words, Cicada's as its own."""
+
+    session_id: str
+    turns: list[dict] = []
 
 
 class InboxResolveRequest(CamelModel):
@@ -2842,6 +3481,8 @@ class SleepDrain(CamelModel):
     owner_page: Optional[SleepDrainOwnerPage] = None
     reserve: Optional[SleepReserve] = None
     resumed: Optional[bool] = None
+    # The network left mid-run (2026-11-03): while the run waits for it, why — ``asleep | no_network | connection``.
+    waiting: Optional[Literal["asleep", "no_network", "connection"]] = None
 
 
 class SleepPausedAutoContinue(CamelModel):
@@ -2855,13 +3496,16 @@ class SleepPaused(CamelModel):
     """A run that stopped with conversations still waiting and can be continued. Paused
     is a fact about a run, not a state of Sleep: ``status`` stays ``idle`` and nothing is
     held. ``reason``: ``user | plan_window | plan_weekly | reserve | overage | engine |
-    restart``; ``engine_kind`` distinguishes transient interruptions from fixes;
+    restart``; ``engine_kind`` distinguishes transient interruptions from fixes, and
+    ``offline`` a network that left and did not come back (2026-11-03) from both;
     ``sentence`` is the plan's own diagnosis or the engine's fix; ``resets_at`` is the
     vendor's, ``null`` when none was given — never guessed."""
     run_id: str
     started_by: str = "user"
     reason: str
-    engine_kind: Optional[Literal["transient", "needs_fix"]] = None
+    engine_kind: Optional[Literal["transient", "needs_fix", "offline"]] = None
+    # For an ``offline`` pause, why: the machine slept, had no network, or the connection kept dropping.
+    offline_cause: Optional[Literal["asleep", "no_network", "connection"]] = None
     sentence: Optional[str] = None
     resets_at: Optional[int] = None
     limit: Optional[str] = None
@@ -3126,6 +3770,12 @@ class SleepHistoryEntry(CamelModel):
     run: Optional["SleepRunRef"] = None
 
 
+class SleepRunSensitive(CamelModel):
+    """G235: how many conversations a run read holding something likely sensitive, and which kinds. Never a word."""
+    conversations: int = 0
+    kinds: list[str] = Field(default_factory=list)
+
+
 class SleepRunRef(CamelModel):
     id: str
     batches: int = 0
@@ -3139,8 +3789,17 @@ class SleepRunRef(CamelModel):
     finished_at: Optional[str] = None
     state: Optional[str] = None            # running | paused | finished | failed | ended
     started_by: str = "user"
+    sensitive: Optional[SleepRunSensitive] = None
     #: A scheduled run that stood in for a time the Mac slept or was off through: that time (aware ISO). Owner 2026-10-19.
     catch_up_for: Optional[str] = None
+    # Owner 2026-10-26 (the run card): the run's whole figures, joined at read from its batches' `sleep_run` ledger
+    # rows (pages made and changed), its summary (questions) and every call tagged with its run (usage, models).
+    # `None` when not recorded (telemetry off), never zero.
+    created: Optional[int] = None
+    updated: Optional[int] = None
+    questions_raised: Optional[int] = None
+    usage_summary: Optional["CycleUsageSummary"] = None
+    models: list[str] = Field(default_factory=list)
 
 
 class SleepRunPause(CamelModel):
@@ -3186,6 +3845,8 @@ class SleepRunDetail(CamelModel):
     pauses: list[SleepRunPause] = Field(default_factory=list)
     questions_raised: Optional[int] = None
     owner: Optional[SleepDrainOwnerPage] = None
+    # G235: conversations in this run holding something `episode_scrub` replaced before it was stored. None: not recorded.
+    replaced: Optional[int] = None
     batches: list[SleepRunBatch] = Field(default_factory=list)
     models: list["CycleUsageModel"] = Field(default_factory=list)
     usage: Optional["CycleUsage"] = None
@@ -3206,6 +3867,46 @@ class SleepCycleDetail(SleepHistoryEntry):
     episodes_by_origin: dict[str, int] = Field(default_factory=dict)
     inbox_changes: int = 0
     usage: Optional[CycleUsage] = None
+
+
+class SleepConsolidatedConversation(CamelModel):
+    id: str
+    title: Optional[str] = None
+    origin: str = "unknown"
+    timestamp: Optional[str] = None
+
+
+class SleepConsolidatedPage(CamelModel):
+    id: str
+    name: Optional[str] = None
+    type: Optional[str] = None
+    #: The page is no longer in the bank (merged or removed since): the row shows its id and opens nothing.
+    gone: bool = False
+    #: G227 (items-2): when another page shares this title, the qualifier and the name to show. Additive.
+    qualifier: Optional[str] = None
+    display_name: Optional[str] = None
+
+
+class SleepConsolidatedQuestion(CamelModel):
+    id: str
+    title: Optional[str] = None
+    kind: Optional[str] = None
+    entity_id: Optional[str] = None
+    status: Optional[str] = None
+
+
+class SleepConsolidated(CamelModel):
+    """``GET /sleep/runs/{id}/items`` and ``GET /sleep/history/{commit}/items`` — what one consolidation read and
+    wrote, item by item, from its commits' own file lists (``sleep_consolidated``). Each list is capped; ``counts``
+    are whole."""
+    commits: list[str] = Field(default_factory=list)
+    conversations: list[SleepConsolidatedConversation] = Field(default_factory=list)
+    created: list[SleepConsolidatedPage] = Field(default_factory=list)
+    updated: list[SleepConsolidatedPage] = Field(default_factory=list)
+    questions_raised: list[SleepConsolidatedQuestion] = Field(default_factory=list)
+    questions_settled: list[SleepConsolidatedQuestion] = Field(default_factory=list)
+    counts: dict[str, int] = Field(default_factory=dict)
+    truncated: bool = False
 
 
 class EpisodeQueueItem(CamelModel):
@@ -3309,11 +4010,71 @@ class SleepEngineCandidate(CamelModel):
     # model id -> list price per million tokens, for the model picker. A
     # parallel map, so `models` keeps its element type for an older app.
     model_prices: dict[str, "SleepEngineModelPrice"] = Field(default_factory=dict)
+    # G49/G50 (2026-10-28) — the picker is data-driven: each card says what it is, so a client renders a new engine
+    # without a release of its own. All optional and additive; an older app ignores them.
+    # ``kind``: "auto" | "plan" (a subscription you sign in to — ruling 4's guard) | "key" | "local".
+    kind: Optional[str] = None
+    # The engine label a run on this card reports (``ENGINE_LABELS``: "claude-cli", "cursor-cli" …), so a preview's
+    # engine maps back to its card.
+    engine: Optional[str] = None
+    # The bundled logo's name ("cursor", "opencode", "grok"); ``None`` for a card with its own glyph.
+    mark: Optional[str] = None
+    # How this engine is paid for, in words, when a metered path is possible (rail 2): shown before it is chosen.
+    billing_note: Optional[str] = None
+    # A saved model the tool no longer offers, in words — never silently swapped.
+    model_note: Optional[str] = None
+    # The exact command that signs the person in to this tool (they run it; Cicada never signs in for them).
+    sign_in: Optional[str] = None
+    # ROR-52, additive: `available` is false yet this is not "not installed": the tool's app (or an old copy of the tool)
+    # is on this computer and Sleep can't run it. `detail` says what is missing; `next_command` is the one line to run.
+    not_ready: bool = False
+    next_command: Optional[str] = None
+    # Vision item 4 (2026-10-28) — `models` described (`model_catalogue`): where each came from and when, its family,
+    # when Cicada first saw it, what an alias last resolved to, and a format change in words. Additive.
+    catalogue: Optional["ModelCatalogue"] = None
+
+
+class SleepEngineModelsRefresh(CamelModel):
+    """``POST /sleep/engine/models/refresh``: the card (``SleepEngineCandidate.id``) whose model list to re-read."""
+
+    id: str = Field(min_length=1, max_length=40)
+
+
+class CatalogueModel(CamelModel):
+    """One model on a card. ``source``: ``harness`` (the person's own tool listed it), ``documented`` (the harness
+    accepts it but did not list it), ``run`` (only a run reported it), ``default`` (the card's built-in default) or
+    ``saved`` (the person's choice, which no list names now — never dropped)."""
+
+    id: str
+    source: str
+    as_of: Optional[str] = None
+    family: str = ""
+    family_label: str = ""
+    first_seen: Optional[str] = None
+    new: bool = False
+    resolves_to: Optional[str] = None
+    resolved_at: Optional[str] = None
+    # Ruling 46a (owner 2026-10-28): set on a model the tool bills outside the plan (a third-party model inside
+    # Cursor) — said before it is chosen; Auto and a scheduled run never pick it.
+    billing_note: Optional[str] = None
+
+
+class ModelCatalogue(CamelModel):
+    """A card's catalogue: ``source`` names the harness read (``claude --help``, ``agent models``, ``model/list`` …),
+    ``asOf`` when; ``drift`` is a sentence when that read came back in a shape Cicada could not parse."""
+
+    engine: str
+    as_of: Optional[str] = None
+    source: str
+    drift: Optional[str] = None
+    models: list[CatalogueModel] = Field(default_factory=list)
 
 
 class SleepEngineModelPrice(CamelModel):
     input_per_million_usd: Optional[float] = None
     output_per_million_usd: Optional[float] = None
+    # Ruling 12: where the figure comes from, when Cicada keeps it itself (G237); none = the installed LiteLLM's table.
+    basis: Optional[str] = None
 
 
 class SleepEngineUsage(CamelModel):
@@ -3402,6 +4163,7 @@ class SleepEngineResponse(CamelModel):
     # the engine a run you start would use, and which windows are enforced (from the last
     # run's observations; ``null`` = nothing could tell yet).
     reserve: Optional["SleepReserveStatus"] = None
+    spend: Optional["SleepSpendStatus"] = None
     # A run of this bank is reading on the engine it resolved at its start or Continue, and that is not
     # what the choice above resolves to now: the change applies from the next start or Continue.
     run_keeps_engine: bool = False
@@ -3417,6 +4179,13 @@ class SleepReserveStatus(CamelModel):
     windows: list[SleepReserveWindow] = Field(default_factory=list)
 
 
+class SleepSpendStatus(CamelModel):
+    """The spending limit (ROR-102): the figure, its choices, whether a run you start would be charged per use."""
+    limit_usd: Optional[float] = None
+    choices: list[int] = Field(default_factory=list)
+    applies: bool = False
+
+
 class SleepRunOptions(CamelModel):
     """Reading options: how often progress is saved, whether a run you start may continue
     itself after its plan window resets (TODO ruling 15; off), and the reserve line
@@ -3429,14 +4198,21 @@ class SleepRunOptions(CamelModel):
     # TODO ruling 4b (owner, 2026-10-16; amended 2026-10-19): this machine lets SCHEDULED runs use the person's plan
     # (Claude or ChatGPT). On by default — only the person's explicit off stops it; nightly runs count against the plan.
     scheduled_use_plan: bool = True
+    # ROR-102: a run on a key stops at this many dollars (`sleep_spend`); null is the person's off.
+    spend_limit_usd: Optional[float] = None
+    spend_limit_choices: list[int] = Field(default_factory=list)
+    # G243: the Mac does not sleep on power while a run reads. Off by default; never wakes a sleeping Mac or holds a lid.
+    keep_awake: bool = False
 
 
 class SleepRunOptionsUpdate(CamelModel):
-    """A PUT body; omitted fields are left alone (``reservePct: null`` clears it)."""
+    """A PUT body; omitted fields are left alone (``reservePct: null`` clears it, ``spendLimitUsd: null`` is off)."""
     batch_size: Optional[int] = None
     continue_after_reset: Optional[bool] = None
     reserve_pct: Optional[int] = None
     scheduled_use_plan: Optional[bool] = None
+    spend_limit_usd: Optional[float] = None
+    keep_awake: Optional[bool] = None
 
 
 class SleepTriggerBody(BaseModel):
@@ -3470,6 +4246,8 @@ class SleepQueueResponse(CamelModel):
     total: int
     offset: int = 0
     items: list[SleepQueueItem] = Field(default_factory=list)
+    #: Ruling 62: saves kept for lookup, unread until the person talks about one (the Sleep page's one line).
+    kept: int = 0
 
 
 class SleepEngineChoice(CamelModel):
@@ -3707,6 +4485,12 @@ class IntakeDelta(CamelModel):
 class IntakeTitle(CamelModel):
     title: str
     date: Optional[str] = None
+    #: ROR-126 — the chat's identity across re-exports (``import_choices.key_for``), what the app sends back to leave
+    #: it out. ``status`` is what an import would do to it; ``deselected`` is a chat the person left out of an earlier
+    #: import into this bank (offered unticked, never counted as new).
+    key: Optional[str] = None
+    status: Optional[Literal["new", "grown", "unchanged"]] = None
+    deselected: bool = False
 
 
 class IntakeSniffResponse(CamelModel):
@@ -4385,13 +5169,16 @@ class MaintenanceEnrichLinksResponse(CamelModel):
     live count of media pages still owed a description, `remainingRecon` the
     pages still owed relations, `deferred` the failed fetches inside their
     30-day backoff. `engine`/`engineDetail` say which engine the run resolved
-    (a $0 run reports the configured engine but makes no call)."""
+    (a $0 run reports the configured engine but makes no call). `reread` counts
+    pages read again for a reason the person gave after they were described
+    (vision item 1, 2026-10-28)."""
     selected: int = 0
     reused: int = 0
     summarized: int = 0
     fetched: int = 0
     failed: int = 0
     skipped: int = 0
+    reread: int = 0
     extracted: int = 0
     related: int = 0
     remaining: int = 0
@@ -4408,6 +5195,18 @@ class NotesSyncRequest(CamelModel):
     # The raw delimited dump the companion app read from Notes.app
     # (`AppleNotesReader.swift`). Required: the backend never runs osascript.
     notes_dump: str
+    # 2026-11-04 — each note's Notes account by note id ("iCloud", "On My Mac", a mail account's name), beside the dump
+    # rather than in it, so a backend that predates it ignores the key and still reads every note.
+    note_accounts: Optional[dict[str, str]] = Field(default=None, max_length=100_000)
+    # G234: the ids of the notes that are locked, beside the dump for the same reason. Used to drop and retire, counted,
+    # never stored. None from an older app, which is told apart by this: there a record with no text is taken as locked.
+    locked_note_ids: Optional[list[str]] = Field(default=None, max_length=100_000)
+    # G234: locking gives a note a new id, so what was kept under its old id is found by these: hashes of each locked
+    # note's name (`notes_sync.locked_key`), made in the app. Compared, never stored.
+    locked_note_keys: Optional[list[str]] = Field(default=None, max_length=100_000)
+    # ROR-15: the ids (among those in the dump) of the notes the person pinned in Notes, read by the app from Notes' own
+    # store only when it already holds Full Disk Access. None = the app could not tell: every pin stays as it was.
+    pinned_note_ids: Optional[list[str]] = Field(default=None, max_length=100_000)
 
 
 class NotesSyncResponse(CamelModel):
@@ -4417,6 +5216,10 @@ class NotesSyncResponse(CamelModel):
     total: int = 0
     # Notes dropped by CICADA_NOTES_EXCLUDE_FOLDERS before dedup/ingest.
     excluded: int = 0
+    # G234: locked notes this read found; nothing of them is kept but this count.
+    locked: int = 0
+    # G234: episodes this read retired because their note is locked.
+    retired: int = 0
 
 # --- Capture channels (G62) --------------------------------------------------
 
@@ -4444,6 +5247,7 @@ class SourceChannel(CamelModel):
     # page can say "last sync failed · <reason>" instead of silently showing a
     # stale success. Never carries a credential: connectors build this string
     # from an exception type + message only.
+    last_error_code: Optional[str] = None
     last_error: Optional[str] = None
     detail: Optional[str] = None
     # R-S5 — the count no longer rides pre-formatted inside `detail`. The
@@ -4493,6 +5297,9 @@ class FolderRecord(CamelModel):
     created_at: Optional[str] = None
     last_sync: Optional[str] = None
     papers_pending: bool = False
+    # G95 (2026-11-03): ``meetings`` for a folder of meeting transcripts (Hex, any recorder's export), else ``notes``.
+    kind: str = "notes"
+    recorder: Optional[str] = None
     channel_id: str = ""
 
 
@@ -4508,6 +5315,10 @@ class FolderRegisterRequest(CamelModel):
     authorship: Optional[list[FolderAuthorshipRule]] = None
     # R-LS13 — the app pre-fills the folder's name; "" means "no project".
     project_name: Optional[str] = None
+    # G95 (2026-11-03): a folder of meeting transcripts (no project, no papers, no authorship rules); ``recorder`` is
+    # the app that writes it (``hex``), or none for a plain folder of transcripts. Set on the first add, never flipped.
+    kind: Literal["notes", "meetings"] = "notes"
+    recorder: Optional[Literal["hex"]] = None
 
 
 class FolderUpdateRequest(CamelModel):
@@ -4527,6 +5338,8 @@ class FolderFileIn(CamelModel):
 class FolderSyncRequest(CamelModel):
     files: list[FolderFileIn] = []
     deleted: list[str] = []
+    # The Mac's IANA zone: a meeting file names its local start ("2026-11-03 1601 …"), read in this zone (ruling 34).
+    tz_name: Optional[str] = Field(default=None, max_length=64)
 
 
 class FolderSyncError(CamelModel):
@@ -4610,6 +5423,10 @@ class CalendarLocalCalendar(CamelModel):
     id: str
     title: str = ""
     account: Optional[str] = None
+    # 2026-11-04 — what kind of account the calendar is in (`icloud`, `google`, `exchange`, `local`, `subscribed`,
+    # `other`), from EventKit's own source type, so the Sources page draws each account with its own mark. Optional:
+    # an older app sends none.
+    provider: Optional[str] = Field(default=None, max_length=32)
 
 
 class CalendarLocalEvent(CamelModel):
@@ -4655,6 +5472,8 @@ class RemindersLocalList(CamelModel):
     title: str = ""
     account: Optional[str] = None
     shared: bool = False
+    # 2026-11-04 — the account's kind, as for a calendar (`CalendarLocalCalendar.provider`).
+    provider: Optional[str] = Field(default=None, max_length=32)
 
 
 class RemindersLocalReminder(CamelModel):
@@ -4767,6 +5586,28 @@ class MessagesConversationIn(CamelModel):
     group: bool = False
     from_me: int = 0
     from_them: int = 0
+    #: A group's members (2026-10-28): each one's participant key, the name the person sees for them, and the id of
+    #: their own one-to-one chat when there is one — never a handle.
+    members: list["MessagesMemberIn"] = []
+    #: A one-to-one chat: the ONE address-book card holding the other side's handle, by its Contacts id.
+    contact: Optional[str] = None
+    #: chats-ux-v2 — a note to self: the chat's handle is one of the person's own accounts (the app's finding; the
+    #: handle never crosses). Every line is theirs; no correspondent, no card.
+    self_chat: bool = False
+
+
+class MessagesMemberIn(CamelModel):
+    """One group member: ``key`` is the app's hash of the chat and the member's handle — never the handle itself."""
+
+    key: str
+    name: str = ""
+    direct: Optional[str] = None
+    #: The ONE address-book card holding this member's handle, by its Contacts id (`contact_identity`); never the
+    #: handle. Absent when no card, or more than one, holds it.
+    contact: Optional[str] = None
+
+
+MessagesConversationIn.model_rebuild()
 
 
 class MessagesAttachmentIn(CamelModel):
@@ -4801,6 +5642,8 @@ class MessagesRowIn(CamelModel):
     associated_message_emoji: Optional[str] = None
     #: An inline reply's target message (``thread_originator_guid``).
     thread_originator_guid: Optional[str] = None
+    #: A group row's sender, as its participant key (``MessagesMemberIn.key``); absent for the person's own row.
+    sender: Optional[str] = None
 
 
 class MessagesSyncRequest(CamelModel):
@@ -4832,6 +5675,7 @@ class MessagesSyncResponse(CamelModel):
     skipped: int = 0
     tombstoned: int = 0
     actor: dict[str, Any] = {}
+    group: bool = False
     bank: str = ""
 
 
@@ -4850,6 +5694,8 @@ class MessagesConversationUpdate(CamelModel):
     #: Present → the mark changes (``{"kind": null}`` clears it); absent → untouched.
     actor: Optional[MessagesActorIn] = None
     clear_actor: bool = False
+    #: 2026-11-03 — the person's pin: the chat lists first on the Sources page (`chat_live`'s rule).
+    pinned: Optional[bool] = None
 
 
 class MessagesSettingsUpdate(CamelModel):
@@ -4940,6 +5786,9 @@ class ContactRecord(CamelModel):
     #: Owner ruling 2026-10-20 — the address book's own "me" card (`CNContactStore.unifiedMeContact`): it belongs to
     #: the owner's page (G169), is never matched to a namesake and never waits. A flag about the owner, not a card fact.
     is_me: bool = False
+    #: Ruling 55: the card's numbers as the keyed hash the app makes on this Mac (`phone_numbers`), never a
+    #: digit: R-SR8 holds. Empty unless the feature is on; anything not shaped like a hash is refused at the door.
+    phone_keys: list[str] = []
 
 
 class ContactsLocalSyncRequest(CamelModel):
@@ -4963,6 +5812,44 @@ class ContactsLocalSyncResponse(CamelModel):
     #: Owner ruling 2026-10-20 — cards that matched no page and wait outside the bank for a first mention.
     waiting: int = 0
     bank: str = ""
+
+
+class ContactsBookCard(CamelModel):
+    """One card of ``PUT /sources/contacts-local/book``: its names and thumbnail, nothing else (R-SR8)."""
+
+    id: str
+    given_name: str = ""
+    family_name: str = ""
+    photo_b64: Optional[str] = None
+
+
+class ContactsBookRequest(CamelModel):
+    """The whole address book, for the Contacts page's faces (``contacts_book``); ``connection`` as on the sync."""
+
+    cards: list[ContactsBookCard] = []
+    connection: Optional[str] = None
+
+
+class ContactsBookSaved(CamelModel):
+    total: int = 0
+
+
+class ContactsBookRow(CamelModel):
+    """A face. ``key`` is the card id hashed, ``entity_id`` the page that carries the card, ``photo`` a hash of its
+    thumbnail for the picture's address; never a fact of the card."""
+
+    key: str
+    name: str = ""
+    entity_id: Optional[str] = None
+    photo: Optional[str] = None
+
+
+class ContactsBookResponse(CamelModel):
+    """``GET /sources/contacts-local/book``: not a Store domain, no ETag; the app holds it in memory."""
+
+    total: int = 0
+    in_memory: int = 0
+    cards: list[ContactsBookRow] = []
 
 
 class LinkedInConnectionsPreview(CamelModel):
@@ -5027,6 +5914,16 @@ class ConnectorStatus(CamelModel):
     # "oauth" (Pinterest: save app id/secret, then authorize in a browser) or
     # "credentials" (a script-app-style connector needs no redirect round trip).
     login_mode: str = "credentials"
+    # Ruling 47 tier 2: what the connector reads, in the person's words (the connect step says it before Save), and
+    # where the person gets their own token. ``None`` on the saved-content connectors.
+    reads: Optional[str] = None
+    token_help: Optional[str] = None
+    tier: int = 1
+    # G232: this build can connect with Cicada's own app (Reddit's installed app: no fields, a browser sign-in), how
+    # the connector is connected now (``app``, ``own-app``) and whether its sign-in lapsed (Connect again).
+    app_sign_in: bool = False
+    how: Optional[str] = None
+    reconnect: bool = False
 
 
 class ConnectorsResponse(CamelModel):
@@ -5079,6 +5976,9 @@ class ConnectionStatus(CamelModel):
     billing: str = "usage"  # subscription | usage | free
     engine_role: Optional[str] = None
     detail: Optional[str] = None
+    # 2026-11-06 — the one line to run when `available` is false because the tool is not on this Mac (`install_hints`),
+    # so the app draws it in a copyable box beside `detail`. Absent when the tool is here. Additive.
+    next_command: Optional[str] = None
     # G63: one sentence explaining *why this card says Connected*, authored
     # next to the probe that decided it so the copy can never drift from the
     # check. None when the connection isn't connected — there is nothing to
@@ -5305,6 +6205,16 @@ class RemoteStatusOut(CamelModel):
     reachable: Optional[bool] = None
     funnel_command: str
     ngrok_command: str
+    #: Only on a `PUT /remote/settings` that turned the connector off: what became of its public address, in words.
+    funnel_note: Optional[str] = None
+
+
+class RemoteFunnelIn(CamelModel):
+    """``POST /remote/funnel`` (ruling 59). ``action`` is ``on`` or ``off``. ``shown`` is the command the person read, for
+    ``on``: compared with what would run and never run itself. There is no port and no argv to send."""
+
+    action: str
+    shown: Optional[str] = None
 
 
 class PageEditRequest(CamelModel):

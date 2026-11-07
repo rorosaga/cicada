@@ -14,9 +14,10 @@ Three rules, all from the G115 ruling:
   at most once per :class:`InboxContext`. G97 measured 43/49 live items reaching
   an episode in ~100 ms with zero LLM, git or vector calls; the budget test in
   ``test_inbox_context.py`` keeps it there.
-* **Spans, not copies.** The excerpt is computed from the episode body on every
-  read and the mention offsets are recomputed with it — nothing is written back
-  and nothing reaches the ledger. A rewritten episode changes what the card
+* **Spans, not copies.** The excerpt is computed from the episode body and the
+  mention offsets with it — nothing is written back and nothing reaches the
+  ledger. The process remembers an excerpt only while the episode's
+  ``(mtime, size)`` and the span inputs are the ones it was cut from. A rewritten episode changes what the card
   shows instead of highlighting the wrong words (the G118 rail).
 * **Served, never hidden.** When no tier resolves, the card carries the literal
   ``[ no source recorded ]`` so the person sees that provenance is missing
@@ -26,6 +27,8 @@ Three rules, all from the G115 ruling:
 from __future__ import annotations
 
 import re
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -153,6 +156,7 @@ class InboxContext:
         self._bodies: dict[str, str] = {}
         self._check_vocab = None
         self._untimed: frozenset[str] | None = None
+        self._owner: tuple[str | None] | None = None
 
     # ---------- indices ----------
 
@@ -168,6 +172,14 @@ class InboxContext:
         if key not in self._files:
             self._files[key] = bank_index.file(self.memory_path, subdir, filename)
         return self._files[key]
+
+    def owner_id(self) -> str | None:
+        """The person's own page id (``_state.md``), read once per context."""
+        if self._owner is None:
+            from api.services import everyday_names
+
+            self._owner = (everyday_names.owner_id(self.memory_path),)
+        return self._owner[0]
 
     def episode(self, ep_id: str | None):
         if not ep_id:
@@ -267,7 +279,78 @@ class InboxContext:
                 self._bodies[ep.stem] = ""
         return self._bodies[ep.stem]
 
+    def _excerpt(self, ep, ep_id: str, claim, name: str, entity_id: str) -> tuple["Excerpt", str]:
+        """The cut for one candidate, remembered per episode state (speed 2026-10-29: reading 235 episode bodies and
+        lower-casing each to find a name was ~30 % of a load). The key is everything the cut reads: the episode's
+        path and ``(mtime, size)``, the claim's span rows into it, the name and the id."""
+        spans = None
+        if claim is not None:
+            spans = tuple((e.start, e.end, e.hash) for e in (getattr(claim, "evidence", None) or [])
+                          if getattr(e, "is_span", lambda: False)() and e.episode == ep_id)
+        key = (str(ep.path), ep.mtime_ns, ep.size, ep_id, spans, name, entity_id)
+        with _EXCERPTS_LOCK:
+            hit = _EXCERPTS.get(key)
+            if hit is not None:
+                _EXCERPTS.move_to_end(key)
+                return hit
+        body = self._body(ep)
+        span, span_kind = None, "derived"
+        if claim is not None:
+            span = _asserted_span(claim, ep_id, body)
+            if span is not None:
+                span_kind = "asserted"
+        if span is None:
+            span = locate_mention(body, name, entity_id)
+        out = (excerpt_around(body, span), span_kind)
+        with _EXCERPTS_LOCK:
+            _EXCERPTS[key] = out
+            while len(_EXCERPTS) > _EXCERPTS_MAX:
+                _EXCERPTS.popitem(last=False)
+        return out
+
     # ---------- cause ----------
+
+    #: Per side, how many of a page's own conversations (newest first) a person pair's card may read for its excerpt.
+    PAIR_EPISODES = 6
+
+    def _pair_episode(self, fm: dict, item_ep: str) -> str | None:
+        """Owner 2026-11-04 (`pair_evidence`): the card of "Is A the same as B?" about PEOPLE shows a conversation that
+        names both — the item's own when it does, else one of the two pages' own conversations that does, else one the
+        lexical index holds with both (one query, no build; derived on read). ``None``: keep the usual tiers (the item's own conversation names both, or none
+        of these does — Sleep retires a person question no conversation pairs)."""
+        from api.services import pair_evidence
+
+        if str(fm.get("kind") or "") != "merge_suggestion":
+            return None
+        a_id, b_id = str(fm.get("entity_id") or ""), str(fm.get("merge_target_hint") or "")
+        person = str(fm.get("suggested_classification") or "").lower().startswith("person") or "person" in (
+            str(self.entity_type(a_id) or "").lower(), str(self.entity_type(b_id) or "").lower())
+        if not person or not b_id:
+            return None
+        a_names = pair_evidence.side_names(self.memory_path, a_id, str(fm.get("entity_name") or ""))
+        b_names = pair_evidence.side_names(self.memory_path, b_id, "")
+
+        def both(ep_id: str) -> bool:
+            ep = self.episode(ep_id)
+            if ep is None:
+                return False
+            body = self._body(ep)
+            return pair_evidence.names_in(a_names, body) and pair_evidence.names_in(b_names, body)
+
+        if item_ep and both(item_ep):
+            return None
+        for eid in (a_id, b_id):
+            page = self.entity(eid)
+            eps = [str(e) for e in ((page.frontmatter.get("source_episodes") or []) if page is not None else [])]
+            for ep_id in eps[-self.PAIR_EPISODES:][::-1]:
+                if ep_id != item_ep and both(ep_id):
+                    return ep_id
+        # Last, the lexical index as it is: rare — Sleep retires a person question that no conversation pairs, so this is
+        # a card whose pairing conversation is older than its pages' recent ones. Every rebuild of the list runs it for
+        # each such card (`inbox_service.load_inbox`): one query, never `search_service.search`, which cost 16 s a rebuild
+        # with no index yet and 0.33 s with one at the owner's scale (G209, 2026-11-05).
+        found = pair_evidence.pair_episode(self.memory_path, a_names, b_names, fresh=False)
+        return found if found and found != item_ep else None
 
     def cause_for(self, fm: dict, options: list[dict]) -> Cause:
         """The three tiers of G97, first hit wins (R1)."""
@@ -299,6 +382,9 @@ class InboxContext:
 
         candidates: list[tuple[str, str | None, object]] = []
         item_ep = str(fm.get("source_episode", "") or "").strip()
+        pair_ep = self._pair_episode(fm, item_ep)
+        if pair_ep:
+            candidates.append(("item", pair_ep, None))
         if item_ep:
             candidates.append(("item", item_ep, None))
         by_id = {c.id: c for c in self.claims(entity_id)} if claim_ids else {}
@@ -318,15 +404,7 @@ class InboxContext:
             ep = self.episode(ep_id)
             if ep is None:
                 continue
-            body = self._body(ep)
-            span, span_kind = None, "derived"
-            if claim is not None:
-                span = _asserted_span(claim, ep_id, body)
-                if span is not None:
-                    span_kind = "asserted"
-            if span is None:
-                span = locate_mention(body, name, entity_id)
-            ex = excerpt_around(body, span)
+            ex, span_kind = self._excerpt(ep, ep_id, claim, name, entity_id)
             efm = ep.frontmatter
             return Cause(
                 tier=tier, episode_id=ep.stem,
@@ -338,6 +416,12 @@ class InboxContext:
                 span_kind=span_kind,
             )
         return Cause()
+
+
+#: Excerpts cut, keyed on what they were cut from (`InboxContext._excerpt`); bounded, process-local, disposable.
+_EXCERPTS: "OrderedDict[tuple, tuple[Excerpt, str]]" = OrderedDict()
+_EXCERPTS_LOCK = threading.Lock()
+_EXCERPTS_MAX = 4096
 
 
 def _asserted_span(claim, ep_id: str, body: str) -> tuple[int, int] | None:

@@ -16,7 +16,8 @@ calls :func:`source_text` to slice a span back out.
 
 Rails this module enforces rather than documents:
 
-* **Engine-free** (G80): imports ``markdown_parser`` and ``claims`` only. A
+* **Engine-free** (G80): imports ``markdown_parser`` and ``claims`` only (and,
+  inside :func:`verify`'s own disk read, ``authorship``'s frontmatter rule). A
   verification is string search over one parsed file.
 * **Never fuzzy** (R5): exact, then whitespace-normalised, then
   case-insensitive — and an unlocatable quote becomes ``reasoning``, never a
@@ -48,6 +49,12 @@ __all__ = [
     "kind_for", "turn_at", "OVERRIDE_KINDS", "gap_ranges", "mask_gaps", "GAP_KIND",
     # G140 Q-R9
     "media_time",
+    # A saved item's own words (2026-10-29)
+    "SAVE_KIND", "PERSON_SECTIONS",
+    # An agent's saved note (ruling 50, 2026-10-29)
+    "AGENT_KIND", "agent_words",
+    # Filing labels (2026-10-29)
+    "LABEL_FIELDS", "label_ranges", "in_label", "mask_labels",
 ]
 
 # The longest quote a writer may cite. A longer one is clipped, not refused:
@@ -91,6 +98,11 @@ _SPEAKER_RE = re.compile(r"^speaker:[^:\n]{1,64}:")
 # quoted (`> `), so nothing inside it can open a turn. It is `page` evidence —
 # the document's words, never the person's (a pasted contract is not "You said").
 _ATTACHMENT_RE = re.compile(r"^attachment\s*\[[^\]\n]{1,128}\]\s*:", re.IGNORECASE)
+# Ruling 58 (owner, 2026-11-04): what the person said after an export upgraded their chat, as the app's model relayed it
+# (`episode_staging.append_relayed`), written `relayed [Claude]: text`. In one episode with their own imported words, so
+# no episode-wide override can say it: the marker does. It is `assistant`, the relaying model's words, never `user`.
+# Bracketed as `attachment` is, so a stored episode's plain "relayed: ..." line reads as it always did.
+_RELAYED_RE = re.compile(r"^relayed\s*\[[^\]\n]{1,64}\]\s*:", re.IGNORECASE)
 # G110 gate B2: the one line a captured session's body carries where the
 # session cap dropped its middle (`transcript_capture`). It is Cicada's line,
 # nobody's words, and it is known ONLY by the episode's own record
@@ -109,6 +121,73 @@ Gaps = tuple  # of (start, end) ranges, ascending
 # R-F2 / R-LS7: an episode may declare whose words it holds (a folder file's
 # authorship). Only these two values are honoured; anything else falls back to markers.
 OVERRIDE_KINDS = frozenset({"user", "assistant"})
+# 2026-10-29: a SAVED item (a bookmark, a saved link, a saved-list post, a feed item, a watched day, a tab group) holds
+# the page's words — its title, its site, its description — never the person's, except the sections only the person's
+# own words fill. It is never stored: `authorship.of` derives it from the episode's own record, and every reader passes
+# it as ``override``. Before it, a save had no turn marker, so R4's default read the whole save, the fetched description
+# included, as the person's writing (promotion, ruling 42, the Contacts-card rule).
+SAVE_KIND = "save"
+#: The sections only the person's own words fill on a save: ``saved_why``'s answer, a ``/save`` reason (Telegram, the
+#: share sheet), the person's note. Each is a ``user`` block in a save; every other ``## `` section is ``page``.
+PERSON_SECTIONS = ("## Why it was saved", "## Saved because", "## User note")
+#: Ruling 50 (owner, 2026-10-29): a note an AGENT saved through a tool door (``cicada_save_episode`` over stdio, the
+#: remote connector or an agent's shell) holds the agent's words, never the person's. It carries no turn marker, so
+#: before this R4's default read it as the person's own writing: its paragraphs were "exchanges in the person's own
+#: words" (promotion), its spans ``user`` evidence, and agent notes minted pages. Derived on read like
+#: :data:`SAVE_KIND` (``authorship.of``), never stored: every span the markers would give the person (an unmarked line,
+#: a ``user:`` line the agent wrote) is ``assistant``; a ``speaker:`` line (the meeting bridge), a timed video line and
+#: an ``attachment [..]:`` quote keep their own kind, since none of those is the person either.
+AGENT_KIND = "agent"
+
+
+def agent_words(kind: str) -> str:
+    """The kind a span of an agent's saved note takes (:data:`AGENT_KIND`): the person's becomes the agent's."""
+    return "assistant" if kind == "user" else kind
+
+
+#: ...plus a repeat save's ``## Note`` (``media_ingestor.write_note_episode``): the person's note as written, or an
+#: agent's behind its own ``assistant:`` marker, which still wins. Not a PERSON_SECTION for ``history_index``: an
+#: agent's note there must never make a list save the person's to read.
+_PERSON_HEADINGS = frozenset((*PERSON_SECTIONS, "## Note"))
+#: A record's FILING LABELS (owner 2026-10-29): the folder a bookmark or note sits in, the list a reminder is on, the
+#: calendar an event is in, the database a Notion page belongs to, the tags a highlight carries. The person typed the
+#: name once, to file things — a label, never something they said: a span in one is ``page`` whatever the episode's
+#: authorship, and no exchange counts it (`promotion.exchanges`, :func:`mask_labels`). Only in the record's header —
+#: the lines Cicada's own writers put above the body (a title, blank lines and ``**Field:**`` lines) — never a line
+#: the person typed further down.
+LABEL_FIELDS = ("**Folder:**", "**List:**", "**Calendar:**", "**Database:**", "**Tags:**")
+_HEADER_FIELD = re.compile(r"^\*\*[^*\n]{1,40}:\*\*")
+
+
+def label_ranges(text: str) -> list[tuple[int, int]]:
+    """``(start, end)`` of each filing label's value in the record's header (:data:`LABEL_FIELDS`), ascending."""
+    out: list[tuple[int, int]] = []
+    pos = 0
+    for line in (text or "").splitlines(keepends=True):
+        bare = line.strip()
+        if bare and not bare.startswith("# ") and not _HEADER_FIELD.match(bare):
+            break   # the body starts: nothing below is a header line
+        field = next((f for f in LABEL_FIELDS if line.startswith(f)), None)
+        if field is not None:
+            out.append((pos + len(field), pos + len(line.rstrip("\r\n"))))
+        pos += len(line)
+    return out
+
+
+def in_label(text: str, start: int) -> bool:
+    """Does offset ``start`` sit in a filing label's value (:func:`label_ranges`)?"""
+    return any(a <= start < b for a, b in label_ranges(text))
+
+
+def mask_labels(text: str) -> str:
+    """``text`` with every filing label's value blanked to spaces (offsets kept): what an exchange counts."""
+    ranges = label_ranges(text)
+    if not ranges:
+        return text or ""
+    chars = list(text)
+    for a, b in ranges:
+        chars[a:b] = " " * (b - a)
+    return "".join(chars)
 
 
 def gap_line(dropped: int, first_at: str | None, last_at: str | None) -> str:
@@ -241,6 +320,11 @@ def source_path(memory_path: Path | None, doc_id: str) -> Path | None:
     return path if path.is_file() else None
 
 
+#: G234: frontmatter on a retired Apple Notes episode (`notes_sync.retire_locked`): the note is locked, so its record is
+#: never read back by anything, whatever door asks.
+LOCKED_NOTE_KEY = "locked_note"
+
+
 def source_document(memory_path: Path | None, doc_id: str) -> tuple[dict, str] | None:
     """``(frontmatter, evidence text)`` from ONE parse and the same resolver
     as :func:`source_text`, so the Reader's header and its text can never
@@ -254,6 +338,8 @@ def source_document(memory_path: Path | None, doc_id: str) -> tuple[dict, str] |
         parsed = markdown_parser.parse(path)
     except Exception:
         return None
+    if (parsed.frontmatter or {}).get(LOCKED_NOTE_KEY):
+        return None   # G234: a locked note's record reads as no document at all
     body = parsed.body if is_episode_id(doc_id) else strip_claims_block(parsed.body)
     return dict(parsed.frontmatter or {}), body
 
@@ -344,6 +430,9 @@ def _marker(line: str) -> tuple[str, str, int, str | None] | None:
     m = _ATTACHMENT_RE.match(line)
     if m:
         return "page", m.group(0)[:-1].rstrip(), m.end(), None
+    m = _RELAYED_RE.match(line)
+    if m:
+        return "assistant", m.group(0)[:-1].rstrip(), m.end(), None
     m = _TURN_RE.match(line)
     if m:
         if m.group(2):
@@ -353,12 +442,22 @@ def _marker(line: str) -> tuple[str, str, int, str | None] | None:
     return None
 
 
-def speaker_kind(text: str, start: int, gaps: Gaps = ()) -> str:
+def quote_markers(text: str) -> str:
+    """Words that may sit after someone's own in one episode: any line that would open a turn is quoted, so a relayed
+    "user: I said so" can never read as the person's (the attachment rule). Split as the grammar splits (`splitlines`, so a
+    bare CR or a U+2028 opens a line there too) and rejoined on plain newlines, which also survive a read of the file."""
+    return "\n".join(f"> {line}" if _marker(line) else line for line in text.splitlines())
+
+
+def speaker_kind(text: str, start: int, gaps: Gaps = (), *, saved: bool = False) -> str:
     """R4: ``assistant`` when the last turn marker at or before ``start`` is
     the model's, ``speaker`` when it is a note-taker's ``speaker:<label>:``
     line (R-LS7), ``media`` when it is a timed video line (G140); ``user``
     otherwise — including no marker at all, because every marker-less writer
-    captures the person's own input.
+    except a save captures the person's own input. ``saved``
+    (:data:`SAVE_KIND`): a saved item is ``page`` outside the person's own
+    sections (:data:`PERSON_SECTIONS`) and ``user`` inside one; a turn marker
+    inside it still reads as a marker.
 
     Scans through the END of the line that contains ``start`` (not just
     ``text[:start]``): a marker only ever matches at a line's first column,
@@ -373,6 +472,9 @@ def speaker_kind(text: str, start: int, gaps: Gaps = ()) -> str:
     start = max(int(start), 0)
     line_end = text.find("\n", start)
     head = text if line_end == -1 else text[:line_end]
+    if saved:
+        lines = _marker_lines(head, gaps, saved=True)
+        return lines[-1][1] if lines else "page"
     if not gaps:
         kind = "user"
         for line in head.splitlines():
@@ -427,13 +529,18 @@ def kind_for(doc_id: str, text: str, start: int, override: str | None = None, ga
     :data:`OVERRIDE_KINDS`, else the turn marker at ``start``."""
     if not is_episode_id(doc_id):
         return "page"
-    kind = speaker_kind(text, start, gaps)
+    if in_label(text, start):
+        return "page"                   # a filing label is never anyone's words (owner 2026-10-29)
+    kind = speaker_kind(text, start, gaps, saved=override == SAVE_KIND)
     if kind == GAP_KIND:
         return kind                     # gate B2: no declared authorship covers Cicada's own line
+    if override == AGENT_KIND:
+        return agent_words(kind)        # ruling 50: an agent's saved note is never the person's words
     return override if override in OVERRIDE_KINDS else kind
 
 
-def _marker_lines(text: str, gaps: Gaps = ()) -> list[tuple[int, str, str | None, int, str | None]]:
+def _marker_lines(text: str, gaps: Gaps = (), *,
+                  saved: bool = False) -> list[tuple[int, str, str | None, int, str | None]]:
     """``(line start, kind, marker, content start, time)`` for every
     turn-marker line — ``time`` is the raw ``m:ss`` of a timed video line
     (G140 Q-R9), ``None`` for every other marker.
@@ -448,16 +555,25 @@ def _marker_lines(text: str, gaps: Gaps = ()) -> list[tuple[int, str, str | None
     content is the whole line; a following line that opens no turn resumes the
     speaker before the gap (marker ``None``), so nothing after the marker is
     ever read as the gap's.
+
+    ``saved`` (:data:`SAVE_KIND`): every ``## `` heading line is a boundary
+    too, with marker ``None`` — a :data:`PERSON_SECTIONS` heading opens a
+    ``user`` block whose content starts on the next line, any other heading a
+    ``page`` block. A saved item's text before its first heading is ``page``.
     """
     out: list[tuple[int, str, str | None, int, str | None]] = []
     starts = {g0 for g0, _ in gaps or ()}
     pos = 0
-    before = "user"
+    before = "page" if saved else "user"
     after_gap = False
     for line in (text or "").splitlines(keepends=True):
         if pos in starts:
             out.append((pos, GAP_KIND, GAP_KIND, pos, None))
             after_gap = True
+        elif saved and line.startswith("## "):
+            before = "user" if line.strip() in _PERSON_HEADINGS else "page"
+            out.append((pos, before, None, pos + len(line), None))
+            after_gap = False
         else:
             hit = _marker(line)
             if hit:
@@ -521,7 +637,11 @@ def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = Non
     text before the first marker is its own block under R4's default.
     ``override`` is the episode's declared ``evidence_kind`` (R-LS7): when it
     is one of :data:`OVERRIDE_KINDS` every turn carries it, exactly as
-    :func:`kind_for` labels every span in that episode.
+    :func:`kind_for` labels every span in that episode. :data:`SAVE_KIND` (a
+    saved item, ``authorship.of``) splits it at its ``## `` sections: ``page``
+    blocks, and one ``user`` block per section of the person's own.
+    :data:`AGENT_KIND` (an agent's saved note, ruling 50) keeps its markers but
+    every turn that would be the person's is ``assistant``.
     """
     text = text or ""
     if not text:
@@ -530,9 +650,10 @@ def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = Non
         return [TurnSpan(index=1, start=0, content_start=0, end=len(text), role="page")]
     stamps = stamps or {}
     forced = override if override in OVERRIDE_KINDS else None
-    blocks: list[tuple[int, str, str | None, int, str | None]] = list(_marker_lines(text, gaps))
+    saved = override == SAVE_KIND
+    blocks: list[tuple[int, str, str | None, int, str | None]] = list(_marker_lines(text, gaps, saved=saved))
     if not blocks or blocks[0][0] > 0:
-        blocks.insert(0, (0, "user", None, 0, None))
+        blocks.insert(0, (0, "page" if saved else "user", None, 0, None))
     out: list[TurnSpan] = []
     previous_stamp = {}
     for i, (start, kind, marker, content_start, raw_t) in enumerate(blocks):
@@ -545,7 +666,7 @@ def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = Non
                 stamp = previous_stamp
             else:
                 previous_stamp = stamp
-        role = kind if kind == GAP_KIND else (forced or kind)
+        role = kind if kind == GAP_KIND else (forced or (agent_words(kind) if override == AGENT_KIND else kind))
         out.append(TurnSpan(
             index=i + 1, start=start, content_start=min(content_start, end), end=end,
             role=role, marker=marker, ts=stamp.get("ts"), speaker=stamp.get("speaker"),
@@ -713,7 +834,8 @@ def verify(
             return reasoning(doc_id)
         fm, text = doc
         if kind_override is None:
-            kind_override = str(fm.get("evidence_kind") or "") or None
+            from api.services import authorship   # data only: whose words the record says the episode holds
+            kind_override = authorship.of(fm)
         if gaps is None:
             gaps = gap_ranges(fm, text)
     digest = body_hash(text)

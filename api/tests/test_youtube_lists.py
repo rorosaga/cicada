@@ -168,7 +168,7 @@ def test_history_from_the_agent_is_days_merged_with_what_chrome_wrote_never_save
     assert media_ingestor.load_url_index(memory) == {}   # history is never a save
     days = [markdown_parser.parse(p) for p in sorted((memory / "episodes").glob("*.md"))]
     [day] = [d for d in days if d.frontmatter.get("source_id") == "watch-history:youtube:2026-10-14"]
-    rows = day.frontmatter["watched"]
+    rows = watch_history.stored_rows(memory, day.frontmatter)
     assert [r["url"][-11:] for r in rows] == [VID_A, VID_B]
     assert rows[0]["times"] == ["2026-10-14T09:14:03+00:00"] and rows[1]["channel"] == "bob-example"
     assert porcelain(memory) == ""

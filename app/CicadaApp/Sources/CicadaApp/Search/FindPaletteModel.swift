@@ -222,9 +222,9 @@ final class FindPaletteModel {
         let sleeper = self.sleeper
         serverTask = Task { [weak self] in
             do { try await sleeper(SearchTiming.serverDebounce) } catch { return }
-            await self?.runPass(q, mode: "prefix")
+            await self?.runPass(q, mode: "prefix", kinds: FindServerRows.prefixKinds)
             do { try await sleeper(SearchTiming.semanticIdle - SearchTiming.serverDebounce) } catch { return }
-            await self?.runPass(q, mode: "hybrid")
+            await self?.runPass(q, mode: "hybrid", kinds: FindServerRows.hybridKinds)
         }
     }
 
@@ -248,7 +248,8 @@ final class FindPaletteModel {
             serverPhase = .done
         } catch {
             guard !Task.isCancelled, isCurrent(q) else { return }
-            serverPhase = FindServerPhase.isUnreachable(error) ? .unreachable : .done
+            serverPhase = FindServerPhase.isUnreachable(error) ? .unreachable
+                : FindServerPhase.isFailure(error) ? .failed : .done
         }
     }
 
@@ -262,7 +263,7 @@ final class FindPaletteModel {
         guard SearchTiming.wantsServer(q) else { return }
         serverTask?.cancel()
         serverPhase = .searching
-        serverTask = Task { [weak self] in await self?.runPass(q, mode: "hybrid") }
+        serverTask = Task { [weak self] in await self?.runPass(q, mode: "hybrid", kinds: FindServerRows.hybridKinds) }
     }
 
     /// Offered once a pass has answered and fewer than three rows stand.
@@ -276,6 +277,7 @@ final class FindPaletteModel {
         switch serverPhase {
         case .searching: return "Searching conversations…"
         case .unreachable: return "Conversations and beliefs need the Cicada backend. It isn't answering."
+        case .failed: return Copy.Reach.searchFailed
         case .done where indexState == "building" || indexState == "unavailable":
             return "Cicada is still reading your conversations — try again in a moment."
         default: return nil

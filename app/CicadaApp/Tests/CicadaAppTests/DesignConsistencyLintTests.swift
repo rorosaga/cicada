@@ -113,6 +113,7 @@ extension DesignConsistencyLintTests {
         let notRows: [String: String] = [
             "RowHover.swift": "the shared fill itself",
             "TextTabs.swift": "a tab, not a row (DR-45)",
+            "MediaKindChips.swift": "a filter chip (a capsule), not a list row (ROR-138)",
             "GraphControlGroup.swift": "the Graph's control group button, a control",
             "MascotSettings.swift": "a Settings picker tile resting on bgFocus",
             "ScenerySettings.swift": "a Settings picker tile resting on bgFocus",

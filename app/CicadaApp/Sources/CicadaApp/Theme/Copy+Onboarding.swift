@@ -64,6 +64,8 @@ extension Copy {
     static let seeHowTitle = "Ask for your chat history"
     static let seeHowReplay = "Replay"
     static let seeHowDone = "Done"
+    /// CIC8 (2026-10-29) — the walkthrough is for asking; someone already holding the .zip picks it from here.
+    static let seeHowHaveFile = "I have the file…"
     static let seeHowClaudePath = "Settings → Privacy"
     static let seeHowChatGPTPath = "Settings → Data controls"
     static let seeHowGeminiPath = "My Activity → Gemini Apps"
@@ -111,7 +113,7 @@ extension Copy {
 
     /// Welcome: what Cicada is, in one sentence.
     static let welcomeLine = "One memory on this Mac that every agent you use reads and adds to."
-    static let onboardingSkip = "Skip"
+    static let onboardingSkip = "Skip this step"
 
     /// Intelligence (ruling 36 D1): a signed-in plan is pre-selected and said in words, with what will run; a key is
     /// an equal option one click away; a local model is never pitched.
@@ -133,6 +135,10 @@ extension Copy {
     /// Agents.
     static let agentsTitle = "Connect your agents"
     static let agentsSubline = "They read your memory and add to it."
+    /// Tester readiness (2026-10-26) — the one prerequisite, said where agents are connected: consolidation runs on the
+    /// person's own Claude Code or Codex plan (or a key they add). Names the two tools as what to have, never as a
+    /// choice Cicada made for them (provider-neutral copy, owner 2026-09-30).
+    static let agentsNeedsPlan = "Reading your conversations needs a signed-in plan or an API key."
     static let agentsConnect = "Connect"
     static let agentsRun = "Run these"
     static let agentsShowCommands = "Show commands"
@@ -140,10 +146,9 @@ extension Copy {
     static let agentsNoneFound = "No agents found on this Mac."
     static let agentsAnother = "Another agent"
     static let agentsPersonal = "Personal agents"
-    static let agentsPersonalNames = "Grok Bot, Muse, Instinct, Dots, Poke"
+    static let agentsPersonalNames = "Grok Bot, Muse, Instinct, Dots"
     /// Onboarding v3 (DR-39): *Another agent* and *Personal agents* fold under one remembered disclosure.
     static let agentsOther = "Other agents"
-    static let agentsOtherSummary = "Any other agent · personal agents"
     /// The one live check (after HeyClicky's "Testing, testing, 1, 2, 3" chip): the exact words to say to the person's
     /// own agent — named only when it is theirs (provider-neutral copy), else "your agent".
     static let agentsTryLead = "Then try it:"
@@ -168,6 +173,26 @@ extension Copy {
     static let sourcesNeedsAccess = "Needs Full Disk Access. A tick shows you how"
     /// Onboarding v3 (DR-39): the tiles this Mac has data for lead; the accounts and Messages fold under one disclosure.
     static let sourcesMore = "More sources"
+
+    /// Saved lists (owner 2026-10-26, ruling 39's dated line): asked once, pre-ticked; the button's answer is the
+    /// consent. One plain line on how (their own agent, their own signed-in browser, the cap) and on the sites' terms.
+    static let savedListsTitle = "Keep your saved lists current"
+    static let savedListsSubline = "Your own agent reads these in your signed-in browser, at most 10 times a day. "
+        + "These sites' terms discourage automated access, even to your own account."
+    static let savedListsNoAgent = "No agent is connected yet, so nothing reads these until you connect one."
+    static let savedListsKeep = "Keep them current"
+    /// The step's secondary while nothing is on: the ticked lists stay off.
+    static let savedListsNotNow = "Not now"
+    static let savedListsSaveFailed = "That didn't save. Try again, or turn the lists on later on the Sources page."
+    static func savedListsItem(_ item: SavedListItem) -> String {
+        switch item {
+        case .youtubeWatchLater: "YouTube Watch later"
+        case .youtubeHistory: "YouTube history"
+        case .x: "X Bookmarks"
+        case .instagram: "Instagram Saved"
+        case .linkedin: "LinkedIn Saved posts"
+        }
+    }
 
     /// Home's Getting started after onboarding: what onboarding covered, as one line (`GettingStartedFold`).
     static func gsCoveredInSetup(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
@@ -217,7 +242,7 @@ extension Copy {
          agentsConnect, agentsRun, agentsShowCommands, agentsDone, agentsNoneFound, agentsAnother, agentsPersonal,
          agentsPersonalNames, sourcesSubline, sourcesChats, sourcesDropFile, sourcesHowToExport, sourcesOn,
          sourcesComingIn, sourcesNeedsYou, sourcesOff, sourcesNeedsAccess, doneLead, doneScheduled("tonight at 3:00"), doneImportsNow,
-         doneReadNow, gsCoveredInSetup(1), gsCoveredInSetup(4), agentsOther, agentsOtherSummary, agentsTryLead,
+         doneReadNow, gsCoveredInSetup(1), gsCoveredInSetup(4), agentsOther, agentsTryLead,
          agentsTryPrompt, agentsTryAsk("Claude Code"), agentsTryAsk(nil), agentsTryCopyHelp,
          agentsFirstCall("Claude Code"), sourcesMore, doneTitle, doneAlready, doneReading, doneEmpty, doneUntitled, doneMore(9),
          donePage, doneWaiting]

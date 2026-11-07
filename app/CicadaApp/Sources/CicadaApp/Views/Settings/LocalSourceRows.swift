@@ -35,12 +35,13 @@ enum LocalSourceRowText {
 
     /// A folder row's state line on Search & files: its notes and when it was last read, or why it can't be.
     static func folderState(_ channel: SourceChannel, onThisMac: Bool, reading: Bool, now: Date = Date(),
-                            locale: Locale = .autoupdatingCurrent) -> String {
+                            locale: Locale = .autoupdatingCurrent, meetings: Bool = false) -> String {
         if !onThisMac { return LocalSourceCopy.folderMissing }
         if let error = channel.lastError { return error }
         if reading { return Copy.SearchFiles.readingNow }
         guard channel.connected else { return Copy.SearchFiles.notReadYet }
-        var parts = [Copy.SearchFiles.notes(channel.count, locale: locale)]
+        var parts = [meetings ? Copy.SearchFiles.meetings(channel.count, locale: locale)
+                              : Copy.SearchFiles.notes(channel.count, locale: locale)]
         if let date = channel.lastSyncDate { parts.append(SourceRowText.lastSynced(date, now: now, locale: locale)) }
         return parts.joined(separator: " · ")
     }
@@ -67,6 +68,8 @@ struct PickedFolder: Identifiable {
 /// tinted, and `danger` is for destructive actions only (DR-7).
 struct FolderChannelRow: View {
     let channel: SourceChannel
+    /// A recorder's page lists the meetings itself (`MeetingsBrowser`): the row is then only the folder and its Manage.
+    var showsItems = true
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var showManage = false
 
@@ -86,7 +89,8 @@ struct FolderChannelRow: View {
                         Tag(text: Copy.SearchFiles.depthMemory)
                             .help(Copy.SearchFiles.depthMemoryHelp)
                     }
-                    WarningLine(text: LocalSourceRowText.folderState(channel, onThisMac: onThisMac, reading: reading),
+                    WarningLine(text: LocalSourceRowText.folderState(channel, onThisMac: onThisMac, reading: reading,
+                                                                     meetings: folder?.isMeetings ?? false),
                                 warning: channel.lastError != nil || !onThisMac)
                 }
                 .help(folder?.path ?? "")
@@ -105,9 +109,12 @@ struct FolderChannelRow: View {
             if let folder, let error = localSources.folderErrors[folder.id] {
                 WarningLine(text: error, warning: true)
                     .padding(.leading, CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
+            } else if let folder, let skipped = localSources.folderSkipped[folder.id] {
+                WarningLine(text: skipped, warning: true)
+                    .padding(.leading, CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
             }
             // G161 — the notes the folder brought in, one row per file.
-            if channel.connected {
+            if showsItems, channel.connected {
                 CapturedItemsList(channel: channel.id)
                     .padding(.leading, CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
             }
@@ -459,8 +466,11 @@ struct FolderManagePanel: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            AgentFolderPicker(root: root, rows: $rows, message: $message)
-            Text(Copy.Folders.manageHelp)
+            // G95: a meeting folder has no "written by an agent" parts — each line is its speaker's.
+            if !folder.isMeetings {
+                AgentFolderPicker(root: root, rows: $rows, message: $message)
+            }
+            Text(folder.isMeetings ? Copy.Catalog.meetingWords : Copy.Folders.manageHelp)
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -476,6 +486,7 @@ struct FolderManagePanel: View {
                               disabledHelp: localSources.isOnThisMac(folder) ? Copy.SearchFiles.readingNow : Copy.SearchFiles.readNowAway) {
                     Task { await localSources.syncNow(folder) }
                 }
+                if !folder.isMeetings {
                 PrimaryActionButton(title: Copy.SearchFiles.save) {
                     Task {
                         busy = true
@@ -488,6 +499,7 @@ struct FolderManagePanel: View {
                             message = AddSourceSheet.friendlyError(error)
                         }
                     }
+                }
                 }
             }
         }

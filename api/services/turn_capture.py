@@ -45,11 +45,16 @@ import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
-from api.services import continuity_sessions, demo_guard, episode_ids, markdown_parser
+from loguru import logger
+
+from api.services import (
+    agent_catalog, continuity_sessions, demo_guard, episode_ids, evidence, markdown_parser, sensitive_flags,
+)
 from api.services import transcript_capture as tc
 from api.services.transcript_extract import (
-    _NOTE_LINE_RE, Conversation, Gap, Turn, clean_turn, window,
+    _NOTE_LINE_RE, SESSION_CAP_CHARS, Conversation, Gap, Turn, clean_turn, window,
 )
 
 #: Harnesses whose hooks post turns. Each must also be in ``episode_title.PRODUCT``.
@@ -158,7 +163,7 @@ def _load_strict(stored):
 
 
 def _merge(turns: list[Turn], ids: list[str | None], posted: list[Posted], *, turn_id: str | None, retry: bool,
-           now: str, model: str | None, counts: dict) -> bool:
+           now: str, model: str | None, counts: dict, host: str | None = None) -> bool:
     """Fold the posted turns into ``turns``/``ids`` in place; True when anything moved.
 
     Keyed (Cursor): a turn with the same id and speaker is replaced when its
@@ -169,7 +174,7 @@ def _merge(turns: list[Turn], ids: list[str | None], posted: list[Posted], *, tu
     reply, anything else is appended."""
     def cleaned(p: Posted, first: bool) -> Turn | None:
         turn, c = clean_turn(p.speaker, p.text, first=first, ts=now,
-                             model=model if p.speaker == "assistant" else None)
+                             model=model if p.speaker == "assistant" else None, host=host)
         counts["scrubbed"] += c["scrubbed"]
         counts["truncated_turns"] += c["truncated_turns"]
         if turn is not None and c["first_request_clipped"]:
@@ -242,6 +247,109 @@ def _entries(conv: Conversation, ids: list[str | None]) -> list[dict]:
     return out
 
 
+def _relayed_marker(relay: dict) -> str:
+    from api.remote.catalog import APPS
+
+    known = APPS.get(str(relay.get("app") or ""))
+    return f"relayed [{known.label if known is not None else 'app'}]"
+
+
+def _after_import(memory_path: Path, path: Path, stored, posted: list[Posted], relay: dict, *,
+                  said_at: str | None) -> tc.CaptureResult:
+    """Ruling 58 (owner, 2026-11-04): a chat continued after its one-time import keeps its later turns in the same
+    episode (one conversation for every count, G104): the imported part stays the person's own, each later turn is
+    marked as relayed, never theirs (`episode_staging.append_relayed`). The handle still finds this episode by its
+    session. Idempotent like every turn writer: a reply the episode already holds is not added, and a message that is the
+    last person's turn with no new reply is a re-send, even of one the export brought."""
+    from api.services import episode_staging as staging
+
+    fm, body = stored.frontmatter, stored.body
+    episode_id = str(fm.get("id") or path.stem)
+    now = said_at or episode_ids.utc_now_iso()
+    spans = evidence.turns(body)
+    words = [(t, staging._turn_key(body[t.content_start:t.end])) for t in spans if t.marker]
+    replies = {w for t, w in words if t.marker in ("assistant", "ai")}
+    person = [w for t, w in words if t.role == "user" or t.marker.startswith("relayed")]
+    marker = _relayed_marker(relay)
+    cleaned = [(p, clean_turn(p.speaker, p.text, first=False, ts=now)[0]) for p in posted]
+    # G235: text the person took out stays out, though the app's model still says it, and a re-send still reads as one.
+    sensitive_flags.reapply_conversation(SimpleNamespace(turns=[t for _, t in cleaned if t is not None]), fm)
+    rows: list[dict] = []
+    new_reply = False
+    for p, turn in cleaned:
+        if turn is None:
+            continue
+        key = staging._turn_key(turn.text)
+        if p.speaker == "assistant":
+            if key not in replies:
+                new_reply = True
+                rows.append({"marker": "assistant", "speaker": "assistant", "text": turn.text, "ts": now})
+        elif new_reply or not person or key != person[-1]:
+            rows.append({"marker": marker, "speaker": "relayed", "text": turn.text, "ts": now})
+    if not rows:
+        return tc.CaptureResult("unchanged", episode_id, 0, 0, {})
+    grown = len(body) - fm[RELAY_KEY]["tail_at"] if staging.has_relayed_tail(fm) else 0
+    if grown + sum(len(r["text"]) for r in rows) > SESSION_CAP_CHARS:
+        return tc.CaptureResult("capped", episode_id, 0, 0, {})
+    before = tc._bytes_if(memory_path, path)
+    staging.append_relayed(path, fm, body, rows, at=now, project=relay.get("project"))
+    if before is not None:
+        tc.capture_commit.note_written(memory_path, path, before=before)
+    logger.info(f"capture: updated {episode_id} after its import with {len(rows)} relayed turns, re-queued")
+    return tc.CaptureResult("updated", episode_id, 0, 0, {})
+
+
+#: Ruling 57: how recently the app's other door must have written for this to be that door's same conversation.
+ELSEWHERE_WINDOW_S = 600
+
+
+def _elsewhere_in(path: Path, relay: dict, said: set[str], now) -> str | None:
+    from datetime import datetime, timezone
+
+    stored = markdown_parser.parse(path)
+    fm = stored.frontmatter
+    other = fm.get(RELAY_KEY)
+    if not isinstance(other, dict) or other.get("app") != relay.get("app") or other.get("channel") == relay.get("channel"):
+        return None
+    at = datetime.fromisoformat(str(fm.get("last_turn_at")).replace("Z", "+00:00"))
+    if abs((now - at.astimezone(timezone.utc)).total_seconds()) > ELSEWHERE_WINDOW_S:
+        return None
+    state = _load(stored)       # the kept turns, by the episode's own offsets
+    if state is None or not any(t.role == "user" and t.text in said for t in state[0]):
+        return None
+    return str(fm.get("id") or path.stem)
+
+
+def _kept_elsewhere(episodes_dir: Path, relay: dict, first: str | None, said_at: str) -> str | None:
+    """A connector added on claude.ai also shows in the desktop app beside its local connection, and both ask the model
+    to relay. The id of the episode the app's other door holds for this conversation, so it stays one episode: one of
+    that door's person turns, written in the last minutes, is this message whole (a model calling both, or one that went
+    on calling after it was told to stop), measured from when this turn was said, so a turn that waited in an outbox still
+    finds its copy. Only the person's whole turn counts: a reply that offers a prompt to paste, or
+    a turn that quotes this message inside a longer one, is another conversation. ``None`` for a message too short to tell
+    apart (the match key's 24 characters). Runs under the episode lock, so two doors called together cannot both start
+    one. Reads other episodes of the day: whatever is wrong with one of them (a hand edit's YAML, a body that is not a
+    mapping, a bad stamp) is no reason to lose this turn, so any failure there means that file says nothing."""
+    from datetime import datetime, timedelta, timezone
+
+    if relay_match_key(first) is None:
+        return None
+    # A later turn keeps a 2k head where a first keeps 16k: the same words, however the other door held them.
+    later, _ = clean_turn("user", first, first=False)
+    said = {first} | ({later.text} if later is not None else set())
+    now = datetime.fromisoformat(said_at.replace("Z", "+00:00")).astimezone(timezone.utc)
+    for offset in (0, -1, 1):       # an episode id carries the conversation's local day
+        day = (now + timedelta(days=offset)).date().isoformat()
+        for path in episodes_dir.glob(f"ep_{day}*.md"):
+            try:
+                found = _elsewhere_in(path, relay, said, now)
+            except Exception:  # noqa: BLE001 - see the docstring; transcript_capture's own scan does the same
+                continue
+            if found is not None:
+                return found
+    return None
+
+
 def capture_turns(
     memory_path: Path,
     *,
@@ -258,13 +366,19 @@ def capture_turns(
     hook_event: str | None = None,
     relay: dict | None = None,
     utc_offset_minutes: int | None = None,
+    host: str | None = None,
+    device: str | None = None,
+    said_at: str | None = None,
 ) -> tc.CaptureResult:
     """Merge the posted turns into the session's one episode and write it.
 
-    ``relay`` (ruling 32) marks turns a hookless app's model relayed through the remote connector: ``{app,
-    connector, channel}``. Any catalog harness is then accepted, the episode carries the channel and
-    ``evidence_kind: assistant``, and an episode an export already upgraded is left alone (``upgraded``).
+    ``relay`` (rulings 32, 57) marks turns a hookless app's model relayed: ``{app, connector, channel}``. Any catalog
+    harness is then accepted, the episode carries the channel and ``evidence_kind: assistant``, an episode an export
+    already upgraded keeps its later turns after the imported part (ruling 58, :func:`_after_import`), and a first turn
+    the app's other connection just kept writes nothing (``elsewhere``, :func:`_kept_elsewhere`).
     ``utc_offset_minutes`` (ruling 34): a client's UTC offset, so a new episode's id carries the person's day.
+    ``host`` (G228): the app that launched the harness, a label on the episode (``transcript_capture.host_extra``).
+    ``said_at`` (rulings 34, 39): when these turns were said, for a turn that waited in an outbox; else now.
 
     ``status`` is ``transcript_capture``'s vocabulary: ``refused`` (a demo bank,
     a bad harness, session or turn id, or ``state_mismatch``; nothing written),
@@ -292,7 +406,7 @@ def capture_turns(
         stored = markdown_parser.parse(existing) if existing is not None else None
         if relay is not None and stored is not None and isinstance(stored.frontmatter.get(RELAY_KEY), dict) \
                 and stored.frontmatter[RELAY_KEY].get("upgraded_at"):
-            return tc.CaptureResult("upgraded", str(stored.frontmatter.get("id") or existing.stem), 0, 0, {})
+            return _after_import(memory_path, existing, stored, posted, relay, said_at=said_at)
         if stored is not None:
             state = _load(stored)
             if state is None:
@@ -301,8 +415,17 @@ def capture_turns(
         else:
             kept, ids, gap, clipped = [], [], None, False
         counts = {"scrubbed": 0, "truncated_turns": 0, "first_request_clipped": clipped}
-        now = episode_ids.utc_now_iso()
-        _merge(kept, ids, posted, turn_id=turn_id, retry=retry, now=now, model=model, counts=counts)
+        now = said_at or episode_ids.utc_now_iso()
+        # G228: T3 Code's envelopes are unwrapped only under its host — the hook's word, else the episode's own.
+        strip_host = None if relay is not None else (
+            agent_catalog.clean_host(host)
+            or agent_catalog.clean_host(stored.frontmatter.get("host") if stored is not None else None))
+        _merge(kept, ids, posted, turn_id=turn_id, retry=retry, now=now, model=model, counts=counts,
+               host=strip_host)
+        if relay is not None and stored is None:
+            other = _kept_elsewhere(episodes_dir, relay, next((t.text for t in kept if t.role == "user"), None), now)
+            if other is not None:
+                return tc.CaptureResult("elsewhere", other, 0, 0, {})
         key = {id(t): k for t, k in zip(kept, ids)}
         kept, gap = window(kept, gap)
         ids = [key[id(t)] for t in kept]
@@ -324,11 +447,20 @@ def capture_turns(
         extra: dict = {STATE_KEY: _entries(conv, ids)}
         if relay is not None:
             first = next((t.text for t in kept if t.role == "user"), None)
+            # Ruling 45 addendum: the app's word on the project, once said, stays until it says another.
+            before = stored.frontmatter.get(RELAY_KEY) if stored is not None else None
+            said = relay.get("project") or (before.get("project") if isinstance(before, dict) else None)
             extra = {"evidence_kind": "assistant",
-                     RELAY_KEY: {**{k: v for k, v in relay.items() if v is not None},
+                     RELAY_KEY: {**{k: v for k, v in relay.items() if v is not None and k != "project"},
+                                 **({"project": said} if said else {}),
                                  "first": relay_match_key(first)},
                      **extra}
-        return tc.write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,
-                                cwd=cwd, bank=bank, effort=None, bank_paths=bank_paths if use_registry else None,
-                                hook_event=hook_event, registry_workspace=registry_workspace,
-                                extra=extra, stored=stored, utc_offset_minutes=utc_offset_minutes)
+        if relay is None:
+            extra.update(tc.host_extra(host) or {})
+        result = tc.write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,
+                                  cwd=cwd, bank=bank, effort=None, bank_paths=bank_paths if use_registry else None,
+                                  hook_event=hook_event, registry_workspace=registry_workspace,
+                                  extra=extra, stored=stored, utc_offset_minutes=utc_offset_minutes)
+    if relay is None:
+        tc.saw_host(host, result, device=device)
+    return result

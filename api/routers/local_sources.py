@@ -29,11 +29,12 @@ LinkedIn connections (2026-10-16, G154's pattern): the person picks their export
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    CamelModel,
     CalendarLocalSyncRequest,
     CalendarLocalSyncResponse,
     ContactsLocalSyncRequest,
@@ -57,6 +58,9 @@ from api.models.schemas import (
     MessagesSyncRequest,
     MessagesSyncResponse,
     MessagesWaitingResponse,
+    ContactsBookRequest,
+    ContactsBookResponse,
+    ContactsBookSaved,
     RemindersLocalSyncRequest,
     RemindersLocalSyncResponse,
     TabGroupsSyncRequest,
@@ -69,15 +73,19 @@ from api.models.schemas import (
 )
 from api.services import (
     calendar_local,
+    contacts_book,
     contacts_local,
+    device_context,
     folder_source,
     linkedin_people,
     local_refs,
     messages_photos,
     messages_source,
     paper_metadata,
+    phone_numbers,
     papers,
     reminders_local,
+    source_collections,
     sync_state,
     tab_groups,
     watch_history,
@@ -85,6 +93,7 @@ from api.services import (
     write_admission,
 )
 from api.routers.capture import refuse_capture_into_demo
+from api.services.auth import request_device
 from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
@@ -95,7 +104,7 @@ _DEMO_GATE = [Depends(refuse_capture_into_demo)]
 
 
 def _record(folder: dict) -> FolderRecord:
-    return FolderRecord(**folder, channel_id=folder_source.channel_id(folder["id"]))
+    return FolderRecord(**folder, channel_id=folder_source.channel_for(folder))
 
 
 @router.get("/sources/folders", response_model=FolderListResponse)
@@ -134,17 +143,25 @@ async def register_folder(req: FolderRegisterRequest, settings: Settings = Depen
     memory_path = settings.memory_path
     device = local_refs.current_device_id()
     name = req.label if req.project_name is None else req.project_name
-    project_id, created = await run_in_threadpool(
+    # G95 (2026-11-03): a folder of meeting transcripts anchors no project — a recorder's folder is not one.
+    existing = next((f for f in folder_source.list_folders(memory_path)
+                     if local_refs.same_device(f.get("device"), device) and f.get("path") == req.path), None)
+    if existing is not None and folder_source.kind_of(existing) != req.kind:
+        # A folder's kind is set when it is first added and never flips: re-read as meetings, a notes folder's episodes
+        # would be replaced by meetings and its notes tombstoned (and the reverse). Nothing is written.
+        raise HTTPException(409, folder_source.KIND_REFUSAL[folder_source.kind_of(existing)])
+    meetings = req.kind == "meetings"
+    project_id, created = ("", False) if meetings else await run_in_threadpool(
         folder_source.ensure_project, memory_path, name, path=req.path, device=device)
     folder = folder_source.register(
         memory_path, label=req.label, path=req.path, include=req.include, exclude=req.exclude,
         authorship=[r.model_dump() for r in req.authorship] if req.authorship is not None else None,
-        project_id=project_id or None, device=device)
+        project_id=project_id or None, device=device, kind=req.kind, recorder=req.recorder)
     paths = [f"sources/{folder_source.FOLDERS_FILENAME}"]
     if project_id:
         paths.append(f"entities/{project_id}.md")
     trigger = "user/companion_app"
-    if req.authorship is not None:
+    if req.authorship is not None and not meetings:
         # A re-pick that carries rules is a rules change too (R-B6); a new folder has nothing to move.
         moved = await _reapply_authorship(memory_path, folder)
         if moved:
@@ -152,7 +169,7 @@ async def register_folder(req: FolderRegisterRequest, settings: Settings = Depen
             trigger = folder_source.AUTHORSHIP_TRIGGER
     await folder_source.commit_paths_for(
         memory_path, paths, subject=f"Folder added ({folder['label']})", trigger=trigger,
-        channel=folder_source.channel_id(folder["id"]))
+        channel=folder_source.channel_for(folder))
     return _record(folder)
 
 
@@ -167,13 +184,13 @@ async def update_folder(folder_id: str, req: FolderUpdateRequest, settings: Sett
         raise HTTPException(404, f"No folder {folder_id!r}")
     paths = [f"sources/{folder_source.FOLDERS_FILENAME}"]
     trigger = "user/companion_app"
-    if req.authorship is not None:
+    if req.authorship is not None and not folder_source.is_meetings(folder):
         # F2-back R-B6: the rules and the episodes they relabel land in ONE `user` commit.
         paths += await _reapply_authorship(memory_path, folder)
         trigger = folder_source.AUTHORSHIP_TRIGGER
     await folder_source.commit_paths_for(
         memory_path, paths, subject=f"Folder settings ({folder['label']})", trigger=trigger,
-        channel=folder_source.channel_id(folder_id))
+        channel=folder_source.channel_for(folder))
     return _record(folder)
 
 
@@ -210,24 +227,28 @@ async def sync_folder(
     if sum(len(f.content_b64) for f in req.files) * 3 // 4 > folder_source.MAX_BATCH_BYTES:
         raise HTTPException(413, "batch too large — send fewer files per request")
     files = [folder_source.IncomingFile(f.relpath, f.mtime, f.sha256, f.content_b64) for f in req.files]
-    out = await run_in_threadpool(folder_source.sync, memory_path, folder, files, req.deleted, preview=preview)
+    out = await run_in_threadpool(folder_source.sync, memory_path, folder, files, req.deleted, preview=preview,
+                                  tz_name=req.tz_name)
+    channel = folder_source.channel_for(folder)
+    meetings = folder_source.is_meetings(folder)
     staged = out.pop("_staged")
     texts = out.pop("_texts")
     if preview:
         # The sheet shows how many papers a folder holds before anything lands
         # — counted from the posted bytes, nothing written (R-F3).
-        out["papers_found"] = await run_in_threadpool(papers.count_papers, list(texts.values()))
+        if not meetings:
+            out["papers_found"] = await run_in_threadpool(papers.count_papers, list(texts.values()))
         return FolderSyncResponse(**out)
     attempted = len(files)
     if attempted and len(out["errors"]) == attempted:
-        sync_state.record_error(memory_path, folder_source.channel_id(folder_id),
-                                f"{attempted} file(s) could not be read")
+        sync_state.record_error(memory_path, channel, f"{attempted} file(s) could not be read")
     else:
-        sync_state.record_sync(memory_path, folder_source.channel_id(folder_id),
+        sync_state.record_sync(memory_path, channel,
                                count=folder_source.live_file_count(memory_path, folder_id))
     paths = list(staged.paths)
     registry_moved = bool(staged.paths)  # ``sync`` stamped ``last_sync``
-    paper_work = bool(staged.touched or staged.tombstoned_sources)
+    # A meeting folder has no papers (G95): its files are transcripts, never a reading list.
+    paper_work = not meetings and bool(staged.touched or staged.tombstoned_sources)
     if write_admission.holding():
         # R-LS17: Stage 5 may be rewriting the same pages; the episodes are
         # staged, the paper step waits for the next sync or the Sleep tail.
@@ -255,8 +276,8 @@ async def sync_folder(
     if paths:
         await folder_source.commit_paths_for(
             memory_path, paths, subject=f"Folder sync ({folder['label']})", trigger="folder/sync",
-            channel=folder_source.channel_id(folder_id))
-    if resolve:
+            channel=channel)
+    if resolve and not meetings:
         # R-LS18: the person asked (first add, or "Sync now") — fetch details
         # after the response, one run per process, skipped while Sleep runs.
         background.add_task(paper_metadata.resolve_in_background, memory_path)
@@ -321,7 +342,11 @@ async def sync_calendar_local(req: CalendarLocalSyncRequest, settings: Settings 
                                       bank=memory_path.name)
     except calendar_local.PayloadError as exc:
         raise HTTPException(422, str(exc))
-    sync_state.record_sync(memory_path, calendar_local.CHANNEL_ID, count=out.pop("live"))
+    # 2026-11-04 — the calendars this read named, with their accounts: the Sources page's account → calendar view.
+    sync_state.record_sync(memory_path, calendar_local.CHANNEL_ID, count=out.pop("live"),
+                           extra={source_collections.KEY: source_collections.after_sync(
+                               memory_path, calendar_local.CHANNEL_ID, [c.model_dump() for c in req.calendars],
+                               {e.calendar_id for e in req.events})})
     await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Calendar sync",
                                          trigger="capture/calendar", channel=calendar_local.CHANNEL_ID)
     return CalendarLocalSyncResponse(**out, bank=memory_path.name)
@@ -341,7 +366,10 @@ async def sync_reminders_local(req: RemindersLocalSyncRequest, settings: Setting
                                       bank=memory_path.name)
     except reminders_local.PayloadError as exc:
         raise HTTPException(422, str(exc))
-    sync_state.record_sync(memory_path, reminders_local.CHANNEL_ID, count=out.pop("live"))
+    sync_state.record_sync(memory_path, reminders_local.CHANNEL_ID, count=out.pop("live"),
+                           extra={source_collections.KEY: source_collections.after_sync(
+                               memory_path, reminders_local.CHANNEL_ID, [lst.model_dump() for lst in req.lists],
+                               {r.list_id for r in req.reminders})})
     await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Reminders sync",
                                          trigger="capture/reminders", channel=reminders_local.CHANNEL_ID)
     return RemindersLocalSyncResponse(**out, bank=memory_path.name)
@@ -391,6 +419,69 @@ async def sync_watch_history(req: WatchHistorySyncRequest, settings: Settings = 
     return WatchHistorySyncResponse(**out, bank=memory_path.name)
 
 
+class _RevealNumbers(CamelModel):
+    tokens: list[str] = []
+
+
+def _this_mac_only(request: Request) -> None:
+    """Ruling 55: a number is shown on the Mac that holds the vault. A device token, a client of this server by
+    any route, is refused, and neither route is on the remote listener (it serves MCP and `/v1` alone)."""
+    if request_device(request) is not None:
+        raise HTTPException(status_code=403, detail="A number is shown only on the Mac that holds it.")
+
+
+@router.post("/people/numbers/reveal")
+def reveal_numbers(req: _RevealNumbers, request: Request, settings: Settings = Depends(get_settings)):
+    """THE door from a token to its digits (`phone_numbers.reveal`): the app's, for what it is showing. Never stored,
+    never logged, never in another response. ``problem`` is the sentence when the vault can't be used."""
+    _this_mac_only(request)
+    wanted = [t for t in req.tokens[:500] if phone_numbers.TOKEN_ID_RE.match(str(t))]
+    return {"numbers": phone_numbers.reveal(settings.memory_path, wanted),
+            "problem": phone_numbers.problem(settings.memory_path)}
+
+
+@router.get("/people/numbers/match-key")
+def number_match_key(request: Request, settings: Settings = Depends(get_settings)):
+    """The vault's key for the app to hash a card's numbers on this Mac, so no digit crosses the wire (R-SR8). Nothing
+    while the feature is off or the vault can't be used: an app that gets none posts no keys."""
+    _this_mac_only(request)
+    if not phone_numbers.enabled():
+        return {"key": None}
+    try:
+        return {"key": phone_numbers.match_key(settings.memory_path)}
+    except phone_numbers.VaultUnavailable:
+        return {"key": None}
+
+
+class _NumbersSwitch(CamelModel):
+    on: bool
+
+
+@router.get("/people/numbers/switch")
+def numbers_switch(request: Request, settings: Settings = Depends(get_settings)):
+    _this_mac_only(request)
+    return {"on": phone_numbers.enabled(), "problem": phone_numbers.problem(settings.memory_path)}
+
+
+@router.put("/people/numbers/switch")
+def set_numbers_switch(req: _NumbersSwitch, request: Request, settings: Settings = Depends(get_settings)):
+    """Ruling 55's yes or no, on this Mac (`phone_numbers.set_enabled`): the file every process reads. Recorded
+    as what this route knows: the API token asked, which anything holding it can do."""
+    _this_mac_only(request)
+    record = phone_numbers.set_enabled(req.on)
+    return {**record, "problem": phone_numbers.problem(settings.memory_path)}
+
+
+@router.post("/people/numbers/new-vault")
+def start_new_vault(request: Request, settings: Settings = Depends(get_settings)):
+    """The person's own way out of a lost vault: the old file is set aside whole, never deleted (`phone_numbers.new_vault`)."""
+    _this_mac_only(request)
+    try:
+        return phone_numbers.new_vault(settings.memory_path)
+    except phone_numbers.VaultHealthy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.post("/sources/contacts-local/sync", response_model=ContactsLocalSyncResponse, dependencies=_DEMO_GATE)
 @write_admission.route(refuse=lambda: SleepWriting(contacts_local.SLEEP_REFUSAL))
 async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings = Depends(get_settings)):
@@ -425,6 +516,56 @@ async def forget_contacts_waiting(connection: str | None = Query(None, max_lengt
     Stage 2's first-mention index, Stage 5's seed, the tail's rematch and its save back — treats what it read before
     the marker as empty. ``connection`` (the app's id for the connection it ends) drops any sync still in flight from
     it. Counts only, never a name."""
+    return {"forgotten": await run_in_threadpool(contacts_local.forget_waiting, connection)}
+
+
+def _book_scope() -> str:
+    """The device that signed this request (from its token, never its body): a Mac reads only the book it posted."""
+    return contacts_book.scope_of(device_context.current())
+
+
+@router.put("/sources/contacts-local/book", response_model=ContactsBookSaved, dependencies=_DEMO_GATE)
+async def put_contacts_book(req: ContactsBookRequest, settings: Settings = Depends(get_settings)):
+    """G154 (owner 2026-11-04): every card of the book the app read, names and thumbnails, for the Contacts page's
+    faces. Outside every bank and read by no match (``contacts_book``), so it is accepted while Sleep runs; on a copy it
+    runs here, where the reader is. 409 for a connection the person ended, 413 above ``MAX_CONTACTS``."""
+    bank = settings.memory_path.name
+    cards = [c.model_dump(by_alias=False) for c in req.cards]
+    try:
+        total = await run_in_threadpool(contacts_book.save, bank, _book_scope(), cards, connection=req.connection)
+    except contacts_local.PayloadError as exc:
+        raise HTTPException(413, str(exc))
+    except contacts_local.Disconnected as exc:
+        raise HTTPException(409, str(exc))
+    return ContactsBookSaved(total=total)
+
+
+@router.get("/sources/contacts-local/book", response_model=ContactsBookResponse)
+async def get_contacts_book(settings: Settings = Depends(get_settings)):
+    """Every card this Mac posted, as faces: the app's own read, token-gated like every route and on no agent door (no
+    tool, no CLI command, not on the remote listener). A read that is not a Store domain, no ETag; the app caches it in
+    memory. Which card has a page is derived from the pages here."""
+    memory_path = settings.memory_path
+    return ContactsBookResponse(**await run_in_threadpool(contacts_book.read, memory_path, memory_path.name,
+                                                          _book_scope()))
+
+
+@router.get("/sources/contacts-local/book/{key}/photo")
+async def get_contacts_book_photo(key: str, settings: Settings = Depends(get_settings)):
+    """One face's thumbnail from this Mac's own book; 404 draws the monogram. ``no-store``: a forget leaves no copy in
+    a disk cache."""
+    memory_path = settings.memory_path
+    found = await run_in_threadpool(contacts_book.photo, memory_path, memory_path.name, _book_scope(), key)
+    if found is None:
+        raise HTTPException(404, "no photo for this card")
+    media = "image/png" if found[1] == "png" else "image/jpeg"
+    return Response(content=found[0], media_type=media, headers={"Cache-Control": "no-store"})
+
+
+@router.delete("/sources/contacts-local/book")
+async def forget_contacts_book(connection: str | None = Query(None, max_length=64)):
+    """Contacts was stopped: the same forget as ``DELETE /waiting``, under a route that runs on this computer. On a copy
+    ``/waiting`` goes to the home and this computer's own book would stay, so the app sends both. Counts only."""
     return {"forgotten": await run_in_threadpool(contacts_local.forget_waiting, connection)}
 
 
@@ -512,7 +653,7 @@ async def put_messages_settings(req: MessagesSettingsUpdate, settings: Settings 
     conversation = None
     if req.conversation is not None:
         c = req.conversation
-        conversation = {"id": c.id, "name": c.name, "service": c.service, "ticked": c.ticked}
+        conversation = {"id": c.id, "name": c.name, "service": c.service, "ticked": c.ticked, "pinned": c.pinned}
         if c.clear_actor:
             conversation["actor"] = None
         elif c.actor is not None:

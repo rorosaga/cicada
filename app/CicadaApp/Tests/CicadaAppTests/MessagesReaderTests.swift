@@ -27,7 +27,7 @@ final class MessagesReaderTests: XCTestCase {
     private func seed() -> (instinct: Int64, other: Int64) {
         let instinct = chat("+15550000001")
         let other = chat("+15550000003")
-        chat("+15550000009", style: 43, name: "A group")   // never listed in this slice
+        synthetic.group(["+15550000009", "+15550000008"], name: "A group")   // listed, read only once ticked
         message(instinct, minute: 0, fromMe: true, text: "Plan the alpha-project launch?")
         message(instinct, minute: 1, fromMe: false, text: "Sure — I can draft it.", bodyOnly: true)
         message(instinct, minute: 2, fromMe: true, text: "Loved “Sure — I can draft it.”", tapback: true)
@@ -67,6 +67,73 @@ final class MessagesReaderTests: XCTestCase {
         XCTAssertFalse(String(decoding: pass.json, as: UTF8.self).contains("CANARY"), "an attachment's path never crosses")
     }
 
+    func testAGroupCrossesWithParticipantKeysAndNeverAHandle() throws {
+        let group = synthetic.group(["+15550000021", "alice@example.com"], name: "")
+        message(group, minute: 0, fromMe: true, text: "Who is in for alpha-hall?")
+        synthetic.message(group, minute: 1, from: "+15550000021", text: "me")
+        synthetic.message(group, minute: 2, from: "alice@example.com", text: "me too")
+        let reader = MessagesReader(database: dbURL)
+        let conversation = try XCTUnwrap(try reader.conversations().first { $0.chatRowId == group })
+        XCTAssertTrue(conversation.isGroup)
+        XCTAssertEqual(conversation.members, ["+15550000021", "alice@example.com"], "kept in the app, for Contacts only")
+        let keys = conversation.members.map { MessagesReader.memberKey(conversationId: conversation.id, handle: $0) }
+        let members = keys.map { MessagesMemberPayload(key: $0, name: "", direct: nil) }
+        let pass = try reader.read(conversation, name: "", members: members, since: MessagesCursor())
+        let text = String(decoding: pass.json, as: UTF8.self)
+        XCTAssertFalse(text.contains("5550000021") || text.contains("alice@example.com"), "a handle never crosses")
+        let body = try object(pass)
+        let rows = try XCTUnwrap(body["messages"] as? [[String: Any]])
+        XCTAssertNil(rows[0]["sender"], "the person's own row names no sender")
+        XCTAssertEqual(rows.dropFirst().compactMap { $0["sender"] as? String }, keys)
+        let conv = try XCTUnwrap(body["conversation"] as? [String: Any])
+        XCTAssertEqual(conv["group"] as? Bool, true)
+        XCTAssertEqual((conv["members"] as? [[String: Any]])?.compactMap { $0["key"] as? String }, keys)
+        // Stable per chat, different in another chat.
+        XCTAssertEqual(MessagesReader.memberKey(conversationId: conversation.id, handle: "+15550000021"), keys[0])
+        XCTAssertNotEqual(MessagesReader.memberKey(conversationId: String(repeating: "f", count: 24),
+                                                   handle: "+15550000021"), keys[0])
+    }
+
+    func testACardIdCrossesBesideTheChatNeverTheHandle() throws {
+        let one = chat("+15550000031")
+        message(one, minute: 0, fromMe: true, text: "lunch?")
+        let group = synthetic.group(["+15550000032"], name: "Crew")
+        synthetic.message(group, minute: 1, from: "+15550000032", text: "yes")
+        let reader = MessagesReader(database: dbURL)
+        let listed = try reader.conversations()
+        let direct = try XCTUnwrap(listed.first { $0.chatRowId == one })
+        let pass = try reader.read(direct, name: "Robert Example", contact: "CARD-R", since: MessagesCursor())
+        let conv = try XCTUnwrap(try object(pass)["conversation"] as? [String: Any])
+        XCTAssertEqual(conv["contact"] as? String, "CARD-R")
+        let crew = try XCTUnwrap(listed.first { $0.chatRowId == group })
+        let key = MessagesReader.memberKey(conversationId: crew.id, handle: "+15550000032")
+        let groupPass = try reader.read(crew, name: "Crew",
+                                        members: [MessagesMemberPayload(key: key, name: "Alice Example", direct: nil,
+                                                                        contact: "CARD-A")],
+                                        contact: "IGNORED", since: MessagesCursor())
+        let body = try object(groupPass)
+        let groupConv = try XCTUnwrap(body["conversation"] as? [String: Any])
+        XCTAssertNil(groupConv["contact"], "a group has no single card; its members carry theirs")
+        XCTAssertEqual((groupConv["members"] as? [[String: Any]])?.first?["contact"] as? String, "CARD-A")
+        let text = String(decoding: pass.json, as: UTF8.self) + String(decoding: groupPass.json, as: UTF8.self)
+        XCTAssertFalse(text.contains("5550000031") || text.contains("5550000032"), "a handle never crosses")
+    }
+
+    func testACardIsPostedWhenOneHoldsTheHandleClearedWhenNoneOrSeveralAndKeptWhenNotLooked() {
+        let one = MessagesContactCard(name: "Robert Example", thumbnail: nil, id: "CARD-R")
+        let several = MessagesContactCard(name: "Robert Example", thumbnail: nil, id: nil)
+        XCTAssertEqual(MessagesWatcher.postedCard(one, looked: true), "CARD-R")
+        XCTAssertEqual(MessagesWatcher.postedCard(several, looked: true), "", "several cards: the backend clears it")
+        XCTAssertEqual(MessagesWatcher.postedCard(nil, looked: true), "", "no card: cleared")
+        XCTAssertNil(MessagesWatcher.postedCard(nil, looked: false), "Contacts not read: the stored card is kept")
+    }
+
+    func testAGroupTitleIsItsNameElseItsMembers() {
+        XCTAssertEqual(Copy.Messages.groupTitle([], count: 3), "Group of 4")
+        XCTAssertEqual(Copy.Messages.groupTitle(["Alice Example", "Bob Example"], count: 2), "Alice Example, Bob Example")
+        XCTAssertEqual(Copy.Messages.groupTitle(["A", "B", "C", "D", "E"], count: 5), "A, B, C and 2 more")
+    }
+
     func testAnOlderDatabaseWithoutTheNewerColumnsStillSyncs() throws {
         let chat = chat("+15550000001")
         message(chat, minute: 0, fromMe: true, text: "Hello there")
@@ -81,7 +148,8 @@ final class MessagesReaderTests: XCTestCase {
     func testTheListIsOneToOneChatsWithCountsAndNoWords() throws {
         let (instinct, other) = seed()
         let listed = try MessagesReader(database: dbURL).conversations()
-        XCTAssertEqual(Set(listed.map(\.chatRowId)), [instinct, other], "a group chat is never listed")
+        XCTAssertEqual(Set(listed.filter { !$0.isGroup }.map(\.chatRowId)), [instinct, other])
+        XCTAssertTrue(listed.filter(\.isGroup).isEmpty, "a chat nobody wrote in is never listed, a group neither")
         let row = try XCTUnwrap(listed.first { $0.chatRowId == instinct })
         XCTAssertEqual(row.fromMe, 1, "a tapback is not a message")
         XCTAssertEqual(row.fromThem, 2)

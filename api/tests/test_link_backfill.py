@@ -634,3 +634,145 @@ def test_in_cycle_pass_summarizes_new_pages_beside_a_run_of_reuse_pages(tmp_path
                saved_at=f"2026-06-{i + 1:02d}", description=LONG)
     _media(memory2, "media-thin", "Thin", "https://example.com/thin", saved_at="2026-01-01")
     assert run(link_enrichment.enrich_media_links(memory2, [], _settings(memory2), summarize_fn=None)) == 20
+
+
+# --- the person's reason is what to read for (vision item 1, 2026-10-28) ------------------------------------------
+
+def _described(memory: Path, stem: str, *, why: dict | None, extra_fm: dict | None = None,
+               description: str = LONG) -> None:
+    """A media page already described (its ``describes`` claim from the page's own description) and its saved-link
+    episode, carrying the person's G191 answer when ``why`` is given."""
+    _media(memory, stem, stem.title(), f"https://example.com/{stem}", saved_at="2026-01-01", description=description,
+           extra_fm=extra_fm)
+    path = memory / "entities" / f"{stem}.md"
+    parsed = markdown_parser.parse(path)
+    old = link_enrichment._build_describes_claim(stem, description, "ep_2026-01-01_001", "2026-01-02", "cicada")
+    markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, [old]))
+    (memory / "episodes").mkdir(exist_ok=True)
+    fm = {"id": "ep_2026-01-01_001", "source": "bookmark", "url": f"https://example.com/{stem}",
+          "media_entity_id": stem, "processed": True}
+    body = "# T\n\n**URL:** https://example.com/x"
+    if why:
+        fm["saved_why"] = why
+        body += "\n\n## Why it was saved\nSaid 2026-01-05.\n- The design"
+    markdown_parser.write(memory / "episodes" / "ep_2026-01-01_001.md", fm, body)
+
+
+WHY = {"reasons": ["design"], "project": None, "text": "the docs page layout", "at": "2026-01-05T10:00:00+00:00"}
+
+
+def test_a_described_page_given_a_reason_is_read_once_for_it(tmp_path):
+    memory = _bank(tmp_path, git=True)
+    _described(memory, "media-docs", why=WHY)
+    _seed_commit(memory)
+    seen = []
+
+    async def summ(title, excerpt, url, settings):
+        seen.append(link_enrichment._SAVED_WHY.get())
+        return "Its docs page sets the reference in a two-column layout beside live examples."
+
+    report = _backfill(memory, _settings(memory), limit=20, summarize_fn=summ, fetch_fn=_fetch_ok, engine="litellm")
+    assert report.reread == 1 and seen == ["The design; the docs page layout"]
+    claims = [c for c in _claims(memory, "media-docs") if c.predicate == "describes"]
+    live = [c for c in claims if c.valid_to is None]
+    assert len(claims) == 2 and len(live) == 1 and live[0].object.startswith("Its docs page")
+    closed = next(c for c in claims if c.valid_to)
+    assert closed.superseded_by == live[0].id, "history kept, never rewritten"
+    fm = _fm(memory, "media-docs")
+    assert fm["read_for"] == WHY["at"]
+    assert LONG in markdown_parser.parse(memory / "entities" / "media-docs.md").body, \
+        "a description the page itself gave stays; the claim carries the read"
+    again = _backfill(memory, _settings(memory), limit=20, summarize_fn=summ, fetch_fn=_fetch_ok, engine="litellm")
+    assert again.reread == 0 and len(seen) == 1, "one read per reason, never a nightly one"
+
+
+def test_cicadas_own_summary_gives_way_to_the_reason_read(tmp_path):
+    memory = _bank(tmp_path)
+    _described(memory, "media-docs", why=WHY, extra_fm={"description_source": "summary"})
+
+    async def summ(title, excerpt, url, settings):
+        return "Its docs page sets the reference in a two-column layout beside live examples."
+
+    _backfill(memory, _settings(memory), limit=20, summarize_fn=summ, fetch_fn=_fetch_ok, commit=False)
+    body = markdown_parser.parse(memory / "entities" / "media-docs.md").body
+    assert "## Description\nIts docs page sets" in body and LONG not in body.split("```claims")[0]
+
+
+def test_no_reason_no_reread_and_an_agents_read_is_left_alone(tmp_path):
+    memory = _bank(tmp_path)
+    _described(memory, "media-plain", why=None)
+    calls = []
+
+    async def summ(*a):
+        calls.append(a)
+        return "x" * 40
+
+    assert _backfill(memory, _settings(memory), limit=20, summarize_fn=summ, fetch_fn=_fetch_ok,
+                     commit=False).reread == 0
+    memory2 = _bank(tmp_path / "two")
+    _described(memory2, "media-read", why=WHY, extra_fm={"read": {"by": "agent", "tier": "agent"}})
+    assert _backfill(memory2, _settings(memory2), limit=20, summarize_fn=summ, fetch_fn=_fetch_ok,
+                     commit=False).reread == 0
+    assert calls == []
+
+
+def test_a_failed_reason_read_is_stamped_and_never_retried(tmp_path):
+    memory = _bank(tmp_path)
+    _described(memory, "media-docs", why=WHY)
+
+    async def blocked(url, settings):
+        return link_enrichment.FetchResult("blocked")
+
+    report = _backfill(memory, _settings(memory), limit=20, summarize_fn=_summ, fetch_fn=blocked, commit=False)
+    assert (report.reread, report.failed) == (0, 1)
+    fm = _fm(memory, "media-docs")
+    assert fm["read_for"] == WHY["at"] and fm["fetch_status"] == "blocked"
+    assert link_enrichment.scan_backfill(memory, _settings(memory)).reason == []
+
+
+def test_a_new_reason_earns_one_more_read(tmp_path):
+    memory = _bank(tmp_path)
+    _described(memory, "media-docs", why=WHY, extra_fm={"read_for": "2025-12-01T00:00:00+00:00"})
+    assert [c.media_id for c in link_enrichment.scan_backfill(memory, _settings(memory)).reason] == ["media-docs"]
+
+
+def test_the_summary_prompt_carries_the_reason_only_when_there_is_one(monkeypatch):
+    from api.services import providers
+
+    sent = []
+
+    def resolve(settings, **kw):
+        async def llm_fn(**kw2):
+            sent.append(kw2)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="A page."))])
+        return llm_fn
+
+    monkeypatch.setattr(providers, "resolve_llm_fn", resolve)
+    run(link_enrichment._summarize_excerpt("T", "excerpt", "https://example.com/x", _settings(Path("/x"))))
+    token = link_enrichment._SAVED_WHY.set("The design")
+    try:
+        run(link_enrichment._summarize_excerpt("T", "excerpt", "https://example.com/x", _settings(Path("/x"))))
+    finally:
+        link_enrichment._SAVED_WHY.reset(token)
+    plain, why = (s["messages"][0]["content"] for s in sent)
+    assert "said why" not in plain and sent[0]["max_tokens"] == 100
+    assert "The person saved this page and said why: The design" in why and sent[1]["max_tokens"] == 160
+    assert 'never mention the person, their reason or "the user"' in why
+
+
+def test_the_in_cycle_summary_reads_for_the_reason_and_stamps_it(tmp_path):
+    memory = _bank(tmp_path)
+    _described(memory, "media-thin", why=WHY, description="")
+    path = memory / "entities" / "media-thin.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, parsed.frontmatter, parsed.body.split("```claims")[0])   # never described yet
+    seen = []
+
+    async def summ(title, url, settings):
+        seen.append(link_enrichment._SAVED_WHY.get())
+        return "Its docs page sets the reference in a two-column layout."
+
+    assert run(link_enrichment.enrich_media_links(memory, [], _settings(memory), summarize_fn=summ)) == 1
+    assert seen == ["The design; the docs page layout"] and link_enrichment._SAVED_WHY.get() is None
+    assert _fm(memory, "media-thin")["read_for"] == WHY["at"]
+    assert link_enrichment.scan_backfill(memory, _settings(memory)).reason == []

@@ -325,8 +325,9 @@ def door(boot, tool: str, arguments: dict, options: dict | None = None, *, proje
     from api.services import mcp_tools, session_identity
 
     ident = session_identity.cli_identity()
+    session_id, harness = caller()   # ruling 50: the same caller as the local path, an agent's shell included
     body = {"tool": tool, "arguments": arguments, "surface": "cli", "options": options or {},
-            "caller": {"session_id": ident.session_id or "", "harness": ident.harness or "unknown",
+            "caller": {"session_id": session_id, "harness": harness,
                        "project_dir": project_dir or ident.project_dir or boot.caller_cwd}}
     answer = call(boot, "POST", "/tools/call", body=body, timeout=180)
     if answer.get("error"):
@@ -402,6 +403,19 @@ def agent_shell(environ=None) -> str | None:
     return None
 
 
+def caller(environ=None) -> tuple[str, str]:
+    """``(session id, harness)`` a CLI call records as its caller — ONE answer for the local path (`cli._tool_context`)
+    and a client's door (:func:`door`). Ruling 21: the session only when the harness gives one, never minted. Ruling 50:
+    a shell only its harness's own variables mark (Codex's sandbox, :func:`agent_shell`) names that harness, so a note
+    saved from it is the agent's (`authorship.agent_saved`); the person's own terminal names none (``"unknown"``)."""
+    from api.services import session_identity
+
+    environ = os.environ if environ is None else environ
+    ident = session_identity.cli_identity(environ)
+    harness = ident.harness or (None if ident.session_id else agent_shell(environ))
+    return ident.session_id or "", harness or "unknown"
+
+
 def require_person(what: str) -> None:
     """Refuse when the shell belongs to an agent: the backend would record this as the person."""
     harness = agent_shell()
@@ -466,6 +480,22 @@ def cmd_graph(boot, args) -> Result:
     return Result(text=text, data=data, warnings=_warn(boot))
 
 
+def _coverage(boot, args, kind: str) -> Result:
+    from api.services import coverage_report
+
+    build = coverage_report.pictures if kind == "pictures" else coverage_report.sources
+    report = build(Path(boot.pin.path), include_archived=bool(args.archived), ids=bool(args.ids))
+    return Result(text=coverage_report.text(kind, report), data=report, warnings=_warn(boot))
+
+
+def cmd_coverage_pictures(boot, args) -> Result:
+    return _coverage(boot, args, "pictures")
+
+
+def cmd_coverage_sources(boot, args) -> Result:
+    return _coverage(boot, args, "sources")
+
+
 def cmd_find(boot, args) -> Result:
     """The app's find (`GET /search`'s body, in process): every kind unless --kind narrows it."""
     from api.services import search_service
@@ -474,7 +504,7 @@ def cmd_find(boot, args) -> Result:
     resp = search_service.search(Path(boot.pin.path), args.query, kinds=kinds, mode="hybrid",
                                  per_kind=min(args.limit or 8, search_service.MAX_PER_KIND))
     data = _dump(resp)
-    lines = [f"[{hit.get('kind')}] {hit.get('id')}  {hit.get('name') or ''}".rstrip()
+    lines = [f"[{hit.get('kind')}] {hit.get('id')}  {hit.get('displayName') or hit.get('name') or ''}".rstrip()
              for hit in data.get("results", []) or []]
     warnings = _warn(boot)
     if data.get("mode") == "lexical":
@@ -580,7 +610,10 @@ def cmd_sleep_status(boot, args) -> Result:
     if "unprocessedCount" in debt:
         lines.append(f"  waiting: {debt['unprocessedCount']} conversation(s)")
     if st.get("error"):
-        lines.append(f"  last error: {st['error']}")
+        from api.services import engine_readiness
+
+        fix = engine_readiness.cli_fix_for_error(str(st["error"]))
+        lines.append(f"  last error: {st['error']}" + (f" {fix}" if fix else ""))
     return Result(text="\n".join(lines), data=st, warnings=_warn(boot))
 
 
@@ -713,16 +746,27 @@ def cmd_sleep_options(boot, args) -> Result:
         changes["continueAfterReset"] = _on_off(args.continue_after_reset)
     if args.reserve is not None:
         changes["reservePct"] = None if args.reserve.strip().lower() == "off" else _int(args.reserve, "--reserve")
+    if args.spend_limit is not None:
+        changes["spendLimitUsd"] = None if args.spend_limit.strip().lower() == "off" else _usd(args.spend_limit, "--spend-limit")
     if changes:
         require_person("Changing how Sleep reads")
         opts = call(boot, "PUT", "/sleep/run-options", body=changes)
     else:
         opts = call(boot, "GET", "/sleep/run-options")
     reserve = opts.get("reservePct")
+    spend = opts.get("spendLimitUsd")
     text = (f"Batch size {opts.get('batchSize')}; continue after a plan reset: "
             f"{'on' if opts.get('continueAfterReset') else 'off'}; reserve: "
-            f"{'off' if reserve is None else str(reserve) + '%'}")
+            f"{'off' if reserve is None else str(reserve) + '%'}; a key's spending limit: "
+            f"{'off' if spend is None else f'${spend:g} a run'}")
     return Result(text=text, data=opts, warnings=_warn(boot))
+
+
+def _usd(raw: str, flag: str) -> float:
+    try:
+        return float(raw.strip().lstrip("$"))
+    except ValueError:
+        raise UsageError(f"{flag} takes a dollar figure or off") from None
 
 
 def _int(raw: str, flag: str) -> int:
@@ -776,6 +820,27 @@ def cmd_index_rebuild(boot, args) -> Result:
                   warnings=_warn(boot))
 
 
+def cmd_maintenance_move_watched_rows(boot, args) -> Result:
+    """The dry run by default; ``--apply`` moves the rows, from the person's own terminal only."""
+    if getattr(args, "apply", False):
+        require_person("Moving the watched days' rows")
+        done = call(boot, "POST", "/maintenance/watched-rows", timeout=600)
+        return Result(text=f"Moved {done.get('moved', 0)} watched day(s)' rows into sources/watched/ in one commit.",
+                      data=done, warnings=_warn(boot))
+    plan = call(boot, "GET", "/maintenance/watched-rows")
+    if plan.get("applied") and not plan.get("days"):
+        return Result(text="Nothing to move: every watched day keeps its rows in sources/watched/.", data=plan,
+                      warnings=_warn(boot))
+    lines = [f"{plan.get('days', 0)} watched day(s) keep {plan.get('rows', 0)} row(s) in their episode's frontmatter "
+             f"({plan.get('rows_files_kept', 0)} already have a rows file, which is kept).",
+             "Moving them writes each day's rows to sources/watched/<platform>/<day>.json and drops the frontmatter "
+             "copy, in one commit; nothing is re-queued for Sleep."]
+    if plan.get("sample"):
+        lines.append("For example: " + ", ".join(plan["sample"]))
+    lines.append("Run again with --apply to move them.")
+    return Result(text="\n".join(lines), data=plan, warnings=_warn(boot))
+
+
 def cmd_index_use(boot, args) -> Result:
     require_person("Switching the search model")
     model = None if args.model == "default" else args.model
@@ -813,6 +878,16 @@ def cmd_feed_add(boot, args) -> Result:
     return Result(text=f"Subscribed to {record.get('url', args.url)}.", data=record, warnings=_warn(boot))
 
 
+def cmd_projects_new(boot, args) -> Result:
+    """Ruling 45: the person starts a project from their own shell — theirs, listed (`via: cli`). Refused from an
+    agent's shell (ruling 21a): an agent asks with `cicada_create_project`, where the trust list decides."""
+    require_person("Starting a project as yours")
+    record = call(boot, "POST", "/projects", body={"name": args.project, "description": args.description or "",
+                                                   "via": "cli"})
+    return Result(text=f"Started {args.project} ({record.get('id')}) in your projects.", data=record,
+                  warnings=_warn(boot))
+
+
 def cmd_feed_remove(boot, args) -> Result:
     result = call(boot, "DELETE", "/sources/feeds", body={"url": args.url})
     return Result(text=f"Unsubscribed from {args.url}.", data=result, warnings=_warn(boot))
@@ -822,6 +897,206 @@ def cmd_feed_poll(boot, args) -> Result:
     require_person("Fetching every feed now")
     result = call(boot, "POST", "/sources/poll-feeds", timeout=300)
     return Result(text=json.dumps(result, ensure_ascii=False), data=result, warnings=_warn(boot))
+
+
+# --- GitHub repositories (G230) --------------------------------------------------------------------------------------
+
+def _repo_line(r: dict) -> str:
+    project = r.get("project") or {}
+    linked = r.get("projects") or []
+    tail = f" — {r['entityId']}" if r.get("entityId") else " — no page"
+    if linked:
+        tail += " · in " + ", ".join(f"{p.get('name')} ({p.get('project')})" for p in linked)
+    elif project.get("how") in ("name", "origin"):
+        tail += f" · maybe your project {project.get('name')} ({project.get('project')})"
+    flags = [w for w, on in (("private", r.get("private")), ("archived", r.get("archived")), ("fork", r.get("fork")))
+             if on]
+    return f"{r.get('fullName')}{' [' + ', '.join(flags) + ']' if flags else ''}{tail}"
+
+
+def cmd_github_repos(boot, args) -> Result:
+    data = call(boot, "GET", "/sources/github/repos")
+    owned, pages = data.get("owned") or [], data.get("starred") or []
+    lines = []
+    if not data.get("connected") and not owned:
+        lines.append("GitHub is not connected: `cicada github connect` brings in your own repositories and the ones "
+                     "you starred, each as a page.")
+    if owned:
+        lines += ["Yours:", *(f"  {_repo_line(r)}" for r in owned)]
+    if pages:
+        lines += ["Starred:", *(f"  {r.get('fullName')} — {r.get('entityId')}" for r in pages)]
+    return Result(text="\n".join(lines) or "No repositories yet.", data=data, warnings=_warn(boot))
+
+
+def cmd_github_connect(boot, args) -> Result:
+    """GitHub's device flow through the backend: the code is printed here, the person enters it on github.com (on any
+    device — a server with no browser connects the same way), and the backend, asked every few seconds, keeps the
+    token. The CLI never sees or prints a token."""
+    import sys
+    import time
+
+    require_person("Connecting GitHub")
+    started = call(boot, "POST", "/sources/github/connect", body={}, timeout=30)
+    sys.stderr.write(f"Open {started.get('verificationUri')} and enter the code {started.get('userCode')}.\n")
+    interval = max(1, int(started.get("interval") or 5))
+    deadline = time.monotonic() + max(60, int(started.get("expiresAt") or 0) - int(time.time()))
+    answer: dict = {}
+    while time.monotonic() < deadline:
+        time.sleep(interval)
+        answer = call(boot, "POST", "/sources/github/connect/poll", body={}, timeout=30)
+        if answer.get("state") != "pending":
+            break
+        interval = max(1, int(answer.get("interval") or interval))
+    status = answer.get("status") or {}
+    if answer.get("state") != "connected":
+        raise Refusal("refused", answer.get("words") or "The code expired before it was used. Nothing was connected.")
+    # 2026-11-04: the backend starts the first sync itself the moment the sign-in completes.
+    text = "GitHub is connected."
+    if status.get("installed") is False and status.get("installUrl"):
+        text += (" Your stars are coming in now. To bring in your own repositories too, install Cicada on your "
+                 f"account: {status['installUrl']} — then `cicada connector sync github`.")
+    else:
+        text += " Your repositories and stars are coming in now; it syncs again every few hours."
+    return Result(text=text, data={"connected": True, "installed": status.get("installed")}, warnings=_warn(boot))
+
+
+def cmd_github_project(boot, args) -> Result:
+    require_person("Linking a repository to one of your projects")
+    body = {"fullName": args.full_name, "via": "cli", "remove": bool(getattr(args, "remove", False))}
+    if args.project:
+        body["project"] = args.project
+    result = call(boot, "POST", "/sources/github/repos/project", body=body, timeout=60)
+    if result.get("created"):
+        text = f"Started your project {result.get('project')} from {args.full_name}."
+    elif body["remove"]:
+        text = f"Unlinked {args.full_name} from {result.get('project')}; nothing links it back automatically."
+    else:
+        text = f"Linked {args.full_name} to your project {result.get('project')}."
+    return Result(text=text, data=result, warnings=_warn(boot))
+
+
+# --- connectors (ruling 47 tier 2) ---------------------------------------------------------------------------------
+
+def _connector_line(c: dict) -> str:
+    state = "connected" if c.get("connected") else "not connected"
+    tail = f", last sync {c['lastSync']}" if c.get("lastSync") else ""
+    error = f"\n    {c['lastError']}" if c.get("lastError") else ""
+    reads = f"\n    {c['reads']}" if c.get("reads") else ""
+    return f"{c.get('id')}: {c.get('label')} — {state}{tail}{error}{reads}"
+
+
+def cmd_connector_list(boot, args) -> Result:
+    data = call(boot, "GET", "/sources/connectors")
+    rows = data.get("connectors") or []
+    return Result(text="\n".join(_connector_line(c) for c in rows) or "No connectors.", data=data,
+                  warnings=_warn(boot))
+
+
+def read_token(label: str) -> str:
+    """A token from standard input only — never argv (a process list and shell history would keep it)."""
+    import getpass
+    import sys
+
+    if sys.stdin.isatty():
+        return (getpass.getpass(f"{label}: ") or "").strip()
+    return (sys.stdin.readline() or "").strip()
+
+
+def cmd_connector_connect(boot, args) -> Result:
+    """The token goes straight to the backend, which checks it with the service before writing it to secrets.env
+    (0600); the CLI never stores or prints it."""
+    import sys
+
+    require_person("Connecting an account with your token")
+    status = call(boot, "GET", f"/sources/connectors/{args.connector}")
+    fields = list(status.get("fields") or [])
+    if len(fields) != 1 or status.get("loginMode") != "credentials":
+        raise Refusal("refused", f"{status.get('label') or args.connector} is connected in the app (Settings → "
+                                 "Sources), where it signs in. Nothing was changed.")
+    field = fields[0]
+    if status.get("reads"):
+        sys.stderr.write(status["reads"] + "\n")
+    if status.get("tokenHelp"):
+        sys.stderr.write(f"Get a token at {status['tokenHelp']}.\n")
+    value = read_token(field.get("label") or "Token")
+    if not value:
+        raise UsageError("no token on standard input; nothing was changed")
+    result = call(boot, "PUT", f"/sources/connectors/{args.connector}/credentials",
+                  body={"fields": {field["name"]: value}}, timeout=60)
+    return Result(text=f"{result.get('label')} is connected. It syncs every few hours; `cicada connector sync "
+                       f"{args.connector}` reads it now.",
+                  data={"connector": args.connector, "connected": bool(result.get("connected"))}, warnings=_warn(boot))
+
+
+def cmd_connector_disconnect(boot, args) -> Result:
+    require_person("Disconnecting an account")
+    result = call(boot, "DELETE", f"/sources/connectors/{args.connector}/credentials")
+    return Result(text=f"{result.get('label')} is disconnected; Cicada forgot its token. What it brought in stays.",
+                  data={"connector": args.connector, "connected": bool(result.get("connected"))}, warnings=_warn(boot))
+
+
+def cmd_connector_sync(boot, args) -> Result:
+    require_person("Reading an account now")
+    result = call(boot, "POST", f"/sources/connectors/{args.connector}/sync", timeout=600)
+    status = result.get("status")
+    if status == "ok":
+        text = f"{result.get('new', 0)} new, {result.get('seen', 0)} read."
+    elif status == "skipped":
+        text = f"Skipped: {result.get('reason')}"
+    else:
+        text = f"The sync failed: {result.get('error')}"
+    return Result(text=text, data=result, warnings=_warn(boot))
+
+
+# --- the remote connector's public address (ruling 59) ---------------------------------------------------------------
+
+def _funnel_others(funnel: dict) -> str:
+    return "".join(f"\n{o.get('message')}" + (f"\n  Close it with: {o['command']}" if o.get("command") else "")
+                   for o in funnel.get("others") or [])
+
+
+def _funnel_text(funnel: dict) -> str:
+    step = funnel.get("step")
+    if step == "on":
+        text = funnel.get("message") or (f"Open to the internet at {funnel['url']}." if funnel.get("url")
+                                         else "Open to the internet.")
+        if funnel.get("stopCommand") and funnel.get("answers") is False:
+            text += " `cicada funnel off` closes it."
+    elif step == "off":
+        text = (f"Not open to the internet. `cicada funnel on` runs: {funnel.get('command')}\n"
+                f"{funnel.get('message') or ''}").rstrip()
+    else:
+        text = funnel.get("message") or str(step)
+    return text + _funnel_others(funnel)
+
+
+def cmd_funnel_status(boot, args) -> Result:
+    data = call(boot, "GET", "/remote/funnel", query={"check": "true"}, timeout=30)
+    return Result(text=_funnel_text(data), data=data, warnings=_warn(boot))
+
+
+def _funnel_run(boot, action: str, shown: str | None) -> Result:
+    result = call(boot, "POST", "/remote/funnel", body={"action": action, "shown": shown}, bank_header=False, timeout=60)
+    if not result.get("ok"):
+        fix = f" {result['fixUrl']}" if result.get("fixUrl") else ""
+        raise Refusal("refused", f"{result.get('message')}{fix}{_funnel_others(result.get('funnel') or {})}")
+    return Result(text=f"Ran: {result.get('ran')}\n{_funnel_text(result.get('funnel') or {})}", data=result,
+                  warnings=_warn(boot))
+
+
+def cmd_funnel_on(boot, args) -> Result:
+    import sys
+
+    require_person("Opening the connector to the internet")
+    shown = call(boot, "GET", "/remote/funnel", timeout=30)
+    if shown.get("step") == "off" and shown.get("message"):
+        sys.stderr.write(shown["message"] + "\n")  # what it can publish, for good, before it runs
+    return _funnel_run(boot, "on", shown.get("command"))
+
+
+def cmd_funnel_off(boot, args) -> Result:
+    require_person("Closing the connector's public address")
+    return _funnel_run(boot, "off", None)
 
 
 def refuse_harness_folder(path: Path) -> None:
@@ -905,6 +1180,23 @@ def import_chat_export(boot, args, path: Path, content: bytes) -> Result:
 
 
 # --- settings and engines -----------------------------------------------------------------------------------
+
+def cmd_numbers_switch(boot, args) -> Result:
+    if args.state is None:
+        now = call(boot, "GET", "/people/numbers/switch")
+        return Result(text=f"Keeping numbers: {'on' if now.get('on') else 'off'}", data=now, warnings=_warn(boot))
+    if args.state not in ("on", "off"):
+        raise UsageError("--state is on or off")
+    require_person("Changing whether numbers are kept")
+    saved = call(boot, "PUT", "/people/numbers/switch", body={"on": args.state == "on"})
+    return Result(text=f"Keeping numbers: {args.state}", data=saved, warnings=_warn(boot))
+
+
+def cmd_numbers_new_vault(boot, args) -> Result:
+    require_person("Starting a new number file")
+    saved = call(boot, "POST", "/people/numbers/new-vault")
+    return Result(text="A new private number file was started; the old one was kept aside.", data=saved, warnings=_warn(boot))
+
 
 def cmd_settings_owner(boot, args) -> Result:
     owner = call(boot, "GET", "/settings/owner")
@@ -1361,6 +1653,92 @@ def cmd_device_revoke(boot, args) -> Result:
                   data={"device": device}, warnings=_warn(boot))
 
 
+# --- G132 phase 2 (ruling 51a): the home, and moving it ---------------------------------------------------------------
+
+_NOT_SHARED_TEXT = ("This memory lives on this computer only: it is not shared with another of your computers, so "
+                    "there is no other home to move it to.")
+
+
+def _behind_text(d: dict) -> str:
+    if not d.get("keepsCopy"):
+        return "keeps no copy"
+    behind = d.get("behind")
+    if behind is None:
+        return "copy, how far behind not known yet"
+    return "up to date" if behind == 0 else f"{behind} change{'s' if behind != 1 else ''} behind"
+
+
+def cmd_home_status(boot, args) -> Result:
+    body = call(boot, "GET", "/sync/home")
+    if not body.get("shared"):
+        return Result(text=_NOT_SHARED_TEXT, data=body, warnings=_warn(boot))
+    home = body.get("home") or {}
+    sleep = (home.get("sleep") or {}).get("status") or "unknown"
+    lines = [f"Home (runs Sleep): {home.get('name')}" + (" — this computer" if home.get("me") else "")
+             + f", Sleep {sleep}" + ("" if home.get("online") else ", not answering")]
+    for d in body.get("devices") or []:
+        lines.append(f"  {d.get('name')} ({d.get('id')})" + (" — this computer" if d.get("me") else "")
+                     + f": {'online' if d.get('online') else 'offline'}, {_behind_text(d)}")
+    for key in ("moving", "takeOver", "setAside", "note"):
+        part = body.get(key)
+        if isinstance(part, dict) and part.get("text"):
+            lines.append(part["text"])
+    return Result(text="\n".join(lines), data=body, warnings=_warn(boot))
+
+
+def cmd_home_move(boot, args) -> Result:
+    require_person("Moving your memory to another device")
+    body = call(boot, "GET", "/sync/home")
+    if not body.get("shared"):
+        raise Refusal("refused", _NOT_SHARED_TEXT, _warn(boot))
+    wanted = args.device.strip()
+    devices = body.get("devices") or []
+    matches = [d for d in devices if d.get("id") == wanted] or [
+        d for d in devices if str(d.get("name") or "").casefold() == wanted.casefold()]
+    if not matches:
+        raise Refusal("not_found", f"No device of yours is called {wanted!r}. `cicada home status` lists them.",
+                      _warn(boot))
+    if len(matches) > 1:
+        raise UsageError(f"{len(matches)} devices are called {wanted!r}; give its id instead "
+                         f"({', '.join(d['id'] for d in matches)}).")
+    target = matches[0]
+    answer = call(boot, "POST", "/sync/home/move", body={"device": target["id"]})
+    moving = answer.get("moving") or {}
+    return Result(text=moving.get("text") or f"Moving your memory to {target.get('name')}.",
+                  data={"moving": moving, "device": target}, warnings=_warn(boot))
+
+
+def cmd_home_take_over(boot, args) -> Result:
+    require_person("Taking over your memory on this computer")
+    preview = call(boot, "GET", "/sync/home/take-over")
+    if not preview.get("possible"):
+        raise Refusal("refused", preview.get("text") or "This computer cannot take over now.", _warn(boot))
+    behind = preview.get("behind")
+    if getattr(args, "yes", False):
+        # Review of #569: --yes confirms a number the person saw — never a take-over blind.
+        if getattr(args, "behind", None) is None:
+            raise Refusal("refused", f"{preview['text']} Run it again with --yes --behind {behind} to take over.",
+                          _warn(boot))
+        if int(args.behind) != int(behind):
+            raise Refusal("refused", f"{preview['text']} That is not the {args.behind} you gave; look again, then "
+                                     f"run it with --yes --behind {behind}.", _warn(boot))
+    else:
+        if not _interactive():
+            raise Refusal("refused", f"{preview['text']} Run it again with --yes --behind {behind} to take over.",
+                          _warn(boot))
+        import sys
+
+        print(preview["text"], file=sys.stderr)
+        sys.stderr.write("Take over on this computer? [y/N] ")
+        sys.stderr.flush()
+        if sys.stdin.readline().strip().lower() not in ("y", "yes"):
+            return Result(text="Nothing was changed.", data={"took": False, "preview": preview},
+                          warnings=_warn(boot))
+    answer = call(boot, "POST", "/sync/home/take-over", body={"behind": behind, "confirm": True})
+    return Result(text="This computer holds your memory now and runs Sleep; it starts again as the home in a "
+                       "moment.", data={**answer, "preview": preview}, warnings=_warn(boot))
+
+
 def cmd_device_pair(boot, args) -> Result:
     require_person("Making a pairing code")
     body: dict = {"url": args.url} if getattr(args, "url", None) else {}
@@ -1441,14 +1819,21 @@ def cmd_setup(boot, args) -> Result:
 COMMANDS = {
     "page list": cmd_page_list, "page history": cmd_page_history, "page decay": cmd_page_decay,
     "graph": cmd_graph, "find": cmd_find,
+    "coverage pictures": cmd_coverage_pictures, "coverage sources": cmd_coverage_sources,
     "inbox all": cmd_inbox_all, "inbox answer": cmd_inbox_answer,
     "sleep status": cmd_sleep_status, "sleep start": cmd_sleep_start, "sleep stop": cmd_sleep_stop,
     "sleep end": cmd_sleep_end, "sleep schedule": cmd_sleep_schedule, "sleep engine": cmd_sleep_engine,
     "sleep options": cmd_sleep_options, "sleep history": cmd_sleep_history,
+    "maintenance move-watched-rows": cmd_maintenance_move_watched_rows,
     "index status": cmd_index_status, "index rebuild": cmd_index_rebuild, "index use": cmd_index_use,
     "index install": cmd_index_install,
+    "projects new": cmd_projects_new,
     "feed list": cmd_feed_list, "feed add": cmd_feed_add, "feed remove": cmd_feed_remove, "feed poll": cmd_feed_poll,
-    "settings owner": cmd_settings_owner, "engine list": cmd_engine_list, "engine connect": cmd_engine_connect,
+    "connector list": cmd_connector_list, "connector connect": cmd_connector_connect,
+    "connector disconnect": cmd_connector_disconnect, "connector sync": cmd_connector_sync,
+    "funnel status": cmd_funnel_status, "funnel on": cmd_funnel_on, "funnel off": cmd_funnel_off,
+    "github connect": cmd_github_connect, "github repos": cmd_github_repos, "github project": cmd_github_project,
+    "numbers switch": cmd_numbers_switch, "numbers new-vault": cmd_numbers_new_vault, "settings owner": cmd_settings_owner, "engine list": cmd_engine_list, "engine connect": cmd_engine_connect,
     "picture set": cmd_picture_set, "picture initials": cmd_picture_initials, "picture clear": cmd_picture_clear,
     "bank list": cmd_bank_list, "bank use": cmd_bank_use, "bank create": cmd_bank_create,
     "bank rename": cmd_bank_rename, "bank delete": cmd_bank_delete,
@@ -1459,6 +1844,7 @@ COMMANDS = {
     "skills publish": cmd_skills_publish,
     "device add": cmd_device_add, "device list": cmd_device_list, "device revoke": cmd_device_revoke,
     "device pair": cmd_device_pair,
+    "home status": cmd_home_status, "home move": cmd_home_move, "home take-over": cmd_home_take_over,
     "setup": cmd_setup,
     "agent add": cmd_agent_add, "agent list": cmd_agent_list, "agent revoke": cmd_agent_revoke,
 }

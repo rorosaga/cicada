@@ -27,7 +27,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from api.services import markdown_parser  # noqa: E402
+from api.config import get_settings  # noqa: E402
+from api.services import markdown_parser, providers  # noqa: E402
 from api.services.entity_body import (  # noqa: E402
     parse_sections,
     render_sections,
@@ -93,8 +94,9 @@ async def _enrich_one(filepath: Path, model: str) -> bool:
         f"Entity type: {fm.get('type', 'concept')}\nPage:\n{source_text[:4000]}"
     )
     try:
-        resp = await litellm.acompletion(
-            model=model,
+        # Every model call goes through the one door (G235, `sensitive_hold`).
+        llm_fn = providers.resolve_llm_fn(get_settings(), model=model, completion=litellm.acompletion, stage="backfill")
+        resp = await llm_fn(
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             temperature=0.2,

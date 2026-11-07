@@ -80,12 +80,6 @@ USER_AGENT = "Mozilla/5.0 (CicadaBot)"
 # guess a domain: nothing guesses one any more.
 GUESSABLE_TYPES = {"company", "tool"}
 
-_ICON_LINK_RE = re.compile(
-    r"""<link\b[^>]*\brel\s*=\s*["']?[^"'>]*\b(?:apple-touch-icon|icon)\b[^"'>]*["']?[^>]*>""",
-    re.IGNORECASE,
-)
-_HREF_RE = re.compile(r"""\bhref\s*=\s*["']([^"']+)["']""", re.IGNORECASE)
-
 # Raster formats only, deliberately. `image/svg+xml` is NOT here: an SVG is a
 # document — it can carry <script>, external <image xlink:href>, and CSS — and
 # `GET /entities/{id}/logo` serves these bytes straight back with their stored
@@ -113,6 +107,7 @@ class FetchResult:
     content_type: str
     etag: str | None = None
     location: str | None = None  # a 3xx's Location header, for manual redirect-following
+    final_url: str | None = None  # the URL that answered, after the redirects `_get_safely` followed
 
 
 Fetcher = Callable[[str], Awaitable[FetchResult]]
@@ -319,6 +314,100 @@ def _trusted_website_host(frontmatter: dict) -> str | None:
     return None
 
 
+#: Ruling 40 (2026-10-26): a public place (a campus, a museum) draws its own site's mark too — but only once it holds a
+#: trusted ``website`` source; a location never asks for a logo on its type alone. Owner 2026-10-28 (E): a project
+#: likewise — its trusted website's mark, else its repository's avatar when an ORGANISATION owns the repository
+#: (:func:`repo_owner`, :func:`fetch_org_avatar`); never a personal account's avatar.
+SITE_ONLY_TYPES = {"location", "project"}
+PROJECT_TYPE = "project"
+#: A logo target that is not a domain: the GitHub organisation owning a project's repository (E). Never a DNS name, so
+#: it can never collide with a domain in the cache's ``domain`` field.
+REPO_TARGET = "github-org:"
+GITHUB_OWNER_API = "https://api.github.com/users/{login}"
+_GITHUB_HOSTS = frozenset({"github.com", "www.github.com"})
+_ORG_AVATAR_HOSTS = frozenset({"api.github.com", "avatars.githubusercontent.com"})
+_LOGIN_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}")
+
+
+def _repo_login(ref) -> str | None:
+    """The owner of a GitHub REPOSITORY URL (``https://github.com/<owner>/<repo>``, ``.git`` and a trailing slash
+    allowed) — None for a profile, a deeper page, another host or anything that is not a URL."""
+    if not isinstance(ref, str) or "://" not in ref:
+        return None
+    try:
+        parsed = urlparse(ref.strip())
+        host = (parsed.hostname or "").lower()
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or host not in _GITHUB_HOSTS:
+        return None
+    parts = [p for p in parsed.path.split("/") if p]
+    if len(parts) != 2 or not parts[1].removesuffix(".git"):
+        return None
+    from api.services import person_photo   # it imports this module
+
+    login = parts[0]
+    if login.lower() in person_photo._GITHUB_RESERVED or _LOGIN_RE.fullmatch(login) is None:
+        return None
+    return login
+
+
+def repo_owner(frontmatter: dict) -> str | None:
+    """A ``project`` page's repository owner (E): from a TRUSTED source whose role is ``repo`` (or whose kind is) — the
+    person's own, one they took, one Cicada's read confirmed; never a proposal in "Confirm N links" (ruling 36 D5) —
+    or from a GitHub URL the person declared in the page's ``repos:``. Whether it is an organisation is the fetch's to
+    say (:func:`fetch_org_avatar`); nothing here asks anything."""
+    from api.services import fact_sources
+
+    fm = frontmatter or {}
+    if str(fm.get("type") or "").strip().lower() != PROJECT_TYPE:
+        return None
+    sources = fm.get("sources") if isinstance(fm.get("sources"), list) else []
+    repos = fm.get("repos") if isinstance(fm.get("repos"), list) else []
+    # G230: the repositories a project lists (the person's link, a trusted agent's, or the hook's origin hash) — the
+    # first one's owner, after a trusted source.
+    linked = [str(r.get("url") or "") for r in fm.get("repositories") or [] if isinstance(r, dict)] \
+        if isinstance(fm.get("repositories"), list) else []
+    if not any("github.com/" in str(s.get("ref") or "") for s in sources if isinstance(s, dict)) and \
+            not any("github.com/" in str(r) for r in repos) and not any("github.com/" in r for r in linked):
+        return None   # the common case, decided without ranking (this runs per project on every `/graph` build)
+
+    def serves(source: dict, _predicate) -> bool:
+        repo_role = fact_sources.same_predicate(source.get("predicate"), fact_sources.KIND_REPO) or \
+            str(source.get("kind") or "").strip().lower() == fact_sources.KIND_REPO
+        return repo_role and fact_sources.trusted(source) and _repo_login(source.get("ref")) is not None
+
+    for source in fact_sources.rank(sources, None, match=serves):
+        return _repo_login(source.get("ref"))
+    for ref in [*linked, *repos]:
+        login = _repo_login(ref)
+        if login:
+            return login
+    return None
+
+
+def draws_logo(frontmatter: dict) -> bool:
+    """A brand (``company``/``tool``), a public place with a trusted site of its own, or a project with a trusted site
+    or a trusted repository (E). Never a person or media."""
+    fm = frontmatter or {}
+    kind = str(fm.get("type") or "").strip().lower()
+    if kind in GUESSABLE_TYPES:
+        return True
+    if kind not in SITE_ONLY_TYPES:
+        return False
+    return _trusted_website_host(fm) is not None or (kind == PROJECT_TYPE and repo_owner(fm) is not None)
+
+
+def target_for(frontmatter: dict, body: str = "") -> str | None:
+    """What a page's mark is drawn from: its domain (:func:`domain_for`), else — for a project only — its repository's
+    owner as ``github-org:<login>`` (E). None: the monogram."""
+    domain = domain_for(frontmatter, body)
+    if domain:
+        return domain
+    login = repo_owner(frontmatter)
+    return f"{REPO_TARGET}{login}" if login else None
+
+
 def domain_for(frontmatter: dict, body: str = "") -> str | None:
     """Resolve an entity page to the domain whose icon should represent it — from a source, never from a guess.
 
@@ -343,27 +432,24 @@ def domain_for(frontmatter: dict, body: str = "") -> str | None:
 # --- image sniffing ---------------------------------------------------------
 
 
-def min_dimension(data: bytes) -> int | None:
-    """Smaller of width/height, read straight from the header.
+#: A logo at least this many pixels on its smaller side ends the ladder; below it the ladder keeps looking for a larger
+#: one (the app draws a 26 pt mark, 52 px on a Retina screen — a 16 or 32 px favicon is visibly soft there).
+GOOD_PIXELS = 64
+#: An `og:image` is a logo candidate only when it is this close to square: a share banner (1200×630) never is.
+MAX_ASPECT = 1.25
 
-    Returns None for a format we don't sniff (WEBP) — "unknown" means
-    "accept", because refusing a perfectly good mark would be worse than
-    letting a rare oddity through. (SVG never reaches here: ``_accept``
-    refuses the format outright, header *and* sniffed body.)
-    """
+
+def dimensions(data: bytes) -> tuple[int, int] | None:
+    """``(width, height)`` read straight from a PNG, GIF, ICO (its first directory entry; a 0 byte means 256) or JPEG
+    header — never decoded. None for a format not sniffed here (WebP)."""
     if len(data) < 8:
         return None
     if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24:
-        width, height = struct.unpack(">II", data[16:24])
-        return min(width, height)
+        return struct.unpack(">II", data[16:24])
     if data[:6] in (b"GIF87a", b"GIF89a") and len(data) >= 10:
-        width, height = struct.unpack("<HH", data[6:10])
-        return min(width, height)
-    if data[:4] == b"\x00\x00\x01\x00" and len(data) >= 8:
-        # ICO directory entry: a 0 byte means 256.
-        width = data[6] or 256
-        height = data[7] or 256
-        return min(width, height)
+        return struct.unpack("<HH", data[6:10])
+    if data[:4] == b"\x00\x00\x01\x00":
+        return (data[6] or 256), (data[7] or 256)
     if data[:2] == b"\xff\xd8":
         i = 2
         while i + 9 < len(data):
@@ -373,10 +459,57 @@ def min_dimension(data: bytes) -> int | None:
             marker = data[i + 1]
             if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
                 height, width = struct.unpack(">HH", data[i + 5:i + 9])
-                return min(width, height)
-            segment = struct.unpack(">H", data[i + 2:i + 4])[0]
-            i += 2 + segment
-        return None
+                return width, height
+            i += 2 + struct.unpack(">H", data[i + 2:i + 4])[0]
+    return None
+
+
+def min_dimension(data: bytes) -> int | None:
+    """Smaller of width/height, read straight from the header (:func:`dimensions`).
+
+    Returns None for a format we don't sniff (WEBP) — "unknown" means
+    "accept", because refusing a perfectly good mark would be worse than
+    letting a rare oddity through. (SVG never reaches here: ``_accept``
+    refuses the format outright, header *and* sniffed body.)
+    """
+    size = dimensions(data)
+    return min(size) if size is not None else None
+
+
+def _side(data: bytes) -> int:
+    """The smaller side, for comparing candidates; an unreadable size (WebP) counts as ``MIN_PIXELS``."""
+    smallest = min_dimension(data)
+    return smallest if smallest is not None else MIN_PIXELS
+
+
+def _squareish(data: bytes) -> bool:
+    size = dimensions(data)
+    return size is not None and min(size) > 0 and max(size) / min(size) <= MAX_ASPECT
+
+
+_META_RE = re.compile(rb"<meta\b([^<>]*)>", re.IGNORECASE)
+MAX_META_TAGS = 128
+
+
+def og_image(html: bytes, page_url: str) -> str | None:
+    """The homepage's ``og:image`` (or ``og:image:secure_url``), resolved against the page and https only — one linear
+    scan of ``<meta>`` tags, the same shape as ``_icon_tags`` (never the quadratic ``HTMLParser``)."""
+    for count, match in enumerate(_META_RE.finditer(html[:MAX_BYTES])):
+        if count >= MAX_META_TAGS:
+            break
+        attrs = _tag_attrs(match.group(1))
+        if (attrs.get("property") or attrs.get("name") or "").strip().lower() not in ("og:image",
+                                                                                      "og:image:secure_url"):
+            continue
+        content = attrs.get("content", "").strip()
+        if not content or content.lower().startswith("data:"):
+            continue
+        try:
+            url = urljoin(page_url, content)
+        except ValueError:
+            continue
+        if _plain_https(url):
+            return url
     return None
 
 
@@ -452,15 +585,6 @@ def _accept(result: FetchResult) -> tuple[bytes, str, str | None] | None:
     return result.body, ext, result.etag
 
 
-def _icon_href(html: bytes, base_url: str) -> str | None:
-    text = html.decode("utf-8", "replace")
-    for tag in _ICON_LINK_RE.findall(text):
-        href = _HREF_RE.search(tag)
-        if href:
-            return urljoin(base_url, href.group(1).strip())
-    return None
-
-
 async def _get_safely(url: str, *, fetcher: Fetcher, resolver: Resolver) -> FetchResult | None:
     """One logical GET: validates ``url`` (and every redirect hop, up to
     ``MAX_REDIRECTS``) against the SSRF host policy before ever calling
@@ -479,6 +603,7 @@ async def _get_safely(url: str, *, fetcher: Fetcher, resolver: Resolver) -> Fetc
         if result.status in _REDIRECT_STATUSES and result.location:
             current = urljoin(current, result.location)
             continue
+        result.final_url = current
         return result
     logger.debug(f"logo fetch for {url} exceeded {MAX_REDIRECTS} redirects")
     return None
@@ -517,7 +642,13 @@ async def fetch_site_icon(
 async def fetch_logo(
     domain: str, *, fetcher: Fetcher | None = None, resolver: Resolver | None = None
 ) -> tuple[bytes, str, str | None] | None:
-    """Try the three rungs in order. Returns ``(body, ext, etag)`` or None.
+    """Try the rungs in order and keep the largest mark. Returns ``(body, ext, etag)`` or None.
+
+    The site's ``/apple-touch-icon.png``; then the homepage's declared icons, largest first (at most
+    ``MAX_DECLARED_ICONS`` asked); then — only when nothing so far reaches ``GOOD_PIXELS`` — the homepage's ``og:image``
+    when it is a square raster; then the icon service. The first mark of at least ``GOOD_PIXELS`` stops the ladder;
+    otherwise the largest found wins (vision item 2, 2026-10-28: a 16 px favicon was kept while the site declared a
+    192 px icon a tag later). Every candidate comes from the trusted domain's own homepage — never a guessed one.
 
     An injected ``fetcher`` always runs (the caller supplied the mechanism, so
     there is nothing left to gate); the default HTTP one is gated by
@@ -538,26 +669,105 @@ async def fetch_logo(
 
     from api.services import reading_hosts
 
+    best: tuple[bytes, str, str | None] | None = None
+
+    def keep(found: tuple[bytes, str, str | None] | None) -> bool:
+        """Keep ``found`` when it is larger than what is held; True once the held mark is good enough to stop."""
+        nonlocal best
+        if found is not None and (best is None or _side(found[0]) > _side(best[0])):
+            best = found
+        return best is not None and _side(best[0]) >= GOOD_PIXELS
+
     if not reading_hosts.is_walled(f"https://{domain}/"):
         homepage = f"https://{domain}/"
-        candidates = [f"https://{domain}/apple-touch-icon.png"]
-
-        for url in candidates:
-            result = await _get_safely(url, fetcher=fetcher, resolver=resolver)
-            accepted = _accept(result) if result is not None else None
-            if accepted:
-                return accepted
+        result = await _get_safely(f"https://{domain}/apple-touch-icon.png", fetcher=fetcher, resolver=resolver)
+        if keep(_accept(result) if result is not None else None):
+            return best
 
         page = await _get_safely(homepage, fetcher=fetcher, resolver=resolver)
         if page is not None and page.status == 200 and page.body:
-            href = _icon_href(page.body, homepage)
-            if href:
-                result = await _get_safely(href, fetcher=fetcher, resolver=resolver)
-                accepted = _accept(result) if result is not None else None
-                if accepted:
-                    return accepted
+            base = page.final_url or homepage
+            # The homepage's declared icons, largest first (the own-site discovery's ranking): a site that declares a
+            # 192 px icon beside a 16 px favicon is drawn from the 192 px one, not from whichever tag came first.
+            declared = await asyncio.to_thread(declared_icons, page.body, base)
+            asked = 0
+            for link in declared:
+                if asked >= MAX_DECLARED_ICONS:
+                    break
+                if best is not None and link.size is not None and link.size <= _side(best[0]):
+                    continue
+                if link.url.startswith("data:"):
+                    if keep(_decode_data_icon(link.url)):
+                        return best
+                    continue
+                asked += 1
+                result = await _get_safely(link.url, fetcher=fetcher, resolver=resolver)
+                if keep(_accept(result) if result is not None else None):
+                    return best
+            # Nothing declared reached GOOD_PIXELS: the page's own share image, only when it is a square mark (a
+            # banner is never a logo) — vision item 2, 2026-10-28.
+            image = og_image(page.body, base)
+            if image:
+                result = await _get_safely(image, fetcher=fetcher, resolver=resolver)
+                found = _accept(result) if result is not None else None
+                if found is not None and _squareish(found[0]) and keep(found):
+                    return best
 
-    return await fetch_via_icon_service(domain, fetcher=fetcher, resolver=resolver)
+    keep(await fetch_via_icon_service(domain, fetcher=fetcher, resolver=resolver))
+    return best
+
+
+def _pinned(fetcher: Fetcher, hosts: frozenset[str]) -> Fetcher:
+    """``fetcher`` restricted to ``https`` on ``hosts``: any other URL — a first request or a redirect hop — answers
+    nothing, so a hop off the provider is a miss, never a fetch."""
+    async def get(url: str) -> FetchResult:
+        try:
+            parsed = urlparse(url)
+            host = (parsed.hostname or "").lower()
+        except ValueError:
+            host, parsed = "", None
+        if parsed is None or parsed.scheme != "https" or host not in hosts or parsed.username or parsed.password \
+                or parsed.port not in (None, 443):
+            return FetchResult(status=0, body=b"", content_type="")
+        return await fetcher(url)
+
+    return get
+
+
+async def fetch_org_avatar(
+    login: str, *, fetcher: Fetcher | None = None, resolver: Resolver | None = None
+) -> tuple[bytes, str, str | None] | None:
+    """A project's repository-owner mark (owner 2026-10-28, E): GitHub's public account record says whether ``login``
+    is an ``Organization``; only then is its avatar asked — a personal account's never is. Two requests, each on the
+    ToS rail (4 s, ≤ 512 KB, no cookies, every hop SSRF-checked through `net_guard`'s address rule and pinned to
+    GitHub's own API and avatar hosts). Only the login is sent, which the repository's URL already names."""
+    if fetcher is None:
+        if not fetch_allowed():
+            return None
+        fetcher = _http_get
+    resolver = resolver or _resolve_host
+    if _LOGIN_RE.fullmatch(login or "") is None:
+        return None
+    pinned = _pinned(fetcher, _ORG_AVATAR_HOSTS)
+    record = await _get_safely(GITHUB_OWNER_API.format(login=login), fetcher=pinned, resolver=resolver)
+    if record is None or record.status != 200 or not record.body or len(record.body) > MAX_BYTES:
+        return None
+    try:
+        data = json.loads(record.body)
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or data.get("type") != "Organization" \
+            or str(data.get("login") or "").lower() != login.lower():
+        return None
+    avatar = str(data.get("avatar_url") or "")
+    try:
+        if (urlparse(avatar).hostname or "").lower() != "avatars.githubusercontent.com":
+            return None
+    except ValueError:
+        return None
+    avatar += ("&" if "?" in avatar else "?") + "s=256"
+    result = await _get_safely(avatar, fetcher=pinned, resolver=resolver)
+    return _accept(result) if result is not None else None
 
 
 # --- cache ------------------------------------------------------------------
@@ -768,9 +978,20 @@ async def _ensure_logo_locked(
     ensure_rule(bank)
     entry = read_meta(bank).get(entity_id)
     cached_ok = bool(entry) and is_fresh(entry)
+    # A favicon-sized mark cached by an older ladder is asked once more by this one (vision item 2, 2026-10-28); a
+    # good one is stamped once, so the steady state reads nothing more than before.
+    small = None
+    if cached_ok and not entry.get("miss") and int(entry.get("ladder") or 1) < LOGO_LADDER \
+            and (fetcher is not None or fetch_allowed()):
+        side = _cached_side(bank, entity_id, entry)
+        if side is not None and side < GOOD_PIXELS:
+            small = side
+        elif side is not None:
+            entry = {**entry, "ladder": LOGO_LADDER}
+            await _record_meta(bank, entity_id, entry)
     # An edit to the page can change which domain this entity resolves to, so a
     # fresh entry is only good while the page is older than it.
-    if cached_ok and not page_edited_since_fetch(entity_file, entry):
+    if cached_ok and small is None and not page_edited_since_fetch(entity_file, entry):
         return cached_path(bank, entity_id)
 
     if not entity_file.exists():
@@ -781,14 +1002,15 @@ async def _ensure_logo_locked(
         # Unreadable page: keep serving whatever is already cached.
         return cached_path(bank, entity_id) if cached_ok else None
 
-    domain = domain_for(parsed.frontmatter or {}, parsed.body or "")
+    # A domain, or a project's repository owner (`github-org:<login>`, E) — the cache's `domain` field holds either.
+    domain = target_for(parsed.frontmatter or {}, parsed.body or "")
 
     # The page changed since the last fetch, but re-resolving may still land on
     # the SAME domain (Sleep bumping `last_referenced`/`version` every cycle,
     # say) — that's an unrelated edit, not a rebrand. Refresh the fetch stamp
     # so the mtime compare settles and skip the network ladder entirely,
     # instead of re-running it for every active entity on every Sleep cycle.
-    if cached_ok and domain == entry.get("domain"):
+    if cached_ok and small is None and domain == entry.get("domain"):
         await _record_meta(
             bank, entity_id, {**entry, "fetched_at": datetime.now(timezone.utc).isoformat()},
         )
@@ -818,8 +1040,15 @@ async def _ensure_logo_locked(
         # cost the user the logo they already have, so keep serving the cache.
         return cached_path(bank, entity_id) if cached_ok else None
 
-    result = await fetch_logo(domain, fetcher=fetcher)
+    if domain.startswith(REPO_TARGET):
+        result = await fetch_org_avatar(domain[len(REPO_TARGET):], fetcher=fetcher)
+    else:
+        result = await fetch_logo(domain, fetcher=fetcher)
     now = datetime.now(timezone.utc).isoformat()
+    if small is not None and domain == entry.get("domain") and (result is None or _side(result[0]) <= small):
+        # The new ladder found nothing larger: the mark we have stays, stamped so it is not asked again.
+        await _record_meta(bank, entity_id, {**entry, "fetched_at": now, "ladder": LOGO_LADDER})
+        return cached_path(bank, entity_id)
 
     if result is None:
         if cached_ok and not (entry or {}).get("miss"):
@@ -841,11 +1070,35 @@ async def _ensure_logo_locked(
     except OSError as exc:
         logger.warning(f"Could not cache logo for {entity_id}: {type(exc).__name__}: {exc}")
         return None
+    for stale in logos_dir(bank).glob(f"{entity_id}.*"):
+        if stale != path and stale.suffix.lstrip(".") in _EXT_BY_TYPE.values():
+            stale.unlink(missing_ok=True)   # a mark replaced in another format leaves no orphan behind
     await _record_meta(
         bank, entity_id,
-        {"fetched_at": now, "domain": domain, "miss": False, "etag": etag, "ext": ext},
+        {"fetched_at": now, "domain": domain, "miss": False, "etag": etag, "ext": ext, "ladder": LOGO_LADDER},
     )
     return path
+
+
+#: The fetch ladder's version, stamped on every hit. 2 (2026-10-28): the largest declared icon and a square og:image.
+#: A hit cached by an older ladder whose mark is under ``GOOD_PIXELS`` is asked once more; anything else stays.
+LOGO_LADDER = 2
+
+
+def _cached_side(bank: str, entity_id: str, entry: dict) -> int | None:
+    """The cached mark's smaller side, read from its header alone; None when there is no file."""
+    ext = entry.get("ext")
+    if not ext:
+        return None
+    try:
+        with open(logos_dir(bank) / f"{entity_id}.{ext}", "rb") as fh:
+            return _side(fh.read(HEADER_BYTES))
+    except OSError:
+        return None
+
+
+#: Enough of a cached mark to read its size (a JPEG's SOF marker sits after its metadata segments).
+HEADER_BYTES = 64 * 1024
 
 
 def _record_meta_sync(bank: str, entity_id: str, entry: dict) -> None:
@@ -917,7 +1170,7 @@ async def warm_logos(memory_path: Path, *, limit: int = 50, fetcher: Fetcher | N
     candidates: list[tuple[int, str]] = []
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter or {}
-        if str(fm.get("type") or "").lower() not in GUESSABLE_TYPES:
+        if not draws_logo(fm):
             continue
         related = fm.get("related") or []
         candidates.append((len(related) if isinstance(related, list) else 0, f.stem))

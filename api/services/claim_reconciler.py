@@ -29,13 +29,14 @@ the human-protection rule must be deterministic and auditable.
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import date, datetime
 from typing import Callable
 
 from loguru import logger
 
 from api.models.schemas import DecayClass
-from api.services import decay_policy, episode_time, inbox_questions, predicates
+from api.services import decay_policy, episode_time, phone_numbers, predicates
 from api.services.claims import (HAPPENED, MILESTONE, Claim, Evidence, event_cardinality, is_event, is_record,
                                  is_value_claim, same_value_attribute, stated_end)
 
@@ -98,9 +99,32 @@ def is_external(c: Claim) -> bool:
     return c.source_trust == "external"
 
 
+def slot_observer(c: Claim) -> str:
+    """The observer a claim's slot is keyed by. Cicada's own reading (``agent``) and the conversation's own assistant
+    (``external:<the agent its origin names>``: ``external:claude-code`` on a ``claude-code`` claim,
+    ``external:chatgpt`` on a ``chatgpt-export`` one — `entity_extractor.assistant_observer`, 2026-10-27) share one
+    slot: both are read from the same conversation by the same extraction, only whose words back it differs. So a newer
+    value closes an older one whichever of the two wrote it, a restatement reinforces instead of opening a second claim,
+    and the bank's assistant-only claims written as ``agent`` before 2026-10-27 need no repair. The trust table and
+    the owner's-words rail (`inbox_tend.may_close`) still decide: neither ever closes the person's own claim. A texted
+    agent or another person (``external:<correspondent>``, G179) and every other ``external:`` keep slots of their own."""
+    observer = c.observer or ""
+    if observer.startswith("external:"):
+        from api.services.episode_title import assistant_of
+        from api.services.id_utils import sanitize_id
+
+        # Only an assistant's origin: a harness, or a chat export. `external:linkedin` is a source's word, never the
+        # conversation's assistant.
+        agent = assistant_of(c.origin)
+        if agent and observer == f"external:{sanitize_id(agent)}":
+            return "agent"
+    return observer
+
+
 def K(c: Claim) -> tuple[str, str, str, str]:
-    """The mechanical belief-slot key: (subject, predicate, context, observer)."""
-    return (c.subject, c.predicate, c.context, c.observer)
+    """The mechanical belief-slot key: (subject, predicate, context, observer) — the observer as
+    :func:`slot_observer` reads it."""
+    return (c.subject, c.predicate, c.context, slot_observer(c))
 
 
 def open_(c: Claim) -> bool:
@@ -344,20 +368,26 @@ def _entity_name(claim: Claim) -> str:
 
 
 def _claim_option(key: str, claim: Claim, today: str) -> dict:
-    """One question option backed by a claim, description led by its age."""
+    """One question option backed by a claim, described by the day it was last said.
+
+    The description is the one clause ``Last mentioned <day>``: no age (it would freeze, ``inbox_wording`` words the
+    age at read) and no conversation id (the person never needs one). The conversation it came from rides beside it
+    as ``source_episode``, which the reader uses to date and compare the two sides. ``observed_at`` and
+    ``last_referenced`` keep their stored meaning."""
     observed = claim.valid_from or claim.recorded_at
-    parts = [f"Last mentioned {observed or 'unknown'}", inbox_questions.humanize_age(observed, today)]
-    episode = (claim.source_episodes or [""])[0]
-    if episode:
-        parts.append(f"extracted from {episode}")
-    return {
+    said = _said(claim) or str(observed or "")[:10]
+    option = {
         "key": key,
         "label": claim.object,
-        "description": " · ".join(parts),
+        "description": f"Last mentioned {said or 'unknown'}",
         "claim_id": claim.id,
         "observed_at": observed,
         "last_referenced": observed,
     }
+    episode = (claim.source_episodes or [""])[0]
+    if episode:
+        option["source_episode"] = episode
+    return option
 
 
 def _conflict_nudge(existing: Claim, new: Claim, today: str) -> dict:
@@ -646,15 +676,45 @@ def _departed_on(new: Claim, slot: list[Claim], over: set[str], untimed=frozense
     record) — so the order claims are read in never decides the belief: a re-read of the older conversation, an
     older mention read after the departure, or "left" listed before "works at" in one extraction."""
     days = []
+    target = _norm_object(new.object)
     for c in slot:
-        if c is new or c.subject != new.subject or not same_object(c, new) or is_event(c) or is_record(c):
+        # Cheapest tests first: on the owner's page this runs over thousands of claims per placement.
+        if c is new or (not over and c.valid_to is None) or c.subject != new.subject \
+                or _norm_object(c.object) != target or is_event(c) or is_record(c):
             continue
-        said_label = predicates._slugify_predicate(c.predicate) in over or (
-            c.predicate in (new.predicate, canonical) and c.valid_to is not None and _says_any(c.text, over))
+        said_label = bool(over) and (predicates._slugify_predicate(c.predicate) in over or (
+            c.predicate in (new.predicate, canonical) and c.valid_to is not None and _says_any(c.text, over)))
         if said_label:
             days.append(_said(c, untimed) or c.valid_from)
+        elif _ended_span(c, new, canonical, slot):
+            # 2026-10-29 (the vetted past-roles re-run): a belief on this page that HELD and then ENDED — closed by
+            # an expiry, the person's edit, a newer value or an ending read earlier — is a departure on the day it
+            # ended, whatever words closed it. Without this only an ending's own words counted, so an older mention
+            # read after the close ("enrolled at <school>", read after "graduated") reopened what had finished.
+            days.append(c.valid_to)
     days = [str(d)[:10] for d in days if d]
     return max(days) if days else None
+
+
+def _ended_span(c: Claim, new: Claim, canonical: str | None, slot: list[Claim]) -> bool:
+    """``c`` is the same belief as ``new`` (its predicate, or the canonical a start or ending folds into) and it held
+    for a while and then ended: closed with ``valid_to`` after ``valid_from``, and not withdrawn (a retraction says it
+    was never true, which ends nothing). A born-closed record (``valid_to == valid_from``: "worked at", an ending's own
+    record) is left to the label rule above."""
+    if c.predicate not in (new.predicate, canonical) or c.valid_to is None or _withdrawn(c, slot):
+        return False
+    return _date_key(c.valid_to) > _date_key(c.valid_from)
+
+
+def ended_since(c: Claim, page_claims: list[Claim], predicate: str, said: str | None) -> bool:
+    """Has the belief ``c`` would state (``predicate`` about ``c``'s object) held and ended on this page on or after
+    ``said``? The live reconciler's departure rule (:func:`_ended_span`), for a reader that is not placing a claim
+    (`past_roles_repair`): a start said before the end it would reopen is history."""
+    probe = dataclasses.replace(c, predicate=predicate)
+    day = str(said or c.valid_from or "")[:10]
+    return any(o is not c and o.subject == c.subject and same_object(o, c) and not is_event(o) and not is_record(o)
+               and _ended_span(o, probe, predicate, page_claims) and day <= str(o.valid_to)[:10]
+               for o in page_claims)
 
 
 def _says_any(text: str, labels: set[str]) -> bool:
@@ -664,21 +724,27 @@ def _says_any(text: str, labels: set[str]) -> bool:
 
 def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinality_fn: CardinalityFn,
                  nudges: list[dict], audit: list[dict], untimed=frozenset(), over: set[str] = frozenset(),
-                 canonical: str | None = None) -> Claim | None:
+                 canonical: str | None = None, revised: dict[str, str] | None = None) -> Claim | None:
     """One non-event incoming claim against its subject's slot (the K table).
     Returns the claim the page keeps for it — ``new``, or the existing claim a
     restatement reinforced — or ``None`` when it is not stored (a conflict to
     ask about, or rejected).
 
     ``over`` — the labels that end ``new``'s predicate: a mention said on or before a departure already on the page
-    is kept as closed history, never reopened (2026-10-14 review). A claim whose id the page already holds closed, read
+    is kept as closed history, never reopened (2026-10-14 review) — and so is one said on or before the end of the same
+    belief the page holds as having held and ended, however it was closed (:func:`_ended_span`, 2026-10-29). A claim whose id the page already holds closed, read
     again from a conversation that claim already cites (G104), stays closed: a re-read never undoes a close, and never
-    doubles an id. A withdrawn claim restated is a fresh assertion (``cicada_retract_claim``'s rule), as before."""
+    doubles an id. A withdrawn claim restated is a fresh assertion (``cicada_retract_claim``'s rule), as before.
+
+    ``revised`` (G104, owner 2026-11-03): open claims only the removed text of an edited conversation said, by id, with
+    that conversation (`episode_revision`). A new value read from that same conversation's revision closes one cleanly
+    — the source corrected itself, so there is nothing to ask. A value from any other conversation meets the table as
+    before: a later conversation saying something different is an update or a conflict."""
     twin = _reread_twin(new, slot)
     if twin is not None:
         _merge_episodes(twin, new)
         return twin
-    if over and not is_human(new):
+    if not is_human(new):
         departed = _departed_on(new, slot, over, untimed, canonical)
         said = str(_said(new, untimed) or new.valid_from or today)[:10]
         if departed is not None and said <= departed:
@@ -713,6 +779,14 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
         _reinforce(existing, new, today=today, untimed=untimed)
         return existing
 
+    if revised and existing.id in revised and set(new.source_episodes or []) == {revised[existing.id]}:
+        from api.services.inbox_tend import may_close
+
+        if not value or may_close(new, [existing]):
+            _close(existing, by=_stamp_new(new, settings, today=today))
+            slot.append(new)
+            audit.append({"action": "revised", "closed": existing.id, "by": new.id})
+            return new
     action = trust_decision(new, existing)
     if value and action in ("SUPERSEDE", "CONFLICT_NUDGE"):
         # The owner's-words rail (`inbox_tend.may_close`, review 2026-10-17): a value resting only on the assistant's or
@@ -757,6 +831,126 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
     return None
 
 
+def _number_question(new: Claim, existing: Claim | None, reason: str) -> dict:
+    """One question about a number, through the two-claim answer path (``kind: divergence``, `inbox_service`), in words
+    with no digit and no token. The digits are for the app to show (`/people/numbers/reveal`), and only there."""
+    name = _entity_name(new)
+    if existing is not None:
+        question = f"Did {name}'s number change?"
+        context = f"You gave a different number for {name} from the one on their page."
+        options = ["Keep the one on the page", "Use the new one", "Both are right"]
+    elif reason == phone_numbers.ASK_CARD:
+        question = f"Is this number {name}'s?"
+        context = f"You gave this number for {name}, and another card in your Contacts holds it."
+        options = [f"Not {name}'s", f"Yes, {name}'s"]
+    else:
+        question = f"Is this number the {name} on this page?"
+        context = f"You gave a number for {name}, and more than one person can go by that name."
+        options = [f"Not this {name}", f"Yes, this {name}"]
+    return {"id": new.subject, "action": "divergence_nudge", "entity": {"name": name}, "predicate": new.predicate,
+            "question": question, "conflict_context": context, "options": options,
+            "source_episode": (new.source_episodes or [""])[-1], "trigger": "sleep/phone_number", "claim_id": new.id,
+            "existing_claim_id": existing.id if existing is not None else None}
+
+
+def _place_number(new: Claim, slot: list[Claim], settings, today: str, nudges: list[dict], audit: list[dict],
+                  untimed=frozenset(), revised: dict[str, str] | None = None) -> Claim | None:
+    """A person's number against what their page holds. **One number is one fact**: the same token reinforces, whoever
+    said it and however it was written, so a restatement can never make two current numbers. A different one follows
+    the person's own clause (`phone_numbers.read_line`): "her new number", "changed her number" closes the one it
+    replaces; "work number", "also has" sits beside it; "her old number was" is history; anything else asks, and the new
+    number waits closed on the page (`phone_numbers.ASKED`), so nothing reads it as current and saying it again does not
+    ask twice. **An unclear line asks, it never closes.** Only the person's answer closes a number the person confirmed
+    (the trust table's rule). ``revised`` (G104): a conversation that corrected itself is not a second opinion, so its
+    new number replaces the one only its removed words said, with no question, and a reworded line keeps its number
+    (Stage 3's ``revision_restated``). No model call."""
+    tid = new.object
+    said = str(_said(new, untimed) or new.valid_from or today)[:10]
+
+    def by_this_revision(c: Claim) -> bool:
+        return bool(revised and c.id in revised and revised[c.id] in (new.source_episodes or []))
+
+    def restated(c: Claim) -> Claim:
+        if by_this_revision(c):
+            audit.append({"action": "revision_restated", "kept": c.id})
+        return c
+
+    twin = next((c for c in slot if c.id == new.id), None)
+    if twin is not None:
+        _merge_episodes(twin, new)
+        twin.evidence.extend(e for e in new.evidence if e not in twin.evidence)
+        return restated(twin)
+    numbers = [c for c in slot if c.predicate == phone_numbers.PREDICATE]
+    current = [c for c in numbers if open_(c)]
+    same = next((c for c in current if phone_numbers.same_number(c.object, tid, settings)), None)
+    kind = getattr(new, "number_change", phone_numbers.UNKNOWN)
+    if same is not None:
+        if same.object != tid:
+            same.object = tid   # a number the page held in clear (written before this rule) stops holding digits
+        if kind == phone_numbers.PAST and not is_human(same) and not by_this_revision(same):
+            same.valid_to = said
+            audit.append({"action": "number_past", "closed": same.id})
+            return same
+        _reinforce(same, new, today=today, untimed=untimed)
+        return restated(same)
+    corrected = [c for c in current if by_this_revision(c) and not is_human(c)]
+    if len(corrected) == 1 and kind != phone_numbers.PAST:
+        _close(corrected[0], by=_stamp_new(new, settings, today=today))
+        slot.append(new)
+        audit.append({"action": "revised", "closed": corrected[0].id, "by": new.id})
+        return new
+    earlier = [c for c in numbers if c.object == tid]
+    asked = next((c for c in earlier if c.context in (phone_numbers.ASKED, phone_numbers.REFUSED)), None)
+    if asked is not None:
+        _merge_episodes(asked, new)
+        return asked
+    closed = next((c for c in earlier if c.valid_to and said <= str(c.valid_to)[:10]), None)
+    if closed is not None:
+        _merge_episodes(closed, new)      # said while it was the number: history, read again or read late
+        return closed
+    ask_why = getattr(new, "number_ask", None)
+    if ask_why is None and earlier:
+        kind = phone_numbers.UNKNOWN      # back to a number closed earlier: the person's line must say so, so ask
+    if ask_why is None and kind == phone_numbers.PAST:
+        _stamp_new(new, settings, today=today)
+        new.valid_to = said
+        slot.append(new)
+        audit.append({"action": "number_past", "kept_closed": new.id})
+        return new
+    if ask_why is None and (not current or kind == phone_numbers.ADDITIONAL) and not earlier:
+        slot.append(_stamp_new(new, settings, today=today))
+        return new
+    if ask_why is None and kind == phone_numbers.CHANGED:
+        named = getattr(new, "number_replaces", None) or []
+        if named:   # the person said which one ended: that one, or ask; never another that happens to be there
+            matches = [c for c in current if phone_numbers.token_ids(c.object)
+                       and phone_numbers.token_ids(c.object)[0] in named]
+            target = matches[0] if len(matches) == 1 else None
+        else:
+            target = current[0] if len(current) == 1 else None
+        if target is not None and not is_human(target):
+            _stamp_new(new, settings, today=today)
+            if _date_key(new.valid_from) < _date_key(target.valid_from):
+                # Said before the number the page holds (a drain reads in any order): history, closed on arrival.
+                new.valid_to, new.superseded_by = target.valid_from, target.id
+                slot.append(new)
+                audit.append({"action": "superseded_on_arrival", "kept": target.id, "closed": new.id})
+                return new
+            _close(target, by=new)
+            slot.append(new)
+            audit.append({"action": "supersede", "closed": target.id, "by": new.id})
+            return new
+    # The person's line does not say, several numbers could be the one replaced, or the person confirmed the one held.
+    existing = current[-1] if current and ask_why is None else None
+    _stamp_new(new, settings, today=today)
+    new.context = phone_numbers.ASKED
+    new.valid_to = said
+    slot.append(new)
+    nudges.append(_number_question(new, existing, ask_why or "change"))
+    audit.append({"action": "number_asked", "asked": new.id})
+    return new
+
+
 def _adopt_value_attribute(new: Claim, slot: list[Claim]) -> None:
     """A stated value takes the predicate of the open value on its slot that names the same attribute in other words
     (``claims.same_value_attribute``) — the extractor reads each conversation alone, so "korean restaurants tried"
@@ -764,7 +958,7 @@ def _adopt_value_attribute(new: Claim, slot: list[Claim]) -> None:
     if any(open_(c) and K(c) == K(new) for c in slot):
         return
     match = next((c for c in slot if open_(c) and is_value_claim(c) and c.subject == new.subject
-                  and c.context == new.context and c.observer == new.observer
+                  and c.context == new.context and slot_observer(c) == slot_observer(new)
                   and same_value_attribute(c.predicate, new.predicate)), None)
     if match is not None:
         new.predicate = match.predicate
@@ -835,6 +1029,20 @@ def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], se
     new.valid_to = new.valid_from
     slot.append(new)
     return new
+
+
+def _onset_canonical(new: Claim, raw_label: str | None, onset_fn, subject_fn) -> str | None:
+    """The canonical a start label writes ``new`` under ("joined" -> ``works-at``; ``predicates.build_onsets_fn``), or
+    ``None``: no start label, already the canonical, or the subject's and object's pages are not the declared types
+    (a page not there yet has no type, so it starts nothing — "<company> joined <a programme>" keeps its label)."""
+    if onset_fn is None or new.object_kind != "node":
+        return None
+    hit = onset_fn(str(raw_label or new.predicate))
+    if hit is None or hit.canonical == new.predicate:
+        return None
+    if not hit.fits(subject_fn(new.subject).entity_type, subject_fn(new.object).entity_type):
+        return None
+    return hit.canonical
 
 
 def _job_for(claim: Claim, slot: list[Claim], canonical: str, at_id: str) -> Claim | None:
@@ -921,8 +1129,11 @@ def reconcile_stage3(
     decay_class_fn: DecayClassFn | None = None,
     subject_fn: SubjectFn | None = None,
     decay: bool = True,
+    revised: dict[str, str] | None = None,
 ) -> tuple[dict[str, list[Claim]], list[dict], list[dict]]:
     """Trust-gated invalidate-and-supersede over claims. Nothing deleted.
+
+    ``revised``: :func:`_place_claim`'s — the claims an edited conversation stopped saying (G104).
 
     ``decay=False`` skips ``_decay_claims`` only (a drain's batches before the
     last; see ``sleep_drain``).
@@ -985,6 +1196,7 @@ def reconcile_stage3(
     # A memory export entry says nothing about when (`episode_time`): read once for the pass.
     untimed = episode_time.untimed_ids(memory_path)
     depends_on = getattr(endings_fn, "depends_on", None)
+    onset_fn = getattr(endings_fn, "onset", None)
     premise_pairs: list[tuple[Claim, str]] = []
     for new in incoming_claims:
         sub = new.subject
@@ -1006,6 +1218,11 @@ def reconcile_stage3(
             reconcile_events(new, slot, settings, today=today, nudges=nudges, audit=audit, absorbed=absorbed)
             continue
 
+        if phone_numbers.is_number_claim(new):
+            # Ruling 55: a number has its own table — several can be true, and only the person's words close one.
+            _place_number(new, slot, settings, today, nudges, audit, untimed, revised=revised)
+            continue
+
         # Mandatory normalization-audit nudge on any auto-folded predicate.
         # G98/G115: a fold is a label mapped onto a DIFFERENT predicate. The
         # label's own slug is the normalizer's keep-as-is fallback ("uses
@@ -1013,6 +1230,13 @@ def reconcile_stage3(
         # One question per pair, raised after the pass so it names every claim
         # the pages keep for it — a reinforced restatement keeps the OLD id.
         raw_label = getattr(new, "predicate_raw", None)
+        started = _onset_canonical(new, raw_label, onset_fn, subject_fn)
+        if started is not None:
+            # "joined Acme" is a job at Acme (2026-10-27): written under the canonical, with no fold question (the
+            # list is curated), and placed like any other claim of it — a start never closes another place.
+            audit.append({"action": "started", "claim": new.id, "as": started})
+            new.predicate = started
+            raw_label = None
         ending = endings_fn(str(raw_label or new.predicate))
         ended_by = getattr(endings_fn, "ended_by", None)
         if ending is not None and _place_ending(new, ending, slot, settings, today, audit, untimed,
@@ -1021,7 +1245,13 @@ def reconcile_stage3(
         # A predicate an ending also ends (`also_ends`, or a qualified label) reads that canonical's departures.
         canonical = (ended_by(new.predicate) if ended_by else None) or new.predicate
         over = getattr(endings_fn, "over", {}).get(canonical, frozenset())
-        kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed, over, canonical)
+        kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed, over, canonical,
+                            revised=revised)
+        if (revised and kept is not None and kept is not new and kept.id in revised
+                and revised[kept.id] in (new.source_episodes or [])):
+            # G104: the revision said a marked claim again — whatever its evidence (an unlocatable quote is a
+            # `reasoning` entry `_reinforce` drops for a conversation already cited, R8). It is kept, never withdrawn.
+            audit.append({"action": "revision_restated", "kept": kept.id})
         if kept is not None and getattr(new, "premise_at", None):
             premise_pairs.append((kept, new.premise_at))
         if raw_label:

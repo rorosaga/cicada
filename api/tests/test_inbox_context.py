@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 
 import pytest
+
+import _bench
 from fastapi.testclient import TestClient
 
 from api import config, main
@@ -213,7 +215,8 @@ def test_item_from_file_without_context_keeps_the_legacy_shape(memory):
 
 def test_cardinality_unions_the_runtime_map_and_the_seed_with_multi_winning(tmp_path):
     assert predicates.cardinality(tmp_path, "uses") == "multi"          # seed, no runtime map
-    assert predicates.cardinality(tmp_path, "part-of") == "single"
+    assert predicates.cardinality(tmp_path, "takes-place-in") == "single"
+    assert predicates.cardinality(tmp_path, "part-of") == "multi"           # 2026-11-06: a part may be in several wholes
     assert predicates.cardinality(tmp_path, "works-at") == "multi"          # 2026-10-14
     assert predicates.cardinality(tmp_path, "description") == "unknown"
     assert predicates.cardinality(None, "uses") == "multi"
@@ -251,18 +254,25 @@ def test_fifty_items_resolve_under_budget_and_parse_each_file_once(memory):
                                                 "entity_name": f"Alpha Project {i}", "title": "t"})
     bank_index.invalidate()
     before = bank_index.parse_count
-    t0 = time.perf_counter(); items = inbox_service.load_inbox(memory); cold = time.perf_counter() - t0
+    t0, c0 = time.perf_counter(), time.process_time()
+    items = inbox_service.load_inbox(memory)
+    cold, cold_cpu = time.perf_counter() - t0, time.process_time() - c0
     assert len(items) == 50 and all(i.cause.tier == "entity" for i in items)
-    assert bank_index.parse_count - before <= 110, "each episode/entity frontmatter parsed at most once"
+    # 60 episodes + 50 pages + 50 inbox items: the items' own headers go through `bank_index` too (speed 2026-10-29),
+    # so a later load re-parses only an item that moved.
+    assert bank_index.parse_count - before <= 160, "each episode/entity/item frontmatter parsed at most once"
     mid = bank_index.parse_count
-    t0 = time.perf_counter(); inbox_service.load_inbox(memory); warm = time.perf_counter() - t0
+    t0, c0 = time.perf_counter(), time.process_time()
+    inbox_service.load_inbox(memory)
+    warm, warm_cpu = time.perf_counter() - t0, time.process_time() - c0
     assert bank_index.parse_count == mid, "a second load re-parses no frontmatter"
     # The parse counts above are the real guard (they are deterministic); these
     # two are loose smoke bounds against an accidental O(items x files) walk.
     # Do NOT tighten them to the ~100 ms G97 measured on the live bank — a
     # wall-clock assertion at that margin is a flaky test, not a budget.
-    assert warm < 1.0, f"warm load took {warm * 1000:.0f} ms"
-    assert cold < 5.0, f"cold load took {cold * 1000:.0f} ms"
+    # In CPU time, the wall clock under 4× (`_bench`): a busy Mac is not an O(items x files) walk.
+    _bench.within(warm_cpu, warm, 1.0, "warm load")
+    _bench.within(cold_cpu, cold, 5.0, "cold load")
 
 
 # ---------- ETag: the server half ----------

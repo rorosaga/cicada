@@ -183,9 +183,9 @@ def test_agent_claim_never_overwrites_user_stated_claim(tmp_path):
     entities_dir.mkdir(parents=True)
     human_claim = Claim(
         id="clm_seed_human",
-        text="Rodrigo part-of Acme Robotics",
+        text="Rodrigo takes-place-in Acme Robotics",
         subject="rodrigo",
-        predicate="part-of",
+        predicate="takes-place-in",
         object="Acme Robotics",
         observer="agent",  # matches the K-slot entities_to_claims/write_claim use
         context="general",
@@ -202,7 +202,7 @@ def test_agent_claim_never_overwrites_user_stated_claim(tmp_path):
     result = agentic_write.write_claim(
         tmp_path,
         "Rodrigo",
-        "part-of",
+        "takes-place-in",
         "Globex Corp",
         observer="agent",
         source_episode="ep_2026-06-01_001",

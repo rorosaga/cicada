@@ -244,6 +244,7 @@ def _ctx(bank: Path) -> mcp_tools.ToolContext:
 WRITES = {
     "cicada_save_episode": lambda ctx: mcp_tools.save_episode(ctx, "Decided alpha-project ships Friday.", "T"),
     "cicada_save_url": lambda ctx: mcp_tools.save_url(ctx, "https://example.com/a", None),
+    "cicada_add_book": lambda ctx: mcp_tools.add_book(ctx, "9780000000002", False),
     "cicada_record_watch": lambda ctx: mcp_tools.record_watch(ctx, "https://example.com/v", "A summary."),
     "cicada_record_read": lambda ctx: mcp_tools.record_read(ctx, "https://example.com/p", "read", "A summary."),
     "cicada_record_check": lambda ctx: mcp_tools.record_check(ctx, "inbox-001", "https://example.com/p", "unclear"),
@@ -257,9 +258,18 @@ WRITES = {
                                                                 "Shipped the first build.", "done"),
     "cicada_add_backlog_item": lambda ctx: mcp_tools.add_backlog_item(ctx, "alpha-project", "Cache it", "Slow."),
     "cicada_add_backlog_note": lambda ctx: mcp_tools.add_backlog_note(ctx, "AP1", "Found it."),
+    "cicada_create_project": lambda ctx: mcp_tools.create_project(ctx, "Beta Project Example", "A synthetic one."),
+    "cicada_link_conversation": lambda ctx: mcp_tools.link_conversation(ctx, "alpha-project", "ep_2026-01-01_001",
+                                                                         reason="It is about it."),
+    "cicada_link_entity": lambda ctx: mcp_tools.link_entity(ctx, "alpha-project", "bob-example", reason="On it."),
+    "cicada_add_influence": lambda ctx: mcp_tools.add_influence(ctx, "alpha-project", what="A Synthetic Book"),
     # G162: writes only the person's queue file (outside every bank), yet a demo bank's queue is a
     # picture of the flow — no agent can work it.
     "cicada_video_claim": lambda ctx: mcp_tools.video_claim(ctx),
+    # G227 (#552): a split, a merge and an undo rewrite pages — refused before any page is looked up.
+    "cicada_split_page": lambda ctx: mcp_tools.split_page(ctx, "alpha-project", "Two things.", sentences=[1]),
+    "cicada_merge_pages": lambda ctx: mcp_tools.merge_pages(ctx, "bob-example", "alpha-project", "Same."),
+    "cicada_undo_join": lambda ctx: mcp_tools.undo_join(ctx, "alpha-project", "Undo it."),
     # Ruling 32 (#359): an app with no hook relays each turn — capture, so a demo bank refuses it like every other.
     "cicada_capture_turns": lambda ctx: relay_capture.capture_turns(ctx, "Decided alpha-project ships Friday.",
                                                                      app="claude"),

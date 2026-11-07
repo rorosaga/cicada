@@ -164,6 +164,20 @@ def test_without_the_preference_the_agents_repeat_wins(bank, monkeypatch):
     assert {e.episode for e in shown if e.text.startswith("Thanks! I attended a wedding")} != set(eps)
 
 
+def test_person_first_lets_an_agents_turn_only_fill_what_is_left(bank):
+    """By a turn's role, in any language; an agent's line still comes when there is room."""
+    _weddings(bank)
+    question = "Tell me about attending a wedding"
+    found = ask_sources.search(bank, question)
+
+    def agents(**kw):
+        shown = ask_sources.gather_search(bank, question, found, owner_name="Alice Example", **kw)
+        return sum("assistant" in e.who for e in shown)
+
+    assert agents(person_first=True, max_excerpts=3) < agents(max_excerpts=3)
+    assert agents(person_first=True, max_excerpts=20, max_episodes=12, total_chars=10_000) > 0
+
+
 def test_a_list_about_another_speaker_prefers_their_turns(bank):
     days = ["2024-02-03", "2024-03-09", "2024-04-20", "2024-05-25", "2024-07-06"]
     sports = ["tennis", "squash", "rowing", "climbing", "cycling"]

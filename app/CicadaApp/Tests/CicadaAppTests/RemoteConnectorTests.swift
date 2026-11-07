@@ -173,6 +173,108 @@ final class RemoteConnectorTests: XCTestCase {
         XCTAssertNil(none)
     }
 
+    /// Ruling 59: the address appears only when a probe through it just answered; the shown command is the one click.
+    func testFunnelReach() {
+        let url = "https://mac.example-tailnet.ts.net"
+        let on = RemoteFunnel(step: "on", stopCommand: "tailscale funnel --https=443 --set-path=/ off")
+        XCTAssertEqual(RemoteReach.of(status(tailscale: "no-funnel"),
+                                      funnel: RemoteFunnel(step: "off", command: "tailscale funnel --bg --https=443 8765")),
+                       .funnelReady(command: "tailscale funnel --bg --https=443 8765"))
+        // The ServeConfig says it is open, and `detectedUrl` carries it: not a word of that until it answers.
+        var checked = on
+        XCTAssertEqual(RemoteReach.of(status(effective: url, tailscale: "funnel-on"), funnel: checked), .funnelChecking)
+        checked.answers = false
+        checked.message = "Set, not answering yet."
+        XCTAssertEqual(RemoteReach.of(status(effective: url, tailscale: "funnel-on"), funnel: checked),
+                       .funnelWaiting("Set, not answering yet."))
+        checked.answers = true
+        checked.url = url
+        XCTAssertEqual(RemoteReach.of(status(effective: url, tailscale: "funnel-on"), funnel: checked), .funnelOpen(url))
+        XCTAssertEqual(RemoteReach.of(status(tailscale: "no-funnel"),
+                                      funnel: RemoteFunnel(step: "taken", message: "Ports are held.")),
+                       .funnelBlocked("Ports are held."))
+        XCTAssertEqual(RemoteReach.of(status(enabled: false), funnel: checked), .off)
+    }
+
+    /// Ruling 59: an older backend, or no Tailscale here, keeps the page it had: the command to copy, ngrok, a download.
+    func testFunnelAbsentKeepsTheOtherWaysIn() {
+        guard case .setUp(_, let funnelCopy) = RemoteReach.of(status(tailscale: "no-funnel"), funnel: nil) else {
+            return XCTFail()
+        }
+        XCTAssertEqual(funnelCopy, "tailscale funnel --bg 8765")
+        guard case .setUp(_, let ngrok) = RemoteReach.of(status(ngrok: true), funnel: RemoteFunnel(step: "install")) else {
+            return XCTFail()
+        }
+        XCTAssertEqual(ngrok, "ngrok http 8765 --inspect=false")
+    }
+
+    /// The review of #607: another program on the connector's port is public. That comes first, over the bind failure that
+    /// is the same fact seen from the listener's side, and the address itself is never offered.
+    func testAnotherProgramOnThePortIsSaidFirst() {
+        let exposed = RemoteFunnel(step: "on", message: "Another program is public.",
+                                   stopCommand: "tailscale funnel --https=443 --set-path=/ off", answers: false,
+                                   otherProgram: true)
+        XCTAssertEqual(RemoteReach.of(status(error: "port 8765 is already in use", effective: "https://a.ts.net"),
+                                      funnel: exposed), .funnelExposed("Another program is public."))
+        XCTAssertNil(exposed.url)
+    }
+
+    func testWhatStaysInSightWithTheSwitchOff() {
+        XCTAssertFalse(RemoteFunnel(step: "off", command: "x").needsSightWhileOff)
+        XCTAssertTrue(RemoteFunnel(step: "on").needsSightWhileOff)
+        XCTAssertTrue(RemoteFunnel(step: "terminal").needsSightWhileOff)
+        let other = RemoteFunnel.Other(url: "https://a.ts.net", port: 8765, message: "Also public.",
+                                       command: "tailscale funnel --https=443 --set-path=/ off", kind: "other")
+        XCTAssertTrue(RemoteFunnel(step: "off", command: "x", others: [other]).needsSightWhileOff,
+                      "a mapping left on an old port stays in sight")
+    }
+
+    /// A replica refuses the click: say why, and how to close the address from here.
+    func testARefusalSaysWhyAndHowToCloseIt() {
+        XCTAssertEqual(RemoteFunnel.refusal("This computer keeps a copy.", stopCommand: "tailscale off"),
+                       "This computer keeps a copy. To close it here, run: tailscale off")
+        XCTAssertEqual(RemoteFunnel.refusal("This computer keeps a copy.", stopCommand: nil), "This computer keeps a copy.")
+        XCTAssertEqual(RemoteFunnel.refusal(nil, stopCommand: "tailscale off"), Copy.remoteFunnelFailed)
+    }
+
+    func testAPlainPollKeepsAKnownAnswerAndNothingElse() {
+        let answered = RemoteFunnel(step: "on", stopCommand: "off443", url: "https://a.ts.net", answers: true)
+        let poll = RemoteFunnel(step: "on", stopCommand: "off443")
+        XCTAssertEqual(poll.keepingAnswer(of: answered), answered)
+        let elsewhere = RemoteFunnel(step: "on", stopCommand: "off10000")
+        XCTAssertNil(elsewhere.keepingAnswer(of: answered).url, "another mapping has not answered")
+        let closed = RemoteFunnel(step: "off", command: "on443")
+        XCTAssertEqual(closed.keepingAnswer(of: answered), closed)
+    }
+
+    func testOnlyTailscalesOwnAddressIsEverALink() {
+        XCTAssertNotNil(RemoteFunnel.fixLink("https://login.tailscale.com/f/funnel?node=abc"))
+        XCTAssertNotNil(RemoteFunnel.fixLink("https://console.tailscale.com/admin/acls"))
+        XCTAssertNil(RemoteFunnel.fixLink("https://login.tailscale.com.evil.example/f"))
+        XCTAssertNil(RemoteFunnel.fixLink("http://login.tailscale.com/f"))
+        XCTAssertNil(RemoteFunnel.fixLink(nil))
+    }
+
+    func testFunnelCopySaysItInWords() {
+        XCTAssertEqual(Copy.remoteFunnelLine, "This makes the connector reachable from the internet.")
+        // Said before the click, and it can't be taken back.
+        for words in ["this Mac's name", "your tailnet's name", "public certificate log", "can't be undone"] {
+            XCTAssertTrue(Copy.remoteMachineNameWarning.contains(words), words)
+        }
+        XCTAssertTrue(Copy.remoteFunnelWillRun("tailscale funnel --https=443 --set-path=/ off")
+            .contains("tailscale funnel --https=443 --set-path=/ off"))
+    }
+
+    func testDecodesTheFunnelWire() throws {
+        let json = #"{"ok":false,"message":"Your tailnet's policy doesn't allow Funnel.","fixUrl":"https://console.tailscale.com/admin/acls","ran":"tailscale funnel --bg --https=443 8765","funnel":{"step":"off","message":null,"command":"tailscale funnel --bg --https=443 8765","stopCommand":null,"url":null,"answers":null,"fixUrl":"https://console.tailscale.com/admin/acls"}}"#
+        let run = try JSONDecoder().decode(RemoteFunnelRun.self, from: Data(json.utf8))
+        XCTAssertFalse(run.ok)
+        XCTAssertEqual(run.funnel.step, "off")
+        let withOther = #"{"step":"off","command":"x","otherProgram":false,"others":[{"url":"https://a.ts.net","port":8765,"message":"Also public.","command":"y","kind":"other"}]}"#
+        XCTAssertEqual(try JSONDecoder().decode(RemoteFunnel.self, from: Data(withOther.utf8)).others?.first?.port, 8765)
+        XCTAssertEqual(run.fixUrl, "https://console.tailscale.com/admin/acls")
+    }
+
     func testDecodesTheWirePayloads() throws {
         let json = """
         {"connector": {"id": "ab12cd34", "label": "Phone", "app": "claude", "scopes": ["read", "search"],
@@ -190,9 +292,9 @@ final class RemoteConnectorTests: XCTestCase {
         XCTAssertEqual(OriginIconography.logoName(for: "chatgpt"), "chatgpt")
         XCTAssertEqual(OriginIconography.logoName(for: "claude-code-remote"), "claude-code")
         XCTAssertEqual(OriginIconography.logoName(for: "codex-remote"), "codex")
-        XCTAssertNil(OriginIconography.logoName(for: "perplexity"))
+        XCTAssertEqual(OriginIconography.logoName(for: "perplexity"), "perplexity")
         XCTAssertEqual(OriginIconography.label(for: "claude-web"), "Claude")
-        XCTAssertEqual(OriginIconography.label(for: "vscode"), "VS Code")
+        XCTAssertEqual(OriginIconography.label(for: "vscode"), "GitHub Copilot")
         XCTAssertNotEqual(OriginIconography.symbol(for: "perplexity"), "tray")
     }
 
@@ -202,7 +304,7 @@ final class RemoteConnectorTests: XCTestCase {
         XCTAssertTrue(snippets[0].contains(link))
         XCTAssertFalse(snippets[0].contains("Bearer"))
         XCTAssertEqual(OriginIconography.label(for: "grok"), "Grok")
-        XCTAssertNil(OriginIconography.logoName(for: "grok"))
+        XCTAssertEqual(OriginIconography.logoName(for: "grok"), "grok")
     }
 
     func testCreatingSendsTheChosenExpiry() async throws {

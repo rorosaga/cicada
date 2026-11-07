@@ -49,13 +49,33 @@ enum OriginIconography {
         "contacts-local",
         // G179: a ticked Messages conversation, one episode per sitting (`messages_source.ORIGIN`).
         "imessage",
+        // G179 (2026-10-28): a ticked WhatsApp chat (`whatsapp_source`) and a ticked Telegram chat on the person's own
+        // account (`telegram_source`, ruling 47a) — one episode per sitting each.
+        "whatsapp", "telegram-chats",
         // G219: a ticked Reminders list's reminder, and a Notion export's page or row.
         "reminders-local", "notion-export",
+        // Ruling 47 tier 2: the live Notion connection (`notion.py`). Readwise was removed as a source by owner
+        // direction (2026-11-03); its mark stays so a bank's earlier Readwise episodes still draw it in the Reader.
+        "readwise", "notion-api",
+        // ROR-115: a Linear issue and its comments.
+        "linear-api",
+        // G230: GitHub — a starred repository, a pasted one, one the person owns (`connectors/github.py`).
+        "github", "github-starred", "github-added", "github-owned",
+        // G32: Spotify's own download — its library (saved) and its plays (listening days).
+        "spotify-saved", "spotify-history",
+        // G89 (2026-11-04): the person's Substack, read by their own agent — Saved posts and reading days.
+        "substack-saved", "substack-history",
+        // G39, G233: books (ROR-107 gave Goodreads its mark, so the sweep must see it).
+        "apple-books", "goodreads", "book-scan",
+        // G43: Voice Memos, read by the app after the person turns it on (Apple's own mark, drawn from the installed app).
+        "voice-memos",
         // G135 R-R26: a remote connector's app, as its episodes stamp it
         "claude-web", "chatgpt", "perplexity", "claude-code-remote",
         "codex-remote", "vscode", "remote-app",
         // Round 4 R-AG7: Grok's connector.
         "grok",
+        // G228: a host app's sessions (`host:` on the harness's episode).
+        "t3code",
         // Round 4 C8 — agent pills, ready for the day G48 stamps a harness label for their stdio episodes.
         "opencode", "hermes", "openclaw",
     ]
@@ -95,8 +115,19 @@ enum OriginIconography {
         case "calendar-local": "Calendar"
         case "contacts-local": "Contacts"
         case "reminders-local": "Reminders"
-        case "notion-export": "Notion"
+        // G39, G233 — books.
+        case "apple-books": "Apple Books"
+        case "voice-memos": "Voice Memos"
+        case "goodreads": "Goodreads"
+        case "book-scan": "Book scan"
+        case "notion-export", "notion-api": "Notion"
+        case "readwise": "Readwise"
+        case "linear-api": "Linear"
+        case "github", "github-added", "github-owned": "GitHub"
+        case "github-starred": "GitHub stars"
         case "imessage": "Messages"
+        case "whatsapp": "WhatsApp"
+        case "telegram-chats": "Telegram"
         case "apple-notes": "Apple Notes"
         case "share-sheet": "Share Sheet"
         case "instagram-saved": "Instagram Saved"
@@ -108,6 +139,8 @@ enum OriginIconography {
         case "x-likes": "X Likes"
         case "linkedin-saved": "LinkedIn Saved"
         case "tiktok-saved": "TikTok Saved"
+        case "spotify-saved", "spotify-history": "Spotify"
+        case "substack-saved", "substack-history": "Substack"
         case "tiktok-history": "TikTok History"
         case "bookmark": "Bookmark"
         // The `files` row's own origin (`source_overview.CATALOG`): what
@@ -115,6 +148,7 @@ enum OriginIconography {
         // stamp. It had no case at all, so it read as "Saved-link" — a
         // `.capitalized` id, visibly not a product name.
         case "saved-link": "Saved link"
+        case SourceCatalog.filesOrigin: Copy.Catalog.filesAndLinks
         // A page saved before origins were stamped, or from an uploaded link list (`source: url`, no origin):
         // its own word, never `"url".capitalized` ("Url", owner 2026-10-05).
         case "url": "Link"
@@ -130,6 +164,7 @@ enum OriginIconography {
         case "openclaw": "OpenClaw"
         case "folder": "Folder"
         case "wispr-flow": "Wispr Flow"
+        case "hex": "Hex"
         // Not an origin a writer stamps: the mark of the "Obsidian vault" row
         // (a vault is a folder, so its episodes are `folder`).
         case "obsidian": "Obsidian"
@@ -147,9 +182,10 @@ enum OriginIconography {
         case "chatgpt": "ChatGPT"
         case "perplexity": "Perplexity"
         case "grok": "Grok"
+        case "t3code": "T3 Code"
         case "claude-code-remote": "Claude Code (remote)"
         case "codex-remote": "Codex (remote)"
-        case "vscode": "VS Code"
+        case "vscode": "GitHub Copilot"
         case "remote-app": "Other remote app"
         default: origin.capitalized
         }
@@ -157,7 +193,12 @@ enum OriginIconography {
 
     static func symbol(for origin: String) -> String {
         switch origin {
-        case "mcp", "claude-code", "cursor", "codex", "claude-desktop": "bubble.left.and.bubble.right"
+        case "mcp", "claude-code", "cursor", "codex", "claude-desktop":
+            "bubble.left.and.bubble.right"
+        // ROR-107 (owner 2026-11-05: "chat exports should be actually like a export icon"): any vendor's export lands here.
+        case SourceCatalog.chatExportsOrigin: "square.and.arrow.up"
+        // ROR-107: a file or a list of links, not a bookmark ("bookmark" stays one saved thing's mark).
+        case SourceCatalog.filesOrigin: "doc.on.doc"
         case "chrome-bookmark", "brave-bookmark", "vivaldi-bookmark", "comet-bookmark", "dia-bookmark": "globe"
         case "chrome-tab-group": "square.stack"
         case "safari-bookmark", "safari-tab": "safari"
@@ -168,8 +209,17 @@ enum OriginIconography {
         case "calendar", "calendar-local": "calendar"
         case "contacts-local": "person.crop.circle"
         case "reminders-local": "checklist"
-        case "notion-export": "doc.text"
+        case "apple-books", "goodreads", "book": "book.closed"
+        case "voice-memos": "waveform"
+        // ROR-107: what the phone's camera read off a book's barcode; two tiles never wore one book (Goodreads has its mark).
+        case "book-scan": "barcode.viewfinder"
+        case "notion-export", "notion-api": "doc.text"
+        case "linear-api": "checklist"
+        case "readwise": "highlighter"
+        case "github", "github-starred", "github-added", "github-owned": "chevron.left.forwardslash.chevron.right"
         case "imessage": "message.fill"
+        case "whatsapp": "phone.bubble.fill"
+        case "telegram-chats": "paperplane.fill"
         case "apple-notes": "note.text"
         case "share-sheet": "square.and.arrow.up"
         case "instagram-saved": "camera.fill"
@@ -180,6 +230,8 @@ enum OriginIconography {
         case "x-bookmarks", "x-likes", "x": "x.circle"
         case "linkedin-saved": "briefcase.fill"
         case "tiktok-saved": "music.note"
+        case "spotify-saved", "spotify-history": "music.note"
+        case "substack-saved", "substack-history": "newspaper.fill"
         case "tiktok-history": "clock.arrow.circlepath"
         case "bookmark": "bookmark.fill"
         case "saved-link": "link"
@@ -190,9 +242,11 @@ enum OriginIconography {
         // not deleting it, is what keeps that true.
         case "gemini-cli", "opencode", "hermes", "openclaw": "terminal"
         case "folder": "folder"
-        case "wispr-flow": "waveform"
+        case "wispr-flow", "hex": "waveform"
+        // G95 — a folder of meeting transcripts (any recorder's).
+        case "meeting-folders": "person.2.wave.2"
         // G218 — activity traces (no episode carries it; its Sources row does).
-        case "traces": "timeline.selection"
+        case "traces": "clock.arrow.circlepath"
         case "obsidian": "doc.text"
         case "unknown": "questionmark.circle"
         case "phone": "iphone"
@@ -216,7 +270,8 @@ enum OriginIconography {
         case "codex": Color(hex: 0x10A37F)
         case "chrome-bookmark": Color(hex: 0x4285F4)
         case "safari-bookmark", "safari-tab": Color(hex: 0x00A2E8)
-        case "telegram": Color(hex: 0x26A5E4)
+        case "telegram", "telegram-chats": Color(hex: 0x26A5E4)
+        case "whatsapp": Color(hex: 0x25D366)
         case "rss": Color(hex: 0xEE802F)
         case "calendar", "calendar-local": Color(hex: 0xFF3B30)
         case "apple-notes": Color(hex: 0xFFCC00)
@@ -228,6 +283,8 @@ enum OriginIconography {
         case "x-bookmarks", "x-likes", "x": Color(hex: 0x14171A)
         case "linkedin-saved": Color(hex: 0x0A66C2)
         case "tiktok-saved", "tiktok-history": Color(hex: 0xFE2C55)
+        case "spotify-saved", "spotify-history": Color(hex: 0x1DB954)
+        case "substack-saved", "substack-history": Color(hex: 0xFF6719)
         // Google blue, the same swatch the Chrome row carries — same vendor,
         // and this tint is only ever seen when the bundled mark is missing.
         case "gemini-export": Color(hex: 0x4285F4)
@@ -235,6 +292,8 @@ enum OriginIconography {
         // that row's origin, and R-L4's whole point is that one source is one
         // picture wherever it is drawn.
         case "saved-link": Color(hex: 0x8896FF)
+        // ROR-118 round 5 - a folder wears the system folder's blue, so the Waiting list never mixes a grey glyph with full-colour marks.
+        case "folder": Color(hex: 0x3B9AF2)
         // `gemini-cli` alone — see the same narrowing in `symbol` above.
         case "gemini-cli": CicadaTheme.textPrimary
         case "unknown": CicadaTheme.textTertiary
@@ -276,22 +335,42 @@ enum OriginIconography {
         // installed icon and then a globe.
         case "brave-bookmark": "brave"
         case "rss": "rss"
-        case "telegram": "telegram"
+        case "notion-export", "notion-api": "notion"
+        case "linear-api": "linear"
+        case "telegram", "telegram-chats": "telegram"
+        case "whatsapp": "whatsapp"
+        // 2026-11-04 (owner: "whisperflow in the sources page doesn't have the logo of Whisperflow") — the vendor's own
+        // mark was bundled (LOGOS.md `wispr`) but no origin claimed it, so the row fell to the installed app's icon and,
+        // with the app removed, to a waveform glyph.
+        case "wispr-flow": "wispr"
+        // ROR-107 (owner 2026-11-05: "the Substack one is not there"): the marks these sources were missing.
+        case "substack-saved", "substack-history": "substack"
+        case "goodreads": "goodreads"
+        // Below an installed copy's own icon, so a browser that is not on this Mac is not one more globe. Comet's site
+        // serves 32 px; its mark is its App Store icon.
+        case "vivaldi-bookmark": "vivaldi"
+        case "dia-bookmark": "dia"
+        case "comet-bookmark": "comet"
         case "pinterest": "pinterest"
         case "reddit-saved", "reddit": "reddit"
         case "x-bookmarks", "x-likes", "x": "x"
         case "linkedin-saved": "linkedin"
         case "tiktok-saved", "tiktok-history": "tiktok"
+        case "spotify-saved", "spotify-history": "spotify"
+        case "github", "github-starred", "github-added", "github-owned": "github"
         case "instagram-saved": "instagram"
         case "youtube-playlist", "youtube-history": "youtube"
-        // G135 R-R26/R-R34 — a remote app wears the same mark as its local
-        // twin. Perplexity and `remote-app` stay nil: the only Commons
-        // Perplexity file is a wordmark, and "Other" has no brand.
+        // G135 R-R26/R-R34 — a remote app wears the same mark as its local twin. `remote-app` stays nil: "Other" has no
+        // brand (`SourceMarkCoverageTests` holds the list).
+        case "perplexity": "perplexity"
+        case "grok": "grok"
+        // G228 (owner 2026-11-05: "why does t3 code not have the logo"): a host app's sessions.
+        case "t3code": "t3code"
         case "claude-web": "claude"
         case "chatgpt": "chatgpt"
         case "claude-code-remote": "claude-code"
         case "codex-remote": "codex"
-        case "vscode": "vscode"
+        case "vscode": "copilot"
         default: nil
         }
     }
@@ -320,6 +399,8 @@ enum OriginIconography {
         // R-LS27 — Cicada reads Wispr Flow's own files (so the app is here) and
         // offers the Obsidian row only when Obsidian is installed.
         case "wispr-flow": "com.electron.wispr-flow"
+        // G95 — the Hex row is offered only when Hex is here (or has a folder), so its own icon is the mark.
+        case "hex": "anomaly.hex"
         case "obsidian": "md.obsidian"
         // Round-4 D2 — Cicada reads the Calendar app's own store, so the app is here; its icon is the only mark
         // (Apple's are never committed, Track L).
@@ -329,8 +410,15 @@ enum OriginIconography {
         case "contacts-local": "com.apple.AddressBook"
         // G219 — Cicada reads the Reminders app's own store, so the app is here; Apple's marks are never committed.
         case "reminders-local": "com.apple.reminders"
+        // G39 — Cicada reads Apple Books' own store, so the app is here; Apple's marks are never committed.
+        case "apple-books": "com.apple.iBooksX"
+        // G43 — Cicada reads Voice Memos' own store, so the app is here; Apple's marks are never committed.
+        case "voice-memos": "com.apple.VoiceMemos"
         // G179 — Cicada reads the Messages app's own database, so the app is here; Apple's marks are never committed.
         case "imessage": "com.apple.MobileSMS"
+        case "whatsapp": "net.whatsapp.WhatsApp"
+        // ROR-118 round 4 — Files and links is what the person drops from Finder; Apple's icon is the colour mark it lacked.
+        case SourceCatalog.filesOrigin: "com.apple.finder"
         default: nil
         }
     }

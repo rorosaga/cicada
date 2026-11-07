@@ -194,6 +194,15 @@ final class EngineQuickMenuTests: XCTestCase {
         XCTAssertNil(SleepEnginePreviewSource.current(chooser: nil, page: nil))
     }
 
+    /// A transport error's own text never reaches the person.
+    func testAFailedReadSaysSoInCicadasOwnWords() async {
+        struct Refused: Error {}
+        let start = response(mode: "auto")
+        let vm = SleepEngineViewModel(fetch: { throw Refused() }, update: { _, _, _, _ in start })
+        await vm.load()
+        XCTAssertEqual(vm.errorMessage, Copy.SleepV5.engineUnread)
+    }
+
     /// A failed write says so in words and changes nothing; the next good one clears it
     /// (the old model never cleared `errorMessage`).
     func testAFailedWriteSaysSoAndTheNextOneClearsIt() async {
@@ -262,7 +271,7 @@ final class EngineQuickMenuTests: XCTestCase {
             CicadaTheme.mode = mode
             for scale in [0.8, 1.0, 1.4] {
                 CicadaTheme.uiScale = scale
-                let width = EngineQuickMenu.width * CGFloat(scale)
+                let width = EngineQuickMenu.width(for: .from(r)) * CGFloat(scale)
                 let renderer = ImageRenderer(content: EngineQuickMenu(model: .from(r), choose: { _ in },
                                                                       pickModel: { _ in }, openSettings: { _, _ in })
                     .environment(store))

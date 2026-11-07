@@ -199,6 +199,21 @@ struct EntityHistoryEntry: Identifiable, Codable {
     // G48: the conversations that produced this commit (parsed Cicada-Session:
     // trailers). Empty for pre-G48 and user-action commits.
     let sessions: [String]
+    /// Vision item 5 (2026-10-28): this page's own manifest trigger and the door it names (`git_service.history_via`:
+    /// sleep | app | agent | remote | inbox | sync | cicada | unknown) — Sleep as a tag, the author as the picture.
+    /// "" / "unknown" from an older backend.
+    var trigger: String = ""
+    var via: String = "unknown"
+    /// Ruling 48 part 14 / DR-77 (part B, 2026-10-29), from `GET /entities/{id}/history?summary=true` only: the commit's
+    /// time (ISO 8601), its filter tab (you | agents | sleep | upkeep, `page_history.bucket`) and what it changed.
+    /// "" / nil from the plain route or an older backend.
+    var at: String = ""
+    var bucket: String = ""
+    var summary: HistorySummary?
+    /// G227 follow-up (owner 2026-10-29): `merge` / `split` / `undo` for a page join's commit (`page_join`), else nil;
+    /// `undoable` — a merge or split the History tab offers to take back. nil / false from an older backend.
+    var join: String?
+    var undoable = false
 
     var dateValue: Date {
         let f = DateFormatter()
@@ -207,7 +222,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case date, changeType, description, author, authorKind, authorProvider, commitHash, diff, sessions
+        case date, changeType, description, author, authorKind, authorProvider, commitHash, diff, sessions, trigger, via
+        case at, bucket, summary, join, undoable
     }
 
     init(from decoder: Decoder) throws {
@@ -221,6 +237,13 @@ struct EntityHistoryEntry: Identifiable, Codable {
         commitHash = try c.decodeIfPresent(String.self, forKey: .commitHash) ?? ""
         diff = try c.decodeIfPresent(EntityDiff.self, forKey: .diff)
         sessions = try c.decodeIfPresent([String].self, forKey: .sessions) ?? []
+        trigger = (try? c.decodeIfPresent(String.self, forKey: .trigger)) ?? ""
+        via = (try? c.decodeIfPresent(String.self, forKey: .via)) ?? "unknown"
+        at = (try? c.decodeIfPresent(String.self, forKey: .at)) ?? ""
+        bucket = (try? c.decodeIfPresent(String.self, forKey: .bucket)) ?? ""
+        summary = (try? c.decodeIfPresent(HistorySummary.self, forKey: .summary)) ?? nil
+        join = (try? c.decodeIfPresent(String.self, forKey: .join)) ?? nil
+        undoable = (try? c.decodeIfPresent(Bool.self, forKey: .undoable)) ?? false
     }
 
     init(
@@ -258,6 +281,11 @@ struct EntityHistoryEntry: Identifiable, Codable {
         try c.encode(commitHash, forKey: .commitHash)
         try c.encodeIfPresent(diff, forKey: .diff)
         try c.encode(sessions, forKey: .sessions)
+        try c.encode(trigger, forKey: .trigger)
+        try c.encode(via, forKey: .via)
+        try c.encode(at, forKey: .at)
+        try c.encode(bucket, forKey: .bucket)
+        try c.encodeIfPresent(summary, forKey: .summary)
     }
 }
 
@@ -667,18 +695,25 @@ struct MediaBlock: Codable, Equatable {
     /// **The one thing a url cannot tell you**, which is why it is stored at
     /// all. Absent means absent — nothing renders, never an estimate (R17).
     var durationS: Int?
+    /// ROR-117 — an added recording, video or photo (`kind == "file"`): the backend store's id for it, which the page
+    /// plays or shows and draws its words by, and the item's own date. nil for every other media page.
+    var fileId: String?
+    var recordedAt: String?
 
     enum CodingKeys: String, CodingKey {
         case url, mediaType, site, channel, thumbnail, preview, savedAt, urlHash
-        case provider, durationS, kind
+        case provider, durationS, kind, fileId, recordedAt
     }
 
     init(
         url: String, mediaType: String, site: String? = nil,
         channel: String? = nil, thumbnail: String? = nil,
         savedAt: String? = nil, urlHash: String? = nil,
-        provider: String? = nil, durationS: Int? = nil, kind: String? = nil, preview: String? = nil
+        provider: String? = nil, durationS: Int? = nil, kind: String? = nil, preview: String? = nil,
+        fileId: String? = nil, recordedAt: String? = nil
     ) {
+        self.fileId = fileId
+        self.recordedAt = recordedAt
         self.preview = preview
         self.url = url
         self.mediaType = mediaType
@@ -709,9 +744,18 @@ struct MediaBlock: Codable, Equatable {
         provider = try c.decodeIfPresent(String.self, forKey: .provider)
         durationS = try c.decodeIfPresent(Int.self, forKey: .durationS)
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        fileId = try? c.decodeIfPresent(String.self, forKey: .fileId)
+        recordedAt = try? c.decodeIfPresent(String.self, forKey: .recordedAt)
     }
 
     var isPaper: Bool { kind == "paper" }
+    /// ROR-117 — an added recording, video or photo (`media_pages.KIND`): played or shown from this Mac, never
+    /// fetched, and it has no link.
+    var isFile: Bool { kind == "file" && fileId != nil }
+    /// G39/G233 — a book page (`books.KIND`): its link is a catalogue entry, never fetched for a preview card.
+    var isBook: Bool { kind == "book" }
+    /// G230 — a repository page (`github_repos.KIND`).
+    var isRepository: Bool { kind == "repository" }
 
     /// True when there's a real url to preview. A media entity whose frontmatter
     /// couldn't be parsed (empty url) shouldn't render a broken preview.
@@ -795,7 +839,8 @@ struct Entity: Identifiable, Codable {
     /// `rawMarkdown` frontmatter, see `init`).
     var media: MediaBlock? = nil
     var history: [EntityHistoryEntry]
-    /// #244 — `history` is the newest `HistoryPaging.window` changes and there are older ones (`?skip=N`).
+    /// #244 — `history` is the newest 500 changes and there are older ones (`?skip=N`). Since part B (2026-10-29) the card
+    /// open reads no git: both are empty unless `?history=true` asked; the History tab reads `/history?summary=true`.
     var historyTruncated: Bool = false
     /// G117 — mirrors `GraphNode.isOwner` (same `owner:` frontmatter key) on
     /// the detail response, so `EntityDetailCard` can render "Name (you)"
@@ -810,6 +855,22 @@ struct Entity: Identifiable, Codable {
     /// not mentioned yet (`quiet_pages`): drawn dimmed in lists and the graph. Derived by the backend on every read,
     /// never stored; false from an older backend.
     var quiet: Bool = false
+    /// ROR-138 — a media page's kind (`media_kinds`: book, article, video, …, feed), the origin that brought it in and
+    /// the channel or publication it names; set from the graph node, nil on every other page and from an older backend.
+    var mediaKind: String? = nil
+    var origin: String? = nil
+    var mediaChannel: String? = nil
+    /// Owner ruling 44 (G121) — why the page matters to the person, derived on read; nil from an older backend.
+    var relevance: EntityRelevance? = nil
+    /// Vision item 5 (2026-10-28) — which blocks the page has and their data; nil from an older backend or a stub.
+    var blocks: PageBlocks? = nil
+    /// G227 (owner 2026-10-29) — when another page shares this title: a short qualifier and the name to show,
+    /// "<name> (<qualifier>)", derived by the backend on read (`same_name`). Nil for a title of its own.
+    var qualifier: String? = nil
+    var displayName: String? = nil
+
+    /// The name every surface shows: the qualified one when the title is shared, else the name (G227).
+    var shownName: String { displayName ?? name }
 
     var pictureRef: EntityPictureRef? { EntityPictureRef.wire(url: pictureURL, source: pictureSource) }
 
@@ -819,8 +880,13 @@ struct Entity: Identifiable, Codable {
         decayRate: Double, sourceEpisodes: [String], tags: [String],
         related: [String], version: Int, markdownContent: String,
         history: [EntityHistoryEntry], decayClass: DecayClass = .active,
-        isOwner: Bool = false, pictureURL: String? = nil, pictureSource: String? = nil, quiet: Bool = false
+        isOwner: Bool = false, pictureURL: String? = nil, pictureSource: String? = nil, quiet: Bool = false,
+        qualifier: String? = nil, displayName: String? = nil,
+        mediaKind: String? = nil, origin: String? = nil, mediaChannel: String? = nil
     ) {
+        self.mediaKind = mediaKind
+        self.origin = origin
+        self.mediaChannel = mediaChannel
         self.id = id
         self.name = name
         self.type = type
@@ -840,13 +906,16 @@ struct Entity: Identifiable, Codable {
         self.pictureURL = pictureURL
         self.pictureSource = pictureSource
         self.quiet = quiet
+        self.qualifier = qualifier
+        self.displayName = displayName
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, created, lastReferenced
         case decayRate, decayClass, decay, sourceEpisodes, tags, related, version
         case markdownContent, rawMarkdown, rawOmitted, path, media, history, historyTruncated, isOwner
-        case pictureURL = "picture", pictureSource, pictureInputs, quiet
+        case pictureURL = "picture", pictureSource, pictureInputs, quiet, relevance, blocks
+        case qualifier, displayName
     }
 
     init(from decoder: Decoder) throws {
@@ -874,7 +943,7 @@ struct Entity: Identifiable, Codable {
         // Prefer the backend-surfaced `media` block; if absent (older backend
         // that drops the nested block), reconstruct it from the `media:` YAML
         // in `rawMarkdown` so previews still work. Skip for non-media entities.
-        if let decoded = try c.decodeIfPresent(MediaBlock.self, forKey: .media), decoded.hasURL {
+        if let decoded = try c.decodeIfPresent(MediaBlock.self, forKey: .media), decoded.hasURL || decoded.isFile {
             media = decoded
         } else if type == .media {
             media = Entity.parseMediaFrontmatter(rawMarkdown)
@@ -888,6 +957,10 @@ struct Entity: Identifiable, Codable {
         pictureSource = (try? c.decodeIfPresent(String.self, forKey: .pictureSource)) ?? nil
         pictureInputs = (try? c.decodeIfPresent(PictureInputs.self, forKey: .pictureInputs)) ?? nil
         quiet = (try? c.decodeIfPresent(Bool.self, forKey: .quiet)) ?? false
+        relevance = (try? c.decodeIfPresent(EntityRelevance.self, forKey: .relevance)) ?? nil
+        blocks = (try? c.decodeIfPresent(PageBlocks.self, forKey: .blocks)) ?? nil
+        qualifier = (try? c.decodeIfPresent(String.self, forKey: .qualifier)) ?? nil
+        displayName = (try? c.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
     }
 
     /// Fallback parser for the nested `media:` block when the backend hasn't
@@ -927,7 +1000,8 @@ struct Entity: Identifiable, Codable {
             let key = String(trimmed[..<colon]).trimmingCharacters(in: .whitespaces)
             var value = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
             // Strip surrounding quotes if present.
-            if value.count >= 2, value.first == "\"", value.last == "\"" {
+            // Either kind: YAML writes an empty string as `''` (a book with no ISBN), and that is no URL.
+            if value.count >= 2, value.first == value.last, value.first == "\"" || value.first == "'" {
                 value = String(value.dropFirst().dropLast())
             }
             if value == "null" || value == "~" { value = "" }
@@ -1086,6 +1160,19 @@ struct GraphNode: Codable, Sendable {
     /// Owner ruling 2026-10-20 — `Entity.quiet`'s twin: an imported page not mentioned yet, drawn dimmed. The server
     /// omits it when false; decode-tolerant.
     let quiet: Bool
+    /// G227 — `Entity.qualifier`/`displayName`'s twins: present only when another page shares this title.
+    let qualifier: String?
+    let displayName: String?
+    /// ROR-135 — a book's authors, for the graph's hover card ("A, B"). Only a book page has one; the server omits it
+    /// otherwise, and an older backend never sends it.
+    let byline: String?
+    /// ROR-138 — a media page's kind, the origin that brought it in and its channel or publication (omitted elsewhere).
+    let mediaKind: String?
+    let origin: String?
+    let mediaChannel: String?
+
+    /// The name every list, the palette and the graph show (G227).
+    var shownName: String { displayName ?? name }
 
     var pictureRef: EntityPictureRef? { EntityPictureRef.wire(url: picture, source: pictureSource) }
 
@@ -1094,7 +1181,7 @@ struct GraphNode: Codable, Sendable {
         case degree, isHub, hasPending, memberCount, hubId
         case observers, contexts, isFacet, parentId, context
         case summary, contentHash, hasLogo, decayClass, isOwner, aliases
-        case picture, pictureSource, lastReferenced, quiet
+        case picture, pictureSource, lastReferenced, quiet, qualifier, displayName, byline, mediaKind, origin, mediaChannel
     }
 
     init(
@@ -1106,8 +1193,14 @@ struct GraphNode: Codable, Sendable {
         summary: String? = nil, contentHash: String = "", hasLogo: Bool = false,
         decayClass: DecayClass = .active, isOwner: Bool = false,
         aliases: [String] = [], picture: String? = nil,
-        pictureSource: String? = nil, lastReferenced: String? = nil, quiet: Bool = false
+        pictureSource: String? = nil, lastReferenced: String? = nil, quiet: Bool = false,
+        qualifier: String? = nil, displayName: String? = nil, byline: String? = nil,
+        mediaKind: String? = nil, origin: String? = nil, mediaChannel: String? = nil
     ) {
+        self.byline = byline
+        self.mediaKind = mediaKind
+        self.origin = origin
+        self.mediaChannel = mediaChannel
         self.id = id
         self.name = name
         self.type = type
@@ -1134,6 +1227,8 @@ struct GraphNode: Codable, Sendable {
         self.pictureSource = pictureSource
         self.lastReferenced = lastReferenced
         self.quiet = quiet
+        self.qualifier = qualifier
+        self.displayName = displayName
     }
 
     init(from decoder: Decoder) throws {
@@ -1169,5 +1264,11 @@ struct GraphNode: Codable, Sendable {
         pictureSource = (try? c.decodeIfPresent(String.self, forKey: .pictureSource)) ?? nil
         lastReferenced = (try? c.decodeIfPresent(String.self, forKey: .lastReferenced)) ?? nil
         quiet = (try? c.decodeIfPresent(Bool.self, forKey: .quiet)) ?? false
+        qualifier = (try? c.decodeIfPresent(String.self, forKey: .qualifier)) ?? nil
+        displayName = (try? c.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
+        byline = (try? c.decodeIfPresent(String.self, forKey: .byline)) ?? nil
+        mediaKind = (try? c.decodeIfPresent(String.self, forKey: .mediaKind)) ?? nil
+        origin = (try? c.decodeIfPresent(String.self, forKey: .origin)) ?? nil
+        mediaChannel = (try? c.decodeIfPresent(String.self, forKey: .mediaChannel)) ?? nil
     }
 }

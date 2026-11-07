@@ -234,6 +234,16 @@ struct MarkdownBody: View {
     /// filename keeps punctuation `sanitizeID` would drop), (c) the
     /// sanitized form — the pre-existing convention, kept as the fallback
     /// for a ref the graph doesn't (yet) know.
+    /// G227 — every page a wikilink ref can mean: the page whose id it is, else every page (not a facet) whose name it
+    /// is — two or more when the name is shared, and the link then asks which (`WikilinkNavigationModifier`), never
+    /// picks one — else the sanitized fallback.
+    static func entityIDs(_ ref: String, in nodes: [GraphNode]) -> [String] {
+        if nodes.contains(where: { $0.id == ref }) { return [ref] }
+        let lowered = ref.lowercased()
+        let named = nodes.filter { !$0.isFacet && $0.name.lowercased() == lowered }.map(\.id)
+        return named.isEmpty ? [sanitizeID(ref)] : named
+    }
+
     static func resolveEntityID(_ ref: String, in nodes: [GraphNode]) -> String {
         if nodes.contains(where: { $0.id == ref }) { return ref }
         let lowered = ref.lowercased()
@@ -439,16 +449,38 @@ extension View {
 
 /// A `ViewModifier` rather than a bare `environment(\.openURL, …)` call so
 /// the handler can read the graph snapshot it resolves against.
+///
+/// G227 — a bare `[[<name>]]` that two or more pages answer to opens the system's own choice dialog, one button per
+/// page by its qualified name ("<name-a> (IDE)", "<name-a> (program)"): a link never silently picks one.
 private struct WikilinkNavigationModifier: ViewModifier {
     let onSelect: (String) -> Void
     @Environment(Store.self) private var store
+    @State private var choices: [GraphNode] = []
+    @State private var choosing = false
+    @State private var asked = ""
 
     func body(content: Content) -> some View {
         content.environment(\.openURL, OpenURLAction { url in
             guard url.scheme == "cicada" else { return .systemAction }
             guard let ref = MarkdownBody.wikilinkRef(from: url) else { return .handled }
-            onSelect(MarkdownBody.resolveEntityID(ref, in: store.graph.value?.nodes ?? []))
+            let nodes = store.graph.value?.nodes ?? []
+            let ids = MarkdownBody.entityIDs(ref, in: nodes)
+            if ids.count > 1 {
+                choices = ids.compactMap { id in nodes.first { $0.id == id } }
+                asked = ref
+                choosing = true
+            } else {
+                onSelect(ids.first ?? MarkdownBody.sanitizeID(ref))
+            }
             return .handled
         })
+        .confirmationDialog(Copy.Graph.whichPage(asked), isPresented: $choosing, titleVisibility: .visible) {
+            ForEach(choices, id: \.id) { node in
+                Button(node.shownName) { onSelect(node.id) }
+            }
+            Button(Copy.Graph.whichPageCancel, role: .cancel) {}
+        } message: {
+            Text(Copy.Graph.whichPageMessage)
+        }
     }
 }

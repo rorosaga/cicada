@@ -45,6 +45,8 @@ re-indexed document is re-inserted with a fresh, larger ``doc_id``,
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
 import secrets
 import sqlite3
@@ -56,8 +58,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import (bank_index, bank_registry, episode_ids, evidence, fact_sources, history_index,
-                          inbox_questions, markdown_parser)
+from api.services import (authorship, bank_index, bank_registry, episode_ids, evidence, fact_sources, history_index,
+                          inbox_questions, markdown_parser, text_fold)
 from api.services.claims import is_event, is_record, parse_claims, strip_claims_block
 from api.services.graph_builder import summarize
 
@@ -74,7 +76,12 @@ DB_FILE = "search_index.db"
 # rebuilds every index once (TODO ruling 3).
 # "7": a saved link's episode records its site key in `docs.meta` (`site`, review of #372), so the ⌘K palette draws
 # a bookmark's conversation row with the site's own mark, never the browser's; the bump rebuilds every index once.
-SCHEMA_VERSION = "7"
+# "8": a saved item's `docs.meta` carries `evidence_kind: save` (`authorship.of`), so a hit in a bookmark's fetched
+# description is the page's words, never the person's; the bump rebuilds every index once.
+# "9": an agent's saved note's `docs.meta` carries `evidence_kind: agent` (ruling 50, `authorship.of`), so a hit in it
+# is the agent's words, never the person's; the bump rebuilds every index once.
+# "11": `pas.pairs` holds the overlapping pairs of unspaced scripts (G148, `text_fold.unspaced_pairs`); every index rebuilds once.
+SCHEMA_VERSION = "11"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
@@ -106,7 +113,7 @@ _FTS_COLUMNS = {
     "med": "title, aliases, keywords, body",
     "clm": "title, aliases, keywords, payload UNINDEXED",
     "epi": "title, keywords",
-    "pas": "body, s UNINDEXED, e UNINDEXED",
+    "pas": "body, pairs, s UNINDEXED, e UNINDEXED",
     "inb": "title, aliases, keywords, body",
     "blg": "title, aliases, keywords, body",
 }
@@ -115,7 +122,7 @@ WEIGHTS = {
     "med": "10.0, 9.0, 7.0, 4.0",
     "clm": "10.0, 9.0, 7.0, 0.0",
     "epi": "10.0, 7.0",
-    "pas": "4.0, 0.0, 0.0",
+    "pas": "4.0, 4.0, 0.0, 0.0",
     "inb": "10.0, 9.0, 7.0, 4.0",
     "blg": "10.0, 9.0, 7.0, 4.0",
 }
@@ -227,6 +234,9 @@ def _state(memory_path: Path) -> _BankState:
 
 def reset(memory_path: Path | None = None) -> None:
     """Forget cached process state (tests; never needed in production)."""
+    from api.services import file_words
+
+    file_words.reset(memory_path)
     with _STATES_LOCK:
         if memory_path is None:
             _STATES.clear()
@@ -533,6 +543,10 @@ def claim_payload(claim) -> dict:
 
 
 def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
+    if fm.get(evidence.LOCKED_NOTE_KEY):
+        return   # G234: a retired locked note is in no index
+    if str(fm.get("origin") or "") == "book-scan":
+        return   # G233: a scan is an act whose subject is the book; a search finds the book's page (its ISBN is an alias)
     ref = f.path.stem  # the evidence doc id (G118 R3) — the file stem, not `fm["id"]`
     meta = {
         "title": str(fm.get("title") or "").strip(),
@@ -544,12 +558,16 @@ def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
         ),
         "timestamp": str(fm.get("timestamp") or ""),
         "hash": evidence.body_hash(body),
-        # R-LS7: a folder file's declared authorship, so a hit's kind is the
+        # R-LS7: a folder file's declared authorship (or a saved item's, `authorship.of`), so a hit's kind is the
         # same `evidence.kind_for` answer a stored span carries.
-        "evidence_kind": str(fm.get("evidence_kind") or "").strip(),
+        "evidence_kind": authorship.of(fm) or "",
     }
+    if not fm.get("processed") and not history_index.is_index_only(fm):
+        meta["unread"] = True   # G207: waiting for Sleep, `Reader.unread_episodes`
     if history_index.is_index_only(fm):
         meta["index_only"] = True   # ruling 30: a record to look up — Ask's search leg neither counts nor shows it
+    if history_index.is_unread_save(fm) and not fm.get("media_entity_id"):
+        meta["saved_no_page"] = True   # ruling 62: a tab group, found by `saved_lookup` from its passages
     if site := _saved_site(fm):
         meta["site"] = site   # a saved link's own site key: its row's mark (owner 2026-10-20, review of #372)
     gaps = evidence.gap_ranges(fm, body)
@@ -566,8 +584,8 @@ def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
     text = evidence.mask_gaps(body, gaps)
     for n, (s, e) in enumerate(passage_spans(body)[:MAX_ROWS_PER_DOC], start=1):
         conn.execute(
-            "INSERT INTO pas(rowid, body, s, e) VALUES (?, ?, ?, ?)",
-            ((doc_id << ROW_BITS) | n, text[s:e], s, e),
+            "INSERT INTO pas(rowid, body, pairs, s, e) VALUES (?, ?, ?, ?, ?)",
+            ((doc_id << ROW_BITS) | n, text[s:e], " ".join(text_fold.unspaced_pairs(text_fold.fold(text[s:e]))), s, e),
         )
 
 
@@ -875,6 +893,21 @@ def rebuild(memory_path: Path) -> int:
         return _full_build(memory_path, state)
 
 
+def rebuild_fresh(memory_path: Path) -> int:
+    """G235: a full rebuild on a NEW file. ``DROP TABLE`` frees pages without clearing them, so words the person removed
+    would stay readable in the old file until SQLite reused the space. Derived and disposable, so the file simply goes;
+    a reader's open handle keeps its old view only until its query ends."""
+    memory_path = Path(memory_path)
+    if not fts5_available() or not _is_bank(memory_path):
+        return 0
+    state = _state(memory_path)
+    with state.lock:
+        _discard_files(db_path(memory_path))
+        state.stamps = None
+        state.generation = None
+        return _full_build(memory_path, state)
+
+
 def refresh(memory_path: Path) -> str:
     """Sleep's call, beside the vector index: bring the file up to date
     incrementally — only the documents whose ``(mtime, size)`` stamp moved are
@@ -941,6 +974,97 @@ def pages_citing(memory_path: Path, episode_id: str) -> list[str] | None:
     except sqlite3.Error:
         return None
     return sorted({d.ref for d in docs.values()})
+
+
+#: source-page-v3 — at most this many episodes answer one source's word search (newest written first): a source page
+#: lists a page of rows, so a broader word is narrowed by typing more, never by a slower read.
+EPISODE_WORDS_CAP = 2000
+
+
+def episodes_with_words(memory_path: Path, q: str | None) -> set[str] | None:
+    """The episodes whose title or words hold every token of ``q`` (prefix terms, AND) — the ids a source page's
+    search widens its title match with (owner 2026-10-29: "searching and what comes from the sources"). Read off
+    rowids, never a column; newest written first, capped at :data:`EPISODE_WORDS_CAP`. ``set()`` for a query with no
+    usable token; ``None`` when no usable index answers (the caller then matches titles alone). The query is never
+    logged or stored."""
+    tokens = text_fold.query_tokens(q)
+    if not tokens:
+        return set()
+    if ensure_fresh(memory_path) not in ("ready", "stale"):
+        return None
+    match = match_expression(tokens)
+    sql = (
+        f"SELECT DISTINCT d.ref FROM docs d JOIN (SELECT rowid >> {ROW_BITS} AS id FROM pas WHERE pas MATCH ?1 "
+        f"UNION SELECT rowid >> {ROW_BITS} FROM epi WHERE epi MATCH ?1) m ON m.id = d.id "
+        f"WHERE d.kind = 'episode' ORDER BY d.id DESC LIMIT ?2"
+    )
+    try:
+        with Reader(memory_path) as reader:
+            return {str(ref) for (ref,) in reader.conn.execute(sql, (match, EPISODE_WORDS_CAP))}
+    except sqlite3.Error:
+        return None
+
+
+class _OneReader:
+    """One lazily opened connection for one :func:`one_reader` block; a connection costs 0.9 ms (the schema is parsed
+    again on each, measured at 4,700 pages)."""
+
+    def __init__(self, memory_path: Path):
+        self.memory_path = Path(memory_path)
+        self._reader: Reader | None = None
+
+    def reader(self) -> "Reader":
+        if self._reader is None:
+            self._reader = Reader(self.memory_path)
+        return self._reader
+
+    def close(self) -> None:
+        if self._reader is not None:
+            self._reader.close()
+
+
+_ONE_READER: contextvars.ContextVar[_OneReader | None] = contextvars.ContextVar("search_index_one_reader", default=None)
+
+
+@contextlib.contextmanager
+def one_reader(memory_path: Path):
+    """Within this block, :func:`episodes_naming_each` on this bank shares one read connection: a rebuild of the Inbox
+    asks once per card. Opened only if something asks."""
+    held = _OneReader(memory_path)
+    token = _ONE_READER.set(held)
+    try:
+        yield
+    finally:
+        _ONE_READER.reset(token)
+        held.close()
+
+
+def episodes_naming_each(memory_path: Path, sides: tuple[list[str], ...], limit: int) -> list[str]:
+    """The episodes holding a spelling of EVERY side (a title or any passage; the sides may sit in different passages),
+    newest written first, at most ``limit``: one query off rowids, a side with no match costs nothing. A candidate list,
+    prefix terms; the caller checks the words. The index as it is: this never builds, refreshes or starts a build. ``[]``
+    when no usable index answers. The names are never logged or stored."""
+    if not db_path(memory_path).exists():
+        return []
+    matches: list[str] = []
+    for names in sides:
+        spellings = [tokens for tokens in (text_fold.query_tokens(n) for n in names) if tokens]
+        if not spellings:
+            return []
+        matches.append(" OR ".join(f"({match_expression(tokens)})" for tokens in spellings))
+    held = " AND ".join(
+        f"d.id IN (SELECT rowid >> {ROW_BITS} FROM pas WHERE pas MATCH ? UNION SELECT rowid >> {ROW_BITS} FROM epi WHERE epi MATCH ?)"
+        for _ in matches)
+    sql = f"SELECT d.ref FROM docs d WHERE d.kind = 'episode' AND {held} ORDER BY d.id DESC LIMIT ?"
+    params = [m for match in matches for m in (match, match)] + [int(limit)]
+    shared = _ONE_READER.get()
+    try:
+        if shared is not None and shared.memory_path == Path(memory_path):
+            return [str(ref) for (ref,) in shared.reader().conn.execute(sql, params)]
+        with Reader(memory_path) as reader:
+            return [str(ref) for (ref,) in reader.conn.execute(sql, params)]
+    except sqlite3.Error:
+        return []
 
 
 def pages_citing_many(memory_path: Path, episode_ids: list[str]) -> dict[str, list[str]] | None:
@@ -1229,6 +1353,11 @@ class Reader:
         marks = ",".join("?" * len(ids))
         rows = self.conn.execute(f"SELECT id, kind, ref, meta, mtime_ns, size FROM docs WHERE id IN ({marks})", list(ids))
         return {int(i): Doc(int(i), k, r, json.loads(m or "{}"), (mt, sz)) for i, k, r, m, mt, sz in rows}
+
+    def unread_episodes(self) -> dict[int, str]:
+        """``{doc id: episode id}`` of the conversations Sleep has not read (G207): the hook's leg reads only these."""
+        rows = self.conn.execute("SELECT id, ref FROM docs WHERE kind = 'episode' AND instr(meta, '\"unread\"') > 0")
+        return {int(i): str(r) for i, r in rows}
 
     def name_candidates(self, terms: list[str], limit: int, *, statuses: frozenset[str] | None = None,
                         skip_types: frozenset[str] = frozenset(),

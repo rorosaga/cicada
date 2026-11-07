@@ -83,14 +83,68 @@ extension ExportWaits {
 struct HomeWalkthroughLayer: View {
     let vendor: ChatVendor
     let onClose: () -> Void
+    var onHaveFile: (() -> Void)? = nil
 
     @FocusState private var focused: Bool
 
     var body: some View {
-        ExportWalkthroughSheet(vendor: vendor, onClose: onClose)
+        ExportWalkthroughSheet(vendor: vendor, onClose: onClose, onHaveFile: onHaveFile)
             .focusable()
             .focusEffectDisabled()
             .focused($focused)
             .onAppear { focused = true }
+    }
+}
+
+/// ROR-126 (owner: "the little worm on Home shows it's waiting on the export, per provider") — one quiet line a
+/// provider while an export is on its way, whether the person asked for it by hand or their agent did. The worm is the
+/// small mood sprite, not the study room's illustration (DR-13), and the row is the wait's own: the provider's name,
+/// when it was asked, *Choose a file…* once it arrives and the ✕. A request the agent could not carry out is not a wait
+/// (`ExportAgentRules.waitingVendors`): that provider is back to its manual walkthrough.
+struct HomeExportWaitStrip: View {
+    @Environment(ExportWaitStore.self) private var waits
+    @Environment(ExportAgentModel.self) private var agent
+    @Environment(IntakeRouter.self) private var intake
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        let active = waits.active(bank: store.bank)
+        let waiting = Set(ExportAgentRules.waitingVendors(waits: active, requests: agent.requests))
+        let rows = active.filter { waiting.contains($0.vendor) }
+        Group {
+            if !rows.isEmpty {
+                TimelineView(.periodic(from: .now, by: ExportWaits.refreshInterval)) { context in
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(rows) { wait in
+                            HStack(spacing: CicadaTheme.spacingSM) {
+                                BookwormView(state: .awake, pointSize: CicadaTheme.scaled(20))
+                                    .accessibilityHidden(true)
+                                Text(ExportWaits.wormLine(wait, now: context.date))
+                                    .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                                Spacer(minLength: CicadaTheme.spacingSM)
+                                NeutralButton(title: Copy.intakeChooseFile, size: .compact) {
+                                    intake.present(from: wait.intakeOrigin(fallback: .onboardingRow))
+                                }
+                                IconButton(systemName: "xmark", help: Copy.reminderDismiss,
+                                           accessibilityLabel: "\(Copy.reminderDismiss), \(ExportWaits.vendorTitle(wait.vendor))") {
+                                    Task { await agent.stopWaiting(vendor: wait.vendor, waits: waits, bank: store.bank) }
+                                }
+                            }
+                            .padding(.horizontal, CicadaTheme.scaled(10))
+                            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.oneLine), alignment: .leading)
+                        }
+                    }
+                }
+            }
+        }
+        .task { await agent.refresh(waits: waits, bank: store.bank) }
+    }
+}
+
+extension ExportWaits {
+    /// "Waiting on your Claude export · requested 2 hours ago", recomputed on every render.
+    static func wormLine(_ w: ExportWait, now: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        Copy.exportWormLine(vendorTitle(w.vendor), requested: relative(w.requestedAt, now: now, locale: locale))
     }
 }

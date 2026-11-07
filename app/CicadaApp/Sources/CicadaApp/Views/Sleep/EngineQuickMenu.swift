@@ -58,8 +58,13 @@ struct EngineQuickMenuModel: Equatable {
     var lastCycleHelp: String? = nil
     /// Sleep page v5 — *Keep plan free* (the reserve), only when a run you start would use a plan.
     var reserve: Reserve? = nil
+    /// ROR-102 — the spending limit, only when a run you start would be charged per use.
+    var spend: Spend? = nil
     /// How a scheduled run spends (ruling 16), in words from `preview.scheduled.billing`; never a provider's name.
     var scheduledSpend: String? = nil
+    /// Engine picker v2 (ruling 48 part 11) — the chosen card when it has models to pick: the menu draws its list
+    /// (`EngineModelList`) beside the engines, the mock's second column, instead of a native `Picker`.
+    var listCard: SleepEngineCandidate? = nil
 
     /// The reserve row (ruling 12's home for its figure): the line, its choices, and — only for a window the engine
     /// said it does not report — why that window cannot be kept free. A window nothing has reported yet says nothing.
@@ -80,6 +85,19 @@ struct EngineQuickMenuModel: Equatable {
         }
     }
 
+    /// The spending limit's row (ruling 12's home for its figure): a figure set elsewhere stays among the choices.
+    struct Spend: Equatable {
+        let limitUsd: Double?
+        let choices: [Double]
+
+        static func from(_ status: SleepSpendStatus?, billing: String?) -> Spend? {
+            guard let status, status.applies || billing == "charged" else { return nil }
+            let offered = status.choices.isEmpty ? [1, 5, 10, 20, 50] : status.choices.map(Double.init)
+            let all = status.limitUsd.map { offered.contains($0) ? offered : offered + [$0] } ?? offered
+            return Spend(limitUsd: status.limitUsd, choices: all.sorted())
+        }
+    }
+
     /// A picker entry: the model, then its list price when the wire gave one.
     func pickerLabel(_ id: String) -> String {
         modelPrices[id].map { "\(id) · \($0)" } ?? id
@@ -90,7 +108,7 @@ struct EngineQuickMenuModel: Equatable {
     /// "Runs on …" caption stated the same fact. `nil` until the preview is known (R-A7).
     static func buttonLabel(_ response: SleepEngineResponse?) -> String? {
         guard let response, let manual = response.preview?.manual else { return nil }
-        let name = EngineOption.candidateId(forEngine: manual.engine, model: manual.model)
+        let name = EngineOption.candidateId(forEngine: manual.engine, model: manual.model, candidates: response.candidates)
             .flatMap { id in response.candidates.first { $0.id == id }?.label }
             ?? Copy.engineLabel(manual.engine)
         let runs = "\(name) · \(manual.model)"
@@ -111,7 +129,7 @@ struct EngineQuickMenuModel: Equatable {
             let selectable = EngineOption.isSelectable(candidate, selectedMode: current)
                 && !response.isPinnedByEnvironment
             return Row(id: candidate.id, label: candidate.label, caption: caption,
-                       logo: EngineOption.logoName(for: candidate.id), symbol: EngineOption.symbol(for: candidate.id),
+                       logo: EngineOption.logoName(for: candidate), symbol: EngineOption.symbol(for: candidate.id),
                        isSelected: candidate.id == current, isSelectable: selectable,
                        help: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode)
                            : selectable ? "\(candidate.label) — \(usage?.help ?? caption)" : Copy.EngineMenu.signInFirst(candidate.label))
@@ -119,19 +137,24 @@ struct EngineQuickMenuModel: Equatable {
         let chosen = response.candidates.first { $0.id == current }
         // R-HS10 — a model list only where the engine has one to pick from; Auto and the API key say
         // in the backend's own words how their model is decided.
-        let pickable = ["agent", "codex", "local"].contains(current)
-        let note: String? = (current == "auto" || current == "byok") ? chosen?.detail : nil
+        // G49/G50: the person's own Cursor, OpenCode or Grok lists its own models (live, else documented defaults).
+        // G237: a Claude key lists what that key can use; any other key says how its model is decided.
+        let keyList = current == "byok" && (chosen?.models.count ?? 0) > 1
+        let pickable = ["agent", "codex", "local"].contains(current) || chosen.map(EngineOption.isOwnTool) == true || keyList
+        let note: String? = (current == "auto" || current == "byok") ? (chosen?.modelNote ?? chosen?.detail) : chosen?.modelNote
         let command = chosen.flatMap { $0.id == "local" ? OllamaGuideState.from(candidate: $0).command : nil }
         let previews: [Preview] = response.preview.map { p in
             [Preview(label: Copy.EngineMenu.whenYouStart, engine: p.manual.engine,
-                     text: "\(EngineOption.previewName(engine: p.manual.engine, model: p.manual.model)) · \(p.manual.model)",
+                     text: "\(EngineOption.previewName(engine: p.manual.engine, model: p.manual.model, candidates: response.candidates)) · \(p.manual.model)",
                      model: p.manual.model),
              Preview(label: Copy.EngineMenu.scheduledCycles, engine: p.scheduled.engine,
-                     text: "\(EngineOption.previewName(engine: p.scheduled.engine, model: p.scheduled.model)) · \(p.scheduled.model)",
+                     text: "\(EngineOption.previewName(engine: p.scheduled.engine, model: p.scheduled.model, candidates: response.candidates)) · \(p.scheduled.model)",
                      model: p.scheduled.model)]
         } ?? []
         let prices = pickable ? (chosen?.modelPrices ?? [:]).compactMapValues { CycleUsageText.modelPrice($0, locale: locale) } : [:]
-        let manualCard = response.preview.flatMap { EngineOption.candidateId(forEngine: $0.manual.engine, model: $0.manual.model) }
+        let manualCard = response.preview.flatMap {
+            EngineOption.candidateId(forEngine: $0.manual.engine, model: $0.manual.model, candidates: response.candidates)
+        }
         let last = CycleUsageText.lastCycle(response.candidates, preferring: manualCard, locale: locale)
         return EngineQuickMenuModel(
             rows: rows,
@@ -146,11 +169,14 @@ struct EngineQuickMenuModel: Equatable {
             pinnedNote: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode) : nil,
             runNote: response.runKeepsEngine ? Copy.EngineMenu.runKeepsEngine : nil,
             modelPrices: prices,
-            pricesNote: prices.isEmpty ? nil : Copy.SleepUsage.perMillionNote,
+            pricesNote: prices.isEmpty ? nil : Copy.SleepUsage.perMillionNote(
+                basis: chosen?.modelPrices.values.compactMap(\.basis).first),
             lastCycleLine: last?.line,
             lastCycleHelp: last?.help,
             reserve: Reserve.from(response.reserve, billing: response.preview?.manual.billing),
-            scheduledSpend: Copy.SleepV5.scheduledSpend(response.preview?.scheduled.billing))
+            spend: Spend.from(response.spend, billing: response.preview?.manual.billing),
+            scheduledSpend: Copy.SleepV5.scheduledSpend(response.preview?.scheduled.billing),
+            listCard: pickable && !(chosen?.models ?? []).isEmpty ? chosen : nil)
     }
 }
 
@@ -173,6 +199,8 @@ struct EngineLabelButton: View {
     @Environment(SleepEngineViewModel.self) private var engineVM
     @Environment(AppRouter.self) private var router
     var size: NeutralButton.Size = .regular
+    /// ROR-118 — beside a primary on the Sleep page: the label without its fill and ring.
+    var quiet = false
 
     var body: some View {
         if let response = engineVM.response, let label = EngineQuickMenuModel.buttonLabel(response) {
@@ -181,7 +209,7 @@ struct EngineLabelButton: View {
                               leading: AnyView(EngineMark(engine: response.preview?.manual.engine ?? "",
                                                           size: CicadaTheme.scaled(14),
                                                           model: response.preview?.manual.model)),
-                              size: size, help: Copy.EngineMenu.moreInSettings) {
+                              size: size, help: Copy.EngineMenu.moreInSettings, quiet: quiet) {
                     router.openSettings(.intelligence, row: .engineChoice)
                 }
                 .accessibilityLabel(Copy.EngineMenu.buttonAccessibility(label))
@@ -216,11 +244,16 @@ struct EngineQuickMenuButton: View {
             .popover(isPresented: $open, arrowEdge: .bottom) {
                 // The fixed width lives HERE, not in the menu, so `EngineQuickMenuTests`
                 // can measure the menu unframed and catch a rigid child (DR-70).
-                EngineQuickMenu(model: .from(response), isSaving: engineVM.isSaving,
+                let menu = EngineQuickMenuModel.from(response)
+                EngineQuickMenu(model: menu, isSaving: engineVM.isSaving,
                                 writeFailed: engineVM.writeFailed,
                                 choose: choose, pickModel: pickModel, openSettings: openSettings,
-                                setReserve: setReserve)
-                    .frame(width: CicadaTheme.scaled(EngineQuickMenu.width), alignment: .leading)
+                                setReserve: setReserve,
+                                setSpend: setSpend,
+                                refreshModels: { id in Task { await engineVM.refreshModels(id) } },
+                                refreshing: engineVM.refreshing != nil,
+                                refreshFailed: engineVM.refreshFailed != nil)
+                    .frame(width: CicadaTheme.scaled(EngineQuickMenu.width(for: menu)), alignment: .leading)
             }
         }
     }
@@ -247,6 +280,14 @@ struct EngineQuickMenuButton: View {
         }
     }
 
+    /// ROR-102 — the spending limit lives beside the reserve, and reads back the same way.
+    private func setSpend(_ usd: Double?) {
+        store.bankTask {
+            await sleepVM.updateRunOptions(.spendLimitUsd(usd))
+            await engineVM.load()
+        }
+    }
+
     private func apply(_ write: EngineWrite) {
         Task { @MainActor in
             await engineVM.apply(write)
@@ -268,7 +309,14 @@ struct EngineQuickMenuButton: View {
 /// fills the width it is offered; the popover offers `width` (`EngineQuickMenuButton`).
 struct EngineQuickMenu: View {
     static let width: CGFloat = 360
+    /// Engine picker v2: the model list's column beside the engines (the `10-engine-picker` mock).
+    static let listWidth: CGFloat = 340
     static let buttonMaxWidth: CGFloat = 300
+
+    /// The popover's width for this menu: one column, or two while a card's models are listed.
+    static func width(for model: EngineQuickMenuModel) -> CGFloat {
+        model.listCard == nil ? width : width + listWidth
+    }
 
     let model: EngineQuickMenuModel
     var isSaving = false
@@ -277,8 +325,46 @@ struct EngineQuickMenu: View {
     let pickModel: (String) -> Void
     let openSettings: (SettingsSection, SettingsRowID?) -> Void
     var setReserve: (Int?) -> Void = { _ in }
+    var setSpend: (Double?) -> Void = { _ in }
+    /// The person's Refresh on the listed card, and its state (`SleepEngineViewModel.refreshModels`).
+    var refreshModels: (String) -> Void = { _ in }
+    var refreshing = false
+    var refreshFailed = false
 
     var body: some View {
+        if let card = model.listCard {
+            HStack(alignment: .top, spacing: 0) {
+                engines.frame(width: CicadaTheme.scaled(Self.width), alignment: .topLeading)
+                modelColumn(card)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(CicadaTheme.spacingSM)
+                    .background(CicadaTheme.bgFocus)
+            }
+            .background(CicadaTheme.bgMenu)
+        } else {
+            engines
+        }
+    }
+
+    /// The model column: the list, then the notes that belong to it (a saved model no list names, the prices' basis).
+    private func modelColumn(_ card: SleepEngineCandidate) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            EngineModelList(card: card, selected: model.selectedModel, prices: model.modelPrices, isSaving: isSaving,
+                            refreshing: refreshing, refreshFailed: refreshFailed, pick: pickModel,
+                            refresh: { refreshModels(card.id) })
+            ForEach([model.note, model.pricesNote].compactMap { $0 }, id: \.self) { note in
+                Text(note)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let command = model.command {
+                CommandBox(command: command)
+            }
+        }
+    }
+
+    private var engines: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionLabel(Copy.EngineMenu.title)
                 .padding(.horizontal, CicadaTheme.spacingSM)
@@ -297,6 +383,7 @@ struct EngineQuickMenu: View {
             }
             modelSection
             reserveSection
+            spendSection
             if writeFailed {
                 Text(Copy.EngineMenu.writeFailed)
                     .font(CicadaTheme.metaFont)
@@ -317,27 +404,14 @@ struct EngineQuickMenu: View {
         .background(CicadaTheme.bgMenu)
     }
 
+    /// The chosen card's model words while no list is drawn (Auto's and the key card's own sentence, an Ollama
+    /// command). A card with models draws them in the second column instead (`modelColumn`; ruling 48 part 11 retired
+    /// the native `Picker` R-HS10 chose — no drop-down stacked on the reserve's, DR-81).
     @ViewBuilder
     private var modelSection: some View {
-        if !model.models.isEmpty || model.note != nil || model.command != nil {
+        if model.listCard == nil && (model.note != nil || model.command != nil) {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    SectionLabel(model.modelLabel)
-                    Spacer(minLength: CicadaTheme.spacingSM)
-                    if !model.models.isEmpty {
-                        // R-HS10 — a native menu picker: rosters are the plan's own list, any length.
-                        Picker(model.modelLabel, selection: Binding(get: { model.selectedModel },
-                                                                    set: { pickModel($0) })) {
-                            ForEach(model.models, id: \.self) { Text(model.pickerLabel($0)).tag($0) }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        // If the fit test shows the pop-up keeping its intrinsic width for a long
-                        // tag, pin it with `.frame(width:)` at the same 220 — never widen the menu.
-                        .frame(maxWidth: CicadaTheme.scaled(220), alignment: .trailing)
-                        .disabled(isSaving)
-                    }
-                }
+                SectionLabel(model.modelLabel)
                 if let note = model.pricesNote {
                     Text(note)
                         .font(CicadaTheme.metaFont)
@@ -391,6 +465,30 @@ struct EngineQuickMenu: View {
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+            .padding(.horizontal, CicadaTheme.spacingSM)
+            .padding(.top, CicadaTheme.spacingSM)
+        }
+    }
+
+    /// ROR-102 — one line, in the reserve's place (a run is on a plan or on a key, never both, DR-81). Ruling 12: the
+    /// figure lives here alone.
+    @ViewBuilder
+    private var spendSection: some View {
+        if let spend = model.spend {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                SectionLabel(Copy.SleepV5.spendLimit)
+                Spacer(minLength: CicadaTheme.spacingSM)
+                Picker(Copy.SleepV5.spendLimit, selection: Binding(get: { spend.limitUsd ?? 0 },
+                                                                   set: { setSpend($0 == 0 ? nil : $0) })) {
+                    Text(Copy.SleepV5.off).tag(0.0)
+                    ForEach(spend.choices, id: \.self) { Text(Copy.SleepV5.spendChoice($0)).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
+                .disabled(isSaving)
+                .help(Copy.SleepV5.spendHelp)
             }
             .padding(.horizontal, CicadaTheme.spacingSM)
             .padding(.top, CicadaTheme.spacingSM)

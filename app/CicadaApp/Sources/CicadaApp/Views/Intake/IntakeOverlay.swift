@@ -27,6 +27,13 @@ enum IntakePicker {
     static let allowedContentTypes: [UTType] = [.zip, .json, .html, .folder, .commaSeparatedText, .plainText,
                                                 .xml, .propertyList]
 
+    /// CIC8 (2026-10-29) — where a chat export lands: every app's export link downloads a .zip into Downloads, so the
+    /// panel opens there. Only a path is computed: the panel draws the folder, so Cicada reads nothing in it and no
+    /// Files and Folders prompt is raised — what the person picks is the grant (their own act, the drop's rule).
+    static var startFolder: URL? {
+        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+    }
+
     /// Runs the open panel. An empty list means the person cancelled.
     @MainActor
     static func choose() -> [URL] {
@@ -34,7 +41,23 @@ enum IntakePicker {
         panel.allowedContentTypes = allowedContentTypes
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
+        panel.directoryURL = startFolder
         panel.message = Copy.intakeDropTitle
+        return panel.runModal() == .OK ? panel.urls : []
+    }
+
+    /// Meaning index 2 — the same panel for File → Add Recording or Video…: audio and video files only (no folders:
+    /// a folder is never walked for recordings). What it returns goes through `IntakeRouter.accept`, the one door a
+    /// drop takes, so the roots guard and the speech rule are the drop's own.
+    static let mediaContentTypes: [UTType] = [.audio, .movie, .audiovisualContent, .image]
+
+    @MainActor
+    static func chooseMedia() -> [URL] {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = mediaContentTypes
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.message = Copy.mediaPickerMessage
         return panel.runModal() == .OK ? panel.urls : []
     }
 }

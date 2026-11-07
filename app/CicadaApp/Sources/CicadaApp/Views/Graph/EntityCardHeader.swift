@@ -22,12 +22,15 @@ struct EntityCardHeader: View {
     @Binding var selection: EntityCardTab
     /// Units — the column's 28, the Clusters card's 16 (`EntityCardStyle.inset`).
     var inset: CGFloat = 28
-    /// F-12 — a person's facts strip; empty for every other type.
+    /// F-12 — a person's facts strip. Ruling 48 (3): the entity page no longer passes one — Works at and Role are the
+    /// standfirst's, Known since and Conversations In short's line (it repeated both, DR-38).
     var facts: [PersonFact] = []
     /// C11 — the page's rung inputs, for the picture's menu and source line.
     var pictureInputs: PictureInputs? = nil
     /// "Show on the graph" — the card style only; on the Graph the node is already beside it.
     var onShowOnGraph: (() -> Void)? = nil
+    /// Ruling 48 — the page's menu ("…": add a link or a look, how it fades), beside ×. Nil: none (a stub, a render).
+    var pageMenu: AnyView? = nil
     /// A fact that names a page opens it (the card's wikilink navigation).
     var onOpenEntity: ((String) -> Void)? = nil
     /// The page's Rendered/Source switch and Copy, at the end of the tab row while Content is shown — one row of
@@ -62,6 +65,7 @@ struct EntityCardHeader: View {
                     IconButton(systemName: "point.3.connected.trianglepath.dotted", help: Copy.People.showOnGraphHelp,
                                action: onShowOnGraph)
                 }
+                if let pageMenu { pageMenu }
                 if showsClose {
                     IconButton(systemName: "xmark", help: Copy.Graph.closeHelp(entity.name), action: onClose)
                 }
@@ -73,23 +77,29 @@ struct EntityCardHeader: View {
                     .padding(.top, CicadaTheme.spacingMD)
             } else {
                 HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
-                    EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 40, held: entity.pictureRef,
-                                  heldInputs: pictureInputs, editing: .tile)
+                    // Owner 2026-10-28: no picture, no tile — the name starts the line; *Add a picture…* is in the page menu
+                    // (owner 2026-10-29: no blue words; a drawn picture is itself the control).
+                    // G233 (DR-38): a book's cover is drawn once, in its head, never again as a tile here.
+                    if entity.media?.isBook != true {
+                        EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 40, held: entity.pictureRef,
+                                      heldInputs: pictureInputs, editing: .tile, collapsesWhenEmpty: true)
+                    }
                     // Wraps rather than truncates: a selectable name cut short opened over the Summary on a click.
-                    Text(entity.isOwner ? Copy.Graph.ownerName(entity.name) : entity.name)
-                        .font(CicadaTheme.displayFont(size: 22))
-                        .tracking(CicadaTheme.displayTracking(size: 22))
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // G227: the plain name; a shared one carries its qualifier as a `Tag` beside it (DR-44).
+                    HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                        Text(entity.isOwner ? Copy.Graph.ownerName(entity.name) : entity.name)
+                            .font(CicadaTheme.displayFont(size: 22))
+                            .tracking(CicadaTheme.displayTracking(size: 22))
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !entity.isOwner { QualifierTag(qualifier: entity.qualifier) }
+                    }
                 }
                 .padding(.top, CicadaTheme.spacingSM)
                 if let summary {
                     EntitySummaryText(text: summary, isStub: isStub).padding(.top, CicadaTheme.scaled(6))
                 }
-                PictureSourceLine(id: entity.id, name: entity.name, type: entity.type, held: entity.pictureRef,
-                                  inputs: pictureInputs, quietWhenEmpty: true)
-                    .padding(.top, CicadaTheme.scaled(4))
             }
             // DR-45 — a tab label is never truncated: the tools share the tab row when it all fits; at a narrow column
             // (the 440 pt floor with every count showing) they step down to their own line, trailing, under the tabs.

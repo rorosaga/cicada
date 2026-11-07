@@ -1,5 +1,5 @@
-"""The person's own agent keeps their saved lists on X, Instagram and LinkedIn current (G206, ruling 36; extends G166
-and G71).
+"""The person's own agent keeps their saved lists on X, Instagram and LinkedIn — and, since G232 (2026-11-04), Reddit,
+Pinterest and TikTok — current (G206, ruling 36; extends G166 and G71).
 
 Owner, redesign 2026-10-22: the person's saved posts pile up where Cicada cannot see them, and the three sites are
 walled (the backend never fetches a login-walled page, the ToS rail). The YouTube lists already come in through the
@@ -19,7 +19,9 @@ aliases), and the platform's own ids are never asked for.
 **The rails are G166's.** Cicada never spawns a browser, never signs in and never fetches a list page: it only
 *offers* the task — lines in ``cicada_reading_queue`` (stdio only) and one in the recall hook's count — while agent
 reading is on (its first-use sheet acknowledged) **and** the person turned that site's list on (``reading_settings
-.saved_lists``, off by default; a standing ask for exactly that page, never a site grant). The agent records through
+.saved_lists``, on by default since 2026-10-26 — asked once, pre-ticked, in onboarding, and on an existing install
+turned on by ``list_defaults`` only for an account the memory shows, never over an off the person chose; a standing
+ask for exactly that page, never a site grant). The agent records through
 ``cicada_record_saved_list`` (``record`` scope, stdio only). ``needs_login`` or ``blocked`` pauses THAT site's list for
 a week (a sign-in on X says nothing about Instagram) and asks the person, through the G205 Inbox kind, to sign in;
 turning the list on again lifts the pause (Try again). Bounds until measured (G206): one site's list offered at a time,
@@ -65,16 +67,37 @@ class Platform:
     #: The host an agent request names (G205), and the words it asks with.
     site: str
     reason: str
+    #: The domains the person's own profile link may be on (ROR-114): the platform's own, never another site.
+    profile_hosts: tuple[str, ...] = ()
 
 
 PLATFORMS: dict[str, Platform] = {
     "x": Platform("x", "X", "Bookmarks", "https://x.com/i/bookmarks", "", "x-bookmarks", "Bookmarks",
-                  "x.com", "to read your bookmarks"),
+                  "x.com", "to read your bookmarks", ("x.com", "twitter.com")),
     "instagram": Platform("instagram", "Instagram", "Saved", "https://www.instagram.com/",
                           " — open the person's profile, then Saved, then All posts", "instagram-saved", "Saved",
-                          "instagram.com", "to read your saved posts"),
+                          "instagram.com", "to read your saved posts", ("instagram.com",)),
     "linkedin": Platform("linkedin", "LinkedIn", "Saved posts", "https://www.linkedin.com/my-items/saved-posts/", "",
-                         "linkedin-saved", "Saved Items", "linkedin.com", "to read your saved posts"),
+                         "linkedin-saved", "Saved Items", "linkedin.com", "to read your saved posts", ("linkedin.com",)),
+    # G232 (owner 2026-11-04: "offer the website connection through browser harness, just like a toggle switch …
+    # Same for TikTok, same for Pinterest, same for Reddit"). Each files under its export's own origin and folder, so
+    # a post the export (or Reddit's connector) brought in is the same row, and every one is index-only (ruling 30).
+    # ROR-128 (owner 2026-11-06) lifted Spotify's "never": a site's terms do not decide whether the person's own agent
+    # reads their own list in their own browser. Spotify's library is a saved list like the rest; Goodreads' shelves
+    # are books, held for the person's choice (`goodreads_waiting`) instead of saved as links.
+    "reddit": Platform("reddit", "Reddit", "Saved", "https://www.reddit.com/user/me/saved/", "", "reddit-saved",
+                       "Saved posts", "reddit.com", "to read your saved posts", ("reddit.com",)),
+    "pinterest": Platform("pinterest", "Pinterest", "Saved Pins", "https://www.pinterest.com/",
+                          " — open the person's profile, then Saved, then All Pins", "pinterest-saved", "Saved",
+                          "pinterest.com", "to read your saved Pins", ("pinterest.com",)),
+    "tiktok": Platform("tiktok", "TikTok", "Favorites", "https://www.tiktok.com/",
+                       " — open the person's profile, then the Favorites tab (videos)", "tiktok-saved", "Favorites",
+                       "tiktok.com", "to read your favorite videos", ("tiktok.com",)),
+    "spotify": Platform("spotify", "Spotify", "Library", "https://open.spotify.com/",
+                        " — open Your Library, then Liked Songs, then each playlist, album and podcast listed",
+                        "spotify-saved", "Library", "spotify.com", "to read your library", ("spotify.com",)),
+    "goodreads": Platform("goodreads", "Goodreads", "shelves", "https://www.goodreads.com/review/list", "",
+                          "goodreads", "", "goodreads.com", "to read your shelves", ("goodreads.com",)),
 }
 #: A list is offered again this long after its last read (the youtube lists' cadence).
 CADENCE = timedelta(hours=20)
@@ -191,6 +214,14 @@ def due(memory_path: Path, now: datetime | None = None) -> list[str]:
     return []
 
 
+def state_of(outcome) -> str:
+    """Where a list stands, from its last attempt alone: ``read`` is the only healthy one, ``signed_out`` the agent met
+    a login wall, ``couldnt_read`` it was blocked or failed, ``not_read`` no attempt yet. Cicada learns this only when
+    an agent tries the page, and never reads a cookie."""
+    return {"read": "read", "needs_login": "signed_out", "blocked": "couldnt_read",
+            "failed": "couldnt_read"}.get(str(outcome or ""), "not_read")
+
+
 def status(memory_path: Path, now: datetime | None = None) -> dict:
     """The Sources page's view: per site, the last read and its outcome, and its pause, if any."""
     lists = {}
@@ -199,33 +230,84 @@ def status(memory_path: Path, now: datetime | None = None) -> dict:
         until = paused_until(key, now)
         lists[key] = {"lastReadAt": entry.get("read_at"), "lastOutcome": entry.get("outcome"),
                       "lastAt": entry.get("at"), "items": int(entry.get("items") or 0),
-                      "pausedUntil": until.isoformat() if until else None}
+                      "pausedUntil": until.isoformat() if until else None,
+                      # ROR-114: how it is read (the app draws a browser-read source in its own colour), where it
+                      # stands (only a last read that succeeded is healthy), and whose list it is.
+                      "through": "browser",
+                      # A pausing outcome whose pause is lifted (Try again, or the week is up) waits for its next read.
+                      "state": "not_read" if entry.get("outcome") in PAUSING and until is None
+                      else state_of(entry.get("outcome")),
+                      "handle": entry.get("handle") or None, "profileUrl": entry.get("profile_url") or None}
     return {"readsToday": reads_today(memory_path, now), "dailyReads": DAILY_READS, "lists": lists}
 
 
 # --- what the agent reported ------------------------------------------------------------------------
 
 
-def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, now: datetime | None = None) -> None:
+_HANDLE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,38}")
+
+
+def clean_handle(value) -> str | None:
+    """The person's handle on the site as the page shows it, without its leading ``@``: one short token, or ``None``."""
+    word = str(value or "").strip().lstrip("@")
+    return word if _HANDLE.fullmatch(word) else None
+
+
+def clean_profile_url(key: str, value) -> str | None:
+    """The link to the person's own profile: ``https`` only, no credentials or port, on that platform's own host, the
+    query and fragment dropped. ``None`` for anything else (a link is shown and opened on a click, so it is checked)."""
+    try:
+        parsed = urlparse(str(value or "").strip())
+        port = parsed.port
+    except ValueError:
+        return None
+    platform = PLATFORMS.get(key)
+    host = (parsed.hostname or "").lower()
+    if platform is None or parsed.scheme != "https" or parsed.username or parsed.password or port is not None:
+        return None
+    ok = bool(_PIN_HOST.fullmatch(host)) if key == "pinterest" else _host_in(host, platform.profile_hosts)
+    if not ok or len(parsed.path) < 2 or len(parsed.path) > 200 or any(c.isspace() or ord(c) < 32 for c in parsed.path):
+        return None
+    return f"https://{host}{parsed.path}"
+
+
+def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, handle: str | None = None,
+         profile_url: str | None = None, now: datetime | None = None) -> None:
     """Record an outcome. A read counts toward the day and clears that site's pause (the agent was signed in);
-    ``needs_login``/``blocked`` start one."""
+    ``needs_login``/``blocked`` start one. ``handle`` and ``profile_url`` (already cleaned) are kept beside it, in this
+    machine state and never a bank; one not given leaves the last one standing."""
     moment = _now(now)
     with _locked() as data:
         bank = _bank_key(memory_path)
         entry = data.setdefault("banks", {}).setdefault(bank, {}).setdefault(key, {})
         entry.update(at=moment.isoformat(), outcome=outcome)
+        if handle:
+            entry["handle"] = handle
+        if profile_url:
+            entry["profile_url"] = profile_url
         pauses = data.setdefault("paused_until", {})
         if outcome == "read":
             entry.update(read_at=moment.isoformat(), items=int(items))
             pauses.pop(key, None)
-            today = moment.date().isoformat()
-            # Only today's count is kept: the bound is a day's, and older days are never read.
-            days = data.setdefault("days", {})
-            days[bank] = {today: int((days.get(bank) or {}).get(today) or 0) + 1}
+            _count(data, bank, moment)
         elif outcome in PAUSING:
             pauses[key] = (moment + PAUSE).isoformat()
         if not pauses:
             data.pop("paused_until", None)
+
+
+def _count(data: dict, bank: str, moment: datetime) -> None:
+    today = moment.date().isoformat()
+    # Only today's count is kept: the bound is a day's, and older days are never read.
+    days = data.setdefault("days", {})
+    days[bank] = {today: int((days.get(bank) or {}).get(today) or 0) + 1}
+
+
+def count_read(memory_path: Path, now: datetime | None = None) -> None:
+    """A saved list kept elsewhere was read (Substack's, ``substack_lists``, G89): it spends the same day's bound —
+    :data:`DAILY_READS` across every walled site's list, one site at a time."""
+    with _locked() as data:
+        _count(data, _bank_key(memory_path), _now(now))
 
 
 def resume(keys) -> None:
@@ -252,6 +334,17 @@ _X_STATUS = re.compile(r"^/(?:(?P<user>[A-Za-z0-9_]{1,15})|i(?:/web)?)/status/(?
 _X_RESERVED = frozenset({"i", "home", "search", "explore", "settings", "messages", "notifications"})
 _IG_POST = re.compile(r"^/(?:[A-Za-z0-9._]{1,30}/)?(?P<kind>p|reel|tv)/(?P<code>[A-Za-z0-9_-]{5,64})(?:/|$)")
 _LI_POST = re.compile(r"^/(?:feed/update/urn:li:(?:activity|share|ugcPost):\d{5,25}|posts/[^/?#\s]{3,300})(?:/|$)")
+#: A post or a comment on Reddit: ``/r/<sub>/comments/<id>[/<slug>[/<comment id>]]``.
+_REDDIT_POST = re.compile(r"^/r/(?P<sub>[A-Za-z0-9_]{2,21})/comments/(?P<id>[a-z0-9]{3,12})"
+                          r"(?:/(?P<slug>[^/?#\s]{1,120})(?:/(?P<comment>[a-z0-9]{3,12}))?)?/?$")
+#: A Pin: ``/pin/<id>/`` on pinterest.com or one of its country hosts.
+_PIN = re.compile(r"^/pin/(?P<id>[A-Za-z0-9_-]{5,40})/?$")
+_PIN_HOST = re.compile(r"(?:(?:www|[a-z]{2})\.)?pinterest\.(?:com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})")
+#: A Spotify item: ``/<kind>/<id>`` on open.spotify.com (a locale prefix such as ``/intl-es`` is dropped).
+_SPOTIFY = re.compile(r"^(?:/intl-[a-z]{2}(?:-[A-Za-z]{2})?)?/(?P<kind>track|album|show|episode|playlist|artist)/"
+                      r"(?P<id>[A-Za-z0-9]{8,40})/?$")
+#: A video or photo post on TikTok: ``/@<user>/video/<id>``.
+_TIKTOK_POST = re.compile(r"^/@(?P<user>[A-Za-z0-9._]{2,24})/(?P<kind>video|photo)/(?P<id>\d{8,25})/?$")
 
 
 def _host_in(host: str, domains) -> bool:
@@ -292,6 +385,33 @@ def canonical(key: str, url) -> tuple[str, tuple[str, ...]] | None:
             return None
         tail = found.group(0).rstrip("/") + "/"
         return f"https://www.linkedin.com{tail}", (f"https://linkedin.com{tail}",)
+    if key == "reddit":
+        found = _REDDIT_POST.match(path_) if _host_in(host, ("reddit.com",)) else None
+        if found is None:
+            return None
+        tail = "/" + "/".join(p for p in (f"r/{found.group('sub')}", "comments", found.group("id"), found.group("slug"),
+                                          found.group("comment")) if p) + "/"
+        # The export's permalink is ``www.reddit.com``; old Reddit and the bare host are the same post.
+        return f"https://www.reddit.com{tail}", (f"https://old.reddit.com{tail}", f"https://reddit.com{tail}")
+    if key == "pinterest":
+        found = _PIN.match(path_) if _PIN_HOST.fullmatch(host) else None
+        if found is None:
+            return None
+        pin = found.group("id")
+        return f"https://www.pinterest.com/pin/{pin}/", (f"https://pinterest.com/pin/{pin}/",)
+    if key == "tiktok":
+        found = _TIKTOK_POST.match(path_) if _host_in(host, ("tiktok.com",)) else None
+        if found is None:
+            return None
+        user, kind, vid = found.group("user"), found.group("kind"), found.group("id")
+        # The export lists a favourite as ``tiktokv.com/share/video/<id>/``: the same video, one row.
+        return f"https://www.tiktok.com/@{user}/{kind}/{vid}", (f"https://www.tiktokv.com/share/video/{vid}/",
+                                                                 f"https://tiktok.com/@{user}/{kind}/{vid}")
+    if key == "spotify":
+        found = _SPOTIFY.match(path_) if host == "open.spotify.com" else None
+        if found is None:
+            return None
+        return f"https://open.spotify.com/{found.group('kind')}/{found.group('id')}", ()
     return None
 
 
@@ -304,6 +424,8 @@ def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = N
     if not keys:
         return []
     p = PLATFORMS[keys[0]]
+    if p.key == "goodreads":
+        return _goodreads_lines(can_record)
     lines = [f"- The person's {p.name} {p.label}: {p.url}{p.how} — read each post's link, its author as the page "
              "shows it, and the words the post shows."]
     tail = (f"Record it with `cicada_record_saved_list(platform, outcome, items=[{{url, author, text}}], via)` "
@@ -315,3 +437,21 @@ def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = N
             "their own signed-in browser session; read only the list (scroll at most a few screens), never their "
             "feed or messages, and never click anything that changes the list (no unsave, like, follow or "
             "reply)."] + lines + [tail]
+
+
+def _goodreads_lines(can_record: bool) -> list[str]:
+    """Goodreads' shelves are books, not posts: what to read per book, and where it goes (held for the person's pick)."""
+    p = PLATFORMS["goodreads"]
+    tail = ("Record it with `cicada_record_saved_list(platform=\"goodreads\", outcome, items=[{id, title, author, shelf, "
+            "rating, date_read, date_added, review}], via)`: `id` is the number in the book's link "
+            "(`/book/show/<id>`), `shelf` is `read`, `currently-reading` or `to-read`, dates are YYYY-MM-DD. Nothing "
+            "enters memory until the person chooses which books to add. If Goodreads asks you to sign in, do not sign "
+            "in or type credentials: record `needs_login` and stop."
+            if can_record else
+            "If Goodreads asks you to sign in, do not sign in or type credentials: stop and tell the person.")
+    return ["The person asked their agent to keep their Goodreads shelves current in Cicada. Open this page in their "
+            "own signed-in browser session; read only their shelves Read, Currently Reading and Want to Read (scroll "
+            "at most a few screens), never their feed, friends or messages, and never click anything that changes a "
+            "shelf (no rating, review, shelving or follow).",
+            f"- The person's Goodreads shelves: {p.url} — per book: its id, title, author, which shelf, the person's "
+            "own star rating, the dates read and added, and the person's own review if they wrote one.", tail]

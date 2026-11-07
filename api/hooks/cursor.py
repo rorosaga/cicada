@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from recall import _default_post, _log, _off, TIMEOUT_S
 from workspace_identity import observe_if_needed, remember
 import hook_client as remote_client  # G181 phase 2: a client of a server elsewhere (CICADA_API_BASE)
+import host_identity  # G228: the app that launched this harness, if any
 
 INPUT_BYTES = 64 * 1024
 #: A capture payload carries the person's prompt, which can be a long paste.
@@ -85,7 +86,7 @@ def _capture(payload, event, *, environ, home, post):
     text = payload.get(field)
     if not isinstance(text, str) or not text.strip():
         return sid, f"skipped: no {field}"
-    client = remote_client.is_client(environ)
+    client = remote_client.captures_elsewhere(environ)   # a client's server, or a copy's home (G132 phase 1 B)
     token = "" if client else _token(environ, home)
     if not token and not client:
         return sid, "skipped: no api_token"
@@ -97,6 +98,9 @@ def _capture(payload, event, *, environ, home, post):
     model = payload.get("model")
     if speaker == "assistant" and isinstance(model, str) and model.strip():
         body["model"] = model.strip()[:200]
+    host = host_identity.detect(environ)
+    if host:
+        body["host"] = host
     if client:
         # G181 phase 2: the server is elsewhere; a turn it does not take now waits in the spool, in order. Only the
         # reply hook flushes: the prompt hook holds the person's message.

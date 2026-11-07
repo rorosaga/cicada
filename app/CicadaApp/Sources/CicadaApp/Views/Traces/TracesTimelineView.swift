@@ -28,6 +28,9 @@ final class TracesBrowserModel {
     private(set) var images: [String: Data] = [:]
     private(set) var texts: [String: String] = [:]
     var selectedFrame: String?
+    /// The Traces page's days as cards (2026-10-28), newest first; the day open on the page, nil for the cards.
+    private(set) var cards: [TraceDayCard] = []
+    private(set) var openDay: ISODay?
 
     @ObservationIgnored private let backend: any TraceBackend
     @ObservationIgnored private let authenticator: any TraceAuthenticator
@@ -132,6 +135,75 @@ final class TracesBrowserModel {
         selectedFrame = nil
     }
 
+    /// The rail's second click (2026-10-19 "Say it once", (5)): back to the page's root — the days' cards, the newest
+    /// day read, no search, no screenshot open. The screenshots' unlock is left as it is: going home is not hiding
+    /// them, and their own five minutes still run.
+    func returnToRoot() async {
+        query = ""
+        hits = nil
+        selectedFrame = nil
+        openDay = nil
+        await select(days.first ?? today)
+        await loadCards()
+    }
+
+    // MARK: - The page's days (owner 2026-10-28: "manage traces by day, one screenshot per day, kind of like BeReal")
+
+    func loadCards() async {
+        do {
+            cards = try await backend.traceDayCards()
+            problem = nil
+        } catch {
+            problem = TraceRecorder.describe(error)
+        }
+    }
+
+    /// Open one day: exactly what was captured, each item deletable.
+    func open(_ next: ISODay) async {
+        openDay = next
+        hits = nil
+        if next != day {
+            day = next
+            selectedFrame = nil
+        }
+        await load()
+    }
+
+    func backToDays() async {
+        openDay = nil
+        selectedFrame = nil
+        await loadCards()
+    }
+
+    /// Delete what the person picked from the open day (a span takes its screenshots with it), then read it again.
+    func delete(spans: [String] = [], frames: [String] = []) async {
+        guard let openDay, !(spans.isEmpty && frames.isEmpty) else { return }
+        do {
+            _ = try await backend.traceDelete(day: openDay.description, spans: spans, frames: frames, all: false)
+            for id in frames { images[id] = nil; texts[id] = nil }
+            if let selected = selectedFrame, frames.contains(selected) { selectedFrame = nil }
+            problem = nil
+        } catch {
+            problem = TraceRecorder.describe(error)
+        }
+        await load()
+        await loadCards()
+    }
+
+    /// The whole open day, at once; back to the cards.
+    func deleteDay() async {
+        guard let openDay else { return }
+        do {
+            _ = try await backend.traceDelete(day: openDay.description, spans: [], frames: [], all: true)
+            problem = nil
+        } catch {
+            problem = TraceRecorder.describe(error)
+            return
+        }
+        images = images.filter { id, _ in !(timeline?.frames.contains { $0.id == id } ?? false) }
+        await backToDays()
+    }
+
     /// The sheet closed: nothing of a screenshot stays.
     func close() {
         hide()
@@ -141,12 +213,43 @@ final class TracesBrowserModel {
 
 struct TracesTimelineView: View {
     let status: TraceStoreStatus
-    let onClose: () -> Void
+    /// The sheet's Close. nil on the Traces page (owner 2026-10-26), which lays the days out as a column instead of a
+    /// menu and has no close: leaving the page drops every screenshot the same way closing the sheet did.
+    var onClose: (() -> Void)?
+    /// Bumped by the Traces page when its rail cell is clicked again: the timeline returns to its root.
+    var rootToken = 0
 
     @State private var model = TracesBrowserModel(backend: APIClient.shared, authenticator: LiveTraceAuthenticator())
     @FocusState private var searchFocused: Bool
 
+    private var isPage: Bool { onClose == nil }
+
     var body: some View {
+        Group {
+            if isPage {
+                HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
+                    dayColumn
+                    content
+                }
+            } else {
+                content
+                    .padding(CicadaTheme.spacingXL)
+                    .frame(width: CicadaTheme.scaled(720), height: CicadaTheme.scaled(560), alignment: .topLeading)
+            }
+        }
+        .background(CicadaTheme.bgBase)
+        .task(id: status.oldestDay) {
+            model.setStatus(status)
+            await model.load()
+        }
+        .onDisappear { model.close() }
+        .onChange(of: rootToken) { _, _ in
+            searchFocused = false
+            Task { await model.returnToRoot() }
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             header
             if let problem = model.problem {
@@ -159,23 +262,53 @@ struct TracesTimelineView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(CicadaTheme.spacingXL)
-        .frame(width: CicadaTheme.scaled(720), height: CicadaTheme.scaled(560), alignment: .topLeading)
-        .background(CicadaTheme.bgBase)
-        .task {
-            model.setStatus(status)
-            await model.load()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// The page's days, newest first: one row each, the open one selected (DR-22's selection: `bgSelected`, never the
+    /// accent). A switch is instant (DR-60).
+    private var dayColumn: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            SectionLabel(Copy.Traces.daysSection)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(model.days, id: \.self) { day in
+                        let selected = day == model.day && model.hits == nil
+                        Button {
+                            Task { await model.select(day) }
+                        } label: {
+                            Text(dayLabel(day)).font(CicadaTheme.rowFont)
+                                .foregroundStyle(selected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                                .lineLimit(1)
+                                .padding(.horizontal, CicadaTheme.spacingSM)
+                                .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.oneLine),
+                                       alignment: .leading)
+                                .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                                    .fill(selected ? CicadaTheme.bgSelected : Color.clear))
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.cicadaPlain)
+                        .help(RelativeDay.full(day))
+                        .accessibilityAddTraits(selected ? [.isSelected] : [])
+                    }
+                }
+            }
         }
-        .onDisappear { model.close() }
+        .frame(width: CicadaTheme.scaled(168), alignment: .topLeading)
     }
 
     // MARK: - Header
 
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            Text(Copy.Traces.browserTitle).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-            dayMenu
+            if isPage {
+                Text(dayLabel(model.day)).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+            } else {
+                Text(Copy.Traces.browserTitle).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                dayMenu
+            }
             Spacer(minLength: CicadaTheme.spacingSM)
             TextField("", text: $model.query)
                 .focused($searchFocused)
@@ -185,10 +318,12 @@ struct TracesTimelineView: View {
                 .onChange(of: model.query) { _, words in
                     if words.isEmpty { Task { await model.search() } }
                 }
-            IconButton(systemName: "xmark", help: Copy.Traces.close, accessibilityLabel: Copy.Traces.close,
-                       shortcut: .cancelAction) {
-                model.close()
-                onClose()
+            if let onClose {
+                IconButton(systemName: "xmark", help: Copy.Traces.close, accessibilityLabel: Copy.Traces.close,
+                           shortcut: .cancelAction) {
+                    model.close()
+                    onClose()
+                }
             }
         }
     }

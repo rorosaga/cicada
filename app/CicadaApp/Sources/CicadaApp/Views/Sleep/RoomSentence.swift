@@ -177,8 +177,10 @@ struct RoomContext: Equatable {
     var paused: SleepPausedRun? = nil
     /// How often a run saves — the first night's tail says it.
     var batchSize: Int = 25
-    /// The paused run's reset time in words ("after 3:40 PM"), resolved by the page (clock-free).
+    /// The paused run's reset time in words ("after 3:40 PM"), resolved by the page (clock-free); nil once it has passed.
     var resetWhen: String? = nil
+    /// The paused run's limit has reset, resolved by the page: the lead and tail stop naming the limit (ROR-96).
+    var planIsBack: Bool = false
     /// When an armed automatic continue fires, in words; nil unless armed.
     var autoContinueWhen: String? = nil
     /// Pause was asked for and the run has not stopped yet.
@@ -217,9 +219,12 @@ private func sentenceLead(_ ctx: RoomContext) -> SentenceLine {
     }
     let count = { (n: Int) in UsageFormat.count(n, locale: ctx.locale) }
     if case .sleeping = ctx.mood, ctx.pausing { return SentenceLine(lead: Copy.SleepV5.pausingLead) }   // V1
-    if let paused = ctx.paused { return pausedLead(paused) }                                       // V2
+    if let paused = ctx.paused { return pausedLead(paused, planIsBack: ctx.planIsBack) }                                       // V2
     switch ctx.mood {
     case .sleeping:
+        if ctx.drain?.waiting != nil {                                                           // V8 (2026-11-03)
+            return SentenceLine(lead: Copy.SleepV5.waitingForNetworkLead)
+        }
         let running = stage(ctx)
         if let counted = countedStageLead(ctx, stage: running.number) { return counted }        // V3 (P15)
         if running.number == SleepStages.all.count, ctx.drain?.stages != nil {                  // V4
@@ -274,6 +279,9 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
     }
     if let paused = ctx.paused { return pausedTail(paused, ctx) }                                 // V2
     if case .sleeping = ctx.mood {                                                               // T2 (P16)
+        if let waiting = ctx.drain?.waiting {                                                    // V8 (2026-11-03)
+            return SentenceTail(text: Copy.SleepV5.waitingForNetworkTail(waiting))
+        }
         if let drain = ctx.drain, drain.active, drain.firstRun == true, drain.committedBatches == 1,
            let owner = drain.ownerPage {                                                          // V6 (first save)
             let firstBatch = min(drain.batchSize > 0 ? drain.batchSize : ctx.batchSize, drain.filed)
@@ -309,8 +317,11 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
         // points at Details, where the paused row shows it whole.
         let vendor = drain.stop?.sentence.flatMap { $0.split(whereSeparator: \.isNewline).first }
             .map { String($0).trimmingCharacters(in: .whitespaces) }
+        // G237: a key's limit is the key's, never the person's plan.
+        let keyLimit = drain.stop?.limit == "key_limit"
         let text = vendor.flatMap { !$0.isEmpty && $0.count <= SentenceLine.maxTail ? $0 : nil }
-            ?? (vendor == nil ? "Stopped at your plan's limit — the rest wait."
+            ?? (keyLimit ? Copy.SleepV5.keyLimitTail
+                : vendor == nil ? "Stopped at your plan's limit — the rest wait."
                               : "Stopped at your plan's limit — the reset time is in Past reads.")
         return SentenceTail(text: text, tone: .warning, action: .openDetails(.lastCycle))
     }
@@ -365,12 +376,16 @@ private func countedStageLead(_ ctx: RoomContext, stage number: Int) -> Sentence
 }
 
 /// The paused run's lead, by why it paused. Never a failure's tone: a pause is a fact about a run, and it waits.
-private func pausedLead(_ paused: SleepPausedRun) -> SentenceLine {
-    switch paused.reason {
+private func pausedLead(_ paused: SleepPausedRun, planIsBack: Bool) -> SentenceLine {
+    if planIsBack { return SentenceLine(lead: Copy.SleepV5.planBackLead) }
+    return switch paused.reason {
     case "reserve": SentenceLine(lead: Copy.SleepV5.pausedReserveLead)
     case "plan_window": SentenceLine(lead: Copy.SleepV5.pausedPlanWindowLead)
     case "plan_weekly": SentenceLine(lead: Copy.SleepV5.pausedPlanWeeklyLead)
     case "overage": SentenceLine(lead: Copy.SleepV5.pausedOverageLead)
+    // The network left (2026-11-03): a fact about the Mac, nothing to fix — plain, never the warning tone.
+    case "engine" where paused.engineKind == "offline":
+        SentenceLine(lead: Copy.SleepV5.pausedOfflineLead(cause: paused.offlineCause))
     case "engine": SentenceLine(lead: paused.engineKind == "transient"
                                ? Copy.SleepV5.pausedEngineLead : Copy.SleepV5.pausedEngineFixLead, tone: .warning)
     case "restart": SentenceLine(lead: Copy.SleepV5.restartLead)
@@ -383,6 +398,10 @@ private func pausedLead(_ paused: SleepPausedRun) -> SentenceLine {
 /// part a Pause interrupted is read again (G163 SL-1).
 private func pausedTail(_ paused: SleepPausedRun, _ ctx: RoomContext) -> SentenceTail {
     let (filed, frozen, locale) = (paused.filed, paused.frozen, ctx.locale)
+    if ctx.planIsBack, ctx.autoContinueWhen == nil {
+        return SentenceTail(text: Copy.SleepV5.continueWhenYouLike(filed: filed, frozen: frozen, locale),
+                            action: .openDetails(.lastCycle))
+    }
     switch paused.reason {
     case "user":
         return SentenceTail(text: Copy.SleepV5.pausedByYouTail(filed: filed, frozen: frozen, locale))
@@ -403,6 +422,20 @@ private func pausedTail(_ paused: SleepPausedRun, _ ctx: RoomContext) -> Sentenc
     case "plan_weekly":
         return SentenceTail(text: ctx.resetWhen.map(Copy.SleepV5.resetsThenContinue) ?? Copy.SleepV5.continueWhenItResets,
                             action: .openDetails(.lastCycle))
+    case "key_limit":
+        // What the limit was and what to do about it: the backend's own sentence ("add credit"), whole or from Details.
+        let said = paused.sentence.flatMap { $0.count <= SentenceLine.maxTail ? sentenceClause($0) : nil }
+        return SentenceTail(text: said ?? Copy.SleepV5.keyLimitTail, tone: .warning, action: .openDetails(.lastCycle))
+    case "spend":
+        // The person's own line doing its job: said plainly (every such sentence fits, `sleep_spend`).
+        return SentenceTail(text: sentenceClause(paused.sentence) ?? Copy.SleepV5.continueWhenYouLike(filed: filed, frozen: frozen, locale),
+                            action: .openDetails(.lastCycle))
+    case "engine" where paused.engineKind == "offline":
+        // A dropping connection with a network present is tried again; no network (or asleep) waits to be online.
+        let text = paused.offlineCause == "connection"
+            ? Copy.SleepV5.continueToTryAgain(filed: filed, frozen: frozen, locale)
+            : Copy.SleepV5.continueWhenOnline(filed: filed, frozen: frozen, locale)
+        return SentenceTail(text: text, action: .openDetails(.lastCycle))
     case "engine":
         let text = paused.engineKind == "transient"
             ? Copy.SleepV5.continueToTryAgain(filed: filed, frozen: frozen, locale)
@@ -431,6 +464,14 @@ func drainCancelledClause(_ drain: SleepDrainInfo, locale: Locale) -> String {
 /// on the page (T11, which said it again above the controls, retired; DR-38).
 func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> String {
     lampLit ? "\(scheduleText) · \(nextRunText)" : Copy.lampOffSentence
+}
+
+/// ROR-118 round 2 - the one quiet line under the controls beside the room: the lamp, short, and when Sleep last
+/// read, so "last read" is not a second caption up by the title. `lastRead` is `SleepEyebrow.lastRead`'s phrase.
+func cornerWhisperLine(scheduleText: String, nextRunText: String, lampLit: Bool, lastRead: String?) -> String {
+    if !lampLit, lastRead == nil { return Copy.lampOffSentence }
+    let lamp = lampLit ? "\(scheduleText) · \(nextRunText)" : Copy.SleepV5.lampOffShort
+    return [lamp, lastRead].compactMap { $0 }.joined(separator: " · ")
 }
 
 // MARK: - The slot
@@ -480,6 +521,9 @@ struct RoomSentenceView: View {
     /// one (`.whatChanged`), so a tail with an action always renders as a
     /// link — Z-P5's `canPerform` seam existed only while some did not.
     var perform: (SentenceAction) -> Void = { _ in }
+    /// ROR-118 — the page sets the sentence on the leading edge beside the room's rectangle; the offscreen layouts keep
+    /// the centred column.
+    var leading = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(IntakeRouter.self) private var intake
@@ -512,12 +556,17 @@ struct RoomSentenceView: View {
         let slot = slot
         let shown = line(for: slot)
         ZStack {
-            VStack(spacing: CicadaTheme.spacingXS) {
-                leadText(shown)
-                    .font(CicadaTheme.displayFont(size: Self.leadSize))
-                    .tracking(CicadaTheme.displayTracking(size: Self.leadSize))
-                    .lineLimit(1)
-                    .minimumScaleFactor(Self.leadMinimumScale)
+            VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingXS) {
+                if leading {
+                    // ROR-118 (2026-11-06) - beside the room the lead is a small status chip, not a headline.
+                    SleepStatusChip(line: shown)
+                } else {
+                    leadText(shown)
+                        .font(CicadaTheme.displayFont(size: Self.leadSize))
+                        .tracking(CicadaTheme.displayTracking(size: Self.leadSize))
+                        .lineLimit(1)
+                        .minimumScaleFactor(CicadaTheme.displayMinimumSize / Self.leadSize)
+                }
                 // A line with no tail is the lead alone: no empty line is held under the headline (owner QA
                 // 2026-10-17, amending R-Z5's one reserved tail line). A tail the worm adds on a poke takes its line
                 // as the answer comes up, and gives it back once the answer's cross-fade has finished (the outgoing
@@ -530,8 +579,8 @@ struct RoomSentenceView: View {
             .transition(.opacity)
         }
         .animation(SleepMotion.sentence(reduceMotion: reduceMotion), value: slot)
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
+        .multilineTextAlignment(leading ? .leading : .center)
+        .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
         .onHover { room?.pointerInSentence = $0 }
         // Every read below is `shown`, never `line`: VoiceOver reads what is
         // on screen, and the action follows the link that is on screen.
@@ -572,6 +621,8 @@ struct RoomSentenceView: View {
     }
 
     private func leadText(_ line: SentenceLine) -> Text {
+        // The numeral takes the lead's own size and weight (ROR-118 round 4: two sizes read as two voices).
+        let numeralSize = Self.leadSize
         let plainColor = line.qualifier == nil ? color(line.tone, plain: CicadaTheme.textPrimary) : CicadaTheme.textPrimary
         return sentenceRuns(line).reduce(Text(verbatim: "")) { text, run in
             switch run.kind {
@@ -579,7 +630,7 @@ struct RoomSentenceView: View {
                 return text + Text(verbatim: run.text).foregroundStyle(plainColor)
             case .numeral:
                 return text + Text(verbatim: run.text)
-                    .font(CicadaTheme.font(size: Self.leadSize, weight: .medium, design: .rounded))
+                    .font(CicadaTheme.font(size: numeralSize, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(plainColor)
             case .qualifier:
@@ -633,6 +684,89 @@ struct RoomSentenceView: View {
                 .foregroundStyle(tailColor)
                 .lineLimit(form.lines)
         }
+    }
+}
+
+// MARK: - The status chip (ROR-118, 2026-11-06)
+
+/// The lead cut for the chip: its runs without the qualifier (that becomes the tag) and without the stop and dash the
+/// sentence needed and a chip does not. `tag` is the qualifier with a capital: "Overdue".
+struct StatusParts: Equatable {
+    var runs: [SentenceRun]
+    var tag: String?
+}
+
+func statusParts(_ line: SentenceLine) -> StatusParts {
+    var runs = sentenceRuns(line)
+    var tag: String? = nil
+    if let word = line.qualifier, let at = runs.firstIndex(where: { $0.kind == .qualifier }) {
+        tag = word.prefix(1).uppercased() + word.dropFirst()
+        runs.remove(at: at)
+    }
+    // "21 to read — ." / "Reading 14 of 25." : the chip ends on its last word. An ellipsis is a word ("Filing…").
+    while let last = runs.last, last.kind == .plain {
+        var text = last.text
+        while let end = text.last, end == "." || end == "—" || end == " " { text.removeLast() }
+        if text.isEmpty { runs.removeLast(); continue }
+        runs[runs.count - 1] = SentenceRun(text: text, kind: .plain)
+        break
+    }
+    return StatusParts(runs: runs, tag: tag)
+}
+
+/// The Sleep page's status, small: a ringed capsule holding the count (or the stage) and, when it is true, an
+/// "Overdue" tag. The words are the sentence's lead, which VoiceOver still reads whole (`RoomSentenceView`'s label is
+/// `SentenceLine.spoken`): "21 to read — overdue." is heard, count and all. Depth is a ring (DR-9), the tag a
+/// `bgBadge` pill, no accent (DR-3), `warning` only for a stopped run (DR-7). It never animates (DR-60).
+struct SleepStatusChip: View {
+    let line: SentenceLine
+
+    private func ink(_ tone: SentenceTone, plain: Color) -> Color {
+        switch tone {
+        case .plain: plain
+        case .warning: CicadaTheme.warning
+        case .danger: CicadaTheme.danger
+        }
+    }
+
+    private func label(_ parts: StatusParts) -> Text {
+        let counted = parts.runs.contains { $0.kind == .numeral }
+        let wordInk = ink(line.tone, plain: counted ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
+        let numeralInk = ink(line.tone, plain: CicadaTheme.textPrimary)
+        return parts.runs.reduce(Text(verbatim: "")) { text, run in
+            switch run.kind {
+            case .numeral:
+                return text + Text(verbatim: run.text)
+                    .font(CicadaTheme.font(size: 20, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(numeralInk)
+            case .plain, .qualifier:
+                return text + Text(verbatim: run.text)
+                    .font(CicadaTheme.font(size: 15, weight: counted ? .regular : .medium))
+                    .foregroundStyle(wordInk)
+            }
+        }
+    }
+
+    var body: some View {
+        let parts = statusParts(line)
+        HStack(spacing: CicadaTheme.spacingSM) {
+            label(parts)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            if let tag = parts.tag {
+                Text(verbatim: tag)
+                    .font(CicadaTheme.badgeFont)
+                    .foregroundStyle(ink(line.tone, plain: CicadaTheme.textPrimary))
+                    .padding(.horizontal, CicadaTheme.spacingSM)
+                    .padding(.vertical, CicadaTheme.scaled(3))
+                    .background(Capsule().fill(CicadaTheme.bgBadge))
+            }
+        }
+        .padding(.leading, CicadaTheme.scaled(14))
+        .padding(.trailing, CicadaTheme.scaled(parts.tag == nil ? 14 : 6))
+        .padding(.vertical, CicadaTheme.scaled(6))
+        .ringed(in: Capsule())
     }
 }
 

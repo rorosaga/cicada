@@ -73,6 +73,19 @@ NO_BANK_WRITE = frozenset({
     ("POST", "/devices/pairing"),
     ("DELETE", "/devices/pairing/{pairing_id}"),
     ("POST", "/pair"),
+    # 2026-10-29: a device binding its own key — $CICADA_HOME's devices.db too.
+    ("POST", "/devices/me/key"),
+    # G132 phase 1 B: this computer's own copy and its restart — `$CICADA_HOME` and `banks.yaml`, never a bank's pages;
+    # right after a restart the app may still name the bank it had open (review of #567).
+    ("PUT", "/sync/replica"),
+    ("DELETE", "/sync/replica"),
+    ("POST", "/sync/replica/restart"),
+    ("POST", "/sync/replica/recopy"),
+    ("PUT", "/sync/publish"),
+    # G132 phase 2: a device of the group says where it is and how far its copy is — `$CICADA_HOME`'s devices.db.
+    ("POST", "/sync/devices/me"),
+    # 2026-10-29 (owner, "Yes, one click"): the person's click runs one tailnet serve — Tailscale's state, no bank.
+    ("POST", "/devices/reach/serve"),
     ("POST", "/agent-api/tokens"),
     ("DELETE", "/agent-api/tokens/{token_id}"),
 })

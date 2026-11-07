@@ -27,27 +27,42 @@ extension Copy {
         static func savedToLooks(_ day: String) -> String { "Saved to Looks \(day)" }
         static func nearest(_ head: String, asked: String) -> String { "\(head) · nearest to \(asked)" }
 
+        static let play = "Play here"
+        static let pdf = "PDF"
+        static let menuHelp = "Change how this link shows"
+
         static func viewName(_ view: LinkViewKind) -> String {
             switch view {
             case .link: "Link"
             case .raw: "Address"
+            case .url: "URL"
             case .mention: "Mention"
             case .bookmark: "Bookmark"
-            case .screenshot, .embed: "Screenshot"
+            case .embed: "Embed"
+            case .screenshot: "Screenshot"
             case .captures: "Captures"
             case .look: "Look"
             }
         }
 
-        /// The edit's reason — the commit message the page's history shows.
-        static func reason(_ view: LinkViewKind) -> String { "Shown as \(article(view)) \(viewName(view).lowercased())." }
-        /// The switcher's confirmation line.
-        static func savedAs(_ view: LinkViewKind) -> String { "Saved · shown as \(article(view)) \(viewName(view).lowercased())" }
+        /// A view's name in a link's menu: Embed says what it embeds ("Embed video" for a video, owner 2026-10-26).
+        static func menuName(_ view: LinkViewKind, url: String) -> String {
+            if view == .embed, case .video = LinkEmbed.of(url) { return "Embed video" }
+            return viewName(view)
+        }
 
-        private static func article(_ view: LinkViewKind) -> String {
+        /// The edit's reason — the commit message the page's history shows.
+        static func reason(_ view: LinkViewKind) -> String { "Shown as \(phrase(view))." }
+        /// The menu's confirmation line.
+        static func savedAs(_ view: LinkViewKind) -> String { "Saved · shown as \(phrase(view))" }
+
+        private static func phrase(_ view: LinkViewKind) -> String {
             switch view {
-            case .captures: "its"
-            default: "a"
+            case .captures: "its captures"
+            case .raw: "its address"
+            case .url: "a plain link"
+            case .embed: "an embed"
+            default: "a \(viewName(view).lowercased())"
             }
         }
     }

@@ -210,7 +210,7 @@ enum SignedLine {
     static func mark(_ claim: Claim) -> Mark {
         switch ContributorIdentity.kind(author: claim.authoredBy, serverKind: claim.authorKind) {
         case "harness": return .origin(claim.authoredBy)
-        case "model": return ContributorIdentity.logoName(provider: claim.authorProvider).map(Mark.logo) ?? .bare
+        case "model": return ContributorIdentity.modelMark(author: claim.authoredBy).map(Mark.logo) ?? .bare
         default: return .bare
         }
     }

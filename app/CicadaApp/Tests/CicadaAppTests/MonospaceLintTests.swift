@@ -18,7 +18,9 @@ final class MonospaceLintTests: XCTestCase {
         "Views/Intake/OnThisMacStrip.swift": "the refused paths, shown to inspect",
         "Views/Graph/EntityDetailCard.swift": "repo paths, commit hashes, branch names, the raw markdown source",
         "Views/Connections/DeviceCodeLogin.swift": "a device code the person types",
+        "Views/Sources/GitHubRepos.swift": "GitHub's device code the person types (G230)",
         "Views/Connect/RemoteAccessView.swift": "an HTTPS address the person pastes",
+        "Views/Common/ReportProblemSheet.swift": "the problem report (versions, log lines) the person copies or sends",
     ]
     static let needles = ["design: .monospaced", "monoFont"]
 

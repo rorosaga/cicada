@@ -195,6 +195,7 @@ struct GettingStartedCard: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await inventory.refresh() }
         }
+        .refreshesMissingTools()
     }
 
     /// The first read is what this card waits for; before its status lands, a

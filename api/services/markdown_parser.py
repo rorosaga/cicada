@@ -398,6 +398,24 @@ def _unlink_quietly(path: str) -> None:
         pass
 
 
+def _replica_check() -> None:
+    """G132 phase 1 (ruling 51e2): a replica's pages are written only by the follower's apply."""
+    from api.services import replica_guard
+
+    replica_guard.check("page")
+
+
+def _person_page_body(filepath, frontmatter: dict, body: str) -> str:
+    """Ruling 55: a person's page, while the feature is on, carries no number and no token in its prose, whoever
+    wrote it (`phone_numbers.clean_page`). Any other page, and every page while off, is not touched."""
+    path = Path(filepath)
+    if path.parent.name != "entities" or (frontmatter or {}).get("type") != "person":
+        return body
+    from api.services import phone_numbers
+
+    return phone_numbers.clean_page(body, path.parent.parent)
+
+
 def write(filepath: Path, frontmatter: dict, body: str) -> None:
     """Write a markdown file with YAML frontmatter — atomically (audit A02).
 
@@ -414,6 +432,8 @@ def write(filepath: Path, frontmatter: dict, body: str) -> None:
     An entity page's claims are split with its ledger (``claims_ledger``): lines the ledger gains are written before
     the page and lines it loses after it (``claims_ledger.write_plan``), so a crash between the two leaves a claim in
     both files, never in neither."""
+    _replica_check()
+    body = _person_page_body(filepath, frontmatter, body)
     frontmatter, body, ledger = _split_ledger(Path(filepath), frontmatter, body)
     before = after = None
     if ledger is not None:
@@ -425,6 +445,7 @@ def write(filepath: Path, frontmatter: dict, body: str) -> None:
     _replace(filepath, _render(frontmatter, body))
     if after == b"":   # the writer kept no line in the ledger: the page holds them all now
         _unlink_quietly(str(claims_ledger.path_for(filepath)))
+        _wrote()
     elif after:
         _replace(claims_ledger.path_for(filepath), after)
 
@@ -444,6 +465,7 @@ def _replace(filepath: Path, data: bytes) -> tuple[int, int, int]:
     if target != Path(filepath):
         _forget(target)
     tmp = _stage(target, data)
+    _wrote()
     try:
         try:
             os.chmod(tmp, os.stat(target).st_mode & 0o7777)
@@ -454,7 +476,16 @@ def _replace(filepath: Path, data: bytes) -> tuple[int, int, int]:
     except BaseException:
         _unlink_quietly(tmp)
         raise
+    finally:
+        _wrote()
     return (st.st_ino, st.st_mtime_ns, st.st_size)
+
+
+def _wrote() -> None:
+    """This process changed a file (``local_writes``: the gate on reusing the SSE tick's listings for an ETag)."""
+    from api.services import local_writes
+
+    local_writes.bump()
 
 
 def write_new(filepath: Path, frontmatter: dict, body: str) -> None:
@@ -465,10 +496,12 @@ def write_new(filepath: Path, frontmatter: dict, body: str) -> None:
     atomically, across processes, with no lock — so the page appears complete
     or not at all. A filesystem without hard links falls back to an
     ``O_EXCL`` create, which still never replaces a file."""
+    _replica_check()
     target = Path(filepath)
-    data = _render(frontmatter, body)
+    data = _render(frontmatter, _person_page_body(target, frontmatter, body))
     _forget(target)
     tmp = _stage(target, data)
+    _wrote()
     try:
         os.link(tmp, target)
     except FileExistsError:
@@ -481,6 +514,7 @@ def write_new(filepath: Path, frontmatter: dict, body: str) -> None:
             fh.write(data)
     finally:
         _unlink_quietly(tmp)
+        _wrote()
 
 
 def _normalize_dates(fm: dict) -> None:

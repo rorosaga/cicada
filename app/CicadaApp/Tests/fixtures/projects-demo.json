@@ -12,6 +12,7 @@
   "title": "How did it go?"
  },
  "projects": {
+  "dismissed": 0,
   "partial": false,
   "projects": [
    {
@@ -23,6 +24,12 @@
     ],
     "children": [],
     "created": "2026-08-19",
+    "description": "Get the rover arm to pick a part off the bench and place it in a tray.",
+    "descriptionBy": {
+     "by": "user",
+     "day": "2026-09-23",
+     "session": null
+    },
     "followups": 0,
     "id": "pick-and-place-demo",
     "lastMomentDay": "2026-09-23",
@@ -42,8 +49,10 @@
       "target": "2026-10-05"
      }
     ],
+    "mine": true,
+    "mineVia": "app",
     "name": "Pick And Place Demo",
-    "oneLiner": "The first demo of the rover arm picking a part.",
+    "oneLiner": "Get the rover arm to pick a part off the bench and place it in a tray.",
     "openThreads": [
      {
       "claimId": "clm_pick-and-place-demo_happened_7ab9b8cd_2026-09-23",
@@ -51,7 +60,8 @@
       "on": null,
       "since": "2026-09-23",
       "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
-      "verbatim": false
+      "verbatim": false,
+      "waitingOn": null
      }
     ],
     "origin": null,
@@ -74,6 +84,8 @@
      "pick-and-place-demo"
     ],
     "created": "2026-07-15",
+    "description": null,
+    "descriptionBy": null,
     "followups": 1,
     "id": "rover-arm-project",
     "lastMomentDay": "2026-09-23",
@@ -129,6 +141,8 @@
       "target": "2026-08-12"
      }
     ],
+    "mine": true,
+    "mineVia": "progress",
     "name": "Rover Arm Project",
     "oneLiner": "A small arm that picks parts off a tray.",
     "openThreads": [
@@ -138,7 +152,8 @@
       "on": "pick-and-place-demo",
       "since": "2026-09-23",
       "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
-      "verbatim": false
+      "verbatim": false,
+      "waitingOn": null
      },
      {
       "claimId": "clm_rover-arm-project_happened_f7b29ccb_2026-08-30",
@@ -146,7 +161,8 @@
       "on": null,
       "since": "2026-08-30",
       "text": "Bob started calibrating the gripper camera",
-      "verbatim": false
+      "verbatim": false,
+      "waitingOn": null
      }
     ],
     "origin": null,
@@ -161,303 +177,26 @@
    {
     "activity": [
      {
-      "day": "2026-09-14",
-      "n": 1
-     }
-    ],
-    "children": [
-     "beta-project"
-    ],
-    "created": "2026-09-23",
-    "followups": 0,
-    "id": "alpha-project",
-    "lastMomentDay": "2026-09-22",
-    "lastRepoDay": null,
-    "medianGapDays": 4.0,
-    "milestones": [],
-    "name": "Alpha Project",
-    "oneLiner": "A synthetic project for trying Cicada.",
-    "openThreads": [],
-    "origin": null,
-    "parent": null,
-    "planned": false,
-    "progress": {
-     "done": 0,
-     "total": 0
-    },
-    "status": "active"
-   },
-   {
-    "activity": [
-     {
-      "day": "2026-09-20",
-      "n": 1
-     }
-    ],
-    "children": [],
-    "created": "2026-09-23",
-    "followups": 0,
-    "id": "beta-project",
-    "lastMomentDay": "2026-09-20",
-    "lastRepoDay": null,
-    "medianGapDays": null,
-    "milestones": [],
-    "name": "Beta Project",
-    "oneLiner": "A synthetic project for trying Cicada.",
-    "openThreads": [],
-    "origin": null,
-    "parent": "alpha-project",
-    "planned": false,
-    "progress": {
-     "done": 0,
-     "total": 0
-    },
-    "status": "active"
-   },
-   {
-    "activity": [
-     {
-      "day": "2026-09-18",
-      "n": 1
-     }
-    ],
-    "children": [],
-    "created": "2026-09-23",
-    "followups": 0,
-    "id": "gamma-project",
-    "lastMomentDay": "2026-09-18",
-    "lastRepoDay": null,
-    "medianGapDays": null,
-    "milestones": [],
-    "name": "Gamma Project",
-    "oneLiner": "A synthetic project for trying Cicada.",
-    "openThreads": [],
-    "origin": null,
-    "parent": null,
-    "planned": false,
-    "progress": {
-     "done": 0,
-     "total": 0
-    },
-    "status": "active"
-   },
-   {
-    "activity": [
-     {
       "day": "2026-08-02",
       "n": 1
      }
     ],
     "children": [],
     "created": "2026-08-02",
+    "description": null,
+    "descriptionBy": null,
     "followups": 0,
     "id": "garden-sensor-project",
     "lastMomentDay": "2026-09-14",
     "lastRepoDay": null,
     "medianGapDays": 21.5,
     "milestones": [],
+    "mine": true,
+    "mineVia": "accepted",
     "name": "Garden Sensor Project",
     "oneLiner": "Soil sensors that report from the garden.",
     "openThreads": [],
-    "origin": null,
-    "parent": null,
-    "planned": false,
-    "progress": {
-     "done": 0,
-     "total": 0
-    },
-    "status": "active"
-   },
-   {
-    "activity": [],
-    "children": [],
-    "created": "2026-09-23",
-    "followups": 0,
-    "id": "delta-project",
-    "lastMomentDay": null,
-    "lastRepoDay": null,
-    "medianGapDays": null,
-    "milestones": [],
-    "name": "Delta Project",
-    "oneLiner": "A synthetic project for trying Cicada.",
-    "openThreads": [],
-    "origin": null,
-    "parent": null,
-    "planned": false,
-    "progress": {
-     "done": 0,
-     "total": 0
-    },
-    "status": "active"
-   },
-   {
-    "activity": [],
-    "children": [],
-    "created": "2026-09-23",
-    "followups": 0,
-    "id": "epsilon-project",
-    "lastMomentDay": null,
-    "lastRepoDay": null,
-    "medianGapDays": null,
-    "milestones": [],
-    "name": "Epsilon Project",
-    "oneLiner": "A synthetic project for trying Cicada.",
-    "openThreads": [],
-    "origin": null,
-    "parent": null,
-    "planned": false,
-    "progress": {
-     "done": 0,
-     "total": 0
-    },
-    "status": "active"
-   },
-   {
-    "activity": [],
-    "children": [],
-    "created": "2026-09-23",
-    "followups": 0,
-    "id": "eta-project",
-    "lastMomentDay": null,
-    "lastRepoDay": null,
-    "medianGapDays": null,
-    "milestones": [],
-    "name": "Eta Project",
-    "oneLiner": "A synthetic project for trying Cicada.",
-    "openThreads": [],
-    "origin": null,
-    "parent": null,
-    "planned": false,
-    "progress": {
-     "done": 0,
-     "total": 0
-    },
-    "status": "active"
-   },
-   {
-    "activity": [],
-    "children": [],
-    "created": "2026-09-23",
-    "followups": 0,
-    "id": "iota-project",
-    "lastMomentDay": null,
-    "lastRepoDay": null,
-    "medianGapDays": null,
-    "milestones": [],
-    "name": "Iota Project",
-    "oneLiner": "A synthetic project for trying Cicada.",
-    "openThreads": [],
-    "origin": null,
-    "parent": null,
-    "planned": false,
-    "progress": {
-     "done": 0,
-     "total": 0
-    },
-    "status": "active"
-   },
-   {
-    "activity": [],
-    "children": [],
-    "created": "2026-09-23",
-    "followups": 0,
-    "id": "kappa-project",
-    "lastMomentDay": null,
-    "lastRepoDay": null,
-    "medianGapDays": null,
-    "milestones": [],
-    "name": "Kappa Project",
-    "oneLiner": "A synthetic project for trying Cicada.",
-    "openThreads": [],
-    "origin": null,
-    "parent": null,
-    "planned": false,
-    "progress": {
-     "done": 0,
-     "total": 0
-    },
-    "status": "active"
-   },
-   {
-    "activity": [],
-    "children": [],
-    "created": "2026-09-23",
-    "followups": 0,
-    "id": "lambda-project",
-    "lastMomentDay": null,
-    "lastRepoDay": null,
-    "medianGapDays": null,
-    "milestones": [],
-    "name": "Lambda Project",
-    "oneLiner": "A synthetic project for trying Cicada.",
-    "openThreads": [],
-    "origin": null,
-    "parent": null,
-    "planned": false,
-    "progress": {
-     "done": 0,
-     "total": 0
-    },
-    "status": "active"
-   },
-   {
-    "activity": [],
-    "children": [],
-    "created": "2026-09-23",
-    "followups": 0,
-    "id": "mu-project",
-    "lastMomentDay": null,
-    "lastRepoDay": null,
-    "medianGapDays": null,
-    "milestones": [],
-    "name": "Mu Project",
-    "oneLiner": "A synthetic project for trying Cicada.",
-    "openThreads": [],
-    "origin": null,
-    "parent": null,
-    "planned": false,
-    "progress": {
-     "done": 0,
-     "total": 0
-    },
-    "status": "active"
-   },
-   {
-    "activity": [],
-    "children": [],
-    "created": "2026-09-23",
-    "followups": 0,
-    "id": "theta-project",
-    "lastMomentDay": null,
-    "lastRepoDay": null,
-    "medianGapDays": null,
-    "milestones": [],
-    "name": "Theta Project",
-    "oneLiner": "A synthetic project for trying Cicada.",
-    "openThreads": [],
-    "origin": null,
-    "parent": null,
-    "planned": false,
-    "progress": {
-     "done": 0,
-     "total": 0
-    },
-    "status": "active"
-   },
-   {
-    "activity": [],
-    "children": [],
-    "created": "2026-09-23",
-    "followups": 0,
-    "id": "zeta-project",
-    "lastMomentDay": null,
-    "lastRepoDay": null,
-    "medianGapDays": null,
-    "milestones": [],
-    "name": "Zeta Project",
-    "oneLiner": "A synthetic project for trying Cicada.",
-    "openThreads": [],
-    "origin": null,
+    "origin": "repo",
     "parent": null,
     "planned": false,
     "progress": {
@@ -467,6 +206,7 @@
     "status": "active"
    }
   ],
+  "suggested": [],
   "tzName": "UTC"
  },
  "timelines": {
@@ -532,6 +272,21 @@
      }
     ]
    },
+   "conversationCount": 3,
+   "conversationDays": [
+    {
+     "day": "2026-08-02",
+     "n": 1
+    },
+    {
+     "day": "2026-08-24",
+     "n": 1
+    },
+    {
+     "day": "2026-09-14",
+     "n": 1
+    }
+   ],
    "conversations": [
     {
      "episodeId": "ep_2026-09-14_003",
@@ -556,6 +311,76 @@
      "origin": "telegram",
      "resumable": false,
      "title": "Garden sensors"
+    }
+   ],
+   "influences": [
+    {
+     "by": "agent",
+     "claimId": "clm_garden-sensor-project_uses_d53cf7f0",
+     "day": "2026-09-14",
+     "entity": "tool-example-g",
+     "entityType": "tool",
+     "how": "uses",
+     "id": "c:clm_garden-sensor-project_uses_d53cf7f0",
+     "label": "Tool Example G",
+     "page": "garden-sensor-project",
+     "predicate": "uses",
+     "ref": null,
+     "reversed": false,
+     "source": "claim",
+     "tag": "Tool",
+     "url": null
+    },
+    {
+     "by": "agent",
+     "claimId": "clm_garden-sensor-project_uses_0e5c77cf",
+     "day": "2026-08-24",
+     "entity": "tool-example-c",
+     "entityType": "tool",
+     "how": "uses",
+     "id": "c:clm_garden-sensor-project_uses_0e5c77cf",
+     "label": "Tool Example C",
+     "page": "garden-sensor-project",
+     "predicate": "uses",
+     "ref": null,
+     "reversed": false,
+     "source": "claim",
+     "tag": "Tool",
+     "url": null
+    },
+    {
+     "by": "agent",
+     "claimId": "clm_carol-example_works-on_5f1e99f3",
+     "day": "2026-08-02",
+     "entity": "carol-example",
+     "entityType": "person",
+     "how": "person",
+     "id": "c:clm_carol-example_works-on_5f1e99f3",
+     "label": "Carol Example",
+     "page": "carol-example",
+     "predicate": "works-on",
+     "ref": null,
+     "reversed": true,
+     "source": "claim",
+     "tag": "Person",
+     "url": null
+    },
+    {
+     "by": "agent",
+     "claimId": "clm_bob-example_works-on_75f9706d",
+     "day": "2026-08-02",
+     "entity": "bob-example",
+     "entityType": "person",
+     "how": "person",
+     "id": "c:clm_bob-example_works-on_75f9706d",
+     "label": "Bob Example",
+     "page": "bob-example",
+     "predicate": "works-on",
+     "ref": null,
+     "reversed": true,
+     "source": "claim",
+     "tag": "Person",
+     "url": null
     }
    ],
    "items": [
@@ -761,6 +586,7 @@
      "via": null
     }
    ],
+   "knowledge": [],
    "lastMomentDay": "2026-09-14",
    "lastRepoDay": null,
    "medianGapDays": 21.5,
@@ -829,15 +655,63 @@
     "threads": []
    },
    "origin": {
-    "day": null,
+    "day": "2026-08-02",
     "episode": null,
-    "kind": null,
+    "kind": "repo",
     "quote": null,
-    "repoName": null,
-    "stored": false,
+    "repoName": "garden-sensor",
+    "stored": true,
     "via": null,
-    "why": "It cites no conversation, declares no repository and names no folder."
+    "why": "Born from the repository 'garden-sensor', where you work with an agent."
    },
+   "pageCounts": {
+    "said": 3
+   },
+   "pages": [
+    {
+     "by": null,
+     "count": 1,
+     "displayName": null,
+     "fact": "",
+     "id": "tool-example-g",
+     "lastSeen": "2026-09-14",
+     "name": "Tool Example G",
+     "qualifier": null,
+     "reason": null,
+     "rolePhrase": "this project uses",
+     "tie": "said",
+     "type": "tool"
+    },
+    {
+     "by": null,
+     "count": 1,
+     "displayName": null,
+     "fact": "",
+     "id": "tool-example-c",
+     "lastSeen": "2026-08-24",
+     "name": "Tool Example C",
+     "qualifier": null,
+     "reason": null,
+     "rolePhrase": "this project uses",
+     "tie": "said",
+     "type": "tool"
+    },
+    {
+     "by": null,
+     "count": 1,
+     "displayName": null,
+     "fact": "",
+     "id": "carol-example",
+     "lastSeen": "2026-08-02",
+     "name": "Carol Example",
+     "qualifier": null,
+     "reason": null,
+     "rolePhrase": "works on this project",
+     "tie": "said",
+     "type": "person"
+    }
+   ],
+   "pagesTotal": 3,
    "partial": false,
    "pending": {
     "newestDay": null,
@@ -855,7 +729,11 @@
    "project": {
     "children": [],
     "created": "2026-08-02",
+    "description": null,
+    "descriptionBy": null,
     "id": "garden-sensor-project",
+    "mine": true,
+    "mineVia": "accepted",
     "name": "Garden Sensor Project",
     "oneLiner": "Soil sensors that report from the garden.",
     "parent": null,
@@ -1068,6 +946,25 @@
      }
     ]
    },
+   "conversationCount": 5,
+   "conversationDays": [
+    {
+     "day": "2026-07-22",
+     "n": 1
+    },
+    {
+     "day": "2026-08-19",
+     "n": 1
+    },
+    {
+     "day": "2026-09-22",
+     "n": 1
+    },
+    {
+     "day": "2026-09-23",
+     "n": 2
+    }
+   ],
    "conversations": [
     {
      "episodeId": "ep_2026-09-23_003",
@@ -1102,6 +999,7 @@
      "title": "The rover arm plan"
     }
    ],
+   "influences": [],
    "items": [
     {
      "at": null,
@@ -1599,6 +1497,7 @@
      "via": null
     }
    ],
+   "knowledge": [],
    "lastMomentDay": "2026-09-23",
    "lastRepoDay": null,
    "medianGapDays": 28.0,
@@ -1881,7 +1780,8 @@
       "on": null,
       "since": "2026-09-23",
       "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
-      "verbatim": false
+      "verbatim": false,
+      "waitingOn": null
      }
     ]
    },
@@ -1895,6 +1795,68 @@
     "via": null,
     "why": "It cites no conversation, declares no repository and names no folder."
    },
+   "pageCounts": {
+    "said": 4
+   },
+   "pages": [
+    {
+     "by": null,
+     "count": 4,
+     "displayName": null,
+     "fact": "4 GPU nodes · Slurm-example scheduler · login.example.com",
+     "id": "lab-cluster-example",
+     "lastSeen": "2026-09-23",
+     "name": "Lab Cluster Example",
+     "qualifier": null,
+     "reason": null,
+     "rolePhrase": "about",
+     "tie": "said",
+     "type": "tool"
+    },
+    {
+     "by": null,
+     "count": 1,
+     "displayName": null,
+     "fact": "",
+     "id": "hana-example",
+     "lastSeen": "2026-09-22",
+     "name": "Hana Example",
+     "qualifier": null,
+     "reason": null,
+     "rolePhrase": "from",
+     "tie": "said",
+     "type": "person"
+    },
+    {
+     "by": null,
+     "count": 1,
+     "displayName": null,
+     "fact": "example.com",
+     "id": "media-example-cluster-guide",
+     "lastSeen": "2026-09-22",
+     "name": "Lab Cluster Onboarding Guide",
+     "qualifier": null,
+     "reason": null,
+     "rolePhrase": "document",
+     "tie": "said",
+     "type": "media"
+    },
+    {
+     "by": null,
+     "count": 1,
+     "displayName": null,
+     "fact": "",
+     "id": "rover-arm-project",
+     "lastSeen": "2026-08-19",
+     "name": "Rover Arm Project",
+     "qualifier": null,
+     "reason": null,
+     "rolePhrase": "this project part of",
+     "tie": "said",
+     "type": "project"
+    }
+   ],
+   "pagesTotal": 4,
    "partial": false,
    "pending": {
     "newestDay": "2026-09-23",
@@ -1912,9 +1874,17 @@
    "project": {
     "children": [],
     "created": "2026-08-19",
+    "description": "Get the rover arm to pick a part off the bench and place it in a tray.",
+    "descriptionBy": {
+     "by": "user",
+     "day": "2026-09-23",
+     "session": null
+    },
     "id": "pick-and-place-demo",
+    "mine": true,
+    "mineVia": "app",
     "name": "Pick And Place Demo",
-    "oneLiner": "The first demo of the rover arm picking a part.",
+    "oneLiner": "Get the rover arm to pick a part off the bench and place it in a tray.",
     "parent": "rover-arm-project",
     "status": "active"
    },
@@ -2201,6 +2171,33 @@
      }
     ]
    },
+   "conversationCount": 6,
+   "conversationDays": [
+    {
+     "day": "2026-07-22",
+     "n": 1
+    },
+    {
+     "day": "2026-08-09",
+     "n": 1
+    },
+    {
+     "day": "2026-08-19",
+     "n": 1
+    },
+    {
+     "day": "2026-08-30",
+     "n": 1
+    },
+    {
+     "day": "2026-09-09",
+     "n": 1
+    },
+    {
+     "day": "2026-09-23",
+     "n": 1
+    }
+   ],
    "conversations": [
     {
      "episodeId": "ep_2026-09-23_003",
@@ -2257,6 +2254,76 @@
      "origin": "claude-code",
      "resumable": false,
      "title": "The rover arm plan"
+    }
+   ],
+   "influences": [
+    {
+     "by": "agent",
+     "claimId": "clm_rover-arm-project_uses_ba39feed",
+     "day": "2026-09-09",
+     "entity": "tool-example-e",
+     "entityType": "tool",
+     "how": "uses",
+     "id": "c:clm_rover-arm-project_uses_ba39feed",
+     "label": "Tool Example E",
+     "page": "rover-arm-project",
+     "predicate": "uses",
+     "ref": null,
+     "reversed": false,
+     "source": "claim",
+     "tag": "Tool",
+     "url": null
+    },
+    {
+     "by": "agent",
+     "claimId": "clm_rover-arm-project_uses_a6fd3b48",
+     "day": "2026-08-30",
+     "entity": "tool-example-f",
+     "entityType": "tool",
+     "how": "uses",
+     "id": "c:clm_rover-arm-project_uses_a6fd3b48",
+     "label": "Tool Example F",
+     "page": "rover-arm-project",
+     "predicate": "uses",
+     "ref": null,
+     "reversed": false,
+     "source": "claim",
+     "tag": "Tool",
+     "url": null
+    },
+    {
+     "by": "agent",
+     "claimId": "clm_rover-arm-project_uses_4f4061ad",
+     "day": "2026-08-09",
+     "entity": "tool-example-d",
+     "entityType": "tool",
+     "how": "uses",
+     "id": "c:clm_rover-arm-project_uses_4f4061ad",
+     "label": "Tool Example D",
+     "page": "rover-arm-project",
+     "predicate": "uses",
+     "ref": null,
+     "reversed": false,
+     "source": "claim",
+     "tag": "Tool",
+     "url": null
+    },
+    {
+     "by": "agent",
+     "claimId": "clm_bob-example_works-on_ad0d598c",
+     "day": "2026-07-15",
+     "entity": "bob-example",
+     "entityType": "person",
+     "how": "person",
+     "id": "c:clm_bob-example_works-on_ad0d598c",
+     "label": "Bob Example",
+     "page": "bob-example",
+     "predicate": "works-on",
+     "ref": null,
+     "reversed": true,
+     "source": "claim",
+     "tag": "Person",
+     "url": null
     }
    ],
    "items": [
@@ -3087,6 +3154,7 @@
      "via": null
     }
    ],
+   "knowledge": [],
    "lastMomentDay": "2026-09-23",
    "lastRepoDay": null,
    "medianGapDays": 10.0,
@@ -3682,7 +3750,8 @@
       "on": "pick-and-place-demo",
       "since": "2026-09-23",
       "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
-      "verbatim": false
+      "verbatim": false,
+      "waitingOn": null
      },
      {
       "claimId": "clm_rover-arm-project_happened_f7b29ccb_2026-08-30",
@@ -3690,7 +3759,8 @@
       "on": null,
       "since": "2026-08-30",
       "text": "Bob started calibrating the gripper camera",
-      "verbatim": false
+      "verbatim": false,
+      "waitingOn": null
      }
     ]
    },
@@ -3704,6 +3774,96 @@
     "via": null,
     "why": "It cites no conversation, declares no repository and names no folder."
    },
+   "pageCounts": {
+    "said": 6
+   },
+   "pages": [
+    {
+     "by": null,
+     "count": 4,
+     "displayName": null,
+     "fact": "4 GPU nodes · Slurm-example scheduler · login.example.com",
+     "id": "lab-cluster-example",
+     "lastSeen": "2026-09-23",
+     "name": "Lab Cluster Example",
+     "qualifier": null,
+     "reason": null,
+     "rolePhrase": "about",
+     "tie": "said",
+     "type": "tool"
+    },
+    {
+     "by": null,
+     "count": 1,
+     "displayName": null,
+     "fact": "",
+     "id": "hana-example",
+     "lastSeen": "2026-09-22",
+     "name": "Hana Example",
+     "qualifier": null,
+     "reason": null,
+     "rolePhrase": "from",
+     "tie": "said",
+     "type": "person"
+    },
+    {
+     "by": null,
+     "count": 1,
+     "displayName": null,
+     "fact": "example.com",
+     "id": "media-example-cluster-guide",
+     "lastSeen": "2026-09-22",
+     "name": "Lab Cluster Onboarding Guide",
+     "qualifier": null,
+     "reason": null,
+     "rolePhrase": "document",
+     "tie": "said",
+     "type": "media"
+    },
+    {
+     "by": null,
+     "count": 1,
+     "displayName": null,
+     "fact": "",
+     "id": "tool-example-e",
+     "lastSeen": "2026-09-09",
+     "name": "Tool Example E",
+     "qualifier": null,
+     "reason": null,
+     "rolePhrase": "this project uses",
+     "tie": "said",
+     "type": "tool"
+    },
+    {
+     "by": null,
+     "count": 1,
+     "displayName": null,
+     "fact": "",
+     "id": "tool-example-f",
+     "lastSeen": "2026-08-30",
+     "name": "Tool Example F",
+     "qualifier": null,
+     "reason": null,
+     "rolePhrase": "this project uses",
+     "tie": "said",
+     "type": "tool"
+    },
+    {
+     "by": null,
+     "count": 1,
+     "displayName": null,
+     "fact": "",
+     "id": "tool-example-d",
+     "lastSeen": "2026-08-09",
+     "name": "Tool Example D",
+     "qualifier": null,
+     "reason": null,
+     "rolePhrase": "this project uses",
+     "tie": "said",
+     "type": "tool"
+    }
+   ],
+   "pagesTotal": 6,
    "partial": false,
    "pending": {
     "newestDay": "2026-09-23",
@@ -3723,7 +3883,11 @@
      "pick-and-place-demo"
     ],
     "created": "2026-07-15",
+    "description": null,
+    "descriptionBy": null,
     "id": "rover-arm-project",
+    "mine": true,
+    "mineVia": "progress",
     "name": "Rover Arm Project",
     "oneLiner": "A small arm that picks parts off a tray.",
     "parent": null,

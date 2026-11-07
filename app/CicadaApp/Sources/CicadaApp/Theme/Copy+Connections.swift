@@ -48,6 +48,15 @@ extension Copy {
         static let auto = "Auto"
         static let useAuto = "Use Auto"
         static let plans = "Plans"
+        /// G49/G50 — the person's own agent tools, each signed in through itself.
+        static let ownTools = "Your agent tools"
+        static let notInstalled = "Not installed"
+        /// The line under a plan whose tool isn't on this Mac, beside the command to copy (backend `install_hints`).
+        static let pasteInTerminal = "Paste this in Terminal."
+        /// Home's First read: the plan cards say "Not installed"; this leads to the row that gives the line.
+        static func installHint(_ names: [String]) -> String { "To use your \(names.joined(separator: " or ")), install it in" }
+        /// ROR-52 — the app is here; the tool Sleep needs isn't, or is too old. The row's line says which.
+        static let notReady = "Not ready"
         static let keys = "API keys"
         static let signIn = "Sign in"
         static let signOut = "Sign out"
@@ -106,6 +115,64 @@ extension Copy {
         static let noAddress = "On the device, type the address you reach this Mac at, e.g. its Tailscale name."
         static let apps = "Apps outside this machine"
         static func waiting(_ n: Int) -> String { n == 1 ? "1 waiting" : "\(n) waiting" }
+        /// 2026-10-29: a device's rights and key, each one word in its row (DR-38: said once).
+        static let captureOnly = "Capture only"
+        static let fullAccess = "Full access"
+        static let keyBound = "Key-bound"
+        static let notKeyBound = "Not yet key-bound"
+        static func keyBoundSince(_ date: Date) -> String {
+            "Key-bound since \(date.formatted(.dateTime.month(.abbreviated).day()))"
+        }
+        /// Review 2026-10-29: a device just paired under a name an older, still-active row carries.
+        static func olderTwin(_ name: String) -> String { "An older \u{201C}\(name)\u{201D} is still paired." }
+        static let revokeOlder = "Revoke the older one"
+
+        /// 2026-10-29 — the guided reach step: one state line and one next step, never a tutorial. Tailscale is named
+        /// because it is the person's own overlay (the row's own product), never as the one doing Cicada's job.
+        enum Reach {
+            static let title = "Reach from your phone"
+            static let check = "Check again"
+            static let checking = "Checking…"
+            static let getTailscale = "Get Tailscale"
+            static let downloadURL = URL(string: "https://tailscale.com/download")!
+            static let ready = "Your phone can reach this Mac."
+            static func readyAt(_ url: String) -> String { "Your devices reach this Mac at \(url)." }
+            // Owner 2026-10-29, "Yes, one click": the shown command, run on the person's click.
+            static let runIt = "Run it for me"
+            static let stop = "Stop serving"
+            static let stopTitle = "Stop serving this Mac to your devices?"
+            static func willRun(_ command: String) -> String {
+                "Cicada will run: \(command)\nYour phone stops reaching this Mac until it is served again."
+            }
+            static let runFailed = "That did not run. Run the command yourself in Terminal."
+
+            /// The one next step for each `reach.GUIDE_STEPS` word.
+            static func step(_ step: String) -> String {
+                switch step {
+                case "install": "Install Tailscale on this Mac and your phone, signed in to the same account."
+                case "open": "Open Tailscale on this Mac."
+                case "sign-in": "Sign in to Tailscale on this Mac."
+                case "turn-on": "Tailscale is off on this Mac. Turn it on from its menu."
+                case "serve": "Serve this Mac to your own devices, privately — Cicada can run it, or run it in Terminal:"
+                case "unfunnel": "This Mac's Cicada is open to the internet. Close it with:"
+                case "ready": "Your devices reach this Mac on Tailscale."
+                default: "Cicada could not read Tailscale's state."
+                }
+            }
+
+            /// Where the live check stopped (`reach.CHECK_FAILURES`), and what to do about it.
+            static func failed(_ failed: String) -> String {
+                switch failed {
+                case "dns": "Stopped at the name: turn on MagicDNS in your Tailscale admin console."
+                case "overlay": "Stopped at Tailscale: the name was found but nothing answered. Turn on HTTPS "
+                    + "certificates in your Tailscale admin console, then check again."
+                case "backend": "Stopped at Cicada: Tailscale answered but did not reach Cicada behind it."
+                case "not-cicada": "Something other than Cicada answers at that address."
+                case "other-cicada": "Another Cicada answers at that address, not this one."
+                default: "The check did not finish. Try again."
+                }
+            }
+        }
         static func expires(_ date: Date) -> String {
             "Expires \(date.formatted(.dateTime.hour().minute()))"
         }
@@ -132,7 +199,10 @@ extension Copy {
         static let commandLine = "Command-line tool"
         static func conversations(_ n: Int) -> String { n == 1 ? "1 conversation" : "\(n) conversations" }
         static func seen(_ date: Date, now: Date = Date()) -> String {
-            RelativeDateTimeFormatter().localizedString(for: date, relativeTo: now)
+            // A minute timeline's `now` is the minute's start: a sighting later in that minute is never "in 24 seconds".
+            let words = RelativeDateTimeFormatter()
+            words.dateTimeStyle = .named      // "now", never "in 0 seconds"
+            return words.localizedString(for: min(date, now), relativeTo: now)
         }
         /// "last seen Oct 21" — the day, for a row that is set up but not connected now.
         static func lastSeen(_ date: Date) -> String {

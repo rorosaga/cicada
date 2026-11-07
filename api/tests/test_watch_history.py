@@ -232,7 +232,7 @@ def test_one_episode_per_day_a_reread_writes_nothing_and_a_rewatch_adds_its_time
     assert day.frontmatter["origin"] == "youtube-history" and day.frontmatter["processed"] is True
     assert day.frontmatter["processed_by"] == "index"
     assert day.frontmatter["id"].startswith("ep_2026-10-14_")
-    assert day.frontmatter["videos"] == 1 and day.frontmatter["watched"][0]["times"] == ["2026-10-14T09:14:03+00:00"]
+    assert day.frontmatter["videos"] == 1 and watch_history.stored_rows(memory, day.frontmatter)[0]["times"] == ["2026-10-14T09:14:03+00:00"]
     assert "- 09:14 · Bridge design, part one — alice-example · https://www.youtube.com/watch?v=" in day.body
     again = watch_history.record(memory, [_w(VID_A, at="2026-10-14T09:14:03Z")])
     assert (again.days_unchanged, again.added, again.paths) == (1, 0, [])
@@ -250,7 +250,7 @@ def test_every_door_and_every_url_shape_is_one_video(tmp_path):
     agent = _w(VID_A, day="2026-10-14", door="agent", title="")
     result = watch_history.record(memory, shapes + [agent])
     assert result.added == 0
-    [row] = _days(memory)["watch-history:youtube:2026-10-14"].frontmatter["watched"]
+    [row] = watch_history.stored_rows(memory, _days(memory)["watch-history:youtube:2026-10-14"].frontmatter)
     assert len(row["times"]) == 1
     # The same identity Watch later and bookmarks use.
     assert media_ingestor.url_hash(row["url"]) == media_ingestor.url_hash(f"https://youtu.be/{VID_A}")
@@ -260,7 +260,7 @@ def test_a_day_only_door_merges_into_the_timed_row_and_a_new_video_is_listed_wit
     memory = _bank(tmp_path)
     watch_history.record(memory, [_w(VID_A, at="2026-10-14T09:14:03Z")])
     watch_history.record(memory, [_w(VID_B, day="2026-10-14", door="agent", title="Knots")])
-    rows = _days(memory)["watch-history:youtube:2026-10-14"].frontmatter["watched"]
+    rows = watch_history.stored_rows(memory, _days(memory)["watch-history:youtube:2026-10-14"].frontmatter)
     assert [r["url"][-11:] for r in rows] == [VID_A, VID_B] and rows[1]["times"] == []
 
 
@@ -428,4 +428,4 @@ def test_tiktok_browsing_history_is_days_too_never_saves(tmp_path):
     assert (result.days_created, result.added) == (1, 2)
     [day] = _days(memory).values()
     assert day.frontmatter["origin"] == "tiktok-history" and day.frontmatter["source_id"] == "watch-history:tiktok:2023-06-01"
-    assert {r["via"][0] for r in day.frontmatter["watched"]} == {"export"}
+    assert {r["via"][0] for r in watch_history.stored_rows(memory, day.frontmatter)} == {"export"}

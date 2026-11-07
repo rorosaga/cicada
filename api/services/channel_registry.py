@@ -42,6 +42,7 @@ from api.services import (
     media_ingestor,
     messages_source,
     origin_stats,
+    source_overview,
     reminders_local,
     sync_state,
     tab_groups,
@@ -63,6 +64,7 @@ _NON_CONNECTOR_HEAD = (
     "safari-tabs",
     "notes",
     "rss",
+    "substack-feeds",
     "calendar",
 )
 _NON_CONNECTOR_TAIL = (
@@ -82,7 +84,10 @@ CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
 #: "connectors-honest" (2026-10-23): a feed row is connected only while feeds are fetched, Messages only while a
 #: conversation is ticked, Wispr Flow only while it is on, Telegram only once a message has arrived.
 #: "g219" (2026-10-23): the always-listed Apple Reminders row and the Notion export row.
-CHANNELS_SHAPE = "g219"
+#: "book-scan" (2026-11-04): the always-listed Book scans row (G233).
+#: "g89-publications" (2026-11-05): the followed Substack publications count on `substack-feeds`, out of `rss`.
+#: "sources-truth" (2026-11-06): `files` counts the links the person saved, not every indexed item.
+CHANNELS_SHAPE = "sources-truth-files"
 
 
 # R-S5 — there is deliberately no `_plural` here any more. It baked
@@ -123,8 +128,8 @@ def _latest(values: list[str | None]) -> str | None:
 
 #: What a subscribed feed row says while this backend does not fetch feeds (the opt-in gate, `network.md`): nothing
 #: will arrive, so the row is not connected and the person reads why — never "Connected" over a poll that never runs.
-FEED_FETCH_OFF = ("Feeds aren't fetched on this backend: it runs without CICADA_ALLOW_FEED_FETCH=1. The background "
-                  "service sets it; a backend started another way needs it added and a restart.")
+#: The one action: that switch installs the background service, whose plist sets the gate (ROR-41).
+FEED_FETCH_OFF = "Feeds and calendar links aren't being checked: turn on Keep memory working in Settings → General."
 
 
 def _subscription_channel(
@@ -138,7 +143,7 @@ def _subscription_channel(
         detail = f"polled {_short_date(last)}" if last else "not polled yet"
         if not fetch_allowed:
             error = FEED_FETCH_OFF
-            detail = "Not fetched"
+            detail = "Not checked"
     return {
         "id": channel_id,
         "label": label,
@@ -153,6 +158,14 @@ def _subscription_channel(
         "count_is_delta": False,
         "actions": ["poll", "manage"],
     }
+
+
+def _with_substack_note(channel: dict, substack: int) -> dict:
+    """The RSS row's detail names the followed Substack publications it also polls (ROR-138)."""
+    if substack and channel.get("detail") and channel.get("count"):
+        noun = "publication" if substack == 1 else "publications"
+        channel["detail"] = f"{channel['detail']} · {substack} Substack {noun}"
+    return channel
 
 
 def _sync_channel(
@@ -234,6 +247,9 @@ def _connector_channel(
         # it is true in this branch ONLY.
         detail = f"synced {_short_date(last)}"
         count_noun, count_is_delta = noun, True
+        # A tier-2 sync's own line (`tier2.Batch.words`: a cap reached, repositories no longer starred), said on the row.
+        if entry.get("words"):
+            detail = f"{detail} · {entry['words']}"
     elif connected:
         detail = "Connected · not synced yet"
     else:
@@ -249,6 +265,9 @@ def _connector_channel(
         "count": count,
         "last_sync": last,
         "last_error": error,
+        # The typed code beside the words (sync_state `last_error_kind`): the app tells a refused account (`sign-in`)
+        # from a rate limit, the network or the service's own trouble by this, never by reading the sentence.
+        "last_error_code": (entry.get("last_error_kind") or None) if error else None,
         "detail": detail,
         "count_noun": count_noun,
         "count_is_delta": count_is_delta,
@@ -323,15 +342,17 @@ def build_channels(
     by_origin = {o["origin"]: o for o in origin_stats.aggregate_origins(memory_path)}
     connected_map = connectors_connected or {}
 
+    # The links and files the person saved — not every item `ingest_batch` ever wrote: a saved-list post, a bookmark, a
+    # pin or a feed item is another source's, and counting it made Files & links read Connected over someone who never
+    # added one (sources-truth). The same set the Files & links page lists (`source_overview.files_media_count`).
     try:
-        url_index = media_ingestor.load_url_index(memory_path)
+        saved_count = source_overview.files_media_count(memory_path)
     except Exception:
-        url_index = {}
-    # R-LS14: an alias entry is the same paper under its other URL.
-    saved_count = sum(1 for e in url_index.values() if not (isinstance(e, dict) and e.get("alias_of")))
+        saved_count = 0
 
     telegram_count = int((by_origin.get("telegram") or {}).get("episodeCount") or 0)
 
+    feeds = feed_registry.list_feeds(memory_path)
     channels = {
         "chat-export:claude": _origin_channel(
             "chat-export:claude", "Claude chat export", "claude-export", by_origin, "conversation"),
@@ -353,8 +374,18 @@ def build_channels(
         # and its own sync_state entry, written by `safari_tabs.sync_tabs`.
         "safari-tabs": _sync_channel("safari-tabs", "Safari iCloud tabs", state, "tab"),
         "notes": _sync_channel("notes", "Apple Notes", state, "note"),
-        "rss": _subscription_channel(
-            "rss", "RSS feeds", feed_registry.list_feeds(memory_path), "feed", fetch_allowed=feed_fetch_allowed),
+        # ROR-138 (owner 2026-11-06): a Substack publication is followed through its public RSS feed, so RSS lists and
+        # counts every followed feed, and says how many are Substack's; Substack's own row is the view of those.
+        "rss": _with_substack_note(
+            _subscription_channel("rss", "RSS feeds", feeds, "feed", fetch_allowed=feed_fetch_allowed),
+            sum(1 for f in feeds if feed_registry.is_substack(f))),
+        # G89 (owner 2026-11-05): a followed Substack publication counts on Substack's row; RSS still polls it.
+        "substack-feeds": {
+            **_subscription_channel("substack-feeds", "Publications",
+                                    [f for f in feeds if feed_registry.is_substack(f)], "publication",
+                                    fetch_allowed=feed_fetch_allowed),
+            "actions": [],
+        },
         "calendar": _subscription_channel(
             "calendar", "Calendars", calendar_registry.list_calendars(memory_path), "calendar",
             fetch_allowed=feed_fetch_allowed),
@@ -413,6 +444,11 @@ def build_channels(
     rows.append(_local_channel(reminders_local.CHANNEL_ID, reminders_local.LABEL, state, "reminder"))
     # G219: a Notion export, imported through the one intake — connected once an import fed memory, like a chat export.
     rows.append(_origin_channel("notion", "Notion export", "notion-export", by_origin, "page"))
+    # G233: a Goodreads export, imported by the person — connected once an import fed memory, like a Notion export.
+    from api.services import goodreads_export
+
+    rows.append(_origin_channel(goodreads_export.CHANNEL_ID, "Goodreads export", "goodreads", by_origin, "book"))
+    rows.append(_origin_channel("book-scan", "Book scans", "book-scan", by_origin, "book"))
     # Round 4 (C9, R-SR15): a Chromium-family browser beyond Chrome gets its row
     # once it has synced — the app's `BrowserInventory` offers it before that, so
     # an install without Brave never carries a Brave row. Appended like every
@@ -433,8 +469,8 @@ def build_channels(
         if state.get(channel):
             rows.append(_local_channel(channel, f"YouTube history from {name}", state, "video"))
     for folder in folder_source.list_folders(memory_path):
-        rows.append(_local_channel(folder_source.channel_id(folder["id"]),
-                                   str(folder.get("label") or "Folder"), state, "note"))
+        rows.append(_local_channel(folder_source.channel_for(folder), str(folder.get("label") or "Folder"), state,
+                                   "meeting" if folder_source.is_meetings(folder) else "note"))
     # G134: shown once the person turned it on (or it has ever synced), so an
     # unused note-taker is not a disconnected row on every install (R-LS25).
     # 2026-10-23: turned off, it keeps its row and what came in, but is no longer connected — nothing more arrives.
@@ -442,12 +478,27 @@ def build_channels(
     if wispr_on or state.get(wispr_flow.CHANNEL_ID):
         rows.append(_switched(_local_channel(wispr_flow.CHANNEL_ID, "Wispr Flow", state, "capture"), on=wispr_on,
                               off_detail="Turned off"))
+    # G39: Apple Books — the Wispr Flow rule: a row once the person turned it on or it ever synced.
+    from api.services import apple_books
+
+    books_on = bool(apple_books.load_settings(memory_path)["enabled"])
+    if books_on or state.get(apple_books.CHANNEL_ID):
+        rows.append(_switched(_local_channel(apple_books.CHANNEL_ID, apple_books.LABEL, state, "book"), on=books_on,
+                              off_detail="Turned off"))
     # G179: shown once a conversation is ticked (or it has ever synced) — an untouched Messages is no row. With every
     # conversation unticked nothing is read, so it is not connected (2026-10-23).
     ticked = messages_source.any_ticked(memory_path)
     if ticked or state.get(messages_source.CHANNEL_ID):
         rows.append(_switched(_local_channel(messages_source.CHANNEL_ID, messages_source.LABEL, state, "conversation"),
                               on=ticked, off_detail="No conversation ticked"))
+    # G179 (2026-10-28): WhatsApp and Telegram chats, the Messages rule — a row once a chat is ticked or it ever synced.
+    from api.services import chat_live, telegram_source, whatsapp_source
+
+    for spec in (whatsapp_source.SPEC, telegram_source.SPEC):
+        on = chat_live.any_ticked(memory_path, spec)
+        if on or state.get(spec.channel):
+            rows.append(_switched(_local_channel(spec.channel, spec.label, state, "conversation"), on=on,
+                                  off_detail="No chat ticked"))
     return rows
 
 

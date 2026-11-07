@@ -102,10 +102,15 @@ class Calls:
     def __init__(self, path: Path, unit_id: str):
         self.path, self.unit_id, self.lock = path, unit_id, threading.Lock()
         self.phase = "setup"
+        self.spent = threading.local()   # this thread's token count, so an answer row carries what it cost
 
     def record(self, stage, model, seconds, ok, error=None, tokens=None):
         row = {"unit": self.unit_id, "phase": self.phase, "stage": stage, "model": model,
                "seconds": round(seconds, 3), "ok": ok, "error": error, "tokens": tokens}
+        self.spent.last_failed = not ok
+        if tokens:
+            self.spent.total = getattr(self.spent, "total", 0) + int(tokens.get("input_tokens") or 0) \
+                + int(tokens.get("output_tokens") or 0)
         with self.lock, self.path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(row) + "\n")
 
@@ -292,7 +297,7 @@ async def run_unit(job: dict) -> int:
     from api.config import Settings
     from benchmarks.system.runtime import CLOCK_MODULES, Runtime
 
-    from . import judges
+    from . import datasets, judges
 
     unit = json.loads(Path(job["unit_path"]).read_text(encoding="utf-8"))
     bank, out = Path(job["bank"]), Path(job["out_dir"])
@@ -380,32 +385,75 @@ async def run_unit(job: dict) -> int:
     # A failed answer is retried on every run until it succeeds; it is never silently dropped.
     todo = answers_to_do(unit["questions"], paths, answers.rows)
     calls.phase = "answer"
-    if todo and "ask" in paths:
+    if todo and {"ask", "recall", "hook", "agent-recall", "agent-hook"} & set(paths):
         from api.services import search_index
 
         search_index.ensure_fresh(bank, wait=True)   # what the running backend keeps fresh; never a half-built index
     prompts = Checkpoint(out / "prompts.jsonl")
+    if "doors" in paths:
+        # What each door hands an agent, with no model call: the words reaching it, per question.
+        paths = [p for p in paths if p != "doors"]
+        todo = [t for t in todo if t[1] != "doors"]
+        done = Checkpoint(out / "doors.jsonl")
+        for q in unit["questions"]:
+            if q["qid"] not in done.rows:
+                with Runtime(_clock(q["question_date"] or unit["clock"]), settings).frozen():
+                    done.add({"key": q["qid"], "qid": q["qid"], "category": q["category"], "abstention": q["abstention"],
+                              "doors": door_reach(bank, unit, q)})
     transcript = full_transcript(unit) if "full-context" in paths else ""
-    answer_fn = make_answerers(bank, answer_settings, transcript)
+    # A retrieval change compared with a run before it: a question whose prompt came out byte-identical keeps that
+    # run's answer and verdict, no call spent and no judge noise added; only the changed prompts are read again.
+    earlier = Path(job["reuse_from"]) if job.get("reuse_from") else None
+    old_prompts = _jsonl(earlier / "prompts.jsonl") if earlier else {}
+    old_answers = _jsonl(earlier / "answers.jsonl") if earlier else {}
+    old_judged = _jsonl(earlier / "judgments.jsonl") if earlier else {}
+    answer_fn = make_answerers(bank, answer_settings, transcript, wrong_bank=job.get("wrong_bank"),
+                               same_as={k.split("|", 1)[0]: r.get("prompt") for k, r in old_prompts.items()
+                                        if k.endswith("|ask") and k in old_answers and k in old_judged})
 
     def answer_one(item):
         q, path = item
         clock = _clock(q["question_date"] or unit["clock"])
         started = time.perf_counter()
+        calls.spent.total = 0
+        calls.spent.last_failed = False
         try:
-            response = answer_fn[path](q["question"])
+            response = answer_fn[path](q["question"], q["qid"])
             err = None
+        except SamePrompt as same:
+            key = f"{q['qid']}|{path}"
+            prompts.add({"key": key, "prompt": same.prompt})
+            answers.add({**old_answers[key], "reused": True})
+            judged.add({**old_judged[key], "reused": True})
+            return
         except Exception as exc:  # noqa: BLE001 — one failed answer is recorded, never fatal
             response, err = {"answer": ""}, f"{type(exc).__name__}: {exc}"[:300]
         seen = response.pop("_bench", None) or {}
         prompt = seen.get("prompt")
+        key = f"{q['qid']}|{path}"
+        if not err and getattr(calls.spent, "last_failed", False):
+            # An engine that dropped: Ask answers in words, so nothing raised, and those words would be judged wrong
+            # (80 of 200 in one run). A failed answer, which --resume retries.
+            err = "EngineNoAnswer: the last model call failed"
+        if path == "ask" and prompt is None and not err and key in old_answers and key in old_judged \
+                and (old_prompts.get(key) or {}).get("prompt", "") is None:
+            # No model call either time (an honest gap with nothing found): the same reply, nothing to read again.
+            prompts.add({"key": key, "prompt": None})
+            answers.add({**old_answers[key], "reused": True})
+            judged.add({**old_judged[key], "reused": True})
+            return
         extra = {}
         if path == "ask":
             extra = {"prompt_chars": len(prompt) if prompt is not None else 0,
                      "model_called": prompt is not None, "context_ms": seen.get("context_ms"),
                      **evidence_shown(unit, q, prompt or "")}
             prompts.add({"key": f"{q['qid']}|{path}", "prompt": prompt})
+        if path in ("recall", "hook", "agent-recall", "agent-hook"):
+            # What an agent holding only this door's words read: the note's own size beside the call's tokens.
+            shown = seen.get("door") or ""
+            extra = {"door_chars": len(shown), **evidence_shown(unit, q, shown)}
         answers.add({"key": f"{q['qid']}|{path}", "qid": q["qid"], "path": path, "clock": clock.isoformat(),
+                     "tokens": getattr(calls.spent, "total", 0),
                      "answer": str(response.get("answer", "")), "confidence": response.get("confidence"),
                      "gaps": response.get("gaps"), "cited": len(response.get("citations") or []),
                      "used_entities": response.get("used_entities"), "error": err,
@@ -433,6 +481,8 @@ async def run_unit(job: dict) -> int:
                                            "question's premise is not supported.", hyp, abstention=True)
             else:
                 prompt = judges.mem0_prompt(q["question"], q["answer"], hyp)
+        elif unit["dataset"] in datasets.PERSONAL_DATASETS:
+            prompt = judges.personal_prompt(q["question"], q["answer"], hyp)
         else:
             prompt = judges.lme_prompt(q["category"], q["question"], q["answer"], hyp, abstention=q["abstention"])
         try:
@@ -467,10 +517,66 @@ async def run_unit(job: dict) -> int:
     return 0
 
 
-def make_answerers(bank: Path, settings, transcript: str) -> dict:
+class SamePrompt(BaseException):
+    """This question's prompt is byte-identical to the earlier run's: its answer and verdict stand. A BaseException so
+    Ask's own guard around a model call (a failed call degrades to a reply) lets it through."""
+
+    def __init__(self, prompt: str):
+        super().__init__("same prompt")
+        self.prompt = prompt
+
+
+#: The closed-book control's whole instruction: how much of a question a model gets right with no memory at all.
+CLOSED_BOOK_PROMPT = ("Answer the question as well as you can from general knowledge. You have no memory of this "
+                      "person or their conversations. Give your best guess in one or two sentences. Reply with JSON: "
+                      '{"answer": "<your answer>"}')
+
+
+#: An agent with its own knowledge and one door's words: how a person's agent meets a request that is not a lookup. Same
+#: length as closed-book, so a gain over it is what the memory added.
+AGENT_PROMPT = ("Answer the person as well as you can from general knowledge. WHAT MEMORY HANDED OVER is what your memory "
+                "of this person gave you for this message: use what fits them, ignore what does not. Give your answer in "
+                'one or two sentences. Reply with JSON: {"answer": "<your answer>"}')
+
+
+def door_reach(bank: Path, unit: dict, q: dict) -> dict:
+    """Per door, what one question's words get an agent with no model call: the characters handed over and how many of
+    the dataset's answer turns reached them. A door that fails reads as nothing and says why (its class)."""
+    from api.services import agentic_write, ask_service, hook_recall, mcp_tools
+
+    ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="bench", harness="bench")
+
+    def ask_prompt() -> str:
+        seen: dict = {}
+
+        def llm(prompt: str) -> str:
+            seen["prompt"] = prompt
+            return json.dumps({"answer": "", "confidence": 0, "gaps": [], "used_entities": []})
+
+        ask_service.answer_query(bank, q["question"], top_k=6, llm_fn=llm, no_engine=False)
+        return seen.get("prompt") or ""
+
+    doors = {"ask": ask_prompt,
+             "recall": lambda: mcp_tools.recall(ctx, q["question"]),
+             "hook": lambda: hook_recall.prompt_context(bank, q["question"], deadline=time.monotonic() + 1.0).text or "",
+             "pending": lambda: agentic_write.pending_text(bank, 10, {}, q["question"])}
+    out: dict[str, dict] = {}
+    for name, read in doors.items():
+        started = time.perf_counter()
+        try:
+            text, err = read(), None
+        except Exception as exc:  # noqa: BLE001 — a door that fails is a finding, not the run's end
+            text, err = "", type(exc).__name__
+        out[name] = {"chars": len(text), "ms": round((time.perf_counter() - started) * 1000, 1), "error": err,
+                     **evidence_shown(unit, q, text)}
+    return out
+
+
+def make_answerers(bank: Path, settings, transcript: str, *, wrong_bank: str | None = None,
+                   same_as: dict[str, str] | None = None) -> dict:
     from api.services import ask_service, providers
 
-    def ask(question: str) -> dict:
+    def ask_over(memory: Path, question: str, same: str | None = None) -> dict:
         """``cicada_ask``'s body; the prompt the model read and the time spent before the model call are kept beside
         the answer (``_bench``) — the retrieval stats read them. No model call (an honest gap) leaves no prompt."""
         real = ask_service._default_llm_fn(settings)
@@ -480,12 +586,32 @@ def make_answerers(bank: Path, settings, transcript: str) -> dict:
         def llm(prompt: str) -> str:
             seen["context_ms"] = round((time.perf_counter() - started) * 1000, 1)
             seen["prompt"] = prompt
+            if same is not None and prompt == same:
+                raise SamePrompt(prompt)
             return real(prompt)
 
-        response = ask_service.answer_query(bank, question, top_k=6, llm_fn=llm, no_engine=False)
+        response = ask_service.answer_query(memory, question, top_k=6, llm_fn=llm, no_engine=False)
         return {**response, "_bench": seen}
 
-    def full_context(question: str) -> dict:
+    def ask(question: str, qid: str) -> dict:
+        return ask_over(bank, question, (same_as or {}).get(qid))
+
+    def wrong(question: str, _qid: str) -> dict:
+        """The wrong person's memory: right here means the question leaks, or Ask answered past what it was shown."""
+        if not wrong_bank:
+            raise RuntimeError("no other bank yet: the first unit has none to borrow; --resume fills it")
+        return ask_over(Path(wrong_bank), question)
+
+    def closed_book(question: str, _qid: str) -> dict:
+        from api.services import json_parse
+
+        fn = providers.resolve_llm_fn(settings, stage="answer_control", is_async=False)
+        resp = fn(messages=[{"role": "system", "content": CLOSED_BOOK_PROMPT}, {"role": "user", "content": question}],
+                  response_format={"type": "json_object"})
+        parsed = json_parse.parse_json_object(resp.choices[0].message.content or "")
+        return parsed if isinstance(parsed, dict) else {"answer": resp.choices[0].message.content or ""}
+
+    def full_context(question: str, _qid: str) -> dict:
         """The control: the whole conversation history, raw, with the same answer prompt Ask uses."""
         from api.services import json_parse
         from api.services.claims import current_day
@@ -498,7 +624,31 @@ def make_answerers(bank: Path, settings, transcript: str) -> dict:
         parsed = json_parse.parse_json_object(resp.choices[0].message.content or "")
         return parsed if isinstance(parsed, dict) else {"answer": resp.choices[0].message.content or ""}
 
-    return {"ask": ask, "full-context": full_context}
+    def over_door(question: str, door: str, system: str | None = None) -> dict:
+        """An agent holding only one door's words answers: what that door is worth, and what it costs. Same rules as
+        Ask's answer unless ``system`` says otherwise. A door that says nothing leaves the question, as an agent would
+        have it."""
+        from api.services import hook_recall, json_parse, mcp_tools
+        from api.services.claims import current_day
+
+        if door == "recall":
+            ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="bench", harness="bench")
+            text = mcp_tools.recall(ctx, question)
+        else:
+            text = hook_recall.prompt_context(bank, question, deadline=time.monotonic() + 1.0).text or ""
+        prompt = (f"QUESTION:\n{question}\n\nCURRENT LOCAL DAY: {current_day().isoformat()}\n"
+                  f"WHAT MEMORY HANDED OVER:\n\n{text or '(nothing)'}")
+        fn = providers.resolve_llm_fn(settings, stage="answer_control", is_async=False)
+        resp = fn(messages=[{"role": "system", "content": system or ask_service.ASK_SYSTEM_PROMPT},
+                            {"role": "user", "content": prompt}], response_format={"type": "json_object"})
+        parsed = json_parse.parse_json_object(resp.choices[0].message.content or "")
+        out = parsed if isinstance(parsed, dict) else {"answer": resp.choices[0].message.content or ""}
+        return {**out, "_bench": {"door": text}}
+
+    return {"ask": ask, "full-context": full_context, "closed-book": closed_book, "wrong-bank": wrong,
+            "recall": lambda q, _qid: over_door(q, "recall"), "hook": lambda q, _qid: over_door(q, "hook"),
+            "agent-recall": lambda q, _qid: over_door(q, "recall", AGENT_PROMPT),
+            "agent-hook": lambda q, _qid: over_door(q, "hook", AGENT_PROMPT)}
 
 
 def build_indexes(bank: Path) -> None:
@@ -520,6 +670,12 @@ def evidence_turns(unit: dict, q: dict) -> list[str]:
         wanted = {e.strip() for raw in q.get("evidence") or [] for e in str(raw).replace(",", ";").split(";")
                   if e.strip()}
         return [t["text"] for s in unit["sessions"] for t in s["turns"] if t.get("dia_id") in wanted]
+    from .datasets import PERSONAL_DATASETS
+
+    if unit["dataset"] in PERSONAL_DATASETS:
+        # PersonaMem-v2 gives the conversation turns that show the preference; PersonalizationV4 gives none.
+        wanted = [_norm(e) for e in q.get("evidence_texts") or [] if e.strip()]
+        return [t["text"] for s in unit["sessions"] for t in s["turns"] if _norm(t["text"]) in wanted]
     sids = set(q.get("evidence") or [])
     return [t["text"] for s in unit["sessions"] if s["source_id"].rsplit(":", 1)[-1] in sids
             for t in s["turns"] if t.get("has_answer")]

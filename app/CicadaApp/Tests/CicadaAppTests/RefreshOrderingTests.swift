@@ -18,6 +18,10 @@ final class ParkingProjectsAPI: ProjectsAPI {
         try await withCheckedContinuation { timelineWaiters.append($0) }.get()
     }
 
+    func fetchProjectConversations(id: String, etag: String?) async throws -> Conditional<ProjectConversationsPage> {
+        throw APIError.serverUnreachable
+    }
+
     func answerList(_ i: Int, _ reply: ListReply) { listWaiters[i].resume(returning: reply) }
     func answerTimeline(_ i: Int, _ reply: TimelineReply) { timelineWaiters[i].resume(returning: reply) }
 }

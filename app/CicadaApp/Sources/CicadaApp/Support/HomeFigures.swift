@@ -137,6 +137,14 @@ enum HomeFigures {
         return "\(RelativeDay.phrase(day, today: today, locale: locale)) \(time.string(from: instant))"
     }
 
+    /// Round 5 — `when` without its leading day word when that word is today's, for a line that already says "today"
+    /// ("Today 2:07 PM" → "2:07 PM"). Another day, or a bare day with no time, is left whole.
+    static func withoutToday(_ when: String) -> String {
+        let word = RelativeDay.phrase(ISODay(year: 2000, month: 1, day: 1), today: ISODay(year: 2000, month: 1, day: 1)) + " "
+        guard when.hasPrefix(word), when.count > word.count else { return when }
+        return String(when.dropFirst(word.count))
+    }
+
     private static func instant(_ raw: String) -> Date? {
         let plain = ISO8601DateFormatter()
         plain.formatOptions = [.withInternetDateTime]

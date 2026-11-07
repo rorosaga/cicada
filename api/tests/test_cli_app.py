@@ -141,6 +141,10 @@ BACKEND_CASES = [
     (["feed", "remove", "https://example.com/feed.xml"], "DELETE", "/sources/feeds",
      {"url": "https://example.com/feed.xml"}, {"status": "ok"}),
     (["feed", "poll"], "POST", "/sources/poll-feeds", None, {"polled": 0}),
+    # Ruling 45: the person's own project, from their own shell.
+    (["projects", "new", "Alpha Garden", "--description", "Beds by the fence."], "POST", "/projects",
+     {"name": "Alpha Garden", "description": "Beds by the fence.", "via": "cli"},
+     {"id": "alpha-garden", "action": "created", "mine": True}),
     (["page", "decay", "alpha-project", "durable"], "PUT", "/entities/alpha-project/decay",
      {"decayClass": "durable"}, {"decayClass": "durable"}),
     (["inbox", "answer", "inbox-001", "--option", "keep"], "POST", "/inbox/inbox-001/resolve",
@@ -308,7 +312,10 @@ PERSON_ARGV = {
     "sleep options": ["sleep", "options", "--batch-size", "10"],
     "index install": ["index", "install", "--model", "x"],
     "feed poll": ["feed", "poll"],
+    "projects new": ["projects", "new", "Alpha Garden"],
     "settings owner": ["settings", "owner", "--name", "Alex Example"],
+    "numbers switch": ["numbers", "switch", "--state", "on"],
+    "numbers new-vault": ["numbers", "new-vault"],
     "picture set": ["picture", "set", "bob-example", "PICTURE"],
     "picture initials": ["picture", "initials", "bob-example"],
     "picture clear": ["picture", "clear", "bob-example"],
@@ -329,10 +336,21 @@ PERSON_ARGV = {
     "device add": ["device", "add", "laptop"],
     "device revoke": ["device", "revoke", "ab12cd34"],
     "device pair": ["device", "pair"],
+    # G132 phase 2: moving the home and taking it over act as the person.
+    "home move": ["home", "move", "bravo-laptop"],
+    "home take-over": ["home", "take-over", "--yes", "--behind", "0"],
     "agent add": ["agent", "add", "Texting Agent"],
     "setup": ["setup"],
     "agent revoke": ["agent", "revoke", "ab12cd34"],
     "engine connect": ["engine", "connect", "claude-plan"],
+    "connector connect": ["connector", "connect", "notion-api"],
+    "connector disconnect": ["connector", "disconnect", "notion-api"],
+    "connector sync": ["connector", "sync", "notion-api"],
+    "funnel on": ["funnel", "on"],
+    "funnel off": ["funnel", "off"],
+    "github connect": ["github", "connect"],
+    "github project": ["github", "project", "bob-example/alpha-project"],
+    "maintenance move-watched-rows": ["maintenance", "move-watched-rows", "--apply"],
 }
 
 
@@ -365,6 +383,15 @@ def test_reading_a_person_row_without_changing_it_is_allowed_from_an_agents_shel
     with _backend(env, monkeypatch, {("GET", "/sleep/engine"): (200, {"mode": "byok", "model": "m"})}):
         code, out = _run(["sleep", "engine"], capsys)
     assert code == 0 and out["ok"] is True
+
+
+def test_the_watched_rows_dry_run_reads_and_names_only_ids_and_counts(env, monkeypatch, capsys):
+    """Speed 2026-10-29: the move waits for the person's --apply; the dry run is a read, allowed from any shell."""
+    monkeypatch.setenv("CICADA_SESSION_HARNESS", "codex")
+    plan = {"days": 3, "rows": 40, "rows_files_kept": 1, "applied": False, "sample": ["ep_2026-10-14_002"]}
+    with _backend(env, monkeypatch, {("GET", "/maintenance/watched-rows"): (200, plan)}) as server:
+        code, out = _run(["maintenance", "move-watched-rows"], capsys)
+    assert code == 0 and out["data"] == plan and [r["method"] for r in server.seen] == ["GET"]
 
 
 # --- imports and pictures send the file's bytes -------------------------------------------------------------
@@ -424,6 +451,16 @@ def test_page_list_and_graph_read_the_bank_with_the_backend_down(env, capsys):
     assert code == 0 and out["data"]["pages"] >= 5 and out["data"]["by_type"]["project"] >= 2
 
 
+def test_coverage_reads_the_bank_and_names_no_page_unless_asked(env, capsys):
+    code, out = _run(["coverage", "pictures"], capsys)
+    assert code == 0 and out["data"]["pages"] >= 4 and "ids" not in out["data"]
+    # Owner 2026-10-28 (E): a project with no trusted site or repository says so, like a brand.
+    assert out["data"]["by_type"]["project"]["none"] == {"no_site": 2}
+    assert out["data"]["by_type"]["person"]["none"] == {"no_identifier": 1}
+    code, out = _run(["coverage", "sources", "--ids"], capsys)
+    assert code == 0 and "bob-example" in out["data"]["ids"]["none/person"]
+
+
 def test_inbox_all_lists_every_kind_and_hides_deferred(env, capsys):
     code, out = _run(["inbox", "all"], capsys)
     assert code == 0
@@ -456,10 +493,31 @@ def test_find_and_timeline_read_the_bank(env, capsys):
     assert code == 0 and out["command"] == "timeline"
 
 
+def test_find_with_no_kind_never_asks_for_pictures(env, monkeypatch, capsys):
+    """Hyrum (review of #506): `cicada find` with no `--kind` is every kind it was before pictures existed; pictures
+    come only when named (`--kind image`), as `GET /search` serves them."""
+    from api.services import image_index, search_service
+
+    asked: list[list[str]] = []
+    real = search_service.search
+
+    def spy(memory_path, q, **kw):
+        asked.append(list(kw.get("kinds") or []))
+        return real(memory_path, q, **kw)
+
+    monkeypatch.setattr(search_service, "search", spy)
+    monkeypatch.setattr(image_index, "search", lambda *a, **k: [])
+    code, _out = _run(["find", "alpha"], capsys)
+    assert code == 0 and asked[-1] == list(search_service.KINDS) and "image" not in asked[-1]
+    code, _out = _run(["find", "alpha", "--kind", "image"], capsys)
+    assert code == 0 and asked[-1] == ["image"]
+
+
 def test_bank_reads_never_call_the_backend(env, monkeypatch, capsys):
     with _backend(env, monkeypatch) as server:
         for argv in (["page", "list"], ["graph"], ["inbox", "all"], ["bank", "list"], ["feed", "list"],
-                     ["sleep", "history"], ["page", "history", "alpha-project"]):
+                     ["sleep", "history"], ["page", "history", "alpha-project"], ["coverage", "pictures"],
+                     ["coverage", "sources", "--ids"]):
             code, out = _run(argv, capsys)
             assert code == 0, (argv, out)
     assert server.seen == []

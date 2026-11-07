@@ -6,16 +6,22 @@ import XCTest
 /// the working steps and the worm's, and the keyboard never animates.
 final class OnboardingPagesTests: XCTestCase {
     func testSixStepsInTheFlowsOrderWithTheSplitFrameAndSkipOnTheWorkingSteps() {
-        XCTAssertEqual(OnboardingPage.allCases, [.welcome, .intelligence, .agents, .sources, .menuBar, .done])
-        XCTAssertEqual(OnboardingPage.allCases.map(\.step), [1, 2, 3, 4, 5, 6])
+        XCTAssertEqual(OnboardingPage.allCases, [.welcome, .intelligence, .agents, .permissions, .sources, .savedLists,
+                                                    .menuBar, .done])
+        XCTAssertEqual(OnboardingPage.allCases.map(\.step), [1, 2, 3, 4, 5, 6, 7, 8])
+        XCTAssertEqual(OnboardingPage.agents.next, .permissions, "one step asks for every permission (owner 2026-11-03)")
+        XCTAssertEqual(OnboardingPage.permissions.next, .sources, "before the sources it unlocks")
         XCTAssertEqual(OnboardingPage.stepCount, OnboardingPage.allCases.count)
         XCTAssertEqual(OnboardingPage.welcome.next, .intelligence)
-        XCTAssertEqual(OnboardingPage.sources.next, .menuBar, "the worm's step follows Sources: it counts what came in")
+        XCTAssertEqual(OnboardingPage.sources.next, .savedLists, "the saved lists follow Sources (owner 2026-10-26)")
+        XCTAssertEqual(OnboardingPage.savedLists.next, .menuBar, "the worm's step follows what comes in")
         XCTAssertEqual(OnboardingPage.menuBar.next, .done)
         XCTAssertEqual(OnboardingPage.done.previous, .menuBar)
         XCTAssertNil(OnboardingPage.done.next)
-        XCTAssertEqual(OnboardingPage.allCases.filter(\.isSplit), [.intelligence, .agents, .sources])
-        XCTAssertEqual(OnboardingPage.allCases.filter(\.skippable), [.intelligence, .agents, .sources, .menuBar])
+        XCTAssertEqual(OnboardingPage.allCases.filter(\.isSplit), [.intelligence, .agents, .permissions, .sources,
+                                                                   .savedLists])
+        XCTAssertEqual(OnboardingPage.allCases.filter(\.skippable), [.intelligence, .agents, .permissions, .sources,
+                                                                     .savedLists, .menuBar])
     }
 
     /// Hyrum mode B — every step name either flow could have stored maps to a step that exists, and each new step
@@ -28,31 +34,45 @@ final class OnboardingPagesTests: XCTestCase {
         XCTAssertEqual(OnboardingPage(stored: "keepRunning"), .done)
         XCTAssertEqual(OnboardingPage(stored: "ready"), .done)
         XCTAssertEqual(OnboardingPage(stored: "menuBar"), .menuBar)
+        XCTAssertEqual(OnboardingPage(stored: "savedLists"), .savedLists)
+        XCTAssertEqual(OnboardingPage(stored: "permissions"), .permissions)
+        XCTAssertEqual(OnboardingPage(stored: "sources"), .sources, "a stored Sources stays on Sources, never moves")
         XCTAssertEqual(OnboardingPage(stored: "done"), .done, "a step stored before the worm's step still lands on Done")
         XCTAssertNil(OnboardingPage(stored: "3"), "a raw number is never a step")
         XCTAssertNil(OnboardingPage(stored: ""))
     }
 
     /// Owner 2026-10-16 — the study room is onboarding's one illustration: the worm's mood says what each step is about,
-    /// and the room is drawn at a whole number of points per cell (never resampled), up to 3 in the pane and 4 over the
-    /// Welcome's card.
+    /// and the room is drawn at a whole number of points per cell (never resampled), the pane's width is always a whole
+    /// number of cells so the room runs edge to edge (ROR-118), and the Welcome's card is 800 pt over a 5 pt room.
     func testTheRoomIsOnboardingsIllustrationAtWholePoints() {
         XCTAssertEqual(OnboardingPage.welcome.roomMood, .awake)
         XCTAssertEqual(OnboardingPage.intelligence.roomMood, .reading)
         XCTAssertEqual(OnboardingPage.sources.roomMood, .reading)
+        XCTAssertEqual(OnboardingPage.permissions.roomMood, .reading)
         XCTAssertEqual(OnboardingPage.agents.roomMood, .happy)
         XCTAssertEqual(OnboardingPage.done.roomMood, .happy)
-        XCTAssertEqual(OnboardingRoomLayout.paneCell(paneWidth: 540), 3, "480 × 192 in the full pane")
-        XCTAssertEqual(OnboardingRoomLayout.paneCell(paneWidth: 380), 2)
-        XCTAssertEqual(OnboardingRoomLayout.paneCell(paneWidth: 240), 1)
-        XCTAssertEqual(OnboardingRoomLayout.cardCell(cardWidth: 640), 4, "640 × 256 over the 640 pt card")
-        XCTAssertEqual(OnboardingRoomLayout.cardCell(cardWidth: 2000), 4)
-        XCTAssertEqual(OnboardingRoomLayout.cardCell(cardWidth: 0), 1, "a zero width never traps")
+        XCTAssertEqual(OnboardingRoomLayout.paneCell(windowWidth: 1440, scale: 1), 5, "112 columns at 5 pt, every prop whole")
+        // Round 6: the original art cropped a little top and bottom, never more than the room has, worm rows whole.
+        XCTAssertLessThanOrEqual(OnboardingRoomLayout.cropTopRows + OnboardingRoomLayout.cropRows, RoomLattice.rows)
+        XCTAssertLessThanOrEqual(OnboardingRoomLayout.cropTopRows, 64 - (DeskScene.wormCell.y + 48))
+        XCTAssertLessThanOrEqual(RoomLattice.rows - OnboardingRoomLayout.cropTopRows - OnboardingRoomLayout.cropRows, DeskScene.wormCell.y)
+        XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 800), 5)
+        XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 960), 6, "960 × 384 over the 960 pt card")
+        XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 2000), 6)
+        XCTAssertEqual(OnboardingRoomLayout.heroCell(cardWidth: 0), 1, "a zero width never traps")
         for width in stride(from: CGFloat(0), through: 900, by: 37) {
-            let cell = OnboardingRoomLayout.cardCell(cardWidth: width)
+            let cell = OnboardingRoomLayout.heroCell(cardWidth: width)
             XCTAssertEqual(cell, cell.rounded(), "\(width): a whole number of points per cell")
             XCTAssertTrue(width < 160 || CGFloat(RoomLattice.cols) * cell <= width, "\(width): the room fits")
         }
+    }
+
+    /// ROR-118 round 5: onboarding's rows hold one tile and one mark box for every vendor (a finished icon is no longer
+    /// full-bleed there), and the wall above the room repeats the backdrop's own nine-row wallpaper period.
+    func testOnboardingRowsShareOneMarkBoxAndTheWallRepeatsItsPeriod() {
+        XCTAssertEqual(LogoTile.tileSide(.roomy), CicadaTheme.scaled(48))
+        XCTAssertEqual(LogoTile.markSide(.roomy), CicadaTheme.scaled(36))
     }
 
     /// Paint is retired from onboarding: the frame draws the room, never a painting (owner 2026-10-16).
@@ -80,15 +100,17 @@ final class OnboardingPagesTests: XCTestCase {
 
     /// R-OB1 — the painting gives way before the column does, and goes rather than become a sliver.
     func testThePaneShrinksThenGoesAndTheColumnNeverDropsBelowItsMinimum() {
-        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1440, scale: 1), 540)
-        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1200, scale: 1), 540)
-        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1000, scale: 1), 380)
+        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1440, scale: 1), 560)
+        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1200, scale: 1), 560)
+        XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 1000, scale: 1), 336)
         XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 800, scale: 1), 0)
         for scale in stride(from: CGFloat(0.8), through: 1.4001, by: 0.1) {
             for width in [CGFloat(800), 1000, 1200, 1440, 1800] {
                 let pane = OnboardingLayout.paneWidth(windowWidth: width, scale: scale)
                 XCTAssertTrue(pane == 0 || width - pane >= OnboardingLayout.minColumn * scale - 0.5, "\(width)@\(scale)")
                 XCTAssertLessThanOrEqual(OnboardingLayout.cardWidth(windowWidth: width, scale: scale), width - 32 * scale)
+                XCTAssertLessThanOrEqual(OnboardingLayout.welcomeWidth(windowWidth: width, scale: scale), width - 32 * scale)
+                XCTAssertEqual(pane.truncatingRemainder(dividingBy: CGFloat(OnboardingRoomLayout.cropCols)), 0, "a whole cell wide, never ground beside the room")
             }
         }
         XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 0, scale: 0), 0, "a zero width never traps")

@@ -182,11 +182,20 @@ final class SleepViewModel {
     private let fetchQueue: () async throws -> SleepQueueResponse
     private let fetchRun: (String) async throws -> SleepRunDetail
 
+    /// The run card's dropdown (owner 2026-10-26): what each consolidation read and wrote, by key, with the ETag it was
+    /// read under — in memory only, revalidated on each open (a 304 keeps it), emptied on a bank switch.
+    private(set) var consolidated: [SleepConsolidatedKey: SleepConsolidated] = [:]
+    private(set) var consolidatedFailed: Set<SleepConsolidatedKey> = []
+    private var consolidatedETags: [SleepConsolidatedKey: String] = [:]
+    private let fetchConsolidated: (SleepConsolidatedKey, String?) async throws -> Conditional<SleepConsolidated>
+
     /// G212 — the machines under the room (`GET /devices/status`), polled while the Sleep page shows. Machine-global
     /// (the devices are this server's, not a bank's), so a bank switch keeps them; not a Store domain, in memory only.
     /// Fetched here so no file under Views/Sleep reaches `APIClient` itself (R-Z10, `RoomFeedTests`).
     private(set) var machines: [MachineStatus] = []
     private let fetchMachines: () async throws -> MachineStatusList
+    /// G132 phase 2 — the memory's home: who runs consolidation, and moving it (`HomeStripModel`).
+    let homeStrip: HomeStripModel
 
     init(
         store: Store,
@@ -234,8 +243,14 @@ final class SleepViewModel {
         },
         fetchMachines: @escaping () async throws -> MachineStatusList = {
             try await APIClient.shared.fetchMachineStatus()
-        }
+        },
+        fetchConsolidated: @escaping (SleepConsolidatedKey, String?) async throws -> Conditional<SleepConsolidated> = {
+            try await APIClient.shared.fetchSleepConsolidated($0, etag: $1)
+        },
+        homeStrip: HomeStripModel? = nil
     ) {
+        self.homeStrip = homeStrip ?? HomeStripModel()
+        self.fetchConsolidated = fetchConsolidated
         self.fetchMachines = fetchMachines
         self.fetchEpisodes = fetchEpisodes
         self.fetchSchedule = fetchSchedule
@@ -562,8 +577,11 @@ final class SleepViewModel {
     }
 
     /// One poll of the machines strip; a failed poll keeps the last answer (never blank).
-    func loadMachines() async {
+    /// `clearingProblem: false` on G229's 5 s poll while a machine syncs: a refused move's sentence stays its usual
+    /// half-minute, never gone in five seconds.
+    func loadMachines(clearingProblem: Bool = true) async {
         if let list = try? await fetchMachines() { machines = list.devices }
+        await homeStrip.load(clearingProblem: clearingProblem)   // the slow poll: a refusal's sentence goes once it answers
     }
 
     /// A run's detail, cached by id and freshness key: a second open under the same key is a dictionary hit; a
@@ -581,6 +599,22 @@ final class SleepViewModel {
         if let detail = try? await fetchRun(id), token == loadToken {
             runDetails[id] = detail
             runDetailKeys[id] = freshness
+        }
+    }
+
+    /// A card's items, revalidated with the ETag held for that key: a 304 keeps the copy, a failure keeps it too and
+    /// is remembered only while there is no copy to show (the dropdown then says so in words).
+    func loadConsolidated(_ key: SleepConsolidatedKey) async {
+        let token = loadToken
+        do {
+            let answer = try await fetchConsolidated(key, consolidatedETags[key])
+            guard token == loadToken else { return }
+            if let value = answer.value { consolidated[key] = value }
+            if let etag = answer.etag { consolidatedETags[key] = etag }
+            consolidatedFailed.remove(key)
+        } catch {
+            guard token == loadToken else { return }
+            if consolidated[key] == nil { consolidatedFailed.insert(key) }
         }
     }
 
@@ -602,6 +636,9 @@ final class SleepViewModel {
         episodesETag = nil
         runDetails = [:]
         runDetailKeys = [:]
+        consolidated = [:]
+        consolidatedETags = [:]
+        consolidatedFailed = []
         queue = nil
         expandedRun = nil
         details = [:]

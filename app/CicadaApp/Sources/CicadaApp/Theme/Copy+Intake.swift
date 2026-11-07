@@ -31,11 +31,26 @@ extension Copy {
     static let intakeActiveSuffix = "(active)"
     static let intakeNewMemory = "New memory…"
     static let intakeNewMemoryPlaceholder = "Name the new memory"
-    static let intakeFileMenuItem = "Import…"
-    static let intakeMenuBarItem = "Import a file…"
+    /// CIC8 (2026-10-29, coordinator's call) — every door says one thing: the File menu, the menu-bar worm, the
+    /// palette and Sources' header add name what people arrive holding (menus in title case, as macOS menus are).
+    static let intakeFileMenuItem = "Import Chats or Files…"
+    static let intakeMenuBarItem = intakeFileMenuItem
     static let intakeBusy = "Finish the import in progress first."
     static let intakeNothingReadable = "Nothing here is an export Cicada can read."
     static let intakeUnreadable = "Cicada couldn't read this file."
+    /// 2026-11-06 — a dropped file that did not go in: the reason in words (`IntakeFailureWords`), never a framework's.
+    static let intakeCouldNotRead = "Cicada couldn't read this file. Try dropping it again."
+    static let intakeCannotOpen = "Cicada can't open this file. It may have moved, or Cicada isn't allowed to read it."
+    static let intakeStoppedWaiting = "Cicada stopped waiting. A large file may still be arriving; check Sources before dropping it again."
+    static let intakeBackendGone = "Cicada isn't running. Open the app again, then drop the file."
+    static let intakeBackendOld = "This version of Cicada's helper can't import that yet. Restart the app to update it."
+    static let intakeWriteStopped = "Cicada couldn't finish saving this export. What was saved is kept; drop the file again to add the rest."
+    static func intakeFileLine(_ name: String, _ reason: String) -> String { "\(name): \(reason)" }
+    static func intakeAndMore(_ n: Int) -> String { "and \(UsageFormat.count(n)) more" }
+    static func intakeBigFile(_ name: String, _ size: String) -> String { "\(name) is \(size). A file this big takes a few minutes." }
+    static func intakeSomeFailed(_ names: [String]) -> String {
+        names.count == 1 ? "\(names[0]) wasn't imported" : "\(UsageFormat.count(names.count)) files weren't imported: \(names.prefix(3).joined(separator: ", "))"
+    }
     /// Track Z Z-B5/Z-B18 — the panel's words when a door refuses a folder that
     /// is not an export (the Sleep room's worm says the same in its own voice).
     /// "Once it's connected" is the condition, not a promise: capture needs
@@ -114,7 +129,7 @@ extension Copy {
         case "claude-cli": "your Claude plan"
         case "codex-cli": "your ChatGPT plan"
         case "ollama": "Ollama on this Mac"
-        case "litellm": "your API key"
+        case "litellm", "anthropic-api": "your API key"
         case "none": "no engine yet"
         default: engineLabel(engine)
         }

@@ -20,6 +20,11 @@ final class GatedWatchHistoryAPI: WatchHistorySyncAPI {
 
 @MainActor
 final class WatcherBankBindingTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ContactsTrap.install()   // never this Mac's Contacts service (#527 review)
+    }
+
     private var bank = "alpha"
 
     private func eventually(_ what: String, _ condition: () -> Bool) async -> Bool {

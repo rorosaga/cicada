@@ -58,7 +58,12 @@ struct GraphPage: View {
         // Say it once — Graph clicked again in the rail: the whole graph, nothing open over it.
         .onRailReselect(.graph, router: router) { popToRoot() }
         .onChange(of: selectedTab) { _, tab in
-            if tab != .graph { Instant.run { findOpen = false; legendOpen = false } }
+            if tab != .graph { Instant.run { findOpen = false; legendOpen = false }; graphVM.hover.end() }
+        }
+        // ROR-135 — once the graph is up, read the busiest pages' pictures into memory off the pointer's path.
+        .task(id: "\(graphVM.nodes.count)|\(isVisible)") {
+            guard isVisible, !graphVM.nodes.isEmpty else { return }
+            graphVM.hover.warm(graphVM.hoverWarmCandidates(), bank: graphVM.hoverBank)
         }
         // A node chosen — on the canvas, in find, from ⌘K — closes the floating panels (the mock's `select`).
         .onChange(of: graphVM.selectedEntity?.id) { _, _ in Instant.run { findOpen = false; legendOpen = false } }
@@ -77,7 +82,16 @@ struct GraphPage: View {
 
             // G117 — a fresh bank's graph is never a literal blank canvas; `isLoading` gates on an empty cache
             // AND a fetch in flight, so this never flashes over the instant on-disk hydrate.
-            if !graphVM.isLoading && graphVM.nodes.hasNoContentBeyondOwner {
+            if graphVM.couldNotRead {
+                // Production blocker (2026-11-06) — a memory that could not be read is never drawn as an empty one.
+                EmptyStateView(
+                    systemImage: "exclamationmark.circle",
+                    title: Copy.Reach.unreadTitle,
+                    message: "",
+                    actionLabel: graphVM.offersRetry ? Copy.Reach.tryAgain : nil,
+                    action: graphVM.offersRetry ? { graphVM.retryRead() } : nil
+                )
+            } else if !graphVM.isLoading && graphVM.nodes.hasNoContentBeyondOwner {
                 // Onboarding v2's empty state (2026-10-22): one icon, one bold sentence, one grey instruction.
                 EmptyStateView(
                     systemImage: "point.3.connected.trianglepath.dotted",
@@ -99,6 +113,11 @@ struct GraphPage: View {
                         .padding(.bottom, inset + groupHeight + CicadaTheme.spacingSM)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 }
+            }
+
+            // ROR-135 — the hovered node's small card; hidden with the page, never over the Legend or find.
+            if isVisible && !legendOpen && !findOpen {
+                GraphHoverCardLayer(model: graphVM.hover)
             }
 
             if findOpen {

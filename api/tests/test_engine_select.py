@@ -125,9 +125,27 @@ def test_an_unresolved_auto_refuses_every_call_instead_of_billing_the_key(monkey
     assert len(sent) == 1, "a key the person chose still reads"
 
 
-def test_the_no_engine_sentence_names_the_server_fix_too():
-    assert "`cicada engine connect claude-plan`" in engine_select.no_engine_sentence(engine_select.NO_ENGINE)
-    assert "--use-plan on" in engine_select.no_engine_sentence(engine_select.SCHEDULE_DEGRADED)
+def test_the_no_engine_sentence_is_short_and_carries_no_server_command():
+    """A Mac app person has no server: the Sleep page's sentence says what the app does, and the CLI adds its own."""
+    for why in (engine_select.NO_ENGINE, engine_select.SCHEDULE_DEGRADED, engine_select.SCHEDULE_USER_ONLY,
+                engine_select.SCHEDULE_CURSOR_THIRD_PARTY):
+        sentence = engine_select.no_engine_sentence(why)
+        assert "`" not in sentence and "cicada " not in sentence and "server" not in sentence, sentence
+        assert "Settings → " in sentence and len(sentence) < 260, sentence
+    assert engine_select.no_engine_sentence(engine_select.NO_ENGINE).startswith(engine_select.NO_ENGINE_LEAD)
+    assert engine_select.no_engine_sentence(engine_select.SCHEDULE_DEGRADED).startswith(
+        engine_select.SCHEDULE_DEGRADED_LEAD)
+
+
+def test_the_cli_adds_the_server_command_to_a_no_engine_error():
+    from api.services import engine_readiness
+
+    run = engine_readiness.cli_fix_for_error(engine_select.no_engine_sentence(engine_select.NO_ENGINE))
+    assert "`cicada engine connect claude-plan`" in run and "cicada sleep engine --mode byok" in run
+    scheduled = engine_readiness.cli_fix_for_error(engine_select.no_engine_sentence(engine_select.SCHEDULE_DEGRADED))
+    assert "--use-plan on" in scheduled
+    assert engine_readiness.cli_fix_for_error("Some other error") == ""
+    assert engine_readiness.cli_fix_for_error(None) == ""
 
 
 def test_the_use_for_sleep_toggle_selects_the_agent_rung_on_a_chosen_key():
@@ -495,7 +513,11 @@ def test_duck_typed_settings_never_touches_the_registry_for_prefs():
 def test_the_codex_label_and_the_plan_maps():
     assert engine_select.engine_label(Settings(llm_mode="codex")) == "codex-cli"
     assert engine_select.PLAN_ENGINES == {"claude-cli": ("claude-plan", "subscription"),
-                                          "codex-cli": ("chatgpt-plan", "subscription")}
+                                          "codex-cli": ("chatgpt-plan", "subscription"),
+                                          # G49/G50: the person's own signed-in Cursor, OpenCode and Grok.
+                                          "cursor-cli": ("cursor-plan", "subscription"),
+                                          "opencode-cli": ("opencode-plan", "subscription"),
+                                          "grok-cli": ("grok-plan", "subscription")}
     assert engine_select.PLAN_NAMES["codex-cli"] == "ChatGPT plan"
 
 
@@ -525,8 +547,8 @@ def test_a_plan_cycles_claim_is_authored_by_the_plans_model_and_byok_is_unchange
 # Track E — the ChatGPT plan on the ladder; ruling 4 for both plans (R-E20/R-E21)
 # --------------------------------------------------------------------------- #
 
-def test_ruling_4_names_both_plans_in_one_tuple():
-    assert engine_select.SUBSCRIPTION_MODES == ("agent", "codex")
+def test_ruling_4_names_every_plan_in_one_tuple():
+    assert engine_select.SUBSCRIPTION_MODES == ("agent", "codex", "cursor", "opencode", "grok")
 
 
 @pytest.mark.parametrize("mode", ["agent", "codex"])

@@ -64,16 +64,23 @@ PAGE_2 = {"kind": "Listing", "data": {"after": None, "children": [
 ]}}
 
 
-def _fake_http(pages=(PAGE_1, PAGE_2), recorder=None):
-    seen = {"n": 0}
+EMPTY = {"kind": "Listing", "data": {"after": None, "children": []}}
+
+
+def _fake_http(pages=(PAGE_1, PAGE_2), recorder=None, *, upvoted=(EMPTY,), communities=(EMPTY,)):
+    """One fake Reddit: each listing pages through its own fixtures (saved, upvoted, joined communities)."""
+    seen = {"saved": 0, "upvoted": 0, "subscriber": 0}
+    lists = {"saved": pages, "upvoted": upvoted, "subscriber": communities}
 
     async def http(method, url, *, headers=None, params=None, data=None, auth=None):
         if recorder is not None:
             recorder.append((method, url, dict(params or {})))
         if url.endswith("/api/v1/access_token"):
             return {"access_token": "tok-abc", "token_type": "bearer"}
-        page = pages[min(seen["n"], len(pages) - 1)]
-        seen["n"] += 1
+        key = url.rstrip("/").rsplit("/", 1)[-1]
+        chosen = lists[key]
+        page = chosen[min(seen[key], len(chosen) - 1)]
+        seen[key] += 1
         return page
 
     return http
@@ -171,8 +178,8 @@ def test_sync_records_a_failure_instead_of_raising(tmp_path, monkeypatch):
 
     result = run(reddit.sync(memory, http_fn=boom))
     assert result["status"] == "error"
-    assert "429" in result["error"]
-    assert "429" in sync_state.read_sync_state(memory)["reddit"]["last_error"]
+    assert "RuntimeError" not in result["error"] and result["error"].startswith("Reddit")
+    assert sync_state.read_sync_state(memory)["reddit"]["last_error_kind"] == "other"
 
 
 def test_credential_fields_never_leak_a_value(tmp_path, monkeypatch):

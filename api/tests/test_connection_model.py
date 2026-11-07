@@ -18,11 +18,10 @@ from api.services import (agent_catalog, agent_live, agent_requests, agent_seen,
 from api.services.connections import key_check, registry, secrets
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "agent_catalog.json").read_text())
-#: The shared logo set's slugs (~/cicada-redesign-2026-10-22/logos/manifest.json, 2026-10-22), agent and model-host
-#: rows. A logo the table names must be one of these, or None for the monogram.
-LOGO_SLUGS = {"claude", "openai", "gemini", "grok", "meta", "cursor", "opencode", "hermes", "openclaw", "poke", "zed",
-              "vscode", "devin", "cline", "goose", "kiro", "warp", "amp", "instinct", "openrouter", "fireworks",
-              "deepinfra", "together", "groq", "mistral"}
+#: The shared logo set's slugs (``app/assets/logo-set/manifest.json``). A logo the table names must be one of these,
+#: or None for the monogram.
+LOGO_SLUGS = {row["slug"] for row in json.loads(
+    (Path(__file__).resolve().parents[2] / "app/assets/logo-set/manifest.json").read_text())["logos"]}
 NOW = datetime(2026, 10, 22, 12, 0, tzinfo=timezone.utc)
 
 
@@ -73,6 +72,32 @@ def test_one_umbrella_per_provider_and_one_mark_each():
     assert by_id["instinct"].ways[0].connects == ("messages", "rest")
 
 
+def test_only_products_that_can_reach_cicada_are_named():
+    """Owner 2026-10-26: Cline, Goose, Kiro and Poke leave; Windsurf is Devin now; GitHub Copilot wears its own mark;
+    Meta's agent is Muse and wears Muse's. Wire ids stay (``windsurf``, ``vscode``, ``meta``, ``muse``)."""
+    gone = {"cline", "goose", "kiro", "poke"}
+    assert not {u.id for u in agent_catalog.UMBRELLAS} & gone
+    assert not {w.id for w in agent_catalog.WAYS} & gone
+    by_id = {u.id: u for u in agent_catalog.UMBRELLAS}
+    assert (by_id["devin"].label, by_id["devin"].logo, by_id["devin"].ways[0].id) == ("Devin", "devin", "windsurf")
+    assert agent_catalog.way("windsurf").label == "Devin"
+    assert (by_id["vscode"].label, by_id["vscode"].logo, agent_catalog.way("vscode").label) == (
+        "GitHub Copilot", "copilot", "GitHub Copilot")
+    assert (by_id["meta"].label, by_id["meta"].logo, by_id["meta"].ways[0].id) == ("Muse", "muse", "muse")
+    for w in agent_catalog.WAYS:
+        if w.tier == 3:
+            assert w.note, w.id                     # a watched row always says how it would connect
+
+
+def test_a_removed_agent_someone_already_connected_still_lights_another_agent():
+    """Hyrum: a registry row written while Cline was named keeps lighting the ``other`` pill, and an old sign-in
+    request from Poke reads "An agent" with no logo — never a crash or a blank row."""
+    assert agent_live._fold_other({"cline": "2026-10-20T10:00:00Z"})["other"] == "2026-10-20T10:00:00Z"
+    info = agent_requests.wire({"id": "req-1", "kind": "agent_request", "agent": "poke", "site": "example.com",
+                                "created_at": "2026-10-20T10:00:00Z"})
+    assert (info["agentName"], info["logo"], info["umbrella"]) == ("An agent", None, None)
+
+
 def test_every_setup_id_and_every_key_card_the_table_names_exists(env):
     from api.services.connections import byok
 
@@ -99,8 +124,10 @@ def test_the_skills_agents_derive_from_the_table():
 @pytest.mark.parametrize("client,expected", [
     ("claude-code", "claude-code"), ("Claude Code", "claude-code"), ("claude-ai", "claude"),
     ("codex-mcp-client", "codex"), ("cursor-vscode", "cursor"), ("Visual Studio Code", "vscode"),
-    ("zed", "zed"), ("Windsurf", "windsurf"), ("Grok Build", "grok-build"), ("grok", "grok"),
-    ("goose", "goose"), ("amp", "amp"), ("example-client", "other"), ("authorized-tool", "other"),
+    ("zed", "zed"), ("Windsurf", "windsurf"), ("devin", "windsurf"), ("Devin Desktop", "windsurf"),
+    ("Grok Build", "grok-build"), ("grok", "grok"), ("GitHub Copilot", "vscode"), ("copilot-cli", "vscode"),
+    ("goose", "other"), ("cline", "other"), ("kiro", "other"), ("poke", "other"),
+    ("amp", "amp"), ("example-client", "other"), ("authorized-tool", "other"),
     ("smoke-test", None), ("", None),
 ])
 def test_client_names_match_whole_words_in_table_order(client, expected):

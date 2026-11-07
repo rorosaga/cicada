@@ -58,6 +58,10 @@ struct InboxResolve: Mutation {
     var remindDays: Int? = nil
     var mergeTarget: String? = nil
     var mergeSurvivor: String? = nil
+    /// Ruling 48 (8) — the person's located words a catch-up reading rests on, and the chat they were said in.
+    var quote: String? = nil
+    var relayedBy: String? = nil
+    var sessionId: String? = nil
     private let failure = MutationMemo<any Error>()
 
     /// `skip` deliberately keeps the item in the queue — nothing to hide.
@@ -71,9 +75,16 @@ struct InboxResolve: Mutation {
 
     func request(_ api: any SyncAPI) async throws {
         do {
-            try await api.resolveInbox(id: id, action: action, answer: answer,
-                                       optionKey: optionKey, remindDays: remindDays,
-                                       mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+            if quote != nil {
+                try await api.resolveInbox(id: id, action: action, answer: answer, optionKey: optionKey,
+                                           remindDays: remindDays, mergeTarget: mergeTarget,
+                                           mergeSurvivor: mergeSurvivor, quote: quote, relayedBy: relayedBy,
+                                           sessionId: sessionId)
+            } else {
+                try await api.resolveInbox(id: id, action: action, answer: answer,
+                                           optionKey: optionKey, remindDays: remindDays,
+                                           mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+            }
         } catch {
             failure.value = error
             throw error
@@ -487,6 +498,7 @@ struct TriggerSleep: Mutation {
     /// flight, and restoring a whole stale snapshot would throw its inbox and
     /// episode counts away too.
     private let memo = MutationMemo<String>()
+    private let refusal = MutationMemo<String>()
     /// Sleep page v5 — resume the paused run instead of starting a fresh one. Only the Sleep page's Continue sets
     /// it (`SleepViewModel.continueRun`); a fresh trigger clears a paused run on the server.
     let continueRun: Bool
@@ -499,7 +511,13 @@ struct TriggerSleep: Mutation {
     }
 
     func request(_ api: any SyncAPI) async throws {
-        _ = continueRun ? try await api.continueSleepRun() : try await api.triggerSleep()
+        do {
+            _ = continueRun ? try await api.continueSleepRun() : try await api.triggerSleep()
+        } catch {
+            // A refusal is the server's own sentence (this memory is moving to another computer); a 5xx body is not.
+            if let answer = ConnectionModelText.detail(error), answer.code == 409 { refusal.value = answer.text }
+            throw error
+        }
     }
 
     func rollback(_ store: Store) async {
@@ -510,7 +528,7 @@ struct TriggerSleep: Mutation {
         }
     }
 
-    var failureMessage: String { continueRun ? Copy.SleepV5.continueFailed : "Couldn't start the sleep cycle — reverted" }
+    var failureMessage: String { refusal.value ?? (continueRun ? Copy.SleepV5.continueFailed : Copy.SleepV5.startFailed) }
     /// Replace the optimistic `running` with the server's own answer as soon
     /// as the trigger returns — a cycle with nothing to do can already be
     /// idle again, and leaving a stale `running` in the Store would make the

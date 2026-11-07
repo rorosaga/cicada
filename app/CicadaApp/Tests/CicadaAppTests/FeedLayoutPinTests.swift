@@ -34,7 +34,7 @@ final class FeedLayoutPinTests: XCTestCase {
 
     func testThePlusIsInTheTabRowWithItsShortcut() throws {
         let row = try source("Views/Sleep/SleepTabRow.swift")
-        XCTAssertTrue(row.contains(#"IconButton(systemName: "plus""#))
+        XCTAssertTrue(row.contains(#"NeutralButton(title: Copy.SleepTabs.add, systemImage: "plus""#))
         XCTAssertTrue(row.contains(#"KeyboardShortcut("n", modifiers: .command)"#))
         let page = try source("Views/Sleep/SleepView.swift")
         XCTAssertFalse(page.contains(".opacity(0)"), "no hidden zero-size button")

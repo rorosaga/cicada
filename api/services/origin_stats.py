@@ -15,14 +15,33 @@ git — mirroring the shape of ``api/services/git_service.get_contributors``
 but keyed on capture origin rather than authoring model.
 """
 
+import copy
 from pathlib import Path
 
-from api.services import bank_index
+from api.services import bank_index, episode_time
 
 UNKNOWN_ORIGIN = "unknown"
 
 
+#: bank -> ((episodes fingerprint, entities fingerprint), result). Process-local and disposable (speed 2026-10-29: Home
+#: asks on every arrival, and the answer is a pure function of those two folders' headers).
+_MEMO: dict[str, tuple[tuple[str, str], list[dict]]] = {}
+
+
 def aggregate_origins(memory_path: Path) -> list[dict]:
+    """:func:`_aggregate`, remembered while neither folder moved (the stamps are the ``/origins`` ETag's own)."""
+    memory_path = Path(memory_path)
+    with bank_index.shared_scans():
+        key = (bank_index.dir_fingerprint(memory_path / "episodes"), bank_index.dir_fingerprint(memory_path / "entities"))
+        hit = _MEMO.get(str(memory_path))
+        if hit is not None and hit[0] == key:
+            return copy.deepcopy(hit[1])
+        out = _aggregate(memory_path)
+    _MEMO[str(memory_path)] = (key, copy.deepcopy(out))
+    return out
+
+
+def _aggregate(memory_path: Path) -> list[dict]:
     """Aggregate episode/entity counts per capture origin.
 
     Returns a list of ``{"origin", "episodeCount", "entityCount", "lastSeen"}``
@@ -42,7 +61,9 @@ def aggregate_origins(memory_path: Path) -> list[dict]:
         fm = f.frontmatter
         episode_id = str(fm.get("id") or f.stem)
         origin = str(fm.get("origin") or "").strip() or UNKNOWN_ORIGIN
-        timestamp = str(fm.get("timestamp") or "")
+        # CIC8 (ruling 39): `lastSeen` is when Cicada last got an episode of this origin — an import channel's
+        # `last_sync` — never the item's own date.
+        delivered = episode_time.delivered_at(fm)
 
         episode_origin[episode_id] = origin
 
@@ -50,8 +71,8 @@ def aggregate_origins(memory_path: Path) -> list[dict]:
             origin, {"episode_count": 0, "entity_ids": set(), "last_seen": ""}
         )
         state["episode_count"] += 1
-        if timestamp > state["last_seen"]:
-            state["last_seen"] = timestamp
+        if episode_time.is_later(delivered, state["last_seen"]):
+            state["last_seen"] = delivered
 
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter

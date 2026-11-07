@@ -87,7 +87,12 @@ def _run(argv, capsys):
 
 
 def test_cli_recall_is_the_mcp_body_with_actions_gated(tmp_path, monkeypatch, capsys, inprocess):
+    from api.services import search_index
+
     memory = _bank(tmp_path, git=False)
+    # #560's rare-word excerpt leg reads the words index only once it is fresh; built inline so the CLI's recall and
+    # the MCP one below read the same index (the first call raced the background builder: an excerpt in one only).
+    search_index.ensure_fresh(memory, wait=True)
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
     code, out = _run(["recall", "alpha project", "--json"], capsys)
     assert code == 0 and out.err == ""
@@ -97,7 +102,9 @@ def test_cli_recall_is_the_mcp_body_with_actions_gated(tmp_path, monkeypatch, ca
                                                    harness="unknown"), "alpha project")
     # Identical outside the hints block, but for the inbox's resolution instruction (the CLI does not hold
     # cicada_resolve_inbox); inside the block, no action the CLI does not hold.
-    assert HINTS.sub("", text) == HINTS.sub("", stdio).replace("; skip=true if unanswered", "")
+    # The excerpts' "read one whole" pointer names an MCP call, so the CLI leaves it out (`mcp_tools.recall`).
+    assert HINTS.sub("", text) == (HINTS.sub("", stdio).replace("; skip=true if unanswered", "")
+                                   .replace('\n_Read one whole with `cicada_sources(entity_id="<episode id>")`._', ""))
     hints = _payload(text)
     assert "cicada_" not in json.dumps({k: v for k, v in hints.items() if k != "suggested_entities"})
     assert env_["data"]["suggested_entities"] == hints["suggested_entities"]

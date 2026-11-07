@@ -49,7 +49,7 @@ enum ChannelActions {
     /// bookmarks from `BrowserInventory` (round 4, C9) — one catalog, so a browser added there is routed here too.
     static let browserFileChannels: Set<String> = Set(["safari-tabs"] + BrowserInventory.catalog.compactMap(\.bookmarksChannel))
     /// `api/services/connectors/__init__.py::ADAPTERS`.
-    static let connectorChannels: Set<String> = ["pinterest", "reddit", "x"]
+    static let connectorChannels: Set<String> = ["pinterest", "reddit", "x", "notion-api", "github", "linear-api"]
     static let folderPrefix = "folder:"
     /// Round-4 G142 (C6): the backend lists `calendar-local` with `sync`; the app is the only reader of EventKit.
     static let calendarLocalChannel = "calendar-local"
@@ -188,7 +188,7 @@ enum ChannelActions {
     /// A user-initiated poll still honours the backend's fetch gate: the
     /// result says so plainly instead of reporting "0 new" as if it had run.
     static func poll(_ channelId: String) async throws -> String {
-        let disabled = "Live fetch is disabled on this backend — set CICADA_ALLOW_FEED_FETCH=1 and restart."
+        let disabled = Copy.Catalog.feedsNotChecked
         if channelId == "calendar" {
             let r = try await APIClient.shared.pollCalendars()
             return r.skippedNoNetwork > 0 ? disabled : "\(r.new) new event(s)"

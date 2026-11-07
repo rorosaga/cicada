@@ -749,23 +749,12 @@ struct AddSourceSheet: View {
         }
     }
 
+    /// Owner 2026-11-05: nothing here asks for a bot token; the tile shows only for a bot already set up.
     private var telegramInstructions: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            // 2026-10-23: a release has no api/.env; the backend reads its credentials from ~/.cicada/secrets.env. The
-            // webhook needs a public address Cicada never opens, which the steps now say instead of leaving it out.
-            Text("Create a bot with @BotFather, add CICADA_TELEGRAM_BOT_TOKEN to ~/.cicada/secrets.env and restart the backend. Then point the bot's webhook at a public HTTPS address that reaches this Mac's /capture/telegram — Cicada doesn't open one for you. Forward the bot a link to save it, or send /note to capture a thought.")
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            CommandBox(command: "CICADA_TELEGRAM_BOT_TOKEN=<token>")
-            Button {
-                NSWorkspace.shared.open(URL(string: "https://t.me/BotFather")!)
-            } label: {
-                Label("Open BotFather", systemImage: "arrow.up.forward.app")
-            }
-            .buttonStyle(.bordered)
-            .accessibilityLabel("Open BotFather in Telegram")
-        }
+        Text("Forward your bot a link to save it, or send /note to capture a thought.")
+            .font(CicadaTheme.bodyFont)
+            .foregroundStyle(CicadaTheme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder
@@ -948,7 +937,7 @@ struct AddSourceSheet: View {
         result = nil
         Task {
             var created = 0, updated = 0, skipped = 0
-            var firstError: String?
+            var failed: [(name: String, reason: String)] = []
             for file in files {
                 do {
                     let r = try await upload(file)
@@ -956,18 +945,18 @@ struct AddSourceSheet: View {
                     updated += r.episodesUpdated
                     skipped += r.duplicatesSkipped
                 } catch {
-                    if firstError == nil { firstError = Self.friendlyError(error) }
+                    failed.append((file.lastPathComponent, IntakeFailureWords.reason(error)))
                 }
             }
-            if created == 0, updated == 0, let firstError {
-                self.error = firstError
+            if created == 0, updated == 0, !failed.isEmpty {
+                self.error = IntakeFailureWords.summary(failed)
                 self.result = nil
                 busy = false
             } else {
                 // R7 defect 4: "Imported N, skipped M" dropped G20's grown
                 // threads on the floor; the one intake sentence keeps them.
                 var summary = IntakeSummary.line(new: created, updated: updated, unchanged: skipped)
-                if firstError != nil { summary += " (some files failed)" }
+                if !failed.isEmpty { summary += " (\(Copy.intakeSomeFailed(failed.map(\.name))))" }
                 await finish(summary)
             }
         }

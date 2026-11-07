@@ -10,7 +10,14 @@ final class FakePlaybackController: VideoPlaybackController {
     let url: URL
     private(set) var isPlaying = false
     private(set) var toggles = 0
+    private(set) var currentTime: Double = 0
+    var length: Double? = 600
+    private(set) var stops = 0
+    var speed: Double = 1
+    var isMuted = false
     init(url: URL) { self.url = url }
+    func seek(to seconds: Double) { currentTime = seconds }
+    func stop() { isPlaying = false; stops += 1 }
     func play() { isPlaying = true }
     func pause() { isPlaying = false }
     func toggle() { toggles += 1; isPlaying.toggle() }
@@ -72,5 +79,50 @@ final class VideoPlayerTests: XCTestCase {
         // can decode the bytes is the manual check, and a black rectangle is
         // never the answer either way.
         XCTAssertEqual(VideoPlayerModel.state(for: file), .playable(file))
+    }
+}
+
+/// ROR-131 — the keys every player answers.
+final class PlayerKeysTests: XCTestCase {
+    private func controller(at time: Double, length: Double? = 100) -> FakePlaybackController {
+        let c = FakePlaybackController(url: URL(string: "https://example.com/a.mp4")!)
+        c.seek(to: time)
+        c.length = length
+        return c
+    }
+
+    func testKeysMapToTheirActionsAndOthersAreLeftAlone() {
+        XCTAssertEqual(PlayerKeys.action(for: .space), .toggle)
+        XCTAssertEqual(PlayerKeys.action(for: "k"), .toggle)
+        XCTAssertEqual(PlayerKeys.action(for: .leftArrow), .skip(-5))
+        XCTAssertEqual(PlayerKeys.action(for: .rightArrow), .skip(5))
+        XCTAssertEqual(PlayerKeys.action(for: "j"), .skip(-10))
+        XCTAssertEqual(PlayerKeys.action(for: "l"), .skip(10))
+        XCTAssertEqual(PlayerKeys.action(for: "m"), .mute)
+        XCTAssertNil(PlayerKeys.action(for: "x"))
+    }
+
+    func testASkipStaysInsideTheFile() {
+        XCTAssertEqual(PlayerKeys.skipped(from: 3, by: -5, length: 100), 0)
+        XCTAssertEqual(PlayerKeys.skipped(from: 98, by: 10, length: 100), 100)
+        XCTAssertEqual(PlayerKeys.skipped(from: 20, by: 5, length: nil), 25)
+        XCTAssertEqual(PlayerKeys.skipped(from: .nan, by: 5, length: 100), 5)
+    }
+
+    func testAKeyActsOnTheControllerAndDoesNothingWithoutOne() {
+        let c = controller(at: 20)
+        XCTAssertTrue(PlayerKeys.perform(.skip(10), on: c))
+        XCTAssertEqual(c.currentTime, 30)
+        XCTAssertTrue(PlayerKeys.perform(.mute, on: c))
+        XCTAssertTrue(c.isMuted)
+        XCTAssertTrue(PlayerKeys.perform(.toggle, on: c))
+        XCTAssertTrue(c.isPlaying)
+        XCTAssertFalse(PlayerKeys.perform(.toggle, on: nil))
+    }
+
+    func testSpeedsReadPlainly() {
+        XCTAssertEqual(PlayerKeys.speedLabel(1), "1×")
+        XCTAssertEqual(PlayerKeys.speedLabel(1.25), "1.25×")
+        XCTAssertEqual(PlayerKeys.speedLabel(0.75), "0.75×")
     }
 }

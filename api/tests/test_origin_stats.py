@@ -46,6 +46,18 @@ def _write_entity(memory, entity_id, *, source_episodes):
 # --- aggregate_origins (pure) -----------------------------------------------
 
 
+def test_last_seen_is_when_cicada_received_an_episode_not_its_own_date(tmp_path):
+    """CIC8 (ruling 39): an import of year-old chats was last seen today. Mixed stamp shapes order by instant."""
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "episodes" / "ep_2025-01-01_001.md").write_text(
+        "---\nid: ep_2025-01-01_001\ntimestamp: '2025-01-01T00:00:00Z'\norigin: chatgpt-export\n"
+        "received_at: '2026-10-29T13:00:00+00:00'\n---\n\nbody", encoding="utf-8")
+    _write_episode(memory, "ep_2026-10-29_001", origin="chatgpt-export", timestamp="2026-10-29T12:00:00Z")
+    by_origin = {r["origin"]: r for r in origin_stats.aggregate_origins(memory)}
+    assert by_origin["chatgpt-export"]["lastSeen"] == "2026-10-29T13:00:00+00:00"
+
+
 def test_aggregate_origins_empty_when_no_episodes_dir(tmp_path):
     memory = tmp_path / "memory"
     memory.mkdir()

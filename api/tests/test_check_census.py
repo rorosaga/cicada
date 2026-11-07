@@ -14,6 +14,7 @@ from _demo_scenario import demo as scenario
 from _synthetic_bank import _bank
 from api import config, main
 from api.services import fact_sources, markdown_parser, source_check
+from _checkout_venv import needs_checkout_venv
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "check-census.sh"
@@ -68,6 +69,7 @@ def test_the_endpoint_serves_the_same_counts(demo, monkeypatch):
     assert body["checkableShare"] == 0.0
 
 
+@needs_checkout_venv
 def test_the_script_prints_the_census_and_refuses_a_non_bank(demo, tmp_path):
     env = {**os.environ, "CICADA_HOME": str(tmp_path / "home")}
     out = subprocess.run(["bash", str(SCRIPT), str(demo)], check=True, capture_output=True, text=True, env=env)

@@ -19,18 +19,19 @@ import SwiftUI
 /// **Keys.** ⌘1–9 are the cells' own shortcuts, in `AppTab.allCases` order (`RailItem`). A
 /// switch is instant, pointer and key alike (DR-60/61).
 ///
-/// **Tooltips.** Each cell names its page and shortcut ("Inbox ⌘6"). The first waits 450 ms and
+/// **Tooltips.** Each cell names its page and shortcut ("Sleep ⌘5"). The first waits 450 ms and
 /// the next opens at once (R-DS14). `.help` cannot be timed, so the bubble is SwiftUI; the
 /// cell's accessibility label and hint are its text twin.
 struct NavRail: View {
     @Binding var selectedTab: AppTab
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let labelled: Bool
     var inboxCount: Int
     var isSleeping: Bool
     var needsAttention: Bool
 
-    @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
     @AppStorage(FeedMovedHint.shownKey) private var feedMovedHintShown = false
+    @AppStorage(TracesPageVisibility.key) private var tracesPage = false
     @Environment(Store.self) private var store: Store?
     @Environment(AppRouter.self) private var router: AppRouter?
     @State private var tooltip = RailTooltipState()
@@ -38,7 +39,9 @@ struct NavRail: View {
     var body: some View {
         VStack(alignment: labelled ? .leading : .center, spacing: 0) {
             VStack(spacing: CicadaTheme.spacingXS) {
-                ForEach(AppTab.allCases, id: \.self) { tab in cell(tab) }
+                // Owner 2026-10-26 — a hidden page (Projects behind `PageSwitches`, Traces until it was ever on)
+                // draws no cell; every other cell keeps its ⌘ digit (DR-22).
+                ForEach(AppTab.shown(tracesPage: tracesPage), id: \.self) { tab in cell(tab) }
             }
             Spacer(minLength: CicadaTheme.spacingLG)
             foot
@@ -58,15 +61,21 @@ struct NavRail: View {
 
     @ViewBuilder
     private func cell(_ tab: AppTab) -> some View {
-        let count = tab == .inbox ? inboxCount : 0
+        // Ruling 48 (2): the pending count moved to Home with the questions.
+        let count = tab == .home ? inboxCount : 0
         let busy = tab == .sleep && isSleeping
-        let selected = selectedTab == tab
+        let selected = selectedTab.railCell == tab
         Button {
             // Sources v3 — the page already showing: tell it, so it can return to its root (a tab bar's re-tap).
             if RailReselect.isReselect(current: selectedTab, tapped: tab) {
                 router?.reselect(tab, byKey: NSEvent.modifierFlags.contains(.command))
             }
-            selectedTab = tab
+            // ROR snappy: a click fades the page (`pageFade`); the key holds ⌘ and lands in one frame (DR-60).
+            if NSEvent.modifierFlags.contains(.command) {
+                Instant.run { selectedTab = tab }
+            } else {
+                withAnimation(CicadaMotion.pageFade(reduceMotion: reduceMotion)) { selectedTab = tab }
+            }
             // ⌘ map A — the key and the click share this action; only the key holds ⌘ while it runs.
             if FeedMovedHint.shouldShow(tab: tab, commandHeld: NSEvent.modifierFlags.contains(.command),
                                         alreadyShown: feedMovedHintShown) {
@@ -92,14 +101,10 @@ struct NavRail: View {
         }
     }
 
-    /// The gear and the theme toggle: a column on the rail, a row in the labelled sidebar.
+    /// The gear alone (owner 2026-10-26: the light/dark toggle left the side panel for Settings → General → Appearance,
+    /// which offers System too).
     private var foot: some View {
-        let layout = labelled ? AnyLayout(HStackLayout(spacing: CicadaTheme.spacingXS))
-                              : AnyLayout(VStackLayout(spacing: CicadaTheme.spacingXS))
-        return layout {
-            RailGear(needsAttention: needsAttention)
-            RailThemeToggle(colorSchemeRaw: $colorSchemeRaw)
-        }
+        RailGear(needsAttention: needsAttention)
     }
 }
 
@@ -112,7 +117,9 @@ struct NavRailCell: View {
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var ink: Color { selected || hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary }
+    /// ROR-118 — resting ink is `textSecondary`, not the dim tertiary the thin glyphs had: the name and icon of every page
+    /// are legible without a hover; the selected page is `textPrimary` on `bgSelected`.
+    private var ink: Color { selected || hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary }
     private var fill: Color { selected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgRailHover : Color.clear) }
 
     var body: some View {
@@ -134,9 +141,10 @@ struct NavRailCell: View {
         .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(fill))
         .overlay(alignment: .topTrailing) {
             if !labelled, badge > 0 {
+                // Owner 2026-11-06: a three-digit count sat on the icon. The capsule hangs off the cell's corner
+                // (the rail has 10 pt each side) so the glyph is never covered, whatever the count.
                 RailBadge(count: badge, style: .corner)
-                    .padding(.top, CicadaTheme.scaled(3))
-                    .padding(.trailing, CicadaTheme.scaled(2))
+                    .offset(x: CicadaTheme.scaled(RailBadge.cornerHang), y: CicadaTheme.scaled(-5))
             }
         }
         .contentShape(Rectangle())
@@ -166,22 +174,29 @@ struct RailBadge: View {
     let count: Int
     let style: Style
 
+    /// How far the corner capsule's trailing edge hangs past the cell's (points, before scaling): "99+" is ~26 pt wide
+    /// and the glyph centres in a 36 pt cell, so this keeps the capsule off the icon; the rail's 10 pt margin takes it.
+    static let cornerHang: CGFloat = 10
+
+    /// The count up to 99, then "99+" (the menu-bar worm's rule, owner 2026-10-14): a long count never grows the capsule.
+    static func text(_ count: Int) -> String { count > 99 ? "99+" : UsageFormat.count(count) }
+
     var body: some View {
         let corner = style == .corner
-        Text(UsageFormat.count(count))
-            .font(corner ? CicadaTheme.badgeFont : CicadaTheme.font(size: 11, weight: .medium))
+        Text(Self.text(count))
+            .font(corner ? CicadaTheme.badgeFont : CicadaTheme.font(size: 12, weight: .semibold))
             .monospacedDigit()
             .foregroundStyle(CicadaTheme.textPrimary)
-            .padding(.horizontal, CicadaTheme.scaled(corner ? 3 : 5))
-            .frame(minWidth: CicadaTheme.scaled(corner ? 14 : 18), minHeight: CicadaTheme.scaled(corner ? 14 : 18))
+            .padding(.horizontal, CicadaTheme.scaled(corner ? 4 : 6))
+            .frame(minWidth: CicadaTheme.scaled(corner ? 16 : 22), minHeight: CicadaTheme.scaled(corner ? 16 : 20))
             .background(Capsule().fill(CicadaTheme.bgBadge))
             .background { if corner { Capsule().fill(CicadaTheme.bgRail).padding(-2) } }
             .accessibilityHidden(true)   // the cell's label already says "6 pending"
     }
 }
 
-/// A 36 pt foot cell (the rail's pitch, not IconButton's 28): the gear and the theme toggle
-/// sit at the rail's own size so the foot lines up with the pages above it.
+/// A 36 pt foot cell (the rail's pitch, not IconButton's 28): the gear
+/// sits at the rail's own size so the foot lines up with the pages above it.
 private struct RailFootGlyph: View {
     let systemName: String
     let hovering: Bool
@@ -189,7 +204,7 @@ private struct RailFootGlyph: View {
     var body: some View {
         Image(systemName: systemName)
             .font(CicadaTheme.icon(.railFoot))
-            .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+            .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             .iconHover(hovering: hovering)
             .frame(width: CicadaTheme.scaled(ShellMetrics.railCell), height: CicadaTheme.scaled(ShellMetrics.railCell))
             .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgRailHover : Color.clear))
@@ -218,27 +233,6 @@ private struct RailGear: View {
         .buttonStyle(.cicadaPlain)
         .help(needsAttention ? Copy.settingsAttentionHelp : Copy.settingsHelp)
         .accessibilityLabel(needsAttention ? Copy.settingsAttentionLabel : Copy.settings)
-        .onHover { hovering = $0 }
-    }
-}
-
-/// Sun/moon (DR-22): an explicit Light or Dark — flipping the glyph means "not this one", which
-/// a `system` preference cannot say. The glyph swaps with `.symbolEffect(.replace)`.
-private struct RailThemeToggle: View {
-    @Binding var colorSchemeRaw: String
-    @State private var hovering = false
-
-    var body: some View {
-        let dark = CicadaTheme.mode == .dark
-        Button {
-            colorSchemeRaw = (dark ? AppearancePreference.light : AppearancePreference.dark).rawValue
-        } label: {
-            RailFootGlyph(systemName: dark ? "moon" : "sun.max", hovering: hovering)
-                .contentTransition(.symbolEffect(.replace))
-        }
-        .buttonStyle(.cicadaPlain)
-        .help(dark ? Copy.switchToLight : Copy.switchToDark)
-        .accessibilityLabel(dark ? Copy.switchToLight : Copy.switchToDark)
         .onHover { hovering = $0 }
     }
 }

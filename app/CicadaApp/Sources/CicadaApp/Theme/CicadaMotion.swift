@@ -67,6 +67,12 @@ enum CicadaMotion {
     static let linkPreviewOpenDelay: TimeInterval = 0.25
     static let linkPreviewCloseDelay: TimeInterval = 0.08
 
+    /// ROR-135 — the graph's hover card. The pointer must rest this long on a node before its card opens (sweeping
+    /// across a dense graph opens nothing), and within `hoverCardWarmWindow` of a card closing the next opens at once,
+    /// as the rail's tooltips do. Hover delays, not animations.
+    static let hoverCardOpenDelay: TimeInterval = 0.1
+    static let hoverCardWarmWindow: TimeInterval = 0.3
+
     /// A Settings landing keeps its row on screen this long while the page's late cards arrive (Agents' setup steps,
     /// the devices list): each move of the row above the fold lands again, never animated. A bound, not an
     /// animation; the person's own scroll, a new search or a sidebar pick ends it sooner (`SettingsFocus`).
@@ -127,17 +133,43 @@ enum CicadaMotion {
         reduceMotion ? nil : .easeOut(duration: spanRevealDuration)
     }
 
+    // MARK: - Zoom percentage (owner 2026-11-06)
+    /// The pill that reads the new size stays this long after the last change, then fades on its own. The change it
+    /// reports is never animated (a keyboard action never animates); only the pill's leaving is.
+    static let zoomPillHold: TimeInterval = 1.2
+    static let zoomPillFadeDuration: TimeInterval = 0.25
+    static func zoomPillFade(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeOut(duration: zoomPillFadeDuration)
+    }
+
     // MARK: - Progressive columns (DR-61, DR-66)
     static let columnDuration: TimeInterval = 0.25
     static let readerInDuration: TimeInterval = 0.25
     static let readerOutDuration: TimeInterval = 0.18
     static let cardFadeDuration: TimeInterval = 0.15
+    /// A page changing under the pointer (the rail's click): the old page fades out as the new one fades in. A key never
+    /// animates (DR-60, `Instant`); the shortest fade that reads as a change, not a cut (ROR snappy, 2026-11-06).
+    static let pageFadeDuration: TimeInterval = 0.12
     static let rowLeaveDuration: TimeInterval = 0.15
     static let undoFadeDuration: TimeInterval = 0.12
     /// DR-66 — Reduce Motion removes movement; a fade stays, shortened. The one family here that is
     /// not nil under Reduce Motion, on purpose: a column appearing with no fade at all reads as a jump.
     static let reducedFadeDuration: TimeInterval = 0.1
     static var fade: Animation { .linear(duration: reducedFadeDuration) }
+
+    // MARK: - G233: the book scanner's window
+    /// The mark on a taken code growing and filling. Movement (a slight scale) goes under Reduce Motion; the fill stays
+    /// as DR-66's short fade.
+    static let scanLockDuration: TimeInterval = 0.25
+    /// How long the confirmed mark stays before the scanner goes back to looking. A hold, not an animation.
+    static let scanLockHold: TimeInterval = 0.7
+    /// How long a one-line notice ("not a book's number") stays. A hold, not an animation.
+    static let scanNoticeHold: TimeInterval = 2.5
+    /// How long the app may sit in the background before the scanner closes and the camera stops. Not an animation.
+    static let scanAwayGrace: TimeInterval = 3.0
+    static func scanLock(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.out(scanLockDuration)
+    }
 
     // MARK: - G191: the "what made you save this?" panel growing out of the notch
     /// The panel arriving: the notch's own black shape grows down and out into the panel, a quick spring with a
@@ -191,6 +223,9 @@ enum CicadaMotion {
     }
     static func readerOut(reduceMotion: Bool) -> Animation {
         reduceMotion ? fade : CicadaCurve.drawer(readerOutDuration)
+    }
+    static func pageFade(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.out(pageFadeDuration)
     }
     static func cardFade(reduceMotion: Bool) -> Animation {
         reduceMotion ? fade : CicadaCurve.out(cardFadeDuration)
@@ -325,6 +360,21 @@ extension CicadaMotion {
     /// The flight's curve, CicadaCurve.inOut's control points as a Core Animation timing (the panel's frame is an
     /// AppKit animation, not SwiftUI's).
     static let wormFlightCurve: (Float, Float, Float, Float) = (0.77, 0, 0.175, 1)
+}
+
+// MARK: - Disclosures (inbox v2, owner 2026-10-26: "When I open the drop-downs, it can be smoother")
+
+extension CicadaMotion {
+    /// A fold opening: its content grows from the header and fades in (`DisclosureReveal`), the rows under it eased
+    /// down with it, on the drawer curve — no bounce (DR-62), under the 300 ms UI ceiling (DR-61).
+    static let disclosureOpenDuration: TimeInterval = 0.24
+    /// A fold closing is quicker than it opened (DR-65: exits are faster than entrances).
+    static let disclosureCloseDuration: TimeInterval = 0.18
+
+    /// Reduce Motion keeps the fade and drops the growth (DR-66): `fade`, ~100 ms linear.
+    static func disclosure(opening: Bool, reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.drawer(opening ? disclosureOpenDuration : disclosureCloseDuration)
+    }
 }
 
 // MARK: - The guided tour (G152)
@@ -552,4 +602,50 @@ extension View {
 
     /// See `MarkHover` — for brand marks (rasters); glyphs use `iconHover()`.
     func markHover(hovering: Bool? = nil) -> some View { modifier(MarkHover(hovering: hovering)) }
+}
+
+// MARK: - The permission banner's arrival (owner 2026-11-03)
+
+/// The drag helper's banner holds the app's icon to drag; when the banner arrives (and again as System Settings opens
+/// under it) the icon hops twice so the eye finds it — owner: *"maybe bounces a bit at the start so the user notices"*.
+/// A quick rise, a springy landing; under Reduce Motion it does not move at all (DR-66): the icon is simply there.
+extension CicadaMotion {
+    static let helperBounceUpDuration: TimeInterval = 0.16
+    static let helperBounceDownDuration: TimeInterval = 0.34
+    static let helperBounceSpring: Double = 0.5
+    /// Points the icon rises per hop.
+    static let helperBounceRise: CGFloat = 8
+    static let helperBounceHops = 2
+
+    /// The rise (`up`) or the landing; nil under Reduce Motion, where no hop runs.
+    static func helperBounce(up: Bool, reduceMotion: Bool) -> Animation? {
+        guard !reduceMotion else { return nil }
+        return up ? CicadaCurve.out(helperBounceUpDuration)
+            : .spring(duration: helperBounceDownDuration, bounce: helperBounceSpring)
+    }
+}
+
+// MARK: - The website-reading card (ROR-118, Sources round 1)
+
+/// An explanation that plays once, in the connect card before the switch, and again on the person's click (the card's
+/// Replay). Like the worm's flight it is longer than the 0.4 s UI ceiling on purpose: it is the content, not a
+/// transition between two layouts, and a person must be able to follow it with the eye (DESIGN_RULES §9, 2026-11-06).
+/// Four beats of about a second and a half each, about six seconds in all. Reduce Motion shows the finished picture;
+/// a keyboard action never animates it (DR-60).
+extension CicadaMotion {
+    /// A line drawing from one node to the next.
+    static let webTravelDuration: TimeInterval = 0.7
+    /// A node coming up to full strength as the line reaches it.
+    static let webLightDuration: TimeInterval = 0.25
+    /// How long a beat rests before the next starts (after its line has drawn).
+    static let webBeatHold: TimeInterval = 0.8
+    /// The pause before the first beat, so the eye is on the card when it starts.
+    static let webStartDelay: TimeInterval = 0.4
+
+    static func webTravel(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : CicadaCurve.ease(webTravelDuration)
+    }
+    static func webLight(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeOut(duration: webLightDuration)
+    }
 }

@@ -174,7 +174,9 @@ def test_the_feed_shows_one_row_per_paper_with_its_byline(bank, client):
                                  "venue": "Journal of Examples 1 (2024)"}
     files = channel_registry.build_channels(bank, telegram_enabled=False)
     idx = media_ingestor.load_url_index(bank)
-    assert next(r for r in files if r["id"] == "files")["count"] == sum(1 for e in idx.values() if not e.get("alias_of"))
+    # A folder's reference list is that folder's source, not links the person saved: Files & links does not count it.
+    assert len([e for e in idx.values() if not e.get("alias_of")]) == 3
+    assert next(r for r in files if r["id"] == "files")["count"] == 0
     assert client.get(f"/entities/{ALPHA}").json()["media"]["kind"] == "paper"
 
 

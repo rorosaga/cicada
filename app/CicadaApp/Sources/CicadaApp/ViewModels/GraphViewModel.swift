@@ -41,6 +41,17 @@ final class GraphViewModel {
     /// `@State`, which a rebuilt view forgot while the filter kept dimming (R-DG3).
     private(set) var observerSelection: String?
     private var lastSyncedLoadedAt: Date?
+    /// ROR-135 — the hover card's state: which node's card is up, and the warm-up of the pictures it draws.
+    let hover = GraphHoverModel()
+
+    /// The pages whose picture the hover card may draw, busiest first, for `GraphHoverModel.warm`: one the picture
+    /// precedence resolved to an image (initials and a missing picture draw from the name alone).
+    func hoverWarmCandidates(limit: Int = 300) -> [(id: String, picture: EntityPictureRef)] {
+        nodes.lazy.filter { !$0.isFacet && $0.pictureRef != nil && $0.pictureRef?.source != .initials }
+            .sorted { $0.degree > $1.degree }.prefix(limit)
+            .compactMap { node in store.picture(for: node.id, held: node.pictureRef).map { (node.id, $0) } }
+    }
+    var hoverBank: String { store.bank }
 
     /// True only when the graph has more than one distinct observer. A
     /// single-observer graph (e.g. everything asserted by `agent`) can't be
@@ -144,6 +155,13 @@ final class GraphViewModel {
     /// there is genuinely nothing to show yet.
     var isLoading: Bool { store.graph.isEmpty && store.graph.isRefreshing }
 
+    /// Nothing to draw because the memory could not be read — not because it is empty (`Store.couldNotRead`).
+    var couldNotRead: Bool { store.graph.isEmpty && store.couldNotRead(.graph) }
+
+    /// The unread state's one action, when the backend itself is fine and only this read failed.
+    func retryRead() { Task { await store.refresh([.graph]) } }
+    var offersRetry: Bool { store.reach == .up }
+
     /// Shared filter state for the Graph and Topics tabs. Any mutation pushes
     /// `applyFilters` to graph.js on the next update pass — filtering happens
     /// in JS so node positions survive filter toggles.
@@ -244,7 +262,12 @@ final class GraphViewModel {
                 decayClass: node.decayClass,
                 pictureURL: node.picture,
                 pictureSource: node.pictureSource,
-                quiet: node.quiet
+                quiet: node.quiet,
+                qualifier: node.qualifier,
+                displayName: node.displayName,
+                mediaKind: node.mediaKind,
+                origin: node.origin,
+                mediaChannel: node.mediaChannel
             )
         }
         edges = response.links

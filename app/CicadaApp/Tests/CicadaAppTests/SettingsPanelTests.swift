@@ -7,21 +7,28 @@ import XCTest
 final class SettingsPanelTests: XCTestCase {
     override func tearDown() { CicadaTheme.uiScale = 1.0; super.tearDown() }
 
+    func testThePanelSitsOverTheDimmedAppNotASolidField() throws {
+        XCTAssertGreaterThanOrEqual(SettingsPanelLayout.backdropDim, 0.9, "dark enough that page text cannot be read")
+        let panel = try source("Views/Settings/SettingsPanel.swift")
+        XCTAssertTrue(panel.contains("Color.black.opacity(SettingsPanelLayout.backdropDim)"))
+        XCTAssertFalse(panel.contains("settingsBackdrop"))
+    }
+
     private func source(_ path: String) throws -> String {
         let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix(path) }, path)
         return try String(contentsOf: file, encoding: .utf8)
     }
 
-    /// 880 × 620 at the rules' window (content 1440 × 848 under the 52 pt titlebar), inset ≥ 40 at
+    /// 1080 × 780 (round 5), 776 tall at the rules' window (content 1440 × 848 under the 52 pt titlebar), inset ≥ 36 at
     /// the smallest, and it scales with the chrome without ever leaving the window.
     func testThePanelsSize() {
         CicadaTheme.uiScale = 1.0
-        XCTAssertEqual(SettingsPanelLayout.size(container: CGSize(width: 1440, height: 848)), CGSize(width: 880, height: 620))
-        XCTAssertEqual(SettingsPanelLayout.size(container: CGSize(width: 1200, height: 748)), CGSize(width: 880, height: 620))
+        XCTAssertEqual(SettingsPanelLayout.size(container: CGSize(width: 1440, height: 848)), CGSize(width: 1080, height: 776))
+        XCTAssertEqual(SettingsPanelLayout.size(container: CGSize(width: 1200, height: 748)), CGSize(width: 1080, height: 676))
         CicadaTheme.uiScale = 1.4
         let zoomed = SettingsPanelLayout.size(container: CGSize(width: 1200, height: 748))
-        XCTAssertEqual(zoomed.width, 1120, accuracy: 0.5, "1200 − 2 × 40")
-        XCTAssertEqual(zoomed.height, 668, accuracy: 0.5, "748 − 2 × 40")
+        XCTAssertEqual(zoomed.width, 1128, accuracy: 0.5, "1200 − 2 × 36")
+        XCTAssertEqual(zoomed.height, 676, accuracy: 0.5, "748 − 2 × 36")
         XCTAssertEqual(SettingsPanelLayout.size(container: .zero), .zero)
     }
 

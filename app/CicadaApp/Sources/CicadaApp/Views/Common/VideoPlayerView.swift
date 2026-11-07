@@ -21,9 +21,20 @@ import SwiftUI
 protocol VideoPlaybackController: AnyObject {
     var url: URL { get }
     var isPlaying: Bool { get }
+    /// Seconds into the file now (0 before it has loaded).
+    var currentTime: Double { get }
+    /// The file's length in seconds once the player knows it.
+    var length: Double? { get }
     func play()
     func pause()
     func toggle()
+    /// ROR-117 — jump to a second (a find hit's moment, a scrub); exact, not the nearest keyframe.
+    func seek(to seconds: Double)
+    /// Pause and let go of the file: nothing keeps playing or holding it after the surface closes (ROR-117).
+    func stop()
+    /// ROR-131 — playback speed (1 = normal). Setting it never starts a paused player.
+    var speed: Double { get set }
+    var isMuted: Bool { get set }
 }
 
 // MARK: - VideoPlayerModel
@@ -147,15 +158,11 @@ struct VideoPlayerView: View {
                 for: url, existing: controller, make: AVPlaybackController.init
             )
         }
-        .focusable()
-        .onKeyPress(.space) {
-            // R10: scoped to this container. A global `.keyboardShortcut(" ")`
-            // would eat the Feed's search field. Inside a `WKWebView` the key
-            // belongs to the provider's player and cannot be intercepted
-            // without a JS bridge, which `WebView` deliberately does not have
-            // — so space is a file-video affordance only.
-            VideoPlayerModel.handleSpace(controller) ? .handled : .ignored
-        }
+        // R10: scoped to this container. A global `.keyboardShortcut(" ")` would eat the Feed's search field. Inside a
+        // `WKWebView` the key belongs to the provider's player and cannot be intercepted without a JS bridge, which
+        // `WebView` deliberately does not have — so the keys are a file-video affordance only (ROR-131: space, ← →,
+        // J K L, M — `PlayerKeys`).
+        .playerKeys(controller)
     }
 
     /// R9's card: name the file, offer the two things that actually help.

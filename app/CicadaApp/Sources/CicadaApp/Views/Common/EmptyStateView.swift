@@ -55,9 +55,11 @@ struct EmptyStateView: View {
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .multilineTextAlignment(.center)
                 .accessibilityAddTraits(.isHeader)
-            Text(message)
-                .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
-                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            if !message.isEmpty {
+                Text(message)
+                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            }
             if let section = settingsSection, let actionLabel {
                 SettingsSectionLink(home: section, label: actionLabel, prominent: true)
                     .padding(.top, CicadaTheme.spacingSM)

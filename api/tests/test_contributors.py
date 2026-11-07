@@ -173,7 +173,7 @@ def test_contributors_read_the_whole_history_in_one_git_process(repo, monkeypatc
 
     by_author = {c.author: c for c in run(git_service.get_contributors(repo))}
 
-    assert [a[0] for a in calls if a[0] != "remote"] == ["log"]   # `remote`: the user avatar's handle, once
+    assert [a[0] for a in calls if a[0] != "remote"] == ["rev-parse", "log"]   # `remote`: the user avatar's handle, once
     assert by_author["cicada"].files == ["entities/alpha.md"]                      # the root commit's files
     assert by_author["claude-code"].files == ["entities/alpha-renamed.md", "entities/alpha.md"]   # both paths
     assert by_author["user"].commit_count == 1 and by_author["user"].files == []
@@ -1109,3 +1109,25 @@ def test_entities_commit_diff_router(repo):
         )
     )
     assert "first" in diff.added
+
+
+def test_contributors_fold_only_the_commits_since_the_last_head(repo, monkeypatch):
+    """Speed 2026-11-06: a new commit costs `git log <old>..HEAD`, not the whole history, and the result equals a full walk."""
+    _write_entity(repo, "alpha", "v1")
+    _commit(repo, git_service.build_commit_message("Seed", body_lines=[], authors=["cicada"]))
+    run(git_service.get_contributors(repo))
+    _write_entity(repo, "beta", "v1")
+    _commit(repo, git_service.build_commit_message("Write", body_lines=[], authors=["claude-code"]))
+    logs: list[tuple[str, ...]] = []
+    real_run_git = git_service._run_git
+
+    async def counting(memory_path, *args):
+        if args[0] == "log":
+            logs.append(args)
+        return await real_run_git(memory_path, *args)
+    monkeypatch.setattr(git_service, "_run_git", counting)
+
+    folded = run(git_service.get_contributors(repo))
+    assert len(logs) == 1 and ".." in logs[0][1]
+    git_service._CONTRIBUTOR_AGG.clear()
+    assert folded == run(git_service.get_contributors(repo))

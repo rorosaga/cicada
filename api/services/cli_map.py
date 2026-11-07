@@ -71,6 +71,15 @@ class Row:
     #: The `/v1` operation's name when it is not the command spelled with underscores (G213, ruling 38): only the
     #: eleven operations shipped before `/v1` was generated from this table, frozen as they were (Hyrum).
     api_op: str | None = None
+    #: G132 phase 1 B (ruling 51a): where the tool runs on a replica — ``home`` (sent to the home as a transaction)
+    #: or ``local`` (answered from the copy). Empty takes the rule: every ``mutates`` row is ``home``, every other
+    #: ``local``; a read of a store that lives outside every bank on the home (the video, explore and reading
+    #: queues) says ``home`` itself.
+    replica: str = ""
+
+    @property
+    def replica_side(self) -> str:
+        return self.replica or ("home" if self.mutates else "local")
 
     @property
     def name(self) -> str:
@@ -106,7 +115,7 @@ ROWS: tuple[Row, ...] = (
     Row(("get",), "cicada_recall_detail",
         "One page in full (a long one in parts: --start), or a range of its lines (--from/--count, or "
         "ENTITY:START[:END]).",
-        (_p("entity_id"), _f("start", "int")),
+        (_p("entity_id"), _f("start", "int"), _f("include", "list")),
         options=(Option("--from", "int", "First line to show (1-based)."),
                  Option("--count", "int", "How many lines to show."),
                  Option("--line-numbers", "bool", "Prefix each line with its number.")), exposed=True, api_op="page"),
@@ -143,7 +152,18 @@ ROWS: tuple[Row, ...] = (
     Row(("page", "edit"), "cicada_edit_page", "Fix a page's words or aliases, with your reason.",
         (_p("subject"), _p("reason"), _f("edits", "json"), _f("section"), _f("text"),
          _f("add_aliases", "list", flag_name="add-alias"), _f("remove_aliases", "list", flag_name="remove-alias"),
-         _f("evidence", "json"), _f("resolves", "json")), mutates=True),
+         _f("evidence", "json"), _f("resolves", "json"), _f("name"), _f("description")), mutates=True),
+    # G227 follow-up (owner 2026-10-29): merge two pages or split one (a proposal when not trusted, as page edits).
+    Row(("page", "merge"), "cicada_merge_pages", "Merge a page into another one, with your reason.",
+        (_p("page"), _p("into"), _p("reason")), mutates=True, exposed=True),
+    Row(("page", "undo"), "cicada_undo_join", "Take back the newest merge or split on a page.",
+        (_p("page"), _f("reason")), mutates=True, exposed=True),
+    Row(("page", "split"), "cicada_split_page", "Split what is about another thing off a page, with your reason.",
+        (_p("page"), _f("reason"), _f("sentences", "json"), _f("claims", "list", flag_name="claim"),
+         _f("sources", "list", flag_name="source"),
+         _f("episodes", "list", flag_name="episode"), _f("references", "json"), _f("name"), _f("page_type"),
+         _f("preview", "bool")),
+        mutates=True, exposed=True),
     Row(("inbox", "list"), "cicada_check_nudges", "Questions Cicada has for the person on a topic.",
         (_f("mode"), _f("topic"), _f("entity_ids", "list", flag_name="entity-id")), api_op="inbox"),
     Row(("inbox", "resolve"), "cicada_resolve_inbox", "Record the person's own answer to a question.",
@@ -155,6 +175,16 @@ ROWS: tuple[Row, ...] = (
     Row(("progress", "add"), "cicada_note_progress", "Record what happened in a project.",
         (_p("project"), _p("kind"), _p("summary"), _p("status"), _f("when"), _f("target"), _f("milestone"),
          _f("settles"), _f("participants", "json"), _f("evidence", "json")), mutates=True),
+    # Ruling 45 (2026-10-27): proposed spellings, not exposed — `project` is the read's own command, so these live under
+    # `projects`; the person's own shell starts one with `projects new` (an app command, below).
+    Row(("projects", "create"), "cicada_create_project", "Start a project the person asked for.",
+        (_p("project"), _f("description"), _f("evidence", "json"), _f("repo"), _f("reason")), mutates=True),
+    Row(("projects", "link"), "cicada_link_conversation", "Tie a conversation to a project, or untie one you tied.",
+        (_p("project"), _p("reason"), _f("episode"), _f("session"), _f("remove", "bool")), mutates=True),
+    Row(("projects", "tie-page"), "cicada_link_entity", "Tie a page to a project, or take back a tie you made.",
+        (_p("project"), _p("entity"), _p("reason"), _f("remove", "bool")), mutates=True),
+    Row(("projects", "influence"), "cicada_add_influence", "Record something that fed a project: a link or a thing.",
+        (_p("project"), _f("what"), _f("url"), _f("how"), _f("evidence", "json")), mutates=True),
     Row(("backlog", "list"), "cicada_backlog", "A project's backlog.",
         (_p("project"), _f("status"), _f("item"))),
     Row(("backlog", "add"), "cicada_add_backlog_item", "File an item on a project's backlog.",
@@ -167,6 +197,8 @@ ROWS: tuple[Row, ...] = (
         mutates=True),
     Row(("design", "search"), "cicada_design_search", "The person's saved looks, by words or by a picture.",
         (_f("query"), _f("image_path"), _f("image_base64"), _f("limit", "int"))),
+    Row(("books", "add"), "cicada_add_book", "Add a book the person asked for, by ISBN (--preview shows the edition first).",
+        (_p("isbn"), _f("preview", "bool")), mutates=True),
     # The Skills page (2026-10-15): an agent reads, asks and drafts; installing is the person's (`skills add`).
     Row(("skills", "list"), "cicada_skills", "Agent skills on this Mac, per agent, with updates and requests.",
         exposed=True),
@@ -176,8 +208,8 @@ ROWS: tuple[Row, ...] = (
         mutates=True, exposed=True),
     Row(("skills", "create"), "cicada_create_skill", "Draft a skill for a workflow; held until the person publishes it.",
         (_p("skill"), _p("description"), _p("body"), _f("reason")), mutates=True, exposed=True),
-    Row(("episodes", "pending"), "cicada_pending", "Conversations not consolidated yet, each with its revision.",
-        (_f("limit", "int"),)),
+    Row(("episodes", "pending"), "cicada_pending", "Conversations not consolidated yet, newest first, each with its revision.",
+        (_f("limit", "int"), _f("query"))),
     Row(("episodes", "mark"), "cicada_mark_processed", "Mark consolidated conversations, revision-checked.",
         (_p("episode_ids", "list"), _f("revisions", "pairs", flag_name="rev")), mutates=True),
     Row(("link", "save"), "cicada_save_url", "Save a link for the person.",
@@ -185,12 +217,15 @@ ROWS: tuple[Row, ...] = (
     Row(("video", "record"), "cicada_record_watch", "Record a watched video: summary and short quotes.",
         (_p("url"), _p("summary"), _f("excerpts", "json"), _f("chapters", "json"), _f("basis"), _f("engine"),
          _f("duration"), _f("lease_token")), mutates=True),
-    Row(("video", "queue"), "cicada_video_queue", "Videos the person asked to have watched.", (_f("limit", "int"),)),
+    Row(("video", "queue"), "cicada_video_queue", "Videos the person asked to have watched.", (_f("limit", "int"),),
+        replica="home"),
     Row(("video", "claim"), "cicada_video_claim", "Take videos from the queue to watch.",
         (_f("limit", "int"), _f("release", "json")), mutates=True),
+    Row(("export", "requests"), "cicada_export_requests", "Chat exports the person asked their agent to request.",
+        (_f("done", "json"),), mutates=True),
     # G166 exploring (2026-10-14): proposed spellings, not exposed yet; the start is never a CLI door (D5, ruling 21a).
     Row(("explore", "queue"), "cicada_explore_queue", "Saved sites the person asked to have explored.",
-        (_f("limit", "int"),)),
+        (_f("limit", "int"),), replica="home"),
     Row(("explore", "claim"), "cicada_explore_claim", "Take a saved site to explore, or hand one back.",
         (_f("limit", "int"), _f("release", "json")), mutates=True),
     Row(("explore", "record"), "cicada_record_capture", "Record what a site's capture saw.",
@@ -200,6 +235,9 @@ ROWS: tuple[Row, ...] = (
          _f("via"), _f("last_modified"), _f("loaded_at"), _f("pages", "json"), _f("found", "json"),
          _f("robots", "json"), _f("section", "json"), _f("design", "json")), mutates=True),
     Row(("explore", "map"), "cicada_site_map", "The pages found and opened on an explored site.", (_f("site"),)),
+    Row(("capture-turns",), "cicada_capture_turns", "Keep a hookless app's chat, turn by turn.",
+        (_p("message"), _p("conversation"), _f("previous_reply"), _f("project")), mutates=True,
+        mcp_only="a turn is relayed by the app that had the conversation; a shell has none (ruling 57)"),
     Row(("explore", "start"), "cicada_explore_start", "Start exploring the person's saved sites.",
         (_f("scope"), _f("origins", "list", flag_name="origin"), _f("look", "list")), mutates=True,
         mcp_only="a run starts only from the person's own request in a conversation, or their click (D5); never from "
@@ -210,19 +248,25 @@ ROWS: tuple[Row, ...] = (
     Row(("source", "refresh-record"), "cicada_record_refresh", "Record what a tracked source says now.",
         (_p("entity_id"), _p("source"), _p("lease_token"), _p("outcome"), _f("predicate"), _f("value"),
          _f("ended", "json"), _f("quotes", "json"), _f("captured_at"), _f("summary"), _f("via")), mutates=True),
-    Row(("read", "queue"), "cicada_reading_queue", "Pages the person asked to have read.", (_f("limit", "int"),)),
+    Row(("read", "queue"), "cicada_reading_queue", "Pages the person asked to have read.", (_f("limit", "int"),),
+        replica="home"),
     # G71 (2026-10-16): a proposed spelling, not exposed — the agent reads the lists in the person's browser.
     Row(("read", "youtube"), "cicada_record_youtube_list", "Record what the person's YouTube list showed.",
         (_p("list"), _p("outcome"), _f("videos", "json"), _f("via")), mutates=True),
     # G206 (2026-10-22): a proposed spelling, not exposed — the agent reads the lists in the person's browser.
     Row(("read", "saved"), "cicada_record_saved_list", "Record what the person's saved list on a site showed.",
-        (_p("platform"), _p("outcome"), _f("items", "json"), _f("via")), mutates=True),
+        (_p("platform"), _p("outcome"), _f("items", "json"), _f("via"), _f("handle"), _f("profile_url")),
+        mutates=True),
+    # G89 (2026-11-04): a proposed spelling, not exposed — the agent reads the lists in the person's browser.
+    Row(("read", "substack"), "cicada_record_substack_list", "Record what the person's Substack list showed.",
+        (_p("list"), _p("outcome"), _f("items", "json"), _f("via")), mutates=True),
     # 2026-10-16 (the linkedin-people skill): a proposed spelling, not exposed — the agent reads in the person's browser.
     Row(("read", "profile"), "cicada_record_profile", "Record what one person's LinkedIn profile shows now.",
         (_p("entity_id"), _p("url"), _p("outcome"), _f("company"), _f("position"), _f("quotes", "json"),
          _f("summary"), _f("via")), mutates=True),
     Row(("read", "record"), "cicada_record_read", "Record what a page read found.",
-        (_p("url"), _p("outcome"), _f("summary"), _f("excerpts", "json"), _f("via"), _f("note"), _f("title")),
+        (_p("url"), _p("outcome"), _f("summary"), _f("excerpts", "json"), _f("via"), _f("note"), _f("title"),
+         _f("facts", "json")),
         mutates=True),
     Row(("repo",), "cicada_repo_context", "Live git context for a repository Cicada knows about.",
         (_f("entity_id"), _f("path"))),
@@ -247,6 +291,11 @@ ROWS: tuple[Row, ...] = (
     _app(("graph",), "The graph at a glance: pages by type and status, and the links between them."),
     _app(("find",), "Find pages, beliefs, conversations, sources and questions, as the app's search does.",
          (_p("query"), _f("kind", "list"), _f("limit", "int"))),
+    # Coverage (vision items 1-2, 2026-10-28): counts and enums only; --ids adds a few page ids per bucket.
+    _app(("coverage", "pictures"), "How many pages show a picture, by type and rung, and why the rest do not.",
+         (_f("ids", "bool"), _f("archived", "bool"))),
+    _app(("coverage", "sources"), "Which write paths put the sources on pages, and which pages have none.",
+         (_f("ids", "bool"), _f("archived", "bool"))),
     # The inbox.
     _app(("inbox", "all"), "Every open inbox question, of every kind, with its choices.", (_f("kind", "list"),)),
     _app(("inbox", "answer"), "Answer an inbox question as the person: --option, --answer, --defer or --reject.",
@@ -264,23 +313,63 @@ ROWS: tuple[Row, ...] = (
          (_f("mode"), _f("at"), _f("every", "int"), _f("use_plan")), via="backend", mutates=True, person=True),
     _app(("sleep", "engine"), "Which engine and model Sleep reads with; --mode and --model change it.",
          (_f("mode"), _f("model")), via="backend", mutates=True, person=True),
-    _app(("sleep", "options"), "How Sleep reads: batch size, continue after a plan reset, the reserve.",
-         (_f("batch_size", "int"), _f("continue_after_reset"), _f("reserve")), via="backend", mutates=True,
+    _app(("sleep", "options"), "How Sleep reads: batch size, continue after a plan reset, the reserve, a key's spending limit.",
+         (_f("batch_size", "int"), _f("continue_after_reset"), _f("reserve"), _f("spend_limit")), via="backend", mutates=True,
          person=True),
     _app(("sleep", "history"), "Past Sleep runs, newest first.", (_f("limit", "int"),)),
     # The search index and model.
+    # Speed 2026-10-29: the watched days' rows out of their frontmatter — a dry run, then the person's --apply.
+    _app(("maintenance", "move-watched-rows"), "Move each watched day's rows out of its episode into its own file: a "
+                                               "dry run (counts, a few day ids); --apply moves them in one commit.",
+         (_f("apply", "bool"),), via="backend", mutates=True, person=True),
     _app(("index", "status"), "The word index and the search model: state, re-embedding, downloads.", via="backend"),
     _app(("index", "rebuild"), "Rebuild the word index now.", via="backend", mutates=True),
     _app(("index", "use"), "Use another installed search model (`default` for the default); re-embeds in the "
                            "background.", (_p("model"),), via="backend", mutates=True, person=True),
     _app(("index", "install"), "Download a search model (only ever on the person's command).", (_f("model"),),
          via="backend", mutates=True, person=True),
+    # Projects (ruling 45): the person's own, from their own shell.
+    _app(("projects", "new"), "Start a project of your own: a name and a description.",
+         (_p("project"), _f("description")), via="backend", mutates=True, person=True),
     # Sources and imports.
     _app(("feed", "list"), "The RSS/Atom feeds this memory follows."),
     _app(("feed", "add"), "Follow an RSS/Atom feed.", (_p("url"), _f("tag", "list")), via="backend", mutates=True),
     _app(("feed", "remove"), "Stop following a feed.", (_p("url"),), via="backend", mutates=True),
     _app(("feed", "poll"), "Fetch every followed feed now.", via="backend", mutates=True, person=True),
+    # Ruling 47 tier 2 (and the saved-content connectors): the person's own accounts, by their own token.
+    _app(("connector", "list"), "The accounts Cicada can read with your own token (Notion, …): what each "
+                                "reads, whether it is connected, its last sync.", via="backend"),
+    _app(("connector", "connect"), "Connect one with your own token, read from standard input (never an argument); "
+                                   "Cicada checks it with the service before saving it.", (_p("connector"),),
+         via="backend", mutates=True, person=True),
+    _app(("connector", "disconnect"), "Disconnect one: Cicada forgets its token.", (_p("connector"),), via="backend",
+         mutates=True, person=True),
+    _app(("connector", "sync"), "Read one now (your click: no gate, but never while Sleep holds your memory).",
+         (_p("connector"),), via="backend", mutates=True, person=True),
+    # Ruling 59: the remote connector's own public address, the same one click the app has.
+    _app(("funnel", "status"), "Whether the remote connector is open to the internet through your Tailscale, checked "
+                               "through that address; the exact command `funnel on` would run.", via="backend"),
+    _app(("funnel", "on"), "Make the remote connector reachable from the internet through your Tailscale: its port "
+                           "only, its memory tools and sign-in only. Turns the connector on if it is off.",
+         via="backend", mutates=True, person=True),
+    _app(("funnel", "off"), "Close that one public address; the connector and your other Tailscale mappings stay.",
+         via="backend", mutates=True, person=True),
+    # G230: repositories on the graph — connecting by a code, the synced lists, and a project's repositories. Nothing
+    # is added by hand (owner 2026-11-03): every repository page comes from a sync.
+    _app(("github", "connect"), "Connect GitHub with a code you enter on github.com (no token to make); then install "
+                                "Cicada on your account so it can read your own repositories.",
+         via="backend", mutates=True, person=True),
+    _app(("github", "repos"), "Your GitHub repositories (each with its page and the projects it belongs to) and the "
+                              "other repository pages in memory (starred).", via="backend"),
+    _app(("github", "project"), "Link one of your repositories to a project (--project; --remove unlinks it, and "
+                                "nothing links it back automatically), or start a new project from it.",
+         (_p("full_name"), _f("project"), _f("remove", "bool")), via="backend", mutates=True, person=True),
     # Settings and engines.
+    _app(("numbers", "switch"), "Whether Cicada keeps a number you give for someone (ruling 55): --state on or "
+                                "off changes it, on this Mac; every process here reads the same answer.",
+         (_f("state"),), via="backend", mutates=True, person=True),
+    _app(("numbers", "new-vault"), "Start a new private number file when the one you have can't be used; the old one is "
+                                   "kept aside. Refused while yours works.", via="backend", mutates=True, person=True),
     _app(("settings", "owner"), "Who the person is (--name, --handle, --email change it).",
          (_f("name"), _f("handle"), _f("email")), via="backend", mutates=True, person=True),
     _app(("engine", "list"), "The engines and plans Cicada can read with, whether each is ready, and what runs "
@@ -335,6 +424,15 @@ ROWS: tuple[Row, ...] = (
     _app(("device", "list"), "Your devices, and whether each one's token still works.", via="backend"),
     _app(("device", "revoke"), "Revoke a device's token at once.", (_p("device_id"),), via="backend", mutates=True,
          person=True),
+    # G132 phase 2 (ruling 51a): the home — the one device that orders every change and runs Sleep — and moving it.
+    _app(("home", "status"), "Which device holds this memory and runs Sleep, and how far behind each other one is.",
+         via="backend"),
+    _app(("home", "move"), "Make another of your devices the home (by its name or id): it orders every change and "
+         "runs Sleep from then on, and this one follows it.", (_p("device"),), via="backend", mutates=True,
+         person=True),
+    _app(("home", "take-over"), "Make this computer the home when the last one is lost: says how far behind this "
+         "copy is first, then asks (--yes --behind N confirms the N it showed).",
+         (_f("yes", "bool"), _f("behind", "int")), via="backend", mutates=True, person=True),
     # G212 (2026-10-22): a one-time code a new device trades once for its own token (`POST /pair`).
     _app(("device", "pair"), "Show a one-time code (and its QR payload) a new device trades for its own token "
          "(--kind capture for a phone, the default; full for a computer).",
@@ -370,7 +468,10 @@ def spell(tool: str, **values) -> str:
     flags: list[str] = []
     for arg in row.args:
         value = values.pop(arg.prop, None)
-        if value is None:
+        if value is None or (arg.kind == "bool" and value is False):
+            continue
+        if arg.kind == "bool" and value is True and not arg.positional:
+            flags.append(arg.flag)        # a store_true flag takes no value (`--skip`, never `--skip True`)
             continue
         rendered = value if isinstance(value, Placeholder) else shlex.quote(str(value))
         if arg.positional:

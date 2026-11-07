@@ -145,6 +145,7 @@ def test_kinds_are_honoured_and_totals_are_per_kind(tmp_path):
     assert _by_kind(resp, "inbox")[0].name == "Still tracking Alpha Project?"
     assert resp.totals["inbox"] == 1
     assert set(resp.totals) == set(search_service.KINDS)
+    assert "image" not in search_service.KINDS, "pictures are asked for by name, never part of every kind"
 
 
 def test_aliases_and_diacritics_find_the_page_and_say_why(tmp_path):

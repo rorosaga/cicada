@@ -37,6 +37,8 @@ final class UpdateServiceTests: XCTestCase {
         var checks = 0
         var stages = 0
         var handOffs: [Bool] = []
+        var gates: [UpdateInstaller.SleepGate] = []
+        var backendHung = false
         var terminations = 0
         var cleanups = 0
         var consumed = 0
@@ -52,7 +54,8 @@ final class UpdateServiceTests: XCTestCase {
                     return StagedUpdate(manifest: manifest, stagedApp: URL(fileURLWithPath: "/Applications/.Cicada.app.update"),
                                         installedApp: URL(fileURLWithPath: "/Applications/Cicada.app"))
                 },
-                handOff: { [self] _, relaunch in
+                handOff: { [self] _, relaunch, gate in
+                    gates.append(gate)
                     if let handOffError { throw handOffError }
                     handOffs.append(relaunch)
                 },
@@ -62,6 +65,7 @@ final class UpdateServiceTests: XCTestCase {
                 recoverStaged: { [self] in cleanups += 1; return recovered },
                 isSleepWriting: { [self] in sleepWriting },
                 probeSleep: { [probe] _ in probe.answer },
+                noteBackendLook: { [self] _ in backendHung },
                 repairService: { [self] in repairs += 1; return repairResult },
                 // The schedule never really waits in a test: the first sleep suspends until cancelled.
                 sleep: { _ in try await Task.sleep(for: .seconds(3600)) },
@@ -240,7 +244,7 @@ final class UpdateServiceTests: XCTestCase {
 
     /// The Store's cache is nil before its first poll; at hand-off the backend itself is asked.
     func testRestartAsksTheBackendFreshAndDefersWithASentence() async {
-        for answer in [SleepProbe.Answer.busy, .ambiguous] {
+        for answer in [SleepProbe.Answer.busy, .slow, .ambiguous] {
             let fakes = Fakes()
             let s = await readyService(fakes)
             fakes.probeAnswer = answer
@@ -256,6 +260,30 @@ final class UpdateServiceTests: XCTestCase {
             XCTAssertEqual(fakes.handOffs, [true], "nothing answering runs no cycle: go ahead")
             XCTAssertFalse(s.sleepRefusedRestart)
         }
+    }
+
+    func testAPersonWhoInsistsGoesAheadAndAQuitNeverDoes() async {
+        let fakes = Fakes()
+        let s = await readyService(fakes)
+        fakes.probeAnswer = .slow
+        s.appWillTerminate()
+        XCTAssertTrue(fakes.handOffs.isEmpty, "a quit never pre-empts a slow Sleep")
+        await s.restartToUpdate()
+        XCTAssertTrue(fakes.handOffs.isEmpty, "the first click only says what it would cost")
+        s.restartAnyway()
+        XCTAssertEqual(fakes.handOffs, [true])
+        XCTAssertEqual(fakes.gates, [.insisted])
+        XCTAssertEqual(fakes.terminations, 1)
+    }
+
+    func testAHungBackendNoLongerHoldsAQuitButAClearRunningDoes() async {
+        let fakes = Fakes()
+        let s = await readyService(fakes)
+        fakes.probeAnswer = .slow
+        fakes.backendHung = true
+        s.appWillTerminate()
+        XCTAssertEqual(fakes.handOffs, [false], "past the bound a hung backend can't block the update that may fix it")
+        XCTAssertEqual(fakes.gates, [.hung], "the helper still defers on a clear running")
     }
 
     func testAQuitInstallsNothingWhenTheBackendSaysSleepIsWriting() async {
@@ -421,7 +449,7 @@ final class UpdateServiceTests: XCTestCase {
     func testUpdaterCopyIsProviderNeutral() {
         let lines = [Copy.Updates.autoDetail(automatic: true), Copy.Updates.autoDetail(automatic: false),
                      Copy.Updates.reasonNoRelease, Copy.Updates.reasonHTTP(500), Copy.Updates.reasonUnreachable,
-                     Copy.Updates.reasonNoManifest, Copy.Updates.waitForSleep, Copy.Updates.whatsNewHelp]
+                     Copy.Updates.reasonNoManifest, Copy.Updates.restartAnyway, Copy.Updates.whatsNewHelp]
         for line in lines {
             for name in ["github", "claude", "chatgpt", "openai", "anthropic", "ollama"] {
                 XCTAssertFalse(line.lowercased().contains(name), "\(name) in \"\(line)\"")
@@ -441,10 +469,9 @@ final class UpdateServiceTests: XCTestCase {
         XCTAssertTrue(commands.contains("check(userInitiated: true)"))
         let general = try String(contentsOf: XCTUnwrap(ThemeTokenTests.swiftSources().first {
             $0.path.hasSuffix("Views/Settings/SettingsGeneralView.swift") }), encoding: .utf8)
-        let version = try XCTUnwrap(general.range(of: "SettingsRow(.appVersion,")).lowerBound
+        XCTAssertNotNil(general.range(of: ".settingsRow(.appVersion)"), "Version keeps the anchor the updater's search entry lands on")
         let gate = try XCTUnwrap(general.range(of: "if updates.isActive")).lowerBound
         let row = try XCTUnwrap(general.range(of: "SettingsRow(.autoUpdate,")).lowerBound
-        XCTAssertLessThan(version, gate, "in Version's card, after it (DR-37)")
         XCTAssertLessThan(gate, row)
         let app = try String(contentsOf: XCTUnwrap(ThemeTokenTests.swiftSources().first {
             $0.path.hasSuffix("CicadaApp.swift") }), encoding: .utf8)

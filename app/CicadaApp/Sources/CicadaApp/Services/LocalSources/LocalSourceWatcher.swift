@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// The backend calls a local source makes — `APIClient` in the app, a fake in
 /// tests (the same injection `BrowserWatcher.performSync` uses).
@@ -6,6 +6,7 @@ protocol LocalSourcesAPI: Sendable {
     func fetchFolders() async throws -> [FolderRegistration]
     func registerFolder(label: String, path: String, projectName: String,
                         authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration
+    func registerMeetingFolder(label: String, path: String, recorder: String?) async throws -> FolderRegistration
     func updateFolder(id: String, authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration
     func removeFolder(id: String) async throws
     func syncFolder(id: String, files: [FolderUpload], deleted: [String], preview: Bool,
@@ -37,6 +38,22 @@ enum LocalSourceCopy {
     static let wisprTurnedOff = "Wispr Flow is turned off — switch it on from the Sources page."
     static let alreadySyncing = "Already syncing — anything new will follow right after."
     static let synced = "Synced"
+
+    /// What the scan left out, in one line (nil when nothing): the file, and why — over `FolderScanner.maxFileBytes`
+    /// or not openable. The first file is named; more are counted.
+    static func skipped(tooLarge: [String], unreadable: [String]) -> String? {
+        let limit = ByteCountFormatter.string(fromByteCount: FolderScanner.maxFileBytes, countStyle: .file)
+        switch (tooLarge.count, unreadable.count) {
+        case (0, 0): return nil
+        case (1, 0): return "\(name(tooLarge[0])) is over \(limit), so Cicada skipped it."
+        case (0, 1): return "Cicada couldn't open \(name(unreadable[0])), so it skipped it."
+        default:
+            let first = tooLarge.first ?? unreadable[0]
+            return "Cicada skipped \(tooLarge.count + unreadable.count) files, starting with \(name(first)): over \(limit), or not openable."
+        }
+    }
+
+    private static func name(_ relpath: String) -> String { (relpath as NSString).lastPathComponent }
 }
 
 /// A folder's watch, made by the watcher — `FSEventsWatch` in the app, a stand-in
@@ -62,6 +79,9 @@ final class LocalSourceWatcher {
     private(set) var folders: [FolderRegistration] = []
     /// The folder's last failure, in words the person can act on.
     private(set) var folderErrors: [String: String] = [:]
+    /// 2026-11-06 — files the last scan left out (over the size limit, or not openable), by folder: one line the row
+    /// shows beside "Watching". Nil when every file was read; the scan that follows a fix clears it.
+    private(set) var folderSkipped: [String: String] = [:]
     private(set) var wisprSettings = WisprFlowSettings()
     private(set) var wisprError: BrowserFileError?
     /// The last Wispr Flow pass's non-file failure (the backend refused the
@@ -76,6 +96,7 @@ final class LocalSourceWatcher {
     private let manifests: FolderManifestStore
     private let bookmarks: FolderBookmarks
     private let wisprRoot: URL
+    private let wisprOffered: Bool
     private let debounce: Duration
     private let minimumInterval: Duration
     private let wisprDebounce: Duration
@@ -106,6 +127,7 @@ final class LocalSourceWatcher {
          defaults: UserDefaults = .standard,
          manifests: FolderManifestStore = .standard,
          wisprRoot: URL = WisprFlowReader.standardRoot,
+         wisprOffered: Bool = SourceCatalog.wisprOffered,
          debounce: Duration = BrowserWatchPolicy.debounce,
          minimumInterval: Duration = BrowserWatchPolicy.minimumInterval,
          wisprDebounce: Duration = .seconds(30),
@@ -120,6 +142,7 @@ final class LocalSourceWatcher {
         let bookmarks = FolderBookmarks(defaults: defaults)
         self.bookmarks = bookmarks
         self.wisprRoot = wisprRoot
+        self.wisprOffered = wisprOffered
         self.debounce = debounce
         self.minimumInterval = minimumInterval
         self.wisprDebounce = wisprDebounce
@@ -130,8 +153,52 @@ final class LocalSourceWatcher {
         self.makeWatch = makeWatch ?? { path, onChange in FSEventsWatch(path: path, handler: onChange) }
     }
 
+    /// The reader runs only while Wispr Flow is on offer and turned on. Off the offer, a turned-on setting and the cursor
+    /// stay as they are (`SourceCatalog.wisprOffered`), so nothing is read now and nothing is re-read if it returns.
+    private var wisprReads: Bool { wisprOffered && wisprSettings.enabled }
+
     /// Wispr Flow is on this Mac — the Integrations row only offers what exists.
     var wisprInstalled: Bool { FileManager.default.fileExists(atPath: WisprFlowReader(root: wisprRoot).database.path) }
+
+    /// G95 (2026-11-03) — Hex (anoma.ly/hex) is on this Mac: the Sources page offers its meeting folder then.
+    nonisolated static let hexBundleId = "anomaly.hex"
+    /// A LaunchServices lookup, so it is asked on each reload (launch, bank switch), never per view body.
+    private(set) var hexInstalled = false
+    /// 2026-11-04 (owner: "I deleted Whisperflow today, and the app should have detected that and say that it
+    /// disconnected or that's off") — whether the Wispr Flow APP is on this Mac. `wisprInstalled` reads its database,
+    /// which stays in `~/Library` after the app is removed, so it cannot tell. Asked of LaunchServices on each reload
+    /// and each time the Sources page opens (`refreshInstalledApps`), never per view body. True until first asked, so a
+    /// row never flashes "not installed" at launch.
+    private(set) var wisprAppInstalled = true
+    nonisolated static let wisprBundleId = "com.electron.wispr-flow"
+
+    /// The catalogue entries whose app was removed from this Mac (`SourceCatalog.rows(notInstalled:)`): Wispr Flow
+    /// once its app is gone. A Hex folder keeps being read without Hex, so Hex is never one.
+    var missingApps: Set<String> { wisprAppInstalled ? [] : [SourceCatalog.wisprChannel] }
+
+    /// Ask LaunchServices again which recorders' apps are here, off the main actor (a lookup can touch the disk).
+    func refreshInstalledApps() async {
+        let (wispr, hex) = await Task.detached(priority: .utility) {
+            (NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.wisprBundleId) != nil,
+             NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.hexBundleId) != nil)
+        }.value
+        if wisprAppInstalled != wispr { wisprAppInstalled = wispr }
+        if hexInstalled != hex { hexInstalled = hex }
+    }
+    /// The Hex meetings folder: Hex's own `meetings.output_folder` setting when the person chose one in Hex, else Hex's
+    /// default (Documents › Hex Meetings, its docs: "none uses ~/Documents/Hex Meetings"). The app reads that one key of
+    /// Hex's settings file under `~/Library` (the app reads `~/Library`, never the backend); nothing else of it.
+    static func hexMeetingsFolder(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        let settings = home.appendingPathComponent("Library/Application Support/hex/settings.json")
+        if let data = try? Data(contentsOf: settings), data.count < 1_000_000,
+           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let meetings = root["meetings"] as? [String: Any],
+           let chosen = (meetings["output_folder"] as? String)?.trimmingCharacters(in: .whitespaces), !chosen.isEmpty {
+            let path = (chosen as NSString).expandingTildeInPath
+            if path.hasPrefix("/") { return URL(fileURLWithPath: path, isDirectory: true) }
+        }
+        return home.appendingPathComponent("Documents/Hex Meetings", isDirectory: true)
+    }
 
     /// Whether a registered folder can be reached from this Mac at all.
     func isOnThisMac(_ folder: FolderRegistration) -> Bool { resolveRoot(folder.id) != nil }
@@ -164,6 +231,8 @@ final class LocalSourceWatcher {
     /// `reload()` for a named bank — the seam a test switches banks through.
     func reload(bank newBank: String) async {
         bank = newBank
+        hexInstalled = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.hexBundleId) != nil
+        wisprAppInstalled = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.wisprBundleId) != nil
         do {
             folders = try await api.fetchFolders()
             foldersBank = newBank
@@ -184,7 +253,7 @@ final class LocalSourceWatcher {
         wisprSettings = (try? await api.fetchWisprSettings()) ?? wisprSettings
         arm()
         for folder in folders { await syncFolder(folder, resolve: false) }
-        if wisprSettings.enabled { await syncWispr() }
+        if wisprReads { await syncWispr() }
     }
 
     private func scheduleReload() {
@@ -225,9 +294,9 @@ final class LocalSourceWatcher {
                 lights.publish(.stale, error: nil, for: folder.channelId)
             }
         }
-        if wisprSettings.enabled, wisprStream == nil, FileManager.default.fileExists(atPath: wisprRoot.path) {
+        if wisprReads, wisprStream == nil, FileManager.default.fileExists(atPath: wisprRoot.path) {
             wisprStream = FSEventsWatch(path: wisprRoot.path) { [weak self] in self?.wisprChanged() }
-        } else if !wisprSettings.enabled {
+        } else if !wisprReads {
             wisprStream?.stop()
             wisprStream = nil
             lights.publish(nil, error: nil, for: Self.wisprChannel)
@@ -332,6 +401,7 @@ final class LocalSourceWatcher {
             lights.publish(.failed, error: nil, for: channel)
             return
         }
+        folderSkipped[folder.id] = LocalSourceCopy.skipped(tooLarge: read.tooLarge, unreadable: read.unreadable)
         var next = manifest
         for (rel, signature) in read.touched { next[rel] = signature }
         do {
@@ -400,6 +470,40 @@ final class LocalSourceWatcher {
         return folder
     }
 
+    /// G95 — register a folder of meeting transcripts the person picked (Hex's, or any recorder's), and remember it.
+    func addMeetingFolder(url: URL, label: String, recorder: String?) async throws -> FolderRegistration {
+        let folder = try await api.registerMeetingFolder(label: label, path: url.path, recorder: recorder)
+        bookmarks.save(url, for: folder.id)
+        folders = (try? await api.fetchFolders()) ?? (folders.filter { $0.id != folder.id } + [folder])
+        return folder
+    }
+
+    /// 2026-11-04 (owner: "if we detect application and we press connect, we should be able to see what the folder for
+    /// the transcriptions is and directly read that folder and have the view of meeting transcriptions there") — Hex's
+    /// own meetings folder when it is on this Mac (`hexMeetingsFolder`: Hex's setting, else its default). Nil when no
+    /// such folder exists yet. Only on the person's click: Hex's default is under Documents.
+    private func hexFolderFound() -> URL? {
+        let url = Self.hexMeetingsFolder()
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue ? url : nil
+    }
+
+    /// Connect Hex in one click: register the folder Hex saves meetings in and read it at once — one pass that posts
+    /// each meeting once. The old way (pick the folder in an open panel, name it, *Look inside*, then *Start watching*)
+    /// posted every file twice, the preview's pass and the first sync's, before the list could show a meeting.
+    /// A folder already watched is read again, never registered twice (the backend answers its existing record).
+    @discardableResult
+    func connectHexFolder() async throws -> FolderRegistration {
+        guard let url = hexFolderFound() else { throw FolderWatchError.missing }
+        if let refusal = IntakeRouter.refusedRoot(of: [url]) {
+            throw BrowserImportActions.ImportActionError.failed(refusal.panelText)
+        }
+        let folder = try await addMeetingFolder(url: url, label: url.lastPathComponent, recorder: SourceCatalog.hexId)
+        await startWatching(folder)
+        await store?.refresh([.channels, .sourcesOverview])
+        return folder
+    }
+
     /// What a first sync would stage — every included file, posted with `preview`.
     func preview(_ folder: FolderRegistration, root: URL) async throws -> FolderSyncResult {
         let rules = CompiledFolderRules(folder)
@@ -434,6 +538,7 @@ final class LocalSourceWatcher {
         lights.publish(nil, error: nil, for: folder.channelId)
         folders.removeAll { $0.id == folder.id }
         folderErrors[folder.id] = nil
+        folderSkipped[folder.id] = nil
         await store?.refresh([.channels, .sourcesOverview])
     }
 
@@ -478,7 +583,7 @@ final class LocalSourceWatcher {
             saveCursor(cursor)
         }
         arm()
-        if wisprSettings.enabled {
+        if wisprReads {
             lastStarted[Self.wisprChannel] = nil
             await syncWispr()
         }
@@ -495,7 +600,7 @@ final class LocalSourceWatcher {
     /// words (L final review, finding 1). A source that is turned off says so
     /// instead of reporting a sync that never ran.
     func syncWisprNowReporting() async throws -> String {
-        guard wisprSettings.enabled else {
+        guard wisprReads else {
             throw BrowserImportActions.ImportActionError.failed(LocalSourceCopy.wisprTurnedOff)
         }
         let wasSyncing = syncing.contains(Self.wisprChannel)
@@ -508,7 +613,7 @@ final class LocalSourceWatcher {
 
     func syncWispr() async {
         let channel = Self.wisprChannel
-        guard wisprSettings.enabled else { return }
+        guard wisprReads else { return }
         if syncing.contains(channel) {
             dirty[channel] = true
             return

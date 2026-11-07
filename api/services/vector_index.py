@@ -806,7 +806,21 @@ class SqliteVecIndexer:
             conn.close()
         if "claims" in out:
             out["claims"] = self._current_claim_hits(out["claims"])
+        if "episodes" in out:
+            out["episodes"] = self._without_locked_notes(out["episodes"])
         return out
+
+    def _without_locked_notes(self, hits: list[dict]) -> list[dict]:
+        """G234: a retired locked note's rows stay in the table until Sleep's next whole sync removes them, so a hit is
+        checked against its episode before it leaves the index."""
+        from api.services import bank_index
+
+        def locked(hit: dict) -> bool:
+            stem = str(hit.get("episode_id") or (hit.get("metadata") or {}).get("episode_id") or "")
+            f = bank_index.file(self.memory_path, "episodes", f"{stem}.md") if stem else None
+            return bool(f is not None and (f.frontmatter or {}).get(evidence.LOCKED_NOTE_KEY))
+
+        return [hit for hit in hits if not locked(hit)]
 
     def _search_kind(self, kind: str, query: str, top_k: int) -> list[dict]:
         """Shared search helper: returns [] for a missing db or missing table."""
@@ -814,7 +828,8 @@ class SqliteVecIndexer:
             return []
         conn = self._connect()
         try:
-            return self._knn(conn, kind, query, top_k)
+            hits = self._knn(conn, kind, query, top_k)
+            return self._without_locked_notes(hits) if kind == "episodes" else hits
         except sqlite3.OperationalError as exc:
             logger.warning(f"vector_index._search_kind({kind!r}): query failed ({exc}); degrading to []")
             return []
@@ -860,6 +875,8 @@ class SqliteVecIndexer:
             except Exception:
                 continue
             fm = parsed.frontmatter or {}
+            if fm.get(evidence.LOCKED_NOTE_KEY):
+                continue   # G234: a retired locked note is in no index
             # Gate B2: the dropped-middle marker (the episode's own record) is blanked before chunking.
             body = evidence.mask_gaps(parsed.body, evidence.gap_ranges(fm, parsed.body)).strip()
             if not body:
@@ -915,6 +932,34 @@ class SqliteVecIndexer:
         norms = np.linalg.norm(docs, axis=1) * (float(np.linalg.norm(qvec)) or 1.0)
         norms[norms == 0] = 1.0
         return [float(x) for x in (docs @ qvec) / norms]
+
+    def nearness(self, query: str, passages: "dict[str, list[str]]", *, kind: str = "episodes") -> dict[str, np.ndarray]:
+        """Per group of fixed ``passages``, each one's cosine to ``query``, under :meth:`similarity`'s rule (a model on
+        this machine, or :class:`SimilarityUnavailable`). The passages are embedded once per model, so a caller with
+        fixed texts pays for one query. Never stored."""
+        info = self.index_info(kind)
+        recorded = (info or {}).get("model")
+        if not _named(recorded) or not runs_on_device(recorded):
+            raise SimilarityUnavailable("no on-device model for this table")
+        embed_fn, _model = self._query_embed_fn(kind, info)
+        qvec = self._query_vector(query, kind)
+        qvec = qvec / (float(np.linalg.norm(qvec)) or 1.0)
+        out: dict[str, np.ndarray] = {}
+        for group, texts in passages.items():
+            key = (str(recorded), group, tuple(texts))
+            vectors = _FIXED_PASSAGES.get(key)
+            if vectors is None:
+                fn = embed_fn
+                load = getattr(fn, "passages", None)
+                if callable(load):
+                    fn = load(wait=PASSAGE_LOAD_WAIT_S)
+                vectors = self._checked(fn(list(texts), is_query=False), len(texts))
+                norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+                norms[norms == 0] = 1.0
+                vectors = vectors / norms
+                _FIXED_PASSAGES[key] = vectors
+            out[group] = vectors @ qvec
+        return out
 
     def search_episodes(self, query: str, top_k: int = 3) -> list[dict]:
         return self._search_kind("episodes", query, top_k)
@@ -980,11 +1025,7 @@ class SqliteVecIndexer:
         return self._load_pending()
 
     def pending_by_name(self, name: str) -> PendingEntity | None:
-        name_lower = name.lower()
-        for e in self._load_pending():
-            if e.name.lower() == name_lower:
-                return e
-        return None
+        return _store.held_line(self.memory_path, name)
 
     def promote_from_pending(self, entity_name: str) -> PendingEntity | None:
         """Remove and return an entry from the pending store, rebuild the index.
@@ -1175,6 +1216,10 @@ class SqliteVecIndexer:
         return out
 
 
+#: Fixed texts' vectors, per model (:meth:`SqliteVecIndexer.nearness`). A few dozen short lines; derived, in memory only.
+_FIXED_PASSAGES: dict[tuple, np.ndarray] = {}
+
+
 class SimilarityUnavailable(RuntimeError):
     """No on-device model to compare texts with (:meth:`SqliteVecIndexer.similarity`)."""
 
@@ -1182,6 +1227,42 @@ class SimilarityUnavailable(RuntimeError):
 #: How long an answer waits for an on-device model's passage functions to load (a warm load is ~1 s; a cold
 #: Neural Engine compile ~90 s keeps loading in the background, and the answer goes on without the ranking).
 PASSAGE_LOAD_WAIT_S = 1.5
+
+
+def forget_passages(memory_path: Path, values: tuple[str, ...], episodes: tuple[str, ...] = ()) -> int:
+    """G235: delete every stored passage holding one of these exact strings, or belonging to one of these conversations,
+    from every table of the bank's index, with ``secure_delete`` so the bytes go too. The sync that follows embeds what the
+    files say now. No embedding model is touched. Returns the rows removed; the value is a bound parameter, never in a
+    statement or a log."""
+    index = SqliteVecIndexer(Path(memory_path))
+    if not index.db_path.exists() or not (values or episodes):
+        return 0
+    removed = 0
+    with _write_lock(index.db_path):
+        conn = index._connect()
+        try:
+            conn.execute("PRAGMA secure_delete=ON")
+            tables = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'meta\\_%' ESCAPE '\\'")]
+            for meta in tables:
+                vec = "vec_" + meta[len("meta_"):]
+                rowids: set[int] = set()
+                for value in values:
+                    rowids.update(r[0] for r in conn.execute(
+                        f"SELECT rowid FROM {meta} WHERE instr(text, ?) > 0 OR instr(metadata, ?) > 0", (value, value)))
+                for episode in episodes:
+                    fragment = json.dumps({"episode_id": episode})[1:-1]
+                    rowids.update(r[0] for r in conn.execute(
+                        f"SELECT rowid FROM {meta} WHERE instr(metadata, ?) > 0", (fragment,)))
+                for rowid in rowids:
+                    conn.execute(f"DELETE FROM {vec} WHERE rowid = ?", (rowid,))
+                    conn.execute(f"DELETE FROM {meta} WHERE rowid = ?", (rowid,))
+                removed += len(rowids)
+            conn.commit()
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")   # the deleted text does not linger in the log either
+        finally:
+            conn.close()
+    return removed
 
 
 def runs_on_device(model_id: str | None) -> bool:

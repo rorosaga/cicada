@@ -83,8 +83,11 @@ def test_run_sync_never_raises_and_records_the_error(tmp_path, monkeypatch):
     assert result["status"] == "error"
     assert result["reason"] is None
     assert result["new"] == 0 and result["seen"] == 0
-    assert result["error"] == "RuntimeError: boom"
-    assert "boom" in sync_state.read_sync_state(memory)["acme"]["last_error"]
+    # Plain words with what to do, never the exception's name or message (sources-truth).
+    assert "RuntimeError" not in result["error"] and "boom" not in result["error"]
+    assert "next sync tries again" in result["error"]
+    entry = sync_state.read_sync_state(memory)["acme"]
+    assert entry["last_error"] == result["error"] and entry["last_error_kind"] == "other"
 
 
 def test_run_sync_ingests_and_records_a_success_with_extra_cursor_state(tmp_path, monkeypatch):
@@ -286,11 +289,11 @@ def test_run_sync_does_not_advance_the_cursor_when_ingest_batch_silently_drops_a
 
     assert result["status"] == "error"
     assert result["new"] == 2, "the two good items still landed"
-    assert result["error"] == "1 item(s) failed to ingest"
+    assert result["error"].startswith("1 item(s) couldn't be saved this time")
 
     entry = sync_state.read_sync_state(memory).get("acme", {})
     assert "cursor" not in entry, "record_sync must not run — the cursor stays put"
-    assert entry.get("last_error") == "1 item(s) failed to ingest"
+    assert entry.get("last_error") == result["error"]
 
     # The good items really were written — url_index dedup protects them on
     # the inevitable retry, so only the failed one re-ingests next time.
@@ -340,7 +343,8 @@ def test_run_sync_sanitizes_an_http_status_error_to_status_only_no_url(tmp_path,
     result = run(base.run_sync("acme", memory, fetch, is_connected=lambda: True,
                                 http_fn=lambda *a, **k: None))
     assert result["status"] == "error"
-    assert result["error"] == "HTTPStatusError: HTTP 429"
+    assert "HTTPStatusError" not in result["error"] and "slow down" in result["error"]
+    assert sync_state.read_sync_state(memory)["acme"]["last_error_kind"] == "rate"
     assert "janedoe123" not in result["error"]
     assert "janedoe123" not in sync_state.read_sync_state(memory)["acme"]["last_error"]
 
@@ -358,7 +362,7 @@ def test_run_sync_scrubs_a_url_from_a_generic_exception_message(tmp_path, monkey
     result = run(base.run_sync("acme", memory, fetch, is_connected=lambda: True,
                                 http_fn=lambda *a, **k: None))
     assert "janedoe123" not in result["error"]
-    assert result["error"] == "RuntimeError: connection refused to <url>"
+    assert "RuntimeError" not in result["error"] and "<url>" not in result["error"]
 
 
 def test_run_sync_drops_no_platform_specific_counters(tmp_path, monkeypatch):
@@ -398,3 +402,23 @@ def test_forget_removes_every_named_secret():
 def test_forget_tolerates_a_name_that_was_never_set():
     base.forget(("BASE_TEST_A", "BASE_TEST_B"))  # neither was ever stored
     assert not secrets.has_secret("BASE_TEST_A")
+
+
+def test_a_403_is_a_rate_limit_only_when_it_carries_the_limit_signals_and_is_typed_either_way():
+    """sources-truth: GitHub answers its limit with a 403; an account the service refuses is a 403 too. The typed code
+    tells them apart, never the sentence."""
+    import httpx
+
+    def failure(status, headers=None):
+        request = httpx.Request("GET", "https://api.example.com/x")
+        return httpx.HTTPStatusError("x", request=request, response=httpx.Response(status, headers=headers or {}, request=request))
+
+    assert base.describe_failure(failure(403), "GitHub")[1] == "sign-in"
+    assert base.describe_failure(failure(401), "GitHub")[1] == "sign-in"
+    assert base.describe_failure(failure(403, {"x-ratelimit-remaining": "0"}), "GitHub")[1] == "rate"
+    assert base.describe_failure(failure(403, {"retry-after": "30"}), "GitHub")[1] == "rate"
+    assert base.describe_failure(failure(429), "GitHub")[1] == "rate"
+    assert base.describe_failure(failure(503), "GitHub")[1] == "server"
+    words, kind = base.describe_failure(httpx.ConnectError("no route to host 10.0.0.1"), "GitHub")
+    assert kind == "network" and "10.0.0.1" not in words
+    assert base.describe_failure(base.ConnectorError("Reddit refresh token is missing; reconnect required"))[1] == "sign-in"

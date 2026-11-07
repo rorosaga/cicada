@@ -35,10 +35,12 @@ from loguru import logger
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.models.schemas import (HappeningCreate, MilestoneCreate, MilestonePatch, ProjectsResponse,
-                                ProjectTimeline, ProjectWriteResponse, ThreadSettle, WithdrawRequest)
-from api.services import (bank_index, episode_scrub, git_service, handshake, markdown_parser, owner_identity,
-                          progress, project_timeline, search_index, sync_service, telemetry,
+from api.models.schemas import (ConversationTie, HappeningCreate, InfluenceCreate, InfluenceWithdraw,
+                                MilestoneCreate, MilestonePatch, ProjectAccept, ProjectConversations, ProjectCreate,
+                                PageTie, ProjectOwnershipResponse, ProjectPatch, ProjectsResponse, ProjectTimeline,
+                                ProjectWriteResponse, ThreadSettle, WithdrawRequest)
+from api.services import (bank_index, episode_scrub, sync_ticker, git_service, handshake, markdown_parser, owner_identity,
+                          progress, project_timeline, search_index, state_dictionary, sync_service, telemetry,
                           turn_authorship, when, write_admission)
 from api.services.claim_reconciler import is_human
 from api.services.claims import HAPPENED, MILESTONE, Claim, MalformedClaimsBlockError, is_event, parse_claims
@@ -82,20 +84,35 @@ def _unpin_degraded(response: Response, index_state: str, result) -> None:
 
 @router.get("/projects", response_model=ProjectsResponse)
 async def list_projects(request: Request, response: Response, settings: Settings = Depends(get_settings)):
+    # Speed 2026-10-29: the ETag and the list share one listing per folder (the SSE walk's when its gate allows); the
+    # list's own readers listed `entities/` and `episodes/` again in its worker thread.
+    with sync_ticker.request_scans(settings.memory_path):
+        return await _list_projects(request, response, settings)
+
+
+async def _list_projects(request: Request, response: Response, settings: Settings):
     mp, tz = settings.memory_path, _tz()
     etag = sync_service.etag_for(mp, "entities", "episodes", "inbox",
-                                 extra=f"projects|{project_timeline.PROJECT_SHAPE}|{git_service.AUTHOR_SHAPE}|{tz}")
+                                 extra=f"projects|{project_timeline.PROJECT_SHAPE}|{git_service.AUTHOR_SHAPE}|{tz}"
+                                       f"|{project_timeline.owner_token(mp)}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     index_state = await run_in_threadpool(_index_state, mp)
     result = await run_in_threadpool(project_timeline.list_projects, mp, tz_name=tz)
     _unpin_degraded(response, index_state, result)
-    return result
+    # Ruling 56: the list is the person's own. Follow-ups and the read model still see every page; this door does not.
+    return result.model_copy(update={"projects": [r for r in result.projects if r.mine]})
 
 
 @router.get("/projects/{project_id}/timeline", response_model=ProjectTimeline)
 async def get_project_timeline(project_id: str, request: Request, response: Response,
                                since: Optional[str] = None, settings: Settings = Depends(get_settings)):
+    with sync_ticker.request_scans(settings.memory_path):   # one listing per folder for ETag and build (2026-10-29)
+        return await _project_timeline(project_id, request, response, since, settings)
+
+
+async def _project_timeline(project_id: str, request: Request, response: Response, since: Optional[str],
+                            settings: Settings):
     mp, tz = settings.memory_path, _tz()
     since_day = None
     if since:
@@ -105,7 +122,8 @@ async def get_project_timeline(project_id: str, request: Request, response: Resp
             raise HTTPException(400, "since must be a date (YYYY-MM-DD)")
     stem = _project_stem(mp, project_id)
     etag = sync_service.etag_for(mp, "entities", "episodes", "inbox",
-                                 extra=f"project|{stem}|{since_day or ''}|{project_timeline.PROJECT_SHAPE}|{git_service.AUTHOR_SHAPE}|{tz}")
+                                 extra=f"project|{stem}|{since_day or ''}|{project_timeline.PROJECT_SHAPE}|{git_service.AUTHOR_SHAPE}|{tz}"
+                                       f"|{project_timeline.owner_token(mp)}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     index_state = await run_in_threadpool(_index_state, mp)
@@ -114,7 +132,7 @@ async def get_project_timeline(project_id: str, request: Request, response: Resp
         raise HTTPException(404, f"{stem!r} is not a project")
     _unpin_degraded(response, index_state, result)
     # A 200 is an open (a 304 revalidation is not): ids and an enum only (G124 R11).
-    telemetry.record_read(stem, surface="project", bank=telemetry.bank_name(settings))
+    telemetry.record_read(stem, surface="project", bank=telemetry.bank_name(settings), memory_path=mp)
     return result
 
 
@@ -414,3 +432,260 @@ async def withdraw_happening(project_id: str, body: WithdrawRequest, settings: S
                           "verdict": "overruled"}))
     return ProjectWriteResponse(action=result["action"], claim_id=body.claim_id, day=today.isoformat(),
                                 claims=await run_in_threadpool(_models, mp, page, [body.claim_id]))
+
+
+# --------------------------------------------------------------------------- #
+# whose projects these are, the header, conversations, influences (ruling 45)
+# --------------------------------------------------------------------------- #
+
+PROJECT_TRIGGER = "user/companion_app"
+
+
+def _suggestable_stem(memory_path, project_id: str) -> str:
+    """A live project page or a fallback page (a thing called a project) — what add and remove act on."""
+    from api.services import project_ownership
+
+    page = resolve_entity_file(memory_path, project_id)
+    if page is None:
+        raise HTTPException(404, f"No project {project_id!r}")
+    fm = markdown_parser.parse(page, ledger=False).frontmatter or {}
+    if not project_ownership.is_project_like(fm) or str(fm.get("status") or "active") == "dropped":
+        raise HTTPException(404, f"{page.stem!r} is not a project")
+    return page.stem
+
+
+async def _commit_as(memory_path, subject: str, paths: list[str], verb: str = "updated",
+                     verbs: dict[str, str] | None = None) -> None:
+    message = git_service.build_commit_message(
+        subject, [f"{p}: {(verbs or {}).get(p, verb)} (source: n/a, trigger: {PROJECT_TRIGGER})"
+                  for p in dict.fromkeys(paths)],
+        authors=["user"])
+    try:
+        await git_service.commit_paths(memory_path, message, sorted(set(paths)))
+    except Exception as exc:  # noqa: BLE001 — the write stands; a later writer's commit picks it up
+        logger.warning(f"project write commit skipped: {type(exc).__name__}")
+
+
+def _refuse(exc: Exception) -> HTTPException:
+    return HTTPException(400, str(exc))
+
+
+@router.post("/projects", response_model=ProjectOwnershipResponse)
+@_admitted
+async def create_project(body: ProjectCreate, settings: Settings = Depends(get_settings)):
+    """New project (the page's one add button): the person typed a name and a description — theirs, listed. A name a
+    page already answers to starts that page, its history kept; nothing is minted beside it (ruling 56)."""
+    from api.services import project_ownership
+
+    mp = settings.memory_path
+    if len(body.pages) > project_ownership.MAX_ATTACH:
+        raise HTTPException(400, f"Attach at most {project_ownership.MAX_ATTACH} pages at once.")
+    async with _write_lock:
+        try:
+            # All or nothing (review of #595, B1): a refusal or any failure while attaching takes back every file
+            # this request wrote.
+            eid, paths, created = await run_in_threadpool(
+                project_ownership.create_with_pages, mp, body.name, body.description, body.pages,
+                via=project_ownership.VIA_CLI if body.via == "cli" else project_ownership.VIA_APP, by="user",
+                today=_now().date())
+        except project_ownership.OwnershipError as exc:
+            raise HTTPException(409 if project_ownership.name_taken(exc) else 400, str(exc))
+        # One commit, the person's: the new page created, each repository page's back-link updated (G230).
+        await _commit_as(mp, f"Project {'created' if created else 'started'} {eid}", paths,
+                         verbs={p: "created" for p in created})
+    await state_dictionary.refresh_held(mp, settings)   # the next agent's primer has it now, not after the next Sleep
+    return ProjectOwnershipResponse(id=eid, action="created" if created else "started", mine=True)
+
+
+@router.post("/projects/{project_id}/accept", response_model=ProjectOwnershipResponse)
+@_admitted
+async def accept_project(project_id: str, body: Optional[ProjectAccept] = None,
+                         settings: Settings = Depends(get_settings)):
+    """"Add to my projects", on a page that already exists. A fallback page becomes the project in place."""
+    from api.services import project_ownership
+
+    mp = settings.memory_path
+    name = (body.name if body else None) or None
+    async with _write_lock:
+        today = _now().date()
+        try:
+            stem = _suggestable_stem(mp, project_id)
+            paths = await run_in_threadpool(project_ownership.accept, mp, stem, name=name, today=today)
+        except project_ownership.OwnershipError as exc:
+            raise _refuse(exc)
+        if paths:
+            await _commit_as(mp, f"Project accepted {stem}", paths)
+    if paths:
+        await state_dictionary.refresh_held(mp, settings)
+    return ProjectOwnershipResponse(id=stem, action="accepted" if paths else "unchanged", mine=True)
+
+
+@router.post("/projects/{project_id}/dismiss", response_model=ProjectOwnershipResponse)
+@_admitted
+async def dismiss_project(project_id: str, settings: Settings = Depends(get_settings)):
+    """"Remove from my projects": nothing is archived, deleted or retyped; the page can be added again."""
+    from api.services import project_ownership
+
+    mp = settings.memory_path
+    async with _write_lock:
+        today = _now().date()
+        try:
+            stem = _suggestable_stem(mp, project_id)
+            paths = await run_in_threadpool(project_ownership.dismiss, mp, stem, today=today)
+        except project_ownership.OwnershipError as exc:
+            raise _refuse(exc)
+        if paths:
+            await _commit_as(mp, f"Project dismissed {stem}", paths)
+        kind = (markdown_parser.parse(Path(mp) / "entities" / f"{stem}.md", ledger=False).frontmatter or {}).get("type")
+    if paths:
+        await state_dictionary.refresh_held(mp, settings)
+    return ProjectOwnershipResponse(id=stem, action="dismissed" if paths else "unchanged", mine=False,
+                                    retyped=kind != "project")
+
+
+@router.patch("/projects/{project_id}", response_model=ProjectOwnershipResponse)
+@_admitted
+async def patch_project(project_id: str, body: ProjectPatch, settings: Settings = Depends(get_settings)):
+    """The header, edited in place: a rename (the slug never changes; the old name stays findable as an alias) and the
+    person's description, which Sleep never rewrites (Q5)."""
+    from api.services import project_ownership
+
+    mp = settings.memory_path
+    if body.name is None and body.description is None:
+        raise HTTPException(400, "Say what to change: a name or a description")
+    async with _write_lock:
+        stem = _suggestable_stem(mp, project_id)
+        try:
+            paths = await run_in_threadpool(project_ownership.set_header, mp, stem, name=body.name,
+                                            desc=body.description, by="user", today=_now().date())
+        except project_ownership.OwnershipError as exc:
+            raise _refuse(exc)
+        if paths:
+            await _commit_as(mp, f"Project header {stem}", paths)
+        fm = markdown_parser.parse(Path(mp) / "entities" / f"{stem}.md", ledger=False).frontmatter
+    return ProjectOwnershipResponse(id=stem, action="updated" if paths else "unchanged",
+                                    mine=project_ownership.is_mine(fm))
+
+
+@router.get("/projects/{project_id}/conversations", response_model=ProjectConversations)
+async def get_project_conversations(project_id: str, request: Request, response: Response, offset: int = 0,
+                                    limit: int = 50, settings: Settings = Depends(get_settings)):
+    """Every conversation tied to the project and why (repository, the person naming it, Sleep's claims, added by
+    hand, the provider's own project, the relaying app's word). Fetched on demand like the timeline (not a Store
+    domain); the same ETag folding, and no ETag while the word index builds (`partial`)."""
+    from api.services import project_conversations
+
+    mp, tz = settings.memory_path, _tz()
+    stem = _project_stem(mp, project_id)
+    etag = sync_service.etag_for(mp, "entities", "episodes", "inbox",
+                                 extra=f"project-conversations|{stem}|{offset}|{limit}|"
+                                       f"{project_timeline.PROJECT_SHAPE}|{tz}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    index_state = await run_in_threadpool(_index_state, mp)
+    result = await run_in_threadpool(project_conversations.build, mp, stem, tz_name=tz, offset=offset, limit=limit)
+    _unpin_degraded(response, index_state, result)
+    return result
+
+
+@router.post("/projects/{project_id}/conversations", response_model=ProjectOwnershipResponse)
+@_admitted
+async def tie_conversation(project_id: str, body: ConversationTie, settings: Settings = Depends(get_settings)):
+    """Add a conversation to the project, or "Not about this project" (an untie no automatic signal undoes)."""
+    from api.services import project_ownership
+
+    mp = settings.memory_path
+    async with _write_lock:
+        stem = _project_stem(mp, project_id)
+        try:
+            paths = await run_in_threadpool(project_ownership.tie, mp, stem, body.episode, remove=body.remove)
+        except project_ownership.OwnershipError as exc:
+            raise _refuse(exc)
+        if paths:
+            await _commit_as(mp, f"Project conversation {'untied' if body.remove else 'tied'} {stem}", paths)
+    return ProjectOwnershipResponse(id=stem, action=("untied" if body.remove else "tied") if paths else "unchanged",
+                                    mine=True, episode_id=body.episode)
+
+
+@router.post("/projects/{project_id}/pages", response_model=ProjectOwnershipResponse)
+@_admitted
+async def tie_page(project_id: str, body: PageTie, settings: Settings = Depends(get_settings)):
+    """"Pages in this project": Add a page by hand, or "Not part of it" — the person's word, which wins over every
+    automatic tie and that no agent undoes (decision 10). Adding a page an agent proposed makes it the person's tie."""
+    from api.services import project_ownership
+
+    mp = settings.memory_path
+    async with _write_lock:
+        stem = _project_stem(mp, project_id)
+        try:
+            # A repository page is one of the project's repositories (ruling 53); any other page a hand tie.
+            paths = await run_in_threadpool(project_ownership.attach, mp, stem, body.entity, remove=body.remove)
+        except project_ownership.OwnershipError as exc:
+            raise _refuse(exc)
+        if paths:
+            await _commit_as(mp, f"Project page {'not part of it' if body.remove else 'added'} {stem}", paths)
+    return ProjectOwnershipResponse(id=stem, action=("removed" if body.remove else "added") if paths else "unchanged",
+                                    mine=True, page=body.entity)
+
+
+@router.post("/projects/{project_id}/influences", response_model=ProjectOwnershipResponse)
+@_admitted
+async def add_influence(project_id: str, body: InfluenceCreate, settings: Settings = Depends(get_settings)):
+    """"Add an influence": a link becomes one of the project's sources (the person's); a page or a name becomes one
+    claim as the person's own (a name matching no page stays plain text and never makes a page, Q9). The person's
+    optional sentence is a companion episode, cited as their span (R-PJ18)."""
+    from api.services import project_influences
+
+    mp = settings.memory_path
+    stem = _project_stem(mp, project_id)
+    note = " ".join((body.note or "").split())
+    async with _write_lock:
+        now = _now()
+        ep = None
+        cited = None
+        if note:
+            ep = await run_in_threadpool(progress.write_note_episode, mp, note, origin="companion_app",
+                                         title=f"Influence on {project_timeline._Bank(mp, _tz()).name(stem)}",
+                                         now=now)
+            cited = [{"episode": ep, "quote": episode_scrub.scrub(note)[0]}]
+        try:
+            result = await run_in_threadpool(
+                project_influences.add, mp, stem, url=body.url, what=body.what, entity=body.entity, how=body.how,
+                observer=_observer(mp, settings), author="user", evidence=cited, today=now.date())
+        except project_influences.InfluenceError as exc:
+            if ep:
+                (Path(mp) / "episodes" / f"{ep}.md").unlink(missing_ok=True)
+                bank_index.invalidate()
+            raise _refuse(exc)
+        await _commit_as(mp, f"Project influence {stem}", [*result["paths"], *([f"episodes/{ep}.md"] if ep else [])])
+    return ProjectOwnershipResponse(id=stem, action="added", mine=True, claim_id=result.get("claim_id"),
+                                    page=result.get("page"), episode_id=ep)
+
+
+@router.post("/projects/{project_id}/influences/withdraw", response_model=ProjectOwnershipResponse)
+@_admitted
+async def withdraw_influence(project_id: str, body: InfluenceWithdraw, settings: Settings = Depends(get_settings)):
+    """Undo: a claim is withdrawn and kept as history; a link is removed and remembered (`sources_removed`)."""
+    from api.services import fact_sources, project_influences
+
+    mp = settings.memory_path
+    stem = _project_stem(mp, project_id)
+    async with _write_lock:
+        today = _now().date()
+        if body.claim_id:
+            result = await run_in_threadpool(project_influences.withdraw_claim, mp, body.page or stem, body.claim_id,
+                                             today=today)
+            if result.get("action") != "retracted":
+                raise HTTPException(404, f"No influence {body.claim_id!r} on this project")
+            paths = result["paths"]
+        elif body.ref:
+            changed = await run_in_threadpool(lambda: fact_sources.change_source(
+                mp, stem, body.ref, body.predicate, actor=fact_sources.USER, action="remove",
+                reason="The person took this influence back"))
+            if changed.action != "removed":
+                raise HTTPException(404, changed.message or "No such link on this project")
+            paths = [f"entities/{stem}.md"]
+        else:
+            raise HTTPException(400, "Say which influence: its claim or its link")
+        await _commit_as(mp, f"Project influence withdrawn {stem}", paths)
+    return ProjectOwnershipResponse(id=stem, action="withdrawn", mine=True, claim_id=body.claim_id)

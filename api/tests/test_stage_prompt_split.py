@@ -57,6 +57,8 @@ A contradiction is unresolvable when newer information alone does not make it ob
 
 "Newer" means said on a later date (below), not read later: a description from an earlier conversation does not replace a later one, and two statements made months apart can both have been true at their own dates.
 
+A measured quantity that naturally changes over time (a metric, a count, a score, a balance) is never a contradiction, even when two values carry the same date: it is an update, and the page's history keeps the earlier value.
+
 TODAY: {today}
 
 ENTITY: {entity_name}
@@ -71,17 +73,17 @@ Respond with JSON only:
 {{
   "has_unresolvable_contradiction": true | false,
   "contradiction": "one-sentence description of the contradiction, or empty",
-  "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does the owner work now?'). Empty when there is no contradiction.",
+  "question": "ONE short question, asked directly to the person this memory belongs to: 'you', never 'I' and never their name (e.g. 'Where do you work now?'). Empty when there is no contradiction.",
   "options": [
-    {{"label": "the existing claim, 1-4 words", "description": "one short clause saying where this came from and when"}},
-    {{"label": "the new claim, 1-4 words", "description": "one short clause saying where this came from and when"}},
+    {{"label": "what the existing statement says, 1-4 words", "description": "one short clause: what it says and when; never the words existing, new, description, record or claim"}},
+    {{"label": "what the new statement says, 1-4 words", "description": "one short clause: what it says and when; never the words existing, new, description, record or claim"}},
     {{"label": "Both are true (different contexts)", "description": "Keep both, each tagged with its context"}}
   ]
 }}
 
 If there is no contradiction, set has_unresolvable_contradiction to false, question to "", and options to []."""
 
-OLD_SKILLS = """You are analyzing patterns in a personal knowledge graph to extract procedural skills and preferences.
+OLD_SKILLS = """You are reading what changed in a person's knowledge graph, to find how this person works.
 
 ENTITY CHANGES THIS CYCLE:
 {changes}
@@ -92,19 +94,19 @@ FREQUENTLY CO-OCCURRING ENTITIES (appeared together in 3+ conversations):
 RELATED EXISTING ENTITIES:
 {existing}
 
-Look for:
-1. WORKFLOW PATTERNS — recurring sequences of actions or tools used together.
-   Example: "Always checks GitHub before answering questions about projects."
-2. PREFERENCE PATTERNS — consistent choices or styles across conversations.
-   Example: "Prefers concise summaries over detailed explanations."
-3. RELATIONSHIP PATTERNS — entities that are consistently discussed together.
-   Example: "Career conversations always involve both the current employer and the field."
+A skill is something an agent could follow next time to work the way this person does: a sequence they keep repeating, or
+a choice they keep making.
+   Examples: "Always checks GitHub before answering questions about projects."
+             "Prefers concise summaries over detailed explanations."
+It is not a fact about them: what they do, know or use, where they work, who they work with or what comes up together is
+already on a page, and is no skill however often it is said.
+Nor is how their notes or links happen to be filed.
 
 Output valid JSON:
 {{
   "skills": [
     {{
-      "name": "Descriptive Skill Name",
+      "name": "What to do, or how they like it done",
       "description": "1-2 sentence procedural description written as an instruction or observation",
       "evidence_entities": ["Entity A", "Entity B"],
       "confidence": 0.7

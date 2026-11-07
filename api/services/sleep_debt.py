@@ -150,6 +150,16 @@ def _parse_episode_timestamp(raw: str) -> datetime | None:
     return dt
 
 
+def _hours_between(earlier: datetime, later: datetime) -> float:
+    """Elapsed hours between two local-naive stamps, never less than 0.
+
+    Subtracting two naive datetimes counts wall-clock hours, so an age that spans a clock change came out an hour
+    off (measured 2026-10-25: an episode 40 h old read 39 h across the autumn DST change). ``astimezone()`` reads
+    each naive stamp in the local zone with the offset that held *at that moment*, so the difference is real time.
+    """
+    return max(0.0, (later.astimezone() - earlier.astimezone()).total_seconds() / 3600.0)
+
+
 def _count_and_oldest(memory_path: Path, *, now: datetime,
                       parked: set[str] | None = None) -> tuple[int, float | None, datetime | None]:
     """Unprocessed episode count, the oldest one's age in hours, and the
@@ -174,7 +184,7 @@ def _count_and_oldest(memory_path: Path, *, now: datetime,
         ts = _parse_episode_timestamp(str(fm.get("timestamp", "") or ""))
         if ts is None:
             continue
-        age_hours = max(0.0, (now - ts).total_seconds() / 3600.0)
+        age_hours = _hours_between(ts, now)
         if oldest_hours is None or age_hours > oldest_hours:
             oldest_hours = age_hours
         if parked and str(fm.get("id", f.stem)) in parked:
@@ -307,10 +317,7 @@ async def compute(memory_path: Path, settings: Settings | None = None) -> SleepD
     # SSE ticker's `bank_index.shared_scans()` memo reaches it.
     count, oldest_hours, newest_ts, parked_count = await asyncio.to_thread(_scan_queue, memory_path, now)
     last_cycle = await _last_cycle_at(memory_path)
-    hours_since = (
-        max(0.0, (now - last_cycle).total_seconds() / 3600.0)
-        if last_cycle is not None else None
-    )
+    hours_since = _hours_between(last_cycle, now) if last_cycle is not None else None
 
     # The setting now means "how often progress is saved" (a person-started run
     # reads everything in batches of this size); here it stays what it always was

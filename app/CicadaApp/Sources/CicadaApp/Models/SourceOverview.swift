@@ -40,11 +40,12 @@ struct SourceFace: Codable, Hashable, Sendable {
 }
 
 enum SourceKind: String, Codable, CaseIterable {
-    case harness, browser, social, feed, messaging, voice, `import`, unknown
+    case harness, browser, social, feed, messaging, voice, reading, `import`, unknown
 
     /// Grid order = the backend's `KIND_ORDER`; `unknown` sorts last. `voice`
     /// (G134) holds note-takers: meetings and dictation.
-    static let order: [SourceKind] = [.harness, .browser, .social, .feed, .messaging, .voice, .import, .unknown]
+    static let order: [SourceKind] = [.harness, .browser, .social, .feed, .messaging, .voice, .reading, .import,
+                                      .unknown]
 }
 
 /// Mirror of `api/models/schemas.py::SourceOverview` (G124). Every field but
@@ -78,6 +79,8 @@ struct SourceOverview: Codable, Identifiable, Hashable {
     /// Sources v4 — this source's episodes still waiting for Sleep's read (the backend's count, `history_index.
     /// waits_for_model`): the detail's "Consolidate now · N waiting" shows only when it is above zero.
     let waiting: Int
+    /// Ruling 62 — this source's saves kept for lookup: no model read them, and one is read when the person talks about it.
+    let kept: Int
     /// Sources v4 — up to three faces, newest first (a Messages chat, a site a saved thing came from), and how many more.
     let faces: [SourceFace]
     let facesMore: Int
@@ -86,14 +89,14 @@ struct SourceOverview: Codable, Identifiable, Hashable {
          episodes: Int = 0, entities: Int = 0, items: Int = 0, lastActivityAt: String? = nil,
          connected: Bool = false, lastError: String? = nil, actions: [String] = [],
          channelId: String? = nil, origins: [String] = [], harness: String? = nil,
-         activity: [String: Int] = [:], intent: SourceIntent = .captured, waiting: Int = 0,
+         activity: [String: Int] = [:], intent: SourceIntent = .captured, waiting: Int = 0, kept: Int = 0,
          faces: [SourceFace] = [], facesMore: Int = 0) {
         self.id = id; self.label = label; self.kind = kind; self.mark = mark
         self.conversations = conversations; self.episodes = episodes; self.entities = entities
         self.items = items; self.lastActivityAt = lastActivityAt; self.connected = connected
         self.lastError = lastError; self.actions = actions; self.channelId = channelId
         self.origins = origins; self.harness = harness; self.activity = activity; self.intent = intent
-        self.waiting = waiting; self.faces = faces; self.facesMore = facesMore
+        self.waiting = waiting; self.kept = kept; self.faces = faces; self.facesMore = facesMore
     }
 
     /// Sources v3 — the id a saved source's list is read under (`GET /sources/channels/{id}/items`): its channel, else
@@ -168,7 +171,8 @@ struct SourceOverview: Codable, Identifiable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, label, kind, mark, conversations, episodes, entities, items, lastActivityAt
-        case connected, lastError, actions, channelId, origins, harness, activity, intent, waiting, faces, facesMore
+        case connected, lastError, actions, channelId, origins, harness, activity, intent, waiting, kept, faces,
+             facesMore
     }
 
     init(from decoder: Decoder) throws {
@@ -194,6 +198,7 @@ struct SourceOverview: Codable, Identifiable, Hashable {
         intent = SourceIntent(rawValue: (try? c.decodeIfPresent(String.self, forKey: .intent)) ?? "") ?? .captured
         // Sources v4 — lenient: an older backend sends none, and a malformed face drops the faces, never the row.
         waiting = (try? c.decodeIfPresent(Int.self, forKey: .waiting)) ?? 0
+        kept = (try? c.decodeIfPresent(Int.self, forKey: .kept)) ?? 0
         faces = (try? c.decodeIfPresent([SourceFace].self, forKey: .faces)) ?? []
         facesMore = (try? c.decodeIfPresent(Int.self, forKey: .facesMore)) ?? 0
     }
@@ -368,6 +373,7 @@ enum SourceSections {
         .feed: "Feeds & calendars",
         .messaging: "Messaging",
         .voice: "Voice & meetings",
+        .reading: "Reading",
         .import: "Files & imports",
         .unknown: "Other",
     ]

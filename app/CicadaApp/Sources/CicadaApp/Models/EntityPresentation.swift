@@ -98,9 +98,60 @@ enum EntityHeaderWords {
         return status == .decaying ? base + Copy.Graph.fadingReason : base
     }
 
+    /// G233, ruling 48 (DR-38), amended 2026-11-06: a book's description draws once, in the box under its header
+    /// (`BookDescriptionBox`), so the article leaves the `## Summary` section out. The words stay in the page's file
+    /// for recall and search.
+    static func articleMarkdown(_ markdown: String, isBook: Bool) -> String {
+        guard isBook else { return markdown }
+        var kept: [String] = []
+        var inSummary = false
+        for line in markdown.components(separatedBy: "\n") {
+            let head = line.trimmingCharacters(in: .whitespaces)
+            if head == "## Summary" { inSummary = true; continue }
+            if inSummary, head.hasPrefix("## ") { inSummary = false }
+            if !inSummary { kept.append(line) }
+        }
+        return kept.joined(separator: "\n").trimmingCharacters(in: .newlines)
+    }
+
+    /// The description a book's page holds, split for its box: the paragraph, its source's name and link, and the day it
+    /// was saved ("From [Open Library](https://…), saved 2026-11-06"). Nil when the page has none.
+    struct BookDescription: Equatable {
+        let text: String
+        let source: String?
+        let url: String?
+        let saved: String?
+    }
+
+    static func bookDescription(_ markdown: String) -> BookDescription? {
+        guard let section = EntityProse.section(named: "## Summary", in: markdown),
+              !EntityProse.isPlaceholderSummary(section) else { return nil }
+        let parts = section.components(separatedBy: "\n\nFrom ")
+        let text = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        var source: String?, url: String?, saved: String?
+        if parts.count > 1 {
+            let line = parts[1]
+            if let open = line.firstIndex(of: "["), let close = line.firstIndex(of: "]"), open < close {
+                source = String(line[line.index(after: open)..<close])
+                if let lp = line.range(of: "]("), let rp = line[lp.upperBound...].firstIndex(of: ")") {
+                    url = String(line[lp.upperBound..<rp])
+                }
+            } else {
+                source = line.components(separatedBy: ", saved").first?.trimmingCharacters(in: .whitespaces)
+            }
+            if let r = line.range(of: ", saved ") { saved = String(line[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
+        return BookDescription(text: text, source: source, url: url, saved: saved)
+    }
+
     /// R-DG15 — the page's `## Summary` (never the agentic-write placeholder, R-FX11). A graph-node stub's
     /// markdown IS its server preview, so it stands in until the page lands; a full page with no Summary has none.
-    static func summary(markdown: String, isStub: Bool) -> String? {
+    ///
+    /// A book page (G233; ruling 48, DR-38): its description is the article's first paragraph under the head, with its
+    /// source line, never lifted above the tabs.
+    static func summary(markdown: String, isStub: Bool, isBook: Bool = false) -> String? {
+        if isBook { return nil }
         if let text = EntityProse.section(named: "## Summary", in: markdown), !EntityProse.isPlaceholderSummary(text) {
             return text
         }
@@ -136,7 +187,7 @@ enum EntityTabs {
     }
 
     /// The full page carries its history; an empty embedded list is "not fetched yet" until a fetch says 0
-    /// (`HistoryTabState`'s rule — a count must never say 0 while the tab says "Reading git history…").
+    /// (a count must never say 0 while the tab is still reading).
     static func historyCount(embedded: [EntityHistoryEntry], fetched: [EntityHistoryEntry]?) -> Int? {
         if let fetched { return fetched.count }
         return embedded.isEmpty ? nil : embedded.count

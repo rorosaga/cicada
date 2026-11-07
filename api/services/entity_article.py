@@ -42,12 +42,14 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 
-from api.services import claims, entity_body, evidence, fact_policy, section_provenance, source_dates
+from api.services import claims, entity_body, evidence, fact_policy, page_citations, section_provenance, source_dates
 
 SECTION = "Article"
 FIELD = "article"            # frontmatter stamp
 STAMP_VERSION = 1
-PROMPT_VERSION = 1
+PROMPT_VERSION = 2           # 2: an inferred claim input is marked, and worded as an inference (ruling 48 (16))
+#: The mark an inferred claim input carries in the prompt (`page_citations.inferred`).
+INFERRED = "(inferred)"
 MIN_CONVERSATIONS = 2        # a page resting on this many conversations always gets the writer
 # A page on one conversation gets it too when its record gives the writer this much to connect (owner 2026-10-17:
 # "uncap what the agents can write to"); below it the page is a stub — a lead and a fact or two, which an article
@@ -116,6 +118,8 @@ RULES
   When inputs disagree, the later dated one is where things stand and the earlier one is how they were. Never write
   "currently", "now", "recently", "soon", "these days" or "this week".
 - earlier inputs are the page's previous prose: unverified background to rewrite freely, not to copy.
+- An input that starts "(inferred)" is an agent's inference, not something said: word it as one ("seems to",
+  "appears to"), never as a plain fact. Something that ended is said as ended in its own sentence ("until March").
 - Name the owner as OWNER, never "the user". No markdown inside paragraphs except [[links]], **bold** and `code`;
   no bullet lists, no headings, no tables.
 """
@@ -333,13 +337,17 @@ def build(*, name: str, entity_type: str, frontmatter: dict, original_body: str,
 
     now = source_dates.parse_day(today) or date.today()
     try:
+        # Ruling 64: what the person marked in a book is kept word for word and no writer reads it, so it never counts as
+        # material for an article and its words never reach prose, which the `sources` scope does not gate.
         current = [c for c in claims.parse_claims(original_body or "")
-                   if claims.is_current(c, now=now) and not claims.is_record(c)]
+                   if claims.is_current(c, now=now) and not claims.is_record(c) and not claims.is_mark(c)]
     except Exception:  # noqa: BLE001 - a fence that cannot be read costs the claims as inputs, never the article
         current = []
     for claim in current:
         rows = _ev_dicts(claim.evidence)
-        add("c", "claim", claim.text, rows, said_on=[claim.valid_from] if claim.valid_from else _days(rows),
+        # Ruling 48 (16), DR-80: what an agent only inferred is worded as an inference — the input says so.
+        text = f"{INFERRED} {claim.text}" if page_citations.inferred(claim) else claim.text
+        add("c", "claim", text, rows, said_on=[claim.valid_from] if claim.valid_from else _days(rows),
             group=(claim.predicate or "", claim.object or claim.text))
 
     owner_name = owner or "the person whose wiki this is"

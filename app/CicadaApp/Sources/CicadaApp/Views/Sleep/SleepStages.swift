@@ -47,7 +47,7 @@ enum SleepStages {
                    detail: "New mentions are matched against what you already have.",
                    symbol: "arrow.triangle.merge"),
         SleepStage(id: "stage3", number: 3, shortLabel: "Decide", progressive: "Deciding",
-                   detail: "Contradictions become questions in your Inbox; old beliefs fade.",
+                   detail: "Contradictions become questions on Home; old beliefs fade.",
                    symbol: "questionmark.circle"),
         SleepStage(id: "stage4", number: 4, shortLabel: "Notice", progressive: "Noticing",
                    detail: "Habits that recur become skills.",

@@ -31,7 +31,12 @@ the fence or the page's sections, which this tool does not do.
   the writer's: a stamped article is restamped (``entity_article.carry_stamp``), so it keeps growing with the fix in.
 * *A rewritten Summary or Article section is the editor's from then on* — ``human_edited: true``, exactly as a
   person's edit of those halves already makes a page additive-only (``entity_body.has_human_prose``). The record
-  sections (Key Facts, History, Links, Open Questions) need no mark: Sleep unions into them and never shortens them.
+  sections (Key Facts, History, Links, Open Questions) need no mark: Sleep unions into them and shortens them only in
+  one place — `revision_prose` (G104 slice 2) rewrites or removes a Key Fact or Open Question when a conversation it
+  came from was edited — and only an item whose ``section_provenance`` rows prove Sleep wrote it from that
+  conversation. An edit here drops the item's rows (its exact-text guard no longer matches, and an edit that only adds
+  words never inherits the old item's rows — ``refresh(fold=False)``), so an edited or typed line is never one of
+  them, whatever ``git blame`` says after a page merge moved it (review of #589).
 
 **Blame is git.** The edit commits alone under the harness (``Cicada-Author``), with the conversation
 (``Cicada-Session``); the reason is a ``Reason:`` line of its own and cited words are ``Evidence:`` lines (spans,
@@ -119,6 +124,11 @@ class Request:
     text: str | None = None
     add_aliases: list[str] = field(default_factory=list)
     remove_aliases: list[str] = field(default_factory=list)
+    #: Ruling 45 (Q5): a project's display name and the person's header line (`project_ownership.apply_header`).
+    name: str | None = None
+    description: str | None = None
+    #: Ruling 56: another client asked to start this page as a project; the person's "yes" here is what starts it.
+    start_project: bool = False
 
     def to_dict(self) -> dict:
         out: dict = {}
@@ -130,6 +140,12 @@ class Request:
             out["add_aliases"] = list(self.add_aliases)
         if self.remove_aliases:
             out["remove_aliases"] = list(self.remove_aliases)
+        if self.name is not None:
+            out["name"] = self.name
+        if self.description is not None:
+            out["description"] = self.description
+        if self.start_project:
+            out["start_project"] = True
         return out
 
 
@@ -162,9 +178,19 @@ def _names(raw, label: str) -> list[str]:
     return out
 
 
-def parse_request(edits=None, section=None, text=None, add_aliases=None, remove_aliases=None) -> Request:
+def parse_request(edits=None, section=None, text=None, add_aliases=None, remove_aliases=None, name=None,
+                  description=None, start_project=False) -> Request:
     """The call's arguments as a :class:`Request`, or :class:`EditError` saying what is wrong."""
-    request = Request()
+    from api.services import project_ownership
+
+    request = Request(start_project=start_project is True)
+    try:
+        if name is not None and str(name).strip():
+            request.name = project_ownership.clean_name(name)
+        if description is not None:
+            request.description = project_ownership.clean_description(description)
+    except project_ownership.OwnershipError as exc:
+        raise EditError(str(exc)) from None
     if edits is not None:
         if isinstance(edits, dict):
             edits = [edits]
@@ -210,15 +236,18 @@ def parse_request(edits=None, section=None, text=None, add_aliases=None, remove_
     both = {a.casefold() for a in request.add_aliases} & {a.casefold() for a in request.remove_aliases}
     if both:
         raise EditError("The same alias can't be added and removed in one call.")
-    if not (request.edits or request.section or request.add_aliases or request.remove_aliases):
-        raise EditError("Nothing to change: give `edits`, `section` and `text`, `add_aliases` or `remove_aliases`.")
+    if not (request.edits or request.section or request.add_aliases or request.remove_aliases
+            or request.name is not None or request.description is not None or request.start_project):
+        raise EditError("Nothing to change: give `edits`, `section` and `text`, `add_aliases`, `remove_aliases`, "
+                        "`name` or `description`.")
     return request
 
 
 def request_from_dict(raw) -> Request:
     raw = raw if isinstance(raw, dict) else {}
     return parse_request(raw.get("edits"), raw.get("section"), raw.get("text"), raw.get("add_aliases"),
-                         raw.get("remove_aliases"))
+                         raw.get("remove_aliases"), raw.get("name"), raw.get("description"),
+                         raw.get("start_project", False))
 
 
 def clean_reason(reason) -> str:
@@ -625,6 +654,26 @@ def plan(frontmatter: dict, body: str, request: Request, *, author: str, day: st
             fm.pop(ALIASES_REMOVED, None)
         touched.append("aliases")
 
+    # Ruling 45 (Q5): a project's name and the person's description — the header Sleep never rewrites.
+    if request.start_project:
+        from api.services import project_birth, project_ownership
+
+        project_birth.start_page(fm, {"origin": "created", "via": project_ownership.VIA_ACCEPTED, "day": day})
+        fm.pop(project_ownership.NOT_MINE_KEY, None)
+        fm[project_ownership.MINE_KEY] = {"via": project_ownership.VIA_ACCEPTED, "day": day, "by": "user"}
+        project_ownership.revive(fm, day)
+        changes.append("started as a project")
+    if request.name is not None or request.description is not None:
+        from api.services import project_ownership
+
+        if not project_ownership.is_project_like(fm):
+            raise EditError("`name` and `description` change a project's header; this page is not a project.")
+        header = project_ownership.apply_header(fm, name=request.name, desc=request.description, by=author, day=day)
+        if not header and not changes:
+            raise EditError("That leaves the project's name and description as they are.")
+        changes += header
+        touched.append("header")
+
     # Pinned corrections: kept on the page so Sleep's next rewrite writes the fix, never the old words.
     pinned = 0
     rows = corrections(fm)
@@ -648,7 +697,8 @@ def plan(frontmatter: dict, body: str, request: Request, *, author: str, day: st
             # A word-level fix keeps a machine article the writer's (it restamps only a stamp that held).
             entity_article.carry_stamp(fm, original, new_body)
         # An edited item's evidence rows go (its exact-text guard no longer matches); the rest stay.
-        section_provenance.refresh(fm, original, new_body, {})
+        # An edited item is the editor's: never one that inherits a Sleep fact's rows by extending it (`fold=False`).
+        section_provenance.refresh(fm, original, new_body, {}, fold=False)
     return Outcome(fm, new_body, changes, [t or "(lead)" for t in touched], pinned)
 
 
@@ -701,6 +751,8 @@ def parse_reason(body: str) -> str | None:
 def preview(name: str, request: Request, reason: str) -> str:
     """What the inbox card shows: why, then each change in plain words."""
     lines = [f"Why: {reason}", ""]
+    if request.start_project:
+        lines.append("- Add it to your projects")
     for edit in request.edits:
         every = " (every time it appears)" if edit["all"] else ""
         lines.append(f"- Replace “{edit['old']}” with “{edit['new']}”{every}" if edit["new"]
@@ -710,12 +762,34 @@ def preview(name: str, request: Request, reason: str) -> str:
         lines += [f"  > {line}" if line else "  >" for line in (request.text or "").splitlines()]
     lines += [f"- Add the alias “{a}”" for a in request.add_aliases]
     lines += [f"- Remove the alias “{a}”" for a in request.remove_aliases]
+    if request.name is not None:
+        lines.append(f"- Rename it “{request.name}” (the old name stays findable)")
+    if request.description is not None:
+        lines.append(f"- Set its description to “{request.description}”" if request.description
+                     else "- Clear its description")
     return "\n".join(lines)
 
 
+def start_waiting(memory_path: Path, entity_id: str) -> bool:
+    """An open proposal to start this page as a project is already in the inbox: never a second question."""
+    for f in (Path(memory_path) / "inbox").glob("inbox-*.md"):
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+            if "start_project" not in text or entity_id not in text:
+                continue
+            fm = markdown_parser.parse(f).frontmatter or {}
+        except (OSError, ValueError):
+            continue
+        if (fm.get("kind") == KIND and fm.get("status") == "pending" and str(fm.get("entity_id")) == entity_id
+                and (fm.get("edit") or {}).get("start_project")):
+            return True
+    return False
+
+
 def write_proposal(memory_path: Path, *, entity_id: str, name: str, request: Request, reason: str, author: str,
-                   session: str | None, spans=None, day: str | None = None) -> str:
-    """One ``page_edit`` inbox item; returns its bank-relative path. Never replaces an item (``write_new``)."""
+                   session: str | None, spans=None, day: str | None = None, origin: str | None = None) -> str:
+    """One ``page_edit`` inbox item; returns its bank-relative path. Never replaces an item (``write_new``).
+    ``origin`` marks a proposal Cicada itself makes (``wrong_aliases.ORIGIN``): its question says so."""
     from api.services import inbox_service
 
     inbox_dir = Path(memory_path) / "inbox"
@@ -725,7 +799,8 @@ def write_proposal(memory_path: Path, *, entity_id: str, name: str, request: Req
         "kind": KIND, "required_input": "choice", "status": "pending", "priority": 0.5,
         "entity_id": entity_id, "entity_name": name, "title": f"Change {name}?",
         "created_date": day,
-        "question": f"An agent suggests a change to {name}: {reason}",
+        "question": (f"Cicada suggests a change to {name}: {reason}" if origin else
+                     f"An agent suggests a change to {name}: {reason}"),
         # Leave first is not a recommendation: Cicada proposes nothing here, the agent did.
         "options": [{"key": "apply", "label": "Apply the change"},
                     {"key": "dismiss", "label": "Leave the page as it is"}],
@@ -735,6 +810,13 @@ def write_proposal(memory_path: Path, *, entity_id: str, name: str, request: Req
     }
     if session:
         fm["session_id"] = session
+    if origin:
+        fm["origin"] = origin
+        fm["trigger"] = f"sleep/{origin}"
+    if request.start_project:
+        fm["title"] = f"Start {name} as a project?"
+        fm["question"] = f"An agent asks to start {name} as one of your projects: {reason}"
+        fm["options"] = [{"key": "apply", "label": "Start it"}, {"key": "dismiss", "label": "Leave it"}]
     rows = [ev.to_dict() if hasattr(ev, "to_dict") else dict(ev) for ev in spans or []]
     rows = [r for r in rows if r.get("kind") != "reasoning"]
     if rows:

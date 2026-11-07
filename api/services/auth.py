@@ -62,6 +62,13 @@ _STATIC_OPEN_PATHS = frozenset({
     "/llms.txt",
     # G212: a device redeems a one-time pairing code the person's own screen showed; the code is its credential.
     "/pair",
+    # G132 phase 2: another device of the group asks which home this computer knows. The route checks the bearer
+    # itself against this computer's store AND the registry it mirrored (a replica's own store does not hold the
+    # group), and answers ids and numbers only.
+    "/sync/peer",
+    # G132 phase 3b: a device proves who it is before another trusts an address it found on the LAN — a fresh nonce,
+    # signed by its registered key. Answers a signature and a device id only, never a name or a token.
+    "/sync/hello",
 })
 
 
@@ -87,7 +94,11 @@ def _is_oauth_callback_path(path: str) -> bool:
     if len(parts) != 5 or parts[1:3] != ["sources", "connectors"] or parts[4] != "callback":
         return False
     adapter = ADAPTERS.get(parts[3])
-    return adapter is not None and getattr(adapter, "LOGIN_MODE", None) == "oauth"
+    if adapter is None:
+        return False
+    from api.services.connectors import base
+
+    return base.signs_in(adapter)
 
 
 class _OpenPaths:
@@ -120,15 +131,53 @@ def auth_enabled() -> bool:
     return os.environ.get("CICADA_API_AUTH", "on").strip().lower() not in {"off", "0", "false"}
 
 
-def bearer_admits(authorization: str | None) -> bool:
+def credential(authorization: str | None) -> str:
+    """The token an ``Authorization`` header carries: ``Bearer <token>``, or ``DPoP <token>`` — the scheme RFC 9449
+    gives a key-bound token (2026-10-29). Either scheme reaches the same check; what makes a bound token work is the
+    proof beside it, never the word in front of it. "" for anything else."""
+    if not authorization:
+        return ""
+    scheme, _, rest = authorization.partition(" ")
+    return rest.strip() if scheme.lower() in ("bearer", "dpop") else ""
+
+
+#: 2026-10-29: the words a refused proof answers (the reason itself rides ``WWW-Authenticate``, an enum).
+PROOF_REFUSED = ("This device's token works only with its own key, and this request's proof did not pass. "
+                 "Check the device's clock, or pair it again.")
+
+
+def proof_refusal(reason: str) -> HTTPException:
+    return HTTPException(status_code=401, detail=PROOF_REFUSED, headers={
+        "WWW-Authenticate": f'DPoP error="invalid_dpop_proof", error_description="{reason}"',
+        "Cache-Control": "no-store"})
+
+
+def check_proof(device, token: str, request: Request) -> str | None:
+    """A key-bound device's request must carry a proof of that key for this very request (``device_proof``): the
+    thumbprint, else :class:`HTTPException` 401 — never a fall back to bearer. An unbound device: None, nothing
+    checked (the proof header, if any, is ignored)."""
+    if not getattr(device, "key_thumbprint", None):
+        return None
+    from api.services import device_proof
+
+    try:
+        jkt = device_proof.verify(request.headers.get(device_proof.HEADER), method=request.method,
+                                  path=request.url.path, token=token)
+    except device_proof.ProofError as exc:
+        raise proof_refusal(exc.reason) from None
+    if not secrets.compare_digest(jkt, device.key_thumbprint):
+        raise proof_refusal("wrong_key")
+    return jkt
+
+
+def bearer_admits(authorization: str | None, request: Request | None = None) -> bool:
     """Whether an ``Authorization`` header carries the master token or an active device token — for an OPEN route that
     says more to a caller who holds one (``/healthz``'s paths, owner decision 3, 2026-10-16). True when auth is off.
-    Never raises; an unreadable device store admits nothing."""
+    A key-bound device admits only with its proof (``request`` carries it; without one it never admits). Never raises;
+    an unreadable device store admits nothing."""
     if not auth_enabled():
         return True
-    supplied = ""
-    if authorization and authorization.lower().startswith("bearer "):
-        supplied = authorization[7:].strip()
+    supplied = credential(authorization)
     if not supplied:
         return False
     if secrets.compare_digest(supplied.encode("utf-8"), get_token().encode("utf-8")):
@@ -142,7 +191,16 @@ def bearer_admits(authorization: str | None) -> bool:
     except Exception:  # noqa: BLE001 — fail closed
         return False
     # G212: a capture-only device (a phone) gets the open answer — liveness and identity, never the memory's path.
-    return device is not None and device.kind != "capture"
+    if device is None or device.kind == "capture":
+        return False
+    if device.key_bound:
+        if request is None:
+            return False
+        try:
+            check_proof(device, supplied, request)
+        except HTTPException:
+            return False
+    return True
 
 
 def get_token() -> str:
@@ -170,7 +228,13 @@ _DEVICE_READABLE = frozenset({("GET", "/devices"), ("GET", "/devices/status")})
 #: Writes only the master token may make under these prefixes: minting, rotating or turning on a G135 remote
 #: connector. A connector token a device minted would outlive the device's own revocation (and the listener it turns
 #: on faces the person's tunnel), so a device may read the connector state and revoke, never create or open.
-MASTER_ONLY_WRITE_PREFIXES = ("/remote", "/agent-api")
+#: G132 phase 1: turning publishing on or off, and "publish from here", are the person's acts on the home, never a
+#: device's (a device reads the switch and, as a full device, the log).
+#: G132 phase 2: a take-over is this computer's own act on the person's OK (never a device's); a move is not listed —
+#: the person's Sleep page on any of their full devices asks the home to move (`POST /sync/home/move`).
+#: G132 phase 3b: the relay setting, joining over the relay and the app's LAN finds are this computer's own acts.
+MASTER_ONLY_WRITE_PREFIXES = ("/remote", "/agent-api", "/sync/publish", "/sync/replica", "/sync/home/take-over",
+                              "/sync/relay", "/sync/discovered", "/sync/network")
 _MASTER_ONLY_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
 
 
@@ -178,7 +242,11 @@ _MASTER_ONLY_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
 #: note, send a note, send a photo or a file (G91, ruling 38, 2026-10-23), read back its own recent captures. Exact
 #: paths, never prefixes; `/healthz` is open to anyone. Every other route answers 403 to it, the device routes included.
 CAPTURE_ROUTES = frozenset({("POST", "/sources/save"), ("POST", "/capture/note"), ("POST", "/capture/file"),
+                            ("POST", "/capture/isbn"),
                             ("GET", "/capture/mine")})
+#: 2026-10-29: what any device token may do to ITSELF, whatever its kind: bind its own key (and narrow itself to
+#: capture-only). Under `/devices`, but about the asking device alone — never another, never a new one.
+DEVICE_SELF_ROUTES = frozenset({("POST", "/devices/me/key")})
 
 
 def _master_only(path: str, method: str = "GET") -> bool:
@@ -190,11 +258,44 @@ def _master_only(path: str, method: str = "GET") -> bool:
         path == p or path.startswith(p + "/") for p in MASTER_ONLY_WRITE_PREFIXES)
 
 
+def _admit_relay_device(request: Request, device_id: str) -> None:
+    """A request a relay frame carried (G132 phase 3b): the device is the one whose relay key signed the frame, looked
+    up again here (a revoke between the frame and this request is a 401), and held to every rule a device token is —
+    the master-only paths, a capture device's routes. The frame's signature stands in for a bound key's proof."""
+    from api.services import device_context, device_tokens
+
+    try:
+        device = device_tokens.store().get(str(device_id))
+    except Exception:  # noqa: BLE001 — fail closed
+        device = None
+    if device is None or not device.active:
+        raise HTTPException(status_code=401, detail="missing or invalid bearer token")
+    route = (request.method.upper(), request.url.path)
+    if route not in DEVICE_SELF_ROUTES:
+        if _master_only(request.url.path, request.method):
+            raise HTTPException(status_code=403, detail="only the server's own token may do this")
+        if device.kind == "capture" and route not in CAPTURE_ROUTES:
+            raise HTTPException(status_code=403, detail="this device may only send captures")
+    request.state.device = device
+    device_context.bind(device.id)
+
+
 def request_device(request: Request):
     """The device whose token signed this request (``device_tokens.Device``), or None for the master token, an open
     path, or auth turned off. Set only by :func:`require_token` from the token itself — never from anything the client
     says about itself."""
     return getattr(request.state, "device", None)
+
+
+#: G132 phase 3b: keys ``sync_relay_link`` alone sets on the ASGI scope of a request it runs in process for a relay
+#: frame it verified (membership, signature, counter, epoch key): the sender's relay signing key and, at a home, the
+#: device row it belongs to. A network server never sets a custom scope key, so no client can claim either.
+RELAY_SENDER_SCOPE = "cicada.relay_sender"
+RELAY_DEVICE_SCOPE = "cicada.relay_device"
+#: G132 ruling 51f (D3): the device the home-network door's handshake proved (its signing key against the registry),
+#: set by ``sync_door`` alone on a request it runs in process. Read by the open peer routes (``/sync/peer``) the way
+#: a relay frame's sender is; a device route is admitted through ``RELAY_DEVICE_SCOPE`` as before.
+DOOR_DEVICE_SCOPE = "cicada.door_device"
 
 
 async def require_token(
@@ -209,9 +310,11 @@ async def require_token(
     device_context.bind(None)
     if not auth_enabled() or request.url.path in _OPEN_PATHS:
         return
-    supplied = ""
-    if authorization and authorization.lower().startswith("bearer "):
-        supplied = authorization[7:].strip()
+    relay_device = request.scope.get(RELAY_DEVICE_SCOPE)
+    if relay_device is not None:
+        _admit_relay_device(request, relay_device)
+        return
+    supplied = credential(authorization)
     if supplied and secrets.compare_digest(supplied.encode("utf-8"), get_token().encode("utf-8")):
         return
     from api.services import device_tokens
@@ -224,10 +327,15 @@ async def require_token(
             device = None
     if device is None:
         raise HTTPException(status_code=401, detail="missing or invalid bearer token")
-    if _master_only(request.url.path, request.method):
-        raise HTTPException(status_code=403, detail="only the server's own token may do this")
-    if device.kind == "capture" and (request.method.upper(), request.url.path) not in CAPTURE_ROUTES:
-        raise HTTPException(status_code=403, detail="this device may only send captures")
+    # 2026-10-29: a key-bound token is checked against its proof before anything else is said about it (a copied
+    # bound token learns nothing from a 403 either).
+    request.state.device_jkt = check_proof(device, supplied, request)
+    route = (request.method.upper(), request.url.path)
+    if route not in DEVICE_SELF_ROUTES:
+        if _master_only(request.url.path, request.method):
+            raise HTTPException(status_code=403, detail="only the server's own token may do this")
+        if device.kind == "capture" and route not in CAPTURE_ROUTES:
+            raise HTTPException(status_code=403, detail="this device may only send captures")
     request.state.device = device
     device_context.bind(device.id)
     try:

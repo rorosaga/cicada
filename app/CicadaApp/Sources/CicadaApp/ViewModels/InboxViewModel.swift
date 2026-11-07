@@ -36,6 +36,10 @@ final class InboxViewModel {
 
     var isLoading: Bool { store.inbox.isEmpty && store.inbox.isRefreshing }
 
+    /// Nothing to list because the questions could not be read — not because none are pending (`Store.couldNotRead`).
+    var couldNotRead: Bool { store.inbox.isEmpty && store.couldNotRead(.inbox) }
+    var offersRetry: Bool { store.reach == .up }
+
     /// Sidebar / menu-bar badge — number of pending items.
     var pendingCount: Int { items.count }
 
@@ -59,28 +63,141 @@ final class InboxViewModel {
 
     /// G205 / G61 — agent requests and the grouped Where-to-check review are small cards above the questions; the
     /// list, its tabs and its walk read the questions only.
-    var questions: [InboxItem] { items.filter { !$0.isTopCard } }
-    var agentRequests: [InboxItem] { items.filter { $0.kind == .agentRequest } }
-    var whereToCheckReviews: [InboxItem] { items.filter(\.isWhereToCheckReview) }
+    var questions: [InboxItem] { derived.questions }
+    var agentRequests: [InboxItem] { derived.agentRequests }
+    var sensitiveReviews: [InboxItem] { derived.sensitiveReviews }
+    var whereToCheckReviews: [InboxItem] { derived.whereToCheckReviews }
 
-    var visible: [InboxItem] { InboxColumns.visible(questions, filter: columns.kindFilter) }
-    var openItem: InboxItem? { columns.openId.flatMap { id in questions.first { $0.id == id } } }
+    /// The questions in the order the list draws them (owner 2026-10-26): grouped by kind under All, by page inside
+    /// (`InboxGroups`), so ↑/↓ and the next question after an answer follow the screen.
+    var visible: [InboxItem] { derived.visible }
+
+    // MARK: - Built once per change (inbox freeze, owner 2026-10-29)
+
+    /// Everything the page derives from the inbox and its tab, built once per change to either. The page's body, the
+    /// list, the tabs, the keys and the focus policy each read these several times per draw; rebuilt on every read
+    /// they cost ~2.4 s of main thread on the click that opened 465 questions (debug build, `InboxAllListBenchTests`).
+    /// Reading `items` first keeps every view that asks observing the Store's inputs.
+    struct Derived {
+        let questions: [InboxItem]
+        let agentRequests: [InboxItem]
+        let whereToCheckReviews: [InboxItem]
+        let sensitiveReviews: [InboxItem]
+        let visible: [InboxItem]
+        let sections: [InboxGroups.Section]
+        let tabs: [TextTab<InboxKind>]
+        let reviewEntries: [ReviewEntries.Entry]
+        let byId: [String: InboxItem]
+        let kinds: Set<InboxKind>
+    }
+
+    private struct DerivedKey: Equatable {
+        let revision: Int
+        let filter: InboxKind?
+    }
+
+    private struct LinesKey: Equatable {
+        let derived: DerivedKey
+        let groupChoices: [InboxKind: Bool]
+        let openKind: InboxKind?
+    }
+
+    @ObservationIgnored private var derivedMemo: (key: DerivedKey, value: Derived)?
+    @ObservationIgnored private var linesMemo: (key: LinesKey, value: [InboxListLine])?
+    @ObservationIgnored private var rowsMemo: (key: DerivedKey, value: [InboxRowEntry])?
+
+    private var derivedKey: DerivedKey { DerivedKey(revision: store.inboxRevision, filter: columns.kindFilter) }
+
+    var derived: Derived {
+        let items = items
+        let key = derivedKey
+        if let memo = derivedMemo, memo.key == key { return memo.value }
+        let questions = items.filter { !$0.isTopCard }
+        let sections = InboxGroups.sections(InboxColumns.visible(questions, filter: key.filter),
+                                            byKind: key.filter == nil)
+        let value = Derived(
+            questions: questions,
+            agentRequests: items.filter { $0.kind == .agentRequest },
+            whereToCheckReviews: items.filter(\.isWhereToCheckReview),
+            sensitiveReviews: items.filter { $0.kind == .sensitive },
+            visible: sections.flatMap(\.items),
+            sections: sections,
+            tabs: InboxTabs.tabs(questions),
+            reviewEntries: ReviewEntries.of(questions),
+            byId: Dictionary(questions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }),
+            kinds: Set(questions.map(\.kind)))
+        derivedMemo = (key, value)
+        return value
+    }
+
+    private static func ordered(_ questions: [InboxItem], filter: InboxKind?) -> [InboxItem] {
+        InboxGroups.ordered(InboxColumns.visible(questions, filter: filter), byKind: filter == nil)
+    }
+
+    /// The person's own open/closed choice per kind's group, for this memory (a bank switch forgets it).
+    private(set) var groupChoices: [InboxKind: Bool] = [:]
+
+    var sections: [InboxGroups.Section] { derived.sections }
+
+    func isGroupOpen(_ kind: InboxKind?, in sections: [InboxGroups.Section]) -> Bool {
+        InboxGroups.isOpen(kind, sections: sections, chosen: groupChoices, openKind: openItem?.kind)
+    }
+
+    /// A kind's header was clicked: open or close its group. Nothing is answered.
+    func toggleGroup(_ kind: InboxKind) {
+        let sections = sections
+        groupChoices[kind] = !isGroupOpen(kind, in: sections)
+    }
+
+    /// The held answer's question, when the list on screen would show it (a kind's tab hides another kind's).
+    private var heldInList: InboxItem? {
+        guard let item = heldQuestion, columns.kindFilter == nil || columns.kindFilter == item.kind else { return nil }
+        return item
+    }
+
+    /// The full-width list's lines: kind headers with counts and their quick review, page headers, questions.
+    var lines: [InboxListLine] {
+        let derived = derived
+        let key = LinesKey(derived: derivedKey, groupChoices: groupChoices, openKind: openItem?.kind)
+        if let memo = linesMemo, memo.key == key { return memo.value }
+        let sections = derived.sections
+        let value = InboxListLine.lines(sections, byKind: key.derived.filter == nil, held: held, heldItem: heldInList,
+                                        reviews: derived.reviewEntries) {
+            isGroupOpen($0, in: sections)
+        }
+        linesMemo = (key, value)
+        return value
+    }
+    var openItem: InboxItem? { columns.openId.flatMap { derived.byId[$0] } }
     var held: ResolveGrace? { store.currentHeld }
     /// The held answer's question, from the snapshot (`visibleInbox` hides it) — the Undo row's words.
     var heldQuestion: InboxItem? { held.flatMap { h in store.inbox.value?.first { $0.id == h.id } } }
+    /// Every question as one flat list in the groups' order (the narrow columns beside an open question), with the
+    /// held answer's Undo row in its question's place.
     var rows: [InboxRowEntry] {
-        InboxRows.entries(visible: visible, held: held, snapshot: store.inbox.value ?? [], filter: columns.kindFilter)
+        let derived = derived
+        let key = derivedKey
+        if let memo = rowsMemo, memo.key == key { return memo.value }
+        let value = InboxListLine.lines(derived.sections, byKind: key.filter == nil, held: held, heldItem: heldInList,
+                                        reviews: []) { _ in true }
+            .compactMap { if case .entry(let entry, _) = $0 { return entry } else { return nil } }
+        rowsMemo = (key, value)
+        return value
     }
     var eyebrow: String { InboxEyebrow.text(visible: visible, openId: columns.openId) }
     /// DR-45 — the tabs replace the kind chips and their `countByKind`, their one reader.
-    var tabs: [TextTab<InboxKind>] { InboxTabs.tabs(questions) }
+    var tabs: [TextTab<InboxKind>] { derived.tabs }
 
     func setFilter(_ kind: InboxKind?) {
-        columns.filter(kind, visibleAfter: InboxColumns.visible(questions, filter: kind))
+        columns.filter(kind, visibleAfter: Self.ordered(questions, filter: kind))
     }
-    func reconcile() { columns.reconcile(visible: visible, kinds: Set(questions.map(\.kind))) }
+    func reconcile() {
+        let derived = derived
+        columns.reconcile(visible: derived.visible, kinds: derived.kinds)
+    }
     func resetColumns() {
         columns = InboxColumns()
+        groupChoices = [:]
         review = nil   // ids repeat across banks: a review never crosses a switch
     }
 
@@ -124,16 +241,31 @@ final class InboxViewModel {
     /// once; the POST waits for the Undo window (R-DI2). Nothing to await: there is no request yet.
     @discardableResult
     func answer(_ item: InboxItem, _ resolution: QuestionResolution) -> Bool {
+        answerAll([(item, resolution)])
+    }
+
+    /// One answer in several parts (the catch-up, owner 2026-11-05): every question leaves at once, and one Undo
+    /// takes back the lot. The first part names the Undo row.
+    @discardableResult
+    func answerAll(_ parts: [(item: InboxItem, resolution: QuestionResolution)]) -> Bool {
+        guard let (item, resolution) = parts.first else { return false }
         let words = UndoLabel.of(resolution, item: item, names: store.entityNames)
-        let held = store.hold(InboxResolve(id: item.id, action: resolution.action, answer: resolution.answer,
-                                optionKey: resolution.optionKey, remindDays: resolution.remindDays,
-                                mergeTarget: resolution.mergeTarget, mergeSurvivor: resolution.mergeSurvivor),
-                   label: words.full, shortLabel: words.short, question: item.questionText,
-                   kind: item.kind, channel: item.channel)
+        let held = store.hold(Self.inboxResolve(item, resolution),
+                              also: parts.dropFirst().map { Self.inboxResolve($0.item, $0.resolution) },
+                              label: words.full, shortLabel: words.short, question: item.askText,
+                              kind: item.kind, channel: item.channel)
         guard held else { return false }   // a bank switch is in flight: the question stays open (G183(d))
         // DR-29 — the next row opens at once (`visible` already leaves the held one out).
-        columns.afterAnswer(item.id, remaining: visible)
+        for part in parts { columns.afterAnswer(part.item.id, remaining: visible) }
         return true
+    }
+
+    private static func inboxResolve(_ item: InboxItem, _ resolution: QuestionResolution) -> InboxResolve {
+        InboxResolve(id: item.id, action: resolution.action, answer: resolution.answer,
+                     optionKey: resolution.optionKey, remindDays: resolution.remindDays,
+                     mergeTarget: resolution.mergeTarget, mergeSurvivor: resolution.mergeSurvivor,
+                     quote: resolution.quote, relayedBy: resolution.quote == nil ? nil : CatchupAnswers.relayedBy,
+                     sessionId: resolution.sessionId)
     }
 
     /// DR-42 — Undo: the held answer is dropped unsent. Returns the question so the page can reopen
@@ -153,7 +285,7 @@ final class InboxViewModel {
     var review: InboxReview?
 
     /// The entry points: "Fading pages · 49", one per kind with something to review.
-    var reviewEntries: [ReviewEntries.Entry] { ReviewEntries.of(questions) }
+    var reviewEntries: [ReviewEntries.Entry] { derived.reviewEntries }
 
     /// The card on screen. `items` already hides a held answer, so the current card is never the one just answered.
     var reviewItem: InboxItem? { review?.currentId.flatMap { id in items.first { $0.id == id } } }

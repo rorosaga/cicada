@@ -34,7 +34,7 @@ private enum V5Fixture {
     static let now = Date(timeIntervalSince1970: 1_790_000_000)
 
     static func page(_ status: SleepStatusResponse?, sse: SleepEventPayload? = nil, pausing: Bool = false,
-                     batchSize: Int? = nil) -> SleepPageModel {
+                     batchSize: Int? = nil, now: Date = V5Fixture.now) -> SleepPageModel {
         SleepPageModel.resolve(
             status: status, sse: sse, queued: [], schedule: ScheduleConfig(mode: "manual", hour: 3, minute: 0),
             enginePreview: nil, history: [], storeStatus: nil, queueLoad: .loaded(count: 0),
@@ -95,6 +95,7 @@ final class SleepV5WireTests: XCTestCase {
         XCTAssertEqual(defaults.batchSizeChoices, [10, 25, 50])
         XCTAssertFalse(defaults.continueAfterReset, "ruling 15: off by default")
         XCTAssertNil(defaults.reservePct, "Leave room in my plan: off by default")
+        XCTAssertEqual(defaults.spendLimitUsd, 5, "ROR-102: the suggested figure")
         XCTAssertTrue(defaults.scheduledUsePlan, "ruling 4b, amended 2026-10-19: scheduled runs use the plan by default")
         let custom = try V5Fixture.decode(SleepRunOptions.self, "sleep-run-options.json", key: "custom")
         XCTAssertEqual(custom.batchSize, 10)
@@ -120,6 +121,10 @@ final class SleepV5WireTests: XCTestCase {
     func test_optionsChangesSendOnlyTheirField() {
         XCTAssertEqual(SleepRunOptionsChange.batchSize(50).body as? [String: Int], ["batchSize": 50])
         XCTAssertEqual(SleepRunOptionsChange.continueAfterReset(true).body as? [String: Bool], ["continueAfterReset": true])
+        XCTAssertEqual(SleepRunOptionsChange.keepAwake(true).body as? [String: Bool], ["keepAwake": true])
+        XCTAssertFalse(SleepRunOptions().keepAwake, "G243: off by default")
+        XCTAssertTrue(SleepRunOptionsChange.spendLimitUsd(nil).body["spendLimitUsd"] is NSNull, "off is an explicit null")
+        XCTAssertEqual(SleepRunOptionsChange.spendLimitUsd(7.5).body["spendLimitUsd"] as? Double, 7.5)
         XCTAssertTrue(SleepRunOptionsChange.reservePct(nil).body["reservePct"] is NSNull, "off is an explicit null")
     }
 }
@@ -191,6 +196,109 @@ final class SleepV5RoomSentenceTests: XCTestCase {
                                             runBilling: nil, reserveValue: nil, locale: V5Fixture.en)
             XCTAssertEqual(rows.first { $0.kind == .paused }?.text, diagnosis)
         }
+    }
+
+    /// 2026-11-03: a run the network left and that gave up waiting says so — never "the engine needs a look".
+    func test_anOfflinePauseSpeaksOfTheNetworkInPlainToneNeverTheEngine() throws {
+        let diagnosis = "This computer was asleep and the network was not back yet. Sleep waited and it did not come back."
+        var paused = try JSONDecoder().decode(SleepPausedRun.self, from: Data(
+            #"{"runId":"run","reason":"engine","engineKind":"offline","filed":0,"frozen":4}"#.utf8))
+        paused.sentence = diagnosis
+        let page = SleepPageModel.resolve(
+            status: nil, sse: nil, queued: [], schedule: ScheduleConfig(mode: "manual", hour: 3, minute: 0),
+            enginePreview: nil, history: [], storeStatus: nil, queueLoad: .loaded(count: 4),
+            justFinishedAt: nil, intakeInFlight: false, paused: paused, now: V5Fixture.now, locale: V5Fixture.en)
+        let line = V5Fixture.sentence(page)
+        XCTAssertEqual(line.lead, "Paused. This Mac was offline.")
+        XCTAssertEqual(line.tail, "Continue once it's online. 0 of 4 filed.")
+        XCTAssertNotEqual(line.tone, .warning)
+        XCTAssertFalse(line.spoken.contains("engine"))
+        let rows = LastCycleRow.runRows(drain: nil, paused: paused, run: nil, detail: nil, parkedCount: 0,
+                                        runBilling: nil, reserveValue: nil, locale: V5Fixture.en)
+        let row = try XCTUnwrap(rows.first { $0.kind == .paused })
+        XCTAssertEqual(row.title, "Paused — this Mac was offline")
+        XCTAssertEqual(row.text, diagnosis)
+        XCTAssertEqual(Copy.SleepV5.pauseRow(from: "3:00 AM", to: nil, reason: "offline"),
+                       "Paused at 3:00 AM · this Mac was offline")
+    }
+
+    /// Review of #614: a key out of credit is told so. The row carries the backend's sentence, never the generic count,
+    /// and the plan is never named.
+    func test_aKeyLimitPauseShowsItsOwnSentence() throws {
+        let sentence = "The API key's spending limit was reached. Add credit or raise the limit with the provider, then continue."
+        for (reason, title, said) in [("key_limit", "Paused at your API key's limit", sentence),
+                                      ("spend", "Paused at your spending limit", "Spending limit reached; what was read is kept. Continue spends up to it again.")] {
+            let paused = SleepPausedRun(reason: reason, sentence: said, filed: 3, frozen: 8)
+            let rows = LastCycleRow.runRows(drain: nil, paused: paused, run: nil, detail: nil, parkedCount: 0,
+                                            runBilling: nil, reserveValue: nil, locale: V5Fixture.en)
+            let row = try XCTUnwrap(rows.first { $0.kind == .paused })
+            XCTAssertEqual(row.title, title)
+            XCTAssertEqual(row.text, said)
+            XCTAssertFalse(row.title.contains("plan"))
+        }
+    }
+
+    /// The page's own line: a short sentence whole, a long one points at Details; a limit is never a plain "Paused." alone.
+    func test_aKeyLimitPauseSaysWhyOnThePage() {
+        let short = "Spending limit reached; what was read is kept. Continue spends up to it again."
+        let long = String(repeating: "A sentence that only Details can show whole. ", count: 3)
+        for (reason, said, tail) in [("spend", short, short), ("key_limit", long, Copy.SleepV5.keyLimitTail)] {
+            var context = RoomContext(mood: .error, scheduleMode: "manual", locale: V5Fixture.en)
+            context.paused = SleepPausedRun(reason: reason, sentence: said, filed: 3, frozen: 8)
+            let line = roomSentence(context)
+            XCTAssertEqual(line.tail, tail, reason)
+            XCTAssertEqual(line.action, .openDetails(.lastCycle), reason)
+        }
+    }
+
+    /// ROR-102: only a run charged per use has the row, and a figure set from the shell stays among the choices.
+    func test_theSpendingLimitRowIsAKeysAndKeepsAFigureSetElsewhere() {
+        let status = SleepSpendStatus(limitUsd: 7.5, choices: [1, 5, 10], applies: true)
+        XCTAssertEqual(EngineQuickMenuModel.Spend.from(status, billing: "charged")?.choices, [1, 5, 7.5, 10])
+        XCTAssertEqual(EngineQuickMenuModel.Spend.from(status, billing: "charged")?.limitUsd, 7.5)
+        let notHere = SleepSpendStatus(limitUsd: 5, choices: [5], applies: false)
+        XCTAssertNil(EngineQuickMenuModel.Spend.from(notHere, billing: "plan"))
+        XCTAssertNil(EngineQuickMenuModel.Spend.from(nil, billing: "charged"), "an older backend")
+        XCTAssertEqual(Copy.SleepV5.spendChoice(5), "$5")
+        XCTAssertEqual(Copy.SleepV5.spendChoice(7.5), "$7.50")
+    }
+
+    /// #575 review: the lead says what the backend found — a dropping connection is not "offline".
+    func test_anOfflinePauseLeadFollowsItsCause() throws {
+        let expected = ["asleep": ("Paused. This Mac was asleep.", "Continue once it's online. 0 of 4 filed."),
+                        "no_network": ("Paused. This Mac was offline.", "Continue once it's online. 0 of 4 filed."),
+                        "connection": ("Paused. The connection kept dropping.", "Continue to try again. 0 of 4 filed.")]
+        for (cause, (lead, tail)) in expected {
+            let paused = try JSONDecoder().decode(SleepPausedRun.self, from: Data(
+                #"{"runId":"run","reason":"engine","engineKind":"offline","offlineCause":"\#(cause)","filed":0,"frozen":4}"#.utf8))
+            XCTAssertEqual(paused.offlineCause, cause)
+            var context = RoomContext(mood: .sleeping(stage: 1), scheduleMode: "manual", locale: V5Fixture.en)
+            context.paused = paused
+            let line = roomSentence(context)
+            XCTAssertEqual(line.lead, lead)
+            XCTAssertEqual(line.tail, tail)
+            let row = try XCTUnwrap(LastCycleRow.runRows(drain: nil, paused: paused, run: nil, detail: nil, parkedCount: 0,
+                                                         runBilling: nil, reserveValue: nil, locale: V5Fixture.en)
+                .first { $0.kind == .paused })
+            XCTAssertEqual(row.title, cause == "connection" ? "Paused — the connection kept dropping"
+                                                            : "Paused — this Mac was offline")
+        }
+        XCTAssertEqual(Copy.SleepV5.pauseRow(from: "3:00 AM", to: nil, reason: "connection"),
+                       "Paused at 3:00 AM · the connection kept dropping")
+    }
+
+    func test_aRunWaitingForTheNetworkSaysSoAboveTheStageRungs() throws {
+        let drain = try JSONDecoder().decode(SleepDrainInfo.self, from: Data(
+            #"{"id":"run","frozen":4,"batchSize":25,"batch":1,"batches":1,"filed":0,"active":true,"waiting":"asleep"}"#.utf8))
+        XCTAssertEqual(drain.waiting, "asleep")
+        var context = RoomContext(mood: .sleeping(stage: 1), scheduleMode: "manual", locale: V5Fixture.en)
+        context.activeStage = 1
+        context.drain = drain
+        let line = roomSentence(context)
+        XCTAssertEqual(line.lead, "Waiting for the network.")
+        XCTAssertEqual(line.tail, "The Mac slept mid-read. That part is read again once it's back.")
+        context.drain?.waiting = nil
+        XCTAssertNotEqual(roomSentence(context).lead, "Waiting for the network.")
     }
 
     func test_engineKindSurvivesStatusAndSSEDecodingAndMovesTheStatusDomain() throws {
@@ -329,6 +437,145 @@ final class SleepV5PausedStateTests: XCTestCase {
     }
 }
 
+// MARK: - After the plan's reset (ROR-96)
+
+/// A pause outlives its limit (ruling 15: a weekly limit waits for the person's click). Once the reset has passed the
+/// page says the plan is back, never "used up" and never a time that has gone by.
+final class SleepV5PlanBackTests: XCTestCase {
+    /// An hour and a half past the fixture's reset (1_790_003_600), the same UTC day: the owner's report.
+    private let later = Date(timeIntervalSince1970: 1_790_003_600 + 5_400)
+    /// Two days past it: the reset's words would be a weekday, which reads as the coming one.
+    private let daysLater = Date(timeIntervalSince1970: 1_790_003_600 + 2 * 86_400)
+
+    private func status(_ reason: String) throws -> SleepStatusResponse {
+        var object = try XCTUnwrap(try XCTUnwrap(V5Fixture.object("sleep-status-paused.json") as? [String: Any])["plan_window"]
+            as? [String: Any])
+        var paused = try XCTUnwrap(object["paused"] as? [String: Any])
+        paused["reason"] = reason
+        paused["autoContinue"] = NSNull()
+        object["paused"] = paused
+        return try JSONDecoder().decode(SleepStatusResponse.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+
+    private func assertNoPastTime(_ text: String, _ message: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse(text.contains("used up"), "\(message): \(text)", file: file, line: line)
+        XCTAssertFalse(text.contains("Resets"), "\(message): \(text)", file: file, line: line)
+        XCTAssertFalse(text.contains("full"), "\(message): \(text)", file: file, line: line)
+        XCTAssertNil(text.range(of: #"\d:\d\d"#, options: .regularExpression), "\(message): \(text)", file: file, line: line)
+    }
+
+    func test_aPassedResetNeverSaysUsedUpOrAPastTime() throws {
+        for reason in ["plan_weekly", "plan_window", "overage", "reserve"] {
+            for now in [later, daysLater] {
+                let line = V5Fixture.sentence(V5Fixture.page(try status(reason), now: now))
+                assertNoPastTime(line.spoken, reason)
+            }
+        }
+    }
+
+    func test_aPassedWeeklyResetLetsContinueThrough() throws {
+        XCTAssertTrue(V5Fixture.page(try status("plan_weekly")).continueWaitsForReset)
+        XCTAssertFalse(V5Fixture.page(try status("plan_weekly"), now: later).continueWaitsForReset)
+    }
+
+    func test_aPassedResetSaysThePlanIsBackAndToContinue() throws {
+        for reason in ["plan_weekly", "plan_window", "overage", "reserve"] {
+            let page = V5Fixture.page(try status(reason), now: later)
+            let line = V5Fixture.sentence(page)
+            XCTAssertEqual(line.lead, Copy.SleepV5.planBackLead, reason)
+            XCTAssertEqual(line.tail, Copy.SleepV5.continueWhenYouLike(filed: 3, frozen: 9, V5Fixture.en), reason)
+            XCTAssertLessThanOrEqual(line.lead.count, SentenceLine.maxLead)
+            XCTAssertEqual(line.tone, .plain, "a plan that came back is not a warning")
+            XCTAssertNil(page.resetWhen, "the Continue button's help reads this too")
+        }
+    }
+
+    func test_beforeTheResetTheWordsStayAsTheyWere() throws {
+        let page = V5Fixture.page(try status("plan_weekly"))
+        let line = V5Fixture.sentence(page)
+        XCTAssertEqual(line.lead, Copy.SleepV5.pausedPlanWeeklyLead)
+        XCTAssertEqual(line.tail, Copy.SleepV5.resetsThenContinue(try XCTUnwrap(page.resetWhen)))
+        XCTAssertTrue(line.tail?.contains("3:13") ?? false, line.tail ?? "")
+    }
+
+    /// The moment itself: the reset's own second is past, not still ahead.
+    func test_theResetsOwnSecondCountsAsPassed() throws {
+        let page = V5Fixture.page(try status("plan_weekly"), now: Date(timeIntervalSince1970: 1_790_003_600))
+        XCTAssertEqual(V5Fixture.sentence(page).lead, Copy.SleepV5.planBackLead)
+        XCTAssertFalse(page.continueWaitsForReset)
+        XCTAssertNil(page.nextClockEdge)
+    }
+
+    func test_aPauseWithNoVendorTimeNeverSaysThePlanIsBack() throws {
+        var object = try XCTUnwrap(try XCTUnwrap(V5Fixture.object("sleep-status-paused.json") as? [String: Any])["plan_window"]
+            as? [String: Any])
+        var paused = try XCTUnwrap(object["paused"] as? [String: Any])
+        paused["reason"] = "plan_weekly"
+        paused["resetsAt"] = NSNull()
+        paused["autoContinue"] = NSNull()
+        object["paused"] = paused
+        let status = try JSONDecoder().decode(SleepStatusResponse.self, from: JSONSerialization.data(withJSONObject: object))
+        let line = V5Fixture.sentence(V5Fixture.page(status, now: daysLater))
+        XCTAssertEqual(line.lead, Copy.SleepV5.pausedPlanWeeklyLead, "an absent reset is never guessed")
+        XCTAssertEqual(line.tail, Copy.SleepV5.continueWhenItResets)
+    }
+
+    func test_anEnginePauseNeverSaysThePlanIsBackWhateverItsTime() throws {
+        let line = V5Fixture.sentence(V5Fixture.page(try status("engine"), now: later))
+        XCTAssertNotEqual(line.lead, Copy.SleepV5.planBackLead)
+    }
+
+    /// Ruling 15's automatic continue fires a minute after the reset: in that minute the plan is back and the run says
+    /// when it goes on; past it (the Mac just woke, the job has not fired) no time is said at all.
+    func test_anArmedContinueNamesOnlyATimeStillAhead() throws {
+        let armed = try V5Fixture.paused("plan_window")
+        let inGrace = V5Fixture.page(armed, now: Date(timeIntervalSince1970: 1_790_003_630))
+        XCTAssertEqual(V5Fixture.sentence(inGrace).lead, Copy.SleepV5.planBackLead)
+        XCTAssertNotNil(inGrace.autoContinueWhen)
+        XCTAssertTrue(V5Fixture.sentence(inGrace).tail?.contains("Continues after") ?? false)
+        XCTAssertEqual(inGrace.nextClockEdge, Date(timeIntervalSince1970: 1_790_003_660))
+        let past = V5Fixture.page(armed, now: later)
+        XCTAssertNil(past.autoContinueWhen)
+        assertNoPastTime(V5Fixture.sentence(past).spoken, "armed, past its time")
+        for line in wormAnswers(past.roomContext(locale: V5Fixture.en)) {
+            assertNoPastTime(line.spoken, "the worm's answers")
+        }
+    }
+
+    /// What `SleepView` sleeps until: the page's next change of words, so it redraws with nothing else moving.
+    func test_theNextClockEdgeIsTheSoonestTimeStillAhead() throws {
+        XCTAssertEqual(V5Fixture.page(try status("plan_weekly")).nextClockEdge, Date(timeIntervalSince1970: 1_790_003_600))
+        XCTAssertEqual(V5Fixture.page(try V5Fixture.paused("plan_window")).nextClockEdge,
+                       Date(timeIntervalSince1970: 1_790_003_600), "the reset, then the armed continue a minute later")
+        XCTAssertNil(V5Fixture.page(try status("plan_weekly"), now: later).nextClockEdge, "nothing left to wait for")
+        XCTAssertNil(V5Fixture.page(try V5Fixture.paused("user")).nextClockEdge, "no clock in a pause by the person")
+    }
+
+    /// Past reads' row: the vendor's sentence carries the reset time, so it stops with it.
+    func test_theDetailsRowDropsTheVendorsSentenceOnceItsTimeHasPassed() throws {
+        let response = try status("plan_weekly")
+        let paused = try XCTUnwrap(response.paused)
+        let row = { (back: Bool) in
+            LastCycleRow.runRows(drain: nil, paused: paused, run: nil, detail: nil, parkedCount: 0, runBilling: nil,
+                                 reserveValue: nil, planIsBack: back, locale: V5Fixture.en).first { $0.kind == .paused }
+        }
+        XCTAssertEqual(row(false)?.text, paused.sentence)
+        XCTAssertEqual(row(true)?.title, Copy.SleepV5.planBackLead)
+        XCTAssertEqual(row(true)?.text, Copy.SleepV5.pausedText(filed: 3, frozen: 9, V5Fixture.en))
+    }
+
+    /// The engine menu's help: a window that has reset says so, never "resets" and a time gone by.
+    func test_theEngineMenusHelpDropsAResetThatHasPassed() {
+        let usage = SleepEngineUsage(kind: "plan-window", window: "five_hour", usedFraction: 0.9, resetsAt: 1_790_003_600,
+                                     asOf: "2026-09-21T12:00:00Z", source: "last-cycle")
+        let shown = CycleUsageText.planCaption(usage, now: later, locale: V5Fixture.en, timeZone: V5Fixture.utc)
+        XCTAssertEqual(shown?.caption, Copy.SleepUsage.windowReset)
+        XCTAssertFalse(shown?.help.contains("resets") ?? true, shown?.help ?? "")
+        let ahead = CycleUsageText.planCaption(usage, now: V5Fixture.now, locale: V5Fixture.en, timeZone: V5Fixture.utc)
+        XCTAssertTrue(ahead?.help.contains("resets") ?? false)
+    }
+}
+
 // MARK: - The bar
 
 final class SleepV5ProgressBarTests: XCTestCase {
@@ -450,7 +697,7 @@ final class SleepV5DetailsTests: XCTestCase {
         drain.startedBy = "schedule"
         let rows = LastCycleRow.runRows(drain: drain, paused: nil, run: nil, detail: nil, parkedCount: 0,
                                         runBilling: "charged", reserveValue: nil, locale: V5Fixture.en)
-        XCTAssertTrue(rows.contains { $0.kind == .scheduled && $0.text.contains("Cicada sets no limit") })
+        XCTAssertTrue(rows.contains { $0.kind == .scheduled && $0.text.contains("your spending limit") })
         let local = LastCycleRow.runRows(drain: drain, paused: nil, run: nil, detail: nil, parkedCount: 0,
                                          runBilling: "local", reserveValue: nil, locale: V5Fixture.en)
         XCTAssertFalse(local.contains { $0.kind == .scheduled })
@@ -748,7 +995,7 @@ final class SleepV5EngineMenuTests: XCTestCase {
     }
 
     func test_scheduledSpendFollowsBilling() {
-        XCTAssertTrue(Copy.SleepV5.scheduledSpend("charged")?.contains("Cicada sets no limit") == true)
+        XCTAssertTrue(Copy.SleepV5.scheduledSpend("charged")?.contains("spending limit") == true)
         XCTAssertEqual(Copy.SleepV5.scheduledSpend("local"), "It reads everything waiting, on this Mac.")
         XCTAssertNil(Copy.SleepV5.scheduledSpend("plan"), "a scheduled run never uses a plan (ruling 4)")
         XCTAssertNil(Copy.SleepV5.scheduledSpend(nil))

@@ -125,7 +125,12 @@ struct DevicesSettingsView: View {
     @State private var rows: [DeviceStatusRow] = []
     @State private var pairing = false
     @State private var pendingRevoke: DeviceStatusRow?
+    /// The device the pairing sheet just paired, so an older row of the same name can be offered for revoking.
+    @State private var justPaired: String?
     @State private var appsOpen = false
+    /// The two G132 cards' models, read with the page (on appear and every 30 s), so a card shows once its read lands.
+    @State private var copyModel = MemoryCopyModel()
+    @State private var relayModel = RelayModel()
 
     var body: some View {
         SettingsPage(section: .devices) {
@@ -146,7 +151,29 @@ struct DevicesSettingsView: View {
                         }
                     }
                 }
+                if model.canManage, let twin = Self.olderTwins(rows, newDeviceId: justPaired).first {
+                    // Review 2026-10-29: the same phone paired again leaves its old row (its old token) behind; offer to
+                    // revoke it, behind the same confirmation as any Revoke. An offer only — nothing is revoked here.
+                    SettingsDivider()
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Text(Copy.DevicesPage.olderTwin(twin.name))
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                        Spacer(minLength: CicadaTheme.spacingSM)
+                        TextButton(title: Copy.DevicesPage.revokeOlder, inline: true) { pendingRevoke = twin }
+                            .accessibilityIdentifier("devices.revokeOlder")
+                    }
+                    .padding(CicadaTheme.spacingMD)
+                }
                 if model.canManage {
+                    // 2026-10-29: the guided reach step sits right above the button it makes work.
+                    SettingsDivider()
+                    DeviceReachSection()
+                    if LocalNetworkStep.rowShown() {
+                        // A skipped or refused first-share step: the same row, so the answer can still be given.
+                        SettingsDivider()
+                        PermissionList(permissions: [.localNetwork], place: .settings)
+                    }
                     SettingsDivider()
                     HStack {
                         Spacer()
@@ -167,6 +194,11 @@ struct DevicesSettingsView: View {
                     }
                 }
             }
+            // G132 phase 1: share this memory with the person's other computers, or keep a full copy of another's here.
+            MemoryCopySetting(model: copyModel)
+            // G132 phase 3b: the relay (off by default) — pair a computer through it, or join one with a code. Ruling
+            // 51f, owner D9: under Advanced, never a default.
+            RelaySection(model: relayModel, canManage: model.canManage)
             // Hyrum audit B1 / D6: the remote connector, unchanged, folded (DR-39) under the old page's anchor.
             SettingsGroupCard {
                 DisclosureGroup(isExpanded: $appsOpen) {
@@ -189,7 +221,7 @@ struct DevicesSettingsView: View {
             }
         }
         .sheet(isPresented: $pairing) {
-            PairDeviceSheet { pairing = false; Task { await refresh() } }
+            PairDeviceSheet { paired in pairing = false; justPaired = paired; Task { await refresh() } }
         }
         .confirmationDialog(Copy.Devices.revokeTitle(pendingRevoke?.name ?? ""),
                             isPresented: Binding(get: { pendingRevoke != nil }, set: { if !$0 { pendingRevoke = nil } }),
@@ -208,6 +240,8 @@ struct DevicesSettingsView: View {
 
     private func refresh() async {
         await model.refresh()
+        await copyModel.refresh()
+        await relayModel.refresh()
         if let answer = try? await APIClient.shared.fetchDeviceStatus() {
             rows = answer.devices.map { row in
                 var row = row
@@ -217,6 +251,14 @@ struct DevicesSettingsView: View {
                 return row
             }
         }
+    }
+
+    /// The active rows that share the just-paired device's name (case and spaces aside), the new one excluded — the
+    /// same phone paired again; never the server row. Empty when nothing was just paired.
+    static func olderTwins(_ rows: [DeviceStatusRow], newDeviceId: String?) -> [DeviceStatusRow] {
+        guard let newDeviceId, let fresh = rows.first(where: { $0.deviceId == newDeviceId }) else { return [] }
+        let key = { (name: String) in name.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased() }
+        return rows.filter { !$0.isServer && $0.deviceId != nil && $0.deviceId != newDeviceId && key($0.name) == key(fresh.name) }
     }
 
     static func symbol(_ row: DeviceStatusRow) -> String {
@@ -243,6 +285,21 @@ struct DevicesSettingsView: View {
             parts.append(row.connected ? Copy.AgentsPage.seen(seen, now: now) : Copy.AgentsPage.lastSeen(seen))
         }
         if row.queue > 0 { parts.append(Copy.DevicesPage.waiting(row.queue)) }
+        // 2026-10-29: what the device may do and whether its token needs its own key — only when the backend says.
+        if !row.isServer {
+            switch row.kind {
+            case "capture": parts.append(Copy.DevicesPage.captureOnly)
+            case "full": parts.append(Copy.DevicesPage.fullAccess)
+            default: break
+            }
+            if let bound = row.keyBound {
+                if bound, let since = row.keyBoundAt.flatMap(ISODate.parse) {
+                    parts.append(Copy.DevicesPage.keyBoundSince(since))
+                } else {
+                    parts.append(bound ? Copy.DevicesPage.keyBound : Copy.DevicesPage.notKeyBound)
+                }
+            }
+        }
         return parts.joined(separator: " · ")
     }
 

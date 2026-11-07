@@ -56,28 +56,7 @@ struct ChannelSourceView: View {
             folderCounts(groups)
         }
         if source.id == TabGroupWatcher.channel {
-            // G160 — the groups open right now, read on this Mac; never read back from the bank.
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                SectionLabel(Copy.tabGroupsTitle)
-                if let tabGroups, tabGroups.enabled {
-                    ForEach(Array(tabGroups.groups.enumerated()), id: \.offset) { _, group in
-                        HStack(spacing: CicadaTheme.spacingSM) {
-                            Tag(text: group.title.isEmpty ? Copy.tabGroupUnnamed : group.title,
-                                dot: TabGroupColor.hue(group.color))
-                            Text(Copy.tabsCount(group.tabs.count))
-                                .font(CicadaTheme.metaFont).monospacedDigit()
-                                .foregroundStyle(CicadaTheme.textSecondary)
-                        }
-                    }
-                    if tabGroups.groups.isEmpty {
-                        Text(Copy.tabGroupsNoneOpen)
-                            .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
-                    }
-                } else {
-                    Text(Copy.tabGroupsOffLine)
-                        .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
-                }
-            }
+            TabGroupsOpenNow()
             // G161 — the groups Cicada brought in (each a snapshot the Reader opens), under what is open now.
             if let id = source.channelId { CapturedItemsList(channel: id) }
         } else if source.isWatchHistory {
@@ -103,26 +82,7 @@ struct ChannelSourceView: View {
         }
     }
 
-    /// One write path (`InboxViewModel.answer` → the held `POST /inbox/{id}/resolve`, DR-42),
-    /// two views: the unified Inbox and this page render the identical focus card and the
-    /// identical Undo row (R-DI16).
-    private var deletionsSection: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("Removed from \(source.label)")  // count-lint:ok — a source name, not a count
-                .font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
-            VStack(spacing: CicadaTheme.spacingSM) {
-                if let pending = inboxVM.heldRemoval(channel: source.channelId) {
-                    InboxUndoRow(held: pending.held, item: pending.item, style: .wide, shortcutEnabled: true) {
-                        inboxVM.undo(reopen: false)
-                    }
-                }
-                ForEach(removals) { item in
-                    InboxFocusCard(item: item, padding: CicadaTheme.spacingLG) { inboxVM.answer(item, $0) }
-                }
-            }
-        }
-        .padding(CicadaTheme.spacingMD).glassCard()
-    }
+    private var deletionsSection: some View { ChannelRemovals(source: source) }
 
     /// iCloud tabs group by device (the importer writes the device name into
     /// `folder:`); every other importer's `folder:` is a folder, board or

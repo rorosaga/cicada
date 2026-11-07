@@ -31,6 +31,33 @@ extension Copy {
         static func signInFirst(_ label: String) -> String { "Sign in on Plans & keys to use your \(label)" }
         /// A run resolves its engine once and keeps it; a change made while it reads waits (never names an engine).
         static let runKeepsEngine = "This run keeps the engine it started with. Your choice applies when a run starts or continues."
+
+        // Engine picker v2 (ruling 48 part 11, `10-engine-picker`): the filterable model list.
+        static func filterPlaceholder(_ count: Int) -> String { count == 1 ? "Filter 1 model" : "Filter \(count) models" }
+        static let new = "New"
+        static func showOlder(_ count: Int) -> String { "Show \(count) older" }
+        static let noMatch = "No model matches."
+        static let refresh = "Refresh"
+        static let refreshing = "Reading the list…"
+        static let refreshHelp = "Ask the tool for its model list again"
+        static let refreshFailed = "Couldn't read the list just now — showing the last one."
+        /// Where the list came from and when, in words. The card's own name is the person's choice (provider-neutral
+        /// copy names nothing else); a list Cicada keeps itself says so.
+        static func freshness(card: String, own: Bool, age: String?) -> String {
+            let whose = own ? "\(card)'s own list" : "Cicada's built-in list"
+            return age.map { "\(whose), as of \($0)" } ?? whose
+        }
+        static func age(seconds: TimeInterval) -> String {
+            switch seconds {
+            case ..<60: "just now"
+            case ..<3600: "\(Int(seconds / 60)) min ago"
+            case ..<86_400: "\(Int(seconds / 3600)) h ago"
+            default: Int(seconds / 86_400) == 1 ? "1 day ago" : "\(Int(seconds / 86_400)) days ago"
+            }
+        }
+        static func resolvesTo(_ id: String) -> String { "Last run on \(id)" }
+        /// Ruling 46a (owner 2026-10-28) — a model the tool bills outside the plan, said on its row before it is chosen.
+        static let billedSeparately = "Billed separately at list price"
     }
 
     /// What a cycle cost (2026-09-28 ruling, TODO ruling 12): the Sleep page's Details and its engine
@@ -59,6 +86,11 @@ extension Copy {
             "Claude reports a window only after a call, so the first figure is the reading after the cycle's first call."
         static let windowReset = "Window has reset since it was read"
         static let perMillionNote = "Prices are per million tokens: input / output."
+        /// Ruling 12: a price Cicada keeps itself says where it read it (G237).
+        static func perMillionNote(basis: String?) -> String {
+            guard let basis, !basis.isEmpty else { return perMillionNote }
+            return "\(perMillionNote) From \(basis)."
+        }
 
         static func source(connection: String?, engine: String?) -> String? {
             switch connection {
@@ -73,7 +105,7 @@ extension Copy {
             case "claude-cli": return "Claude plan"
             case "codex-cli": return "ChatGPT plan"
             case "ollama": return "Ollama"
-            case "litellm": return "API key"
+            case "litellm", "anthropic-api": return "API key"
             default: return nil
             }
         }

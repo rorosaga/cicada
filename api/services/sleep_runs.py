@@ -71,6 +71,9 @@ def record_leg(memory_path: Path, ds, *, state: str, stop=None, reason: str | No
     questions = (int(prev.get("questions_raised") or 0) + int(questions_leg)) if questions_leg is not None \
         else prev.get("questions_raised")
     owner = ds.owner_beliefs if ds.owner_beliefs else prev.get("owner")
+    sensitive = {**(prev.get("sensitive") if isinstance(prev.get("sensitive"), dict) else {}),
+                 **(getattr(ds, "sensitive", None) or {})}
+    replaced = sorted({*(prev.get("replaced_ids") or []), *(getattr(ds, "replaced_ids", None) or ())})
     summary = {
         "id": ds.drain_id,
         "started_by": ds.started_by,
@@ -92,6 +95,8 @@ def record_leg(memory_path: Path, ds, *, state: str, stop=None, reason: str | No
         "first_run": bool(ds.first_run),
         # The scheduled time a catch-up run stood in for (aware ISO); a Continue's new leg keeps the first leg's.
         "catch_up_for": getattr(ds, "catch_up_for", None) or prev.get("catch_up_for"),
+        "sensitive": sensitive,
+        "replaced_ids": replaced,
     }
     data["runs"][ds.drain_id] = summary
     if ds.drain_id in data["order"]:
@@ -132,6 +137,18 @@ def mark_restart_pause(memory_path: Path, run_id: str, *, paused_at_ts: float | 
     _save(memory_path, data)
 
 
+def sensitive_block(summary: dict) -> dict | None:
+    """G235: how many conversations this run read holding something likely sensitive, and of what kinds. ``None`` when
+    there were none, so a run with nothing to say says nothing."""
+    from api.services.sensitive_text import KINDS
+
+    seen = summary.get("sensitive") if isinstance(summary.get("sensitive"), dict) else {}
+    if not seen:
+        return None
+    held = {k for kinds in seen.values() for k in kinds or []}
+    return {"conversations": len(seen), "kinds": [k for k in KINDS if k in held]}
+
+
 def to_run_ref(summary: dict) -> dict:
     """The small ``run`` block a history entry carries."""
     return {
@@ -143,4 +160,5 @@ def to_run_ref(summary: dict) -> dict:
         "pauses": len(summary.get("pauses") or []),
         "read_ms": int(summary.get("read_ms") or 0), "paused_ms": int(summary.get("paused_ms") or 0),
         "catch_up_for": summary.get("catch_up_for"),
+        "sensitive": sensitive_block(summary),
     }

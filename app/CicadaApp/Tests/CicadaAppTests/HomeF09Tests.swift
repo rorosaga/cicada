@@ -93,9 +93,21 @@ final class HomeF09Tests: XCTestCase {
         let sections = try source("Views/Home/HomeSections.swift")
         XCTAssertTrue(sections.contains("selectedTab = .sources"), "R-HO11 — Today opens Sources")
         XCTAssertFalse(sections.contains("routeToSourceDetail"), "R-HO11 — one row, one link")
-        XCTAssertTrue(sections.contains("InboxRowSlots(entity: false, source: false)"), "R-HO12 — glyph · question · age")
-        XCTAssertTrue(sections.contains("showsOpenButton: false"))
-        XCTAssertTrue(sections.contains("linkTitle: Copy.homeOpenInbox"))
+        // Ruling 48 (1) superseded R-HO12's glyph rows: a row leads with its page's picture, the plain question, its
+        // reason and the page as a link; *All N questions* replaced *Open Inbox*.
+        XCTAssertTrue(sections.contains("EntityPicture(id: row.entityId"), "ruling 48 (1) — the page leads the row")
+        // ROR-118 (round 1, Home): ONE question leads in one card; Catch me up and *All N questions* are its foot.
+        XCTAssertFalse(sections.contains("QuietLink(title: Copy.Catchup.allQuestions(total)"), "round 4 — Answer lands in the list")
+        // Round 5 — Answer is the surface's one accent primary (DR-5 (2)); the neutral twin stays for the first week, when
+        // Getting started's own read pill is the primary.
+        XCTAssertTrue(sections.contains("PrimaryActionButton(title: Copy.Catchup.answer"), "round 5 — the one obvious next act")
+        XCTAssertTrue(sections.contains("NeutralButton(title: Copy.Catchup.answer"), "round 5 — never two primaries while setup is up")
+        XCTAssertTrue(sections.contains("LeadQuestionCard("), "ROR-118 — one question leads, Catch me up in its foot")
+        XCTAssertTrue(sections.contains("NeutralButton(title: Copy.Catchup.title"), "ruling 48 (1) — Catch me up stays, a button beside Answer (round 5)")
+        XCTAssertTrue(sections.contains("leading: AnyView(WormFace(mood: .idle, size: 18))"), "2026-11-06 — the small worm head is Catch me up's mark, never a bubble")
+        XCTAssertFalse(sections.contains("bubble.left"), "no chat bubble on Home")
+        XCTAssertFalse(sections.contains("struct CatchupBlock"), "the second card is gone: nothing says the same thing twice")
+        XCTAssertFalse(sections.contains("OriginMark(origin: chip.mark, size: CicadaTheme.scaled(14))"))
         XCTAssertTrue(try source("Views/Home/HomeView.swift").contains("LastReadSection("), "R-HO13 — Last read stays")
     }
 }

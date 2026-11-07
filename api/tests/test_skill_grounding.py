@@ -217,7 +217,7 @@ def test_the_live_cycle_holds_a_one_conversation_skill_and_writes_it_on_the_seco
     assert pending_store.load(memory) == []        # Stage 2's store is not where a skill waits
 
     markdown_parser.write(memory / "episodes" / f"{ep2}.md",
-                          {"id": ep2, "processed": False, "source": "mcp", "timestamp": "2026-06-24T10:00:00"},
+                          {"id": ep2, "processed": False, "source": "claude-code", "timestamp": "2026-06-24T10:00:00"},
                           "Cicada again.")
     batch(ep2, "2026-06-24T10:00:00", "update")
     run("2026-06-24_skill")

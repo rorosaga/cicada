@@ -1,22 +1,9 @@
 import SwiftUI
 
-/// R-PP13 — a section's head: a `DisclosureHeader` (the one folding-section head, 2026-10-20), and — collapsed — what
-/// it holds in words, so a closed section still says so (DR-39).
-struct ProjectSectionHeader: View {
-    let title: String
-    let meta: String
-    let isOpen: Bool
-    let toggle: () -> Void
-
-    var body: some View {
-        DisclosureHeader(title: title, summary: meta, isOpen: isOpen,
-                         help: isOpen ? Copy.Projects.collapse : Copy.Projects.expand, toggle: toggle)
-    }
-}
-
-/// Now (§6.3): the ongoing threads — heard-from first, then quiet — each with its line of days; a quiet one whose
-/// follow-up waits in the Inbox links to that card (R-PP18). Under them, the Sleep queue's honest line (§6.1 layer 7).
-/// Task 5 passes `settle`, which draws Done · Still going · Stopped.
+/// In motion (§6.3; Projects v3, decision 9): the ongoing threads — heard-from first, then quiet — each with its line
+/// of days; a quiet one whose follow-up waits in the Inbox links to that card (R-PP18). At most `limit` rows (the rest
+/// behind the section's "All N"); under them, the Sleep queue's honest line (§6.1 layer 7). An empty section is never
+/// drawn, so there is no "nothing in motion" line here. Task 5 passes `settle`, which draws Done · Still going · Stopped.
 struct ProjectNowSection: View {
     let timeline: ProjectTimeline
     let state: ProjectState.Output
@@ -29,17 +16,13 @@ struct ProjectNowSection: View {
     let openInbox: (String) -> Void
     var settle: ((String, String) -> Void)? = nil
     var writesBlocked = false
+    var limit: Int? = nil
 
     var body: some View {
+        let threads = ProjectStory.nowThreads(timeline, state: state)
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            ForEach(ProjectStory.nowThreads(timeline, state: state)) { thread in
+            ForEach(limit.map { Array(threads.prefix($0)) } ?? threads) { thread in
                 row(thread).id(ProjectKey.thread(thread.claimId).id)
-            }
-            if timeline.now.threads.isEmpty {
-                Text(ProjectStory.nowEmpty(timeline, today: today))
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .padding(.horizontal, CicadaTheme.spacingMD)
             }
             if let pending = ProjectStory.pendingLine(timeline.pending, today: today) {
                 HStack(spacing: CicadaTheme.spacingSM) {
@@ -234,15 +217,19 @@ struct ProjectLatelyFoot: View {
     }
 }
 
-/// Plan (R-PP22): the milestones by target, each with its diamond, name and state in words; "moved once ›" unfolds
-/// its chain. Task 5 passes `markDone`, `rename` and `add`.
+/// Coming up's milestones (R-PP22; Projects v3): the planned milestones by target, each with its diamond, name and
+/// state in words; selected, how it moved (its chain, always open — never a fold, decision 17), its source and Rename.
+/// `rows` is what the section shows (capped, or all in the full list). Task 5 passes `markDone`, `rename` and `add`;
+/// `showsAddButton` false keeps only the field M and the menu open (the capped section draws no add row).
 struct ProjectPlanSection: View {
     let timeline: ProjectTimeline
+    let rows: [ProjectPlan.Row]
     let today: ISODay
     let selection: ProjectKey?
     let names: EntityNames
     let pick: (ProjectKey) -> Void
     let showSource: (ProjectKey) -> Void
+    var showsAddButton = true
     var markDone: ((String) -> Void)? = nil
     var rename: ((String, String) -> Void)? = nil
     var add: ((String, String?) -> Void)? = nil
@@ -254,7 +241,6 @@ struct ProjectPlanSection: View {
     /// `field == nil` guard): a letter typed into these fields is the person's word, never a command.
     var onEditingChange: (Bool) -> Void = { _ in }
 
-    @State private var chainOpen: Set<String> = []
     @State private var renaming: String?
     @State private var renameText = ""
     @State private var adding = false
@@ -265,14 +251,7 @@ struct ProjectPlanSection: View {
     @FocusState private var addFocused: Bool
 
     var body: some View {
-        let rows = ProjectPlan.rows(timeline.milestones, today: today)
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            if rows.isEmpty {
-                Text(Copy.Projects.noPlan)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .padding(.horizontal, CicadaTheme.spacingMD)
-            }
             ForEach(rows) { row in planRow(row).id(ProjectKey.milestone(row.id).id) }
             if add != nil { addRow }
         }
@@ -317,18 +296,10 @@ struct ProjectPlanSection: View {
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .lineLimit(1)
-                if chain.count > 1 {
-                    Button {
-                        if chainOpen.contains(m.slug) { chainOpen.remove(m.slug) } else { chainOpen.insert(m.slug) }
-                    } label: {
-                        HStack(spacing: CicadaTheme.scaled(3)) {
-                            Text(Copy.Projects.moved(chain.count - 1))
-                            DisclosureChevron(isOpen: chainOpen.contains(m.slug), color: nil)
-                        }
+                if chain.count > 1 && !selected {
+                    Text(Copy.Projects.moved(chain.count - 1))
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
-                    }
-                    .buttonStyle(.cicadaPlain)
                 }
                 Spacer(minLength: 0)
                 if let markDone, ProjectPlan.canMarkDone(row) {
@@ -338,7 +309,7 @@ struct ProjectPlanSection: View {
                     }
                 }
             }
-            if chainOpen.contains(m.slug) {
+            if selected && chain.count > 1 {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     ForEach(Array(chain.enumerated()), id: \.offset) { i, line in
                         HStack(spacing: CicadaTheme.spacingSM) {
@@ -410,7 +381,7 @@ struct ProjectPlanSection: View {
                 }
             }
             .padding(.horizontal, CicadaTheme.spacingMD)
-        } else {
+        } else if showsAddButton {
             TextButton(title: Copy.Projects.addMilestone, keyHint: "M", help: Copy.Projects.addMilestoneHelp) {
                 adding = true
                 DispatchQueue.main.async { addFocused = true }
@@ -427,142 +398,5 @@ struct ProjectPlanSection: View {
         newName = ""
         hasDate = false
         adding = false
-    }
-}
-
-/// Around this project (§6.4, the brief's labels): each group's pages as one-line rows — the type's dot, the name, its
-/// role and one fact, when it was last mentioned. A page opens its card in the third column; a part of this project
-/// opens as the project (R-PP17); a tool unfolds its spec claims, each with its chip and "Show in conversation ›"; a
-/// name no page holds yet is greyed, "mentioned once, not a page yet" — the promotion rule made visible.
-struct ProjectAroundSection: View {
-    let cluster: ProjectCluster
-    let today: ISODay
-    let partial: Bool
-    let openCard: String?
-    let openEntity: (String) -> Void
-    let openProject: (String) -> Void
-    let openSource: (ReaderTarget) -> Void
-
-    @State private var expanded: Set<String> = []
-    @State private var specs: [String: [Claim]] = [:]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            ForEach(cluster.groups) { group in
-                VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                    SectionLabel(ProjectAround.label(group.label)).padding(.horizontal, CicadaTheme.scaled(10))
-                    ForEach(group.members) { member in
-                        memberRow(member, opensProject: ProjectAround.opensProject(group))
-                    }
-                    if group.more > 0 {
-                        Text(Copy.Projects.moreMembers(group.more))
-                            .font(CicadaTheme.metaFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                            .padding(.horizontal, CicadaTheme.scaled(10))
-                    }
-                }
-            }
-            if !cluster.alsoUses.isEmpty {
-                Text(Copy.Projects.alsoUses(cluster.alsoUses.map(\.name)))
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .padding(.horizontal, CicadaTheme.scaled(10))
-            }
-            if partial {
-                Text(Copy.Projects.aroundIndexing)
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .padding(.horizontal, CicadaTheme.scaled(10))
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func memberRow(_ m: ProjectMember, opensProject: Bool) -> some View {
-        if let id = m.memberId, !m.pending {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    TypeDot(type: m.type)
-                    Text(m.name).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
-                    if !m.rolePhrase.isEmpty {
-                        Text(m.rolePhrase).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
-                    }
-                    if !m.fact.isEmpty {
-                        Text(m.fact).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                    if let last = ProjectAround.last(m, today: today) {
-                        Text(last.text).font(CicadaTheme.metaFont).monospacedDigit()
-                            .foregroundStyle(CicadaTheme.textTertiary).help(last.help)
-                    }
-                    if ProjectAround.expands(m) {
-                        DisclosureButton(isOpen: expanded.contains(id),
-                                         help: expanded.contains(id) ? Copy.Projects.hideSpecs(m.name)
-                                                                     : Copy.Projects.showSpecs(m.name)) {
-                            toggle(id)
-                        }
-                    }
-                }
-                .listRowSurface(height: RowMetrics.oneLine, selected: openCard == id)
-                .onTapGesture { opensProject ? openProject(id) : openEntity(id) }
-                .accessibilityElement(children: .contain)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(Copy.Projects.openEntity(m.name, type: m.type.label))
-                if expanded.contains(id) { specsView(id) }
-            }
-        } else {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Circle().strokeBorder(CicadaTheme.textTertiary, lineWidth: 1.5)
-                    .frame(width: CicadaTheme.scaled(8), height: CicadaTheme.scaled(8))
-                Text(m.name).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
-                Text(Copy.Projects.notAPageYet).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, CicadaTheme.scaled(10))
-            .frame(height: CicadaTheme.scaled(RowMetrics.oneLine))
-            .help(Copy.Projects.notAPageYetHelp)
-        }
-    }
-
-    @ViewBuilder
-    private func specsView(_ id: String) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            if let claims = specs[id] {
-                if claims.isEmpty {
-                    Text(Copy.Projects.noSpecs).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                }
-                ForEach(claims) { claim in
-                    let chips = EvidenceChipModel.chips(evidence: claim.evidence, sourceEpisodes: claim.sourceEpisodes,
-                                                        subjectId: id)
-                    HStack(spacing: CicadaTheme.spacingSM) {
-                        Text(claim.text).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
-                        if let chip = chips.first { EvidenceChip(model: chip, subjectId: id) }
-                        Spacer(minLength: 0)
-                        if let target = chips.first?.target(subjectId: id, meta: nil) {
-                            InlineLink(title: Copy.Projects.showInConversation, help: Copy.Projects.showHelp) {
-                                openSource(target)
-                            }
-                        }
-                    }
-                }
-            } else {
-                Text(Copy.Projects.readingCard).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-            }
-        }
-        .padding(.leading, CicadaTheme.scaled(28))
-        .padding(.vertical, CicadaTheme.spacingXS)
-    }
-
-    private func toggle(_ id: String) {
-        if expanded.contains(id) {
-            expanded.remove(id)
-            return
-        }
-        expanded.insert(id)
-        guard specs[id] == nil else { return }
-        Task {
-            let claims = (try? await APIClient.shared.fetchClaims(subject: id)) ?? []
-            specs[id] = ProjectAround.specs(claims)
-        }
     }
 }

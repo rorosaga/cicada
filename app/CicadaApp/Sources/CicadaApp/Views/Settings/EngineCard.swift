@@ -60,9 +60,14 @@ private struct CompactEngineChooser: View {
             if let response = vm.response {
                 compactContent(for: response)
             } else if let error = vm.errorMessage {
-                Text(error)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(error)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    TextButton(title: Copy.SleepV5.engineTryAgain, inline: true) {
+                        Task { await vm.load(); syncFromResponse() }
+                    }
+                }
             } else {
                 ProgressView()
                     .controlSize(.small)
@@ -90,13 +95,21 @@ private struct CompactEngineChooser: View {
         let readiness = EngineReadiness.resolve(candidates: response.candidates, connections: connections,
                                                 preview: response.preview)
         let ringed = EngineOption.ringed(pick: pick?.wrappedValue, readiness: readiness)
+        let leadsToConnect = EngineOption.nothingConnected(response.candidates, hasKey: hasKey)
+        if leadsToConnect {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Text(Copy.engineConnectLead).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
+                SettingsInlineLink(section: .intelligence, row: .plansAndKeys, label: Copy.plansAndKeys)
+                    .font(CicadaTheme.bodyFont)
+            }
+        }
         EngineCardGrid(minimum: CicadaTheme.scaled(128), spacing: CicadaTheme.spacingSM) {
             ForEach(EngineOption.compactCandidates(response.candidates)) { candidate in
                 let selected = candidate.id == ringed
                 EngineOptionCard(
                     candidate: candidate,
                     isSelected: selected,
-                    isSelectable: EngineOption.isSelectable(candidate, selectedMode: selectedCard),
+                    isSelectable: EngineOption.isSelectableCompact(candidate, selectedMode: selectedCard),
                     costModel: EngineOption.costModel(for: candidate.id),
                     tag: EngineOption.isLocal(candidate.id) ? Copy.engineLocalTag : nil,
                     caption: EngineOption.compactCaption(for: candidate, hasKey: hasKey),
@@ -107,7 +120,15 @@ private struct CompactEngineChooser: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Sleep engine")
 
-        if let hint = EngineOption.signInHint(response.candidates) {
+        if !leadsToConnect, let hint = EngineOption.signInHint(response.candidates) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Text(hint).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                SettingsInlineLink(section: .intelligence, row: .plansAndKeys, label: Copy.plansAndKeys)
+                    .font(CicadaTheme.captionFont)
+            }
+        }
+
+        if !leadsToConnect, let hint = EngineOption.installHint(response.candidates) {
             HStack(spacing: CicadaTheme.spacingXS) {
                 Text(hint).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
                 SettingsInlineLink(section: .intelligence, row: .plansAndKeys, label: Copy.plansAndKeys)
@@ -143,7 +164,7 @@ private struct CompactEngineChooser: View {
         // writes it. The already-saved engine is still a pick the ring must
         // show, so the equality guard below does not apply here.
         if let pick {
-            if EngineOption.isSelectable(candidate, selectedMode: selectedCard) { pick.wrappedValue = candidate.id }
+            if EngineOption.isSelectableCompact(candidate, selectedMode: selectedCard) { pick.wrappedValue = candidate.id }
             return
         }
         // R-AG12 / R-HS7: the one write rule, so a card becomes its mode in one place.

@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from api.services import (
     sleep_debt,
     sleep_scheduler,
     sync_service,
+    sync_ticker,
     telemetry,
 )
 from api.services.sleep_cycle import get_sleep_state
@@ -53,7 +55,7 @@ async def healthz(request: Request, settings: Settings = Depends(get_settings)):
     """
     from api.services import auth
 
-    full = auth.bearer_admits(request.headers.get("authorization"))
+    full = auth.bearer_admits(request.headers.get("authorization"), request)
     return await run_in_threadpool(_health, request.app.version, settings, full)
 
 
@@ -98,9 +100,11 @@ def _embedding_model(memory_path: Path, settings: Settings) -> str | None:
 
 
 def _count_md(directory: Path) -> int:
-    if not directory.exists():
+    """One listing, not a walk in Python: at 9,500 files a walk took most of a second while Sleep's thread held the GIL."""
+    try:
+        return sum(name.endswith(".md") for name in os.listdir(directory))
+    except OSError:
         return 0
-    return sum(1 for _ in directory.glob("*.md"))
 
 
 def _leann_present(memory_path: Path) -> bool:
@@ -126,6 +130,13 @@ def _leann_present(memory_path: Path) -> bool:
 
 @router.get("/status", response_model=StatusResponse)
 async def get_status(settings: Settings = Depends(get_settings)):
+    # Speed 2026-10-29: one listing per directory for the whole answer — the inbox count, the episode scan and the
+    # debt read each listed `episodes/` (and the count `entities/`) again; the worker threads copy this context.
+    with sync_ticker.request_scans(settings.memory_path):
+        return await _status(settings)
+
+
+async def _status(settings: Settings) -> StatusResponse:
     state = get_sleep_state()
     total, by_kind, unprocessed, last_ingested = await run_in_threadpool(
         _scan_bank, settings.memory_path
@@ -214,22 +225,37 @@ def _scan_bank(memory_path: Path) -> tuple[int, dict[str, int], int, str | None]
     threadpool hop so the event loop isn't blocked by filesystem/YAML work.
     """
     total, by_kind = inbox_service.served_counts(memory_path)
-    unprocessed = 0
-    last_ingested = _last_ingested_at(memory_path)
+    unprocessed, last_ingested = _episode_counts(memory_path)
+    return total, by_kind, unprocessed, last_ingested
+
+
+#: bank -> (episodes fingerprint, (waiting for a model read, newest timestamp)). Both are read from the episodes'
+#: headers alone, so they hold while the folder does (speed 2026-10-29: two passes over 8.5k headers a call).
+_EPISODE_COUNTS: dict[str, tuple[str, tuple[int, str | None]]] = {}
+
+
+def _episode_counts(memory_path: Path) -> tuple[int, str | None]:
     from api.services import history_index
 
+    stamp = bank_index.dir_fingerprint(Path(memory_path) / "episodes")
+    hit = _EPISODE_COUNTS.get(str(memory_path))
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    unprocessed, newest = 0, ""
     for f in bank_index.files(memory_path, "episodes"):
         if history_index.waits_for_model(f.frontmatter):   # index-only episodes never wait (2026-10-18)
             unprocessed += 1
-    return total, by_kind, unprocessed, last_ingested
+        ts = str(f.frontmatter.get("timestamp") or "")
+        if ts > newest:
+            newest = ts
+    out = (unprocessed, newest or None)
+    _EPISODE_COUNTS[str(memory_path)] = (stamp, out)
+    return out
 
 
 def _last_ingested_at(memory_path: Path) -> str | None:
     """Latest episode timestamp across all episodes, or None."""
-    return max(
-        (str(f.frontmatter.get("timestamp") or "") for f in bank_index.files(memory_path, "episodes")),
-        default="",
-    ) or None
+    return _episode_counts(memory_path)[1]
 
 
 async def _last_sleep_at(memory_path: Path) -> str | None:

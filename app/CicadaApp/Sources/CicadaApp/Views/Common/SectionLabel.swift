@@ -8,10 +8,12 @@ import SwiftUI
 /// caps literal or an `.uppercased()` at the call site.
 struct SectionLabel: View {
     let text: String
-    init(_ text: String) { self.text = text }
+    /// ROR-118 — a group's count after its name, in the label's own ink ("Conversations 3").
+    var count: Int? = nil
+    init(_ text: String, count: Int? = nil) { self.text = text; self.count = count }
 
     var body: some View {
-        Text(text)
+        Text(count.map { "\(text) \($0)" } ?? text)
             .font(CicadaTheme.labelFont)
             .foregroundStyle(CicadaTheme.textTertiary)
             .accessibilityAddTraits(.isHeader)

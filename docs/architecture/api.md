@@ -41,6 +41,99 @@ committed alone as `Page edit <date>` with `entities/<id>.md: edited (trigger: u
 and `Cicada-Author: user` — a second door onto one writer, as the CLI is (ruling 21). 400: a request the editor refuses;
 409: words no longer on the page; 404: no page. The link-view switcher sends one `{old, new, all: true, pin: true}` row.
 
+**Same name, different things (G227, 2026-10-29; `same_name`, `storage.md`).** A page whose title another page shares
+carries `qualifier` and `displayName` ("<name> (<qualifier>)") on `GET /graph` nodes (omitted otherwise; node shape
+`+same-name`, folded into the node's `contentHash` only when present), `GET /entities/{id}` (null / the bare name
+otherwise; `same_name.SHAPE` rides the card ETag's `extra`), `GET /search` entity and media hits, `GET /projects/{id}`
+page rows (`g141-9`), `GET /sleep/runs/{id}/items` page rows (`items-2`, in its ETag) and `/ask` citations. **A book's `byline`
+(ROR-135):** `GET /graph` nodes of a `media.kind: book` page carry its `book.authors` joined, capped at 120 characters (omitted
+otherwise; node shape `+byline`, folded into `contentHash` only when present) — the graph's hover card names the author
+from it (`features.md`, "The hover card"). `GET /inbox` items add
+`entityDisplayName`, `mergeTargetDisplayName` (a duplicate question's mention is never named as a page) and
+`sameTitle` (the pages a question about a shared name names), and their spoken question uses them; `same_name.SHAPE`
+rides the inbox ETag's `extra`, so the client mapping (`VersionVector`'s `entities` → `.inbox`/`.graph`) is unchanged
+and every client takes one 200. All additive: the stored `name` never changes. **Pick the page (owner 2026-10-29,
+`same_name_pick`):** a `merge_suggestion` with `sameTitle` is served with `question` ("Which <name> is this?") and
+`options` — one per candidate page still on disk (`key` `page:<id>`, `label` "<name> (<qualifier>)", additive
+`pageId`/`pageName`/`qualifier` on `InboxOption`) plus `another` ("Another one"; `none` accepted as an alias).
+`POST /inbox/{id}/resolve` with `action: resolve` and one of those keys is a `merge` into that id. `another` keeps that
+held mention apart from every candidate on its own pending line (never a name-wide rejection). Any other key is a 400.
+`same_name_pick.SHAPE` rides the inbox ETag beside `same_name.SHAPE`.
+
+**Merge, split, undo (G227 follow-up, owner 2026-10-29; `api/routers/page_joins.py`, `page_join`).**
+`POST /entities/{id}/merge` `{into, reason?}` folds the page into `into`; `GET /entities/{id}/split-plan?suggest=` serves
+the split sheet (camelCase: `sentences[{n, section, text, suggested, reason}]`, `claims`, `sources`, `conversations`,
+`references[{pageId, name, episodes}]`, `newId`, `newName`; `suggest=true` runs `same_name_split`'s judge for this page
+on the person's chosen engine, `[]` when it cannot); `POST /entities/{id}/split` `{sentences, claims, sources, episodes,
+references: {pageId: new|stay}, name?, type?, reason?}`; `POST /entities/{id}/history/{commit}/undo`. Each write route
+is one admitted transaction (409 while Sleep holds the pages) answering `{kind, entityId, otherId, commit, restored,
+repointed}`; 400 nothing picked or a type outside the set, 404 no such page or not a join, 409 the page changed since
+or already undone. History rows (`?summary=true`) add `join` and `undoable`. `GET /entities/{retired-id}` answers the
+page it became, `X-Cicada-Redirected-From: <retired-id>` (`page_redirects`).
+
+**The card's blocks and its ETag (vision item 5, 2026-10-28; `page_blocks`).** `GET /entities/{id}` carries
+`blocks: {shape, order, relevance, sources, coordinates, looks, ongoing, ongoingTotal, history}` — which blocks the
+page has (`order`, in the page order the redesign proposal draws: why it matters, where to check, the type block,
+what is ongoing, who changed it) and each one's data, derived on read, never stored, never fetched: `relevance` (the
+`page_relevance` dict, also still top-level), `sources` (at most 12 "where to check" rows, each `state` one of
+`proposed|dead|changed|stale|checked|unchecked|unconfirmed` from `source_refresh`'s own rules, `site`, `checkedAt`,
+`iconSite` — the stored icon route, no fetch — plus `total`, `proposed`, `tracked`), `coordinates` (`lat`/`lon` the
+page itself stores, with its name as `label`; never geocoded), `looks` (the page's looks from `design_refs`, palette,
+type and the screenshot route, indexed once per `design` stamp), `ongoing` (open happenings and planned milestones,
+heads only, `verbatim` when the words are the person's own) and `history` (contributors with change counts and last
+day, `bySleep`; the rows are `history[]`, which gains `trigger` — the page's own manifest-line trigger — and `via`,
+the door it names: `sleep|app|agent|remote|inbox|sync|cicada|unknown`, so Sleep is a tag and the author the picture).
+Blame stays lazy (`/blame`); beliefs are not on open (the 2026-10-09 speed ruling). **`citations` (ruling 48 (16),
+`page_citations`, shape `blocks-2`):** `markers` as `[offset, n, …]` — one per article line or Key Fact the page's
+write-time G118 provenance (`section_provenance`, matched under each line's exact text guard) cites, `offset` the
+line's end in the served prose (Python `str` offsets, the app's `WikiRow` ranges), at most 3,000 (`markersTotal` the
+real count) — the first six `refs` (`n`, `kind` `conversation|web|page`, `title`, `origin`, `harness`,
+`correspondent`, `first`/`last` said, `episodeId`, `conversationId`; one reference per conversation, a session's or an
+import's episodes together, numbered in reading order), the counts behind References' closing line (`total`,
+`conversations`, `web`, `pages`), and — only when the prose cites nothing — up to twelve `beliefs` as sentences
+(`claimId`, `text`, `refs`, `until`, `inferred`, `verbatim`; `beliefsTotal` null when part of them is in the claims
+ledger, which the card never reads). Nothing is matched by similarity: which line a source backs was decided when the
+page was written; the numbering is derived on read and cached per page by its file, ledger and `episodes` stamps (cold
+p50 0.21 ms / p95 1.4 ms, held 0.03 ms on an owner-scale copy). **`GET /episodes/{id}/spans`** (ROR-16, `source_spans.for_source`, `storage.md`): every span pointing into one source,
+grouped by page, each page's spans in document order and the pages by where they first point. Offsets and ids, no words
+(the words are `/text`'s); what cannot be drawn stays in its group with no `at`. 404 for an unknown, non-bare or locked
+document. ETag over `episodes`+`entities` with `spans|<id>|source_spans.SHAPE|<today>` in `extra`. **Client mapping: not a
+Store domain**, `ProvenanceCache.sourceSpans` holds it in memory and revalidates on every ask, as `/citations` is. Not on
+the G135 listener or `/v1`, so the `sources` scope has nothing new to gate. A book mark on the card carries its stored
+coordinates (`evidence`, `blocks-5`), judged by `/text` when opened; `book_marks.for_caller` drops them. **`GET /entities/{id}/citations/{n}?at=|claim=`** is
+a marker's popover, read when it opens: the reference plus the best evidence row's `evidenceKind`, its located words
+(`span`, a `ProvenanceSpan`) and `status`, and `lines` (how many lines cite it); 404 for a number the page does not
+have. The wire is pinned on both sides
+by `api/tests/fixtures/page_blocks.json` (`test_page_blocks.py`, `PageBlocksTests.swift`). **The route now has an
+ETag** (`page_blocks.card_etag`): a handful of `stat` calls — this page and its ledger, the owner page and its ledger,
+the `entities`, `episodes` and `design` directories by their own mtime (every bank write is a rename, which moves it),
+the git head, the logo and people-photo stamps, the day, `SHAPE`, the bank's path and the decay pace — checked
+before the page is parsed or its history read, so a held card answers 304 without either. A hand edit made in place
+to another page is not seen until the next real write. Not a Store domain: the app's client mapping is
+`EntityCardCache` inside `APIClient.fetchEntity` (24 pages, in memory, `If-None-Match`, a 304 returns the held copy,
+reset on a bank switch). The card's reads run in one worker thread under one `bank_index.shared_scans` block, so the
+relevance line's two listings of `entities/` became one. Measured in process (TestClient) on a copy of the owner's
+bank (8,027 pages, 1,563 commits; 60 pages, 3 warm passes, baseline and branch alternated twice): warm p50 237–248 →
+190 ms, p95 440–446 → 301–311 ms (most of what is left is the page's `git log`); a 304 p50 1.0 ms, p95 1.4 ms.
+
+**Part B (2026-10-29, ruling 48 parts 5, 6 and 14).** *The card open reads no git:* `history` is `[]` and the
+`history` block absent unless `?history=true` asks for the old rows (in process on the owner-scale copy, 13 pages ×
+12 opens: p95 260 → 58 ms). *The History tab* reads `GET /entities/{id}/history?summary=true&limit=30&skip=N`
+(`page_history.page`, one `git log -p --unified=0`, never blame): each row gains `at` (ISO time), `bucket`
+(`you|agents|sleep|upkeep`, `page_history.bucket` — decay and Cicada's housekeeping are upkeep) and `summary`
+(`plusClaims`, `endedClaims`, `removedClaims`, `changedClaims`, `fields`, `proseAdded`, `proseRemoved`, up to four
+`lines`); `X-History-More: 1|0` says whether older rows exist. Pinned both sides by `fixtures/page_history.json`.
+*`blocks.summary`* is In short (`{text, writtenAt, by: "sleep", model, conversations}`, `in_short`; `SHAPE`
+`blocks-3`, after part A's `blocks-2`; `blocks-4`, ruling 64, adds `marks: {items: [{claimId, day, text, note}], total}`, the
+words null for a caller without `sources`) and *`blocks.coordinates`* gains `by` (`geocoder|person`). *Places:* `GET /entities/{id}/place` — the
+stored coordinates with the places within 5 km (`nearby`), or with none stored `geocode: {allowed, reason, query}` (the query adds the containing place only when it passes the same public test);
+read when the map draws, never on open. `PUT /entities/{id}/coordinates {lat, lon, by}` stores what the app's own
+geocoder found (`by: geocoder`, 409 for a private place or one taken back) or the person's click (`by: person`, any
+place); `by: unfound` records the geocoder's "no match, stop resolving" (409s as `geocoder`; Cicada's upkeep). `DELETE` alone takes a pin back (`coordinates_by: none`, the person's act; a PUT of `none` is 422). Both are
+admitted writes (G183), committed alone: the person's as `user` (`user/place`), the geocoder's as `cicada`
+(`sync/geocoder`, upkeep in History). `GET /places/unplaced?limit=` lists public places the app's pass may resolve.
+The backend never geocodes (`place_coordinates`).
+
 **Where a page's knowledge comes from (owner 2026-10-14, G61).** `GET /entities/{id}/sources/overview`
 (`page_sources.overview`) answers the card's one section in one read: `sources[]` (each the `/sources` entry plus
 `site`, a `title` (the page's `## Links` title for that URL, else the name of the saved page `entity:` links it to —
@@ -58,8 +151,38 @@ ETag over `entities`+`episodes` with `extra` = `page_sources.SHAPE|<page>|<today
 midnight). R-PB11: asked on demand and cached in memory by `ProvenanceCache.sourcesOverview`, not a Store domain, no
 `VersionVector` mapping. The wire is pinned on both sides by `api/tests/fixtures/page_sources_overview.json`.
 
+**Repositories on the graph (G230, `api/routers/github_repos.py`; writer `github_repos`).** Connecting, Refresh and
+Disconnect are the tier-2 connector routes (`/sources/connectors/github…`). Four more:
+- `GET /sources/github/repos` → `{connected, owned: [RepoRow], starred: [RepoRow]}` — the repositories the last sync
+  found the person owns, each with `project` `{project, name, how: linked|origin|name}` or null and `entityId` when it
+  already has a page, and every repository page (starred ones first, newest star first). Reads the bank only; never asks
+  GitHub; not a Store domain (no ETag).
+- `POST /sources/github/repos` `{url}` → `{entityId, fullName, created}` — the person adds one repository by its link
+  or `owner/name` (422 in words for anything else). GitHub's record is read first, holding nothing (the token when
+  connected; a 404 says a private one needs GitHub connected); then the page and its commit (`Repository added …`,
+  author `user`) are one admitted transaction (409 while Sleep holds the pages); then the README is read once, outside
+  the bank. A repeat updates the same page. Replica class `capture`.
+- `POST /sources/github/repos/project` `{fullName, project?, via: app|cli}` → `{project, created}` — link the
+  repository to that project page (404 for a page that is not a live project) or, with no `project`, start one in the
+  person's list named after it (409 in words when the name is a page already). Admitted; replica class `forward`.
+- `GET /entities/{id}/repository` → the row's keys plus `readme` `{state: fresh|stale|missing|none, text, truncated,
+  path, fetchedAt}` — a repository page's card, or a linked project's (404 for any other page). `owned` and `project`
+  are derived on read: owned when the page says so or the last sync listed it; a settled project for any repository, a
+  same-name suggestion only for one the person owns. The README is read
+  through GitHub's API when missing or a week old, only while `CICADA_ALLOW_LOGO_FETCH` is on, and kept outside every
+  bank; the GET writes nothing in the bank.
+Both writes refuse a demo bank (`refuse_capture_into_demo`). The CLI's `cicada github repos | add | project` call these
+routes as the person (`require_person`).
+
+**Ways in (G232, 2026-11-04).** `GET /sources/ways-in` and `GET /sources/ways-in/{source}` (`spotify`, `reddit`,
+`pinterest`, `tiktok`, `instagram`; 404 otherwise) describe a source page's connect area — the official connection as
+the one `primary` action, the browser toggle and the file import as `ways`, and each way not offered with its reason
+(`app.md`, G232 line; `network.md`, "Ways in, per source"). Read-only: no write, no fetch; every action is an existing
+route (the connector routes, `PUT /reading/settings`, `POST /sources/upload`).
+
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's
-`GET /sources/connectors/{id}/callback`, and OpenRouter's sign-in landing
+`GET /sources/connectors/{id}/callback` (and, G232, Reddit's while the build carries its app's client id —
+`connectors.base.signs_in`), and OpenRouter's sign-in landing
 `GET /connections/byok-openrouter/callback/<nonce>` (R-AG10 — gated by its own single-use, 10-minute nonce
 carried in the path, since OpenRouter appends only `code`; the PKCE verifier never leaves the backend) requires `Authorization: Bearer <token>`, from
 `~/.cicada/api_token` (`CICADA_API_TOKEN` overrides; `CICADA_API_AUTH=off` for tests). The Telegram
@@ -86,7 +209,7 @@ before it is decoded (`messages_photos.B64_MAX`, 422 as before).
 **Schedule and reading options (ruling 4b, owner decision 2).** `GET/PUT /sleep/schedule` answer the schedule plus,
 while it runs on its own, `warning` and `warningCode` when a scheduled run would have no engine it may use
 (`ScheduleResponse`, `engine_readiness`); the PUT body is unchanged and the app never sends them back.
-`GET/PUT /sleep/run-options` carry `scheduledUsePlan` (machine-wide, on unless the person turned it off — ruling 4c,
+`GET/PUT /sleep/run-options` carry `spendLimitUsd` (ROR-102: a figure, or `null` for the person's off; 422 otherwise; `sleep_spend`), and `scheduledUsePlan` (machine-wide, on unless the person turned it off — ruling 4c,
 2026-10-19; an off is stored as `false`; `null` is 422).
 `POST /ask` with no engine — an API model with no key, or Auto with no plan and no local model (ruling 31: never a key
 nobody chose) — answers that it has no engine, naming the pages it found, and calls nothing.
@@ -123,7 +246,8 @@ spent by the first redeem in the statement that checks it, is kept only as its s
 bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three keys and `v: 1`, the code's alphabet and
 `XXXX-XXXX` spelling, `state`'s four words; not stable — the 10-minute life, the five-code cap, the rate.
 
-**A phone is capture-only; the QR knows this machine's tailnet name (G212, owner 2026-10-22).**
+**A phone is capture-only; the QR knows this machine's tailnet name (G212, owner 2026-10-22).** (TODO ruling 51,
+2026-10-29, makes the phone a full device in G132's phase 4 — decided, not built; until then this is what runs.)
 - **Kinds.** `POST /devices/pairing` takes `kind: "capture"` (the default — a phone) or `"full"` (another computer);
   the answer adds `kind` and the pairing and device wires carry it. `cicada device add` and `POST /devices` issue
   `full`, as before; a store from before the column reads every device as `full`. A **capture** token reaches exactly
@@ -181,6 +305,73 @@ bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three ke
   `kind` words, the file route's form fields and answer keys, the episode's `file:` record keys, the header name; not
   stable — the 24 h TTL, the 20/500 limits, the suggested 8443, the 25 MB cap, the `$CICADA_HOME/files` layout.
 
+**Key-bound device tokens, narrower pairing, the reach guide (G212, owner 2026-10-29).** Nothing here needs a third
+party: no relay, no account, no public port (the T3-Connect comparison is in the G212 row).
+- **Key-bound tokens (`device_proof`, RFC 9449's DPoP shape).** A device may bind its `cic_dev_` token to a P-256 key
+  that never leaves it (the phone's Secure Enclave). `devices.db` keeps the key's RFC 7638 thumbprint beside the token's
+  hash (`key_thumbprint`, `key_bound_at`; a store from before gains both columns, every old device reads unbound). A
+  bound token works only with a `DPoP` header: a compact JWS, `typ: dpop+jwt`, `alg: ES256`, the public key as `jwk`
+  (no private member), claims `htm`, `htu`, `iat`, `jti`, `ath` (the token's sha256). Checked: the signature and the
+  thumbprint, the method, **the path only** (the person's `tailscale serve` terminates TLS, so the authority a phone
+  signed is the overlay's), `iat` within 300 s, `jti` unseen in that window (one in-process cache; the backend runs one
+  worker), `ath`. **Strict types (security review, 2026-10-29):** each part's JSON refuses NaN and ±Infinity outright;
+  `iat` must be a whole number (not a bool, float or string, within 0…2^53) — Python's `json` reads NaN and every
+  comparison with it passes, so a NaN proof would otherwise never expire; `htm`, `htu` and `ath` must be strings. `Authorization` may say `Bearer` or `DPoP`. Never a fall back to bearer: a bound token with no proof
+  or a failing one is 401 `WWW-Authenticate: DPoP error="invalid_dpop_proof", error_description="<reason>"` (`missing`,
+  `malformed`, `unsupported`, `bad_signature`, `wrong_request`, `stale`, `replayed`, `wrong_token`, `wrong_key`), checked
+  before the kind and master-only 403s. `/healthz` gives a bound device its full answer only with its proof. Wires add
+  `keyBound` and `keyBoundAt` to a device and to a `/devices/status` row (with `kind`); the thumbprint never.
+- **Born bound, or bound later.** `POST /pair` with a `DPoP` proof (no `ath`: no token yet) mints a bound token; a
+  proof that does not pass is 400 and spends nothing. `POST /devices/me/key {narrow?: "capture"}` (`auth.
+  DEVICE_SELF_ROUTES`: any device token, about itself only; `NO_BANK_WRITE`) binds an unbound device once — the same key
+  again is `changed: false`, another key 409 (a new key is a new pairing), the master token 400 — and may narrow it to
+  capture-only. So an already-paired phone keeps working, reads "not yet key-bound", and upgrades by itself.
+  **A `full` device is never key-bound yet** (review 2026-10-29): its hooks, MCP server and CLI share its one token and
+  cannot sign, so binding it could only break that computer's capture. `/pair` with a proof that would mint `full`, and
+  `/devices/me/key` on a `full` device without `narrow: "capture"`, answer 409 `{code: "full_device", detail}`; the code
+  still waits and nothing changes. A token someone else bound first is a lockout only the person ends: the phone says
+  so ("revoke <name> on your Mac, then pair again"), and after a pairing the Mac offers to revoke an older active row of
+  the same name, behind Revoke's own confirmation.
+- **Narrower scopes.** `POST /pair` takes `kind`: a device may only narrow its code (a phone asks for `capture`, so a
+  computer's code shown by mistake still mints a capture-only phone), never widen it. Audit 2026-10-29: `capture`
+  reaches exactly `CAPTURE_ROUTES`, `/healthz`'s open answer and the self route; `/v1/*` refuses device tokens (a
+  connector's only); the bank headers check, never select. `full` stays every route but the master-only ones (ruling 28:
+  the person's own machine counts as local; narrowing it needs a ruling). Revoking is read by the very next request
+  (no cache in front of `devices.db`; tested).
+- **The reach guide: `GET /devices/reach[?check=true]`** (master token, under `/devices`). `{tailscale, step, command,
+  url, dnsName, check}`: `tailscale` from one bounded (2 s) read-only `tailscale status --json` (`BackendState`,
+  `Self.DNSName`) — `missing | not-running | logged-out | stopped | running`; `step` one of `install, open, sign-in,
+  turn-on, serve, unfunnel, ready` (`reach.GUIDE_STEPS`; `unfunnel` comes first whenever the backend port is
+  funnelled, even beside a tailnet-only serve of it — every ServeConfig entry is read, and no address goes in a QR
+  while it is open); `command` the exact command to copy (`tailscale serve --bg
+  --https=8443 <port>`, or `tailscale funnel --https=<p> --set-path=/ off` for a funnelled backend port; each off leaves any other handler on the port); `url` only at `ready`, from
+  the ServeConfig read `tailnet_backend` already makes. `check=true` fetches this machine's own served `/healthz` the
+  way a phone would — no token, no redirect, no proxy env, 3 s (`reach.self_check`) — and answers `{ok, failed, ms}`,
+  `failed` one of `dns, overlay, backend, not-cicada, other-cicada` (version and memory id compared). At `ready` it also
+  carries `stopCommand` (`tailscale serve --https=<that mapping's port> --set-path=/ off`). Not a Store domain, no ETag.
+- **One click: `POST /devices/reach/serve {action: serve|stop}`** (master token; owner 2026-10-29, "Yes, one click").
+  Runs exactly the guide's `command` on the `serve` step or its `stopCommand` on `ready` (`reach.run_serve`: argv built
+  from the backend's port and the ServeConfig, never from the body; argv only; 10 s; stdin closed), then answers
+  `{ok, message, ran, reach}` — `reach` the fresh guide, checked when served. Any other step runs nothing and answers
+  `ok: false` with the sentence; an unknown action is 422. Never `up` or `funnel`. Write admission: outside every bank.
+- **The connector's public address: `GET /remote/funnel[?check=true]`, `POST /remote/funnel {action: on|off, shown}`
+  (ruling 59; the POST is master-token, `network.md`).** `{step, message, command, stopCommand, url, answers, fixUrl}`:
+  `step` one of `reach.FUNNEL_STEPS` (`install, open, sign-in, turn-on, update, port, unknown, address, taken, terminal,
+  off, on`), `command` only at `off`, `stopCommand` only at `on`, `url` only when `check=true` and the probe passed,
+  `answers` true, false, or null when nothing was asked, `otherProgram` true when the listener is down and something else
+  holds its port, `others` every other public mapping on this machine, each `{url, port, message, command, kind}`, the
+  command to copy. `PUT /remote/settings` turning the connector off also closes its address and answers `funnelNote` (null only when it read Tailscale and there was nothing to close, or Tailscale isn't installed). The POST answers `{ok, message, fixUrl, ran, funnel}`; an unknown
+  action is 422, any other step runs nothing and says why. `/remote/status` keeps every field and meaning (Hyrum):
+  `detectedUrl` stays the ServeConfig's say-so, and `funnelCommand` stays a non-empty string to copy, whose value now names
+  a port safe on this machine, or is a harmless shell comment when none is (`network.md`). Not a Store domain, no ETag. Write
+  admission: outside every bank; on a replica, refused.
+- **Cost (measured 2026-10-29, TestClient in process, synthetic bank, N = 300 each, p95):** the proof verify alone
+  0.06 ms; the device store's verify 0.98 → 0.57 ms (its DDL now runs once per process, not per request); a phone's
+  `POST /capture/note` 5.62 ms before, 4.79 unbound, 5.44 bound; `GET /capture/mine` 4.76 / 3.92 / 4.94; a client's
+  `POST /tools/call cicada_recall` 6.25 / 6.38 / 6.04 — within run-to-run noise of each other.
+- **Hyrum, mode A:** stable — the header name and scheme words, the reason enum, `keyBound`, the self route's path and
+  `narrow` word, `GUIDE_STEPS`, `CHECK_FAILURES`, the reach keys; not stable — the 300 s window, the cache sizes.
+
 **The agent API (G213, 2026-10-22).** For an agent that speaks HTTP but not MCP. `POST /v1/<op>` with
 `Authorization: Bearer <connector token>` and a JSON object body. **Generated from the remote tool table (ruling 38,
 2026-10-23):** every `REMOTE_TOOLS` entry is exactly one operation unless `agent_api.EXCLUDED` names it with its reason
@@ -191,8 +382,8 @@ stay off both. 27 operations. **Stable, frozen as #424 shipped them:** `recall`,
 `cli_map`'s `api_op` column spells the seven that are not their CLI command). **Added, each its `cli_map` command
 spelled with underscores (`Row.operation`):** `hub`, `perspective`, `source_list`, `source_add`, `source_change`,
 `progress_add`, `backlog_list`, `backlog_add`, `backlog_note`, `inbox_record_check`, `video_queue`, `video_claim`,
-`video_record`, `read_queue`, `read_record`, and `capture_turns` (remote-only, so named in
-`agent_api.REMOTE_ONLY_OPS`: a relayed turn is stored `evidence_kind: assistant` with `relay.connector`, never the
+`video_record`, `read_queue`, `read_record`, and `capture_turns` (`capture-turns` in `cli_map`, MCP only: a relayed turn
+is stored `evidence_kind: assistant` with `relay.connector`, never the
 person's own words). **One episode per conversation (ruling 32, G104):** `capture_turns` alone keeps the
 `conversation` argument on `/v1`. `"conversation": "new"` starts one — Cicada mints the handle (`mint_handle`) and
 answers it as `data.conversation` — and every later turn passes that handle back; a handle another token got (or any
@@ -215,6 +406,14 @@ are 401 there. Any `Origin` is refused. The same API rides the G135 listener (`n
 (ruling 38): an MCP client uses `/mcp`; everything else uses `/v1` and `/v1/openapi.json`. A scope-denied or malformed
 call answers the same sentence and `code` on both doors (one `RemoteRuntime.call`, one `tool_contract`); `sources`
 gates every verbatim word on `/v1` as on `/mcp` (`ToolContext.raw_excerpts`).
+**Clients of `/v1` are not doors (ruling 38a, 2026-10-29).** A library that runs in an agent's own process and speaks
+only `/v1` with an agent token adds no route and no power. The first is `clients/memory-tool` (Python and TypeScript):
+Claude's API memory tool (`memory_20250818`) with `/memories` mapped onto `/v1` — `README.md` (`GET /v1/me`),
+`recent.md` (`timeline`), `hubs/` (`hub`), `search/<words>.md` (`recall`), `pages/<id>.md` (`page`, `view_range` →
+`start`), `sources/` (`source_list`), each listed only when the token's scopes reach it; writes only to `notes/` via
+`save_note` (a revision is a new note, never an overwrite); delete and rename refused with a sentence; paths checked
+client-side before any request. Its README is the setup. A client that needs more than `/v1` offers gets a `/v1`
+operation (and its remote tool), never its own reach into the bank.
 **Agent tokens:** `POST /agent-api/tokens` `{name, scopes?, expiresInDays?, baseUrl?}` (master only:
 `MASTER_ONLY_WRITE_PREFIXES`) makes a connector row with `auth: "api"` and answers once `{token, agent, prompt,
 baseUrl}` — `cic_api_<id>_<secret>`, scoped (default `search`/`read`/`record`), expiring 7/30/90, revocable at
@@ -266,8 +465,42 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
   never a connect, so a harness's own wiring check (`claude mcp get`, which initializes as the agent) never moves it.
   Null until one; onboarding's Agents step confirms a first call from it. `lastSeenAt` and `via` are unchanged (`call`
   counts as an MCP sighting).
-- `GET /devices/status` — `{devices: [{id, name, role: server|device, current, connected, how, lastSeenAt, queue}],
-  connectedWithinSeconds}`: this server first, named by its own Computer Name (macOS `scutil`, else the host name),
+- `GET /diagnostics/coverage/{pictures|sources}?ids=&archived=` (vision items 1-2, 2026-10-28) — JSON, `no-store`, not a
+  Store domain, computed on each ask over the active bank (`coverage_report`; 404 for any other report). **Pictures:**
+  each live page's ONE rung from `entity_picture.resolve_page` (`<rung>:stored` with bytes on disk, `<rung>:offered`
+  when the app will ask for it) or ONE reason (`coverage_report.REASONS`: `type_has_no_rung`, `gate_off`,
+  `fetch_missed`, `no_identifier`, `identifier_proposed`, `identifier_needs_proxy`, `no_site`, `site_proposed`,
+  `site_unconfirmed`, `site_platform`, `repo_proposed` (a project whose only repository link waits in "Confirm N
+  links", owner 2026-10-28 E), `paper`, `no_url`, `walled`, `no_preview_declared` — `media_preview.missing_reason`
+  for the last four), by type; cached logos bucketed by their smaller side; `opportunities` counts what rungs awaiting a
+  ruling could draw from. **Sources:** each entry's write path (`coverage_report.writer_of`, inferred from the fields
+  each writer stamps — `WRITERS`) × trusted/proposed/unconfirmed, roles, ruling-26 re-check state, pages with none by
+  type, and web citations counted as claims by origin (never sources, rulings 27/44). Ids and enums only: no page name,
+  URL or handle; `ids=true` adds ≤ 5 page ids per bucket. Reads caches, never creates or fetches. Measured cold on a copy
+  of the owner's bank (5,683 live pages): pictures 4.1 s, sources 6.4 s (the claims fold).
+- `GET /diagnostics/report?lines=N` (tester readiness, 2026-10-26; 1 ≤ N ≤ 1000, default 200) — plain text, `no-store`,
+  not a Store domain: the backend half of *Report a problem…* — version, platform, engine mode (an enum, never an
+  account), connected channel ids, the bank count, recent warnings and errors, and the tails of `backend*.log` and the
+  app's `update.log` from the fixed log dirs (`$CICADA_LOG_DIR`, `$CICADA_HOME/logs`, a checkout's `logs/`), each line
+  through one `diagnostics.Redactor` built per report: every page id, name and alias in the active bank and every
+  waiting name (`pending_store`) and bank name is withheld as a token (and a parenthesis after it); then URLs (cut only
+  at whitespace), %-decoded emails, `*.md` / `*.claims.jsonl` / `*.jsonl` / `*.yaml` file names (Cicada's own kept),
+  any home (POSIX with spaces, Windows), bank paths, wikilinks, quoted text, a capitalised parenthesis, request-path
+  ids and hyphenated slugs not on the keep list (channel and agent ids); a line where a name, URL or email still
+  survives keeps only its structure (time, level, logger, exception class, file:line) and reads `[message withheld]`.
+  It sends nothing; the app shows it before the person copies, saves or sends it.
+- `PUT /sources/catch-up` (G229, 2026-11-03) — the app's word on the sync its readers do after it was closed:
+  `{session, openedAt, awaySince?, readers: [{channel, label, state: reading|done|failed, fix?}], done}`, the whole word
+  each time (idempotent). Held in memory per (reporter, bank) by `reader_catch_up` — the reporter is the device whose
+  token signed it, none for this server's own app — outside every bank, never logged; a new `session` starts a new
+  one, a finished one takes no further word, one left `reading` 15 min is dropped, a finished one shown 10 min.
+  Answers `{catchUp}` (the reporter's view, below). Demo bank 409 (`_DEMO_GATE`); write-admission class `outside`;
+  replica `local`. `fix` is kept only on a `failed` reader.
+- `GET /devices/status` — `{devices: [{id, name, role: server|device, current, connected, how, lastSeenAt, queue,
+  catchUp}], connectedWithinSeconds}`. `catchUp` (G229) is that machine's live sync or null: `{state: reading|done,
+  openedAt, awaySince, doneAt, readers, arrived, new}` — `arrived` = waiting episodes whose file changed between
+  `awaySince` and `openedAt` (null without `awaySince`), `new` = since `openedAt` (frozen at `doneAt`), both from the
+  same `bank_index` header scan as `queue`, never from the app: this server first, named by its own Computer Name (macOS `scutil`, else the host name),
   then each active device token by the name the person gave it. `how` is read from the device's last request
   (`agent_seen.how_from_request`: a Tailscale Serve header or tailnet address → `tailscale`, another private address →
   `lan`, a device token on loopback → `ssh`), stamped in `auth.require_token` once a minute. `queue` = that machine's
@@ -321,6 +554,36 @@ the node's `contentHash` only when true, so a lit node's hash is unchanged; `GET
 `saved-why-2`, G191 v3: items gained `savedWhyHistory`, `lastSavedAt` and `captureThumb`). Neither moved a component,
 so `VersionVector` was unchanged by those — but G191 v3 also folds the `captures` component into `/sources`' ETag (a
 new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps `captures` → `.sources`.
+**Where an item lives (G161, ROR-111, shape `g161-17`).** A row on `GET /sources/channels/{id}/items` whose item records
+a place carries `place`: its kind alone (`notes`, `github`, `web`), never the URL or a note's id, so a list stays titles
+only. `GET /sources/channels/{id}/items/{item}/place` answers one listed item on the person's click:
+`{kind: "notes", note_id}` or `{kind: "github"|"web", url}`; 404 when the channel does not list it or no place is known. No
+ETag, not a Store domain, never cached, nothing fetched. Only an http(s) link with a host and no credentials is a place
+(`channel_items._web_place`): `file:`, a custom scheme, a backslash or a space is none. GitHub is said by the exact host.
+A note's place is Notes' own `x-coredata://` id from the notes index or the episode's header, never a body. A locked note
+is never listed, so it never answers, and the route is not on the remote connector.
+
+**Where a source's items live (2026-11-04, shape `g161-16`).** `GET /sources/channels/{id}/collections` answers `{channel,
+accounts: [{name, provider, count, collections: [{id, name, count, latest}]}]}` for `notes`, `calendar-local` and
+`reminders-local`, and no accounts for any other channel the bank knows; an unknown channel is a 404. `notes` adds
+`locked`, how many locked notes the last read found (G234; `sync_state.json` moves `sources`, so the ETag moves with it). Read-only and
+engine-free. Its ETag is `sources` + `episodes` with `extra` = `channel_items.SHAPE|collections|<channel>|<digest of the
+kept names>`, and `GET …/items?collection=<id>` narrows a page under its own ETag. Neither is a Store domain, so no
+`VersionVector` mapping: `ChannelItemsCache` revalidates when a page opens and whenever the channels move, and a 304 or a
+failure keeps what it holds (`capture-and-sleep.md`, "Where an item lives").
+**Chat source pages (2026-11-03, shape `g161-12`, overview `overview-v12`).** On `GET /sources/channels/{id}/items` for a
+chat source (`imessage`, `whatsapp`, `telegram-chats`) each chat row adds `ticked` (now), `pinned` (only when set),
+`last_at` (the newest stored message, aware UTC) and `synced_at` (the newest write of any of its sittings), and its
+`chat` adds `picture` — an API path on Cicada (`/entities/<id>/picture?v=` or `/photo`) when the chat stands for a page
+(the person's own chat → the owner's page; a one-to-one chat → its correspondent's page, `messages_photos.chat_pages`);
+pinned rows list first, then the apps' order. A ticked chat with nothing stored yet lists too (no `day`). The pin is
+written through each source's own settings route (`PUT /sources/{messages|whatsapp|telegram}/settings`
+`{conversation: {id, pinned}}`, the tick's route, one `user` commit of the settings file; a pin never ticks), and the
+three settings files ride the `sources` component by mtime (`sync_service.CHAT_SETTINGS_FILENAMES`; client mapping
+unchanged, `sources` → `.sources`). `GET /sources/messages/chats/{id}/sittings` (any chat source) adds `ticked` and
+lists **no** sittings for an unticked chat (G179's ticked-only rail on the chat page's panel; 404 only when it is not a
+chat hash, or holds nothing and is not ticked); its ETag now rides `sources` with `episodes`. Readwise's rows are gone
+from the overview (`overview-v12`); the connector routes are the generic ones and stay.
 **G191 v4.** `/sources` items gained `leftBrowser` `[{browser, channel, since}]` (shape `saved-why-3`): the browsers a
 bookmark has left, read from the bookmark seen-set's `left` map. That file (`sources/bookmark_seen.json`) is not `*.md`, so
 the `sources` component's directory fingerprint never saw it — it now rides the component by its own mtime (client
@@ -360,6 +623,33 @@ the detail keeps the series (`PROJECT_SHAPE` g141-4, 2026-10-19: 40 % of the lis
 /projects/{id}/threads/{claim_id}` and `POST /projects/{id}/withdraw` (happenings only) — answer **409**
 while Sleep runs and each commits alone over its own pages as `Cicada-Author: user`,
 `user/companion_app`.
+**g141-7 (2026-10-27, ruling 45).** A row and the detail's `project` carry `mine`, `mineVia`, `description` and
+`descriptionBy` {by, day, session?}, and `oneLiner` is the person's description when there is one. `GET /projects` (g141-10, ruling 56) sends
+only the person's own rows; `project_timeline.list_projects`, which `followups` reads, still holds every page. `suggested`
+and `dismissed` are always empty, kept one release for a client built against g141-7..9 (remove after 0.9). A page not
+started answers on `GET /projects/{id}/timeline` as before, `mine: false`.
+The detail adds `influences` [{id, source, label, url, entity, entityType, tag, how, by, day, claimId, predicate, ref,
+page, reversed}], `conversationCount` and `knowledge` [{provider, projectId, name, episode, instructions, start, end,
+docs}]. The client mapping ships with the bump: the app's `ProjectsCache` keys both reads on the server's ETag, so the
+new shape refetches once. New routes, each **admitted** (409 while Sleep holds the pages), committing alone as
+`Cicada-Author: user`: `POST /projects` {name, description, via?: cli, pages?: [id or name, ≤ 100]} (a name a project, concept or tool page
+holds starts that page, `action: "started"`, its id, words and history kept; a name only another kind of page holds, or two
+pages could answer to, is **409** naming them; since 2026-11-04 `description` keeps its paragraphs, ≤ 4,000 characters, and
+`pages` attaches pages of any kind in the same write — each checked first, a 400 naming an unknown, dropped or owner
+page writes nothing; a GitHub repository page joins `repositories:` through `github_repos.link`, any other page
+`entities_added`; one commit, the new page `created`, each repository page's back-link `updated`; all or nothing —
+a refusal that can only be checked once the page exists, such as a `part-of` claim naming the new project, or any other
+failure while attaching removes the new page and restores each back-link, `project_ownership.create_with_pages`; the
+description is scrubbed on every door, `clean_description`, its count ledgered as `project`), `POST /projects/{id}/accept` {name?} ("Add to my projects": a fallback page is retyped in place; a `g-p-` id is a 404
+since ruling 56), `POST /projects/{id}/dismiss` ("Remove from my projects"), `PATCH /projects/{id}` {name?, description?},
+`POST /projects/{id}/pages` {entity, remove?} (Pages in this project; a repository page is one of its repositories,
+ruling 53, and its removal unlinks it — remembered — and says "Not part of it"; `project_ownership.attach`),
+`POST /projects/{id}/conversations` {episode, remove?} (the whole conversation — every episode of its session or source
+id — in one page write), `POST /projects/{id}/influences` {url? | what? | entity?, how?,
+note?} and `POST /projects/{id}/influences/withdraw` {claimId, page?} | {ref, predicate?}. `GET
+/projects/{id}/conversations?offset&limit` (≤ 200) answers {project, total, counts: {repo, named, claims, added, provider,
+relay}, conversations: [TimelineConversation + {day, why, relayed, providerLabel, manual}], offset, partial} — the same
+ETag folding as the timeline, no ETag while the word index builds or a raw scan answered (`partial`).
 
 **The settings file (2026-10-13).** A developer checkout's settings file is `api/.env`, found by `api/settings_file.py`
 from the package's own folder — **never the working directory**, so neither the repo root (the launchd backend's cwd)
@@ -387,9 +677,20 @@ episode (the original shape, kept for any client still asking); `processed=false
 app asks for (`APIClient.fetchEpisodeQueue(etag:)`: the Sleep page's Waiting rows and count fallback, a source's queue
 strip) — and `processed=true` with `offset`/`limit` (≤ 1000) pages the read ones; `X-Total-Count` is the filtered total.
 The paged call has no app client, and none is needed (checked 2026-10-19): no surface lists read conversations from
-this route — Sleep › Past reads runs (`/sleep/history`, `/sleep/runs/{id}`), the waiting list is `/sleep/queue` (≤ 200)
+this route — Sleep › Past reads runs (`/sleep/history`, `/sleep/runs/{id}`, and a card's items, below), the waiting list is `/sleep/queue` (≤ 200)
 and `processed=false`, and a source's conversations are `/conversations/recent` (≤ 200, filtered before its cap). A
 surface that one day lists read episodes pages here instead of downloading them all.
+
+**What one consolidation read and wrote (owner 2026-10-26, the run card).** `GET /sleep/runs/{id}/items` (a run's batch
+commits, from its `sleep_run` ledger rows; 404 for an unknown run) and `GET /sleep/history/{commit}/items` (one Sleep
+cycle's commit; 404 for a decay, inbox or non-Sleep commit) answer `SleepConsolidated`: `conversations` (id, title,
+origin, timestamp), `created` / `updated` pages (id, name, type, `gone`), `questionsRaised` / `questionsSettled` (id,
+title, kind, entityId, status), whole `counts` and `truncated` (each list ≤ 200). Read from the bank's history — each
+commit's own file list (`diff-tree --root --name-status -M`: an episode's `processed` flip, a page added or modified, an
+`inbox/inbox-*.md` added, an item moved under `inbox/settled/`) — never a model. Sleep's settles are commits of their own (`Inbox settled by Sleep (<kind>) <date>`, `inbox_tend`), never inside a batch commit, so the settled questions come from those commits inside the run's window (`started_at` → `finished_at`, or the cycle's commit less its duration → the commit, plus a 300 s grace for the per-drain tidy; `sleep_consolidated.settle_commits`) — a person's `Inbox resolution` is never one; names and titles are read from the bank
+now. ETag over `git_head`, `entities`, `episodes`, `inbox`, `telemetry` and `sleep_consolidated.SHAPE`; the client mapping
+is `APIClient.fetchSleepConsolidated(_:etag:)` → `SleepViewModel.consolidated` (a 304 keeps its copy). `/sleep/history`'s
+`run` gained the whole run's `created`, `updated`, `questionsRaised`, `usageSummary` and `models` (`cycle_usage._run_figures`).
 Rows are chosen from `bank_index`'s cached headers (`sleep_cycle.episode_headers`) and only the sent rows' bodies are
 read: on a synthetic 8,237-episode bank (10 waiting) the bare call is 4.3 MB / 1.7 s warm before and 0.4 s after, the
 waiting list 5 KB / 45 ms, a 304 ~25 ms. ETag over `episodes` with `extra` = `sleep.EPISODES_SHAPE|<query>|<folders.json
@@ -421,6 +722,52 @@ bank reads (the pair it pinned at its start): `$CICADA_HOME/connections.json` is
 `PUT /sleep/engine` that did not come from the app moved nothing. No `VersionVector` mapping — the app's
 `SleepEngineRefresh` reloads `GET /sleep/engine` on it; that body's `runKeepsEngine` is true while such a run reads on
 an engine other than the one its kind (manual or scheduled) resolves to now.
+
+**`GET/PUT /sleep/engine` and the person's own tools (G49/G50, 2026-10-28).** `mode` accepts `cursor`, `opencode` and
+`grok` beside `auto|agent|codex|byok|local`; their model ids pass the CLI id charset, and an OpenCode model off a
+subscription provider answers 422 with the sentence (rail 2). Each candidate gains optional, additive fields: `kind`
+(`auto|plan|key|local`), `engine` (its `ENGINE_LABELS` id), `mark` (the bundled logo), `billingNote`, `modelNote` (a
+saved model the tool no longer lists) and `signIn` (the command the person runs). The three tool cards follow the
+ChatGPT plan's, so the order is Auto, Claude plan, ChatGPT plan, Cursor, OpenCode, Grok, OpenRouter, Ollama, API key; a
+client that reads by id is unaffected. Their status is probed by `cli_engines.status` (30 s cache, never a call that
+spends, 8 s per command, Cursor's two side by side); the GET serves the last known state while a refresh runs, so a hung
+tool never holds the Sleep page. A scheduled preview of a chosen Grok is `none` (it reads only when you start one). Previews name `cursor-cli` / `opencode-cli` / `grok-cli` with `billing: plan`; the field is named
+`billingNote`, never a cost or price, because prices ride only `usage`/`modelPrices` (ruling 12).
+
+**A Claude key's card (G237, ruling 63; `anthropic_models`).** With a Claude model chosen, the `byok` card's `models` are the
+saved choice (first, so a tap keeps it), then the small, standard and top tiers, then every other active model, read from the
+key's own Models API answer (`catalogue.source: your key`) or a documented floor (`documented`); `modelNote` says when a saved id
+moved forward. `POST /sleep/engine/models/refresh` with `byok` re-reads it when a Claude key is held (422 otherwise, as for any
+other key). A key's save reads it in the background, and a run on the key once a day. `modelPrices[…].basis` names where a price
+Cicada keeps was read (ruling 12); `providers[…].defaultModel` for Anthropic is the list's small tier.
+
+**The model catalogue on every card (vision item 4, 2026-10-28; `model_catalogue`).** Each candidate gains an
+optional `catalogue`: `{engine, source, asOf, drift, models: [{id, source, asOf, family, firstSeen, new, resolvesTo,
+resolvedAt}]}` describing its `models` (unchanged, so an older app and the R-HS7 first-model tap read what they read).
+A model's `source` is `harness` (the person's own tool listed it: `claude --help`, `agent models`, `opencode models`,
+`grok models`, the ChatGPT plan's app-server `model/list`, Ollama's tags), `documented` (the Claude plan alias the
+harness accepts but its help did not name), `default` (a key card's one default) or `saved` (the person's choice no
+list names, never dropped — `stale_model_sentence` holds). **Harness-reported only: Cicada fetches no vendor page or
+list** (whether it may is the owner's call). The Claude plan's list needs no code edit: `claude --help`'s `--model`
+aliases (today `fable`, `opus`, `sonnet`), cached a day in `$CICADA_HOME/model_catalogue.json` (ids, days, times only;
+outside every bank, disposable) and refreshed in a background thread — the GET never waits on it, no hook imports it —
+beside the documented `sonnet`, `haiku`, `opus`, which keep the card's first model where it was. `resolvesTo` is what a
+real run reported an alias served (`agent_engine.response_shim`, written only when it changes). `firstSeen` is null
+for every model present the first time an engine is catalogued and the day for one that arrived later; `new` is a
+first sight within 14 days. **Drift fails loudly:** a listing that answered with words and no id
+(`cli_engines.listing_drifted`), a `model/list` result in a shape with no `model` key (`CodexSnapshot.models_drift`), or
+a help text whose `--model` option or quoted aliases moved (`FormatDrift`) sets `drift` to a sentence and logs a
+warning; OpenCode and Grok then read as not connected (they always pass an explicit model and cannot pick one blind),
+Cursor keeps its own `auto`, the Claude plan keeps its last good list. One fixture per harness pins each parser
+(`api/tests/fixtures/model_lists/`, `test_model_catalogue.py`). **Engine picker v2 (ruling 48 part 11):** each row also
+carries `familyLabel` — the model line it belongs to (`Claude`, `GPT`, `Gemini`, `Grok`, a tool's own as `"<tool>'s
+own"`, else its first word) — and the rows come grouped, families in the order the harness first lists them, newest
+first inside each by the id's own version (`model_catalogue.ordered`; no harness lists release dates); the card's
+`models` keep the harness's order (R-HS7). `POST /sleep/engine/models/refresh` `{id}` re-reads ONE card's list from
+its harness now (`claude --help`, the tool's `models`, `model/list`) and answers what a GET would; 422 for a card with
+no list. It is the person's Refresh only: the page never probes (ruling 46). Measured: `GET /sleep/engine` p95 17.6–18.1 →
+18.4–19.3 ms in process on an owner-scale bank copy, no plan CLI on the path (30 reads, alternated runs; the cache
+file is parsed once per stamp).
 
 **A request runs in one bank, and a write only in the bank it was made in (`bank_binding`, G183(d)).** One
 app-wide dependency (`bank_binding.require_same_bank`, beside `require_token` in `api/main.py`) does two things:
@@ -521,11 +868,14 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   cut notes) and a compare or release link. `auto` (the page opening) only past an hour; a click past a minute.
 - `POST /skills/preview {source, choose?}` → `{planId, name, description, skillMd, files, scripts, repo}` or
   `{choices}`; `POST /skills/install {planId | suggestion, agents, requestId?}` installs exactly the preview's files at
-  its commit (a plan lives 30 min in memory), or a catalog suggestion at its reviewed pin (a tool: a job).
+  its commit (a plan lives 30 min in memory), or a catalog suggestion at its reviewed pin (a tool: a job). A copied
+  suggestion installs only when what arrived matches the review — its SKILL.md hash and every file in `pin.files`
+  (`skill_actions.check_reviewed`, 2026-10-29); otherwise nothing is written and the reason says so.
 - `POST /skills/{name}/update` and `/skills/update-all` (jobs), `PUT /skills/{name}/agents/{agent} {on}`,
   `POST /skills/{name}/refresh`, `DELETE /skills/{name}`, `POST /skills/drafts/{name}/publish {agents}`,
   `DELETE /skills/drafts/{name}`, `POST /skills/requests/{id}/dismiss`, `GET /skills/jobs/{id}`.
-- `GET /skills/onboarding` (the three suggestions, their defaults, uv, the earlier answer) and `POST /skills/onboarding
+- `GET /skills/onboarding` (the four suggestions — the two harnesses ticked, the video skill and hoff not — their
+  defaults, uv, the earlier answer; the app's onboarding no longer shows this step, `app.md`) and `POST /skills/onboarding
   {install, agents}` — the answer is recorded (an empty list is "No thanks"), and the rest installs as a job.
 - **Fetches** go through `net_guard` (a hook on every hop), 4 s, ≤ 512 KB per response, no cookies, no token, ≤ 64
   files / 5 MB per skill; only on the person's click or the open page, never in Sleep, never an agent's call. A refusal
@@ -567,13 +917,28 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   returns nothing. `truncated` is the UNION of three caps; `linesTruncated` specifically means "the
   ordered list was cut" and is what a client renders its banner on.
 - `GET /conversations/recent` is **CAPPED** (limit ≤ 200) and is never a membership test; filters
-  (`harness`, `origin`, and `q`, a title filter) apply BEFORE the cap. Use `GET /conversations/{id}` to
+  (`harness`, `origin`, and `q`, a title filter) apply BEFORE the cap; `harness` names an overview row, the partition
+  its count uses, never the episode's field (ROR-109). Use `GET /conversations/{id}` to
   resolve one id against the whole bank.
 - `GET /search` runs in the threadpool. `mode=prefix` (the per-keystroke pass) is FTS only and never
   loads the embedding model; `mode=hybrid` (the default) fuses FTS with the stored vectors and reports
   `mode: lexical` when no vector index answered. `totals` are exact **lexical** counts — semantic
   neighbours are ranked, never counted. An `indexState` other than `ready`/`stale` means entities and
-  media only, from the frontmatter cache. No ETag: it is never a Store domain. Its query string (and
+  media only, from the frontmatter cache. **Pictures** (vision item 3, 2026-10-28) are a kind of their own,
+  asked for by name (`kinds=image`, or `images` / `pictures`) and never in the default or in "every kind" (`search_service.OPT_IN_KINDS`, outside `KINDS`, so `cicada find` with no `--kind` is unchanged): hybrid only (prefix returns
+  none and never reaches the picture index), ranked by their lift over the query's mean across every picture and
+  never counted (no `totals` entry); each hit is `kind: image`, `type: image`, with the additive `thumbnail` (the API
+  path that serves it) and `imageSource` (`look | capture | preview | still | frame`), `subjectId` its page and
+  `episodeId` a watched day; a `frame` adds `fileId` and `atSeconds`. **Recordings** (meaning index 2) are the opt-in
+  `kinds=file` (or `files`, `recordings`, `audio`, `video`): `kind: file`, `type` audio or video, `snippet` the
+  recording's words with `subtitle` "the recording's words, at m:ss", additive `fileId`, `atSeconds`, `endSeconds`.
+  No ETag: it is never a Store domain.
+- **`/files`** (meaning index 2, `routers/files.py`): `POST /files/media` (an added recording's description and its
+  transcribed segments; the same sha256 again replaces its words; 422 for anything out of shape, nothing written; 409
+  in a demo bank), `POST /files/{id}/frames` (≤ 64 base64 JPEGs a call, ≤ 640 × 400 and ≤ 200 KB each, ≤ 1,200 a file),
+  `GET /files` (descriptions with the file's `page`, never the words or the sha256), `GET /files/{id}/transcript` (ROR-117: the scrubbed segments with their times, the recording's words, for its page; the app's token only, no remote door), `GET /files/{id}/frames/{ms}` (only a frame the file's own
+  list names), `DELETE /files/{id}`. No route embeds: each starts the background refresher (30 s later; a delete at
+  once). The app posts derivatives only — never a path or a file's bytes. Its query string (and
   `/conversations/recent`'s) is stripped from uvicorn's access log; a new query-bearing GET joins
   `_QUERY_PATHS` in `api/main.py`. An OAuth callback's query (`/sources/connectors/<id>/callback`,
   `/connections/<id>/callback/<nonce>`) is stripped too: its `code` is a credential (2026-10-16).
@@ -607,6 +972,26 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   on generated banks (1,900 entities):
   - 10,000 episodes: 42 → 24 ms per tick for one stream, and 169 → 25 ms for four.
   - 2,000 episodes: 12 → 6 ms for one stream, and 50 → 6 ms for four.
+- **A folder's headers carry a generation (2026-10-29).** `bank_index` takes a new number whenever a folder's cached
+  headers change (a parse stored, a file dropped, an invalidation); `files()` sorts once per generation, and the same
+  listing object again (a `shared_scans` memo, the SSE walk's seed) at the same generation is not compared a second time
+  (1.7 ms → ~0 at 8.9k episodes). `bank_index.derived(memory_path, subdir, name, build)` keeps a per-folder index until
+  the generation moves — `channel_items`' episodes by origin is the first (`app.md`, the items route's speed line).
+- **The start-up heap is frozen out of the cyclic collector (2026-10-29, owner's call).** After the lifespan's
+  start-up, the backend runs `gc.collect()` then `gc.freeze()` once (`gc_tuning`), and the stdio MCP server does
+  the same before its loop: a full collection never walks the app's own ~450k start-up objects again. Once per
+  process only — a later freeze would pin every cache entry replaced afterwards. Owner's bank copy, 2,400 real
+  requests: RSS 465–472 MB frozen against 656–660 MB not, flat across the run. `CICADA_GC_FREEZE=off` turns it off
+  (the test suite does).
+- **A request may answer from the tick's walk (2026-10-29, the coordinator's call on item (e)).** `GET /inbox`,
+  `/origins`, `/status`, the card and every `etag_for` outside a request's own block list the bank through
+  `sync_ticker.request_scans`: the last tick's listings when `reusable_listings` opens — the same running watcher has
+  reported nothing since before that walk, this process has written nothing since (`local_writes`: every write and
+  delete through `markdown_parser`, and every request that is not a read, counted as it arrives and as it ends), no
+  Sleep run is under way, and the walk is under `FALLBACK_S` old — else one fresh listing per folder. A local write
+  also makes the next tick walk at once, so the gate reopens within a second. Another process's write reaches the
+  watcher within its debounce (~0.4 s); until then a request sees what the stream sees. Owner's bank copy, load ≈ 20:
+  `GET /inbox` 304 p95 68 → 1.1 ms, 200 p95 65 → 5.2 ms with the gate open.
 - **The tick walks the bank on a file-change event or every 10 s (2026-10-16, owner decision 2).** `bank_watch` keeps
   one watcher per bank — `watchfiles` (already installed by `uvicorn[standard]`): FSEvents on macOS, inotify on Linux —
   over the bank and its machine-local Sleep folder, counting reported changes except git's own (`.git/`) and the index
@@ -665,3 +1050,26 @@ or future start changes currentness at midnight even if no page was edited.
 These are on-demand reads with in-memory caches, not Store domains, and add
 no VersionVector component or wire field. Search's Swift decoder now consumes
 its already-existing event day/state fields so a closed event stays dated.
+
+**`POST /sensitive/remove` (G235):** Remove on exactly what `scripts/sensitive_removal.py` listed: `{rows, plan}`, both
+required, `plan` the dry run's stamp over each row's id, kinds with counts and unsure count. 409 when a row is gone, the
+stamp differs, the older version cannot be committed, or Sleep holds the pages; 403 for `via: agent`. Answers counts only:
+`{removed, failed, files, committed, left, still_found, stayed}` (`still_found`: files, conversations included, still holding
+what it was to take out: a distinctive value anywhere, any other on a line that speaks of a secret, tied or not; `stayed`: tokens left in other files on purpose, unsure or
+common in the bank). A row in the card's own resolve that could not be done answers 409 and stays.
+**Saves kept for lookup (ruling 62, 2026-11-04).** `GET /sleep/queue` and each row of `GET /sources/overview` carry `kept`:
+the saves indexed with no model read, unread until the person talks about one (`history_index.kind` `saved`,
+`capture-and-sleep.md`, *The lean pass*). `SHAPE` `overview-v17` moves the overview's ETag with the field and the app decodes
+it leniently; `/sleep/queue` has no ETag and is not a Store domain. Neither lists a kept save as waiting, and
+`GET /sleep/episodes?processed=false` no longer lists one a run has not retired yet. The hook's `reason` gains `saved`.
+
+**`GET /contributors` folds only new commits (speed, 2026-11-06).** `git_service.get_contributors` keeps the per-author
+aggregate and the HEAD it was folded at, per bank, in the process; a new HEAD costs `git log <old>..HEAD` (when the old
+HEAD is still an ancestor, else the whole walk) and the same HEAD costs nothing. Warm 200 on a 9,000-page memory
+1,415–1,929 → ~180 ms; the first call of a process still walks the history once (~6 s there).
+
+**`GET /sources` is built off the event loop and kept under its ETag (speed, 2026-11-06).** The list parses every saved
+page (~2 s at 4,400 links on a 9,000-page memory) and was an `async def` doing that work on the loop, so a page read
+waited behind it (2.6 s measured). The build runs in `run_in_threadpool` and the built list is kept per `(bank, sort)`
+under the ETag it was built for (the one a 304 already trusts), for five minutes at most because relevance decays with
+the day. Warm `?sort=relevance` 1,938 → 128 ms; a page read during a rebuild waits ≤ 565 ms, not 2.6 s.

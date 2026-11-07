@@ -29,7 +29,8 @@ def test_malformed_values_are_ignored_not_persisted(change):
 def test_plain_paths_become_only_scoped_hashes_and_timestamp():
     raw = observation("/alpha/src", "/alpha", "/metadata")
     value = wi.parse("/alpha/src", {**raw, "title": "must not persist"})
-    assert set(value) == set(wi.KEYS)
+    assert set(value) == set(wi.KEYS) - set(wi.REMOTE_KEYS)   # no remote supplied: the pair's keys only
+    assert set(wi.parse("/alpha/src", {**raw, "remote_hash": "c" * 16})) == set(wi.KEYS)
     assert all("/" not in str(v) and "persist" not in str(v) for v in value.values())
     other = wi.parse("/alpha/src", {**raw, "scope_hash": "b" * 16})
     assert value["family_hash"] != other["family_hash"] and not wi.same_checkout(value, other)

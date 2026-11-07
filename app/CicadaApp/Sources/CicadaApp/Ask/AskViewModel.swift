@@ -46,8 +46,11 @@ final class AskViewModel {
             let response = try await APIClient.shared.ask(query: trimmed)
             answer = response
             let entry = AskHistoryEntry(question: trimmed, askedAt: Date(), answer: response)
-            history = AskHistory.push(entry, into: history)
-            await store.cache.save(history, etag: nil, domain: .askHistory, bank: store.bank)
+            // A failure is no answer to come back to: it would sit in Recent and show the same wall tomorrow.
+            if !response.isEngineFailure {
+                history = AskHistory.push(entry, into: history)
+                await store.cache.save(history, etag: nil, domain: .askHistory, bank: store.bank)
+            }
         } catch {
             self.error = Self.describe(error)
         }
@@ -60,14 +63,35 @@ final class AskViewModel {
         if let answer = entry.answer { self.answer = answer }
     }
 
-    private static func describe(_ error: Error) -> String {
+    /// What the person reads when the request itself failed: a sentence and what to do, never a status code, a raw
+    /// body or the system's wording (G199 for the app: the cause is in the log).
+    nonisolated static func describe(_ error: Error) -> String {
         if let apiError = error as? APIError {
             switch apiError {
-            case .serverUnreachable: return "Cicada backend is unreachable."
-            case .httpError(let code, let message): return "Ask failed (\(code)): \(message)"
-            case .decodingError: return "Couldn't parse the answer."
+            case .serverUnreachable: return Copy.AskWords.unreachable
+            case .httpError(let code, let body): return httpMessage(code: code, body: body)
+            case .decodingError: return Copy.AskWords.unreadableAnswer
             }
         }
-        return error.localizedDescription
+        if let url = error as? URLError {
+            switch url.code {
+            case .timedOut: return Copy.AskWords.timedOut
+            case .cancelled: return Copy.AskWords.cancelled
+            default: return Copy.AskWords.unreachable
+            }
+        }
+        return Copy.AskWords.failed
+    }
+
+    /// A refusal the backend wrote for the person (a 4xx with a sentence in `detail`) is shown as written; anything
+    /// else, a 5xx above all, is the generic line.
+    nonisolated static func httpMessage(code: Int, body: String) -> String {
+        guard (400..<500).contains(code),
+              let data = body.data(using: .utf8),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let detail = json["detail"] as? String,
+              !detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              detail.count <= 240 else { return Copy.AskWords.failed }
+        return detail
     }
 }

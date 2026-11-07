@@ -73,8 +73,8 @@ def _by_source(memory, prefix: str) -> dict[str, markdown_parser.ParsedFile]:
     # A connector poll shares the origin, never the export reader's folder: read as today.
     ({"source": "web", "origin": "reddit-saved", "folder": "r/example"}, None),
     ({"source": "web", "origin": "x-bookmarks"}, None),
-    # A browser bookmark, a single save, a conversation: read as today.
-    ({"source": "web", "origin": "chrome-bookmark"}, None),
+    # Ruling 62: a bare save is lean (`test_lean_pass.py`). A save with no link on its record, a conversation: read.
+    ({"source": "web", "origin": "chrome-bookmark"}, "saved"),
     ({"source": "web", "origin": "saved-link"}, None),
     ({"source": "mcp", "session_id": "ses_x"}, None),
     # A list save carrying the person's own words is read.
@@ -126,8 +126,11 @@ def test_a_watched_day_and_its_month_land_read_by_the_index(tmp_path):
     assert "## Came back to across weeks\n- alice-example — in 2 different weeks" in body
     assert "## Watched on more than one day\n- Bridges, part one — alice-example · 2 days: 2026-09-01, 2026-09-09" in body
     assert "- 2026-09-01 Tuesday · 2 videos" in body
+    # Each day's rows ride beside it in their own file (`sources/watched/`), never in its cached header.
     assert sorted(result.paths) == sorted({f"episodes/{p.name}" for p in (memory / "episodes").glob("ep_2026-*")
-                                           if p.stem not in ("ep_2026-09-01_001", "ep_2026-09-02_001")})
+                                           if p.stem not in ("ep_2026-09-01_001", "ep_2026-09-02_001")}
+                                          | {f"sources/watched/youtube/{p.name}"
+                                             for p in (memory / "sources" / "watched" / "youtube").glob("*.json")})
     # Nothing new waits for a model: only the fixture's own conversation does.
     assert [e["id"] for e in sleep_cycle._get_unprocessed_episodes(memory)] == ["ep_2026-09-01_001"]
     # A re-read writes nothing, the summary included.
@@ -146,7 +149,7 @@ def test_the_month_summary_is_the_same_whichever_order_the_days_arrive(tmp_path)
     assert _by_source(a, key)[key].body == _by_source(b, key)[key].body
 
 
-def test_a_list_save_lands_read_and_a_single_save_or_a_noted_one_waits(tmp_path):
+def test_a_list_save_or_a_single_save_lands_read_and_a_noted_one_waits(tmp_path):
     memory = _bank(tmp_path)
     idx: dict = {}
 
@@ -159,7 +162,7 @@ def test_a_list_save_lands_read_and_a_single_save_or_a_noted_one_waits(tmp_path)
     listed = save(f"https://www.youtube.com/watch?v={VID[0]}", "youtube-playlist", folder="Watch later")
     assert (listed["processed"], listed["processed_by"]) == (True, "index")
     single = save(f"https://www.youtube.com/watch?v={VID[1]}", "saved-link")
-    assert single["processed"] is False and "processed_by" not in single
+    assert (single["processed"], single["processed_by"]) == (True, "index")   # ruling 62
     noted = save(f"https://www.youtube.com/watch?v={VID[2]}", "youtube-playlist", note="watch for the ending")
     assert noted["processed"] is False and noted["has_note"] is True
     assert history_index.waits_for_model(noted) is True

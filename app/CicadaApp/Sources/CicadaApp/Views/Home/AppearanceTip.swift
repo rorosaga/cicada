@@ -41,7 +41,7 @@ enum AppearanceTipLayout {
 /// The card itself (DR-9's `glassCard` material, DR-40: one IconButton, TextButtons and a link — no primary on Home).
 /// It writes the same keys Settings → General does, so a pick here takes effect at once.
 struct AppearanceTip: View {
-    @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw: String = AppearancePreference.dark.rawValue
+    @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw: String = AppearancePreference.defaultChoice.rawValue
     @AppStorage(AppearanceTipPolicy.dismissedKey) private var dismissed = false
     @Environment(AppRouter.self) private var router
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

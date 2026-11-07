@@ -112,6 +112,45 @@ def test_parse_tiktok_export_tolerates_the_your_activity_wrapper():
     assert len(items) == 3
 
 
+# Today's "Download your data" JSON (checked 2026-10-26 against TikTok's data-types page and a maintained parser):
+# favourites and likes under "Likes and Favorites", watch history under "Your Activity" → "Watch History". Before the
+# fix the reader returned "Your Activity" alone, so this file read as not-TikTok and nothing came in.
+TIKTOK_CURRENT = {
+    "Profile": {"Profile Info": {"ProfileMap": {"userName": "placeholder"}}},
+    "Likes and Favorites": {
+        "Favorite Videos": {"FavoriteVideoList": [
+            {"Date": "2026-01-02 10:00:00", "Link": "https://www.tiktokv.com/share/video/7100000000000000001/"}]},
+        "Like List": {"ItemFavoriteList": [
+            {"date": "2026-01-03 10:00:00", "link": "https://www.tiktokv.com/share/video/7100000000000000002/"}]},
+        "Favorite Sounds": {"FavoriteSoundList": [{"Date": "2026-01-04 10:00:00", "Link": "https://example.invalid/s"}]},
+    },
+    "Your Activity": {
+        "Watch History": {"VideoList": [
+            {"Date": "2026-01-05 10:00:00", "Link": "https://www.tiktokv.com/share/video/7100000000000000003/"},
+            {"Date": "2026-01-06 10:00:00", "Link": "https://www.tiktokv.com/share/video/7100000000000000003/"}]},
+        "Searches": {"SearchList": [{"Date": "2026-01-05 10:00:00", "SearchTerm": "placeholder"}]},
+    },
+}
+
+
+def test_parse_tiktok_export_reads_todays_layout():
+    assert media_ingestor._is_tiktok_export_json(TIKTOK_CURRENT)
+    saves = media_ingestor.parse_tiktok_export(TIKTOK_CURRENT)
+    assert [(i.folder, i.origin, i.added) for i in saves] == [
+        ("Favorites", "tiktok-saved", "2026-01-02"), ("Likes", "tiktok-saved", "2026-01-03")]
+    every = media_ingestor.parse_tiktok_export(TIKTOK_CURRENT, include_history=True)
+    history = [i for i in every if i.folder == "Browsing History"]
+    # The same video watched on two days is two days of history, never one.
+    assert [(i.origin, i.added) for i in history] == [("tiktok-history", "2026-01-05"), ("tiktok-history", "2026-01-06")]
+
+
+def test_parse_tiktok_export_reads_the_favourite_spelling_once():
+    rows = [{"Date": "2026-01-02 10:00:00", "Link": "https://www.tiktokv.com/share/video/7100000000000000009/"}]
+    data = {"Likes and Favorites": {"Favourite Videos": {"FavoriteVideoList": rows},
+                                    "Favorite Videos": {"FavoriteVideoList": rows}}}
+    assert [i.folder for i in media_ingestor.parse_tiktok_export(data)] == ["Favorites"]
+
+
 def test_parse_tiktok_export_degrades_to_empty_on_junk():
     assert media_ingestor.parse_tiktok_export({}) == []
     assert media_ingestor.parse_tiktok_export({"Activity": {"Like List": "nope"}}) == []

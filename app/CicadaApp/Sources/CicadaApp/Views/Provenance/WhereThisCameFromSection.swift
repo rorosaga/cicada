@@ -167,8 +167,10 @@ struct WhereThisCameFromSection: View {
     /// Today's sentence, then one line per model the chip's third line
     /// summarises (C4) — the full list, since the chip shows only two.
     private func contributorHelp(_ c: ProvenanceContributor) -> String {
-        let sentence = c.kind == "unknown" ? Copy.Provenance.beforeProvenanceHelp
-                                           : Copy.Provenance.contributorHelp(ProvenanceSummary.sentenceName(c))
+        let sentence = c.transcribedTheWords ? Copy.Provenance.transcribedHelp(ProvenanceSummary.sentenceName(c))
+            : c.summarizedTheWords ? Copy.Provenance.summarizedHelp(ProvenanceSummary.sentenceName(c))
+            : c.kind == "unknown" ? Copy.Provenance.beforeProvenanceHelp
+            : Copy.Provenance.contributorHelp(ProvenanceSummary.sentenceName(c))
         return ([sentence] + ProvenanceSummary.modelsHelp(c)).joined(separator: "\n")
     }
 

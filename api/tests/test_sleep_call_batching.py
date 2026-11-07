@@ -96,10 +96,10 @@ def test_the_schemas_take_both_answer_shapes():
     from api.services import agent_engine, engine_schemas
 
     claude = agent_engine.SCHEMA_BY_STAGE["disambiguation"]
-    assert claude["properties"]["decision"]["enum"] == ["same", "different", "unsure"]
+    assert claude["properties"]["decision"]["enum"] == ["same", "different", "unsure", "related"]
     assert claude["properties"]["decisions"]["items"]["required"] == ["entry", "decision"]
     strict = engine_schemas.disambiguation_schema(strict=True)
-    assert set(strict["required"]) == {"decision", "reason", "decisions"}
+    assert set(strict["required"]) == {"decision", "relation", "reason", "decisions"}
     assert None in strict["properties"]["decision"]["enum"]
 
 
@@ -169,6 +169,8 @@ def test_stage_three_checks_seven_pages_in_two_calls_and_files_each_result_on_it
         system, user = kwargs["messages"][0]["content"], kwargs["messages"][-1]["content"]
         calls.append(user)
         blocks = user.split("ENTITY ")[1:]
+        if len(blocks) == 5:
+            await asyncio.sleep(0.01)   # the calls run at once: the larger one answers last, whichever started first
         return _answer(json.dumps({"results": [
             {"entity": k, "has_unresolvable_contradiction": "CONFLICT" in b, "question": f"Q {b.split(':')[1].splitlines()[0].strip()}?"}
             for k, b in enumerate(blocks, start=1)]}))
@@ -178,10 +180,9 @@ def test_stage_three_checks_seven_pages_in_two_calls_and_files_each_result_on_it
     settings = Settings(_env_file=None, agent_max_concurrency=3, summary_synthesis_enabled=True)
     changes = asyncio.run(cr.resolve_and_prune(_updates(7), existing, settings, now=datetime(2026, 10, 20, 3),
                                                decay=False, tuning={}))
-    assert len(calls) == 2 and [c.count("ENTITY ") for c in calls] == [5, 2]
-    nudges = [c for c in changes if c["action"] == "conflict_nudge"]
-    assert [n["id"] for n in nudges] == ["page-1", "page-6"]
-    assert nudges[0]["question"] == "Q Page 1?" and nudges[1]["question"] == "Q Page 6?"
+    assert sorted(c.count("ENTITY ") for c in calls) == [2, 5]
+    nudges = {c["id"]: c["question"] for c in changes if c["action"] == "conflict_nudge"}
+    assert nudges == {"page-1": "Q Page 1?", "page-6": "Q Page 6?"}
 
 
 def test_the_judge_reads_what_the_extraction_said_about_the_name(monkeypatch):

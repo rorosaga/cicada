@@ -4,8 +4,8 @@ import SwiftUI
 ///
 /// Three cards, in the order a person sets this up: the master switch (off by
 /// default — nothing listens until it is on), how apps reach this Mac (Cicada
-/// detects Tailscale or ngrok and shows the one command; it never opens a
-/// tunnel itself, G132 (c)), and the connectors. A token is shown once, in
+/// detects Tailscale or ngrok and shows the one command; it opens a tunnel only
+/// on the person's click on that command, ruling 59), and the connectors. A token is shown once, in
 /// the New connector sheet or after a Rotate; nothing on this page can show it
 /// again. Not a sync domain (R-R33): it fetches on appear, after every change,
 /// and every 30 s while the switch is on — sign-ins waiting for a yes every 3 s,
@@ -21,6 +21,16 @@ struct RemoteAccessView: View {
     @State private var showNewConnector = false
     @State private var rotated: RemoteConnectorCreated?
     @State private var pendingRevoke: RemoteConnector?
+    /// Ruling 59: nil for an older backend without the route, and the page is what it was.
+    @State private var funnel: RemoteFunnel?
+    @State private var funnelRunning = false
+    @State private var funnelFailure: String?
+    @State private var funnelFix: URL?
+    @State private var confirmFunnelOff = false
+    /// What became of the public address when the switch turned the connector off.
+    @State private var switchNote: String?
+    /// Only right after this click: a check from this machine can pass before the address is known outside.
+    @State private var justOpened = false
     /// Hyrum audit B1 review: the group is the last one on Devices & access, so the public-address check (up to 3 s, a
     /// request to the person's own tunnel) waits until the group is on screen, instead of running on every visit.
     @Environment(\.settingsViewportHeight) private var viewportHeight
@@ -31,10 +41,14 @@ struct RemoteAccessView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             switchCard
+            switchNoteLine
             if status?.enabled == true {
                 if !signIns.isEmpty { signInCard }
                 reachCard
                 connectorsCard
+            } else if funnel?.needsSightWhileOff == true {
+                // The switch closes the connector's own door. What outlives it stays in sight, with its off.
+                openWhileOffCard
             }
             if let problem {
                 Text(problem)
@@ -62,6 +76,11 @@ struct RemoteAccessView: View {
             ShownOnceView(created: created) { rotated = nil }
                 .frame(width: CicadaTheme.scaled(560), height: CicadaTheme.scaled(600))
                 .background(CicadaTheme.background)
+        }
+        .confirmationDialog(Copy.remoteFunnelOffTitle, isPresented: $confirmFunnelOff, titleVisibility: .visible) {
+            Button(Copy.remoteFunnelOff, role: .destructive) { Task { await runFunnel("off", shown: nil) } }
+        } message: {
+            Text(Copy.remoteFunnelWillRun(funnel?.stopCommand ?? ""))
         }
         .confirmationDialog(
             "Revoke \(pendingRevoke?.label ?? "this connector")?",
@@ -107,12 +126,25 @@ struct RemoteAccessView: View {
         .glassCard()
     }
 
+    @ViewBuilder
+    private var switchNoteLine: some View {
+        if let switchNote {
+            Text(switchNote)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private var reachCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text("How apps reach this Mac")
                 .font(CicadaTheme.headingFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
-            if let status { reachBody(RemoteReach.of(status), status: status) }
+            if let status { reachBody(RemoteReach.of(status, funnel: funnel), status: status) }
+            funnelOutcome
+            if funnel?.isOpen == true, funnel?.stopCommand != nil { funnelOffButton }
+            funnelOthers
             Text(Copy.remoteNeverOpensTunnel)
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
@@ -139,11 +171,103 @@ struct RemoteAccessView: View {
         .glassCard()
     }
 
+    private var openWhileOffCard: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            if funnel?.isOpen == true || funnel?.step == "terminal" {
+                line(funnel?.message ?? Copy.remoteFunnelLine, symbol: "exclamationmark.circle.fill",
+                     tint: funnel?.otherProgram == true ? CicadaTheme.danger : CicadaTheme.warning)
+            }
+            funnelOutcome
+            if funnel?.stopCommand != nil { funnelOffButton }
+            funnelOthers
+        }
+        .padding(CicadaTheme.spacingLG)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    /// Every other public mapping on this machine: what it reaches, and the off to copy. Cicada can't prove it made one, so
+    /// it never runs that off itself.
+    @ViewBuilder
+    private var funnelOthers: some View {
+        ForEach(funnel?.others ?? []) { other in
+            line(other.message, symbol: "exclamationmark.circle.fill",
+                 tint: other.kind == "api" ? CicadaTheme.danger : CicadaTheme.warning)
+            if let command = other.command { CommandBox(command: command) }
+        }
+    }
+
+    private var funnelOffButton: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            TextButton(title: Copy.remoteFunnelOff, inline: true) { confirmFunnelOff = true }
+                .disabled(funnelRunning)
+                .accessibilityIdentifier("remote.funnel.off")
+            if funnelRunning { ProgressView().controlSize(.small) }
+        }
+    }
+
+    @ViewBuilder
+    private var funnelOutcome: some View {
+        if let funnelFailure {
+            Text(funnelFailure)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.danger)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
+        if let funnelFix {
+            SettingsHelpLink(url: funnelFix, label: Copy.remoteFunnelFix)
+                .font(CicadaTheme.captionFont)
+        }
+    }
+
+    /// The address offered to apps: for a public address opened here, only one that just answered.
+    private var shownBase: String? {
+        if funnel?.isOpen == true, status?.publicBaseUrl == nil { return funnel?.url }
+        return status?.effectiveUrl
+    }
+
     @ViewBuilder
     private func reachBody(_ reach: RemoteReach, status: RemoteStatus) -> some View {
         switch reach {
         case .off:
             EmptyView()
+        case .funnelReady(let command):
+            Text(Copy.remoteFunnelLine)
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            CommandBox(command: command)
+            Text(Copy.remoteMachineNameWarning)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.warning)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: CicadaTheme.spacingSM) {
+                NeutralButton(title: Copy.remoteFunnelOn, size: .compact) {
+                    Task { await runFunnel("on", shown: command) }
+                }
+                .disabled(funnelRunning)
+                .accessibilityIdentifier("remote.funnel.on")
+                if funnelRunning { ProgressView().controlSize(.small) }
+            }
+        case .funnelOpen(let url):
+            line("Reachable at \(url)", symbol: "checkmark.circle.fill", tint: CicadaTheme.success)
+            if justOpened {
+                Text(Copy.remoteFunnelFirstTime)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+        case .funnelChecking:
+            line(Copy.remoteFunnelChecking, symbol: "clock", tint: CicadaTheme.textTertiary)
+        case .funnelWaiting(let message):
+            line(message, symbol: "exclamationmark.circle.fill", tint: CicadaTheme.warning)
+            checkAgain
+        case .funnelBlocked(let message):
+            line(message, symbol: "exclamationmark.circle.fill", tint: CicadaTheme.warning)
+            checkAgain
+        case .funnelExposed(let message):
+            line(message, symbol: "exclamationmark.triangle.fill", tint: CicadaTheme.danger)
+            checkAgain
         case .problem(let text):
             line(text, symbol: "exclamationmark.triangle.fill", tint: CicadaTheme.danger)
         case .reachable(let url):
@@ -200,9 +324,9 @@ struct RemoteAccessView: View {
                 Spacer()
                 Button { showNewConnector = true } label: { Label("New connector", systemImage: "plus") }
                     .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
-                    .disabled(status?.effectiveUrl == nil)
+                    .disabled(shownBase == nil)
             }
-            if let base = status?.effectiveUrl {
+            if let base = shownBase {
                 // Ruling 32: the sign-in way first — no secret in a link, and the app renews its own access.
                 Text("Claude and ChatGPT, on the web and on the phone, can sign in instead: add \(base)/mcp as a custom connector there, then approve the sign-in here.")
                     .font(CicadaTheme.captionFont)
@@ -223,7 +347,7 @@ struct RemoteAccessView: View {
             }
             ForEach(active) { connector in
                 RemoteConnectorRow(connector: connector,
-                                   canRotate: status?.effectiveUrl != nil,
+                                   canRotate: shownBase != nil,
                                    // A signed-in app renews its own access: there is no link to rotate.
                                    onRotate: connector.signedIn ? nil : { Task { await rotate(connector) } },
                                    onRevoke: { pendingRevoke = connector })
@@ -312,7 +436,40 @@ struct RemoteAccessView: View {
         await refresh(probe: true)
     }
 
+    /// Ruling 59: the click, then what Tailscale says now. The page turns on the listener's state with the fresh status.
+    private func runFunnel(_ action: String, shown: String?) async {
+        funnelRunning = true
+        funnelFailure = nil
+        funnelFix = nil
+        defer { funnelRunning = false }
+        do {
+            let answer = try await APIClient.shared.runRemoteFunnel(action: action, shown: shown)
+            funnel = answer.funnel
+            justOpened = answer.ok && action == "on"
+            if !answer.ok {
+                // A state the page already says in its own line is not said twice.
+                let message = answer.message ?? Copy.remoteFunnelFailed
+                funnelFailure = message == answer.funnel.message ? nil : message
+                funnelFix = RemoteFunnel.fixLink(answer.fixUrl)
+            }
+            status = (try? await APIClient.shared.fetchRemoteStatus(probe: false)) ?? status
+        } catch {
+            funnelFailure = RemoteFunnel.refusal(ConnectionModelText.detail(error)?.text,
+                                                 stopCommand: action == "off" ? funnel?.stopCommand : nil)
+        }
+    }
+
+    private func refreshFunnel(check: Bool) async {
+        do {
+            let fresh = try await APIClient.shared.fetchRemoteFunnel(check: check)
+            funnel = fresh.keepingAnswer(of: funnel)
+        } catch {
+            if let detail = ConnectionModelText.detail(error), detail.code == 404 { funnel = nil }
+        }
+    }
+
     private func refresh(probe: Bool) async {
+        await refreshFunnel(check: probe)
         do {
             let fresh = try await APIClient.shared.fetchRemoteStatus(probe: probe)
             var merged = fresh
@@ -349,8 +506,10 @@ struct RemoteAccessView: View {
         switching = true
         defer { switching = false }
         do {
-            status = try await APIClient.shared.updateRemoteSettings(enabled: on)
-            if on { await refresh(probe: true) }
+            let fresh = try await APIClient.shared.updateRemoteSettings(enabled: on)
+            status = fresh
+            switchNote = fresh.funnelNote
+            if on { await refresh(probe: true) } else { await refreshFunnel(check: false) }
         } catch {
             problem = "Couldn't change that: \(error.localizedDescription)"
         }

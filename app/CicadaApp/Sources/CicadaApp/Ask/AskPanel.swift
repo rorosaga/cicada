@@ -122,9 +122,13 @@ struct AskPanel: View {
     @ViewBuilder
     private func answerView(_ answer: AskResponse) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            MarkdownBody(text: answer.answer)
-
-            confidenceMeter(answer.confidence)
+            if answer.isEngineFailure {
+                // The engine did not answer: its sentence says why and what to do, with no meter and no "I don't know".
+                errorBanner(answer.answer)
+            } else {
+                MarkdownBody(text: answer.answer)
+                confidenceMeter(answer.confidence)
+            }
 
             if !answer.citations.isEmpty {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -161,7 +165,7 @@ struct AskPanel: View {
                 .accessibilityLabel(Copy.AskWords.fromConversationsHelp)
             }
 
-            if !answer.gaps.isEmpty {
+            if !answer.gaps.isEmpty, !answer.isEngineFailure {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     Text("I don't know:")
                         .font(CicadaTheme.font(size: 12, weight: .semibold))

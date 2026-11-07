@@ -1,0 +1,72 @@
+import Foundation
+
+extension Copy {
+    /// 2026-11-04 — the accounts → collections → items browser on the This Mac source pages (`SourceBrowser`): short
+    /// and said once (DESIGN_RULES §9 2026-11-03: no paragraphs, one line at most, no repeated titles).
+    enum SourceBrowser {
+        static let accounts = "Accounts"
+        /// G234: the one line on the Notes page; absent at zero.
+        static func lockedNotes(_ count: Int) -> String? {
+            guard count > 0 else { return nil }
+            return "\(UsageFormat.count(count)) locked \(count == 1 ? "note" : "notes") · Cicada can't read \(count == 1 ? "it" : "them")"
+        }
+        static let recent = "Recent"
+        static let openHelp = "Open"
+        static func back(_ to: String) -> String { "‹ \(to)" }
+        static let backHelp = "Back (Esc)"
+
+        /// A nameless account (a sync from before accounts were named) by its kind.
+        static func unnamedAccount(_ kind: SourceAccountProvider) -> String {
+            switch kind {
+            case .icloud: "iCloud"
+            case .local: "On My Mac"
+            case .google: "Google"
+            case .exchange: "Exchange"
+            case .subscribed: "Subscribed"
+            case .other: "Other"
+            }
+        }
+
+        /// What a channel's items are called, one and many.
+        static func noun(_ channel: String) -> (one: String, many: String) {
+            switch channel {
+            case "notes": ("note", "notes")
+            case "calendar-local": ("event", "events")
+            case "reminders-local": ("reminder", "reminders")
+            case "contacts-local": ("person", "people")
+            default: channel.hasPrefix("meetings:") ? ("meeting", "meetings") : ("item", "items")
+            }
+        }
+
+        static func count(_ n: Int, channel: String, locale: Locale = .autoupdatingCurrent) -> String {
+            let noun = noun(channel)
+            return "\(UsageFormat.count(n, locale: locale)) \(n == 1 ? noun.one : noun.many)"
+        }
+
+        static func search(_ n: Int?, channel: String, in place: String? = nil,
+                           locale: Locale = .autoupdatingCurrent) -> String {
+            let noun = noun(channel)
+            let what = n.map { "\(UsageFormat.count($0, locale: locale)) \($0 == 1 ? noun.one : noun.many)" } ?? noun.many
+            return place.map { "Search \(what) in \($0)" } ?? "Search \(what)"
+        }
+
+        static let feedNothingYet = "Nothing yet"
+        static func feedChecked(_ day: String) -> String { "checked \(day)" }
+
+        static let loading = "Reading…"
+        static let nothing = "Nothing here yet."
+        static let contactsSearch = "Search contacts"
+        static let contactNoName = "No name"
+        /// The grid's one line: how many cards are on this Mac, and how many of them are in memory when any is.
+        static func contactsLine(total: Int, inMemory: Int, locale: Locale = .autoupdatingCurrent) -> String {
+            let cards = "\(UsageFormat.count(total, locale: locale)) \(total == 1 ? "contact" : "contacts")"
+            return inMemory > 0 ? "\(cards) · \(UsageFormat.count(inMemory, locale: locale)) in memory" : cards
+        }
+        static func contactHelp(_ name: String) -> String { "Open \(name)'s page" }
+
+        // Meeting recorders
+        static let hexConnect = "Connect Hex"
+        static let hexNoFolder = "Hex hasn't saved a meeting on this Mac yet."
+        static let otherFolder = "Another folder"
+    }
+}

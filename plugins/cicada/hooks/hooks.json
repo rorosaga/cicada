@@ -1,5 +1,5 @@
 {
-  "description": "Cicada: Stop saves the session (G105); PreCompact and SessionEnd flush the same capture (G110 gate A); SessionStart and UserPromptSubmit add what Cicada remembers (G149).",
+  "description": "Cicada: Stop saves the session (G105) and, when one changed, the agent's memory notes (ruling 43); PreCompact and SessionEnd flush the same capture (G110 gate A); SessionStart and UserPromptSubmit add what Cicada remembers (G149).",
   "hooks": {
     "Stop": [
       {"hooks": [{"type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/cicada-hook capture --harness claude-code", "timeout": 5}]}

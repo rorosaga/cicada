@@ -2,8 +2,8 @@ import Foundation
 
 /// G141 PJ-5 — the Projects page's words (DR-59: sentence case, plain verbs, no "!", no bare "%", no ids — DR-54; no
 /// prices). Its own file for the reason `Copy+Lists.swift` gives: parallel tracks edit `Copy.swift`. Day words are NOT
-/// here — `RelativeDay` spells them, once (DR-58). And nothing here says "Timeline": that is the entity card's tab for
-/// contested beliefs, and the card can share the screen with the band (R-PP12, R-PJ22).
+/// here — `RelativeDay` spells them, once (DR-58). "Timeline" names the project's dated list since ruling 45 (Q6, the
+/// owner's word); the band itself keeps no label (R-PP12, R-PJ22).
 extension Copy {
     enum Projects {
         // MARK: The page
@@ -23,10 +23,6 @@ extension Copy {
         static let readingCard = "Reading this page…"
         static let loadFailedTitle = "Couldn't load your projects"
         static let projectFailedTitle = "Couldn't open this project"
-        static let emptyTitle = "No projects yet"
-        /// Ruling 36 D4: a project is born from a repository an agent worked in, or the person calling it one — never
-        /// from being heard twice (looks pass 2026-10-23: the old line described the retired rule).
-        static let emptyMessage = "Call something a project in a chat, or work on it in a repo with a connected agent."
         static let noneCurrent = "Nothing is in motion right now. What you worked on before is under Past."
         static let nonePast = "Nothing in the past yet."
         static let gone = "This project isn't in this bank any more."
@@ -76,11 +72,15 @@ extension Copy {
             "\(UsageFormat.count(p.done)) of \(UsageFormat.count(p.total)) milestones done"
         }
         static func parts(_ n: Int) -> String { n == 1 ? "1 part" : "\(UsageFormat.count(n)) parts" }
-        static func showParts(_ n: Int) -> String { n == 1 ? "Show its part" : "Show its \(UsageFormat.count(n)) parts" }
-        static let hideParts = "Hide its parts"
-        static func rowLabel(_ name: String, standing: String, parts n: Int, expanded: Bool) -> String {
+        /// Projects v3: parts are always shown under their parent, so a row says how many, never a fold state.
+        static func rowLabel(_ name: String, standing: String, parts n: Int) -> String {
             guard n > 0 else { return "\(name), \(standing)" }
-            return "\(name), \(standing), \(parts(n)), \(expanded ? Copy.Lists.expanded : Copy.Lists.collapsed)"
+            return "\(name), \(standing), \(parts(n))"
+        }
+
+        /// A milestone on the lead's plan, read aloud (its mark and day are drawn, never words).
+        static func stepLabel(_ name: String, state: String?, day: String?) -> String {
+            [name, state, day].compactMap { $0 }.joined(separator: ", ")
         }
 
         // MARK: The summary (Projects v2: what it is, where it stands, what happened last, what's next — once each)
@@ -120,12 +120,9 @@ extension Copy {
         static func ongoingUntil(_ day: String) -> String { "ongoing until \(day)" }
 
         // MARK: The sections (R-PP13…R-PP18)
-        static let now = "In progress"
-        static let lately = "What happened"
+        /// Ruling 45, Q6 (owner 2026-10-27): the dated list is "Timeline", the owner's own word; the band keeps no label.
+        static let lately = "Timeline"
         static let plan = "Plan"
-        static let around = "Around this project"
-        static let collapse = "Collapse"
-        static let expand = "Expand"
         static func nothingInMotion(lastHeard day: String?, distance: String?) -> String {
             guard let day, let distance else { return "Nothing in motion right now" }
             return "Nothing in motion right now · last heard \(day) (\(distance))"
@@ -140,7 +137,7 @@ extension Copy {
         static let threadStartedToday = "Started today"
         static func threadHeard(since day: String, heard: String) -> String { "Since \(day) · last heard \(heard)" }
         static let howDidItGo = "How did it go? ›"
-        static let howDidItGoHelp = "Answer this follow-up in the Inbox"
+        static let howDidItGoHelp = "Answer this follow-up in your questions"
         static let statusDone = "Done"
         static let statusOngoing = "Ongoing"
         static let statusSaid = "Said here"
@@ -196,16 +193,9 @@ extension Copy {
         static let noPlan = "No plan yet. Nothing here is late or missing — it just hasn't been dated."
         static let documentsAndLinks = "Documents & links"
         static let partsOfThisProject = "Parts of this project"
-        static let notAPageYet = "mentioned once, not a page yet"
-        static let notAPageYetHelp = "Mentioned once — it becomes a page when it comes up in a second conversation"
         static func lastSeen(_ day: String) -> String { "last \(day)" }
         static func lastMentioned(_ day: String) -> String { "Last mentioned \(day)" }
-        static func moreMembers(_ n: Int) -> String { "+\(UsageFormat.count(n)) more" }
         static func alsoUses(_ names: [String]) -> String { "Also uses: \(names.joined(separator: " · "))" }
-        static func showSpecs(_ name: String) -> String { "Show what Cicada knows about \(name)" }
-        static func hideSpecs(_ name: String) -> String { "Hide what Cicada knows about \(name)" }
-        static let noSpecs = "Nothing recorded about it yet."
-        static let aroundIndexing = "Still indexing — more may appear here in a moment."
         static let openProject = "Open project ›"
 
         // MARK: Writes (R-PP19…R-PP22, R-PP25)

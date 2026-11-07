@@ -31,7 +31,7 @@ import numpy as np
 from loguru import logger
 
 from api.config import Settings
-from api.services import engine_errors, pricing, telemetry
+from api.services import engine_errors, pricing, sleep_spend, telemetry
 
 # ``embed_fn(texts, *, is_query=False) -> np.ndarray`` (float32, 2-D). The same
 # contract the sqlite-vec index has always expected.
@@ -249,6 +249,46 @@ def _throttle_refs(stream) -> dict:
     return refs
 
 
+def _is_real_litellm(completion) -> bool:
+    """``completion`` is litellm's own entry point, not a caller's or a test's stand-in. By its defining module: a
+    test that patches ``litellm.acompletion`` hands in its fake, which is defined elsewhere."""
+    return str(getattr(completion, "__module__", "") or "").startswith("litellm")
+
+
+def _held_back(call: LlmFn, settings, is_async: bool) -> LlmFn:
+    """G235, ruling 60: the one door to every engine (`sensitive_hold`). Every callable :func:`resolve_llm_fn` returns is
+    this one, so no caller can reach a model without it. Off the event loop on an awaited call: its first look at a bank
+    reads the bank."""
+    from api.services import sensitive_hold
+
+    def _bank():
+        return getattr(settings, "memory_path", None)
+
+    def held(*, messages, **kw):
+        if not is_async:
+            return call(messages=sensitive_hold.hold_back(messages, _bank()), **kw)
+
+        async def _sent():
+            safe = await asyncio.to_thread(sensitive_hold.hold_back, messages, _bank())
+            result = call(messages=safe, **kw)
+            return (await result) if inspect.isawaitable(result) else result
+
+        return _sent()
+
+    return held
+
+
+def _held_texts(embed, settings, memory_path=None):
+    """The same door for a hosted embedding model. A model on this Mac sends nothing anywhere and is not wrapped."""
+    from api.services import sensitive_hold
+
+    def held(texts, *, is_query: bool = False):
+        bank = memory_path if memory_path is not None else getattr(settings, "memory_path", None)
+        return embed(sensitive_hold.hold_texts(texts, bank), is_query=is_query)
+
+    return held
+
+
 def resolve_llm_fn(
     settings: Settings,
     *,
@@ -355,7 +395,10 @@ def resolve_llm_fn(
     mode = (settings.llm_mode or "byok").strip().lower()
     # R-E2: both plan engines are CLI rungs behind one seam — the Claude plan
     # (`claude -p`) and the ChatGPT plan (`codex exec`).
-    is_cli = mode in ("agent", "codex")
+    # G49/G50: the person's own signed-in Cursor, OpenCode and Grok CLIs ride the same seam (`cli_engines`).
+    from api.services.engine_select import CLI_MODES
+
+    is_cli = mode in CLI_MODES
     if completion is None and not is_cli:
         # Fix round 1, N2: never imported on the agent rung — a multi-second
         # import for a callable that branch is built specifically to avoid
@@ -383,8 +426,18 @@ def resolve_llm_fn(
     is_openrouter = resolved_model.startswith("openrouter/")
     headers = _openrouter_headers(settings) if is_openrouter else None
 
-    if is_cli:
+    # G237, ruling 63: a key whose provider has its own SDK row is served by it, behind the same seam as a plan (the
+    # semaphore, the breaker, the drain's retry, the ledger). An injected fake is a test's answer and stays one.
+    direct = None
+    if not is_cli and not is_local and _is_real_litellm(completion):
+        from api.services import direct_engines
+
+        direct = direct_engines.for_model(resolved_model)
+
+    if is_cli or direct is not None:
         from api.services import agent_engine
+
+    if is_cli:
 
         # A plan call is not money and does not belong to the disconnected
         # BYOK API-key card. `connection` must EQUAL the adapter id —
@@ -394,15 +447,21 @@ def resolve_llm_fn(
             # `litellm_model` ids mean nothing to `claude --model`; the rung has
             # its own model pair (settings.agent_model / agent_disambiguation_model).
             argv_model = agent_engine.model_for_stage(settings, stage)
-        else:
+        elif mode == "codex":
             from api.services import codex_engine
 
             # R-E2: the ChatGPT plan's own card and model pair. "" = no `-m`
             # (the plan's default, R-E17).
             engine_label, connection, billing = "codex-cli", "chatgpt-plan", "subscription"
             argv_model = codex_engine.model_for_stage(settings, stage)
+        else:
+            from api.services import cli_engines, engine_select
+
+            engine_label = engine_select.ENGINE_LABELS[mode]
+            connection, billing = engine_select.PLAN_ENGINES[engine_label]
+            argv_model = cli_engines.model_for_stage(settings, stage)
     else:
-        engine_label = "litellm"
+        engine_label = direct.label if direct is not None else "litellm"
         connection, billing = telemetry.connection_for_model(resolved_model)
         argv_model = resolved_model
 
@@ -429,8 +488,17 @@ def resolve_llm_fn(
                 out["drain_id"] = drain_id
         return out
 
+    def _spend_line():
+        """The limit this call answers to: a read or a paid step of a drain on a key with one, else ``None``."""
+        from api.services import sleep_drain
+
+        if billing != "usage" or stage not in sleep_spend.LINE_STAGES:
+            return None
+        return getattr(sleep_drain.drain_for(agent_engine_cycle_id()), "spend", None)
+
     def _emit(resp, started: float, ok: bool, *, model_used: str | None = None,
               equiv_override: float | None = None, refs: dict | None = None) -> None:
+        counted = False
         try:
             # One call that spawned, for a drain's "N calls made" (never decreases).
             from api.services import sleep_drain
@@ -439,7 +507,7 @@ def resolve_llm_fn(
         except Exception:  # a counter must never break an LLM call
             pass
         try:
-            usage = telemetry.usage_from_response(resp) if ok else telemetry.usage_from_response(None)
+            usage = telemetry.usage_from_response(resp)   # a failure holds a response only when it was charged
             event_model = model_used or (argv_model if is_cli else resolved_model)
             if is_cli:
                 # `costBasis: "list"` says the envelope's figure is metering,
@@ -458,11 +526,16 @@ def resolve_llm_fn(
                     _source = telemetry.cost_from_response(resp)[1]
                     if _source:
                         refs = {**(refs or {}), "cost_source": _source}
-                equiv = pricing.estimate_cost(
+                equiv = cost if direct is not None else pricing.estimate_cost(
                     resolved_model, usage["input_tokens"], usage["output_tokens"],
                     usage["cache_read_tokens"], usage["cache_write_tokens"])
                 if equiv is None:
                     equiv = cost
+                if resp is not None and billing == "usage":   # ROR-102: a failure with no response was never charged
+                    from api.services import sleep_drain
+
+                    sleep_drain.note_spend(agent_engine_cycle_id(), cost if cost is not None else equiv)
+                    counted = True
             sink(telemetry.UsageEvent(
                 kind="llm_call", stage=stage or "unknown", connection=connection,
                 engine=engine_label, model=event_model, bank=bank_label, billing=billing,
@@ -475,6 +548,11 @@ def resolve_llm_fn(
             ))
         except Exception as exc:  # a sink must never break an LLM call
             logger.warning(f"telemetry sink failed: {exc}")
+            if not counted and resp is not None and billing == "usage":
+                # A charged call whose cost cannot be read: the limit cannot hold on it, so it fails closed.
+                from api.services import sleep_drain
+
+                sleep_drain.note_spend(agent_engine_cycle_id(), None)
 
     def _emit_throttle(reason, stream=None) -> None:
         """The first ``kind="throttle"`` event this codebase has ever written.
@@ -494,7 +572,7 @@ def resolve_llm_fn(
             logger.warning(f"telemetry sink failed: {sink_exc}")
 
     def _agent_invoke(messages, response_format, timeout: float, reasoning_off: bool = False,
-                      web_search: bool = False):
+                      web_search: bool = False, max_tokens: int | None = None):
         """One plan-CLI call (`claude -p` or `codex exec`), the response shim,
         and telemetry.
 
@@ -531,7 +609,17 @@ def resolve_llm_fn(
         started = time.perf_counter()
         seen: dict = {}
         try:
-            if mode == "agent":
+            if direct is not None:
+                # Reasoning off is the plan's `--effort <agent_low_effort>`: one setting, one meaning on both paths.
+                low = str(getattr(settings, "agent_low_effort", "low") or "").strip()
+                resp = direct.complete(
+                    messages=messages, model=argv_model, stage=stage, want_json=response_format is not None,
+                    timeout=timeout, scope=resolved_scope, effort=low if reasoning_off and low else None,
+                    max_tokens=max_tokens, web_search=web_search)
+                used = resp["model"]
+                equiv = None
+                refs = {}
+            elif mode == "agent":
                 envelope = agent_engine.complete(
                     messages=messages, model=argv_model, stage=stage,
                     want_json=response_format is not None, timeout=timeout, runner=runner,
@@ -546,6 +634,7 @@ def resolve_llm_fn(
                     # The searches the call made (the web lookup holds them to its pinned query).
                     resp["tool_uses"] = envelope.get("_tool_uses") or []
                     resp["tool_results"] = envelope.get("_tool_results") or []
+                    resp["search_results"] = envelope.get("_search_results") or []
                     # Every model the call used, with its output tokens (the dry run's --trace-raw): the search's own
                     # side-call is one of them.
                     resp["model_usage"] = {str(k): int((v or {}).get("outputTokens") or 0)
@@ -553,6 +642,20 @@ def resolve_llm_fn(
                 used = resp["model"]
                 equiv = agent_engine.equiv_cost_from_envelope(envelope)
                 refs = _claude_refs(envelope, seen.get("stream"))
+            elif mode in ("cursor", "opencode", "grok"):
+                from api.services import cli_engines
+
+                # G49/G50: one headless call on the person's own signed-in tool, through the same breaker scope,
+                # semaphore and ledger. The model is the one the tool REPORTED serving, else the one asked for,
+                # else nothing — never a guess.
+                parsed = cli_engines.complete(
+                    cli_engines.SPECS[mode], messages=messages, model=argv_model, stage=stage,
+                    want_json=response_format is not None, timeout=timeout, runner=runner, scope=resolved_scope,
+                )
+                resp = cli_engines.response_shim(parsed, argv_model)
+                used = parsed.model or argv_model or None
+                equiv = None
+                refs = {}
             else:
                 from api.services import codex_engine
 
@@ -591,13 +694,13 @@ def resolve_llm_fn(
             # response (``spawned`` unset, defaults True) still gets
             # recorded, same as any other failed call.
             if getattr(exc, "spawned", True):
-                _emit(None, started, ok=False)
+                _emit(getattr(exc, "paid", None), started, ok=False)
             if newly_tripped:
                 _emit_throttle(str(exc), seen.get("stream"))
             raise
-        except Exception:
+        except Exception as exc:
             _note_plan_signals(mode, resolved_scope, seen)
-            _emit(None, started, ok=False)
+            _emit(getattr(exc, "paid", None), started, ok=False)
             raise
         _emit(resp, started, ok=True, model_used=used, equiv_override=equiv, refs=refs)
         _note_plan_signals(mode, resolved_scope, seen)
@@ -624,11 +727,11 @@ def resolve_llm_fn(
                 guard.observe_signals(seen_["stream"].rate_limits)
 
     def _agent_invoke_sync(messages, response_format, timeout: float, reasoning_off: bool = False,
-                           web_search: bool = False):
+                           web_search: bool = False, max_tokens: int | None = None):
         for attempt in range(2):
             try:
-                with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-                    return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search)
+                with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)), sleep_spend.turn(_spend_line()):
+                    return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search, max_tokens)
             except engine_errors.RETRYABLE as exc:
                 delay = _drain_retry_delay(attempt, exc)
                 if delay is None:
@@ -650,15 +753,15 @@ def resolve_llm_fn(
         return delay
 
     async def _agent_invoke_async(messages, response_format, timeout: float, reasoning_off: bool = False,
-                                  web_search: bool = False):
+                                  web_search: bool = False, max_tokens: int | None = None):
         # Round 2 finding 2: the acquire, the call, and the release all
         # happen INSIDE this one `asyncio.to_thread` dispatch, sharing the
         # exact same `threading.BoundedSemaphore` a sync caller blocks on —
         # so a waiting async caller parks a worker thread, never the event
         # loop, while still drawing from the ONE process-wide capacity pool.
         def _run_with_permit():
-            with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-                return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search)
+            with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)), sleep_spend.turn(_spend_line()):
+                return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search, max_tokens)
 
         for attempt in range(2):
             try:
@@ -690,15 +793,36 @@ def resolve_llm_fn(
         reasoning_off = _reasoning_off(kw.get("extra_body"))
         # The web lookup (owner ruling 2026-10-16): the plan's own search as the call's one tool. Only the
         # Claude plan has it here; the ChatGPT rung never gets a tool.
-        web_search = bool(kw.get("web_search")) and mode == "agent"
+        web_search = bool(kw.get("web_search")) and (mode == "agent" or direct is not None)
+        # A caller's output cap reaches only a key's SDK (a spend guard there); a plan has no such flag.
+        cap = kw.get("max_tokens") if direct is not None else None
+        cap = cap if isinstance(cap, int) and not isinstance(cap, bool) and cap > 0 else None
         if is_async:
-            return _agent_invoke_async(messages, response_format, timeout, reasoning_off, web_search)
-        return _agent_invoke_sync(messages, response_format, timeout, reasoning_off, web_search)
+            return _agent_invoke_async(messages, response_format, timeout, reasoning_off, web_search, cap)
+        return _agent_invoke_sync(messages, response_format, timeout, reasoning_off, web_search, cap)
 
-    if is_cli:
-        return _agent_call
+    if is_cli or direct is not None:
+        return _held_back(_agent_call, settings, is_async)
 
     def _call(*, messages, response_format=None, **kw):
+        line = _spend_line()
+        if line is None:
+            return _send(messages=messages, response_format=response_format, **kw)
+        if not inspect.iscoroutinefunction(completion):
+            with sleep_spend.turn(line):
+                return _send(messages=messages, response_format=response_format, **kw)
+
+        async def _when_there_is_room():
+            while not line.try_admit():
+                await asyncio.sleep(sleep_spend.POLL_S)
+            try:
+                return await _send(messages=messages, response_format=response_format, **kw)
+            finally:
+                line.release()
+
+        return _when_there_is_room()
+
+    def _send(*, messages, response_format=None, **kw):
         # The web lookup on a metered engine: the provider's own search, one search per call
         # (litellm's `search_context_size: low` is Anthropic's `max_uses: 1`), at its price (ruling 12).
         web_search = bool(kw.pop("web_search", False))
@@ -731,7 +855,7 @@ def resolve_llm_fn(
         _emit(result, started, ok=True)
         return result
 
-    return _call
+    return _held_back(_call, settings, is_async)
 
 
 # --------------------------------------------------------------------------- #
@@ -818,7 +942,8 @@ def resolve_embed_fn(
     model = settings.resolved_embedding_model
 
     if mode == "openrouter":
-        return _openrouter_embed_fn(settings, transport=transport)
+        embed, name = _openrouter_embed_fn(settings, transport=transport)
+        return _held_texts(embed, settings), name
 
     if mode == "openai":
         if openai_client_factory is None:
@@ -835,7 +960,7 @@ def resolve_embed_fn(
                 out.extend(d.embedding for d in resp.data)
             return np.asarray(out, dtype=np.float32)
 
-        return _openai_embed, model
+        return _held_texts(_openai_embed, settings), model
 
     # G182 — a bundled ONNX model (a release app's default) runs without torch.
     from api.services import onnx_embedder
@@ -961,7 +1086,7 @@ def resolve_embed_fn_for_model(
                 out.extend(d.embedding for d in resp.data)
             return np.asarray(out, dtype=np.float32)
 
-        return _openai_embed, mid
+        return _held_texts(_openai_embed, settings), mid
 
     if _model_is_openrouter(mid):
         api_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
@@ -988,7 +1113,7 @@ def resolve_embed_fn_for_model(
                 out.extend(d["embedding"] for d in data)
             return np.asarray(out, dtype=np.float32)
 
-        return _or_embed, mid
+        return _held_texts(_or_embed, settings), mid
 
     # A bank built with a bundled ONNX model queries with it (G182) — whatever factory a
     # caller passed: `cached_embed_fn_for_model` always passes one.

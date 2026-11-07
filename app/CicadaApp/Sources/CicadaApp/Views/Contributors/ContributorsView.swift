@@ -373,45 +373,22 @@ struct ContributorAvatar: View {
     ///
     /// The `exists` half is not belt-and-braces: it is the R6 rung check every
     /// other mark surface runs (`PlatformTile`, `ConnectedChannelRow`), and
-    /// this was the one call site without it. `ContributorIdentity.logoName`
-    /// is a static provider→file map, so it says "anthropic wears claude.png"
+    /// this was the one call site without it. `ContributorIdentity.modelMark`
+    /// is a static maker→file map, so it says "anthropic wears claude.png"
     /// whether or not that file resolves; without the check the else-branch
     /// its own docstring promises ("never a blank") was skipped and
     /// `LogoImage`'s missing-asset placeholder — SF Symbol `app`, an empty
     /// rounded square — went on screen instead of the author's initials.
     @ViewBuilder
     private var providerBadge: some View {
-        if let logo = ContributorIdentity.logoName(provider: provider),
+        // ROR-127: the model's maker, read from its id — not the provider that served it.
+        if let logo = ContributorIdentity.modelMark(author: author),
            LogoImage.exists(name: logo) {
             LogoImage(name: logo, size: size)
         } else {
-            Circle()
-                .fill(Self.providerColor(provider))
-                .frame(width: size, height: size)
-                .overlay(
-                    // 10 pt at the strip's 22 pt: the initials scale with the
-                    // circle so a 14 pt claim-chip avatar stays legible.
-                    Text(ContributorIdentity.monogram(for: author))
-                        .font(CicadaTheme.font(size: size * 10 / 22, weight: .bold))
-                        .foregroundStyle(.white)
-                )
-        }
-    }
-
-    /// Brand-ish color per provider; "other"/unknown -> a neutral tone.
-    ///
-    /// The R-L6 providers that have no bundled mark deliberately stay neutral:
-    /// a router (`openrouter`, `ollama`) did not make the model, and painting
-    /// an open-weight family in a vendor's colour would claim a brand the id
-    /// does not carry. Colour here means "we know whose model this was", and
-    /// the initials carry the rest. Still used by `ContributorsStrip`, which
-    /// tints each bar segment and its chip by the same rule (R-S6).
-    static func providerColor(_ provider: String?) -> Color {
-        switch provider {
-        case "anthropic": Color(hex: 0xD97757)  // Anthropic clay/terracotta
-        case "openai": Color(hex: 0x10A37F)      // OpenAI teal-green
-        case "google": Color(hex: 0x4285F4)      // Google blue
-        default: CicadaTheme.textTertiary        // router / open-weight / "other" — neutral
+            // Owner 2026-11-05: one picture for anyone with none; `compactInitials` keeps a 14 pt chip's letters legible.
+            EntityPictureFallback(type: .person, name: author, units: size, frame: CGSize(width: size, height: size),
+                                  compactInitials: true)
         }
     }
 }

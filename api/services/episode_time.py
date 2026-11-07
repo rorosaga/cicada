@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 from api.services import bank_index
@@ -32,8 +33,10 @@ from api.services import bank_index
 #: ``traces-day`` (G218): a day of activity traces, counted — what was on screen is not the person mentioning it.
 #: ``notion-export-undated`` (G219, review of #455): a Notion page with no date of its own, stamped the day it was
 #: imported — its facts are kept, but the import day is not when anything in it was said. Dated rows stay timed.
+#: ``agent-memory`` (ruling 43, 2026-10-27): an agent's own memory note (``agent_memory_notes``) — like a memory export
+#: entry, its date is when the summary was last edited, and the session that wrote it is captured on its own.
 UNTIMED_SOURCES = frozenset({"claude_memory", "agent_relay", "source-refresh", "web-check", "traces-day",
-                             "notion-export-undated"})
+                             "notion-export-undated", "agent-memory"})
 
 #: Ruling 39 (owner 2026-10-24): a feed item (RSS/Atom) is dated by when it was published (``timestamp``, and its
 #: ``published_at``) and records when Cicada received it (``received_at``). It is something the outside world
@@ -78,6 +81,58 @@ def received_shown(frontmatter: dict | None) -> str | None:
     return received_after(fm.get("timestamp") or (parsed[0] if parsed else None), fm.get(episode_ids.RECEIVED_KEY))
 
 
+#: CIC8 (2026-10-29) — the stamps that say when Cicada GOT an episode: ``received_at`` (ruling 39, stamped once at
+#: create), the capture writer's ``captured_at`` (every create and update) and a session's ``last_turn_at``.
+DELIVERY_KEYS = ("received_at", "captured_at", "last_turn_at")
+
+
+def instant(ts) -> float:
+    """An ISO stamp as epoch seconds, ``0.0`` when absent or unreadable. Stamps compare lexically only within one shape
+    (``Z`` against ``+00:00``, a bare date against a time), so every recency comparison goes through this. A naive
+    stamp reads as UTC."""
+    if not ts:
+        return 0.0
+    try:
+        parsed = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def is_later(a, b) -> bool:
+    """Whether stamp ``a`` is a later instant than ``b`` (an empty ``b`` is never later). Two stamps of one shape —
+    the same length and the same offset suffix, which is nearly every pair in a bank — compare as strings; any other
+    pair is parsed (:func:`instant`). The fast path keeps list routes from parsing a date per episode."""
+    if not a:
+        return False
+    if not b:
+        return True
+    a, b = str(a), str(b)
+    if len(a) == len(b) and a[-6:] == b[-6:] and (a[-6] in "+-" or a.endswith("Z")):
+        return a > b
+    return instant(a) > instant(b)
+
+
+def delivered_at(frontmatter: dict | None) -> str:
+    """When a source last DELIVERED this episode — the one rule behind every "connected · 3 min ago" a source shows
+    (the overview's ``last_activity_at``, an import channel's ``last_sync``). Ruling 39: an import's recency is when
+    Cicada received it, never the conversation's own date, so a year-old chat imported today reads "today". The
+    newest of :data:`DELIVERY_KEYS`; an episode written before ``received_at`` existed, with none of them, falls back
+    to its ``timestamp`` (nothing better is known). ``""`` when there is nothing."""
+    fm = frontmatter or {}
+    stamps = [s for s in (fm.get(k) for k in DELIVERY_KEYS) if s]
+    if not stamps:
+        return str(fm.get("timestamp") or "")
+    # One stamp (the usual case) needs no parse: this runs once per episode on every list route.
+    best = str(stamps[0])
+    for s in stamps[1:]:
+        if is_later(s, best):
+            best = str(s)
+    return best
+
+
 def received_after(own, received) -> str | None:
     """``received`` (as stored) when its day is at least :data:`RECEIVED_SHOWN_AFTER_DAYS` after ``own``'s, else
     ``None`` — the one rule behind every "· added <day>" (an episode's two dates, a saved link's own date and its
@@ -94,6 +149,24 @@ def untimed_ids(memory_path: Path | str | None) -> frozenset[str]:
     """Every episode id in the bank that is not a time signal, from the frontmatter cache (one ``scandir``)."""
     if memory_path is None:
         return frozenset()
+    mp = Path(memory_path)
+    # Remembered per state of the folder (speed 2026-10-29: the inbox asked once per load, ~75 ms over 8.5k episodes);
+    # the fingerprint and the listing below share one scan.
+    with bank_index.shared_scans():
+        stamp = bank_index.dir_fingerprint(mp / "episodes")
+        hit = _UNTIMED.get(str(mp))
+        if hit is not None and hit[0] == stamp:
+            return hit[1]
+        ids = _untimed_ids(mp)
+    _UNTIMED[str(mp)] = (stamp, ids)
+    return ids
+
+
+#: bank -> (the episodes folder's fingerprint, its untimed ids). Process-local and disposable.
+_UNTIMED: dict[str, tuple[str, frozenset[str]]] = {}
+
+
+def _untimed_ids(memory_path: Path) -> frozenset[str]:
     out: set[str] = set()
     try:
         for f in bank_index.files(Path(memory_path), "episodes"):

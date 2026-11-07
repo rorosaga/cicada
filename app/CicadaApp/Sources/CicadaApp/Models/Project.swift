@@ -301,19 +301,23 @@ struct ProjectOpenThread: Decodable, Equatable, Identifiable, Sendable {
     var lastHeard: String
     var on: String?
     var verbatim: Bool
+    /// g141-8 (decision 9): who the thread waits on — its `from` participant, a structural fact (the pulse).
+    var waitingOn: String?
 
     var id: String { claimId }
 
-    init(claimId: String, text: String, since: String, lastHeard: String, on: String? = nil) {
+    init(claimId: String, text: String, since: String, lastHeard: String, on: String? = nil,
+         waitingOn: String? = nil) {
         self.claimId = claimId
         self.text = text
         self.since = since
         self.lastHeard = lastHeard
         self.on = on
         self.verbatim = false
+        self.waitingOn = waitingOn
     }
 
-    enum CodingKeys: String, CodingKey { case claimId, text, since, lastHeard, on, verbatim }
+    enum CodingKeys: String, CodingKey { case claimId, text, since, lastHeard, on, verbatim, waitingOn }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -323,6 +327,7 @@ struct ProjectOpenThread: Decodable, Equatable, Identifiable, Sendable {
         lastHeard = c.lenient(.lastHeard, since)
         on = c.lenient(.on)
         verbatim = c.lenient(.verbatim, false)
+        waitingOn = c.lenient(.waitingOn)
     }
 }
 
@@ -397,8 +402,15 @@ struct ProjectRef: Decodable, Equatable, Sendable {
     var children: [String]
     var status: String
     var created: String?
+    /// g141-7 (ruling 45): in the person's list, how, and their own header line with who last set it.
+    var mine: Bool
+    var mineVia: String?
+    var description: String?
+    var descriptionBy: ProjectDescriptionBy?
 
-    enum CodingKeys: String, CodingKey { case id, name, oneLiner, parent, children, status, created }
+    enum CodingKeys: String, CodingKey {
+        case id, name, oneLiner, parent, children, status, created, mine, mineVia, description, descriptionBy
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -409,6 +421,10 @@ struct ProjectRef: Decodable, Equatable, Sendable {
         children = c.lenient(.children, [])
         status = c.lenient(.status, "active")
         created = c.lenient(.created)
+        mine = c.lenient(.mine, false)
+        mineVia = c.lenient(.mineVia)
+        description = c.lenient(.description)
+        descriptionBy = c.lenient(.descriptionBy)
     }
 }
 
@@ -459,10 +475,13 @@ struct ProjectRow: Decodable, Equatable, Identifiable, Sendable {
     var progress: ProjectProgress
     var activity: [ProjectActivityDay]
     var followups: Int
+    /// g141-7 (ruling 45): in the person's list. Since g141-10 (ruling 56) the list carries only those.
+    var mine: Bool
+    var description: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, oneLiner, parent, children, status, created, planned, lastMomentDay, medianGapDays
-        case openThreads, milestones, progress, activity, followups
+        case openThreads, milestones, progress, activity, followups, mine, description
     }
 
     init(from decoder: Decoder) throws {
@@ -482,6 +501,9 @@ struct ProjectRow: Decodable, Equatable, Identifiable, Sendable {
         progress = c.lenient(.progress, ProjectProgress())
         activity = c.lenient(.activity, [])
         followups = c.lenient(.followups, 0)
+        // A server before g141-7 sends no `mine`: every project then reads as the person's, as the page always drew.
+        mine = c.lenient(.mine, !c.contains(.mine))
+        description = c.lenient(.description)
     }
 }
 
@@ -515,10 +537,22 @@ struct ProjectTimeline: Decodable, Equatable, Sendable {
     var cluster: ProjectCluster
     var conversations: [ProjectConversation]
     var partial: Bool
+    /// g141-7 (ruling 45): the side panel's sources and influences, the tied conversations' count, and what a
+    /// provider project carried (instructions by span, documents by name).
+    var influences: [ProjectInfluence]
+    var conversationCount: Int
+    var knowledge: [ProjectKnowledge]
+    /// g141-8 (decisions 9 and 10, 2026-10-28): the tied conversations per day, each once on its newest day (the
+    /// pulse's weekly bars), and Pages in this project — automatic, tied by hand, or proposed by an agent.
+    var conversationDays: [ProjectActivityDay]
+    var pages: [ProjectPageRow]
+    var pagesTotal: Int
+    var pageCounts: [String: Int]
 
     enum CodingKeys: String, CodingKey {
         case project, tzName, now, pending, milestones, items, activity, momentDays, lastMomentDay, medianGapDays
-        case cluster, conversations, partial
+        case cluster, conversations, partial, influences, conversationCount, knowledge
+        case conversationDays, pages, pagesTotal, pageCounts
     }
 
     init(from decoder: Decoder) throws {
@@ -536,6 +570,13 @@ struct ProjectTimeline: Decodable, Equatable, Sendable {
         cluster = c.lenient(.cluster, ProjectCluster())
         conversations = c.lenient(.conversations, [])
         partial = c.lenient(.partial, false)
+        influences = c.lenient(.influences, [])
+        conversationCount = c.lenient(.conversationCount, 0)
+        knowledge = c.lenient(.knowledge, [])
+        conversationDays = c.lenient(.conversationDays, [])
+        pages = c.lenient(.pages, [])
+        pagesTotal = c.lenient(.pagesTotal, pages.count)
+        pageCounts = c.lenient(.pageCounts, [:])
     }
 
     /// Whether a row's page (`thread.on`, `item.project`; nil = the project itself) is in this project's tree — the

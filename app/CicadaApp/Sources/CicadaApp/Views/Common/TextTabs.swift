@@ -45,11 +45,16 @@ struct TextTabs<ID: Hashable>: View {
     @Binding var selection: ID?
     /// R-DL25 — false in `AdaptiveTextTabs`' narrow form: each count moves to its tab's `.help`.
     var showsCounts = true
+    /// ROR-118 round 4 - the page's own list tabs: 14 pt in a 30 pt pill, the active one semibold, so the row reads as
+    /// the page's navigation under a 40 pt headline (DR-45's 12/26 stays everywhere else).
+    var large = false
+    /// A page whose tabs carry its only counts (Clusters) sets its inactive counts one step up the text ladder.
+    var strongCounts = false
 
     var body: some View {
         HStack(spacing: CicadaTheme.scaled(2)) {
             ForEach(Array(tabs.enumerated()), id: \.offset) { _, tab in
-                TextTabButton(tab: tab, isActive: tab.id == selection, showsCount: showsCounts) {
+                TextTabButton(tab: tab, isActive: tab.id == selection, showsCount: showsCounts, large: large, strongCount: strongCounts) {
                     selection = TextTabSelection.next(tapping: tab.id, current: selection)
                 }
             }
@@ -62,6 +67,8 @@ private struct TextTabButton<ID: Hashable>: View {
     let tab: TextTab<ID>
     let isActive: Bool
     let showsCount: Bool
+    var large = false
+    var strongCount = false
     let action: () -> Void
     @State private var hovering = false
 
@@ -73,13 +80,16 @@ private struct TextTabButton<ID: Hashable>: View {
                 if showsCount, let count = tab.count {
                     Text(UsageFormat.count(count))
                         .monospacedDigit()
-                        .foregroundStyle(isActive ? CicadaTheme.textTertiaryOnFill : CicadaTheme.textTertiary)
+                        .foregroundStyle(isActive ? CicadaTheme.textTertiaryOnFill : (strongCount ? CicadaTheme.textSecondary : CicadaTheme.textTertiary))
                 }
             }
-            .font(CicadaTheme.metaMediumFont)
-            .foregroundStyle(isActive ? CicadaTheme.textPrimary : (hovering ? CicadaTheme.textSecondary : CicadaTheme.textTertiary))
-            .padding(.horizontal, CicadaTheme.scaled(TextTabs<ID>.horizontalPadding))
-            .frame(height: CicadaTheme.scaled(TextTabs<ID>.height))
+            .font(large ? CicadaTheme.font(size: 14, weight: isActive ? .semibold : .medium) : CicadaTheme.metaMediumFont)
+            // strongCounts (Clusters, round 5): the inactive label rises with its count, one step up the ladder.
+            .foregroundStyle(isActive ? CicadaTheme.textPrimary
+                             : (large ? (hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                                : (hovering || strongCount ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)))
+            .padding(.horizontal, CicadaTheme.scaled(large ? 12 : TextTabs<ID>.horizontalPadding))
+            .frame(height: CicadaTheme.scaled(large ? 30 : TextTabs<ID>.height))
             .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .fill(isActive ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))
             .contentShape(Rectangle())
@@ -100,10 +110,11 @@ struct AdaptiveTextTabs<ID: Hashable>: View {
     @Binding var selection: ID?
     /// The menu's accessibility name ("Type", "Kind").
     let menuTitle: String
+    var strongCounts = false
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            TextTabs(tabs: tabs, selection: $selection)
+            TextTabs(tabs: tabs, selection: $selection, strongCounts: strongCounts)
             TextTabs(tabs: tabs, selection: $selection, showsCounts: false)
             Menu {
                 ForEach(Array(tabs.enumerated()), id: \.offset) { _, tab in

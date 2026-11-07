@@ -64,7 +64,10 @@ def test_every_connector_module_is_registered_in_adapters():
         info.name for info in pkgutil.iter_modules([package_dir])
         if not info.ispkg
     }
-    non_adapter_modules = {"base"}
+    # tier2: the ruling-47 framework; github_auth: GitHub's sign-in by a code (G230), the github adapter's own.
+    # notion_mcp: Notion's sign-in and MCP reader, the notion adapter's own.
+    # linear_mcp: Linear's sign-in and read-only MCP session, the linear adapter's own (ROR-115).
+    non_adapter_modules = {"base", "tier2", "github_auth", "notion_mcp", "linear_mcp"}
     expected_adapter_modules = module_names - non_adapter_modules
 
     registered_modules = {
@@ -87,7 +90,8 @@ def test_every_adapter_exposes_the_full_contract_surface(channel_id):
     assert isinstance(adapter.LABEL, str) and adapter.LABEL
     assert adapter.LOGIN_MODE in ("oauth", "credentials")
     assert isinstance(adapter.CHANNEL_NOUN, str) and adapter.CHANNEL_NOUN
-    assert isinstance(adapter.FIELDS, tuple) and adapter.FIELDS
+    # A sign-in-only adapter (Linear, ROR-115) has no field at all: nothing is ever pasted.
+    assert isinstance(adapter.FIELDS, tuple) and (adapter.FIELDS or adapter.app_available())
     assert isinstance(adapter.SECRET_NAMES, tuple) and adapter.SECRET_NAMES
     # Every FIELDS name must be covered by SECRET_NAMES — the whole point of
     # declaring SECRET_NAMES separately is that it's a superset (FIELDS plus
@@ -98,7 +102,7 @@ def test_every_adapter_exposes_the_full_contract_surface(channel_id):
 
 
 @pytest.mark.parametrize(
-    "channel_id", [cid for cid, a in ADAPTERS.items() if a.LOGIN_MODE == "oauth"]
+    "channel_id", [cid for cid, a in ADAPTERS.items() if a.LOGIN_MODE == "oauth" or hasattr(a, "app_available")]
 )
 def test_every_oauth_adapter_exposes_authorize_url_and_exchange_code(channel_id):
     adapter = ADAPTERS[channel_id]
@@ -114,8 +118,10 @@ def test_every_oauth_adapter_exposes_authorize_url_and_exchange_code(channel_id)
 
 
 def test_credentials_only_adapters_have_no_oauth_surface():
+    """A credentials adapter has no OAuth surface — unless it signs in with Cicada's own app (G232, Reddit's installed
+    app), which says so with ``app_available()``; its callback opens only while that is true."""
     for channel_id, adapter in ADAPTERS.items():
-        if adapter.LOGIN_MODE == "credentials":
+        if adapter.LOGIN_MODE == "credentials" and not hasattr(adapter, "app_available"):
             assert not hasattr(adapter, "authorize_url"), channel_id
             assert not hasattr(adapter, "exchange_code"), channel_id
 

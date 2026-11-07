@@ -157,6 +157,12 @@ def bootstrap(environ=None) -> Boot:
                 pin=pin, ctx=ctx, backend_url=runtime_layout.backend_url(environ))
 
 
+def _replica_mode(environ=None) -> bool:
+    from api.services import runtime_layout
+
+    return runtime_layout.is_replica(os.environ if environ is None else environ)
+
+
 def _client_mode(environ) -> bool:
     from api.services import runtime_layout
 
@@ -237,10 +243,11 @@ def _project_dir(boot: Boot) -> str | None:
 def _tool_context(boot: Boot):
     from api.services import mcp_tools
 
-    path, ident = boot.pin.path, _identity()
-    # Ruling 21: no id from the harness → no session at all (never minted); a named harness is kept.
-    return mcp_tools.ToolContext(memory_path=lambda: path, session_id=ident.session_id or "",
-                                 harness=ident.harness or "unknown", project_dir=_project_dir(boot),
+    path = boot.pin.path
+    # Ruling 21 / ruling 50: the one caller identity, shared with a client's door (`cli_app.caller`).
+    session_id, harness = cli_app.caller()
+    return mcp_tools.ToolContext(memory_path=lambda: path, session_id=session_id,
+                                 harness=harness, project_dir=_project_dir(boot),
                                  read_surface="cli", available=cli_map.exposed_tools(),
                                  headers=lambda: {"Content-Type": "application/json", **_backend_headers()},
                                  backend_url=boot.backend_url)
@@ -474,17 +481,21 @@ def cmd_get(boot: Boot, args) -> Result:
 
     start, count = args.__dict__.get("from"), args.count
     numbered = bool(getattr(args, "line_numbers", False))
+    # Vision item 5: `--include` blocks ride the unbounded read only (a line range is the page's own lines).
+    include = getattr(args, "include", None) or None
     if boot.client:
-        def detail(entity_id, start=None, whole=False):
-            return _door(boot, "cicada_recall_detail", {"entity_id": entity_id, "start": start}, {"whole": whole})
+        def detail(entity_id, start=None, whole=False, include=None):
+            body = {"entity_id": entity_id, "start": start, **({"include": include} if include else {})}
+            return _door(boot, "cicada_recall_detail", body, {"whole": whole})
     else:
         ctx = _tool_context(boot)
 
-        def detail(entity_id, start=None, whole=False):
-            return mcp_tools.recall_detail(ctx, entity_id, start=start, whole=whole)
+        def detail(entity_id, start=None, whole=False, include=None):
+            return mcp_tools.recall_detail(ctx, entity_id, start=start, whole=whole, include=include)
     # A bounded read slices the whole page; an unbounded one is the tool's own reply (F5: an over-budget fence elided).
-    reply = detail(args.entity_id, start=getattr(args, "start", None),
-                   whole=start is not None or count is not None or numbered)
+    bounded = start is not None or count is not None or numbered
+    reply = detail(args.entity_id, start=getattr(args, "start", None), whole=bounded,
+                   include=None if bounded else include)
     if getattr(reply, "code", None) == "not_found" and (m := _RANGE.match(args.entity_id)):
         if start is not None or count is not None:
             raise UsageError("give the line range once: ENTITY:START[:END] or --from/--count")
@@ -649,12 +660,16 @@ def _import_platform_export(boot: Boot, args) -> Result:
         return Result(text="\n".join(lines), data=data, warnings=warnings)
     if not described.recognized:
         raise Refusal("not_an_export", f"Found no saved links in {path.name}.")
-    if len(items) > media_ingestor.MAX_UPLOAD_ITEMS:
-        raise Refusal("too_large", f"{len(items):,} items is past the {media_ingestor.MAX_UPLOAD_ITEMS:,}-item "
+    from api.services import listening_history as _listening
+
+    saves = sum(1 for it in items if not _listening.is_play(it))   # G32: plays become days, never saves
+    if saves > media_ingestor.MAX_UPLOAD_ITEMS:
+        raise Refusal("too_large", f"{saves:,} items is past the {media_ingestor.MAX_UPLOAD_ITEMS:,}-item "
                                    "import cap; nothing was imported.")
     # History is experience, never a save (G71, 2026-10-16): one episode per day, committed alone first.
-    from api.services import watch_history
+    from api.services import listening_history, watch_history
 
+    items, play_rows = listening_history.split(items)
     items, history_rows = watch_history.split(items)
     history_text = ""
     if history_rows:
@@ -663,6 +678,12 @@ def _import_platform_export(boot: Boot, args) -> Result:
         data.update(history_added=history.added, history_days_created=history.days_created,
                     history_days_updated=history.days_updated)
         history_text = " " + watch_history.summary(history)
+    if play_rows:
+        # G32: Spotify's plays, one listening day each, committed alone — never saved links.
+        listened = asyncio.run(listening_history.import_history(bank, play_rows, trigger="user/listening_history"))
+        data.update(plays_added=listened.added, listening_days_created=listened.days_created,
+                    listening_days_updated=listened.days_updated)
+        history_text += " " + listening_history.summary(listened)
     created, duplicates = asyncio.run(media_ingestor.ingest_chunked(items, bank, from_bookmark_file))
     data.update(created=created, duplicates=duplicates)
     return Result(text=f"Imported {created} new item(s) from {label}; {duplicates} already in memory.{history_text}",
@@ -681,7 +702,8 @@ def cmd_handshake(boot: Boot, args) -> Result:
         return Result(text=str(reply), data=reply.data or {"tokens_est": len(reply) // 4},
                       warnings=_root_warnings(boot))
     names = frozenset(r.name for r in cli_map.exposed())
-    text = handshake.build_cli(state_dictionary.read_state(boot.pin.path), commands=names, bank=boot.pin.name,
+    text = handshake.build_cli(state_dictionary.with_live_engine(state_dictionary.read_state(boot.pin.path)),
+                               commands=names, bank=boot.pin.name,
                                tz=handshake.local_timezone())
     handshake.record("cli", {"variant": handshake.CLI_VARIANT}, bank=boot.pin.path.name,
                      harness=_identity().harness)
@@ -721,13 +743,42 @@ def cmd_skills_create(boot: Boot, args) -> Result:
     return _typed(reply, warnings=_root_warnings(boot))
 
 
+def _page_join(tool: str):
+    """G227 follow-up (coordinator 2026-10-29): `page merge` / `page split` — the MCP bodies, G198's trust list deciding
+    as it does there (a listed harness applies under its own name, any other shell's call is an inbox proposal). An
+    edit already uncommitted on a page is committed apart first (`agent_commits.setting_apart`)."""
+    def handler(boot: Boot, args) -> Result:
+        from api.services import agent_commits, mcp_tools
+
+        row = cli_map.by_tool()[tool]
+        arguments = {a.prop: getattr(args, a.prop, None) for a in row.args if getattr(args, a.prop, None) is not None}
+        if boot.client:
+            return _typed(_door(boot, tool, arguments), warnings=_root_warnings(boot))
+        ctx = _tool_context(boot)
+        with agent_commits.setting_apart(boot.pin.path):
+            if tool == "cicada_undo_join":
+                reply = mcp_tools.undo_join(ctx, arguments.get("page", ""), arguments.get("reason", ""))
+            elif tool == "cicada_merge_pages":
+                reply = mcp_tools.merge_pages(ctx, arguments.get("page", ""), arguments.get("into", ""),
+                                              arguments.get("reason", ""))
+            else:
+                reply = mcp_tools.split_page(
+                    ctx, arguments.get("page", ""), arguments.get("reason", ""), arguments.get("sentences"),
+                    arguments.get("claims"), arguments.get("sources"), arguments.get("episodes"),
+                    arguments.get("references"), arguments.get("name"), arguments.get("page_type"),
+                    bool(arguments.get("preview", False)))
+        return _typed(reply, warnings=_root_warnings(boot))
+    return handler
+
+
 ON_SERVER_TEXT = ("This command reads the memory folder, and this shell is a client of a Cicada server "
                   "(CICADA_API_BASE): the folder is on the server. Run it there, or use the MCP tools here. "
                   "Nothing was read or written.")
 #: G181 phase 2: what a client shell runs, through the server's own routes — the tool mirrors (the tool door) and
 #: the read of the bank list; every `backend` command already goes to the backend's routes.
 CLIENT_DOOR_COMMANDS = frozenset({"recall", "get", "project", "continue", "save", "handshake", "timeline",
-                                  "skills list", "skills propose", "skills create", "status", "commands",
+                                  "skills list", "skills propose", "skills create", "page merge", "page split", "page undo",
+                                  "status", "commands",
                                   "bank list", "import"})
 
 
@@ -757,7 +808,10 @@ COMMANDS: dict[str, Callable] = {"recall": cmd_recall, "get": cmd_get, "project"
                                  "continue": cmd_continue, "save": cmd_save, "handshake": cmd_handshake,
                                  "status": cmd_status, "commands": cmd_commands, **cli_app.COMMANDS,
                                  "import": cmd_import, "skills list": cmd_skills_list,
-                                 "skills propose": cmd_skills_propose, "skills create": cmd_skills_create}
+                                 "skills propose": cmd_skills_propose, "skills create": cmd_skills_create,
+                                 "page merge": _page_join("cicada_merge_pages"),
+                                 "page split": _page_join("cicada_split_page"),
+                                 "page undo": _page_join("cicada_undo_join")}
 _NO_BOOT = {"commands"}
 
 
@@ -1002,7 +1056,36 @@ def main(argv: list[str] | None = None) -> int:
                     bank_name = boot.pin.name
                     _check_bank(boot, args.bank if args.bank is not None else os.environ.get("CICADA_BANK"))
                     boot.probe = probe_backend(boot.backend_url, boot.root, bank_id=getattr(boot.pin, "id", None))
-                    result = boot.ctx.run(_in_process, command, handler, boot, args)
+                    row = cli_map.by_name().get(command)
+                    if row is not None and row.tool and row.replica_side == "home" and _replica_mode():
+                        # G132 phase 1 B: this computer keeps a copy — a write goes to the home, through this
+                        # computer's own backend (its outbox), the same tool body the MCP door runs there.
+                        if row.person:
+                            cli_app.require_person(row.summary.rstrip("."))
+                        arguments = {a.prop: getattr(args, a.prop, None) for a in row.args
+                                     if getattr(args, a.prop, None) is not None}
+                        if arguments.get("content") == "-":
+                            arguments["content"] = sys.stdin.read()   # `cicada save -` reads stdin, as locally
+                        result = _typed(_door(boot, row.tool, arguments), warnings=_root_warnings(boot))
+                    else:
+                        journal = row is not None and row.tool and row.mutates
+                        if journal:
+                            from api.services import home_move
+
+                            if home_move.writes_closed():
+                                # G132 phase 2: this computer's home is moving (or moved): no write is made here.
+                                raise Refusal("refused", home_move.closed_text())
+                        result = boot.ctx.run(_in_process, command, handler, boot, args)
+                        if journal and result.ok:
+                            # G132 phase 2: a publishing home keeps what it admitted, to offer it back if it is ever
+                            # taken over while away (`admitted_log`; nothing at all while it shares nothing).
+                            from api.services import admitted_log
+
+                            arguments = {a.prop: getattr(args, a.prop, None) for a in row.args
+                                         if getattr(args, a.prop, None) not in (None, "-")}
+                            admitted_log.record_tool(boot.pin.path,
+                                                     tool=row.tool, arguments=arguments,
+                                                     caller={"harness": cli_app.caller()[1]}, surface="cli")
     except UsageError as exc:                  # a check that needed the page (a `get` range past its end)
         _emit(as_json, command=command, ok=False, code="usage", bank=bank_name, data=None, text=str(exc),
               warnings=[])
@@ -1016,6 +1099,12 @@ def main(argv: list[str] | None = None) -> int:
               text=f"Could not open the memory ({exc}).", warnings=[])
         return EXIT_CODES["bootstrap"]
     except PermissionError as exc:
+        from api.services import replica_guard
+
+        if isinstance(exc, replica_guard.ReplicaReadOnly):
+            _emit(as_json, command=command, ok=False, code="refused", bank=bank_name, data=None, text=str(exc),
+                  warnings=[])
+            return EXIT_CODES.get("refused", 1)
         where = f" ({exc.filename})" if getattr(exc, "filename", None) else ""
         _emit(as_json, command=command, ok=False, code="sandbox_denied", bank=bank_name, data=None,
               text=f"This shell may not use the memory folder{where}. Where the shell is sandboxed, "

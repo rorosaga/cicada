@@ -7,6 +7,9 @@ struct CalendarInfo: Encodable, Equatable, Sendable {
     let id: String
     let title: String
     let account: String?
+    /// 2026-11-04 — the account's kind from EventKit's own source type (`SourceAccountProvider`), so the Sources page
+    /// draws iCloud, Google, Exchange and this Mac apart, each with its mark. Nil from a store that cannot say.
+    var provider: String? = nil
 }
 
 struct CalendarEventRecord: Encodable, Equatable, Sendable {
@@ -56,6 +59,28 @@ struct CalendarSyncResult: Decodable, Equatable, Sendable {
         unchanged = c.lenient(.unchanged, 0)
         tombstoned = c.lenient(.tombstoned, 0)
         bank = c.lenient(.bank, "")
+    }
+}
+
+/// One account the Calendar app holds (an EventKit source: iCloud, a Google account added in Internet Accounts,
+/// Exchange, On My Mac) and how many of its calendars a read included — pure (`SourcesDefaultsCalendarTests`).
+struct CalendarAccountGroup: Equatable, Identifiable, Sendable {
+    let name: String
+    let calendars: Int
+    var id: String { name }
+
+    /// By account, most calendars first, then by name; a calendar with no account is filed under "On My Mac", last.
+    static func groups(_ calendars: [CalendarInfo]) -> [CalendarAccountGroup] {
+        var counts: [String: Int] = [:]
+        var unnamed = 0
+        for info in calendars {
+            let name = (info.account ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if name.isEmpty { unnamed += 1 } else { counts[name, default: 0] += 1 }
+        }
+        let named = counts.map { CalendarAccountGroup(name: $0.key, calendars: $0.value) }
+            .sorted { $0.calendars != $1.calendars ? $0.calendars > $1.calendars
+                      : $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        return named + (unnamed > 0 ? [CalendarAccountGroup(name: Copy.calendarOnMyMac, calendars: unnamed)] : [])
     }
 }
 

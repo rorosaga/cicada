@@ -27,7 +27,7 @@ final class WormAnswersTests: XCTestCase {
         XCTAssertEqual(rungs[0].tail, "The oldest has waited 3 days.")
         XCTAssertEqual(rungs[2].tail, "+3 new · 5 updated, in 4 m 12 s.")
         XCTAssertEqual(rungs[2].action, .openDetails(.pastNights))
-        XCTAssertEqual(rungs[3].tail, "They're in the Inbox.")
+        XCTAssertEqual(rungs[3].tail, "They're on Home.")
         XCTAssertEqual(rungs[3].action, .openInbox, "spec decision 16 — the last rung may point to the Inbox")
     }
 

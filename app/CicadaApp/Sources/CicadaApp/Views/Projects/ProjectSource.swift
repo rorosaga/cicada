@@ -75,8 +75,11 @@ enum ProjectSource {
     }
 
     static func target(_ m: ProjectMilestone, projectId: String) -> ReaderTarget? {
-        guard let head = m.chain.first, let span = head.evidence.first(where: \.isSpan) else { return nil }
-        return ReaderTarget.evidence(span, subjectId: head.subject.isEmpty ? projectId : head.subject)
+        // ROR-16 — the words when there are any, else the source they came from.
+        guard let head = m.chain.first,
+              let cited = head.evidence.first(where: \.isSpan) ?? head.evidence.first(where: { !$0.episode.isEmpty })
+        else { return nil }
+        return ReaderTarget.evidence(cited, subjectId: head.subject.isEmpty ? projectId : head.subject)
     }
 
     /// The band's ⏎ and a section row's "Show in conversation ›": the selected key's words.

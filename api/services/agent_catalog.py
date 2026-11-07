@@ -22,6 +22,11 @@ Tiers (ruling 36 D3): ``1`` first-class (a mark, a setup prompt, live detection)
 and connected with the generic prompt; ``3`` watched — a product the owner named whose way in is not settled (Dots,
 Muse, Grok Bot): listed so the app can say how it would connect, never offered a setup that does not exist.
 
+Only a product that can actually reach Cicada is listed (owner, 2026-10-26: "do your due diligence to know what we're
+connecting with"). Cline, Goose, Kiro and Poke left the table that day; a person who had connected one still lights
+the ``other`` pill (``agent_live._fold_other``) and an old sign-in request still reads "An agent", so nothing they
+set up stops working — only the named row is gone.
+
 Ids are wire values. A way's ``id`` is what ``/agents/live`` and ``/agents/setup`` already answer with; the eleven the
 app pins (``LIVE_PILLS``, ``api/tests/fixtures/agent_catalog.json``) keep their order and spelling.
 """
@@ -140,19 +145,27 @@ UMBRELLAS: tuple[Umbrella, ...] = (
                      note="Turn on billing for this key's project. Google's free tier lets people at Google read "
                           "what is sent."),
     ), later=("Google Cloud (Vertex)",)),
+    # Three xAI products reach an MCP server, each its own way (checked 2026-10-26): Grok Build, the terminal agent
+    # (``grok mcp add``); the Grok app (grok.com → Connectors → Custom, a public URL); Grok Bot, the personal agent
+    # in xAI's cloud (asked in chat to add a server, no settings field).
     Umbrella("xai", "xAI Grok", "grok", 1, ways=(
         # Grok Build before the Grok app: its client names itself with the family word too.
         Way("grok-build", "Grok Build", ("stdio", "remote"), tier=2, clients=("grok build", "grok-build",
-                                                                             "grok-cli")),
+                                                                             "grok-cli"),
+            note="The terminal agent adds Cicada as a local MCP server."),
         Way("grok", "Grok app", ("remote",), clients=("grok",), setup=("grok",), remote_app="grok", pill=True),
         Way("grok-bot", "Grok Bot", ("remote",), tier=3, clients=("grok bot", "grok-bot"),
-            note="It runs in xAI's cloud, so it needs Cicada reachable from the internet."),
+            note="You ask it in chat to add Cicada's link. It runs in xAI's cloud, so it needs Cicada reachable "
+                 "from the internet."),
     ), intelligence=(
         Intelligence("byok-xai", "xAI API key", "key"),
     ), later=("Use my Grok plan (Grok Build), beta",)),
-    Umbrella("meta", "Meta", "meta", 3, ways=(
+    # Meta's agent is Muse ("Muse from Meta", 2026-09-08). Its connector list is Meta's own; for anything else it
+    # writes and saves its own client from a link and a token, on a machine in Meta's cloud.
+    Umbrella("meta", "Muse", "muse", 3, ways=(
         Way("muse", "Muse", ("rest", "remote"), tier=3, clients=("muse",),
-            note="Muse builds its own connector from a link and a token; it runs in Meta's cloud."),
+            note="Muse builds its own connector from a link and a token; it runs in Meta's cloud, so it needs "
+                 "Cicada reachable from the internet."),
     )),
     Umbrella("cursor", "Cursor", "cursor", 1, ways=(
         Way("cursor", "Cursor", ("stdio", "hooks", "remote"), clients=("cursor",), setup=("cursor",),
@@ -171,26 +184,22 @@ UMBRELLAS: tuple[Umbrella, ...] = (
         Way("openclaw", "OpenClaw", ("stdio", "remote"), clients=("openclaw",), setup=("openclaw",), pill=True,
             home=".openclaw", skills=".openclaw/skills"),
     )),
-    Umbrella("poke", "Poke", "poke", 1, ways=(
-        Way("poke", "Poke", ("remote", "rest"), clients=("poke",), remote_app="other",
-            note="Poke adds a remote MCP server by its link; it needs Cicada reachable from the internet."),
-    )),
-    Umbrella("vscode", "VS Code / GitHub Copilot", "vscode", 2, ways=(
-        Way("vscode", "VS Code / Copilot", ("stdio", "remote"), tier=2,
-            clients=("visual studio code", "vscode", "copilot"), setup=("other",), remote_app="vscode"),
+    # The id stays ``vscode`` (a wire value: live sightings, the G135 connector app); the product is GitHub Copilot,
+    # in VS Code's agent mode or the Copilot CLI (owner, 2026-10-26).
+    Umbrella("vscode", "GitHub Copilot", "copilot", 2, ways=(
+        Way("vscode", "GitHub Copilot", ("stdio", "remote"), tier=2,
+            clients=("copilot", "visual studio code", "vscode"), setup=("other",), remote_app="vscode"),
     )),
     Umbrella("zed", "Zed", "zed", 2, ways=(Way("zed", "Zed", ("stdio", "remote"), tier=2, clients=("zed",),
                                                 setup=("other",)),)),
-    Umbrella("devin", "Windsurf / Devin", "devin", 2, ways=(
-        Way("windsurf", "Windsurf / Devin Desktop", ("stdio", "remote"), tier=2,
-            clients=("windsurf", "devin", "cascade"), setup=("other",)),
+    # Cognition ships one brand now: Windsurf became Devin Desktop on 2026-06-02 (same editor, MCP config unchanged
+    # under ~/.codeium), beside the Devin CLI and cloud Devin. The way id stays ``windsurf`` (a wire value).
+    Umbrella("devin", "Devin", "devin", 2, ways=(
+        Way("windsurf", "Devin", ("stdio", "remote"), tier=2, clients=("devin", "windsurf", "cascade"),
+            setup=("other",),
+            note="Devin Desktop and the Devin CLI add Cicada as a local MCP server; cloud Devin needs Cicada "
+                 "reachable from the internet."),
     )),
-    Umbrella("cline", "Cline", "cline", 2, ways=(Way("cline", "Cline", ("stdio", "remote"), tier=2,
-                                                     clients=("cline",), setup=("other",)),)),
-    Umbrella("goose", "Goose", "goose", 2, ways=(Way("goose", "Goose", ("stdio", "remote"), tier=2,
-                                                     clients=("goose",), setup=("other",)),)),
-    Umbrella("kiro", "Kiro", "kiro", 2, ways=(Way("kiro", "Kiro", ("stdio", "remote"), tier=2, clients=("kiro",),
-                                                  setup=("other",)),)),
     Umbrella("warp", "Warp", "warp", 2, ways=(Way("warp", "Warp", ("stdio",), tier=2, clients=("warp",),
                                                   setup=("other",)),)),
     Umbrella("amp", "Amp", "amp", 2, ways=(Way("amp", "Amp", ("stdio", "remote"), tier=2, clients=("amp",),
@@ -199,6 +208,18 @@ UMBRELLAS: tuple[Umbrella, ...] = (
         Way("instinct", "Instinct", ("messages", "rest"), tier=3,
             note="You text it, so Cicada reads it from the Messages chats you tick; it can also use the HTTP API. "
                  + _REST_NOTE),
+    )),
+    # G228 (2026-10-29): T3 Code is a host, not a harness — it drives the Claude Code, Codex and Cursor installed on
+    # this machine with their own settings (checked in its source, commit 3748c5c2), so Cicada's hooks, MCP server and
+    # skill already run inside its threads. Its connect flow is theirs (``setup``); it lights when a capture hook saw
+    # one of its threads (``agent_seen`` via ``hook``). Its mark is the vendor's own (its repository at 3748c5c2, `t3`).
+    # T3 Chat is not listed: it documents no MCP connector (its FAQ, read 2026-10-29), so it cannot reach Cicada.
+    Umbrella("t3", "T3 Code", "t3", 1, ways=(
+        Way("t3code", "T3 Code", ("hooks", "stdio"), tier=2, setup=("claude-code", "codex", "cursor"),
+            note="T3 Code runs the coding agents installed here with their own settings, so connecting those agents "
+                 "connects every T3 Code thread. Codex signed in through T3 Code's own sign-in keeps settings of "
+                 "its own, so those threads are not captured: in T3 Code → Settings → Providers, choose your "
+                 "existing Codex login instead."),
     )),
     # Model hosts: intelligence only.
     Umbrella("openrouter", "OpenRouter", "openrouter", 1,
@@ -239,6 +260,19 @@ TRACKED: tuple[str, ...] = LIVE_PILLS + tuple(w.id for w in WAYS if w.id not in 
 
 #: Cicada's own MCP clients — never "another agent" (the release smoke test).
 OWN_CLIENTS = frozenset({"smoke-test"})
+
+#: G228: apps that launch a harness Cicada already captures, without being one. A host is a label on that harness's
+#: one episode (``host:``) — the transcript, its claims (``external:<harness>``) and page-edit trust stay the
+#: harness's. The capture hook names one from its own process ancestors (``api/hooks/host_identity.HOSTS``, the same
+#: list); each is a way in this table.
+HOSTS: tuple[str, ...] = ("t3code",)
+
+
+def clean_host(value) -> str | None:
+    """A posted host, or ``None`` for anything this release does not know (a newer hook's value is dropped, never a
+    refused capture)."""
+    v = str(value or "").strip().lower()
+    return v if v in HOSTS else None
 
 
 def way(way_id: str) -> Way | None:

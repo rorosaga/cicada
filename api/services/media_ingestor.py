@@ -139,6 +139,10 @@ class RawItem:
     # only knows the permalink) and its API connector (which saves the outbound
     # link) dedupe against each other in either order.
     aliases: list[str] = field(default_factory=list)
+    # G32: a listening play from Spotify's own export (``listening_history.play_item``) — what was played, its
+    # creator, album, kind, milliseconds and URI. A row carrying it has origin ``spotify-history`` and every door
+    # takes it off the save path (``listening_history.split``); it never becomes a saved link.
+    play: dict | None = None
 
 
 @dataclass
@@ -1081,27 +1085,29 @@ def _is_instagram_saved_json(data) -> bool:
 # (activity-section key, the list key inside it, the folder name, is_history).
 _TIKTOK_SECTIONS = (
     ("Favorite Videos", "FavoriteVideoList", "Favorites", False),
+    # TikTok's own data-types page spells it both ways; an export generation that writes "Favourite" is the same list.
+    ("Favourite Videos", "FavoriteVideoList", "Favorites", False),
     ("Like List", "ItemFavoriteList", "Likes", False),
     ("Video Browsing History", "VideoList", "Browsing History", True),
+    # The current export (checked 2026-10-26): ``Your Activity`` → ``Watch History`` → ``VideoList``.
+    ("Watch History", "VideoList", "Browsing History", True),
 )
 
 
 def _tiktok_activity(data) -> dict | None:
-    """The activity dict, under the old ``Activity`` key or the newer ``Your
-    Activity`` one — or, failing both, every known section found one level
-    under any top-level wrapper (TikTok has regrouped these across export
-    generations, e.g. a ``Likes and Favorites`` wrapper)."""
+    """Every known section, wherever this export generation keeps it: under ``Activity`` (old), or spread over
+    top-level wrappers — today's ``user_data_tiktok.json`` keeps Favorite Videos and Like List under ``Likes and
+    Favorites`` and Watch History under ``Your Activity`` (2026-10-26; the old reader returned ``Your Activity``
+    alone and so never saw the favourites or likes, and refused the file). A section found at the top level counts
+    too; the first place a section name is found wins."""
     if not isinstance(data, dict):
         return None
-    for key in ("Activity", "Your Activity"):
-        section = data.get(key)
-        if isinstance(section, dict):
-            return section
     found: dict = {}
-    for wrapper in data.values():
+    wrappers = [data.get("Activity"), data.get("Your Activity")] + list(data.values()) + [data]
+    for wrapper in wrappers:
         if isinstance(wrapper, dict):
             for name, _list_key, _folder, _hist in _TIKTOK_SECTIONS:
-                if name in wrapper and name not in found:
+                if name in wrapper and name not in found and isinstance(wrapper[name], dict):
                     found[name] = wrapper[name]
     return found or None
 
@@ -1131,6 +1137,7 @@ def parse_tiktok_export(data, *, include_history: bool = False) -> list[RawItem]
         return []
 
     items: list[RawItem] = []
+    seen: set[tuple] = set()
     for section_name, list_key, folder, is_history in _TIKTOK_SECTIONS:
         if is_history and not include_history:
             continue
@@ -1147,6 +1154,11 @@ def parse_tiktok_export(data, *, include_history: bool = False) -> list[RawItem]
             if not isinstance(url, str) or not url.strip():
                 continue
             date = row.get("Date") or row.get("date")
+            # One list under two spellings (Favorite/Favourite, the two history names) is one row per entry.
+            key = (folder, url.strip(), str(date or ""))
+            if key in seen:
+                continue
+            seen.add(key)
             items.append(RawItem(
                 url=url.strip(),
                 added=saved_at.from_tiktok(date),
@@ -1375,6 +1387,57 @@ def parse_reddit_saved_csv(content: bytes, filename: str) -> list[RawItem]:
     return items
 
 
+#: G232: the other two of Reddit's export files that hold what the person kept — their votes on posts and the
+#: communities they joined. Every other file of the export (messages, comments, IP logs, chat…) is skipped by name.
+REDDIT_VOTES_FILE = "post_votes.csv"
+REDDIT_COMMUNITIES_FILE = "subscribed_subreddits.csv"
+_REDDIT_COMMUNITY_NAME = re.compile(r"^[A-Za-z0-9_]{2,21}$")
+
+
+def is_reddit_list_filename(filename: str) -> bool:
+    return Path(filename or "").name.lower() in (REDDIT_VOTES_FILE, REDDIT_COMMUNITIES_FILE)
+
+
+def parse_reddit_list_csv(content: bytes, filename: str) -> list[RawItem]:
+    """Reddit's export ``post_votes.csv`` (``id,permalink,direction``: only ``up`` is kept — an upvote is a like,
+    folder ``Upvoted``) or ``subscribed_subreddits.csv`` (``subreddit``: a joined community, folder ``Joined
+    communities``, its ``https://www.reddit.com/r/<name>/`` link). Both are index-only (ruling 30) and file exactly as
+    the connector files them, so the two are one row. No date is in either file, so none is given. Never raises."""
+    import csv
+    import io
+
+    try:
+        reader = csv.DictReader(io.StringIO(content.decode("utf-8-sig", errors="replace")))
+        fields = {(f or "").strip().lower(): f for f in (reader.fieldnames or [])}
+    except Exception:  # noqa: BLE001
+        return []
+    name = Path(filename or "").name.lower()
+    items: list[RawItem] = []
+    if name == REDDIT_VOTES_FILE:
+        link, way = fields.get("permalink"), fields.get("direction")
+        if link is None or way is None:
+            return []
+        for row in reader:
+            if (row.get(way) or "").strip().lower() != "up":
+                continue
+            raw = (row.get(link) or "").strip()
+            if raw.startswith("/"):
+                raw = REDDIT_BASE_URL + raw
+            if raw.startswith(("http://", "https://")):
+                items.append(RawItem(url=raw, folder="Upvoted", origin="reddit-saved"))
+        return items
+    if name == REDDIT_COMMUNITIES_FILE:
+        col = fields.get("subreddit")
+        if col is None:
+            return []
+        for row in reader:
+            sub = (row.get(col) or "").strip().removeprefix("r/")
+            if _REDDIT_COMMUNITY_NAME.match(sub) and not sub.lower().startswith("u_"):
+                items.append(RawItem(url=f"{REDDIT_BASE_URL}/r/{sub}/", title=f"r/{sub}",
+                                     folder="Joined communities", origin="reddit-saved", defer_enrich=True))
+    return items
+
+
 def parse_url_list(text: str) -> list[RawItem]:
     """``.txt`` one URL per line (skip blanks / ``#`` comments)."""
     items: list[RawItem] = []
@@ -1476,6 +1539,14 @@ def parse_rss(xml: str) -> list[RawItem]:
                 fallback = href.strip()
         return fallback
 
+    from api.services import substack
+
+    # G89 (i)/(iii): the publication — the RSS channel's (or the Atom feed's) own title — rides each item as its
+    # ``channel``, so a post says which publication it came from.
+    channel_node = next((el for el in root.iter() if local(el.tag) == "channel"), None)
+    publication = first_child_text(channel_node if channel_node is not None else root, "title")
+    publication = " ".join(publication.split())[:120] if publication else None
+
     items: list[RawItem] = []
     # An <item> is RSS, an <entry> is Atom — search the whole tree so a
     # namespaced or nested channel still matches.
@@ -1492,6 +1563,10 @@ def parse_rss(xml: str) -> list[RawItem]:
             or first_child_text(entry, "description")
             or first_child_text(entry, "summary")
         )
+        # G89 (vii): a paid post's feed body is a stub — a few words and a "Read more" link (Substack, measured
+        # 2026-09-01). It is not the post, so it never stands in for its words.
+        if substack.is_paywall_stub(summary):
+            summary = None
         tags: list[str] = []
         for child in entry:
             if local(child.tag) == "category":
@@ -1502,6 +1577,7 @@ def parse_rss(xml: str) -> list[RawItem]:
             url=link.strip(),
             title=title or None,
             tags=tags,
+            channel=publication,
             preview=summary or None,
             published_at=_feed_published(
                 first_child_text(entry, "pubDate") or first_child_text(entry, "published")
@@ -1557,6 +1633,34 @@ async def ingest_feed(
         # entities to the RSS row instead of leaving them origin-less.
         item.origin = "rss"
     return await ingest_batch(items, memory_path, from_bookmark_file=False, commit=commit)
+
+
+def stamp_feed(memory_path: Path, items: list[RawItem], feed_id: str) -> bool:
+    """Record on each item's ``url_index`` row which followed feed brought it in (ROR-108), for an item already held
+    too: a poll lists what a feed carries, so items saved before the stamp existed gain it on their next poll. The
+    first feed keeps an item a second feed also carries, so one item lists once. Returns whether the index changed."""
+    idx = load_url_index(memory_path)
+    changed = False
+    for item in items:
+        entry = idx.get(_primary(idx, url_hash(item.url)))
+        if isinstance(entry, dict) and not entry.get("feed"):
+            entry["feed"] = feed_id
+            changed = True
+    if changed:
+        save_url_index(memory_path, idx)
+    return changed
+
+
+def is_feed_document(xml: str) -> bool:
+    """Whether a fetched body is an RSS, RDF or Atom document at all (a consent page answering 200 is not); a feed with
+    no entries yet is one."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.fromstring((xml or "").strip())
+    except ET.ParseError:
+        return False
+    return root.tag.rsplit("}", 1)[-1].casefold() in ("rss", "rdf", "feed")
 
 
 #: Export files that hold other people, never saves — refused by name even when
@@ -1642,6 +1746,12 @@ def parse_upload(
         return parse_safari_bookmarks(content), "Bookmarks", True
     if name.endswith(".plist"):
         return parse_safari_bookmarks(content), "Safari Bookmarks", True
+    from api.services import spotify_export
+
+    if name.endswith(".json") and spotify_export.is_member(Path(name).name):
+        # G32: one file of a Spotify download, dropped by itself (the walker's own reader and allow-list).
+        items, _platform, _left_out = saved_exports.parse_member(Path(name).name, content)
+        return items, saved_exports.LABEL_BY_PLATFORM["spotify"], False
     if name.endswith(".json"):
         data = json.loads(content)
         if isinstance(data, dict) and "roots" in data:
@@ -1695,6 +1805,10 @@ def parse_upload(
         playlist_items = parse_youtube_playlist_csv(content, filename or name)
         if playlist_items:
             return playlist_items, "YouTube Playlist", False
+        if is_reddit_list_filename(name):
+            # G232: votes and joined communities first — the saved-posts parser would read ``post_votes.csv``'s
+            # permalink column as saves, downvotes included.
+            return parse_reddit_list_csv(content, filename or name), "Reddit Saved Export", False
         reddit_items = parse_reddit_saved_csv(content, filename or name)
         if reddit_items:
             return reddit_items, "Reddit Saved Export", False
@@ -1755,6 +1869,7 @@ PLATFORM_BY_LABEL = {
     "TikTok Export": "tiktok",
     "Reddit Saved Export": "reddit",
     "X Archive": "x",
+    "Spotify Export": "spotify",
 }
 
 # What ONE grouping is called on each platform, so the overlay can say
@@ -1770,10 +1885,13 @@ COLLECTION_KIND_BY_PLATFORM = {
     "tiktok": "list",
     "reddit": "saved",
     "x": "list",
+    "spotify": "list",
     "unknown": "list",
 }
 
 DEFAULT_COLLECTION_NAME = "Ungrouped"
+#: G32: the preview's line for a Spotify download's plays — the days of listening they become, never a saved list.
+LISTENING_COLLECTION = "Listening history (days)"
 
 
 @dataclass
@@ -1835,13 +1953,15 @@ def describe_items(items: list[RawItem], label: str, warnings: list[str] | None 
     History rows are not saves: they are counted apart (``history_videos`` over
     ``history_days``, the episodes ``watch_history`` would write) and never as a
     collection, and a preview that holds only history is still recognized."""
-    from api.services import watch_history
+    from api.services import listening_history, watch_history
 
     warnings = list(warnings or [])
     platform = PLATFORM_BY_LABEL.get(label, "unknown")
     kind = COLLECTION_KIND_BY_PLATFORM.get(platform, "list")
+    items, plays = listening_history.split(items)
     items, history = watch_history.split(items)
     history_videos, history_days = watch_history.describe(history)
+    listened, listening_days = listening_history.describe(plays)
     if history_videos:
         warnings.append(
             f"Watch history: {history_videos:,} watched video{'s' if history_videos != 1 else ''} over "
@@ -1854,6 +1974,14 @@ def describe_items(items: list[RawItem], label: str, warnings: list[str] | None 
             continue
         name = (item.folder or "").strip() or DEFAULT_COLLECTION_NAME
         counts[name] = counts.get(name, 0) + 1
+    if listening_days:
+        # G32: Spotify's plays are what the person listened to, never saves — one entry per day. Counted as the days
+        # they become (what the import writes), said in words beside it.
+        counts[LISTENING_COLLECTION] = listening_days
+        warnings.append(
+            f"Listening history: {listened:,} play{'s' if listened != 1 else ''} over {listening_days:,} "
+            f"day{'s' if listening_days != 1 else ''}, kept as one entry per day of what you listened to, not as "
+            "saves.")
 
     total = sum(counts.values())
     if total == 0 and not history_videos and not history_excluded:
@@ -2001,8 +2129,10 @@ def _episode_body(
     return "\n".join(lines)
 
 
-def _entity_body(meta: MediaMeta, note: str | None) -> str:
-    summary = f"Saved {meta.media_type} — {meta.title}."
+def _entity_body(meta: MediaMeta, note: str | None, origin: str | None = None) -> str:
+    # ROR-138: a feed item (RSS/Atom) was published to the person, never saved by them, so its page never says "Saved".
+    verb = "From a feed" if (origin or "").strip().lower() in episode_time.FEED_ORIGINS else f"Saved {meta.media_type}"
+    summary = f"{verb} — {meta.title}."
     lines = ["## Summary", summary]
     if meta.description:
         lines += ["", "## Description", meta.description]
@@ -2110,8 +2240,9 @@ def write_media_episode(
         if item.project_dir:
             frontmatter["project_dir"] = item.project_dir
     # Owner ruling 2026-10-18: a save from a platform's saved list (an export archive, the agent's Watch later read)
-    # stays in Saved with its metadata and is indexed, never read by a model. The person's own note or reason on a
-    # save is always read — no list door carries one, and one that did is marked and queued like any save.
+    # stays in Saved with its metadata and is indexed, never read by a model. Ruling 62 (2026-11-04): so does every
+    # other bare save (a bookmark, a saved link, a feed item). A save's note or reason is always read: it is marked and
+    # queued like any conversation.
     if history_index.is_index_only(frontmatter):
         if item.note or item.reason:
             frontmatter[history_index.NOTE_KEY] = True
@@ -2281,7 +2412,7 @@ def write_media_entity(
         # G166: the wall the save-time request hit, in the backfill's own keys.
         frontmatter["fetch_status"] = meta.fetch_status
         frontmatter["fetch_attempted_at"] = today.strftime("%Y-%m-%d")
-    body = _entity_body(meta, item.note)
+    body = _entity_body(meta, item.note, item.origin)
     markdown_parser.write(entities_dir / f"{entity_id}.md", frontmatter, body)
 
 
@@ -2371,6 +2502,8 @@ def write_note_episode(memory_path: Path, item: RawItem, existing: IngestResult)
         "content_hash": content_hash,
         "url": item.url,
         "media_entity_id": existing.media_entity_id,
+        # Ruling 62: a note says why the link matters, so this episode is read like any save with a reason.
+        history_index.NOTE_KEY: True,
     }
     if item.origin:
         frontmatter["origin"] = item.origin

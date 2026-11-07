@@ -32,6 +32,7 @@ transcript (or, for the last reply, the Stop hook) recorded them.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import threading
 from dataclasses import dataclass
@@ -41,8 +42,8 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (
-    agent_turns, continuity_sessions, demo_guard, episode_ids, episode_staging, episode_title, evidence, markdown_parser,
-    session_stats, telemetry,
+    agent_turns, capture_commit, continuity_sessions, demo_guard, episode_ids, episode_staging, episode_title, evidence, markdown_parser,
+    sensitive_flags, session_stats, telemetry,
 )
 from api.services.transcript_extract import HARNESSES, Conversation, extract
 
@@ -56,16 +57,84 @@ PRODUCT = episode_title.PRODUCT
 
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
 _lock = threading.Lock()
-# (episodes_dir, harness, session_id) -> episode path, so a Stop firing on a
-# long session does not rescan every episode file. Keyed by the episodes dir
-# because the active bank can change under a running backend
-# (``POST /banks/{name}/activate``) — a key without it would hand one bank's
-# episode path to another bank's capture (plan critic 2026-09-03: the
-# un-keyed cache also bled across the test suite's tmp banks). A hit is
-# re-verified by parsing the one cached file — it must still be a transcript
-# episode for this session, since a bank rename, duplicate or restore can
-# leave a stale path behind.
-_episode_cache: dict[tuple[str, str, str], Path] = {}
+# resolved episodes dir -> :class:`_SessionIndex`, so finding a session's episode never reads every episode file
+# again. Keyed by the episodes dir because the active bank can change under a running backend
+# (``POST /banks/{name}/activate``) — a key without it would hand one bank's episode path to another bank's capture
+# (plan critic 2026-09-03: the un-keyed cache also bled across the test suite's tmp banks). A hit is re-verified by
+# parsing the one file — it must still be a transcript episode for this session, since a bank rename, duplicate or
+# restore can leave a stale path behind.
+_episode_cache: dict[str, "_SessionIndex"] = {}
+_episode_cache_guard = threading.Lock()
+
+_FM_SESSION_RE = re.compile(r"^session_id:[ \t]*['\"]?([^'\"\r\n]*?)['\"]?[ \t]*$", re.M)
+_FM_KIND_RE = re.compile(r"^capture_kind:[ \t]*['\"]?([^'\"\r\n]*?)['\"]?[ \t]*$", re.M)
+
+
+def _head_session(fp: Path) -> str | None:
+    """The ``session_id`` of a transcript episode, read from its frontmatter's top-level lines (a regex, never a YAML
+    parse), or ``None`` when the file is no transcript episode. A lookup confirms a hit with a real parse."""
+    text = fp.read_text(encoding="utf-8", errors="replace")
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    head = text[: end if end != -1 else len(text)]
+    kind = _FM_KIND_RE.search(head)
+    if kind is None or kind.group(1).strip() != CAPTURE_KIND:
+        return None
+    sid = _FM_SESSION_RE.search(head)
+    return sid.group(1).strip() if sid else None
+
+
+class _SessionIndex:
+    """One episodes dir's ``session_id -> files`` map, kept current by a stat of each file (≈30 ms at 8,700 files):
+    only a file that is new or whose mtime/size moved is read again. Before it, every new session's first Stop read
+    every episode in full under the capture lock — 0.45 s warm, 1.4 s cold at 8,700 episodes, serialised across every
+    session firing at once (7-9 s answers measured 2026-10-29, the hook's 3 s timeout)."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, tuple[int, int, str | None]] = {}   # name -> (mtime_ns, size, session_id)
+        self.found: dict[str, str] = {}   # session_id -> the name a lookup or a create last returned
+        self.lock = threading.Lock()
+
+    def refresh(self, episodes_dir: Path) -> None:
+        with self.lock:
+            seen: dict[str, tuple[int, int, str | None]] = {}
+            try:
+                it = os.scandir(episodes_dir)
+            except OSError:
+                self.files = {}
+                return
+            with it:
+                for entry in it:
+                    name = entry.name
+                    if not (name.startswith("ep_") and name.endswith(".md")):
+                        continue
+                    try:
+                        st = entry.stat()
+                    except OSError:
+                        continue
+                    old = self.files.get(name)
+                    if old is not None and old[0] == st.st_mtime_ns and old[1] == st.st_size:
+                        seen[name] = old
+                        continue
+                    try:
+                        sid = _head_session(Path(entry.path))
+                    except OSError:
+                        continue
+                    seen[name] = (st.st_mtime_ns, st.st_size, sid)
+            self.files = seen
+
+    def candidates(self, session_id: str) -> list[str]:
+        return sorted(name for name, (_m, _s, sid) in self.files.items() if sid == session_id)
+
+
+def _session_index(episodes_dir: Path) -> _SessionIndex:
+    key = str(episodes_dir.resolve())
+    with _episode_cache_guard:
+        index = _episode_cache.get(key)
+        if index is None:
+            index = _episode_cache[key] = _SessionIndex()
+        return index
 
 
 class TranscriptRefused(Exception):
@@ -233,7 +302,7 @@ def _superseded(fm: dict, read_bytes: int, path: Path | None, size: int | None =
 
 @dataclass
 class CaptureResult:
-    status: str  # created | updated | unchanged | metadata | superseded | empty | refused
+    status: str  # created | updated | unchanged | metadata | superseded | empty | refused | upgraded | elsewhere
     episode_id: str | None
     turns_user: int
     turns_assistant: int
@@ -429,14 +498,18 @@ def _is_session_episode(fp: Path, session_id: str) -> bool:
 
 
 def _find_session_episode(episodes_dir: Path, harness: str, session_id: str) -> Path | None:
-    key = (str(episodes_dir.resolve()), harness, session_id)
-    cached = _episode_cache.get(key)
-    if cached is not None and cached.is_file() and _is_session_episode(cached, session_id):
-        return cached
-    _episode_cache.pop(key, None)
-    for fp in sorted(episodes_dir.glob("ep_*.md")):
+    """The session's one transcript episode, or ``None``. The index is brought current first (a stat per file, a read
+    only of what changed), so a file another writer or process made since is seen; the hit is confirmed by a parse."""
+    index = _session_index(episodes_dir)
+    known = index.found.get(session_id)
+    if known is not None and _is_session_episode(episodes_dir / known, session_id):
+        return episodes_dir / known   # a live session's every later Stop: one read of its own file, no stat sweep
+    index.found.pop(session_id, None)
+    index.refresh(episodes_dir)
+    for name in index.candidates(session_id):
+        fp = episodes_dir / name
         if _is_session_episode(fp, session_id):
-            _episode_cache[key] = fp
+            index.found[session_id] = name
             return fp
     return None
 
@@ -502,6 +575,7 @@ def capture_transcript(
     bank_paths: tuple | None = None,
     hook_event: str | None = None,
     workspace=None,
+    host: str | None = None,
 ) -> CaptureResult:
     """Validate (R2), extract, and write or update the session's one episode (R3).
 
@@ -517,6 +591,11 @@ def capture_transcript(
     ``hook_event``: the hook that ran this capture — ``Stop``, or a
     ``PreCompact``/``SessionEnd`` flush (G110 gate A); the ledger row names it
     as an enum. The write is the same whichever event fired.
+
+    ``host`` (G228): the app that launched the harness (``agent_catalog.HOSTS``,
+    T3 Code), as the hook read it from its ancestors. It is a label on the
+    harness's one episode (``host:``, outside the hash, kept once written) and a
+    sighting of that app; an unknown value is dropped.
 
     G110 slice 1a: every write also records :func:`capture_meta` and, once,
     ``continues`` from the continuity registry (``bank_paths`` — the memory
@@ -550,7 +629,8 @@ def capture_transcript(
             for raw in fh:
                 read_bytes += len(raw)
                 yield raw.decode("utf-8", "replace")
-        conv = extract(harness, lines(), keep_assistant=keep_assistant)
+        conv = extract(harness, lines(), keep_assistant=keep_assistant,
+                       host=envelope_host(host, memory_path / "episodes", harness, session_id))
     from api.services import workspace_identity
     observed = workspace_identity.parse(cwd, workspace)
     if observed and bank_paths is not None and conv.turns:
@@ -567,9 +647,71 @@ def capture_transcript(
     # session, G104) and fences the update against Sleep's retirement.
     with _lock, episode_ids.episode_lock(episodes_dir):
         existing = _find_session_episode(episodes_dir, harness, session_id) if conv.turns else None
-        return write_session(memory_path, harness=harness, session_id=session_id, conv=conv, existing=existing,
-                             cwd=cwd, bank=bank, effort=effort, bank_paths=bank_paths, hook_event=hook_event,
-                             registry_workspace=registry_workspace, read_bytes=read_bytes, source_path=path)
+        result = write_session(memory_path, harness=harness, session_id=session_id, conv=conv, existing=existing,
+                               cwd=cwd, bank=bank, effort=effort, bank_paths=bank_paths, hook_event=hook_event,
+                               registry_workspace=registry_workspace, read_bytes=read_bytes, source_path=path,
+                               extra=host_extra(host))
+    saw_host(host, result)
+    return result
+
+
+#: How much of an episode's head :func:`stored_host` reads looking for its ``host:`` line.
+_HOST_SCAN_BYTES = 256 * 1024
+
+
+def stored_host(path: Path | None) -> str | None:
+    """G228: the ``host`` an episode already carries, read from its frontmatter's top-level lines (never YAML-parsed:
+    a long session's sidecar made that too slow for the Stop hook's budget), stopping at the sidecar or the fence."""
+    from api.services import agent_catalog
+
+    if path is None:
+        return None
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(_HOST_SCAN_BYTES).decode("utf-8", "replace")
+    except OSError:
+        return None
+    lines = head.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---" or line.startswith(("turns:", "hook_turns:")):
+            return None
+        if line.startswith("host:"):
+            return agent_catalog.clean_host(line[5:].strip().strip("'\""))
+    return None
+
+
+def envelope_host(host: str | None, episodes_dir: Path, harness: str, session_id: str) -> str | None:
+    """G228: the host whose turn envelopes a capture unwraps — the one the hook named, else the one the session's
+    episode already carries (a later firing that could not read its launch chain), else none."""
+    from api.services import agent_catalog
+
+    known = agent_catalog.clean_host(host)
+    if known:
+        return known
+    try:
+        return stored_host(_find_session_episode(episodes_dir, harness, session_id))
+    except OSError:
+        return None
+
+
+def host_extra(host: str | None) -> dict | None:
+    """G228: the episode's ``host`` field for a known host, else nothing (an older episode is never cleared)."""
+    from api.services import agent_catalog
+
+    known = agent_catalog.clean_host(host)
+    return {"host": known} if known else None
+
+
+def saw_host(host: str | None, result: "CaptureResult", device: str | None = None) -> None:
+    """G228: a host app is seen only through the hook that names it (``agent_seen`` via ``hook``), after a write that
+    kept something — never for a refusal or an empty session. Outside the episode lock; never raises."""
+    from api.services import agent_catalog, agent_seen
+
+    known = agent_catalog.clean_host(host)
+    if known and result.status not in ("refused", "empty"):
+        agent_seen.stamp_agent(known, via="hook", device=device)
 
 
 def capture_posted(
@@ -589,6 +731,7 @@ def capture_posted(
     workspace=None,
     device: str | None = None,
     utc_offset_minutes: int | None = None,
+    host: str | None = None,
 ) -> CaptureResult:
     """A session read on another machine by Cicada's own extractor and posted as turns (G181 phase 2, owner ruling 2,
     2026-10-16): the transcript rail amended, never relaxed. Nothing here opens a path. What arrived is re-checked
@@ -630,12 +773,25 @@ def capture_posted(
     episodes_dir = memory_path / "episodes"
     with _lock, episode_ids.episode_lock(episodes_dir):
         existing = _find_session_episode(episodes_dir, harness, sid) if conv.turns else None
-        return write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,
-                             cwd=cwd, bank=bank, effort=effort, bank_paths=bank_paths, hook_event=hook_event,
-                             registry_workspace=registry_workspace, read_bytes=transcript_bytes,
-                             source_size=max(transcript_size, transcript_bytes),
-                             extra={"device": device} if device else None,
-                             utc_offset_minutes=utc_offset_minutes)
+        result = write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,
+                               cwd=cwd, bank=bank, effort=effort, bank_paths=bank_paths, hook_event=hook_event,
+                               registry_workspace=registry_workspace, read_bytes=transcript_bytes,
+                               source_size=max(transcript_size, transcript_bytes),
+                               extra={**({"device": device} if device else {}), **(host_extra(host) or {})} or None,
+                               utc_offset_minutes=utc_offset_minutes)
+    saw_host(host, result, device=device)
+    return result
+
+
+def _bytes_if(memory_path: Path, path: Path) -> bytes | None:
+    """What ``path`` holds before this writer rewrites it — only while the home publishes its log (G132 51e1, the
+    capture commit's record); ``None`` otherwise, so the capture path is unchanged with publishing off."""
+    if not capture_commit.recording(memory_path):
+        return None
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
 
 
 def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Conversation, existing: Path | None,
@@ -662,6 +818,10 @@ def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Con
         _record(harness, session_id, "empty", conv, bank, event=hook_event)
         return CaptureResult("empty", None, 0, 0, conv.summary)
 
+    if existing is not None:
+        stored = stored if stored is not None else markdown_parser.parse(existing)
+        # G235: text the person took out stays out, though the transcript still says it.
+        sensitive_flags.reapply_conversation(conv, stored.frontmatter)
     body = _body(conv)
     content_hash = hashlib.sha256(body.encode()).hexdigest()[:12]
     now = episode_ids.utc_now_iso()
@@ -694,7 +854,9 @@ def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Con
         _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), None, effort, _last_offset(conv, body)))
         episode_id = episode_ids.create_episode(episodes_dir, fm, body)
         path_out = episodes_dir / f"{episode_id}.md"
-        _episode_cache[(str(episodes_dir.resolve()), harness, session_id)] = path_out
+        if capture_commit.recording(memory_path):
+            capture_commit.note_written(memory_path, path_out, before=None)   # G132 51e1: committed once settled
+        _session_index(episodes_dir).found[session_id] = path_out.name
         _record(harness, session_id, "created", conv, bank, event=hook_event)
         logger.info(f"capture: created {episode_id} from {harness} session ({len(conv.turns)} turns)")
         return CaptureResult("created", episode_id, kept["user"], kept["assistant"], conv.summary)
@@ -719,7 +881,10 @@ def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Con
             if read_bytes is not None:
                 fm[EXTENT_KEY] = max(read_bytes, _stored_extent(fm) or 0)
             _place_turns(fm, previous)
+            before = _bytes_if(memory_path, existing)
             markdown_parser.write(existing, fm, stored.body)
+            if before is not None:
+                capture_commit.note_written(memory_path, existing, before=before)
             _record(harness, session_id, "metadata", conv, bank, event=hook_event)
             return CaptureResult("metadata", episode_id, kept["user"], kept["assistant"], conv.summary)
         _record(harness, session_id, "unchanged", conv, bank, event=hook_event)
@@ -742,7 +907,10 @@ def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Con
     fm.update(extra)
     _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), previous, effort, _last_offset(conv, body),
                                    previous_body=stored.body, chunks=_turn_chunks(conv)))
+    before = _bytes_if(memory_path, existing)
     markdown_parser.write(existing, fm, body)
+    if before is not None:
+        capture_commit.note_written(memory_path, existing, before=before)
     _record(harness, session_id, "updated", conv, bank, event=hook_event)
     logger.info(f"capture: updated {episode_id} from {harness} session ({len(conv.turns)} turns), re-queued")
     return CaptureResult("updated", episode_id, kept["user"], kept["assistant"], conv.summary)

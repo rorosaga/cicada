@@ -44,11 +44,29 @@ enum ClustersModel {
     /// `lastReferenced` is an ISO day, so a string compare is a date compare; a page with none sorts last.
     /// `withLooks` (owner 2026-10-20: "we can filter looks inside the entities page") keeps only the pages that show
     /// a look; nil leaves every page in.
+    /// ROR-138 — the media kinds in the order the View menu lists them (`media_kinds.KINDS`, the wire ids).
+    static let mediaKindOrder = ["book", "article", "video", "picture", "paper", "repository", "link", "file", "feed"]
+
+    /// ROR-138 (owner 2026-11-06: "only what you saved"): a feed item (published to the person, never saved) the
+    /// person has not mentioned stays out of Media unless its kind is chosen. `kinds` empty keeps every other kind.
+    static func mediaShown(_ e: Entity, kinds: Set<String>) -> Bool {
+        guard e.type == .media else { return true }
+        if kinds.isEmpty { return !(e.mediaKind == "feed" && e.quiet) }
+        return e.mediaKind.map(kinds.contains) ?? false
+    }
+
     static func filtered(_ all: [Entity], types: Set<EntityType>, labels: Set<String>,
-                         withLooks: Set<String>? = nil) -> [Entity] {
+                         withLooks: Set<String>? = nil, mediaKinds: Set<String> = [],
+                         groupByChannel: Bool = false) -> [Entity] {
         all.filter { types.contains($0.type) && (labels.isEmpty || !labels.isDisjoint(with: Set($0.tags)))
-                     && (withLooks?.contains($0.id) ?? true) }
+                     && (withLooks?.contains($0.id) ?? true) && mediaShown($0, kinds: mediaKinds) }
             .sorted { a, b in
+                if groupByChannel, a.type == .media, b.type == .media, a.mediaChannel != b.mediaChannel {
+                    // Named channels first, A→Z; media with none last.
+                    guard let x = a.mediaChannel else { return false }
+                    guard let y = b.mediaChannel else { return true }
+                    return x.localizedCaseInsensitiveCompare(y) == .orderedAscending
+                }
                 if a.lastReferenced != b.lastReferenced { return a.lastReferenced > b.lastReferenced }
                 return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }
@@ -109,7 +127,28 @@ enum ClustersModel {
         }
         let first = ExcerptText.clean(text).split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
         let trimmed = first.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? nil : trimmed
+        return trimmed.isEmpty || repeatsName(trimmed, of: e) ? nil : trimmed
+    }
+
+    /// A saved page's generated summary is "Saved link — <its own title>." (or "From a feed — …"): the row already says
+    /// the title, so a summary that only says it again is no line at all. One that adds anything stays.
+    static func repeatsName(_ line: String, of e: Entity) -> Bool {
+        guard e.type == .media, let dash = line.range(of: " — ") else { return false }
+        let verb = line[..<dash.lowerBound]
+        guard verb.hasPrefix("Saved ") || verb == "From a feed" else { return false }
+        func norm(_ t: String) -> String {
+            t.trimmingCharacters(in: CharacterSet(charactersIn: ". \u{2026}")).lowercased()
+        }
+        return norm(String(line[dash.upperBound...])) == norm(e.name)
+    }
+
+    /// A tile's line. A media page's generated "Saved <kind> — …" lead says what its slot and its kind chip already say
+    /// (the origin's mark, the chip), so only what follows the dash is shown, and nothing if that is the title again.
+    static func tileLine(_ e: Entity) -> String? {
+        guard let text = line(e) else { return nil }
+        guard e.type == .media, text.hasPrefix("Saved "), let dash = text.range(of: " — ") else { return text }
+        let rest = String(text[dash.upperBound...]).trimmingCharacters(in: .whitespaces)
+        return rest.isEmpty ? nil : rest
     }
 
     /// A row beside a card: the type only where types mix (find's matches), then the line.

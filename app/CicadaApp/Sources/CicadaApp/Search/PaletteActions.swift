@@ -6,12 +6,13 @@ import Foundation
 enum PaletteActions {
     static func docs(_ inputs: QuickIndexInputs) -> [QuickIndex.Doc] {
         var docs: [QuickIndex.Doc] = []
-        func add(_ id: String, _ title: String, keywords: [String], symbol: String, trailing: String? = nil,
-                 destination: FindDestination, kind: FindKind = .action, order: Int) {
+        func add(_ id: String, _ title: String, keywords: [String], intents: [String] = [], symbol: String,
+                 trailing: String? = nil, destination: FindDestination, kind: FindKind = .action, order: Int) {
             let row = FindRow(key: FindRowKey(kind: kind, id: id), group: .actions, title: title,
                               mark: .symbol(symbol), trailing: trailing, tieBreak: -Double(order),
                               destination: destination)
             docs.append(QuickIndex.Doc(row: row, fields: [QuickMatch.Field(title, weight: QuickMatch.Weight.name)]
+                + intents.map { QuickMatch.Field($0, weight: QuickMatch.Weight.intent) }
                 + keywords.map { QuickMatch.Field($0, weight: QuickMatch.Weight.keyword) }))
         }
         if inputs.isSleeping {
@@ -23,10 +24,17 @@ enum PaletteActions {
             add("consolidate", "Consolidate now", keywords: ["sleep", "run", "consolidate"],
                 symbol: "moon.zzz", destination: .action(.consolidate), order: 0)
         }
-        for (i, tab) in AppTab.allCases.enumerated() {
+        // Owner 2026-10-26 — only the pages the rail shows; each with its own ⌘ digit, which never moves (DR-22).
+        for (i, tab) in AppTab.shown(tracesPage: inputs.tracesPage).enumerated() {
+            let key = RailItem.shortcut(for: tab)
             add("tab.\(tab.rawValue)", "Go to \(tab.title)", keywords: ["open", "page", "show"], symbol: tab.icon,
-                trailing: i < 9 ? "⌘\(i + 1)" : nil, destination: .tab(tab), order: 10 + i)
+                trailing: key.isEmpty ? nil : key, destination: .tab(tab), order: 10 + i)
         }
+        // CIC8 (2026-10-29) — File → Import…, findable by what a person holding an export types, on Home's field too.
+        add("import", Copy.Catalog.importChatsOrFiles + "…",
+            keywords: ["conversations", "upload", "add"],
+            intents: ["chatgpt", "claude", "gemini", "chat export", "export", "zip", "import"],
+            symbol: "tray.and.arrow.down", trailing: "⇧⌘I", destination: .action(.importFile), order: 20)
         if inputs.appearance == .dark {
             add("appearance.light", "Switch to light", keywords: ["appearance", "theme", "day"],
                 symbol: "sun.max", destination: .action(.lightMode), order: 30)

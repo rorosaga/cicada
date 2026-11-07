@@ -1,15 +1,21 @@
 import asyncio
+import hashlib
+import json
+import time
 from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, UploadFile
 from starlette.concurrency import run_in_threadpool
 from loguru import logger
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
     BookmarkLeft,
+    CamelModel,
     BookmarkRemoveRequest,
     BookmarkRemoveResponse,
     BookmarkSyncRequest,
@@ -62,14 +68,18 @@ from api.services import (
     reading_service,
     reading_settings,
     reading_walls,
+    reader_catch_up,
     safari_tabs,
     saved_at as saved_at_service,
     saved_why,
     site_captures,
+    source_collections,
     source_overview,
     sync_service,
     sync_state,
+    sync_ticker,
     watch_history,
+    listening_history,
     write_admission,
 )
 from api.services.connectors import ADAPTERS
@@ -297,10 +307,12 @@ async def upload_sources(
     # Read at call time (not the import-time name): a whole archive of likes
     # runs past one batch and is imported MAX_BATCH at a time below.
     cap = media_ingestor.MAX_UPLOAD_ITEMS
-    if len(items) > cap:
+    # G32: a Spotify play is never a save — a whole account's listening runs past the saves' cap, and becomes days.
+    saves = sum(1 for it in items if not listening_history.is_play(it))
+    if saves > cap:
         raise HTTPException(
             status_code=413,
-            detail=f"{len(items)} items exceeds the {cap}-item import cap",
+            detail=f"{saves} items exceeds the {cap}-item import cap",
         )
 
     memory_path = settings.memory_path
@@ -311,6 +323,12 @@ async def upload_sources(
         history = await watch_history.import_history(memory_path, history_rows, door="takeout",
                                                      trigger="user/watch_history")
         history_note = " " + watch_history.summary(history)
+    # G32: Spotify's plays likewise — one listening day each, committed alone, never a saved link.
+    items, play_rows = listening_history.split(items)
+    if play_rows:
+        listened = await listening_history.import_history(memory_path, play_rows, trigger="user/listening_history")
+        history_note += " " + listening_history.summary(listened)
+        history_rows = history_rows + play_rows
     idx = media_ingestor.load_url_index(memory_path)
     fresh, duplicates, backfilled = media_ingestor._dedup_items(items, idx)
     # G99d (Devin round 1, PR #26 finding 1): this router loads its OWN `idx`
@@ -383,8 +401,7 @@ async def ingest_rss(
         if os.environ.get("CICADA_ALLOW_FEED_FETCH") != "1":
             raise HTTPException(
                 status_code=422,
-                detail="Live feed fetch is disabled. Set CICADA_ALLOW_FEED_FETCH=1 "
-                "or pass feedXml directly.",
+                detail=channel_registry.FEED_FETCH_OFF,
             )
         import httpx
 
@@ -912,6 +929,12 @@ def _device_of(fm: dict) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+#: ``(bank, sort)`` -> ``(etag, the built list, when)``: one answer per bank and sort, kept under the ETag it was built for.
+_SOURCE_LIST_MEMO: dict[tuple[str, str], tuple[str, "SourceListResponse", float]] = {}
+#: Relevance decays with the day, which no ETag input carries, so a kept answer ends after five minutes.
+_SOURCE_LIST_MEMO_TTL_S = 300.0
+
+
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
     request: Request,
@@ -936,189 +959,202 @@ async def list_sources(
                                  extra=f"{sort}|{SHAPE}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
-    idx = media_ingestor.load_url_index(memory_path)
-    reading_enabled = reading_settings.agent_enabled()
-    reading_allowed = tuple(reading_settings.allowed_sites())
-    try:
-        ask_rows = {r["url_hash"]: r for r in reading_asks.all_rows(memory_path)}
-    except ValueError:
-        ask_rows = {}
-    reading_paused = reading_queue.paused_sites(list(ask_rows.values()))
-    # G191: the person's answer lives on the link's episode; one cached listing of `episodes/` answers every row.
-    episode_fm = {f.stem: f.frontmatter for f in bank_index.files(memory_path, "episodes")}
-    capture_thumbs = _capture_thumbs(memory_path)
-    # G191 v4: the links that left a browser ride the bookmark seen-set (`sources/`, already an input of the ETag).
-    left_by_hash = bookmark_seen.left_by_hash(memory_path)
+    memo_key = (str(memory_path), sort)
+    held = _SOURCE_LIST_MEMO.get(memo_key)
+    if held is not None and held[0] == etag and time.monotonic() - held[2] < _SOURCE_LIST_MEMO_TTL_S:
+        return held[1]
 
-    items = []
-    for raw_key, entry in idx.items():
-        # R-LS14: a paper's second canonical URL is an alias of its first; one
-        # paper is one Feed row.
-        if isinstance(entry, dict) and entry.get("alias_of"):
-            continue
-        entity_id = entry.get("media_entity_id", "")
-        related_count = 0
-        status = "active"
-        enrichment_status = ""
-        tags: list[str] = []
-        relevance = 0.0
-        personal_relevance = None
-        site = None
-        channel = None
-        description: str | None = None
-        about: list[str] = []
-        origin: str | None = None
-        folder: str | None = None
-        provider: str | None = None
-        duration_s: int | None = None
-        kind: str | None = None
-        paper: PaperSummary | None = None
-        preview: str | None = None
-        fm_read = None
-        wall_page = None
-        saved_page = False
-        entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
-        if entity_path.exists():
-            try:
-                from api.services import markdown_parser
+    def _build() -> SourceListResponse:
+        idx = media_ingestor.load_url_index(memory_path)
+        reading_enabled = reading_settings.agent_enabled()
+        reading_allowed = tuple(reading_settings.allowed_sites())
+        try:
+            ask_rows = {r["url_hash"]: r for r in reading_asks.all_rows(memory_path)}
+        except ValueError:
+            ask_rows = {}
+        reading_paused = reading_queue.paused_sites(list(ask_rows.values()))
+        # G191: the person's answer lives on the link's episode; one cached listing of `episodes/` answers every row.
+        episode_fm = {f.stem: f.frontmatter for f in bank_index.files(memory_path, "episodes")}
+        capture_thumbs = _capture_thumbs(memory_path)
+        # G191 v4: the links that left a browser ride the bookmark seen-set (`sources/`, already an input of the ETag).
+        left_by_hash = bookmark_seen.left_by_hash(memory_path)
 
-                parsed = markdown_parser.parse(entity_path)
-                fm = parsed.frontmatter or {}
-                # Review of #372: a site key only where the media icon route would answer (one predicate).
-                saved_page = channel_items.is_saved_link_page(fm)
-                # G102 R12 — read the excerpt + `about` ids straight after the
-                # parse, before any later field: this block is one `try` whose
-                # `except: pass` would otherwise drop them if relevance or
-                # `media` raised on an odd page.
-                description = _description_excerpt(parsed.body)
-                # The page's own picture as Cicada stores it (the person's upload, else the stored preview) — the
-                # row never loads a provider's URL itself.
-                preview = entity_picture.media_picture(entity_id, fm)
-                about = [str(r) for r in (fm.get("related") or []) if str(r).strip()]
-                # G124 R6 — the Sources page filters these items by source and
-                # groups them by folder/board/device, straight from the page.
-                origin = str(fm.get("origin") or "").strip() or None
-                folder = str(fm.get("folder") or "").strip() or None
-                related_count = len(fm.get("related") or [])
-                status = fm.get("status", "active")
-                fm_read = fm.get("read")
-                # G166: is this a page Cicada's own reader could not read (and that holds no
-                # words)? Decided from the page this loop already parsed — no second read.
+        items = []
+        for raw_key, entry in idx.items():
+            # R-LS14: a paper's second canonical URL is an alias of its first; one
+            # paper is one Feed row.
+            if isinstance(entry, dict) and entry.get("alias_of"):
+                continue
+            entity_id = entry.get("media_entity_id", "")
+            related_count = 0
+            status = "active"
+            enrichment_status = ""
+            tags: list[str] = []
+            relevance = 0.0
+            personal_relevance = None
+            site = None
+            channel = None
+            description: str | None = None
+            about: list[str] = []
+            origin: str | None = None
+            folder: str | None = None
+            provider: str | None = None
+            duration_s: int | None = None
+            kind: str | None = None
+            paper: PaperSummary | None = None
+            preview: str | None = None
+            fm_read = None
+            wall_page = None
+            saved_page = False
+            entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
+            if entity_path.exists():
                 try:
-                    st = entity_path.stat()
-                    wall_page = reading_walls.page_for(
-                        memory_path, entity_id, fm, parsed.body, mtime_ns=st.st_mtime_ns, size=st.st_size)
-                except OSError:
-                    wall_page = None
-                # Track P R5 — what the person removed, and what enrichment
-                # retired, must stop rendering. G129 slice 2's `remove`
-                # ARCHIVES the media entity (`inbox_service.py:962-966`) and
-                # never deletes it, so the page is still on disk and this read
-                # path was still emitting a row for it — the answer read as
-                # ignored. `enrichment_status: "junk"` is `link_enrichment`'s
-                # permanent verdict on a consent or login interstitial
-                # (`:886`); until now its only readers were the enrichment
-                # scan (`:670`) and `link_recon` (`:145`), so a retired page
-                # kept a Feed row. Filtered HERE, on the one read path both
-                # the Feed and a source page's item list use, so the two
-                # agree.
-                enrichment_status = str(fm.get("enrichment_status") or "")
-                tags = fm.get("tags") or []
-                relevance = media_ingestor.compute_relevance(fm)
-                pr = fm.get("personal_relevance")
-                personal_relevance = pr if isinstance(pr, str) and pr else None
-                # site/channel live in the entity frontmatter (media.site /
-                # media.channel), not the url_index — read them back so the
-                # FeedRow site line and site search filter actually work.
-                media = fm.get("media") or {}
-                if isinstance(media, dict):
-                    s = media.get("site")
-                    site = s if isinstance(s, str) and s else None
-                    c = media.get("channel")
-                    channel = c if isinstance(c, str) and c else None
-                    # Track V (R15) — same rule as site/channel: the two video
-                    # keys live on the page, never in `url_index.json`, so the
-                    # Feed row can show a play badge and a duration pill
-                    # without a second index to migrate.
-                    pv = media.get("provider")
-                    provider = pv if isinstance(pv, str) and pv else None
-                    d = media.get("duration_s")
-                    duration_s = d if isinstance(d, int) and not isinstance(d, bool) and d > 0 else None
-                    # G133 — a paper page's byline, from its own `paper:`
-                    # block (never the index), so the Feed can show and
-                    # search authors, the arXiv id and the DOI.
-                    k = media.get("kind")
-                    kind = k if isinstance(k, str) and k else None
-                    pp = fm.get("paper")
-                    if kind == "paper" and isinstance(pp, dict):
-                        paper = PaperSummary(
-                            authors=[str(a) for a in (pp.get("authors") or [])][:8],
-                            arxiv_id=pp.get("arxiv_id"), doi=pp.get("doi"),
-                            published=pp.get("published"), venue=pp.get("venue") or pp.get("journal_ref"))
-            except Exception:
-                pass
-        if status in _HIDDEN_STATUSES:
-            continue
-        if enrichment_status == "junk" and wall_page is None and not (
-                isinstance(fm_read, dict) and fm_read.get("by") == "agent"):
-            # Track P R5, amended 2026-09-30 (ruling 14): a retired interstitial stays hidden
-            # unless it is a wall an agent can be asked to read, or an agent already read it —
-            # the person can find it, ask for it, or see what the agent brought back.
-            continue
-        items.append(
-            MediaSourceItem(
-                media_entity_id=entity_id,
-                url=entry.get("url", ""),
-                title=entry.get("title", ""),
-                media_type=entry.get("media_type", "url"),
-                site=site,
-                site_key=reading_hosts.mark_key(str(entry.get("url") or "")) if saved_page else None,
-                channel=channel,
-                thumbnail=entry.get("thumbnail"),
-                preview=preview,
-                saved_at=entry.get("saved_at", ""),
-                content_saved_at=entry.get("content_saved_at"),
-                saved_why=_saved_why_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
-                saved_why_history=_saved_why_history_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
-                last_saved_at=saved_why.last_saved(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
-                capture_thumb=capture_thumbs.get(entity_id),
-                left_browser=_left_browser(left_by_hash, raw_key, entry),
-                device=_device_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
-                tags=tags,
-                status=status,
-                related_count=related_count,
-                relevance=round(relevance, 4),
-                personal_relevance=personal_relevance,
-                description=description,
-                about=about,
-                origin=origin,
-                folder=folder,
-                provider=provider,
-                duration_s=duration_s,
-                kind=kind,
-                paper=paper,
-                read=_read_block(
-                    entry, fm_read, ask_rows, enabled=reading_enabled, allowed=reading_allowed,
-                    wall=wall_page.wall if wall_page is not None and wall_page.waiting else None,
-                    paused=reading_paused),
+                    from api.services import markdown_parser
+
+                    parsed = markdown_parser.parse(entity_path)
+                    fm = parsed.frontmatter or {}
+                    # Review of #372: a site key only where the media icon route would answer (one predicate).
+                    saved_page = channel_items.is_saved_link_page(fm)
+                    # G102 R12 — read the excerpt + `about` ids straight after the
+                    # parse, before any later field: this block is one `try` whose
+                    # `except: pass` would otherwise drop them if relevance or
+                    # `media` raised on an odd page.
+                    description = _description_excerpt(parsed.body)
+                    # The page's own picture as Cicada stores it (the person's upload, else the stored preview) — the
+                    # row never loads a provider's URL itself.
+                    preview = entity_picture.media_picture(entity_id, fm)
+                    about = [str(r) for r in (fm.get("related") or []) if str(r).strip()]
+                    # G124 R6 — the Sources page filters these items by source and
+                    # groups them by folder/board/device, straight from the page.
+                    origin = str(fm.get("origin") or "").strip() or None
+                    folder = str(fm.get("folder") or "").strip() or None
+                    related_count = len(fm.get("related") or [])
+                    status = fm.get("status", "active")
+                    fm_read = fm.get("read")
+                    # G166: is this a page Cicada's own reader could not read (and that holds no
+                    # words)? Decided from the page this loop already parsed — no second read.
+                    try:
+                        st = entity_path.stat()
+                        wall_page = reading_walls.page_for(
+                            memory_path, entity_id, fm, parsed.body, mtime_ns=st.st_mtime_ns, size=st.st_size)
+                    except OSError:
+                        wall_page = None
+                    # Track P R5 — what the person removed, and what enrichment
+                    # retired, must stop rendering. G129 slice 2's `remove`
+                    # ARCHIVES the media entity (`inbox_service.py:962-966`) and
+                    # never deletes it, so the page is still on disk and this read
+                    # path was still emitting a row for it — the answer read as
+                    # ignored. `enrichment_status: "junk"` is `link_enrichment`'s
+                    # permanent verdict on a consent or login interstitial
+                    # (`:886`); until now its only readers were the enrichment
+                    # scan (`:670`) and `link_recon` (`:145`), so a retired page
+                    # kept a Feed row. Filtered HERE, on the one read path both
+                    # the Feed and a source page's item list use, so the two
+                    # agree.
+                    enrichment_status = str(fm.get("enrichment_status") or "")
+                    tags = fm.get("tags") or []
+                    relevance = media_ingestor.compute_relevance(fm)
+                    pr = fm.get("personal_relevance")
+                    personal_relevance = pr if isinstance(pr, str) and pr else None
+                    # site/channel live in the entity frontmatter (media.site /
+                    # media.channel), not the url_index — read them back so the
+                    # FeedRow site line and site search filter actually work.
+                    media = fm.get("media") or {}
+                    if isinstance(media, dict):
+                        s = media.get("site")
+                        site = s if isinstance(s, str) and s else None
+                        c = media.get("channel")
+                        channel = c if isinstance(c, str) and c else None
+                        # Track V (R15) — same rule as site/channel: the two video
+                        # keys live on the page, never in `url_index.json`, so the
+                        # Feed row can show a play badge and a duration pill
+                        # without a second index to migrate.
+                        pv = media.get("provider")
+                        provider = pv if isinstance(pv, str) and pv else None
+                        d = media.get("duration_s")
+                        duration_s = d if isinstance(d, int) and not isinstance(d, bool) and d > 0 else None
+                        # G133 — a paper page's byline, from its own `paper:`
+                        # block (never the index), so the Feed can show and
+                        # search authors, the arXiv id and the DOI.
+                        k = media.get("kind")
+                        kind = k if isinstance(k, str) and k else None
+                        pp = fm.get("paper")
+                        if kind == "paper" and isinstance(pp, dict):
+                            paper = PaperSummary(
+                                authors=[str(a) for a in (pp.get("authors") or [])][:8],
+                                arxiv_id=pp.get("arxiv_id"), doi=pp.get("doi"),
+                                published=pp.get("published"), venue=pp.get("venue") or pp.get("journal_ref"))
+                except Exception:
+                    pass
+            if status in _HIDDEN_STATUSES:
+                continue
+            if enrichment_status == "junk" and wall_page is None and not (
+                    isinstance(fm_read, dict) and fm_read.get("by") == "agent"):
+                # Track P R5, amended 2026-09-30 (ruling 14): a retired interstitial stays hidden
+                # unless it is a wall an agent can be asked to read, or an agent already read it —
+                # the person can find it, ask for it, or see what the agent brought back.
+                continue
+            items.append(
+                MediaSourceItem(
+                    media_entity_id=entity_id,
+                    url=entry.get("url", ""),
+                    title=entry.get("title", ""),
+                    media_type=entry.get("media_type", "url"),
+                    site=site,
+                    site_key=reading_hosts.mark_key(str(entry.get("url") or "")) if saved_page else None,
+                    channel=channel,
+                    thumbnail=entry.get("thumbnail"),
+                    preview=preview,
+                    saved_at=entry.get("saved_at", ""),
+                    content_saved_at=entry.get("content_saved_at"),
+                    saved_why=_saved_why_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                    saved_why_history=_saved_why_history_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                    last_saved_at=saved_why.last_saved(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                    capture_thumb=capture_thumbs.get(entity_id),
+                    left_browser=_left_browser(left_by_hash, raw_key, entry),
+                    device=_device_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                    tags=tags,
+                    status=status,
+                    related_count=related_count,
+                    relevance=round(relevance, 4),
+                    personal_relevance=personal_relevance,
+                    description=description,
+                    about=about,
+                    origin=origin,
+                    folder=folder,
+                    provider=provider,
+                    duration_s=duration_s,
+                    kind=kind,
+                    paper=paper,
+                    read=_read_block(
+                        entry, fm_read, ask_rows, enabled=reading_enabled, allowed=reading_allowed,
+                        wall=wall_page.wall if wall_page is not None and wall_page.waiting else None,
+                        paused=reading_paused),
+                )
             )
-        )
 
-    # G99d — recency prefers the recovered true save date, falling back to
-    # the ingest timestamp only when no source date was recoverable. This
-    # deliberately reorders the Feed relative to the old ingest-only sort.
-    # Parsed to a real instant (review finding) rather than compared as raw
-    # strings — a bare content_saved_at date and a full saved_at timestamp
-    # otherwise mix formats and tie-break by string length, not by time. See
-    # `saved_at.sort_instant`'s docstring for the exact same-day rule.
-    def _recency_key(i: MediaSourceItem) -> datetime:
-        return saved_at_service.sort_instant(i.content_saved_at or i.saved_at)
+        # G99d — recency prefers the recovered true save date, falling back to
+        # the ingest timestamp only when no source date was recoverable. This
+        # deliberately reorders the Feed relative to the old ingest-only sort.
+        # Parsed to a real instant (review finding) rather than compared as raw
+        # strings — a bare content_saved_at date and a full saved_at timestamp
+        # otherwise mix formats and tie-break by string length, not by time. See
+        # `saved_at.sort_instant`'s docstring for the exact same-day rule.
+        def _recency_key(i: MediaSourceItem) -> datetime:
+            return saved_at_service.sort_instant(i.content_saved_at or i.saved_at)
 
-    if sort == "relevance":
-        items.sort(key=lambda i: (i.relevance, _recency_key(i)), reverse=True)
-    else:
-        items.sort(key=_recency_key, reverse=True)
-    return SourceListResponse(items=items, total=len(items))
+        if sort == "relevance":
+            items.sort(key=lambda i: (i.relevance, _recency_key(i)), reverse=True)
+        else:
+            items.sort(key=_recency_key, reverse=True)
+        return SourceListResponse(items=items, total=len(items))
+
+    # Speed 2026-11-06 (ROR snappy): the build reads and parses every saved page (~2 s at 4,400 links) and was an
+    # `async def` running on the event loop, so a page read waited behind it (2.6 s measured on a 9,000-page memory).
+    # It runs on a worker thread now, and the answer is kept under the very ETag a 304 already trusts.
+    result = await run_in_threadpool(_build)
+    _SOURCE_LIST_MEMO[memo_key] = (etag, result, time.monotonic())
+    return result
 
 
 @router.get("/sources/due")
@@ -1152,6 +1188,46 @@ async def sources_due(settings: Settings = Depends(get_settings)):
     }
 
 
+class WhereToCheckRow(CamelModel):
+    entity_id: str
+    entity_name: str
+    entity_type: str = ""
+    who: str
+    agent: str | None = None
+    added_by: str
+    ref: str
+    kind: str
+    predicate: str | None = None
+    added_at: str = ""
+    proposed: bool = False
+
+
+class WhereToCheckResponse(CamelModel):
+    items: list[WhereToCheckRow]
+    total: int
+
+
+@router.get("/sources/where-to-check", response_model=WhereToCheckResponse)
+async def sources_where_to_check(
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """G61 (owner 2026-10-26) — every page's sources the person or one of their agents added, newest first, for the
+    Sources page's "Reading in your browser" area (``source_roster``). Engine-free, never fetches, writes nothing; the
+    adds and removals go through the page's own source routes, so each store keeps its one writer. On demand, not a
+    Store domain: the ETag (entities, plus the shape) serves the area's in-memory copy (``AddedSourcesModel``), so there
+    is no ``VersionVector`` mapping."""
+    from api.services import source_roster
+
+    memory_path = settings.memory_path
+    etag = sync_service.etag_for(memory_path, "entities", extra=source_roster.SHAPE)
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    rows = await run_in_threadpool(source_roster.roster, memory_path)
+    return WhereToCheckResponse(items=[WhereToCheckRow(**r) for r in rows[:source_roster.LIMIT]], total=len(rows))
+
+
 @router.get("/sources/overview", response_model=SourceOverviewResponse)
 async def sources_overview(
     request: Request,
@@ -1175,13 +1251,6 @@ async def sources_overview(
     # marks-2: `siteIcons` too — a saved row's faces put sites with a cached own icon first (`VersionVector` maps it to
     # `.sourcesOverview` in the same PR).
     feed_fetch = feed_registry.fetch_allowed()
-    etag = sync_service.etag_for(
-        memory_path, "sources", "episodes", "entities", "photos", "siteIcons",
-        extra=(f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}"
-               f"|feeds:{feed_fetch}"),
-    )
-    if (early := sync_service.conditional(request, response, etag)) is not None:
-        return early
 
     def _build() -> list[dict]:
         channels = channel_registry.build_channels(
@@ -1192,7 +1261,16 @@ async def sources_overview(
         )
         return source_overview.build_overview(memory_path, channels=channels)
 
-    rows = await run_in_threadpool(_build)
+    # Source page speed (2026-10-29): the ETag and the build share one listing per directory (`request_scans`).
+    with sync_ticker.request_scans(memory_path):
+        etag = sync_service.etag_for(
+            memory_path, "sources", "episodes", "entities", "photos", "siteIcons",
+            extra=(f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}"
+                   f"|feeds:{feed_fetch}"),
+        )
+        if (early := sync_service.conditional(request, response, etag)) is not None:
+            return early
+        rows = await run_in_threadpool(_build)
     return SourceOverviewResponse(sources=[SourceOverview(**r) for r in rows])
 
 
@@ -1221,24 +1299,62 @@ async def list_source_channels(
     connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
     # The feed gate is an env fact too: a feed row is connected only while feeds are fetched (2026-10-23).
     feed_fetch = feed_registry.fetch_allowed()
-    etag = sync_service.etag_for(
-        memory_path, "sources", "episodes", "entities",
-        extra=(f"{channel_registry.CHANNELS_SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}"
-               f"|feeds:{feed_fetch}"),
-    )
-    if (early := sync_service.conditional(request, response, etag)) is not None:
-        return early
-    # Off the event loop: `build_channels` runs the same full episode+entity
-    # origin scan `/origins` does, which on a cold `bank_index` re-parses every
-    # frontmatter inline and would stall the SSE stream (see `/origins`).
-    channels = await run_in_threadpool(
-        channel_registry.build_channels,
-        memory_path,
-        telegram_enabled=settings.telegram_enabled,
-        connectors_connected=connectors_connected,
-        feed_fetch_allowed=feed_fetch,
-    )
+    with sync_ticker.request_scans(memory_path):   # one listing per directory for ETag and build (2026-10-29)
+        etag = sync_service.etag_for(
+            memory_path, "sources", "episodes", "entities",
+            extra=(f"{channel_registry.CHANNELS_SHAPE}|telegram:{settings.telegram_enabled}"
+                   f"|connectors:{connector_tag}|feeds:{feed_fetch}"),
+        )
+        if (early := sync_service.conditional(request, response, etag)) is not None:
+            return early
+        # Off the event loop: `build_channels` runs the same full episode+entity
+        # origin scan `/origins` does, which on a cold `bank_index` re-parses every
+        # frontmatter inline and would stall the SSE stream (see `/origins`).
+        channels = await run_in_threadpool(
+            channel_registry.build_channels,
+            memory_path,
+            telegram_enabled=settings.telegram_enabled,
+            connectors_connected=connectors_connected,
+            feed_fetch_allowed=feed_fetch,
+        )
     return SourceChannelsResponse(channels=[SourceChannel(**c) for c in channels])
+
+
+class CatchUpReader(BaseModel):
+    channel: str = Field(..., min_length=1, max_length=200)
+    label: str = Field(..., min_length=1, max_length=80)
+    state: Literal["reading", "done", "failed"]
+    #: A failed reader's own sentence, naming the exact fix (the capture rail); dropped for any other state.
+    fix: str | None = Field(None, max_length=400)
+
+
+class CatchUpReport(BaseModel):
+    #: One per app launch: a new one starts a new catch-up.
+    session: str = Field(..., min_length=1, max_length=64)
+    opened_at: datetime | None = Field(None, alias="openedAt")
+    #: When the app was last open, as the app remembers it; none on its first launch.
+    away_since: datetime | None = Field(None, alias="awaySince")
+    readers: list[CatchUpReader] = Field(default_factory=list, max_length=reader_catch_up.MAX_READERS)
+    done: bool = False
+
+
+@router.put("/sources/catch-up", dependencies=_DEMO_GATE)
+async def report_catch_up(body: CatchUpReport, request: Request, settings: Settings = Depends(get_settings)):
+    """G229 — the app's readers' catch-up after it was closed: which are reading, which finished, which failed and the
+    fix, and whether it is over. Held in memory, outside every bank (`reader_catch_up`); every client reads it on
+    `GET /devices/status` as each machine's `catchUp`. Answers this reporter's view, its counts from the bank, so the
+    app that reported draws it at once. A demo bank answers 409: no reader reads into one."""
+    asking = getattr(request.state, "device", None)
+    reporter = asking.id if asking is not None else None
+    memory_path = settings.memory_path
+
+    def work():
+        reader_catch_up.report(reporter, memory_path, session=body.session, opened_at=body.opened_at,
+                               away_since=body.away_since, readers=[r.model_dump() for r in body.readers],
+                               done=body.done)
+        return reader_catch_up.view(reporter, memory_path)
+
+    return {"catchUp": await run_in_threadpool(work)}
 
 
 @router.get("/sources/channels/{channel_id}/items")
@@ -1248,9 +1364,19 @@ async def list_channel_items(
     response: Response,
     offset: int = Query(0, ge=0),
     limit: int = Query(channel_items.LIMIT_DEFAULT, ge=1, le=channel_items.LIMIT_MAX),
+    q: str | None = Query(None, max_length=channel_items.Q_MAX),
+    collection: str | None = Query(None, max_length=200),
     settings: Settings = Depends(get_settings),
 ):
     """What a channel brought in, by name (G161): each item's title and day, newest first, a page at a time.
+
+    `collection` (2026-11-04) narrows the page to one calendar, Reminders list or Notes folder — an id from
+    `GET /sources/channels/{id}/collections`.
+
+    source-page-v3 (owner 2026-10-29): `q` narrows the page to what a source page's one search finds — titles, a
+    chat's name, a saved link's host, and the words of the episodes behind the rows where the words index has them
+    (`channel_items._search`); the body carries `all` (the channel's whole count) and `latest` (the day the newest
+    item came in). The query rides only the ETag's digest, never a log.
 
     Derived at read from the set the row's count means (`channel_items`' docstring names it per channel) —
     titles only, never a body; for Contacts, the matched page's name only. Engine-free and read-only, and NOT a
@@ -1261,18 +1387,64 @@ async def list_channel_items(
     memory_path = settings.memory_path
     if not channel_items.known(memory_path, channel_id):
         raise HTTPException(status_code=404, detail="Unknown channel")
-    # Sources v4 (review of #358): `photos` too — a Messages row carries its chat photo's hash.
-    etag = sync_service.etag_for(
-        memory_path, "sources", "episodes", "entities", "photos",
-        extra=f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}",
-    )
-    if (early := sync_service.conditional(request, response, etag)) is not None:
-        return early
-    # Off the event loop: a cold `bank_index` re-parses every frontmatter (the `/sources/channels` reason).
-    page = await run_in_threadpool(channel_items.items, memory_path, channel_id, offset=offset, limit=limit)
+    # Source page speed (2026-10-29): the ETag and the read share one listing per directory (the worker thread copies
+    # this context) — the SSE walk's when its gate allows (`request_scans`), so a list reads only its own source's files.
+    with sync_ticker.request_scans(memory_path):
+        # Sources v4 (review of #358): `photos` too — a Messages row carries its chat photo's hash.
+        etag = sync_service.etag_for(
+            memory_path, "sources", "episodes", "entities", "photos",
+            extra=f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}|{q or ''}|{collection or ''}",
+        )
+        if (early := sync_service.conditional(request, response, etag)) is not None:
+            return early
+        # Off the event loop: a cold `bank_index` re-parses every frontmatter (the `/sources/channels` reason).
+        page = await run_in_threadpool(channel_items.items, memory_path, channel_id, offset=offset, limit=limit, q=q,
+                                       collection=collection)
     if page is None:
         raise HTTPException(status_code=404, detail="Unknown channel")
     return page
+
+
+@router.get("/sources/channels/{channel_id}/items/{item_id}/place")
+async def channel_item_place(channel_id: str, item_id: str, settings: Settings = Depends(get_settings)):
+    """Where one listed item lives (G161, ROR-111): `{kind: "notes", note_id}` or `{kind: "github"|"web", url}`, an
+    http(s) link only. Read on the person's click and never cached; nothing is fetched. 404 when the channel does not
+    list the item or no place is known."""
+    found = await run_in_threadpool(channel_items.place, settings.memory_path, channel_id, item_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="No known place")
+    return found
+
+
+@router.get("/sources/channels/{channel_id}/collections")
+async def list_channel_collections(
+    channel_id: str,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """Where a channel's items live, as their own app files them (2026-11-04): accounts (iCloud, On My Mac, a Google
+    or Exchange account), each with its collections (a calendar, a Reminders list, a Notes folder), how many items each
+    holds and the day the newest came in (`channel_items.collections`). A channel that files nothing this way answers
+    no accounts. RSS (ROR-108) answers one unnamed account holding every followed feed, each with its last poll's
+    `polled` and `problem`; it fetches nothing. Read-only, engine-free, never a Store domain; ETagged like the items,
+    plus what the channel's last sync named (kept beside it in `sync_state.json`)."""
+    memory_path = settings.memory_path
+    if not channel_items.known(memory_path, channel_id):
+        raise HTTPException(status_code=404, detail="Unknown channel")
+    named = source_collections.known(memory_path, channel_id)
+    digest = hashlib.sha256(json.dumps(named, sort_keys=True).encode()).hexdigest()[:16]
+    with sync_ticker.request_scans(memory_path):
+        # RSS counts media pages; `sources` holds `feeds.yaml` (the polls' results) and the url index (the stamps).
+        pages = ("entities",) if channel_id in channel_items.FEED_CHANNELS else ()
+        etag = sync_service.etag_for(memory_path, "sources", "episodes", *pages,
+                                     extra=f"{channel_items.SHAPE}|collections|{channel_id}|{digest}")
+        if (early := sync_service.conditional(request, response, etag)) is not None:
+            return early
+        tree = await run_in_threadpool(channel_items.collections, memory_path, channel_id)
+    if tree is None:
+        raise HTTPException(status_code=404, detail="Unknown channel")
+    return tree
 
 
 _OWN_ICON_SEMAPHORE = asyncio.Semaphore(4)
@@ -1299,6 +1471,18 @@ async def get_saved_episode_site_icon(episode_id: str, request: Request, setting
     cache and the same fetch as the saved-link route. 404 means "draw the monogram"."""
     memory_path = settings.memory_path
     site = await run_in_threadpool(channel_items.saved_episode_site, memory_path, episode_id)
+    return await _serve_own_site_icon(request, memory_path, site)
+
+
+@router.get("/sources/feeds/{feed_id}/site-icon")
+async def get_followed_feed_site_icon(feed_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """A followed feed's own site icon (ROR-108), for its row on the RSS page the person opened. A feed's items are
+    captured, not saved, so the saved-link routes refuse them; a feed is a site the person chose, so this stands on the
+    same footing: the site is read from THAT feed's record (`channel_items.feed_site`), with the same gate, per-site
+    cache and fetch. A feed wearing a bundled mark asks nothing. 404 means "draw the monogram". Nothing calls this but
+    the app's row; neither a poll nor Sleep does."""
+    memory_path = settings.memory_path
+    site = await run_in_threadpool(channel_items.feed_site, memory_path, feed_id)
     return await _serve_own_site_icon(request, memory_path, site)
 
 
@@ -1412,9 +1596,11 @@ async def get_messages_chat_sittings(conversation: str, request: Request, respon
                                      settings: Settings = Depends(get_settings)):
     """Sources v4 (review of #358) — one Messages chat's sittings, newest first: what its row opens to
     (`channel_items.chat_sittings`; each sitting opens in the Reader). Titles only, never a body; not a Store domain —
-    the app keeps it in memory and revalidates with this ETag."""
+    the app keeps it in memory and revalidates with this ETag. 2026-11-03: an unticked chat lists none (G179's
+    ticked-only rail on the chat page's panel), so the ETag rides `sources` too, where the chat settings' ticks move."""
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "episodes", extra=f"{channel_items.SHAPE}|sittings|{conversation}")
+    etag = sync_service.etag_for(memory_path, "sources", "episodes",
+                                 extra=f"{channel_items.SHAPE}|sittings|{conversation}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     page = await run_in_threadpool(channel_items.chat_sittings, memory_path, conversation)
@@ -1438,8 +1624,7 @@ async def get_messages_chat_photo(conversation: str, request: Request, settings:
     memory_path = settings.memory_path
     if not messages_source.CONVERSATION_ID_RE.match(conversation or ""):
         raise HTTPException(404, "no photo for this chat")
-    ticked = await run_in_threadpool(lambda: {
-        cid for cid, e in messages_source.load_settings(memory_path)["conversations"].items() if e.get("ticked")})
+    ticked = await run_in_threadpool(messages_photos.ticked_chats, memory_path)
     entry = messages_photos.read_meta(logo_service.bank_name(memory_path)).get(conversation)
     if conversation not in ticked or not isinstance(entry, dict):
         raise HTTPException(404, "no photo for this chat")
@@ -1574,8 +1759,12 @@ async def sync_notes(
     """
     memory_path = settings.memory_path
 
-    result = await notes_sync.sync_notes(memory_path, dump=request.notes_dump)
+    result = await notes_sync.sync_notes(memory_path, dump=request.notes_dump, accounts=request.note_accounts,
+                                         locked_ids=request.locked_note_ids, locked_keys=request.locked_note_keys,
+                                         pinned_ids=request.pinned_note_ids)
 
-    sync_state.record_sync(memory_path, "notes", count=int(result.get("total") or 0))
+    # G234: a locked note leaves only this count in the bank; the ids posted beside the dump are never stored.
+    sync_state.record_sync(memory_path, "notes", count=int(result.get("total") or 0),
+                           extra={notes_sync.LOCKED_COUNT_KEY: int(result.get("locked") or 0)})
 
     return NotesSyncResponse(**result)

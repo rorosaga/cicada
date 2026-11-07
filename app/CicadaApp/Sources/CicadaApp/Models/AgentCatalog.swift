@@ -48,14 +48,14 @@ enum AgentCatalog {
               kind: .prompt(runsItself: false), setupHarnesses: ["hermes"], featured: true),
         .init(id: "openclaw", name: "OpenClaw", mark: "openclaw", symbol: "terminal",
               kind: .prompt(runsItself: false), setupHarnesses: ["openclaw"], featured: true),
-        .init(id: "grok", name: "Grok", mark: nil, symbol: "bubble.left.and.bubble.right",
+        .init(id: "grok", name: "Grok", mark: "grok", symbol: "bubble.left.and.bubble.right",
               kind: .remote(.grok), setupHarnesses: ["grok"], featured: true),
         .init(id: "gemini-cli", name: "Gemini CLI", mark: "gemini-cli", symbol: "terminal",
               kind: .prompt(runsItself: true), setupHarnesses: ["gemini-cli"], featured: false),
         // No vendor, so no mark: the neutral glyph Integrations' "Other agents" wears (DR-52).
         .init(id: "other", name: "Another agent", mark: nil, symbol: IntegrationHarnessRows.otherAgentsSymbol,
               kind: .anyAgent, setupHarnesses: ["other"], featured: false,
-              searchTerms: ["other", "any agent", "windsurf", "zed", "vs code", "copilot", "cline", "goose"]),
+              searchTerms: ["other", "any agent", "devin", "windsurf", "zed", "github copilot", "copilot", "vs code"]),
     ]
 
     static var featured: [AgentCatalogEntry] { all.filter(\.featured) }

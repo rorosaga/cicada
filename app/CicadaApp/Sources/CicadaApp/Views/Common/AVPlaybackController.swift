@@ -28,7 +28,46 @@ final class AVPlaybackController: VideoPlaybackController {
         self.player = AVPlayer(url: url)
     }
 
-    func play() { player.play() }
+    var currentTime: Double {
+        let t = player.currentTime().seconds
+        return t.isFinite ? max(0, t) : 0
+    }
+
+    var length: Double? {
+        guard let t = player.currentItem?.duration.seconds, t.isFinite, t > 0 else { return nil }
+        return t
+    }
+
+    func seek(to seconds: Double) {
+        guard seconds.isFinite else { return }
+        let target = CMTime(seconds: max(0, seconds), preferredTimescale: 600)
+        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    func stop() {
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+    }
+
+    /// ROR-131 — `defaultRate` is what `play()` starts at, so a speed chosen while paused holds without starting it.
+    var speed: Double {
+        get { Double(player.defaultRate) }
+        set {
+            player.defaultRate = Float(newValue)
+            if isPlaying { player.rate = Float(newValue) }
+        }
+    }
+
+    var isMuted: Bool {
+        get { player.isMuted }
+        set { player.isMuted = newValue }
+    }
+
+    func play() {
+        // A finished file plays again from the start, as every player does; AVPlayer would sit at the end.
+        if let length, currentTime >= length - 0.1 { seek(to: 0) }
+        player.play()
+    }
     func pause() { player.pause() }
     func toggle() { isPlaying ? pause() : play() }
 }
@@ -50,6 +89,8 @@ struct AVPlayerSurface: NSViewRepresentable {
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
         view.controlsStyle = .inline
+        // ROR-131 — the system's own full-size button (the sheet is fixed; a video deserves the whole screen).
+        view.showsFullScreenToggleButton = true
         view.videoGravity = .resizeAspect
         view.player = player
         return view

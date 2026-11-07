@@ -97,7 +97,8 @@ final class CitedPassageTests: XCTestCase {
             .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp")
         for file in ["Views/Provenance/ReaderColumn.swift", "Views/Inbox/InboxFocusCard.swift"] {
             let source = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
-            XCTAssertTrue(source.contains("CitedPassage("), file)
+            // `RevealingPassage` is `CitedPassage` with a person's number tokens shown (G81).
+            XCTAssertTrue(source.contains("CitedPassage(") || source.contains("RevealingPassage("), file)
             XCTAssertFalse(source.contains(".citedSpans("), "\(file) puts the renderer on a selectable passage")
         }
     }

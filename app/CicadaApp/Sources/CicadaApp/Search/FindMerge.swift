@@ -98,7 +98,7 @@ enum FindRowText {
         case .entity: row.badge ?? "Entity"
         case .conversation: "Conversation"
         case .belief: row.history == nil ? "Belief" : "Earlier belief"
-        case .media: "Saved item"
+        case .media: "Media"
         case .source: "Source"
         case .inbox: "Question"
         case .backlog: "Backlog item"
@@ -106,6 +106,8 @@ enum FindRowText {
         case .action: "Action"
         case .bank: "Memory bank"
         case .askedBefore: "Asked before"
+        case .file: { if row.badge == "Photo" { return "Photo" }
+            if case .still = row.mark { return "Video frame" }; return "Recording" }()
         }
     }
 
@@ -113,7 +115,7 @@ enum FindRowText {
         // DR-56 — VoiceOver hears the same clean words the row shows, never `user:` or `**`.
         let quote = row.snippet.map { ExcerptText.stripMarkup($0, keepLines: false).text }
             .map { snippet in row.speaker.map { "\($0): \(snippet)" } ?? snippet }
-        return [kindLabel(row), row.title, row.detail, row.history, quote]
+        return [kindLabel(row), row.title, row.qualifier, row.detail, row.history, quote]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
@@ -160,6 +162,8 @@ enum FindRowText {
         case .bank: "Switch"
         case .ask: "Ask"
         case .askedBefore: "Show answer"
+        case .addedFile: "Open file"
+        case .revealAddedFile: "Show in Finder"
         }
     }
 
@@ -170,6 +174,7 @@ enum FindRowText {
         case .conversations?: "All from this app"
         case .evidence?: "Where it was said"
         case .ask?: "Ask again"
+        case .revealAddedFile?: "Show in Finder"
         default: nil
         }
     }

@@ -21,6 +21,7 @@ struct IntelligenceView: View {
                 inUse.settingsRow(.engineChoice)
             }
             group(Copy.Intelligence.plans, kind: "plan").settingsRow(.plansAndKeys)
+            ownTools
             group(Copy.Intelligence.keys, kind: "key")
             SettingsGroupCard {
                 SettingsRow(.sleepUsePlan, title: Copy.ServerPlan.usePlanTitle) {
@@ -61,6 +62,7 @@ struct IntelligenceView: View {
             if engineVM.response == nil { await engineVM.load() }
             if sleepVM.runOptions == nil { await sleepVM.loadRunOptions() }
         }
+        .refreshesMissingTools()
     }
 
     private var claudePlan: ConnectionStatus? {
@@ -80,8 +82,10 @@ struct IntelligenceView: View {
     private var inUse: some View {
         let response = engineVM.response
         let preview = response?.preview?.manual
-        let name = preview.map { EngineOption.previewName(engine: $0.engine, model: $0.model) } ?? Copy.Intelligence.auto
-        let mark = preview.flatMap { EngineOption.previewMark(engine: $0.engine, model: $0.model) }
+        let cards = response?.candidates ?? []
+        let name = preview.map { EngineOption.previewName(engine: $0.engine, model: $0.model, candidates: cards) }
+            ?? Copy.Intelligence.auto
+        let mark = preview.flatMap { EngineOption.previewMark(engine: $0.engine, model: $0.model, candidates: cards) }
             ?? response.flatMap { Self.connection(forCard: $0.selected, provider: $0.provider) }
                 .flatMap { ConnectionMark.logoName(connectionId: $0) }
         let isAuto = response?.selected == "auto"
@@ -130,6 +134,24 @@ struct IntelligenceView: View {
                                     canChoose: engineVM.response?.isPinnedByEnvironment == false,
                                     onUse: { use(pair.item) })
                         .settingsRow(.connection(ProviderDirectory.connectionId(pair.item.connection)))
+                }
+            }
+        }
+    }
+
+    /// G49/G50 — the person's own Cursor, OpenCode or Grok, straight from `GET /sleep/engine`'s cards: its mark, how
+    /// it is paid for, *Use* once it is signed in, and — signed out — the one command they run in their own terminal
+    /// (Cicada never signs in for them). Never on Auto's ladder, so only ever chosen here or in the Sleep page's menu.
+    @ViewBuilder
+    private var ownTools: some View {
+        let response = engineVM.response
+        let tools = (response?.candidates ?? []).filter(EngineOption.isOwnTool)
+        if let response, !tools.isEmpty {
+            SettingsGroupCard(header: Copy.Intelligence.ownTools) {
+                ForEach(Array(tools.enumerated()), id: \.element.id) { index, tool in
+                    if index > 0 { SettingsDivider() }
+                    OwnToolRow(tool: tool, inUse: response.selected == tool.id,
+                               canChoose: !response.isPinnedByEnvironment) { choose(card: tool.id) }
                 }
             }
         }
@@ -195,6 +217,35 @@ struct IntelligenceView: View {
     }
 }
 
+/// G49/G50 — one of the person's own agent tools as a Sleep engine: the line Plans draw, from the engine card alone.
+struct OwnToolRow: View {
+    let tool: SleepEngineCandidate
+    let inUse: Bool
+    let canChoose: Bool
+    let onUse: () -> Void
+
+    var body: some View {
+        ConnectionLine(logo: tool.mark, name: tool.label, systemFallback: "terminal",
+                       detail: tool.connected ? (tool.modelNote ?? tool.billingNote) : tool.detail,
+                       status: (tool.connected ? Copy.Status.connected
+                                    : tool.available ? Copy.Status.notConnected
+                                    : tool.notReady ? Copy.Intelligence.notReady : Copy.Intelligence.notInstalled,
+                                tool.connected)) {
+            if inUse {
+                Text(Copy.Intelligence.inUse)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            } else if tool.connected, canChoose {
+                TextButton(title: Copy.Intelligence.use, help: Copy.Intelligence.useHelp, inline: true, action: onUse)
+            }
+        } below: {
+            if let command = tool.stepCommand {
+                CommandBox(command: command)
+            }
+        }
+    }
+}
+
 /// One plan or key: its umbrella's mark, its name, a dot and one word, and its one action. A key row opens in place
 /// to take a key. Onboarding's Intelligence step draws the same row (one sign-in and one paste → Verify, never two).
 struct IntelligenceRow: View {
@@ -217,6 +268,15 @@ struct IntelligenceRow: View {
     private var isKey: Bool { item.kind == "key" }
     private var isLocal: Bool { item.kind == "local" }
     private var isSignIn: Bool { connection?.login?.mode == "oauth" }
+    /// A plan whose tool isn't on this Mac: its words and the line to paste, in place of a button that can't work.
+    private var installLine: String? { Self.installLine(for: connection, isKey: isKey, isLocal: isLocal) }
+
+    /// The line to paste when this row's tool isn't on the Mac — a plan only (a key or a local model has no tool to
+    /// install here). Pure, so every state is tested without a view.
+    static func installLine(for connection: ConnectionStatus?, isKey: Bool, isLocal: Bool) -> String? {
+        guard let connection, connection.needsInstall, !isKey, !isLocal else { return nil }
+        return connection.nextCommand
+    }
 
     var body: some View {
         ConnectionLine(logo: isLocal ? nil : umbrella.logo,
@@ -224,10 +284,12 @@ struct IntelligenceRow: View {
                        systemFallback: isLocal ? "desktopcomputer" : "key",
                        detail: detail,
                        status: isLocal ? nil : (connected ? (isKey ? Copy.Status.saved : Copy.Status.connected)
-                                                          : Copy.Status.notConnected, connected),
+                                                          : (installLine != nil ? Copy.Intelligence.notInstalled
+                                                                                : Copy.Status.notConnected), connected),
                        quiet: isLocal) {
             actions
         } below: {
+            if let installLine { CommandBox(command: installLine) }
             if editing { keyEntry }
             if let pending = connectionsVM.pendingLogin, pending.connectionId == connection?.id {
                 DeviceCodePanel(session: pending, onRetry: signIn)
@@ -236,6 +298,7 @@ struct IntelligenceRow: View {
     }
 
     private var detail: String? {
+        if installLine != nil { return [connection?.detail, Copy.Intelligence.pasteInTerminal].compactMap { $0 }.joined(separator: " ") }
         if isKey, connected {
             let line = Copy.Intelligence.keyLine(hint: connection?.keyHint, store: connection?.keyStore,
                                                  verifiedAt: connection?.verifiedAt)

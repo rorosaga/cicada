@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    EntityRelevance,
     PageBlameResponse,
     SourcesOverview,
     ContextEpisodeExcerpt,
@@ -34,9 +35,12 @@ from api.models.schemas import (
     SourceRefreshRequest,
     PageEditRequest,
     PageEditResponse,
+    PageBlocks,
+    PageCitationDetail,
     PageLinksResponse,
     PaperDetailResponse,
     PictureInputsModel,
+    PlaceCoordinatesUpdate,
     RepoContext,
     RepoContextList,
     RepoDeclaration,
@@ -47,7 +51,10 @@ from api.models.schemas import (
     VideoChapter,
 )
 from api.services import (
+    page_relevance,
+    bank_index,
     claims_ledger,
+    page_blocks,
     decay_policy,
     decay_tuning,
     entity_bands,
@@ -64,8 +71,10 @@ from api.services import (
     quiet_pages,
     repo_context,
     repo_observations,
+    same_name,
     source_refresh,
     sync_service,
+    sync_ticker,
     telemetry,
     write_admission,
 )
@@ -99,84 +108,177 @@ _LOGO_MEDIA_TYPES = {
 async def get_entity(
     entity_id: str,
     settings: Settings = Depends(get_settings),
+    request: Request = None,
+    response: Response = None,
+    history: bool = False,
 ):
-    """Get full entity data including markdown content and history."""
+    """Get full entity data including markdown content.
+
+    Vision item 5 (2026-10-28): with its ``blocks`` (``page_blocks``) and an ETag over every input the card reads
+    (``page_blocks.card_etag``), checked before the page is parsed — a held card answers 304 at the cost of a few
+    stats. On demand, not a Store domain: the app's ``EntityCardCache`` holds the answer by bank and id and revalidates
+    it on every open.
+
+    Part B (2026-10-29, ruling 48 part 14): the card open reads no git. Its ``git log`` was 130–300 ms p95 of every
+    open on an owner-scale bank copy, for a tab most opens never show; the History tab reads ``/history`` when it
+    opens. ``?history=true`` keeps the embedded rows (and the ``history`` block) for a caller that wants them in one
+    request.
+
+    An id a merge or a rename retired answers the page it became (``page_redirects``, G227 follow-up), its own id in
+    the body and the old one in ``X-Cicada-Redirected-From`` — an old link never opens on "not found"."""
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
-        raise HTTPException(404, f"Entity {entity_id} not found")
+        from api.services import page_redirects
 
-    # The page file alone: the card shows prose and reads claims from `/claims`, so an owner-sized page's ledger
-    # (`claims_ledger`) is never opened here.
-    parsed = markdown_parser.parse(entity_path, ledger=False)
-    fm = parsed.frontmatter
-    history, history_truncated = await git_service.entity_history(entity_id, settings.memory_path)
-    decay_class, decay_rate = decay_policy.resolve(fm)
-    # G147 — the pace the decay pass actually charges, from the SAME function
-    # (`decay_policy.effective`, plan R-FD11), so the card can never describe a
-    # pace Sleep does not charge. Read time only; nothing is stored.
-    alpha, floor = decay_policy.spacing_params(settings)
-    effective = decay_policy.effective(
-        fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(settings.memory_path),
-        # Only this page's conversations are read (a full episode scan was most of a cold open's time).
-        untimed=episode_time.untimed_among(settings.memory_path, decay_policy._as_list(fm.get("source_episodes"))),
-    )
-    # C11 (G146) — the page's picture, resolved at read like everything else on this card (plan R-PE5).
-    page_stat = entity_path.stat()
-    picture, picture_inputs = entity_picture.resolve_page(
-        settings.memory_path, entity_id, fm, parsed.body, page_mtime=page_stat.st_mtime)
+        moved = page_redirects.resolve(settings.memory_path, entity_id)
+        if moved is None:
+            raise HTTPException(404, f"Entity {entity_id} not found")
+        if response is not None:
+            response.headers["X-Cicada-Redirected-From"] = entity_id
+        return await get_entity(moved, settings=settings, request=request, response=response, history=history)
+    # `request`/`response` are None only for an in-process caller (tests, the CLI's twin): no revalidation then.
+    card = await run_in_threadpool(_card_read, settings, entity_id, entity_path,
+                                   request.headers.get("if-none-match") if request is not None else None)
+    if response is not None:
+        response.headers["ETag"] = card["etag"]
+    if card.get("not_modified"):
+        return Response(status_code=304, headers={"ETag": card["etag"]})
+    rows, history_truncated = ([], False) if history is not True else \
+        await git_service.entity_history(entity_id, settings.memory_path)
+    blocks = card.pop("blocks")
+    blocks["history"] = page_blocks.history(rows, history_truncated)
+    if blocks["history"] is not None:
+        blocks["order"].append("history")
+    card.pop("etag")
+    return EntityResponse(**card, history=rows, history_truncated=history_truncated, blocks=PageBlocks(**blocks))
+
+
+def _page_file(memory_path: Path, entity_path: Path) -> tuple[markdown_parser.ParsedMarkdown, str]:
+    """``markdown_parser.parse(entity_path, ledger=False)`` and the file's text, with the frontmatter from
+    ``bank_index``'s cache when the file is the one it parsed (speed 2026-10-29: the owner's page's YAML header — every
+    conversation it was said in — was ~56 ms of each open). The file is stat'ed before and after it is read; any
+    move between parses it, as before."""
+    before = entity_path.stat()
     raw = entity_path.read_text(encoding="utf-8")
-    raw_omitted = False
-    fence = claims_block_start(raw)
-    big_fence = page_stat.st_size > RAW_INLINE_MAX_BYTES or claims_ledger.STAMP in fm \
-        or (fence is not None and len(raw) - fence > RAW_INLINE_FENCE_MAX_CHARS)
-    if claims_ledger.STAMP in fm and (split := markdown_parser.split_frontmatter(raw)) is not None:
-        # A hub page (its claims partly in its ledger): the frontmatter alone — every frontmatter reader (a location's
-        # lat/lon, a media block) keeps its input, the prose is `markdown_content` already, and Source and Copy read
-        # `/raw` for the file (owner page, 2026-10-14: the prose twice was a third of a 490 KB card).
-        raw, raw_omitted = raw[:len(raw) - len(split[1])], True
-    elif big_fence and fence is not None:
-        # Review r1 #4: withhold only the fence. The frontmatter and prose stay verbatim, so every frontmatter reader
-        # (a location's declared lat/lon, a media block) keeps its input; Source and Copy read `/raw` for the rest.
-        raw, raw_omitted = raw[:fence], True
+    split = markdown_parser.split_frontmatter(raw)
+    entry = bank_index.file(memory_path, "entities", entity_path.name) if split is not None else None
+    after = entity_path.stat()
+    stamp = (before.st_mtime_ns, before.st_size)
+    if entry is not None and stamp == (after.st_mtime_ns, after.st_size) == (entry.mtime_ns, entry.size):
+        return markdown_parser.ParsedMarkdown(frontmatter=dict(entry.frontmatter), body=split[1].strip()), raw
+    return markdown_parser.parse(entity_path, ledger=False), raw
 
-    return EntityResponse(
-        id=entity_id,
-        name=fm.get("name", entity_id.replace("-", " ").title()),
-        type=fm.get("type", "concept"),
-        status=fm.get("status", "active"),
-        confidence=fm.get("confidence", 0.5),
-        created=str(fm.get("created", "")),
-        last_referenced=str(fm.get("last_referenced", "")),
-        decay_rate=decay_rate,
-        decay_class=decay_class,
-        source_episodes=fm.get("source_episodes", []),
-        tags=fm.get("tags", []),
-        related=fm.get("related", []),
-        version=fm.get("version", 1),
-        # F4: prose only — the fence is machine data the card reads from `/claims`, and on the owner's page it was
-        # 2.5 MB shipped twice per open.
-        markdown_content=served_prose(parsed.body)[0],
-        raw_markdown=raw,
-        raw_omitted=raw_omitted,
-        history=history,
-        history_truncated=history_truncated,
-        media=_build_media_block(fm, parsed.body, entity_id=entity_id),
-        is_owner=bool(fm.get("owner")),
-        decay=EntityDecay(
-            decay_class=effective.decay_class,
-            effective_rate_per_week=round(effective.rate, 6),
-            mention_weeks=effective.mention_weeks,
-        ),
-        # G180 parity: the card's bands from the backend, the charged rate above being the pace's one input.
-        bands=EntityBands(**entity_bands.bands(confidence=fm.get("confidence", 0.5),
-                                               rate_per_week=round(effective.rate, 6),
-                                               last_referenced=str(fm.get("last_referenced", "")),
-                                               today=date.today())),
-        picture=picture.url,
-        picture_source=picture.source,
-        picture_inputs=PictureInputsModel(**picture_inputs.to_fields()),
-        quiet=quiet_pages.page_is_quiet(settings.memory_path, entity_id),
-    )
+
+def _card_read(settings: Settings, entity_id: str, entity_path: Path, if_none_match: str | None) -> dict:
+    """Everything the card reads but its history, in one worker thread under one shared directory scan (the ETag's
+    fingerprints and the relevance line's name index list ``entities/`` and ``episodes/`` once between them)."""
+    from api.services.claims import parse_claims
+
+    memory_path = settings.memory_path
+    alpha, floor = decay_policy.spacing_params(settings)
+    with sync_ticker.request_scans(memory_path):   # the SSE walk's listings when its gate allows (speed 2026-10-29)
+        # G227: `same_name.SHAPE` rides the ETag so a held card takes one 200 with `qualifier`/`displayName`; the
+        # qualifier itself moves with the `entities` directory the ETag already stats.
+        etag = page_blocks.card_etag(memory_path, entity_id, extra=f"{alpha}|{floor}|{same_name.SHAPE}")
+        if if_none_match == etag:
+            return {"etag": etag, "not_modified": True}
+        # The page file alone: the card shows prose and reads claims from `/claims`, so an owner-sized page's ledger
+        # (`claims_ledger`) is never opened here.
+        parsed, raw = _page_file(memory_path, entity_path)
+        fm = parsed.frontmatter
+        decay_class, decay_rate = decay_policy.resolve(fm)
+        # G147 — the pace the decay pass actually charges, from the SAME function
+        # (`decay_policy.effective`, plan R-FD11), so the card can never describe a
+        # pace Sleep does not charge. Read time only; nothing is stored.
+        effective = decay_policy.effective(
+            fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(memory_path),
+            # Only this page's conversations are read (a full episode scan was most of a cold open's time).
+            untimed=episode_time.untimed_among(memory_path, decay_policy._as_list(fm.get("source_episodes"))),
+        )
+        # C11 (G146) — the page's picture, resolved at read like everything else on this card (plan R-PE5).
+        page_stat = entity_path.stat()
+        picture, picture_inputs = entity_picture.resolve_page(
+            memory_path, entity_id, fm, parsed.body, page_mtime=page_stat.st_mtime)
+        raw_omitted = False
+        fence = claims_block_start(raw)
+        big_fence = page_stat.st_size > RAW_INLINE_MAX_BYTES or claims_ledger.STAMP in fm \
+            or (fence is not None and len(raw) - fence > RAW_INLINE_FENCE_MAX_CHARS)
+        if claims_ledger.STAMP in fm and (split := markdown_parser.split_frontmatter(raw)) is not None:
+            # A hub page (its claims partly in its ledger): the frontmatter alone — every frontmatter reader (a
+            # location's lat/lon, a media block) keeps its input, the prose is `markdown_content` already, and Source
+            # and Copy read `/raw` for the file (owner page, 2026-10-14: the prose twice was a third of a 490 KB card).
+            raw, raw_omitted = raw[:len(raw) - len(split[1])], True
+        elif big_fence and fence is not None:
+            # Review r1 #4: withhold only the fence. The frontmatter and prose stay verbatim, so every frontmatter
+            # reader (a location's declared lat/lon, a media block) keeps its input; Source and Copy read `/raw`.
+            raw, raw_omitted = raw[:fence], True
+        try:
+            claims = parse_claims(parsed.body or "")
+        except Exception:  # noqa: BLE001 — an unreadable fence reads as a page with no claims
+            claims = []
+        relevance = page_relevance.for_page(memory_path, entity_id, fm=fm, body=parsed.body, claims=claims).to_dict()
+        blocks = page_blocks.build(memory_path, entity_id, fm=fm, claims=claims, relevance=relevance,
+                                   body=parsed.body or "")
+        return {
+            "etag": etag,
+            "blocks": blocks,
+            "id": entity_id,
+            "name": fm.get("name", entity_id.replace("-", " ").title()),
+            "type": fm.get("type", "concept"),
+            "status": fm.get("status", "active"),
+            "confidence": fm.get("confidence", 0.5),
+            "created": str(fm.get("created", "")),
+            "last_referenced": str(fm.get("last_referenced", "")),
+            "decay_rate": decay_rate,
+            "decay_class": decay_class,
+            "source_episodes": fm.get("source_episodes", []),
+            "tags": fm.get("tags", []),
+            "related": fm.get("related", []),
+            "version": fm.get("version", 1),
+            # F4: prose only — the fence is machine data the card reads from `/claims`, and on the owner's page it was
+            # 2.5 MB shipped twice per open.
+            "markdown_content": served_prose(parsed.body)[0],
+            "raw_markdown": raw,
+            "raw_omitted": raw_omitted,
+            "media": _build_media_block(fm, parsed.body, entity_id=entity_id),
+            "is_owner": bool(fm.get("owner")),
+            "decay": EntityDecay(
+                decay_class=effective.decay_class,
+                effective_rate_per_week=round(effective.rate, 6),
+                mention_weeks=effective.mention_weeks,
+            ),
+            # G180 parity: the card's bands from the backend, the charged rate above being the pace's one input.
+            "bands": EntityBands(**entity_bands.bands(confidence=fm.get("confidence", 0.5),
+                                                      rate_per_week=round(effective.rate, 6),
+                                                      last_referenced=str(fm.get("last_referenced", "")),
+                                                      today=date.today())),
+            "picture": picture.url,
+            "picture_source": picture.source,
+            "picture_inputs": PictureInputsModel(**picture_inputs.to_fields()),
+            "quiet": quiet_pages.page_is_quiet(memory_path, entity_id),
+            "relevance": EntityRelevance(**relevance),
+            # G227: the qualifier when another page shares this title, and the name to show.
+            **_same_name_fields(memory_path, entity_id, fm.get("name", entity_id.replace("-", " ").title())),
+        }
+
+
+def _same_name_fields(memory_path: Path, entity_id: str, name: str) -> dict:
+    fields = same_name.fields(memory_path, entity_id, name)
+    return {"qualifier": fields["qualifier"], "display_name": fields["displayName"]}
+
+
+@router.post("/entities/{entity_id}/web-context")
+async def look_up_context(entity_id: str, settings: Settings = Depends(get_settings)):
+    """Owner ruling 44 (G121) — "go deeper" on this one page: a deep web lookup now, by the person's click (or their
+    agent through the API). The same public test (a private person's name is never sent anywhere), pinned queries,
+    citations, protection of the person's own words and undo ("Settled by a check") as Sleep's light context; plan
+    only, never a metered key. Not behind the connector switch: a click never is. 404 for no such page, 409 while Sleep
+    holds the pages."""
+    from api.services import web_context
+
+    if not (settings.memory_path / "entities" / f"{entity_id}.md").exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    return await web_context.deeper(settings.memory_path, settings, entity_id)
 
 
 @router.get("/entities/{entity_id}/raw", response_model=EntityRawResponse)
@@ -202,7 +304,8 @@ async def record_entity_read(
     fail the card open (``telemetry.record`` never raises)."""
     if not (settings.memory_path / "entities" / f"{entity_id}.md").is_file():
         raise HTTPException(status_code=404, detail="Entity not found")
-    telemetry.record_read(entity_id, surface=body.surface, bank=telemetry.bank_name(settings))
+    telemetry.record_read(entity_id, surface=body.surface, bank=telemetry.bank_name(settings),
+                          memory_path=settings.memory_path)
     return EntityReadResponse(recorded=telemetry.enabled())
 
 
@@ -490,7 +593,8 @@ def _build_media_block(frontmatter: dict, body: str, *, entity_id: str | None = 
         return None
     url = media.get("url")
     media_type = media.get("media_type")
-    if not url or not media_type:
+    is_file = media.get("kind") == "file"      # an added recording, video or photo has no link (`media_pages`)
+    if not media_type or not (url or is_file):
         return None
 
     description = None
@@ -503,7 +607,7 @@ def _build_media_block(frontmatter: dict, body: str, *, entity_id: str | None = 
             description = text
 
     return EntityMedia(
-        url=str(url),
+        url=str(url or ""),
         media_type=str(media_type),
         site=media.get("site") or None,
         channel=media.get("channel") or None,
@@ -523,6 +627,8 @@ def _build_media_block(frontmatter: dict, body: str, *, entity_id: str | None = 
         # G133 — `paper` on a paper page (R-LS14); absent on every other. Type-checked like
         # `duration_s`: a hand-edited `kind: [paper]` must not 500 the whole page (T4 review r1).
         kind=media.get("kind") if isinstance(media.get("kind"), str) and media.get("kind") else None,
+        file_id=media.get("file_id") if is_file and isinstance(media.get("file_id"), str) else None,
+        recorded_at=media.get("recorded_at") if is_file and isinstance(media.get("recorded_at"), str) else None,
     )
 
 
@@ -531,7 +637,10 @@ async def get_entity_history(
     entity_id: str,
     include_diff: bool = False,
     skip: int = 0,
+    summary: bool = False,
+    limit: int | None = None,
     settings: Settings = Depends(get_settings),
+    response: Response = None,
 ):
     """Entity history with per-commit author attribution.
 
@@ -539,10 +648,22 @@ async def get_entity_history(
     (opt-in so the default response stays small — backlog A1). ``?skip=N`` reads
     the touching commits older than the newest N — the rows the card leaves out
     when ``history_truncated`` (review round 1).
+
+    ``?summary=true`` (ruling 48 part 14, DR-77): the History tab's rows — each with its filter ``bucket``, its time
+    ``at`` and what it changed (``summary``), at most ``limit`` (default 30) from ONE ``git log -p``
+    (``page_history``); the ``X-History-More`` header says whether older changes exist.
     """
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
+    if summary is True:
+        from api.services import page_history
+
+        rows, more = await page_history.page(entity_id, settings.memory_path,
+                                             limit=limit or page_history.DEFAULT_LIMIT, skip=max(0, skip))
+        if response is not None:
+            response.headers["X-History-More"] = "1" if more else "0"
+        return rows
 
     return await git_service.get_entity_history(
         entity_id, settings.memory_path, include_diff=include_diff, skip=max(0, skip)
@@ -561,6 +682,40 @@ async def get_entity_blame(entity_id: str, lines: bool = False, settings: Settin
     if result is None:
         raise HTTPException(404, f"Entity {entity_id} not found")
     return PageBlameResponse(**result)
+
+
+@router.get("/entities/{entity_id}/citations/{n}", response_model=PageCitationDetail,
+            response_model_exclude_none=True)
+async def get_entity_citation(entity_id: str, n: int, at: int | None = None, claim: str | None = None,
+                              settings: Settings = Depends(get_settings)):
+    """A citation marker's popover (ruling 48 (16), DR-80), read when the person hovers or opens it — never on card
+    open: reference ``n`` as cited by the article line ending at ``at`` (or by belief ``claim``), with who, when and the
+    located words. The numbering is the card's own (``page_citations``, cached per page), so a marker and its popover
+    can never disagree."""
+    from api.services import page_citations
+    from api.services.claims import parse_claims
+
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.is_file():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+
+    def read() -> dict | None:
+        parsed = markdown_parser.parse(entity_path, ledger=False)
+        try:
+            claims = parse_claims(parsed.body or "")
+        except Exception:  # noqa: BLE001
+            claims = []
+        return page_citations.detail(settings.memory_path, entity_id, n, at=at, claim_id=claim,
+                                     fm=parsed.frontmatter, body=parsed.body or "", claims=claims)
+
+    try:
+        found = await run_in_threadpool(read)
+    except page_citations.StaleMarker:
+        # The page was renumbered since the card drew this marker: never another source's details in its place.
+        raise HTTPException(409, f"That line no longer cites {n}; reopen the page") from None
+    if found is None:
+        raise HTTPException(404, f"No reference {n} on {entity_id}")
+    return PageCitationDetail(**found)
 
 
 @router.get("/entities/{entity_id}/history/{commit_hash}/diff", response_model=EntityDiff)
@@ -611,6 +766,82 @@ async def update_entity_decay(
         _rewrite_page_and_commit, settings.memory_path, entity_id, lambda fm: fm.update(fields), message)
 
     return await get_entity(entity_id, settings=settings)
+
+
+# --- Places (ruling 48 part 6; vision item 5 part B) -------------------------------------------------------------------
+#
+# The backend never geocodes: the app runs the Mac's own geocoder and posts what it found (`place_coordinates`).
+
+
+@router.get("/entities/{entity_id}/place")
+async def get_entity_place(entity_id: str, settings: Settings = Depends(get_settings)):
+    """What the map draws, read when it draws — never on card open: the stored coordinates and the places on the record
+    near them, or, with none stored, whether the app may resolve the place without asking and what it would ask."""
+    from api.models.schemas import PlaceState
+    from api.services import place_coordinates
+
+    result = await run_in_threadpool(place_coordinates.state, settings.memory_path, entity_id)
+    if result is None:
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    return PlaceState(**result).model_dump(by_alias=True)
+
+
+@router.get("/places/unplaced")
+async def get_unplaced_places(limit: int = 20, settings: Settings = Depends(get_settings)):
+    """The app's background pass: place pages it may resolve on its own (public, never taken back), newest mentioned
+    first. Names only of public places (`place_coordinates.geocode_verdict`)."""
+    from api.models.schemas import UnplacedPlace
+    from api.services import place_coordinates
+
+    rows = await run_in_threadpool(place_coordinates.unplaced, settings.memory_path,
+                                   limit=max(1, min(int(limit), place_coordinates.MAX_UNPLACED)))
+    return [UnplacedPlace(**r).model_dump(by_alias=True) for r in rows]
+
+
+async def _write_coordinates(settings: Settings, entity_id: str, by: str, lat, lon) -> dict:
+    from api.services import place_coordinates
+
+    _entity_page(settings, entity_id)
+    try:
+        await run_in_threadpool(place_coordinates.check, settings.memory_path, entity_id, by)
+        values = place_coordinates.fields(lat, lon, by)
+    except place_coordinates.Refused as exc:
+        raise HTTPException(409 if by in ("geocoder", "unfound") else 422, str(exc)) from None
+    # Review of #521: only the person's own acts (their click, their DELETE) are `user`; the geocoder's results —
+    # a place found or not found — are Cicada's upkeep, so History never shows a miss under You.
+    person = by in ("person", "none")
+    what = "coordinates removed" if by == "none" else f"coordinates_by: {by}"
+    message = git_service.build_commit_message(
+        f"Place on the map {date.today().isoformat()}",
+        [f"entities/{entity_id}.md: updated ({what}, trigger: {'user/place' if person else 'sync/geocoder'})"],
+        authors=["user" if person else git_service.CICADA_AUTHOR],
+    )
+    await run_in_threadpool(_rewrite_page_and_commit, settings.memory_path, entity_id,
+                            lambda fm: place_coordinates.apply(fm, values), message)
+    return await get_entity_place(entity_id, settings=settings)
+
+
+@router.put("/entities/{entity_id}/coordinates")
+@_admits(PAGE_BUSY)
+async def put_entity_coordinates(entity_id: str, request: PlaceCoordinatesUpdate,
+                                 settings: Settings = Depends(get_settings)):
+    """Store a place's coordinates once (ruling 48 part 6). ``by="geocoder"``: the app's automatic resolve on the
+    person's first open or its background pass — public places only (409 for a private one, or one the person took
+    off the map). ``by="person"``: the person's own click, any place. ``by="unfound"``: the geocoder found nothing;
+    stop resolving it automatically (the same 409s as ``geocoder``). ``none`` is ``DELETE``'s alone (422 here).
+    Commits this page alone: the person's click as ``user``, an automatic one as ``cicada`` (upkeep in History)."""
+    from api.services import place_coordinates
+
+    if request.by not in place_coordinates.PUT_VALUES:
+        raise HTTPException(422, f"by must be one of {', '.join(place_coordinates.PUT_VALUES)}")
+    return await _write_coordinates(settings, entity_id, request.by, request.lat, request.lon)
+
+
+@router.delete("/entities/{entity_id}/coordinates")
+@_admits(PAGE_BUSY)
+async def delete_entity_coordinates(entity_id: str, settings: Settings = Depends(get_settings)):
+    """The person takes a pin back: the coordinates go, and nothing places it again until they ask."""
+    return await _write_coordinates(settings, entity_id, "none", None, None)
 
 
 # Detect an absolute filesystem path inside a location entity's body when no
@@ -840,7 +1071,7 @@ async def update_entity_repos(
 
 
 def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
-    from api.services import reading_hosts, source_proposals
+    from api.services import source_proposals
 
     rows = []
     entity_path = memory_path / "entities" / f"{entity_id}.md"
@@ -866,9 +1097,7 @@ def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
         if not isinstance(s.get("evidence"), dict):
             s.pop("evidence", None)
         s["link_kind"], s["label"] = source_proposals.link_kind(s)
-        site = reading_hosts.site_of(str(s.get("ref") or "")) if str(s.get("kind") or "") == "url" else ""
-        s["icon_site"] = (site if site and s["trusted"] and page_type not in ("person", "media")
-                          and reading_hosts.valid_site_key(site) and reading_hosts.icon_host(site) else None)
+        s["icon_site"] = page_blocks.icon_site(s, page_type)
         rows.append(EntitySource(**s))
     return EntitySourceList(entity_id=entity_id, sources=rows)
 

@@ -2,12 +2,22 @@ import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
+from loguru import logger
 
 from api.config import Settings, get_settings
-from api.models.schemas import CheckCensus, InboxItem, InboxResolveRequest, SettledCheck
-from api.services import inbox_service, source_check, sync_service
+from api.models.schemas import (CatchupRecordRequest, CatchupTurnRequest, CheckCensus, InboxItem,
+                                InboxResolveRequest, SettledCheck)
+from api.services import (inbox_service, inbox_wording, question_order, same_name, same_name_pick, source_check,
+                          sync_service, sync_ticker)
 
 router = APIRouter()
+
+
+def _served_day() -> str:
+    """The day the inbox's words are said for (its ETag moves with it; review B2 of #509)."""
+    from datetime import date
+
+    return date.today().isoformat()
 
 
 @router.get("/inbox", response_model=list[InboxItem])
@@ -24,14 +34,30 @@ async def list_inbox(
     # commit; without it SnapshotCache serves stale context until the inbox
     # itself changes.
     # G205: agent requests (outside the bank) fold into the `inbox` component's stamp, so this ETag moves with them.
-    etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes", extra=kind or "")
-    if (early := sync_service.conditional(request, response, etag)) is not None:
-        return early
-    # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a
-    # synchronous call here held every other request — the SSE stream, the other panes — behind it.
-    items = await asyncio.to_thread(inbox_service.load_inbox, settings.memory_path)
+    # Ruling 48 (1): every served question carries its plain words and reason, whose ages ("yesterday", "about 2
+    # months ago") are worded at read — so the tag moves with the day, or a 304 would keep yesterday's words (DR-58).
+    # Speed 2026-10-29: the ETag and the read share one listing per directory (`shared_scans`; the worker thread
+    # copies this context), so the bank is stat-walked once per request, not once for the ETag and again for the read.
+    with sync_ticker.request_scans(settings.memory_path):
+        # `inbox_wording.SHAPE`: the options' dates and words, and the questions' voice, are worded at read.
+        # G227: `same_name.SHAPE` — items gained `entityDisplayName`, `mergeTargetDisplayName` and `sameTitle`,
+        # derived from the entity files this ETag already covers; the bump makes every client take one 200.
+        # `same_name_pick.SHAPE`: a same-title question is served with one option per page plus "none" (2026-10-29).
+        etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes",
+                                     extra=f"{kind or ''}|{_served_day()}|{same_name.SHAPE}|{same_name_pick.SHAPE}|{inbox_wording.SHAPE}"
+                                           # Ruling 70: the order's one non-bank input, the day-cut read counts (today's
+                                           # reads count from tomorrow, so it moves at most with the day), and the wire shape.
+                                           f"|{question_order.SHAPE}|{question_order.stamp(settings.memory_path)}")
+        if (early := sync_service.conditional(request, response, etag)) is not None:
+            return early
+        # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a
+        # synchronous call here held every other request — the SSE stream, the other panes — behind it.
+        items = await asyncio.to_thread(inbox_service.load_inbox, settings.memory_path)
     # G205: requests sit above the questions.
     items = await asyncio.to_thread(inbox_service.agent_request_items, settings.memory_path) + items
+    # Ruling 70: each item's place in the served list, so a client never re-derives the order from `priority`. A copy
+    # per item: `load_inbox` hands out its cached objects, which no caller edits.
+    items = [i.model_copy(update={"order_index": n}) for n, i in enumerate(items)]
     if kind:
         wanted = {k.strip() for k in kind.split(",") if k.strip()}
         items = [i for i in items if i.kind.value in wanted]
@@ -72,6 +98,10 @@ async def undo_settled(item_id: str, settings: Settings = Depends(get_settings))
     memory_path = settings.memory_path
     if _settled_group(memory_path, item_id) == "sleep":
         return await _undo_sleep_settle(item_id, settings)
+    from api.services import web_context
+
+    if web_context.is_record_id(item_id):
+        return await _undo_context(item_id, settings)
     # An edit already on a page the undo rewrites is committed apart, never as the person's undo (audit P1-3).
     before = await git_service.snapshot_dirty(memory_path)
 
@@ -91,6 +121,31 @@ async def undo_settled(item_id: str, settings: Settings = Depends(get_settings))
     web_settle.record_event(memory_path, action="undo", item_id=item_id, entity_id=None, by_kind="person")
     await state_dictionary.refresh_admitted(memory_path, settings)   # admitted; skipped while Sleep holds the pages
     return {"status": "reopened", "id": target}
+
+
+async def _undo_context(item_id: str, settings: Settings) -> dict:
+    """Owner ruling 44 — a light-context lookup taken back (``web_context.undo``): its claims withdrawn, what it closed
+    reopened, each value remembered so no lookup writes it again. Committed as the person's (``Web context undone``)."""
+    from api.services import git_service, page_lock, state_dictionary, web_context, web_settle, write_admission
+    from api.services.sleep_refusal import SleepWriting
+
+    memory_path = settings.memory_path
+    before = await git_service.snapshot_dirty(memory_path)
+
+    def work() -> None:
+        with page_lock.page_lock(memory_path):
+            paths, lines = web_context.undo(memory_path, item_id)
+            web_settle.commit_sync(memory_path, web_settle.commit_message("Web context undone", lines,
+                                                                          authors=["user"]), paths, before=before)
+
+    try:
+        await write_admission.run_admitted(memory_path, lambda: asyncio.to_thread(work),
+                                           refuse=lambda: SleepWriting(inbox_service.SLEEP_BUSY))
+    except web_settle.NotSettleable as exc:
+        raise HTTPException(404, str(exc)) from exc
+    web_settle.record_event(memory_path, action="context_undo", item_id=item_id, entity_id=None, by_kind="person")
+    await state_dictionary.refresh_admitted(memory_path, settings)
+    return {"status": "undone", "id": item_id}
 
 
 def _settled_group(memory_path, item_id: str) -> str:
@@ -232,6 +287,58 @@ async def web_check_status():
     return web_lookup.sweep_status()
 
 
+@router.post("/inbox/catchup/turn")
+async def catchup_turn(request: CatchupTurnRequest, settings: Settings = Depends(get_settings)):
+    """Ruling 48 (8): one turn of the in-app catch-up chat — the person's own words about one open question, answered
+    the way a person would (a follow-up, other words, a related question) on the person's chosen engine, resolved like
+    Ask (`engine_select.resolve_settings(user_triggered=True)`; rulings 4/31/46: never a metered key nobody chose).
+    Writes nothing: a reading grounded in their words is the app's to apply through the inbox's own resolver
+    (`catchup_chat`). ``{"engine": false, "why": …}`` when no engine may answer — the chat then takes taps only."""
+    import uuid
+
+    from api.services import agent_engine, catchup_chat, engine_readiness, engine_select
+
+    resolved, why = await engine_select.resolve_settings(settings, user_triggered=True)
+    if engine_readiness.key_missing(resolved):
+        return {"engine": False, "why": engine_select.no_engine_sentence(why), "reply": None, "reading": None,
+                "move": "stay", "nextId": None}
+
+    def llm_fn(system: str, prompt: str) -> str:
+        import litellm
+
+        from api.services.providers import resolve_llm_fn
+
+        call = resolve_llm_fn(resolved, model=resolved.litellm_model, completion=litellm.completion, stage="catchup")
+        # Its own self-purging breaker scope, like Ask's (one throttle stops this turn, never every later one).
+        with agent_engine.use_scope(f"catchup:{uuid.uuid4().hex}"):
+            response = call(messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                            response_format={"type": "json_object"})
+        return response.choices[0].message.content or ""
+
+    try:
+        return await asyncio.to_thread(catchup_chat.turn, resolved.memory_path, request.item_id, request.message,
+                                       request.history, request.upcoming, llm_fn)
+    except LookupError:
+        raise HTTPException(404, "That question is no longer open.") from None
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except Exception as exc:  # noqa: BLE001 — the engine failed: the chat keeps the question and the person's words
+        logger.warning(f"catch-up turn failed: {type(exc).__name__}")
+        return {"engine": True, "error": True, "reply": None, "reading": None, "move": "stay", "nextId": None}
+
+
+@router.post("/inbox/catchup/record")
+async def catchup_record(request: CatchupRecordRequest, settings: Settings = Depends(get_settings)):
+    """Ruling 48 (8): the catch-up chat kept as ONE episode per session (source-keyed, updated in place), so Sleep
+    reads what the person said in passing as it reads any conversation. Never into a demo bank."""
+    from api.services import catchup_chat
+
+    try:
+        return await asyncio.to_thread(catchup_chat.record, settings.memory_path, request.session_id, request.turns)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
 @router.post("/inbox/{item_id}/resolve")
 async def resolve_inbox(
     item_id: str,
@@ -254,6 +361,37 @@ async def resolve_inbox(
             raise HTTPException(404, f"Inbox item {item_id} not found")
         return done
     return await inbox_service.resolve(item_id, request, settings)
+
+
+@router.post("/sensitive/remove")
+async def remove_sensitive(payload: dict = Body(...), settings: Settings = Depends(get_settings)):
+    """G235: Remove on exactly the conversations `scripts/sensitive_removal.py` listed: ``rows`` and the dry run's ``plan``
+    stamp, both required. 409 while Sleep holds the pages, when the plan moved since, or when the older version could not
+    be kept. An agent relaying it is refused, as on every resolve of this kind. The answer is counts only."""
+    from api.services import git_service, sensitive_flags, state_dictionary, write_admission
+
+    if str(payload.get("via") or "").strip().lower() == "agent":
+        raise HTTPException(403, "This is the person's to answer.")
+    rows = payload.get("rows")
+    if not (isinstance(rows, list) and rows and all(isinstance(r, str) for r in rows)):
+        raise HTTPException(400, "rows is the list of row ids the dry run printed.")
+    stamp = payload.get("plan")
+    if not isinstance(stamp, str) or not stamp:
+        raise HTTPException(400, "plan is the stamp the dry run printed.")
+
+    async def admitted():
+        before = await git_service.snapshot_dirty(settings.memory_path)
+        return await asyncio.to_thread(sensitive_flags.remove_planned, settings.memory_path, rows, stamp=stamp, before=before)
+
+    try:
+        answer = await write_admission.run_admitted(
+            settings.memory_path, admitted,
+            refuse=lambda: HTTPException(409, "Cicada is consolidating memory right now. Try again in a few minutes."))
+    except (ValueError, sensitive_flags.RemovalRefused) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    # A primer can hold a title from before; the cursor commits alone.
+    await state_dictionary.refresh_admitted(settings.memory_path, settings)
+    return answer
 
 
 @router.post("/agent-requests", status_code=201)

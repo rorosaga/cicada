@@ -79,7 +79,7 @@ def test_a_scheduled_run_on_a_capped_key_says_the_limit_was_reached_and_names_bo
     memory = seed_bank(tmp_path, ids)
     rig = install(monkeypatch)
 
-    async def degraded(settings_, registry=None, *, user_triggered=True):
+    async def degraded(settings_, registry=None, *, user_triggered=True, cli_wait=None):
         return "byok", engine_select.SCHEDULE_DEGRADED   # ruling 4 kept this scheduled run off the plan
 
     monkeypatch.setattr(engine_select, "resolve_llm_mode", degraded)

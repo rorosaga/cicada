@@ -57,6 +57,9 @@ struct TraceCapturedFrame: Equatable, Sendable {
     var jpeg: Data
     var width: Int
     var height: Int
+    /// Which connected screen (1 is the main one) of how many; 0 for a front-window frame.
+    var display = 0
+    var displays = 0
 }
 
 /// Which apps are browsers beyond the named list: every app macOS registers to open https: links (Launch Services, no
@@ -85,12 +88,21 @@ enum TraceWindowPick {
     }
 }
 
-/// Screenshots (Screen Recording, ScreenCaptureKit). Only the front app's front window is captured — the window the
-/// recorder already vetted (not private, not excluded) — never the whole display, so nothing behind it is taken.
+/// Screenshots (Screen Recording, ScreenCaptureKit).
+///
+/// **Front window** (consent sheet 1): the front app's front window only — the window the recorder already vetted.
+/// **Every connected screen** (consent sheet 2, owner 2026-10-28): one frame per screen, each showing only the windows
+/// of apps the policy may describe (`shown`), named one by one (`SCContentFilter(display:including:)`, an allow-list
+/// read fresh for each screen, `TraceScreenPick`) — so every browser, chat or mail app (unless its titles were
+/// allowed), app left out, password manager, system helper, notification banner, Cicada itself and anything that
+/// appeared since is simply not drawn; a browser appears only through the one front window whose tab was read and
+/// known not to be private (`keepFrontWindow`).
 protocol TraceScreenCapture: Sendable {
     /// `CGPreflightScreenCaptureAccess()` — never the requesting variant.
     func hasAccess() -> Bool
     func captureFrontWindow(pid: Int32, maxSide: Int) async throws -> TraceCapturedFrame
+    func captureScreens(frontPid: Int32, keepFrontWindow: Bool, maxSide: Int,
+                        shown: @escaping @Sendable (String) -> Bool) async throws -> [TraceCapturedFrame]
 }
 
 /// On-device text recognition (Vision). Never a network service.
@@ -116,7 +128,8 @@ protocol TracePermissionProbe: Sendable {
 /// talks to a server (`TraceBackendGate`), so a client Mac's traces never leave it.
 protocol TraceBackend: Sendable {
     func traceSettings() async throws -> TraceSettingsAnswer
-    func traceTurnOn(consentVersion: Int) async throws -> TraceSettingsAnswer
+    /// `displayedVersion` is the sheet this app showed (its own constant), never the one the backend serves.
+    func traceTurnOn(consentVersion: Int, displayedVersion: Int) async throws -> TraceSettingsAnswer
     func traceTurnOff() async throws -> TraceSettingsAnswer
     func traceUpdate(_ patch: [String: TracePatchValue]) async throws -> TraceSettingsAnswer
     func tracePause(until: String?) async throws -> TraceSettingsAnswer
@@ -128,6 +141,13 @@ protocol TraceBackend: Sendable {
     func traceFrameText(id: String) async throws -> TraceFrameText
     func traceForget(minutes: Int) async throws
     func traceWipe() async throws -> TraceSettingsAnswer
+    // The page (2026-10-28): days as cards, deleting what the person picks, the digest's preview, what traces added.
+    func traceDayCards() async throws -> [TraceDayCard]
+    func traceDelete(day: String, spans: [String], frames: [String], all: Bool) async throws -> TraceDeleted
+    func tracePreview(day: String?) async throws -> TraceDigestPreview
+    func traceAdded() async throws -> TraceAdded
+    func traceRemoveFromMemory() async throws -> TraceRemoval
+    func traceUndoRemoval(id: String) async throws -> Int
 }
 
 /// A settings value on the wire (`PUT /sources/traces/settings`).

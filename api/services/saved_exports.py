@@ -71,6 +71,7 @@ PREVIEW_MAX = 500
 
 #: Platform id -> the ``parse_upload`` label ``PLATFORM_BY_LABEL`` maps back.
 LABEL_BY_PLATFORM = {
+    "spotify": "Spotify Export",
     "instagram": "Instagram Saved",
     "tiktok": "TikTok Export",
     "youtube": "YouTube Takeout (zip)",
@@ -88,6 +89,7 @@ _INSTAGRAM_FILES = {"saved_posts.json", "saved_collections.json", "liked_posts.j
 _TIKTOK_TXT = {
     "like list.txt": ("Likes", False),
     "favorite videos.txt": ("Favorites", False),
+    "favourite videos.txt": ("Favorites", False),
     "video browsing history.txt": ("Browsing History", True),
     "browsing history.txt": ("Browsing History", True),
     "watch history.txt": ("Browsing History", True),
@@ -148,11 +150,16 @@ def is_save_list(path: str) -> bool:
     low = str(p).lower()
     if _X_FILE.match(base) or base in _INSTAGRAM_FILES or base in _TIKTOK_TXT:
         return True
+    from api.services import spotify_export
+
+    if spotify_export.is_member(base):
+        return True
     if base.startswith("user_data") and base.endswith(".json"):
         return True
     if base in YOUTUBE_HISTORY_FILES or (base.endswith(".csv") and "playlists/" in low):
         return True
     if base.endswith(".csv") and (media_ingestor._is_reddit_saved_filename(base)
+                                  or media_ingestor.is_reddit_list_filename(base)
                                   or media_ingestor._is_linkedin_saved_filename(base)):
         return True
     return False
@@ -172,6 +179,14 @@ def parse_member(path: str, data: bytes, *, include_history: bool = False) -> tu
     m = _X_FILE.match(base)
     if m:
         return parse_x_archive_js(data, _X_KIND[m.group(1)]), "x", 0
+
+    from api.services import spotify_export
+
+    spotify = spotify_export.parse_member(path, data)
+    if spotify is not None:
+        # G32: Spotify's own download — plays are listening history (always read: the person asked Spotify for
+        # exactly this, and no door ever saves a play), the library is saved items.
+        return spotify, "spotify", 0
 
     if base in _INSTAGRAM_FILES:
         try:
@@ -215,6 +230,10 @@ def parse_member(path: str, data: bytes, *, include_history: bool = False) -> tu
 
     if base.endswith(".csv") and media_ingestor._is_reddit_saved_filename(base):
         return media_ingestor.parse_reddit_saved_csv(data, p.name), "reddit", 0
+
+    if base.endswith(".csv") and media_ingestor.is_reddit_list_filename(base):
+        # G232: upvotes and joined communities, filed as the connector files them (index-only).
+        return media_ingestor.parse_reddit_list_csv(data, p.name), "reddit", 0
 
     if base.endswith(".csv") and media_ingestor._is_linkedin_saved_filename(base):
         return media_ingestor.parse_linkedin_saved(data, p.name), "linkedin", 0

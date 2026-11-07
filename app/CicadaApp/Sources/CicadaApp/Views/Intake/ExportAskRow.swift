@@ -28,6 +28,8 @@ struct ExportAskRow: View {
                     Text(vendor.walkthrough.summary).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                 }
                 Spacer()
+                // ROR-118 (judges: "the import sheet repeats button pairs"): one labelled action a row; the reminder is
+                // a quiet bell beside it, its delays in the menu.
                 Button { NSWorkspace.shared.open(vendor.walkthrough.exportURL) } label: {
                     Label(Copy.intakeOpenExportPage, systemImage: "arrow.up.right.square")
                 }
@@ -40,10 +42,12 @@ struct ExportAskRow: View {
                         }
                     }
                 } label: {
-                    Label(Copy.reminderRemindMe, systemImage: "bell")
+                    Image(systemName: "bell")
                 }
-                .menuStyle(.borderedButton)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .fixedSize()
+                .help(Copy.reminderRemindMe)
                 .accessibilityLabel("\(Copy.reminderRemindMe), \(vendor.title)")
             }
             if denied {
@@ -52,6 +56,9 @@ struct ExportAskRow: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // One vendor in focus shows its steps; with three rows they sit on the name's hover instead of repeating
+            // "How to get it" three times (ROR-118).
+            if startsOpen {
             DisclosureGroup(isExpanded: $showSteps) {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(vendor.walkthrough.steps.enumerated()), id: \.offset) { i, step in
@@ -61,7 +68,9 @@ struct ExportAskRow: View {
             } label: {
                 Text(Copy.intakeHowToGet).font(CicadaTheme.captionFont)
             }
+            }
         }
+        .help(startsOpen ? "" : vendor.walkthrough.steps.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n"))
         .onHover { hovering = $0 }
         .onAppear { showSteps = startsOpen }
     }
@@ -129,5 +138,52 @@ extension ExportWait {
     /// vendor, or `fallback` when a stored vendor is not one this build names.
     func intakeOrigin(fallback: IntakeOrigin) -> IntakeOrigin {
         ChatVendor(rawValue: vendor).map { .reminder($0) } ?? fallback
+    }
+}
+
+/// ROR-126 — once an agent is connected and can drive a browser, the walkthrough offers to have it request this
+/// provider's export in the person's own signed-in browser. One yes per provider, one short line on why. Cicada opens
+/// no browser and signs in nowhere; the agent picks the request up when the person next talks to it
+/// (`cicada_export_requests`) and says what it found, and a page it cannot drive stays a manual one.
+struct AgentExportOffer: View {
+    let vendor: ChatVendor
+    @Environment(ExportAgentModel.self) private var agent
+    @Environment(ExportWaitStore.self) private var waits
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        Group {
+            if let row = agent.request(for: vendor.rawValue) {
+                status(row)
+            } else if agent.canRequest {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        NeutralButton(title: Copy.exportAgentAsk(vendor.title), size: .compact) {
+                            Task { await agent.grant(vendor: vendor, waits: waits, bank: store.bank) }
+                        }
+                        Text(Copy.exportAgentInBrowser).font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                    Text(Copy.exportAgentWhy).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .task { await agent.refresh(waits: waits, bank: store.bank) }
+    }
+
+    @ViewBuilder
+    private func status(_ row: ExportRequest) -> some View {
+        switch row.state {
+        case "requested":
+            Text(Copy.exportAgentRequested(vendor.title)).font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+        case "manual":
+            Text(row.reason.map { "\(Copy.exportAgentManual) \($0)" } ?? Copy.exportAgentManual)
+                .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        default:
+            Text(Copy.exportAgentAsked).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+        }
     }
 }

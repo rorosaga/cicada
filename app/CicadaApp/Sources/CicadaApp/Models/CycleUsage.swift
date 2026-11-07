@@ -191,4 +191,5 @@ struct SleepEngineUsage: Codable, Hashable {
 struct SleepEngineModelPrice: Codable, Hashable {
     var inputPerMillionUsd: Double? = nil
     var outputPerMillionUsd: Double? = nil
+    var basis: String? = nil
 }

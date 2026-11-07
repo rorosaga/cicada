@@ -27,6 +27,8 @@ final class AgentLiveProbe {
 
     var connected: Set<String> { Set(rows.values.filter(\.connected).map(\.id)) }
     var connectedCount: Int { connected.count }
+    /// An agent on this Mac is connected (stdio or its config), the one that can read a saved list in the browser.
+    var connectedLocally: Bool { AgentLiveResponse.anyConnectedLocally(rows.values) }
 
     func apply(_ response: AgentLiveResponse) {
         let before = connected

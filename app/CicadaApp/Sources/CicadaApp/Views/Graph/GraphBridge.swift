@@ -13,6 +13,10 @@ enum GraphMessage: Equatable {
     case backgroundClicked
     /// R-DG11 — Esc with no ego focus: the page decides what it closes.
     case escape
+    /// ROR-135 — the pointer rests on a node: its id, centre and radius in canvas points.
+    case nodeHovered(String, x: Double, y: Double, r: Double)
+    /// ROR-135 — the pointer left it, or the node moved from under the card (a pan, a zoom, a drag).
+    case hoverEnded
     case jsError(String)
 
     static func parse(_ body: Any) -> GraphMessage? {
@@ -26,6 +30,11 @@ enum GraphMessage: Equatable {
         case "backgroundClicked": return .backgroundClicked
         case "escape": return .escape
         case "focusCleared": return .focusCleared
+        case "hoverEnded": return .hoverEnded
+        case "nodeHovered":
+            guard let id, let x = (json["x"] as? NSNumber)?.doubleValue, let y = (json["y"] as? NSNumber)?.doubleValue,
+                  let r = (json["r"] as? NSNumber)?.doubleValue, x.isFinite, y.isFinite, r.isFinite else { return nil }
+            return .nodeHovered(id, x: x, y: y, r: r)
         case "nodeClicked": return id.map(GraphMessage.nodeClicked)
         case "hubExpanded": return id.map(GraphMessage.hubExpanded)
         case "nodeFocused": return id.map(GraphMessage.nodeFocused)

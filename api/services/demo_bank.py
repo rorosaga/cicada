@@ -70,6 +70,72 @@ _CONCEPTS = [
     "knowledge-management",
 ]  # 15
 
+#: One line per roster page, each its own plausible fictional thing (ROR-118: a page that reads "A synthetic X for
+#: trying Cicada" repeated across a card made the demo look generated). Keyed by id; every id in the roster has one
+#: (`test_demo_bank` pins it), and a new id without one falls back to a bare kind line, never boilerplate about the demo.
+_SUMMARIES = {
+    "carol-example": "Backend engineer who owns the deploy pipeline and reviews most of the infrastructure changes.",
+    "dana-example": "Product manager running the team's planning; keeps the roadmap honest about what is slipping.",
+    "erin-example": "Designer who prototypes in the browser and cares more about spacing than about color.",
+    "frank-example": "Mechanical engineer who builds the test rigs; answers questions about tolerances with a sketch.",
+    "grace-example": "Researcher reading across robotics and perception; sends a paper a week worth opening.",
+    "henry-example": "Friend from university, now teaching high school physics; the two trade book recommendations.",
+    "iris-example": "Data analyst who turns messy survey exports into charts people actually read.",
+    "jack-example": "Climbing partner; meets on Thursday evenings and plans the weekend trips.",
+    "karen-example": "Mentor with a long career in hardware startups; the one to ask before signing anything.",
+    "leo-example": "Neighbor and fellow maker; lends tools and trades parts from his workshop.",
+    "maria-example": "Operations lead at a small supplier; the contact for lead times and shipping questions.",
+    "nina-example": "Freelance writer who edits the newsletter drafts and catches the long sentences.",
+    "oscar-example": "Former colleague, now at a logistics company; checks in a few times a year.",
+    "paula-example": "Physiotherapist who set the stretching routine that keeps the desk-posture complaints away.",
+    "quinn-example": "Open-source maintainer of a small library the projects here depend on.",
+    "alpha-project": "A rover-arm controller: getting a servo arm to hold a pose under load without oscillating.",
+    "beta-project": "A weekend web app for tracking tool loans between neighbors, with a plain list view.",
+    "gamma-project": "A reading-list tool that pulls saved articles into one place and highlights what is unread.",
+    "delta-project": "A home-lab migration: moving the small server's services into containers, one at a time.",
+    "epsilon-project": "A newsletter on practical robotics, drafted monthly and edited with a friend.",
+    "zeta-project": "A sensor board for the balcony garden that logs soil moisture and light twice an hour.",
+    "eta-project": "A small calendar utility that turns shared invitations into a single weekly view.",
+    "theta-project": "A study plan for a controls course, with weekly problem sets and a running list of confusions.",
+    "iota-project": "A 3D-printed enclosure for the garden sensor, iterated through four revisions so far.",
+    "kappa-project": "A budget spreadsheet rebuilt as a script, so monthly totals no longer need hand-copying.",
+    "lambda-project": "A photo archive cleanup: deduplicating ten years of pictures and naming them by date.",
+    "mu-project": "A talk proposal on lessons from building a robot arm on a small budget.",
+    "tool-example-a": "Terminal editor used for nearly everything; configuration lives in one tidy file.",
+    "tool-example-b": "Note app with backlinks; holds the reading notes and the weekly review template.",
+    "tool-example-c": "Issue tracker the team uses for planning; the board is checked every morning.",
+    "tool-example-d": "Container runtime behind the home-lab services; updates are applied on Sundays.",
+    "tool-example-e": "CAD program for enclosures and brackets; exports go straight to the slicer.",
+    "tool-example-f": "Password manager shared with the household for the accounts both people need.",
+    "tool-example-g": "Task timer used for focused blocks; a session is twenty-five minutes, then a short walk.",
+    "tool-example-h": "Plotting library for the sensor data; the same three chart styles cover most reports.",
+    "tool-example-i": "Continuous-integration service running the tests on every push to the main branch.",
+    "tool-example-j": "Cloud notebook for quick experiments before anything is moved into a real repository.",
+    "acme-example": "Hardware supplier for motors and drivers; orders arrive in about a week.",
+    "globex-example": "Consulting firm that ran a workshop on product planning last spring.",
+    "initech-example": "Software company whose payroll tools a few friends complain about.",
+    "umbrella-example": "Biotech employer of a friend; talk of it usually turns to lab schedules.",
+    "stark-example": "Electronics distributor with the best catalog for sensors and connectors.",
+    "wayne-example": "Foundation funding a community maker space nearby; the grant deadline is in spring.",
+    "hooli-example": "Large search and media company; mostly mentioned in industry reading.",
+    "soylent-example": "Meal-kit startup a colleague left for; its logistics are a recurring topic.",
+    "deep-work": "Long uninterrupted blocks for hard problems; mornings work, afternoons rarely do.",
+    "spaced-repetition": "Reviewing flashcards on a widening schedule; used for controls formulas and vocabulary.",
+    "code-review": "Reading each other's changes before merging; small diffs get better feedback.",
+    "pair-programming": "Working through a problem with another person at one screen; best for unfamiliar code.",
+    "dark-mode": "A preference for dark interfaces at night; some tools get it right and others do not.",
+    "minimalism": "Owning and installing less; a rule applied to desk items, apps and meetings.",
+    "morning-routine": "Coffee, a short walk and ten minutes of notes before opening any messages.",
+    "note-taking": "How ideas get written down: short notes, linked later, reviewed on Fridays.",
+    "remote-work": "Working from home three days a week; the setup matters more than the schedule.",
+    "open-source": "Contributing to and depending on public projects; bug reports with a reproduction go furthest.",
+    "async-communication": "Writing things down so a reply can wait; fewer meetings, longer messages.",
+    "first-principles": "Reasoning from basic facts instead of habit; used when a design feels stuck.",
+    "design-systems": "Shared components and tokens that keep screens consistent as a product grows.",
+    "test-driven-development": "Writing the failing test first; slows the start and speeds the finish.",
+    "knowledge-management": "Keeping what is learned findable later; capture is easy, retrieval is the hard part.",
+}
+
 _ALL_ENTITIES = _PEOPLE + _PROJECTS + _TOOLS + _COMPANIES + _CONCEPTS  # 60
 
 #: Every synthetic episode here is a conversation (`user: …`), so each carries a conversational origin. Ruling 39: an
@@ -129,13 +195,52 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     _commit_history(bank_dir, today)
     scenario = _write_scenario(bank_dir, today)
     _commit_scenario(bank_dir, today, scenario)
+    _write_scenario_ownership(bank_dir, today)   # ruling 45 — before the events, whose commits tests read as newest
     _write_scenario_backlog(bank_dir, today)   # G150 R-B26 — before the events: a test reads their commits as newest
     _write_design_board(bank_dir, today)   # design taste (2026-10-14) — before the events, for the same reason
     _expire_scenario(bank_dir, today)
     _write_scenario_events(bank_dir, today, scenario)
     _write_scenario_person(bank_dir, today)
     _write_scenario_followups(bank_dir, today)
-    _write_showcase(bank_dir, today)   # round 4 T-Demo — last, so no id or byte the scenario tests pin moves
+    _write_showcase(bank_dir, today)   # round 4 T-Demo — so no id or byte the scenario tests pin moves
+    _write_source_kinds(bank_dir, today)   # ROR-16 — last, for the same reason
+
+
+def _write_scenario_ownership(bank_dir: Path, today: date) -> None:
+    """Rulings 45 and 56: the Projects page lists the person's own projects. The Pick And Place Demo is one Bob started
+    in the app (with his description); the Garden Sensor Project's page came from a repository an agent session ran in,
+    and he added it to his projects. (The Rover Arm Project is Bob's already: he logged progress on it in the app.)
+    Frontmatter only, through the ownership module's own writers."""
+    from api.services import project_ownership
+
+    ents = bank_dir / "entities"
+    day = today.isoformat()
+    page = ents / "pick-and-place-demo.md"
+    parsed = markdown_parser.parse(page, ledger=False)
+    fm = dict(parsed.frontmatter)
+    fm[project_ownership.MINE_KEY] = {"via": project_ownership.VIA_APP, "day": day, "by": "user"}
+    fm[project_ownership.DESCRIPTION_KEY] = "Get the rover arm to pick a part off the bench and place it in a tray."
+    fm[project_ownership.DESCRIPTION_BY_KEY] = {"by": "user", "day": day}
+    markdown_parser.write(page, fm, parsed.body)
+    page = ents / "garden-sensor-project.md"
+    parsed = markdown_parser.parse(page, ledger=False)
+    fm = dict(parsed.frontmatter)
+    fm["born"] = {"origin": "repo", "day": str(today - timedelta(days=52)),
+                  "repo": {"name": "garden-sensor", "family": "demo-garden-sensor"}}
+    fm[project_ownership.MINE_KEY] = {"via": project_ownership.VIA_ACCEPTED, "day": day, "by": "user"}
+    markdown_parser.write(page, fm, parsed.body)
+    paths = ["entities/pick-and-place-demo.md", "entities/garden-sensor-project.md"]
+    _run_commit(bank_dir, git_service.build_commit_message(
+        "Project update", [f"{p}: updated (source: n/a, trigger: user/companion_app)" for p in paths],
+        authors=["user"]), paths)
+
+
+def _write_source_kinds(bank_dir: Path, today: date) -> None:
+    """ROR-16 (G118): a note, a meeting and a book cited to their words (`demo_sources`). A step of its own, turned off
+    by name as the showcase is."""
+    from api.services import demo_sources
+
+    demo_sources.write(bank_dir, today, commit=_run_commit)
 
 
 def _write_showcase(bank_dir: Path, today: date) -> None:
@@ -157,6 +262,11 @@ def _roster_day(kind: str, entity_id: str, day: date) -> str:
     return str(day)
 
 
+# Invented names for the two tools the Home question and the conflict card show, so a first look reads like a real
+# memory rather than a placeholder (slugs stay, so every id in the generator and its tests is unchanged).
+_NAMES = {"tool-example-a": "Tern", "tool-example-b": "Marginalia"}
+
+
 def _write_entities(bank_dir: Path, day: date) -> None:
     for kind, ids in (
         ("person", _PEOPLE),
@@ -168,7 +278,7 @@ def _write_entities(bank_dir: Path, day: date) -> None:
         for entity_id in ids:
             when = _roster_day(kind, entity_id, day)
             fm = {
-                "name": entity_id.replace("-", " ").title(),
+                "name": _NAMES.get(entity_id, entity_id.replace("-", " ").title()),
                 "type": kind,
                 "status": "active",
                 "confidence": 0.7,
@@ -182,7 +292,7 @@ def _write_entities(bank_dir: Path, day: date) -> None:
                 "layout_version": 2,
             }
             body = entity_body.compose_body_v2(
-                summary=f"A synthetic {kind} for trying Cicada.",
+                summary=_SUMMARIES.get(entity_id, f"A {kind}."),
                 key_facts=[], history_entries=[], related=[], links=[], open_questions=[],
             )
             markdown_parser.write(bank_dir / "entities" / f"{entity_id}.md", fm, body)
@@ -300,8 +410,8 @@ def _write_inbox(bank_dir: Path, episodes: list[dict], day: date) -> None:
             "question": "What does Alpha Project use now?",
             "predicate": "uses", "created_date": today, "claim_id": "clm_demo_new2",
             "options": [
-                {"key": "a", "label": "Tool Example A", "claim_id": "clm_demo_old2"},
-                {"key": "b", "label": "Tool Example B", "claim_id": "clm_demo_new2"},
+                {"key": "a", "label": "Tern", "claim_id": "clm_demo_old2"},
+                {"key": "b", "label": "Marginalia", "claim_id": "clm_demo_new2"},
                 {"key": "both", "label": "Both are true (different contexts)"},
             ],
         },
@@ -329,7 +439,7 @@ def _write_inbox(bank_dir: Path, episodes: list[dict], day: date) -> None:
         inbox_dir / "inbox-006.md",
         {
             "kind": "merge_suggestion", "required_input": "merge", "status": "pending",
-            "entity_name": "Tool Example A (CLI)", "entity_id": "tool-example-a-cli",
+            "entity_name": "Tern (CLI)", "entity_id": "tool-example-a-cli",
             "merge_target_hint": "tool-example-a",
             "source_episode": merge_source["id"], "source_episode_timestamp": f"{merge_source['date']}T09:00:00+00:00",
             "created_date": today,
@@ -345,8 +455,8 @@ def _write_inbox(bank_dir: Path, episodes: list[dict], day: date) -> None:
 # so `write_claim`'s `resolve_entity_file` hits its rung-1 exact-slug match —
 # no near-match/ambiguous-subject branch, no incidental new page.
 _CLAIM_SPECS: tuple[tuple[str, str, str, int], ...] = (
-    ("carol-example", "uses", "Tool Example A", 0),
-    ("alpha-project", "depends-on", "Tool Example B", 1),
+    ("carol-example", "uses", "Tern", 0),
+    ("alpha-project", "depends-on", "Marginalia", 1),
     ("dana-example", "works-at", "Globex Example", 2),
     ("beta-project", "part-of", "Alpha Project", 3),
     ("erin-example", "prefers", "Dark Mode", 4),
@@ -648,6 +758,7 @@ def _write_scenario(bank_dir: Path, today: date) -> dict:
               **decay_policy.frontmatter_fields(cls),
               "source_episodes": [], "tags": [], "related": [], "version": 1, "layout_version": 2}
         if etype == "media":
+            fm["origin"] = "chrome-bookmark"      # ROR-138: a saved page names where it came from, so its row shows a mark
             fm["media"] = {"url": _GUIDE_URL, "media_type": "document", "site": "example.com", "channel": None,
                            "thumbnail": None, "saved_at": f"{today + timedelta(days=created)}T15:00:00+00:00",
                            "url_hash": media_ingestor.url_hash(_GUIDE_URL)}

@@ -21,7 +21,7 @@ enum MessageBubbles {
     /// Each bubble overlaps the one before by this fraction of its size.
     static let overlap: CGFloat = 0.3
     /// The ground-coloured ring that cuts each bubble from the one under it, in units. It sits OUTSIDE the face: drawn
-    /// over it (as it was), it covered a monogram's own 1.5 pt hue ring and left a near-black disc in dark appearance.
+    /// over it (as it was), it covered the face's edge.
     static let groundRing: CGFloat = 1.5
 
     /// The face inside a bubble of `size` units: the bubble less its ground ring on both sides.
@@ -90,7 +90,7 @@ enum MessageBubbles {
 
 /// The stack itself: each conversation's face by `MessageBubbles.face` (its page's chosen picture, the Contacts photo,
 /// the photo it shares in Messages, else a monogram); nothing from the web. Each face sits inside a ring of the ground's own colour, never over it,
-/// so the monogram's hue ring stays whole. Hovering a bubble names it; clicking the stack (when `interactive`) lists the
+/// so the face stays whole. Hovering a bubble names it; clicking the stack (when `interactive`) lists the
 /// names.
 struct MessageBubbleStack: View {
     var size: CGFloat = 20

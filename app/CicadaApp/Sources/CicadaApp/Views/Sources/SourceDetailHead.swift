@@ -7,11 +7,18 @@ enum SourceDetailText {
     /// The header's state line — only what the row beside it cannot say (review of #358): when it last synced, the
     /// whole error (the row has room for a clause), or that a run is in progress. Never the row's own "Watching" /
     /// "Syncs when you ask" / "Imported once" again. Nil when there is nothing more to say.
+    ///
+    /// 2026-11-03: a watched, up-to-date browser says what "up to date" is measured against instead of "Last synced
+    /// <date>" (`BrowserFreshness`) — the date of Cicada's last read with something new in it read as a healthy
+    /// light while nothing new could reach this Mac.
     static func state(liveness: SourceLiveness, status: SourceRowStatus, fullError: String?, now: Date,
-                      locale: Locale = .autoupdatingCurrent) -> (text: String, isAlarm: Bool)? {
+                      locale: Locale = .autoupdatingCurrent,
+                      freshness: BrowserFreshness? = nil) -> (text: String, isAlarm: Bool)? {
         if case .problem(let why) = status { return (why, true) }
         if liveness.tone.isAlarm { return (sentence(liveness: liveness, fullError: fullError), true) }
         switch status {
+        case .synced where liveness.state == .watching && freshness != nil:
+            return freshness.map { ($0.line(now: now, locale: locale), false) }
         case .syncing: return (Copy.syncingNow, false)
         case .synced, .imported, .notYet:
             return SourceRowText.trailing(status, now: now, locale: locale).map { ($0, false) }
@@ -39,6 +46,53 @@ enum SourceDetailText {
                                 "\(UsageFormat.count(waiting)) here, \(UsageFormat.count(total)) in all")
         }
         return Eyebrow.text(Copy.consolidateNow, "\(UsageFormat.count(waiting)) waiting")
+    }
+}
+
+/// 2026-11-03 (live, macOS 27): what a watched browser is up to date *with*. Cicada reads the one file each browser
+/// keeps its bookmarks in on this Mac — Safari's `Bookmarks.plist` holds every bookmark and Reading List item, written
+/// by Safari and, Safari open or not, by iCloud's own Safari sync — so a bookmark saved on another device reaches
+/// Cicada only once it is in that file. When the owner's bookmarks were being saved elsewhere and Safari's file here
+/// had not changed in five days, the page said "Watching · Last synced 5 days ago": both true, neither the reason. This
+/// says when the browser last changed its bookmarks on this Mac and, once that has been quiet a day, how another
+/// device's bookmarks get here (DR-58: the relative words are computed when read).
+struct BrowserFreshness: Equatable {
+    enum OtherDevices: Equatable {
+        /// Safari: iCloud's sync writes them into Safari's file on this Mac.
+        case icloud
+        /// The Chromium family: the browser's own sync, only while it runs.
+        case ownSync
+    }
+
+    let browser: String
+    let changed: Date
+    let otherDevices: OtherDevices
+
+    /// How long the browser's file may be quiet before the line says how another device's bookmarks arrive.
+    static let quietAfter: TimeInterval = 24 * 3600
+
+    /// Nil for anything but a watched browser (a folder, Wispr Flow) or a browser with no name.
+    static func of(channel: String, changed: Date?) -> BrowserFreshness? {
+        guard let changed, let file = BrowserWatchPolicy.file(for: channel), let name = file.browserName else { return nil }
+        return BrowserFreshness(browser: name, changed: changed,
+                                otherDevices: file == .safariBookmarks ? .icloud : .ownSync)
+    }
+
+    func line(now: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        let when: String
+        if now.timeIntervalSince(changed) < 60 {
+            when = "just now"
+        } else {
+            let formatter = RelativeDateTimeFormatter()
+            formatter.unitsStyle = .full
+            formatter.dateTimeStyle = .numeric
+            formatter.locale = locale
+            when = formatter.localizedString(for: changed, relativeTo: now)
+        }
+        let head = Copy.browserUpToDate(browser, changed: when)
+        guard now.timeIntervalSince(changed) >= Self.quietAfter else { return head }
+        let tail = otherDevices == .icloud ? Copy.browserOtherDevicesICloud : Copy.browserOtherDevicesOwnSync(browser)
+        return "\(head). \(tail)"
     }
 }
 
@@ -94,6 +148,11 @@ struct SourceDetailHead: View {
                 stateLine(watch: watch, now: context.date)
             }
             .padding(.leading, indent)
+            if let kept = Copy.keptForLookup(source.kept) {
+                Text(kept).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, indent)
+            }
             // R-D6 kept: the Full Disk Access fix is shown exactly where the read failed.
             if watch == .blocked, let id = source.channelId, let error = watcher.error(for: id) {
                 FullDiskAccessHint(error: error).padding(.leading, indent)
@@ -119,7 +178,9 @@ struct SourceDetailHead: View {
         let run = channel.flatMap { activity?.run(for: $0.id) }
         let status = channel == nil ? SourceRowStatus.idle
             : SourceRowText.status(channel: channel, watch: watch, run: run)
-        let state = SourceDetailText.state(liveness: liveness, status: status, fullError: source.lastError, now: now)
+        let freshness = source.channelId.flatMap { BrowserFreshness.of(channel: $0, changed: watcher.browserChanged(for: $0)) }
+        let state = SourceDetailText.state(liveness: liveness, status: status, fullError: source.lastError, now: now,
+                                           freshness: freshness)
         let actions = Set(channel?.actions ?? [])
         // Nothing the row can't say, no action, nothing waiting: no line at all (never an empty band).
         let empty = state == nil && !status.isSyncing && actions.isDisjoint(with: ["sync", "poll"])
@@ -139,7 +200,9 @@ struct SourceDetailHead: View {
             }
             Spacer(minLength: CicadaTheme.spacingSM)
             if let channel {
-                if channel.actions.contains("sync"), let localSources {
+                // What Wispr Flow brought in stays openable from search and Sleep; it reads nothing more, so no Refresh.
+                if channel.actions.contains("sync"), let localSources,
+                   SourceCatalog.wisprOffered || channel.id != SourceCatalog.wisprChannel {
                     actionButton("Refresh") {
                         try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources,
                                                       calendar: calendarReader, tabGroups: tabGroups,

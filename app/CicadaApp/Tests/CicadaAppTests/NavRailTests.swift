@@ -23,12 +23,12 @@ final class NavRailTests: XCTestCase {
     func testTheRailIsAppTabInItsCommandOrder() {
         XCTAssertEqual(AppTab.allCases.map(RailItem.digit(for:)), Array(1...AppTab.allCases.count))
         XCTAssertEqual(RailItem.shortcut(for: .home), "⌘1")
-        XCTAssertEqual(RailItem.shortcut(for: .inbox), "⌘6")
+        XCTAssertEqual(RailItem.shortcut(for: .inbox), "", "ruling 48 (2): the Inbox left the rail; ⌘6 is unused")
         XCTAssertEqual(RailItem.shortcut(for: .sources), "⌘7")
         XCTAssertEqual(RailItem.shortcut(for: .projects), "⌘8", "the eighth page, after Sources — no shortcut moved")
         XCTAssertEqual(RailItem.key(for: .graph), KeyEquivalent("2"))
         XCTAssertEqual(RailItem.shortcut(for: .sleep), "⌘5", "Sleep kept its digit when the Feed folded into it")
-        XCTAssertEqual(AppTab.allCases.last, .agents, "D6: Agents joined last, ⌘9; nothing before it moved")
+        XCTAssertEqual(AppTab.allCases.last, .traces, "Traces joined last (2026-10-26)")
         XCTAssertEqual(RailItem.shortcut(for: .agents), "⌘9")
         XCTAssertEqual(RailItem.key(for: .skills), KeyEquivalent("4"))
         XCTAssertEqual(RailItem.shortcut(for: .skills), "⌘4")
@@ -37,9 +37,21 @@ final class NavRailTests: XCTestCase {
     func testTooltipsAndLabelsSayWhatTheCellIsDoing() {
         XCTAssertEqual(RailItem.tooltipTitle(.inbox, busy: false), "Inbox")
         XCTAssertEqual(RailItem.tooltipTitle(.sleep, busy: true), "Sleep · consolidating")
-        XCTAssertEqual(RailItem.accessibilityLabel(.inbox, count: 6, busy: false), "Inbox, 6 pending")
+        XCTAssertEqual(RailItem.accessibilityLabel(.home, count: 6, busy: false), "Home, 6 pending",
+                       "ruling 48 (2): the pending count moved to Home")
         XCTAssertEqual(RailItem.accessibilityLabel(.sleep, count: 0, busy: true), "Sleep, consolidating")
         XCTAssertEqual(RailItem.accessibilityLabel(.graph, count: 0, busy: false), "Graph")
+    }
+
+    /// Ruling 48 (2) — the Inbox is Home's sub-view: no cell of its own, Home's cell reads as selected while it shows.
+    func testTheInboxIsHomesSubViewOnTheRail() {
+        XCTAssertFalse(PageSwitches.inboxOnRail, "DR-73's flag for this screen exists and is off")
+        XCTAssertFalse(AppTab.inbox.onRail)
+        XCTAssertEqual(AppTab.inbox.railCell, .home)
+        XCTAssertEqual(AppTab.sources.railCell, .sources)
+        XCTAssertFalse(AppTab.shown(tracesPage: true).contains(.inbox))
+        XCTAssertNil(RailItem.key(for: .inbox))
+        XCTAssertEqual(AppTab.inbox.landing(tracesPage: false), .inbox, "⌘K, the menu bar and Home still land on it")
     }
 
     /// R-DS14 — 450 ms for the first; instantly while one shows or within a second of one hiding.
@@ -70,7 +82,7 @@ final class NavRailTests: XCTestCase {
         XCTAssertFalse(ShellChrome().itemsDisabled)
         XCTAssertTrue(ShellChrome(welcomeShowing: true).itemsHidden)
         XCTAssertEqual(ShellChrome(welcomeShowing: true).itemOpacity, 0)
-        XCTAssertEqual(ShellChrome(settingsOpen: true).itemOpacity, 0.4)
+        XCTAssertEqual(ShellChrome(settingsOpen: true).itemOpacity, 0)
         XCTAssertTrue(ShellChrome(settingsOpen: true).itemsDisabled)
         XCTAssertFalse(ShellChrome(settingsOpen: true).itemsHidden)
     }
@@ -86,7 +98,10 @@ final class NavRailTests: XCTestCase {
         XCTAssertNil(text.range(of: #"iconHover\([^)]*selected:"#, options: .regularExpression),
                      "DR-64: no bounce on selection — a keyboard switch never animates")
         XCTAssertFalse(text.contains("Text(\"Cicada\")"), "DR-22: no wordmark")
-        XCTAssertFalse(text.contains("withAnimation"), "DR-60/61: a page switch is instant")
+        // ROR snappy (2026-11-06, DESIGN_RULES §9): a click fades the page by `pageFade`; the key (⌘ held) is `Instant`.
+        XCTAssertEqual(text.components(separatedBy: "withAnimation").count - 1, 1, "one animated path: the click's page fade")
+        XCTAssertTrue(text.contains("withAnimation(CicadaMotion.pageFade(reduceMotion: reduceMotion))"), "the fade is a CicadaMotion token")
+        XCTAssertTrue(text.contains("Instant.run { selectedTab = tab }"), "DR-60: a keyboard page switch never animates")
         XCTAssertTrue(text.contains("router.openSettings()"), "the gear opens the panel through the one door (R-DS22)")
     }
 

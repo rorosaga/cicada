@@ -17,8 +17,9 @@ final class InboxKindDecodingTests: XCTestCase {
         """#
         let items = try JSONDecoder().decode([InboxItem].self, from: Data(json.utf8))
         XCTAssertEqual(items.map(\.kind), [.divergence, .normalization])
-        XCTAssertEqual(InboxKind.divergence.label, "Divergence")
-        XCTAssertEqual(InboxKind.normalization.label, "Predicate fold")
+        // Inbox v2 (2026-10-26): a kind in a person's words; the wire values above are unchanged.
+        XCTAssertEqual(InboxKind.divergence.label, "Disagreement")
+        XCTAssertEqual(InboxKind.normalization.label, "Wording")
     }
 
     func testDecodesRemoval() throws {

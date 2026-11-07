@@ -15,6 +15,7 @@ from api.models.schemas import DecayClass
 from api.services import (
     alias_policy, decay_policy, decay_tuning, engine_errors, entity_article, entity_body, entity_types, episode_time,
     fact_sources, json_parse, markdown_parser, page_edits, project_birth, role_people, section_provenance, source_dates,
+    wrong_aliases,
 )
 from api.services.providers import resolve_llm_fn
 
@@ -68,8 +69,15 @@ async def resolve_and_prune(
     decay: bool = True,
     cancel_check=None,
     progress_callback=None,
+    revised: dict[str, frozenset[str]] | None = None,
 ) -> list[dict]:
     """Apply conflict resolution and temporal decay to all entities.
+
+    ``revised`` (G104 slice 2): ``{episode id: the words its edit took away}`` (`revision_prose.changes_of`) for the
+    conversations this batch read again as revisions of themselves. The contradiction check is still asked; a
+    contradiction it finds is filed unless the old side is only the revised conversation's own removed words
+    (:func:`_answered_by_revision`) — then the source corrected itself (the claim layer closes the old value without a
+    question, #581, and Stage 5.58 rewrites the passages that said it, `revision_prose`).
 
     The synthesis and contradiction calls — the long, paid part of this stage — overlap
     across pages, at most ``agent_max_concurrency`` calls at once (1 is one call after
@@ -185,6 +193,10 @@ async def resolve_and_prune(
             change["synthesized_body"] = synthesized
             if job["section_aware"]:
                 change['section_aware_synthesis'] = True
+        if (contradiction and contradiction.get("has_unresolvable_contradiction") and revised
+                and _answered_by_revision(change, contradiction, revised, existing_by_id, settings)):
+            logger.info("Stage 3: a contradiction the edited conversation itself resolved — not asked (G104)")
+            contradiction = None
         if contradiction and contradiction.get("has_unresolvable_contradiction"):
             conflicts_found += 1
             progress.set_postfix_str(f"conflicts={conflicts_found}", refresh=False)
@@ -707,6 +719,14 @@ async def _overlap_pages(jobs: list, run, *, concurrency: int, cancel_check=None
     return results
 
 
+def _new_aliases(memory_path, page_id: str, aliases) -> list[str]:
+    """Sleep's NEW aliases for a page: no reference (`alias_policy`), and never the name of another page the record
+    already holds as a different or related thing (`wrong_aliases.names_other_thing`, 2026-10-29) — that name is
+    the other thing's, and an alias of it would raise "same as?" between the two on every batch."""
+    return [a for a in alias_policy.keep(aliases)
+            if not wrong_aliases.names_other_thing(memory_path, page_id, a)]
+
+
 def apply_changes(changes: list[dict], memory_path) -> None:
     """Write entity changes to disk."""
     entities_dir = memory_path / "entities"
@@ -739,6 +759,10 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             # The closed type set, held again where the page is born (`entity_types`): a pending line or a payload
             # read before the extraction rail existed may still carry `organization`.
             entity_type = entity_types.in_set(entity.get("type"))
+            if entity_type == "project":
+                # Ruling 56: Sleep never makes a project, whatever a merged payload ended up saying.
+                entity_type = project_birth.FALLBACK_TYPE
+                change[project_birth.PROPOSED_KEY] = "project"
             # Stage-1 may PROPOSE a class; `agent_class` re-applies the rail here
             # so an `evergreen` that slipped past extraction can never be written.
             decay_class = (
@@ -765,7 +789,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "tags": entity.get("tags", []) or [],
                 # A reference ("the lock", "my app") is not a name: kept, it would draw this page to every judge
                 # call those common words recur in (`alias_policy`).
-                "aliases": alias_policy.keep(entity.get("aliases", []) or []),
+                "aliases": _new_aliases(memory_path, entity_id, entity.get("aliases", []) or []),
                 "related": [],
                 "version": 1,
                 "layout_version": 2,
@@ -778,13 +802,12 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             # (the commit's `Cicada-Author` still names it).
             if entity.get("website") and str(entity_type).lower() in ("company", "tool", "project"):
                 fact_sources.propose_site(frontmatter, str(entity["website"]), added_by="agent")
-            if entity_type == "project" and isinstance(change.get("project_birth"), dict):
-                # Ruling 36 D4: where the project came from, written once where the page is born (`project_birth`).
-                frontmatter["born"] = change["project_birth"]
-            elif change.get(project_birth.PROPOSED_KEY) == "project" and entity_type == project_birth.FALLBACK_TYPE:
-                # Owner 2026-10-23: a thing Stage 1 called a project with no birth, over the promotion bar — a concept
-                # page that a later birth makes the project (`project_birth.retype_on_birth`).
+            if change.get(project_birth.PROPOSED_KEY) == "project" and entity_type == project_birth.FALLBACK_TYPE:
+                # A thing Stage 1 called a project, over the promotion bar: a concept page that the person or an agent
+                # on their ask may later start (`project_birth.start_page`), with what Sleep read about it.
                 frontmatter[project_birth.PROPOSED_KEY] = "project"
+                if isinstance(change.get("project_birth"), dict):
+                    frontmatter["born"] = change["project_birth"]
             if change.get("contacts_card") and entity_type == "person":
                 # Owner ruling 2026-10-20: a page promoted on a waiting card's first mention is born with the card's
                 # sources and photo — what a Contacts sync writes on a matched page (`contacts_local.seed_page`).
@@ -829,9 +852,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
         elif action == "update" and filepath.exists():
             parsed = markdown_parser.parse(filepath)
-            # Owner 2026-10-23: the person called a fallback page's thing a project (or a repository gave it one): the
-            # same page becomes the project, `born` written once — before anything below reads the page's type.
-            project_birth.retype_on_birth(parsed.frontmatter, change.get("project_birth"))
+            # Ruling 56: a fallback page records what Sleep read about its thing, once, and stays what it is.
+            project_birth.note_signal(parsed.frontmatter, change.get("project_birth"))
             # A memory export entry alone is no re-mention ("facts yes, activity no", `episode_time`): its facts
             # and source land below, but the last mention, the silence clock and the status stay.
             mentioned = not change.get("untimed")
@@ -901,7 +923,9 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
             # Merge new aliases
             # Only Sleep's NEW aliases are filtered: what the page already lists (a hand-added one too) stays.
-            new_aliases = alias_policy.keep(new_entity.get("aliases", []) or [])
+            new_aliases = _new_aliases(memory_path, entity_id, new_entity.get("aliases", []) or [])
+            # 2026-10-29: never another live page's own name (a crossed alias; `alias_policy.names_another_page`).
+            new_aliases = [a for a in new_aliases if not alias_policy.names_another_page(a, entity_id, entities_dir)]
             # G198: an alias an edit removed stays removed (`aliases_removed`, like `sources_removed`).
             new_aliases = page_edits.keep_aliases(parsed.frontmatter, new_aliases)
             if new_aliases or parsed.frontmatter.get("aliases"):
@@ -1212,7 +1236,39 @@ def _selected_page_inputs(entity: dict, sections: dict[str, str],
     except (KeyError, TypeError, ValueError, AttributeError):
         selected[section_provenance.INPUTS] = section_provenance.merge_selected(
             {section_provenance.INPUTS: old_records}, {}, selected)
+    selected[section_provenance.INPUTS] = list(selected[section_provenance.INPUTS]) + _split_fact_inputs(
+        entity, selected, old_records, original_body)
     return selected
+
+
+def _split_fact_inputs(entity: dict, selected: dict, old_records: list[dict], original_body: str) -> list[dict]:
+    """G104 slice 2 (2026-11-04): a Key Fact this write split off an orientation (`entity_body.retain_orientation`,
+    `merge_sections_fallback`'s displaced sentences) carries the source rows of the orientation it was cut from — the
+    incoming summary/description (its conversation and body hash, `section_provenance.attach`) or the page's old
+    Summary (its matched rows) — when its words are a contiguous part of that text. Only a fact NEW in this write: a
+    Key Fact the page already held keeps whatever rows it had (none, for one written before this rule), never
+    recertified from a later conversation that happens to repeat it."""
+    def norm(text: str) -> str:
+        return entity_body._normalize_fact(text)
+
+    on_page = {norm(i.text) for i in section_provenance.scan(original_body or '').get('key_facts', [])}
+    exact = {norm(r['text']) for r in selected.get(section_provenance.INPUTS) or [] if r.get('field') == 'key_facts'}
+    sources = [r for r in [*(entity.get(section_provenance.INPUTS) or []), *old_records]
+               if isinstance(r, dict) and r.get('field') in ('summary', 'description') and r.get('evidence')
+               and str(r.get('text') or '').strip()]
+    out = []
+    for fact in selected.get('key_facts') or []:
+        key = norm(fact)
+        if not key or key in on_page or key in exact:
+            continue
+        rows: dict = {}
+        for record in sources:
+            if key in norm(record['text']):
+                for ev in record['evidence']:
+                    rows.setdefault(tuple(sorted(ev.items())), ev)
+        if rows:
+            out.append({'field': 'key_facts', 'text': fact, 'evidence': list(rows.values())})
+    return out
 
 
 def _is_human_edited(frontmatter: dict, sections: dict[str, str]) -> bool:
@@ -1481,6 +1537,51 @@ def _merge_history_entries(body: str, new_entries: list[dict]) -> str:
         return body.rstrip() + "\n" + "\n".join(new_lines) + "\n"
 
     return body.rstrip() + "\n\n## History\n" + "\n".join(new_lines) + "\n"
+
+
+def _answered_by_revision(change: dict, contradiction: dict, revised: dict, existing_by_id: dict, settings) -> bool:
+    """G104 slice 2 (review of #589, B1): the contradiction is the edited conversation correcting itself — the old
+    side's words are words this batch's revision of one of the update's own conversations took away, and NOTHING else
+    the page rests on still says them: no other conversation in the page's ``source_episodes`` (their text), no claim
+    on the page in the person's own words or citing another conversation, no line the person fixed or rewrote (a
+    pinned ``corrections`` row, hand-written prose). Anything unreadable counts as saying them: the question is asked."""
+    from api.services import claim_reconciler, claims as claims_mod, entity_body, evidence, page_edits
+    from api.services.revision_prose import tokens
+
+    sources = set(_change_source_episodes(change))
+    own = {ep: revised[ep] for ep in sources if ep in revised}
+    if not own:
+        return False
+    gone = set().union(*own.values())
+    labels = []
+    for option in contradiction.get("options") or []:
+        label = option.get("label") if isinstance(option, dict) else option
+        if isinstance(label, str) and label.strip():
+            labels.append(label)
+    old_words = set().union(*(tokens(label) & gone for label in labels)) if labels else set()
+    if not old_words:
+        return False      # the old side is not something the revision removed
+    page = existing_by_id.get(change.get("id")) or {}
+    fm, body = page.get("frontmatter") or {}, page.get("body") or ""
+    if entity_body.has_human_prose(fm, entity_body.parse_sections(claims_mod.strip_claims_block(body))):
+        return False
+    if any(old_words & (tokens(row.get("new", "")) | tokens(row.get("old", ""))) for row in page_edits.corrections(fm)):
+        return False
+    memory_path = getattr(settings, "memory_path", None)
+    for ep in {str(e) for e in fm.get("source_episodes") or [] if e} - own.keys():
+        text = evidence.source_text(memory_path, ep) if memory_path else None
+        if text is None or tokens(text) & old_words:
+            return False
+    try:
+        page_claims = claims_mod.parse_claims(body)
+    except Exception:  # noqa: BLE001 - claims that cannot be read may say anything
+        return False
+    for claim in page_claims:
+        if claim.valid_to is None and tokens(f"{claim.text} {claim.object}") & old_words:
+            others = {e.episode for e in claim.evidence} | set(claim.source_episodes or [])
+            if claim_reconciler.is_human(claim) or others - own.keys():
+                return False
+    return True
 
 
 def _change_source_episodes(change: dict) -> list[str]:
@@ -1768,14 +1869,16 @@ A contradiction is unresolvable when newer information alone does not make it ob
 
 "Newer" means said on a later date (below), not read later: a description from an earlier conversation does not replace a later one, and two statements made months apart can both have been true at their own dates.
 
+A measured quantity that naturally changes over time (a metric, a count, a score, a balance) is never a contradiction, even when two values carry the same date: it is an update, and the page's history keeps the earlier value.
+
 Respond with JSON only:
 {
   "has_unresolvable_contradiction": true | false,
   "contradiction": "one-sentence description of the contradiction, or empty",
-  "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does the owner work now?'). Empty when there is no contradiction.",
+  "question": "ONE short question, asked directly to the person this memory belongs to: 'you', never 'I' and never their name (e.g. 'Where do you work now?'). Empty when there is no contradiction.",
   "options": [
-    {"label": "the existing claim, 1-4 words", "description": "one short clause saying where this came from and when"},
-    {"label": "the new claim, 1-4 words", "description": "one short clause saying where this came from and when"},
+    {"label": "what the existing statement says, 1-4 words", "description": "one short clause: what it says and when; never the words existing, new, description, record or claim"},
+    {"label": "what the new statement says, 1-4 words", "description": "one short clause: what it says and when; never the words existing, new, description, record or claim"},
     {"label": "Both are true (different contexts)", "description": "Keep both, each tagged with its context"}
   ]
 }
@@ -1849,6 +1952,8 @@ A contradiction is unresolvable when newer information alone does not make it ob
 
 "Newer" means said on a later date (below), not read later: a description from an earlier conversation does not replace a later one, and two statements made months apart can both have been true at their own dates.
 
+A measured quantity that naturally changes over time (a metric, a count, a score, a balance) is never a contradiction, even when two values carry the same date: it is an update, and the page's history keeps the earlier value.
+
 Respond with JSON only, one result for every entity, in the order given:
 {
   "results": [
@@ -1856,10 +1961,10 @@ Respond with JSON only, one result for every entity, in the order given:
       "entity": 1,
       "has_unresolvable_contradiction": true | false,
       "contradiction": "one-sentence description of the contradiction, or empty",
-      "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does the owner work now?'). Empty when there is no contradiction.",
+      "question": "ONE short question, asked directly to the person this memory belongs to: 'you', never 'I' and never their name (e.g. 'Where do you work now?'). Empty when there is no contradiction.",
       "options": [
-        {"label": "the existing claim, 1-4 words", "description": "one short clause saying where this came from and when"},
-        {"label": "the new claim, 1-4 words", "description": "one short clause saying where this came from and when"},
+        {"label": "what the existing statement says, 1-4 words", "description": "one short clause: what it says and when; never the words existing, new, description, record or claim"},
+        {"label": "what the new statement says, 1-4 words", "description": "one short clause: what it says and when; never the words existing, new, description, record or claim"},
         {"label": "Both are true (different contexts)", "description": "Keep both, each tagged with its context"}
       ]
     }

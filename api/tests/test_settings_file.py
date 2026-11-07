@@ -271,5 +271,9 @@ def test_status_names_where_each_setting_came_from_and_never_a_secret(enabled, t
     assert block["replacedByEnvironment"] == ["CICADA_LLM_MODE"]
     assert block["effective"] == {"agentMaxConcurrency": 10, "sleepResolveConcurrency": 3,
                                   "summarySynthesisEnabled": False, "pageArticlesEnabled": True}
-    for value in (TOKEN, SECRET, "byok", str(memory)):
+    for value in (TOKEN, SECRET, str(memory)):
         assert value not in response.text
+    # The file's replaced mode is never shown as a value. The bare word may appear in fixed copy: the no-engine
+    # sentence names the `cicada sleep engine --mode byok` command, and /status carries it whenever an earlier test
+    # in the same process left Sleep with no engine (order-dependent before this check was quoted).
+    assert '"byok"' not in response.text

@@ -53,15 +53,14 @@ final class ProjectsV2RenderTests: XCTestCase {
         CicadaTheme.uiScale = 1.0
         let held = CicadaTheme.mode
         defer { CicadaTheme.mode = held }
-        UserDefaults.standard.removeObject(forKey: "cicada.projects.opened")
 
         for dark in [false, true] {
             CicadaTheme.mode = dark ? .dark : .light
             let scheme: ColorScheme = dark ? .dark : .light
             let suffix = dark ? "dark" : "light"
-            let options = ProjectsListOptions(expanded: ["rover-arm-project"])
+            let options = ProjectsListOptions()
 
-            // STATE 0 — Current: in motion, one parent unfolded, Fading folded.
+            // STATE 0 — Current: in motion, parts under their parents, Gone quiet under its label (no folds, v3).
             let current = ProjectsModel.entries(rows, tab: .current, query: "", today: today, options: options)
             let root = page(eyebrow: ProjectsModel.eyebrow(partial: false),
                             tab: .current, rows: rows) {
@@ -90,7 +89,8 @@ final class ProjectsV2RenderTests: XCTestCase {
                     ProjectDetailColumn(projectId: "rover-arm-project", row: rover, parentName: nil, today: today,
                                         gutter: CicadaTheme.spacingXL, hiddenListCount: nil, openCard: nil,
                                         openBacklogItem: nil, onShowList: {}, onClose: {}, onEscape: {},
-                                        openProject: { _ in }, openEntity: { _ in }, openItem: { _ in })
+                                        openProject: { _ in }, openEntity: { _ in }, openItem: { _ in },
+                                        full: .constant(nil))
                 }
             }
             try await write(detail, size: CGSize(width: 1240, height: 760), scheme: scheme, store: store, cache: cache,
@@ -113,7 +113,7 @@ final class ProjectsV2RenderTests: XCTestCase {
                       openId: String?) -> some View {
         ProjectsListColumn(entries: entries, style: style, today: today, state: .list, tab: tab, query: "",
                            findOpen: .constant(false), findText: .constant(""), openId: openId, tap: { _ in },
-                           toggleParts: { _ in }, toggleFading: {}, showMore: {}, move: { _ in }, focusDetail: {},
+                           showMore: { }, move: { _ in }, focusDetail: {},
                            escape: {}, retry: {})
     }
 

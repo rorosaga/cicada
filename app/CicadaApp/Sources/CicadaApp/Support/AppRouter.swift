@@ -17,6 +17,8 @@ import SwiftUI
 @MainActor
 final class AppRouter {
     var pendingTab: AppTab?
+    /// Set with `pendingTab` when a key asked for the switch, so it lands in one frame (DR-60).
+    var pendingTabByKey = false
     var pendingAddSource: AddSourceTile?
     /// G117 — Settings → General's "Run setup again" hand-off. The panel's
     /// pages cannot flip `showFirstRun` on `ContentView` themselves (same
@@ -146,6 +148,13 @@ final class AppRouter {
         activateMainWindow()
     }
 
+    /// G235 — a run's line about what may be sensitive opens the one review.
+    func routeToInbox() {
+        closeSettings()
+        pendingTab = .inbox
+        activateMainWindow()
+    }
+
     /// Sleep page v5 — every door but the Sleep page lands here while a run is paused (`SleepViewModel.onPausedDoor`):
     /// the page holds the reason for the pause and the one Continue.
     func routeToSleep() {
@@ -172,6 +181,8 @@ final class AppRouter {
     var pendingProject: String?
 
     func routeToProject(_ id: String) {
+        // Owner 2026-10-26 — while the Projects page is hidden, a project opens as the page it is (`PageSwitches`).
+        guard PageSwitches.projectsPage else { routeToEntity(id); return }
         closeSettings()
         pendingTab = .projects
         pendingProject = id
@@ -198,7 +209,8 @@ final class AppRouter {
     var pendingBacklogItem: String?
 
     func routeToBacklogItem(project: String, item: String) {
-        pendingBacklogItem = item
+        // The item's column lives on the Projects page; hidden, the project's own page opens instead.
+        if PageSwitches.projectsPage { pendingBacklogItem = item }
         routeToProject(project)
     }
 
@@ -314,6 +326,21 @@ final class AppRouter {
         }
     }
 
+    /// Report a problem… (tester readiness 2026-10-26) — Help menu and Settings → General open the one sheet the main
+    /// window presents (`ReportProblemSheet`); with no window open, the window that opens shows it.
+    var reportProblemOpen = false
+
+    func openReportProblem() {
+        reportProblemOpen = true
+    }
+
+    /// ROR-117 — the in-app viewer for an added recording, video or photo, or the list of them (`MediaSheet`): the
+    /// find palette's hit and File → Added Files… set it, `ContentView` presents it.
+    var mediaRoute: MediaRoute?
+
+    func openMedia(id: String, at: Double?) { mediaRoute = .file(id: id, at: at) }
+    func openAddedFiles() { mediaRoute = .list }
+
     /// The Sources page with its *Reading in your browser* sheet open (Reading the web's switches since D6).
     var pendingReadingSheet = false
 
@@ -412,6 +439,18 @@ final class AppRouter {
     func consumeRevealEntity() -> String? {
         defer { pendingRevealEntity = nil }
         return pendingRevealEntity
+    }
+
+    /// G231 — the notch's Yes: the Sources page on that source's catalogue entry (`SourceCatalogEntry.id`), where its
+    /// own connect control and any permission row live — the same place a click on its row opens. The window comes
+    /// forward, opening one when the app lives in the menu bar with none.
+    var pendingCatalogEntry: String?
+
+    func routeToCatalogEntry(_ entryId: String) {
+        closeSettings()
+        pendingTab = .sources
+        pendingCatalogEntry = entryId
+        showMainWindow()
     }
 
     /// Read-then-clear, for the same double-firing reason as `consumeAddSource`

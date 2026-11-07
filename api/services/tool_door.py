@@ -114,11 +114,13 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_get_perspective": lambda c, a: mcp_tools.get_perspective(
         c, _s(a, "subject"), a.get("observer"), a.get("context"), bool(a.get("history", False))),
     "cicada_save_url": lambda c, a: mcp_tools.save_url(c, _s(a, "url"), a.get("note")),
+    "cicada_add_book": lambda c, a: mcp_tools.add_book(c, _s(a, "isbn"), bool(a.get("preview", False))),
     "cicada_record_watch": lambda c, a: mcp_tools.record_watch(
         c, _s(a, "url"), _s(a, "summary"), a.get("excerpts"), a.get("chapters"), a.get("basis"), a.get("engine"),
         a.get("duration"), a.get("lease_token")),
     "cicada_video_queue": lambda c, a: mcp_tools.video_queue_list(c, a.get("limit")),
     "cicada_video_claim": lambda c, a: mcp_tools.video_claim(c, a.get("limit"), a.get("release")),
+    "cicada_export_requests": lambda c, a: mcp_tools.export_requests(c, a.get("done")),
     "cicada_explore_queue": lambda c, a: mcp_tools.explore_queue_list(c, a.get("limit")),
     "cicada_explore_claim": lambda c, a: mcp_tools.explore_claim(c, a.get("limit"), a.get("release")),
     "cicada_record_capture": lambda c, a: mcp_tools.record_capture(
@@ -141,13 +143,16 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         c, _s(a, "entity_id"), _s(a, "url"), _s(a, "outcome"), a.get("company"), a.get("position"), a.get("quotes"),
         a.get("summary"), a.get("via")),
     "cicada_record_saved_list": lambda c, a: mcp_tools.record_saved_list(c, _s(a, "platform"), _s(a, "outcome"),
-                                                                         a.get("items"), a.get("via")),
+                                                                         a.get("items"), a.get("via"), a.get("handle"),
+                                                                         a.get("profile_url")),
+    "cicada_record_substack_list": lambda c, a: mcp_tools.record_substack_list(c, _s(a, "list"), _s(a, "outcome"),
+                                                                               a.get("items"), a.get("via")),
     "cicada_record_youtube_list": lambda c, a: mcp_tools.record_youtube_list(c, _s(a, "list"), _s(a, "outcome"),
                                                                              a.get("videos"), a.get("via")),
     "cicada_reading_queue": lambda c, a: mcp_tools.reading_queue(c, a.get("limit")),
     "cicada_record_read": lambda c, a: mcp_tools.record_read(
         c, _s(a, "url"), _s(a, "outcome"), a.get("summary"), a.get("excerpts"), a.get("via"), a.get("note"),
-        a.get("title")),
+        a.get("title"), a.get("facts")),
     "cicada_sources": lambda c, a: mcp_tools.sources(c, _s(a, "entity_id")),
     "cicada_write_claim": lambda c, a: mcp_tools.write_claim(
         c, _s(a, "subject"), _s(a, "predicate"), _s(a, "object"), a.get("observer", "agent"), a.get("confidence"),
@@ -163,14 +168,42 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         a.get("new_predicate"), a.get("access"), a.get("entity")),
     "cicada_edit_page": lambda c, a: mcp_tools.edit_page(
         c, _s(a, "subject"), _s(a, "reason"), a.get("edits"), a.get("section"), a.get("text"), a.get("add_aliases"),
-        a.get("remove_aliases"), a.get("evidence"), a.get("resolves")),
+        a.get("remove_aliases"), a.get("evidence"), a.get("resolves"), a.get("name"), a.get("description")),
+    "cicada_merge_pages": lambda c, a: mcp_tools.merge_pages(c, _s(a, "page"), _s(a, "into"), _s(a, "reason")),
+    "cicada_undo_join": lambda c, a: mcp_tools.undo_join(c, _s(a, "page"), _s(a, "reason")),
+    "cicada_split_page": lambda c, a: mcp_tools.split_page(
+        c, _s(a, "page"), _s(a, "reason"), a.get("sentences"), a.get("claims"), a.get("sources"), a.get("episodes"),
+        a.get("references"), a.get("name"), a.get("page_type"), bool(a.get("preview", False))),
+    "cicada_create_project": lambda c, a: mcp_tools.create_project(c, _s(a, "project"), a.get("description"),
+                                                                   a.get("evidence"), a.get("repo"), a.get("reason")),
+    "cicada_link_conversation": lambda c, a: mcp_tools.link_conversation(
+        c, _s(a, "project"), a.get("episode"), a.get("session"), bool(a.get("remove", False)), a.get("reason")),
+    "cicada_link_entity": lambda c, a: mcp_tools.link_entity(c, _s(a, "project"), _s(a, "entity"),
+                                                             bool(a.get("remove", False)), a.get("reason")),
+    "cicada_add_influence": lambda c, a: mcp_tools.add_influence(c, _s(a, "project"), a.get("what"), a.get("url"),
+                                                                 a.get("how"), a.get("evidence")),
     "cicada_resolve_inbox": lambda c, a: mcp_tools.resolve_inbox(
         c, _s(a, "id"), a.get("option_key"), a.get("answer"), bool(a.get("defer", False)), a.get("remind_days"),
         skip=bool(a.get("skip", False)), reject=bool(a.get("reject", False)), quote=a.get("quote")),
 }
+
+
+def _relay_turn(ctx: mcp_tools.ToolContext, args: dict, options: dict):
+    """Ruling 57: a client's Claude desktop app, or this computer's own stdio server with its backend up. The door asks
+    the same question the stdio door did; the caller's environment is that process's, and it answered there."""
+    from api.services import relay_capture
+
+    if not relay_capture.local_relay_allowed(ctx.client_name, ctx.harness, env={}):
+        return mcp_tools.Reply(f"Error: Unknown tool: {relay_capture.TOOL}", code="invalid_arguments")
+    offset = options.get("utc_offset_minutes")
+    return relay_capture.capture_local(ctx, args.get("message"), args.get("previous_reply"), args.get("conversation"),
+                                       args.get("project"), said_at=options.get("said_at"),
+                                       utc_offset_minutes=offset if isinstance(offset, int) else None)
+
+
 #: Bodies outside `mcp_tools`, run below with what they need.
 SPECIAL = frozenset({"cicada_handshake", "cicada_continue", "cicada_pending", "cicada_mark_processed",
-                     "cicada_repo_context"})
+                     "cicada_repo_context", "cicada_capture_turns"})
 
 
 def tools() -> frozenset[str]:
@@ -186,7 +219,7 @@ def _self_post(backend_url: str, headers: Callable[[], dict]) -> Callable[[str, 
 
 def context(*, memory_path: Path, bank_name: str | None, caller: Caller, state: SessionState, surface: str,
             device_id: str | None, backend_url: str, headers: Callable[[], dict],
-            post: Callable[[str, dict], dict] | None = None) -> mcp_tools.ToolContext:
+            post: Callable[[str, dict], dict] | None = None, commits_saves: bool = False) -> mcp_tools.ToolContext:
     """The ToolContext a stdio process on this machine would build for this caller, pinned to one bank."""
     def pinned_headers() -> dict:
         out = dict(headers())
@@ -202,7 +235,7 @@ def context(*, memory_path: Path, bank_name: str | None, caller: Caller, state: 
         read_surface="cli" if surface == "cli" else "mcp",
         available=cli_map.exposed_tools() if surface == "cli" else None,
         local_files=False, sleep_probe=write_admission.holding, sleep_holding=write_admission.holding,
-        device_id=device_id)
+        device_id=device_id, commits_saves=commits_saves)
 
 
 @dataclass
@@ -275,6 +308,8 @@ def _run(tool, args, *, ctx, state, surface, options, root, memory_path, bank_na
             return mcp_tools.recall_detail(ctx, _s(args, "entity_id"), start=mcp_tools.line_number(args.get("start")),
                                            whole=bool(options.get("whole")))
         return DISPATCH[tool](ctx, args)
+    if tool == "cicada_capture_turns":
+        return _relay_turn(ctx, args, options)
     if tool == "cicada_handshake":
         from api.services import handshake
 
@@ -283,13 +318,14 @@ def _run(tool, args, *, ctx, state, surface, options, root, memory_path, bank_na
 
             names = frozenset(r.name for r in cli_map.exposed())
             tz = options.get("tz") if isinstance(options.get("tz"), str) else None
-            text = handshake.build_cli(state_dictionary.read_state(memory_path), commands=names,
+            text = handshake.build_cli(state_dictionary.with_live_engine(state_dictionary.read_state(memory_path)),
+                                       commands=names,
                                        bank=bank_name or memory_path.name, tz=tz, server=_server(options))
             handshake.record("cli", {"variant": handshake.CLI_VARIANT}, bank=memory_path.name, harness=ctx.harness)
             return Answer(text=text, data={"tokens_est": len(text) // 4})
         delivery = options.get("delivery") if options.get("delivery") in ("initialize", "tool") else "tool"
         text, meta = handshake.load_or_build(memory_path, ctx.client_name, bank_name=bank_name,
-                                             server=_server(options))
+                                             server=_server(options), relay=options.get("relay") is True)
         handshake.record(delivery, meta, bank=memory_path.name, harness=ctx.harness,
                          client_name=ctx.client_name or None)
         return text
@@ -305,7 +341,8 @@ def _run(tool, args, *, ctx, state, surface, options, root, memory_path, bank_na
     if tool == "cicada_pending":
         from api.services import agentic_write
 
-        return agentic_write.pending_text(memory_path, args.get("limit"), state.listed_revisions)
+        return agentic_write.pending_text(memory_path, args.get("limit"), state.listed_revisions,
+                                          args.get("query"))
     if tool == "cicada_mark_processed":
         from api.services import agentic_write
 

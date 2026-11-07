@@ -26,6 +26,9 @@ NAME_MAX = 255
 #: Messages photos are ≤ 128 px thumbnails, at most ``messages_photos.MAX_ITEMS`` of them.
 BODY_LIMITS: dict[str, int] = {
     "/capture/session": 8 * 1024 * 1024,
+    # Ruling 43: an agent's memory notes, every one under the harness root — the hook sends at most 8 MB of note text
+    # (`api/hooks/memory_notes.MAX_POST_BYTES`), JSON-escaped.
+    "/capture/agent-memory": 12 * 1024 * 1024,
     # G91 (ruling 38): a shared photo or file, ≤ 25 MB (`capture_files.MAX_BYTES`), plus its caption and the multipart
     # framing — refused before FastAPI spools a single byte of a bigger one.
     "/capture/file": 26 * 1024 * 1024,

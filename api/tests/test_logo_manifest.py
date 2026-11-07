@@ -96,7 +96,7 @@ def test_the_two_identical_claude_rasters_are_retired():
 def test_a_set_mark_is_built_from_its_committed_reviewed_source():
     """G217 — one mark per umbrella from `app/assets/logo-set/`, rebuilt offline: the source is the reviewed one."""
     set_assets = [a for a in _manifest()["assets"] if a["origin"] == "set"]
-    assert len(set_assets) >= 49
+    assert len(set_assets) >= 45
     for asset in set_assets:
         source = _REPO_ROOT / asset["setFile"]
         assert source.is_file(), asset["id"]
@@ -108,7 +108,10 @@ def test_one_mark_per_umbrella_the_duplicates_are_retired():
     """G217 (owner 2026-10-22): Codex and ChatGPT sit under OpenAI's mark, Gemini CLI under Gemini's."""
     ids = {a["id"] for a in _manifest()["assets"]}
     assert not ids & {"codex", "codex-dark", "chatgpt", "chatgpt-dark", "gemini-cli"}
-    assert {"openai", "openai-dark", "gemini", "claude", "grok", "meta", "instagram"} <= ids
+    assert {"openai", "openai-dark", "gemini", "claude", "grok", "muse", "copilot", "instagram"} <= ids
+    # Owner 2026-10-26: Muse wears its own mark, not Meta's; GitHub Copilot its own, not VS Code's; the agents that
+    # left the provider table leave the set.
+    assert not ids & {"meta", "vscode", "poke", "cline", "cline-dark", "goose", "kiro"}
 
 
 def test_every_umbrella_logo_in_the_provider_table_ships():

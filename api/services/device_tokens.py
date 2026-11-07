@@ -53,8 +53,36 @@ CREATE TABLE IF NOT EXISTS devices (
     revoked_at TEXT,
     last_used_at TEXT,
     use_count INTEGER NOT NULL DEFAULT 0,
-    kind TEXT NOT NULL DEFAULT 'full'
+    kind TEXT NOT NULL DEFAULT 'full',
+    key_thumbprint TEXT,
+    key_bound_at TEXT,
+    sign_jwk TEXT,
+    address TEXT,
+    copy_bank_id TEXT,
+    copy_seq INTEGER,
+    copy_at TEXT,
+    is_self INTEGER NOT NULL DEFAULT 0
 )"""
+#: G132 phase 2 (ruling 51a, "moving the home"): what a device of the group says about itself to its home, so any
+#: of them can become the home and the others can follow it — never a secret, all outside every bank:
+#: ``sign_jwk`` — the PUBLIC key it signs a hand-off record with (``device_key``), set once and never moved;
+#: ``address`` — where the person's other devices reach its backend (their LAN or tailnet; phase 3's relay replaces
+#: it); ``copy_bank_id`` / ``copy_seq`` / ``copy_at`` — the memory it keeps a copy of, how far that copy is, and when
+#: it last said so (the Sleep page's "how far behind"). ``is_self`` marks this computer's OWN row: the identity the
+#: home has in its own group (made the first time it shares the registry), never listed as one of "your devices".
+#: G132 phase 3b: ``relay_ed`` / ``relay_x`` — the PUBLIC halves of the keys the device uses at the relay (its frames'
+#: signing key, the key its epoch keys are sealed to), so a home knows which device a relay frame came from and a new
+#: home can wrap keys to every device; ``copy_head`` — the commit its copy is at (the home coalesces a lagging
+#: device's deltas into one bundle from there). Ruling 51f: ``door`` — where the device's home-network door answers
+#: (``sync_door``: its port, its public key and its LAN and tailnet addresses, JSON), so every device learns the
+#: routes of a device that may become the home; addresses only, outside every bank, never in the telemetry ledger.
+_SYNC_COLUMNS = (("sign_jwk", "TEXT"), ("address", "TEXT"), ("copy_bank_id", "TEXT"), ("copy_seq", "INTEGER"),
+                 ("copy_at", "TEXT"), ("is_self", "INTEGER NOT NULL DEFAULT 0"), ("relay_ed", "TEXT"),
+                 ("relay_x", "TEXT"), ("copy_head", "TEXT"), ("door", "TEXT"))
+#: G212 (owner 2026-10-29): a **key-bound** device's token works only with a proof signed by the device's own key
+#: (``device_proof``, RFC 9449's shape). ``key_thumbprint`` is that public key's RFC 7638 thumbprint — a hash of a
+#: public key, never a secret — set at pairing (the redeem carried a proof) or once by the device itself
+#: (:meth:`DeviceStore.bind_key`); NULL = not yet key-bound, the bearer token alone, as every device was before.
 #: G212 (owner 2026-10-22): what a device token may do. ``full`` — every route but the master-only ones (ruling 28,
 #: what `cicada device add` and a computer's pairing issue); ``capture`` — a phone's: send links and notes, read back
 #: its own recent captures, nothing else (``auth.CAPTURE_ROUTES``). A row from before the column is ``full``.
@@ -89,15 +117,32 @@ class Device:
     last_used_at: str | None = None
     use_count: int = 0
     kind: str = "full"
+    key_thumbprint: str | None = None
+    key_bound_at: str | None = None
+    sign_jwk: str | None = None
+    address: str | None = None
+    copy_bank_id: str | None = None
+    copy_seq: int | None = None
+    copy_at: str | None = None
+    is_self: bool = False
+    relay_ed: str | None = None
+    relay_x: str | None = None
+    copy_head: str | None = None
+    door: str | None = None
 
     @property
     def active(self) -> bool:
         return self.revoked_at is None
 
+    @property
+    def key_bound(self) -> bool:
+        return bool(self.key_thumbprint)
+
     def wire(self) -> dict:
+        # The thumbprint itself stays here: the wire says only whether the device is bound, and since when.
         return {"id": self.id, "name": self.name, "createdAt": self.created_at, "revokedAt": self.revoked_at,
                 "lastUsedAt": self.last_used_at, "useCount": self.use_count, "active": self.active,
-                "kind": self.kind}
+                "kind": self.kind, "keyBound": self.key_bound, "keyBoundAt": self.key_bound_at}
 
 
 def _now() -> str:
@@ -124,9 +169,29 @@ def store_dir() -> Path:
 
 
 def _row(row: sqlite3.Row) -> Device:
+    keys = row.keys()
     return Device(id=row["id"], name=row["name"], created_at=row["created_at"], revoked_at=row["revoked_at"],
                   last_used_at=row["last_used_at"], use_count=int(row["use_count"] or 0),
-                  kind=row["kind"] if "kind" in row.keys() and row["kind"] in KINDS else "full")
+                  kind=row["kind"] if "kind" in keys and row["kind"] in KINDS else "full",
+                  key_thumbprint=row["key_thumbprint"] if "key_thumbprint" in keys else None,
+                  key_bound_at=row["key_bound_at"] if "key_bound_at" in keys else None,
+                  sign_jwk=row["sign_jwk"] if "sign_jwk" in keys else None,
+                  address=row["address"] if "address" in keys else None,
+                  copy_bank_id=row["copy_bank_id"] if "copy_bank_id" in keys else None,
+                  copy_seq=row["copy_seq"] if "copy_seq" in keys else None,
+                  copy_at=row["copy_at"] if "copy_at" in keys else None,
+                  is_self=bool(row["is_self"]) if "is_self" in keys else False,
+                  relay_ed=row["relay_ed"] if "relay_ed" in keys else None,
+                  relay_x=row["relay_x"] if "relay_x" in keys else None,
+                  copy_head=row["copy_head"] if "copy_head" in keys else None,
+                  door=row["door"] if "door" in keys else None)
+
+
+#: Stores whose schema this process already made or migrated, by path — so the auth gate, which opens the store on
+#: every device request, runs its DDL once per process instead of once per request (measured: the store's verify
+#: p95 0.98 → 0.57 ms, 2026-10-29). A store file that disappears (a test's tmp dir, a wiped home) is made again.
+_READY: set[str] = set()
+_ready_lock = threading.Lock()
 
 
 _touched: dict[str, float] = {}
@@ -136,6 +201,9 @@ _touch_guard = threading.Lock()
 class DeviceStore:
     def __init__(self, path: Path | None = None) -> None:
         self.path = Path(path) if path is not None else store_dir() / "devices.db"
+        key = str(self.path)
+        if key in _READY and self.path.exists():
+            return
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         if not self.path.exists():
             # 0600 before sqlite opens it, so the -wal/-shm sidecars inherit it (the connector store's lesson).
@@ -149,6 +217,18 @@ class DeviceStore:
             for table, default in (("devices", "full"), ("pairings", "full")):
                 if "kind" not in {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}:
                     db.execute(f"ALTER TABLE {table} ADD COLUMN kind TEXT NOT NULL DEFAULT '{default}'")
+            # G212 (2026-10-29): a store from before key binding gains the two columns; every old device is not yet
+            # key-bound and keeps working with its bearer token exactly as before.
+            have = {r["name"] for r in db.execute("PRAGMA table_info(devices)")}
+            for column in ("key_thumbprint", "key_bound_at"):
+                if column not in have:
+                    db.execute(f"ALTER TABLE devices ADD COLUMN {column} TEXT")
+            # G132 phase 2: a store from before the home could move gains what a device says about itself.
+            for column, decl in _SYNC_COLUMNS:
+                if column not in have:
+                    db.execute(f"ALTER TABLE devices ADD COLUMN {column} {decl}")
+        with _ready_lock:
+            _READY.add(key)
 
     @contextmanager
     def _db(self):
@@ -178,10 +258,122 @@ class DeviceStore:
             row = db.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
         return _row(row) if row else None
 
-    def list(self) -> list[Device]:
+    def list(self, *, include_self: bool = False) -> list[Device]:
+        """The person's devices, newest first. This computer's own row (``is_self``, G132 phase 2) is not one of
+        them unless ``include_self``."""
         with self._db() as db:
             rows = db.execute("SELECT * FROM devices ORDER BY created_at DESC, id").fetchall()
-        return [_row(r) for r in rows]
+        return [d for d in (_row(r) for r in rows) if include_self or not d.is_self]
+
+    # ── G132 phase 2: the registry every full device shares ─────────────────────
+
+    def own(self) -> Device | None:
+        """This computer's own active row, or None."""
+        with self._db() as db:
+            row = db.execute("SELECT * FROM devices WHERE is_self=1 AND revoked_at IS NULL "
+                             "ORDER BY created_at DESC LIMIT 1").fetchone()
+        return _row(row) if row else None
+
+    def make_own(self, name: str, sign_jwk: dict) -> tuple[Device, str]:
+        """Issue this computer's OWN row and token (a home's identity in its own group): the token is what it sends
+        once it is a copy of another home. Any older own row is revoked (its token is gone with it)."""
+        import json as _json
+
+        device, token = self.create(name)
+        with self._db() as db:
+            db.execute("UPDATE devices SET revoked_at=COALESCE(revoked_at, ?) WHERE is_self=1 AND id<>?",
+                       (_now(), device.id))
+            db.execute("UPDATE devices SET is_self=1, sign_jwk=? WHERE id=?",
+                       (_json.dumps(sign_jwk, sort_keys=True), device.id))
+        return self.get(device.id), token
+
+    def announce(self, device_id: str, *, sign_jwk: dict | None = None, address: str | None = None,
+                 bank_id: str | None = None, seq: int | None = None, head: str | None = None,
+                 door: dict | None = None) -> Device:
+        """What a device says about itself (``POST /sync/devices/me``): its signing key — set once; another key is
+        ``ValueError``, a new key is a new pairing — where it is reached, and the copy it keeps. ``KeyError`` for an
+        unknown or revoked device."""
+        import json as _json
+
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
+            if row is None or row["revoked_at"]:
+                raise KeyError(device_id)
+            if sign_jwk is not None:
+                wanted = _json.dumps(sign_jwk, sort_keys=True)
+                if row["sign_jwk"] and row["sign_jwk"] != wanted:
+                    raise ValueError("This device already signs with another key. Pair it again for a new key.")
+                db.execute("UPDATE devices SET sign_jwk=? WHERE id=?", (wanted, device_id))
+            if address is not None:
+                db.execute("UPDATE devices SET address=? WHERE id=?", (address or None, device_id))
+            if bank_id is not None:
+                db.execute("UPDATE devices SET copy_bank_id=?, copy_seq=?, copy_at=? WHERE id=?",
+                           (bank_id, seq, _now(), device_id))
+            if head is not None:
+                db.execute("UPDATE devices SET copy_head=? WHERE id=?", (head or None, device_id))
+            if door is not None:
+                wanted = _json.dumps(door, sort_keys=True) if door else None
+                if row["door"] != wanted:
+                    db.execute("UPDATE devices SET door=? WHERE id=?", (wanted, device_id))
+        return self.get(device_id)
+
+    def set_relay_key(self, device_id: str, ed: str, x: str) -> Device:
+        """G132 phase 3b: the device's relay keys (public halves), set at pairing or enrolment. A device that already
+        has other keys keeps the new ones only through a new pairing (``ValueError``)."""
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
+            if row is None or row["revoked_at"]:
+                raise KeyError(device_id)
+            if row["relay_ed"] and row["relay_ed"] != ed:
+                raise ValueError("This device already has other relay keys. Pair it again for new ones.")
+            db.execute("UPDATE devices SET relay_ed=?, relay_x=? WHERE id=?", (ed, x, device_id))
+        return self.get(device_id)
+
+    def by_relay_key(self, ed: str) -> Device | None:
+        """The ACTIVE device whose relay signing key is ``ed`` (a frame's verified sender), else None."""
+        with self._db() as db:
+            row = db.execute("SELECT * FROM devices WHERE relay_ed=? AND revoked_at IS NULL", (ed,)).fetchone()
+        return _row(row) if row else None
+
+    def export(self) -> list[dict]:
+        """Every row, revoked ones too, as the registry a full device mirrors (``GET /sync/devices``): ids, names,
+        times, the token's sha256 (a verifier of a 256-bit secret, never the token), the bound key's thumbprint, the
+        signing key's public half, the address. Never a pairing code."""
+        with self._db() as db:
+            rows = db.execute("SELECT * FROM devices ORDER BY created_at, id").fetchall()
+        return [{k: r[k] for k in r.keys()} for r in rows]
+
+    def import_rows(self, rows: list[dict], *, me: str | None = None) -> int:
+        """Take the group's registry (the new home's step, G132 phase 2): every row upserted by id; a revoke is never
+        undone; ``is_self`` is this computer's own row only (``me``). Returns how many rows it took."""
+        cols = ("id", "name", "token_hash", "created_at", "revoked_at", "last_used_at", "use_count", "kind",
+                "key_thumbprint", "key_bound_at", "sign_jwk", "address", "copy_bank_id", "copy_seq", "copy_at",
+                "relay_ed", "relay_x", "copy_head", "door")
+        taken = 0
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if me:
+                db.execute("UPDATE devices SET is_self=0 WHERE id<>?", (me,))
+            for r in rows or ():
+                if not isinstance(r, dict) or not ID_RE.match(str(r.get("id") or "")) or not r.get("token_hash"):
+                    continue
+                values = [r.get(c) for c in cols]
+                kind_at = cols.index("kind")
+                values[kind_at] = values[kind_at] if values[kind_at] in KINDS else "full"
+                values[cols.index("use_count")] = int(r.get("use_count") or 0)
+                if not values[cols.index("created_at")]:
+                    values[cols.index("created_at")] = _now()
+                if not values[cols.index("name")]:
+                    values[cols.index("name")] = "device"
+                here = db.execute("SELECT revoked_at FROM devices WHERE id=?", (r["id"],)).fetchone()
+                if here is not None and here["revoked_at"]:
+                    values[cols.index("revoked_at")] = here["revoked_at"]       # a revoke is never undone
+                db.execute(f"INSERT OR REPLACE INTO devices ({', '.join(cols)}, is_self) VALUES "
+                           f"({', '.join('?' for _ in cols)}, ?)", (*values, 1 if r["id"] == me else 0))
+                taken += 1
+        return taken
 
     def verify(self, token: str | None) -> Device | None:
         """The active device a token belongs to, else None — malformed, unknown, a wrong secret for a real id and a
@@ -217,6 +409,34 @@ class DeviceStore:
             db.execute("UPDATE devices SET revoked_at=COALESCE(revoked_at, ?) WHERE id=?", (_now(), device_id))
         return self.get(device_id)
 
+
+    def bind_key(self, device_id: str, key_thumbprint: str, *, narrow_to: str | None = None) -> tuple[Device, bool]:
+        """Bind a device that is not yet key-bound to its key, once (2026-10-29: an already-paired phone upgrades by
+        itself). ``(device, changed)``. Binding the key it already has is a no-op; another key is ``ValueError`` — a
+        bound device never moves to a new key, a new key is a new pairing. ``narrow_to="capture"`` also narrows a
+        full device to capture-only (a device may lower its own rights, never raise them). ``KeyError`` for an
+        unknown or revoked device."""
+        if not key_thumbprint or narrow_to not in (None, "capture"):
+            raise ValueError("bad binding")
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
+            if row is None or row["revoked_at"]:
+                raise KeyError(device_id)
+            if row["kind"] != "capture" and narrow_to != "capture":
+                raise FullDeviceKey()
+            current = row["key_thumbprint"]
+            if current and not hmac.compare_digest(current, key_thumbprint):
+                raise ValueError("This device is already bound to another key. Pair it again for a new key.")
+            changed = False
+            if not current:
+                db.execute("UPDATE devices SET key_thumbprint=?, key_bound_at=? WHERE id=?",
+                           (key_thumbprint, _now(), device_id))
+                changed = True
+            if narrow_to == "capture" and row["kind"] != "capture":
+                db.execute("UPDATE devices SET kind='capture' WHERE id=?", (device_id,))
+                changed = True
+        return self.get(device_id), changed
 
     # ── G212: pairing ──────────────────────────────────────────────────────────
 
@@ -257,33 +477,54 @@ class DeviceStore:
                        (_now(), pairing_id))
         return self.pairing(pairing_id)
 
-    def redeem(self, code: str, name: str, *, now: datetime | None = None) -> tuple[Device, str]:
+    def redeem(self, code: str, name: str, *, now: datetime | None = None, key_thumbprint: str | None = None,
+               kind: str | None = None, pairing_id: str | None = None) -> tuple[Device, str]:
         """Spend a code: the device the new machine named is issued its own token. ``KeyError`` for a code that
         matches nothing waiting — unknown, used, cancelled and expired all look the same to the asker. The code is
-        spent in the same statement that checks it, so two redeems of one code make one device."""
+        spent in the same statement that checks it, so two redeems of one code make one device.
+
+        ``key_thumbprint`` (2026-10-29): the redeem carried a proof of the device's own key, so the token is born
+        key-bound. ``kind``: what the device asks to be — it may only **narrow** the code (a phone asking for
+        ``capture`` on a computer's code gets a capture token), never widen it."""
         clean = clean_name(name)
+        if kind is not None and kind not in KINDS:
+            raise ValueError("kind must be 'capture' or 'full'")
+        requested = kind
         normal = normalize_code(code)
         if len(normal) != CODE_LENGTH or any(ch not in CODE_ALPHABET for ch in normal):
             raise KeyError("code")
         stamp = (now or datetime.now(timezone.utc)).replace(microsecond=0).isoformat()
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
+            # Ruling 51f: a door pairing's secret redeems only its own pairing's code (``pairing_id``).
+            only = " AND id=?" if pairing_id else ""
             spent = db.execute(
                 "UPDATE pairings SET used_at=? WHERE code_hash=? AND used_at IS NULL AND cancelled_at IS NULL "
-                "AND expires_at > ?", (stamp, _hash(normal), stamp)).rowcount
+                "AND expires_at > ?" + only, (stamp, _hash(normal), stamp) + ((pairing_id,) if pairing_id else ())
+            ).rowcount
             if spent != 1:
                 raise KeyError("code")
             row = db.execute("SELECT id, kind FROM pairings WHERE code_hash=?", (_hash(normal),)).fetchone()
             kind = row["kind"] if row["kind"] in KINDS else "capture"
+            if requested == "capture":
+                kind = "capture"
+            if key_thumbprint and kind == "full":
+                raise FullDeviceKey()   # raised inside the transaction: the code is not spent
             secret = secrets.token_urlsafe(32)
             while True:
                 device_id = "".join(secrets.choice(_ID_ALPHABET) for _ in range(8))
                 if db.execute("SELECT 1 FROM devices WHERE id=?", (device_id,)).fetchone() is None:
                     break
-            db.execute("INSERT INTO devices (id, name, token_hash, created_at, kind) VALUES (?, ?, ?, ?, ?)",
-                       (device_id, clean, _hash(secret), _now(), kind))
+            bound_at = _now() if key_thumbprint else None
+            db.execute("INSERT INTO devices (id, name, token_hash, created_at, kind, key_thumbprint, key_bound_at) "
+                       "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                       (device_id, clean, _hash(secret), _now(), kind, key_thumbprint or None, bound_at))
             db.execute("UPDATE pairings SET device_id=? WHERE id=?", (device_id, row["id"]))
         return self.get(device_id), f"{PREFIX}{device_id}_{secret}"
+
+
+class FullDeviceKey(ValueError):
+    """A key binding asked for a ``full`` device (review 2026-10-29): refused until a computer's clients can all sign."""
 
 
 @dataclass(frozen=True)

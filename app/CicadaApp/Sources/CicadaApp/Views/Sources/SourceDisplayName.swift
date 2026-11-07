@@ -66,11 +66,25 @@ enum SourceDisplayName {
         "tiktok-history": "TikTok history",
         "rss": "RSS",
         "calendar": "Calendars",
-        "telegram": "Telegram",
+        "telegram": "Telegram bot",
         "notes": "Apple Notes",
         // G219: Apple Reminders and a Notion export (`source_overview.CATALOG`'s G219 rows).
         "reminders-local": "Reminders",
+        // G39, G233 (`source_overview.CATALOG`'s Reading rows).
+        "apple-books": "Apple Books",
+        "goodreads": "Goodreads",
+        "book-scan": "Book scans",
         "notion": "Notion",
+        // Ruling 47 tier 2 (`source_overview.CATALOG`'s rows).
+        "notion-api": "Notion (live)",
+        // ROR-115.
+        "linear": "Linear",
+        "linear-api": "Linear",
+        // G230.
+        "github": "GitHub",
+        // G32 (`source_overview.CATALOG`'s rows).
+        "spotify": "Spotify",
+        "spotify-listening": "Spotify history",
         "files": "Files & links",
         "wispr-flow": "Wispr Flow",
         // The open families a live bank produces (A2/A4).

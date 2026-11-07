@@ -19,7 +19,7 @@ struct SleepTabRow: View {
             // "All", and re-selecting it must not close find or the open item).
             TextTabs(tabs: tabs, selection: Binding(get: { selected }, set: { tab in
                 if let tab, tab != selected { select(tab) }
-            }))
+            }), large: true)
                 .accessibilityLabel(Copy.SleepTabs.tabsLabel)
             if showsTools {
                 Spacer(minLength: CicadaTheme.spacingSM)
@@ -38,9 +38,12 @@ struct SleepTabRow: View {
         }
         // R-DL14 — the one-shot import's door (G126), a plain icon, and ⌘N's only home. The page draws one row at a
         // time (the sticky one with nothing open, the eyebrow's beside an item), so ⌘N has one publisher.
-        IconButton(systemName: "plus", help: Copy.Lists.addSourceShortcut,
-                   accessibilityLabel: Copy.addASource,
-                   shortcut: KeyboardShortcut("n", modifiers: .command), action: onAdd)
+        // ROR-118 round 4 - the door says its word beside the plus and is a DR-40 neutral button (round 3's quiet text read
+        // as detached); it ends the row on the room's right edge, where the list's last column ends.
+        NeutralButton(title: Copy.SleepTabs.add, systemImage: "plus", size: .compact,
+                      shortcut: KeyboardShortcut("n", modifiers: .command),
+                      help: Copy.Lists.addSourceShortcut, action: onAdd)
+            .accessibilityLabel(Copy.addASource)
     }
 
     /// The tabs on screen with their counts; Past reads carries none (it is not a pile).

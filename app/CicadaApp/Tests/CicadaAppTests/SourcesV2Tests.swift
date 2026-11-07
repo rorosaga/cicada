@@ -85,7 +85,7 @@ final class SourcesV2Tests: XCTestCase {
             "safari-bookmarks": "Safari", "safari-tabs": "Safari tabs", "pinterest": "Pinterest",
             "reddit": "Reddit", "x": "X", "instagram": "Instagram", "youtube": "YouTube",
             "linkedin": "LinkedIn", "tiktok": "TikTok", "rss": "RSS", "calendar": "Calendars",
-            "telegram": "Telegram", "notes": "Apple Notes", "files": "Files & links",
+            "telegram": "Telegram bot", "notes": "Apple Notes", "files": "Files & links",
         ]
         for (id, name) in expected {
             XCTAssertEqual(SourceDisplayName.of(SourceOverview(id: id, label: "\(id) bookmarks",
@@ -230,9 +230,9 @@ final class SourcesV2Tests: XCTestCase {
     /// a reviewer removing `EmptyStateView`'s action "because the header has one
     /// now" is a regression, not a tidy-up.
     func testTheEmptyStateKeepsItsOwnWayIn() throws {
-        // G217: the root is the catalogue — every way in, on or off — so it is never empty; each row is a way in.
+        // G217, ROR-7: the root is the catalogue — every way in, on or off — so it is never empty; each tile is a way in.
         let grid = try sourceFile("Views/Sources/SourcesColumns.swift")
-        XCTAssertTrue(grid.contains("SourceCatalogList(rows: catalog, style: .wide"))
+        XCTAssertTrue(grid.contains("SourceGridView(rows: catalog,"))
     }
 
     /// The detail page's window is the backend's OWN `ACTIVITY_DAYS`

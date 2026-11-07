@@ -72,6 +72,27 @@ final class EngineOptionTests: XCTestCase {
         XCTAssertEqual(EngineOption.compactCandidates([card("auto"), card("agent"), card("byok")]).map(\.id), ["agent", "byok"])
     }
 
+    /// Ruling 36 D1 — a local model runs only when chosen: last in the row, and not a choice while it is not installed.
+    func testALocalModelStandsLastAndIsNoChoiceUntilInstalled() {
+        let row = [card("local", available: false, connected: false), card("agent", connected: false), card("byok")]
+        XCTAssertEqual(EngineOption.compactCandidates(row).map(\.id), ["agent", "byok", "local"])
+        let missing = card("local", available: false, connected: false)
+        XCTAssertFalse(EngineOption.isSelectableCompact(missing, selectedMode: "auto"))
+        XCTAssertTrue(EngineOption.isSelectableCompact(missing, selectedMode: "local"), "the saved pick stays")
+        XCTAssertTrue(EngineOption.isSelectableCompact(card("local", connected: false), selectedMode: "auto"), "installed")
+        XCTAssertTrue(EngineOption.isSelectableCompact(card("byok"), selectedMode: "auto"))
+        XCTAssertFalse(EngineOption.isSelectableCompact(card("codex", connected: false), selectedMode: "auto"))
+    }
+
+    func testWithNothingConnectedTheRowLeadsToConnecting() {
+        let none = [card("agent", available: false, connected: false), card("codex", connected: false),
+                    card("local", available: false, connected: false), card("byok")]
+        XCTAssertTrue(EngineOption.nothingConnected(none, hasKey: false))
+        XCTAssertFalse(EngineOption.nothingConnected(none, hasKey: true), "a key reads")
+        XCTAssertFalse(EngineOption.nothingConnected([card("agent")] + none.dropFirst(), hasKey: false), "a plan reads")
+        XCTAssertFalse(EngineOption.nothingConnected(none.filter { $0.id != "local" } + [card("local", models: ["m"])], hasKey: false), "a ready local")
+    }
+
     func testTheRingFollowsThePickThenAnEngineThatCanRun() {
         XCTAssertEqual(EngineOption.ringed(pick: "local", readiness: .ready(candidate: "agent")), "local")
         XCTAssertEqual(EngineOption.ringed(pick: nil, readiness: .ready(candidate: "agent")), "agent")

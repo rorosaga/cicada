@@ -21,6 +21,9 @@ import os
 from pathlib import Path
 
 import json
+import re
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -46,6 +49,8 @@ os.environ["CICADA_SUITE_CALLER_HOMES"] = os.pathsep.join(
 os.environ["CICADA_SUITE_ROOT"] = str(_SUITE_ROOT)
 os.environ["HOME"] = str(_SUITE_ROOT / "home")
 os.environ["CICADA_HOME"] = str(_SUITE_ROOT / "home" / ".cicada")
+# Ruling 51f: a door any test opens binds loopback only — never this computer's LAN, tailnet or a wildcard address.
+os.environ["CICADA_SYNC_DOOR_HOST"] = "127.0.0.1"
 _atexit.register(_shutil.rmtree, _SUITE_ROOT, ignore_errors=True)
 
 # A developer checkout's settings file (`api/.env`, `api/settings_file.py`) never reaches the suite: off before any
@@ -114,6 +119,13 @@ def _forget_the_developers_dotenv():
 
 
 @pytest.fixture(autouse=True)
+def _no_real_apps(monkeypatch):
+    """ROR-52: `/Applications` is the one place `resolve_binary` looks that the suite's own HOME doesn't move, so no
+    test finds, let alone spawns, a tool inside a real app on the machine running it. A test of it points this at tmp."""
+    monkeypatch.setattr(_conn_base, "APP_DIRS", ())
+
+
+@pytest.fixture(autouse=True)
 def _suite_reads_with_a_chosen_key(request):
     """2026-10-19 (owner: "OpenRouter, eliminate it as the default"): the shipped ``llm_mode`` is ``auto`` — a plan,
     else the local model, never a metered key by itself. Most of this suite was written when a bare ``Settings()``
@@ -154,6 +166,21 @@ def _default_cicada_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _off_switches_stay_in_their_test():
+    """A benchmark's `main()` turns these off for its own process with `os.environ.setdefault`. Called from a test, that
+    silently turned reads and capture off for every test after it in the run, which is why `test_question_order` failed in
+    a full run and passed alone."""
+    names = ("CICADA_TELEMETRY", "CICADA_CAPTURE", "CICADA_RECALL")
+    before = {name: os.environ.get(name) for name in names}
+    yield
+    for name, value in before.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+
+@pytest.fixture(autouse=True)
 def _no_real_agent_home(tmp_path, monkeypatch):
     """G138: the handshake and GET /skills/recommended look for SKILL.md files
     and plugin ids under the agents' home. The suite must never read the
@@ -186,6 +213,35 @@ def _no_real_skill_tools_or_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_tailscale(monkeypatch, tmp_path_factory):
+    """No test may run the developer's Tailscale: `PUT /remote/settings {"enabled": false}` closes a public address, and
+    `reach`'s `run=subprocess.run` defaults were bound at import, so only the process start itself is a seam for all of
+    them. Anything named tailscale that isn't a stand-in a test made in its own temp folder answers as a missing binary
+    does. A `run=` a test injects never gets here."""
+    made_here = tmp_path_factory.getbasetemp().resolve()
+
+    def is_real(word, env) -> bool:
+        if Path(word).name.lower() != "tailscale":
+            return False
+        found = shutil.which(word, path=(env if env is not None else os.environ).get("PATH"))
+        return found is None or not Path(found).resolve().is_relative_to(made_here)
+
+    class Guarded(subprocess.Popen):
+        def __init__(self, args, *rest, **kwargs):
+            many = not isinstance(args, (str, bytes, os.PathLike))
+            words = [os.fsdecode(a) for a in (args if many else [args])]
+            shell = kwargs.get("shell") or (len(words) > 2 and Path(words[0]).name in ("sh", "bash", "zsh")
+                                            and words[1] == "-c")
+            if shell and re.search(r"(?i)\btailscale\b", " ".join(words)):
+                raise FileNotFoundError(f"no real tailscale in tests: {words}")
+            if any(is_real(word, kwargs.get("env")) for word in words):
+                raise FileNotFoundError(f"no real tailscale in tests: {words[0]}")
+            super().__init__(args, *rest, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", Guarded)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_plan_account(monkeypatch):
     """A Sleep stage on the Claude plan reads the signed-in account (`engine_identity`) to keep it out of memory. No
     test may run the developer's `claude auth status`: every test reads no account unless it installs a placeholder."""
@@ -195,6 +251,35 @@ def _no_real_plan_account(monkeypatch):
     engine_identity.clear()
     yield
     engine_identity.clear()
+
+
+@pytest.fixture(autouse=True)
+def _machine_online_and_awake(monkeypatch):
+    """A Sleep run asks this machine whether it has a network and whether it slept (`machine_state`, 2026-11-03). No
+    test may read the runner's own route table or a lid closed mid-suite: every test is online and awake unless it
+    says otherwise (`test_sleep_offline.py`)."""
+    from api.services import machine_state, sleep_drain
+
+    monkeypatch.setattr(machine_state, "has_route", lambda: True)
+    monkeypatch.setattr(machine_state, "slept_s", lambda since: 0.0)
+    # A run that waits for the network waits in milliseconds here, never the shipped seconds and minutes.
+    monkeypatch.setattr(sleep_drain, "OFFLINE_POLL_S", 0.001)
+    monkeypatch.setattr(sleep_drain, "OFFLINE_WAIT_S", 0.01)
+    monkeypatch.setattr(sleep_drain, "OFFLINE_SETTLE_S", 0.001)
+    monkeypatch.setattr(sleep_drain, "CONNECTION_BACKOFF_S", (0.001, 0.001, 0.001))
+
+
+@pytest.fixture(autouse=True)
+def _no_real_auto_tool_rungs(monkeypatch):
+    """Ruling 46: Auto's last rungs read the person's own Cursor and OpenCode. No test may find the developer's own
+    install of either: the rungs are empty unless a test puts them back (with stub tools on a scratch PATH), and the
+    tools' status cache is cleared around every test."""
+    from api.services import cli_engines
+
+    monkeypatch.setattr(cli_engines, "AUTO_SPECS", ())
+    cli_engines.invalidate()
+    yield
+    cli_engines.invalidate()
 
 
 @pytest.fixture(autouse=True)
@@ -249,11 +334,61 @@ def _no_background_reindex(monkeypatch):
     monkeypatch.setenv("CICADA_EMBED_WORKER", "off")
     # G207: the job after capture (an embed, a quick read) is off too — its own tests turn it on.
     monkeypatch.setenv("CICADA_AWAKE_READ", "off")
+    # Vision item 4: the model catalogue's background `claude --help` read — its own tests run it with a stub.
+    monkeypatch.setenv("CICADA_MODEL_CATALOGUE_REFRESH", "off")
 
 
 @pytest.fixture(autouse=True)
 def _disable_telemetry(monkeypatch):
     monkeypatch.setenv("CICADA_TELEMETRY", "off")
+
+
+@pytest.fixture(autouse=True)
+def _no_gc_freeze(monkeypatch):
+    """Every TestClient lifespan would freeze the suite's heap once (`gc_tuning`): off, its own test turns it on."""
+    monkeypatch.setenv("CICADA_GC_FREEZE", "off")
+
+
+@pytest.fixture(autouse=True)
+def _stdio_client_info_isolated():
+    """The stdio server is one module object shared by the whole run (`_stdio_server`), and `initialize_result` records
+    the client's name in its module-level ``CLIENT_INFO``: a test that initialises as a client left it for every later
+    test (``test_run_events`` failed after ``test_agent_first_call``). Each test starts from no client and leaves none."""
+    import sys
+
+    from _stdio_server import _NAME
+
+    module = sys.modules.get(_NAME)
+    if module is not None:
+        module.CLIENT_INFO.clear()
+    yield
+    module = sys.modules.get(_NAME)
+    if module is not None:
+        module.CLIENT_INFO.clear()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_inbox_build():
+    """`load_inbox` keeps its built list per bank on the stamps of what it reads, and the cut excerpts and untimed ids
+    on theirs (speed 2026-10-29); a test that patches a reader (the clock aside, which is in the key) starts from
+    none of them."""
+    from api.routers import status as status_router
+    from api.services import episode_time, inbox_context, inbox_service, mcp_tools, origin_stats, project_timeline
+
+    def clear():
+        inbox_service.reset_built()
+        inbox_context._EXCERPTS.clear()
+        episode_time._UNTIMED.clear()
+        origin_stats._MEMO.clear()
+        project_timeline._EPOCHS.clear()
+        project_timeline._ENTITY_EPOCHS.clear()
+        project_timeline._LISTS.clear()
+        status_router._EPISODE_COUNTS.clear()
+        mcp_tools._PAGE_CLAIMS.clear()
+
+    clear()
+    yield
+    clear()
 
 
 @pytest.fixture(autouse=True)
@@ -274,6 +409,18 @@ def _disable_connector_fetch(monkeypatch):
     and the network — same posture as ``_disable_logo_fetch`` above.
     """
     monkeypatch.setenv("CICADA_ALLOW_CONNECTOR_FETCH", "off")
+
+
+@pytest.fixture(autouse=True)
+def _no_wikidata(monkeypatch):
+    """Ruling 40: no test may ask Wikidata. The person's click (``/maintenance/verify-sites``) is ungated by design, so
+    the default getter answers "no answer" here; ``org_sites``' own tests inject theirs."""
+    from api.services import org_sites
+
+    async def _none(params):
+        return None
+
+    monkeypatch.setattr(org_sites, "wikidata_get", _none)
 
 
 @pytest.fixture(autouse=True)
@@ -656,3 +803,14 @@ def pytest_collection_modifyitems(config, items):
                 # The daily tier never waits on a wall-clock budget (suite cut 3): a rail's guard asserts behaviour.
                 raise pytest.UsageError(f"crucial.txt names a `bench` test: {item.nodeid}")
             item.add_marker(pytest.mark.crucial)
+
+
+@pytest.fixture
+def pair_conversations(monkeypatch):
+    """Opt-in (owner 2026-11-04, `pair_evidence`): treat a duplicate question's own conversation as naming both sides.
+    For tests about HOW a lead between two people is found (G209), whose synthetic conversations are ids with no text;
+    whether a conversation really names both is `test_pair_evidence`'s. The owner rule still holds."""
+    from api.services import pair_evidence
+
+    monkeypatch.setattr(pair_evidence, "pair_episode",
+                        lambda memory_path, a_names, b_names, *, first="", also=(), fresh=True: first or None)

@@ -56,9 +56,44 @@ CODEX_PLAN_OVERRIDE_ENV = ("CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_BASE_U
 #: its own below.
 _ALSO_STRIPPED = ("CLAUDE_CODE_RETRY_WATCHDOG", "CODEX_HOME")
 
-#: R-E5: one list for every child. Cicada only ever spawns ``claude`` and
-#: ``codex``, so stripping the union is safe for both.
-SCRUBBED_ENV_KEYS = MANAGED_KEY_ENV + CLAUDE_PLAN_OVERRIDE_ENV + CODEX_PLAN_OVERRIDE_ENV + _ALSO_STRIPPED
+#: G49/G50 — the plan engines that run the person's own Cursor, OpenCode and Grok sign-ins (``cli_engines``): a key in
+#: the environment would move Cursor off its login (cursor.com/docs/cli/reference/authentication), and an inline
+#: OpenCode config could loosen the deny-all permission Cicada sets for its own calls. (``XAI_API_KEY`` is already in
+#: ``MANAGED_KEY_ENV``.)
+CLI_ENGINE_OVERRIDE_ENV = ("CURSOR_API_KEY", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG", "OPENCODE_PERMISSION")
+
+#: Ruling 47 tier 2 and G71: the tokens of the person's ingestion connectors (``api/services/connectors``). No engine
+#: child needs one, and a model with tools must never hold a key to the person's Notion, Readwise or Reddit; pinned to
+#: every adapter's ``SECRET_NAMES`` by ``test_connectors_tier2``.
+CONNECTOR_SECRET_ENV = ("PINTEREST_APP_ID", "PINTEREST_APP_SECRET", "PINTEREST_ACCESS_TOKEN",
+                        "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD",
+                        "X_CLIENT_ID", "X_ACCESS_TOKEN", "X_REFRESH_TOKEN", "X_USER_ID",
+                        "CICADA_READWISE_TOKEN", "CICADA_NOTION_TOKEN", "CICADA_NOTION_REFRESH_TOKEN",
+                        "CICADA_NOTION_TOKEN_EXPIRES", "CICADA_NOTION_CLIENT_ID", "CICADA_NOTION_AUTH", "CICADA_GITHUB_TOKEN",
+                        "CICADA_GITHUB_REFRESH_TOKEN", "CICADA_GITHUB_TOKEN_EXPIRES", "CICADA_GITHUB_AUTH",
+                        "CICADA_REDDIT_TOKEN", "CICADA_REDDIT_REFRESH_TOKEN", "CICADA_REDDIT_TOKEN_EXPIRES",
+                        "CICADA_REDDIT_ACCOUNT", "CICADA_REDDIT_AUTH",
+                        "CICADA_LINEAR_TOKEN", "CICADA_LINEAR_REFRESH_TOKEN", "CICADA_LINEAR_TOKEN_EXPIRES",
+                        "CICADA_LINEAR_CLIENT_ID", "CICADA_LINEAR_AUTH")
+
+#: Cicada's own credentials: the backend's master API token (``auth``) and the Telegram bot's token and webhook
+#: secret (G29). No child — an engine, the embedding worker, the PDF reader — ever needs one.
+CICADA_SECRET_ENV = ("CICADA_API_TOKEN", "CICADA_TELEGRAM_BOT_TOKEN", "CICADA_TELEGRAM_WEBHOOK_SECRET")
+
+#: R-E5: one list for every child. Stripping the union is safe for every CLI Cicada spawns.
+SCRUBBED_ENV_KEYS = (MANAGED_KEY_ENV + CLAUDE_PLAN_OVERRIDE_ENV + CODEX_PLAN_OVERRIDE_ENV + CLI_ENGINE_OVERRIDE_ENV
+                     + CONNECTOR_SECRET_ENV + CICADA_SECRET_ENV + _ALSO_STRIPPED)
+
+
+def secretless_env() -> dict[str, str]:
+    """The environment for a helper child Cicada runs on its own code (the embedding worker, the PDF page reader):
+    every key, token and secret in ``SCRUBBED_ENV_KEYS`` stripped, nothing added — it never calls a model or a
+    service, and a crash dump or a library's telemetry must have nothing to leak."""
+    return {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV_KEYS}
+
+
+#: Set on every child Cicada spawns; Cicada's own MCP server reads it and stays silent (see ``scrubbed_env``).
+ENGINE_SPAWN_ENV = "CICADA_ENGINE_SPAWN"
 
 
 @dataclass
@@ -86,7 +121,42 @@ _CLI_FALLBACK_DIRS: tuple[str, ...] = (
     "~/.npm-global/bin",
     "~/.claude/local",
     "~/.codex/bin",
+    "~/.opencode/bin",   # where OpenCode's own install script puts it (its README, read 2026-11-04)
 )
+
+#: ROR-52 — where a Mac app lives. Two fixed folders, each asked only for a fixed app name below: never a path a
+#: request names, never ``~/Library``, and neither needs Full Disk Access. The backend asks because the backend is what
+#: spawns the tool (the same read as ``api/remote/reach.py``'s Tailscale app). On Linux they are simply not there.
+APP_DIRS: tuple[str, ...] = ("/Applications", "~/Applications")
+
+#: A vendor CLI a Mac app carries inside itself and does not put on PATH: logical name -> (app, paths inside it, first
+#: that runs). OpenCode's Electron desktop carries it in ``process.resourcesPath``, ``Contents/Resources`` on a Mac
+#: (its ``packages/desktop``'s ``desktop-cli.ts``, read 2026-11-05); its older build in ``Contents/MacOS``.
+APP_BUNDLED_TOOLS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "opencode": ("OpenCode.app", ("Contents/Resources/opencode-cli", "Contents/MacOS/opencode-cli")),
+}
+
+
+def app_path(app: str) -> str | None:
+    """Where the named app is installed, from :data:`APP_DIRS`, or ``None``."""
+    for folder in APP_DIRS:
+        candidate = os.path.join(os.path.expanduser(folder), app)
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+
+def bundled_tool(name: str) -> str | None:
+    """The executable an installed app carries for the logical CLI ``name``, or ``None``."""
+    entry = APP_BUNDLED_TOOLS.get(name)
+    where = app_path(entry[0]) if entry else None
+    if not where:
+        return None
+    for inside in entry[1]:
+        candidate = os.path.join(where, inside)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
 
 
 def resolve_binary(name: str) -> str | None:
@@ -95,7 +165,8 @@ def resolve_binary(name: str) -> str | None:
     A ``name`` that already contains a path separator is returned as-is when
     it exists. ``CICADA_<NAME>_CLI`` (e.g. ``CICADA_CLAUDE_CLI``) overrides
     everything, for a non-standard install. Then ``PATH``, then
-    :data:`_CLI_FALLBACK_DIRS`. Never raises.
+    :data:`_CLI_FALLBACK_DIRS`, then the copy an app carries (:func:`bundled_tool`), so a tool the person installed
+    on its own outranks the one inside the app. Never raises.
     """
     if not name:
         return None
@@ -111,7 +182,7 @@ def resolve_binary(name: str) -> str | None:
         candidate = os.path.join(os.path.expanduser(d), name)
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return candidate
-    return None
+    return bundled_tool(name)
 
 
 def _resolve_argv(argv: list[str]) -> list[str] | None:
@@ -174,6 +245,10 @@ def scrubbed_env(name: str | None = None) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV_KEYS}
     env["CICADA_CAPTURE"] = "off"
     env["CICADA_RECALL"] = "off"
+    # Review of #494: a harness Cicada spawns may still start the person's MCP servers (Cursor has no run-wide switch;
+    # Grok always loads its own config.toml's). Cicada's own server, started under this marker, answers with no
+    # instructions, no tools and no "agent reached Cicada" row (`mcp/server.py`).
+    env[ENGINE_SPAWN_ENV] = "1"
     if name and os.path.basename(name) == "codex":
         env["CODEX_HOME"] = str(codex_home())
     return env

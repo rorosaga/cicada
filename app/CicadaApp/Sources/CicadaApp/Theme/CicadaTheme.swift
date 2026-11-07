@@ -52,6 +52,9 @@ final class ThemeStore {
     static let scaleStep = 0.1
 
     var uiScale: Double
+    /// Owner 2026-11-06 — counts every zoom the person made (a key, the menu, the palette, the Settings slider), so the
+    /// percentage pill shows one even at the limit, where the scale itself does not move. Never persisted.
+    var zoomPulse = 0
 
     /// Where the preference and `AppleInterfaceStyle` are re-read on a flip —
     /// a test hands in a suite, the app the standard domain.
@@ -143,6 +146,15 @@ enum CicadaTheme {
     static var bgPane: Color { mode == .dark ? Dark.bgPane : Light.bgPane }
     static var bgHover: Color { mode == .dark ? Dark.bgHover : Light.bgHover }
     static var bgFocus: Color { mode == .dark ? Dark.bgFocus : Light.bgFocus }
+    /// Round 2 (ROR-118): the Settings cards sit one step above `bgFocus` in the dark ladder (`bgOption`), so a card reads
+    /// against the panel's `bgBase` instead of dissolving into it; light keeps `bgFocus` (white on the off-white page).
+    static var settingsCardFill: Color { mode == .dark ? Dark.bgButton : Light.bgFocus }
+    /// Round 4 (ROR-118): the panel's own fill, a step above the app's page in dark so its edge reads against the flat
+    /// backdrop (light keeps `bgBase`); the cards above it are one step higher again.
+    static var settingsPanelFill: Color { mode == .dark ? Dark.bgFocus : Light.bgBase }
+    /// The plain disc of anyone with no photo (owner 2026-11-05). `bgFocus` is the card a picture sits on, so it vanished
+    /// there; this stands off every surface in both modes, and `textSecondary` clears 4.5:1 on it.
+    static var pictureFill: Color { mode == .dark ? Dark.pictureFill : Light.pictureFill }
     static var bgOption: Color { mode == .dark ? Dark.bgOption : Light.bgOption }
     static var bgButton: Color { mode == .dark ? Dark.bgButton : Light.bgButton }
     static var bgButtonHover: Color { mode == .dark ? Dark.bgButtonHover : Light.bgButtonHover }
@@ -429,13 +441,21 @@ enum CicadaTheme {
             // redundant write also skips the redundant UserDefaults sync.
             guard ThemeStore.shared.uiScale != clamped else { return }
             ThemeStore.shared.uiScale = clamped
+            ThemeStore.shared.zoomPulse += 1
             UserDefaults.standard.set(clamped, forKey: ThemeStore.scaleKey)
         }
     }
 
-    static func zoomIn() { uiScale = ThemeStore.shared.uiScale + ThemeStore.scaleStep }
-    static func zoomOut() { uiScale = ThemeStore.shared.uiScale - ThemeStore.scaleStep }
-    static func resetZoom() { uiScale = 1.0 }
+    /// The commands announce themselves even when the scale is already at a limit (or at 100% for Actual Size).
+    static func zoomIn() { zoom(to: ThemeStore.shared.uiScale + ThemeStore.scaleStep) }
+    static func zoomOut() { zoom(to: ThemeStore.shared.uiScale - ThemeStore.scaleStep) }
+    static func resetZoom() { zoom(to: 1.0) }
+
+    private static func zoom(to value: Double) {
+        let before = ThemeStore.shared.zoomPulse
+        uiScale = value
+        if ThemeStore.shared.zoomPulse == before { ThemeStore.shared.zoomPulse += 1 }
+    }
 
     // MARK: - Typography (G130: derived from `uiScale`, so ⌘+/⌘− reach every reader)
     private static var scale: CGFloat { CGFloat(uiScale) }
@@ -468,26 +488,29 @@ enum CicadaTheme {
 
     // MARK: - The type ladder (DESIGN_RULES §4, DR-16). SF only (DR-15).
     static var titleFont: Font { font(size: 20, weight: .semibold) }
+    /// ROR-118 — a list page's own title (the first part of its eyebrow): 20 semibold in `textPrimary`, so the page
+    /// is named in the type that leads it, with its counts beside it in `metaFont` (§9, 2026-11-06).
+    static var pageNameFont: Font { font(size: 20, weight: .semibold) }
     /// Error-card titles and panel headings: 17 semibold (DR-16; was 16 medium).
     static var headingFont: Font { font(size: 17, weight: .semibold) }
-    /// 13 regular — body off detail surfaces, and the command bar's placeholder. R-DS9: a global
-    /// 14 would resize 136 bodies on list pages, where the ladder wants 13.
-    static var bodyFont: Font { font(size: 13) }
-    /// 14 regular — body on a detail surface (the focus card, the Reader), adopted by DS-2.
-    static var detailBodyFont: Font { font(size: 14) }
-    /// A row's title, a list question: 13 medium.
-    static var rowFont: Font { font(size: 13, weight: .medium) }
-    /// Meta, the eyebrow, source lines: 12 regular; links and the eyebrow's medium: 12 medium.
-    static var metaFont: Font { font(size: 12) }
-    static var metaMediumFont: Font { font(size: 12, weight: .medium) }
-    static var captionFont: Font { font(size: 11) }
+    /// 14 regular — body off detail surfaces, and the command bar's placeholder. ROR-118 (2026-11-06) raised the whole
+    /// ladder a step (§9): blind judges could not read 11-13 pt secondary text at window width.
+    static var bodyFont: Font { font(size: 14) }
+    /// 15 regular — body on a detail surface (the focus card, the Reader), adopted by DS-2.
+    static var detailBodyFont: Font { font(size: 15) }
+    /// A row's title, a list question: 14 medium.
+    static var rowFont: Font { font(size: 14, weight: .medium) }
+    /// Meta, the eyebrow, source lines: 13 regular; links and the eyebrow's medium: 13 medium.
+    static var metaFont: Font { font(size: 13) }
+    static var metaMediumFont: Font { font(size: 13, weight: .medium) }
+    static var captionFont: Font { font(size: 12) }
     /// DR-19 — only for what a person would copy (MonospaceLintTests holds the list).
     static var monoFont: Font { font(size: 12, design: .monospaced) }
-    /// DR-20 — the one section label: 11 medium, sentence case, never mono, never tracked.
+    /// DR-20 — the one section label: 12 medium, sentence case, never mono, never tracked.
     /// `SectionLabel` is its one reader (SectionLabelLintTests).
-    static var labelFont: Font { font(size: 11, weight: .medium) }
-    /// The rail's pending numeral: 10 semibold, tabular at the call site (DR-16, DR-22).
-    static var badgeFont: Font { font(size: 10, weight: .semibold) }
+    static var labelFont: Font { font(size: 12, weight: .medium) }
+    /// The rail's pending numeral: 11 semibold, tabular at the call site (DR-16, DR-22).
+    static var badgeFont: Font { font(size: 11, weight: .semibold) }
 
     // MARK: - Display + quote (DR-15, DR-18)
     /// Display is a role, not a face: page titles, the question H1, onboarding headlines,
@@ -537,7 +560,12 @@ enum CicadaTheme {
         }
     }
     static func icon(_ role: IconRole) -> Font {
-        role == .disclosure ? font(size: role.points, weight: .semibold) : font(size: role.points)
+        switch role {
+        case .disclosure: font(size: role.points, weight: .semibold)
+        // ROR-118 — the page glyphs are medium, not regular: thin strokes read as unlabelled decoration.
+        case .rail, .railFoot: font(size: role.points, weight: .medium)
+        default: font(size: role.points)
+        }
     }
     static func iconPoints(_ role: IconRole) -> CGFloat { scaled(role.points) }
 
@@ -627,6 +655,7 @@ private extension CicadaTheme {
         static let bgPane = Color(hex: 0x141517)
         static let bgHover = Color(hex: 0x1B1C1E)
         static let bgFocus = Color(hex: 0x18191B)
+        static let pictureFill = Color(hex: 0x3A3C41)
         static let bgOption = Color(hex: 0x1D1E21)
         static let bgButton = Color(hex: 0x232427)
         static let bgButtonHover = Color(hex: 0x2C2D30)
@@ -648,14 +677,14 @@ private extension CicadaTheme {
         // 3.6:1 (disabled only). ThemeContrastTests holds every surface.
         static let textPrimary = Color(hex: 0xF5F5F6)
         static let textSecondary = Color(hex: 0xD0D1D4)
-        static let textTertiary = Color(hex: 0x8D8F94)
-        static let textQuaternary = Color(hex: 0x6A6C71)
+        static let textTertiary = Color(hex: 0xA4A6AB)
+        static let textQuaternary = Color(hex: 0x7E8085)
 
         /// R-DS6 — the pre-D accent, frozen as the "active" status hue and the heat ramp.
         static let dataIndigo = Color(hex: 0x8C9CFF)
         static let onMeadow = bgBase
-        static let scrim = Color.black.opacity(0.55)
-        static let scrimPanel = Color.black.opacity(0.24)
+        static let scrim = Color.black.opacity(0.72)
+        static let scrimPanel = Color.black.opacity(0.72)
         static let codeBackground = bgBase
         static let progressFill = Color(hex: 0x6FB57B)
 
@@ -752,6 +781,7 @@ private extension CicadaTheme {
             // G198: a proposed edit is a question the person answers — clarification's hue, no new colour.
             case .pageEdit: Color(hex: 0x8896FF)
             case .agentRequest: Color(hex: 0x8896FF)
+            case .sensitive: Color(hex: 0x8896FF)
             // G129 slice 2 — decay's amber, darkened: a retraction reads as a
             // graver cousin of decay's fade, not a wholly new hue (R9, same
             // "no new hue budget" precedent as divergence/normalization above).
@@ -788,6 +818,7 @@ private extension CicadaTheme {
         static let bgPane = Color(hex: 0xFBFBFA)
         static let bgHover = Color(hex: 0xEFEFEC)
         static let bgFocus = Color(hex: 0xFFFFFF)
+        static let pictureFill = Color(hex: 0xC4C4C0)
         static let bgOption = Color(hex: 0xF7F7F5)
         static let bgButton = Color(hex: 0xF2F2F0)
         static let bgButtonHover = Color(hex: 0xE3E3E0)
@@ -813,8 +844,8 @@ private extension CicadaTheme {
 
         static let dataIndigo = Color(hex: 0x4A5BD6)
         static let onMeadow = Color(hex: 0xFFFFFF)
-        static let scrim = Color.black.opacity(0.35)
-        static let scrimPanel = Color.black.opacity(0.12)
+        static let scrim = Color.black.opacity(0.42)
+        static let scrimPanel = Color.black.opacity(0.42)
         static let codeBackground = bgBase
         static let progressFill = Color(hex: 0x37753D)
 
@@ -896,6 +927,7 @@ private extension CicadaTheme {
             case .followup: Color(hex: 0x5A62E0)
             case .pageEdit: Color(hex: 0x5A62E0)
             case .agentRequest: Color(hex: 0x5A62E0)
+            case .sensitive: Color(hex: 0x5A62E0)
             case .removal: Color(hex: 0x8A5A10)
             case .unknown: Light.textTertiary
             }
@@ -1057,4 +1089,20 @@ extension Color {
         }
         self.init(.sRGB, red: r1 + m, green: g1 + m, blue: b1 + m, opacity: opacity)
     }
+}
+
+/// The two appearances' own tokens, read whatever the window shows now — what Settings → General → Appearance's
+/// miniatures paint (`AppearanceMiniature`, owner 2026-10-26). The values are the palettes' (`CicadaTheme.Light` /
+/// `.Dark`, private to this file) and §3.5's resting ring for each, never a second copy of a colour.
+struct AppearancePalette {
+    let rail, base, pane, selected, ring, text, faint, accent: Color
+
+    static let light = AppearancePalette(
+        rail: CicadaTheme.Light.bgRail, base: CicadaTheme.Light.bgBase, pane: CicadaTheme.Light.bgPane,
+        selected: CicadaTheme.Light.bgSelected, ring: Color.black.opacity(0.08), text: CicadaTheme.Light.textPrimary,
+        faint: CicadaTheme.Light.textTertiary, accent: CicadaTheme.accent)
+    static let dark = AppearancePalette(
+        rail: CicadaTheme.Dark.bgRail, base: CicadaTheme.Dark.bgBase, pane: CicadaTheme.Dark.bgPane,
+        selected: CicadaTheme.Dark.bgSelected, ring: Color.white.opacity(0.07), text: CicadaTheme.Dark.textPrimary,
+        faint: CicadaTheme.Dark.textTertiary, accent: CicadaTheme.accent)
 }

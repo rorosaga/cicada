@@ -215,6 +215,12 @@ def resolve(memory_path: Path, request_id: str, action: str) -> dict | None:
             from api.services import reading_hosts, reading_queue
 
             reading_queue.resume_site(memory_path, reading_hosts.site_of(row["site"]))
+            # A saved list's own pause (G206, G89): "I signed in" is what lifts it before its week is out.
+            from api.services import saved_lists, substack_lists
+
+            saved_lists.resume_site(row["site"])
+            if str(row["site"] or "").lower().removeprefix("www.") == substack_lists.SITE:
+                substack_lists.resume()
         except Exception:  # noqa: BLE001 — the request is closed either way; a pause also ages out on its own
             pass
     return {"status": "resolved", "id": request_id, "action": action}

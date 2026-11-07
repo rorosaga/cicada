@@ -28,6 +28,7 @@ struct HomeView: View {
     /// runner's revision is what makes a record write re-render Home.
     @Environment(SetupRunner.self) private var runner
     @Environment(Store.self) private var store
+    @Environment(IntakeRouter.self) private var intake
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(TourController.self) private var tour
     @AppStorage(AppearanceTipPolicy.armedKey) private var tipArmed = false
@@ -37,6 +38,7 @@ struct HomeView: View {
     @State private var seeHow: ChatVendor?
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(InboxViewModel.self) private var inboxVM
     /// Say it once — bumps when Home is clicked again in the rail, so the page scrolls back to its headline.
     @State private var toTop = 0
     private static let topAnchor = "home.top"
@@ -61,6 +63,15 @@ struct HomeView: View {
         let tipShown = AppearanceTipPolicy.visible(armed: tipArmed, dismissed: tipDismissed, seenBefore: tipSeen,
                                                    shownThisSession: AppearanceTipPolicy.shownThisSession)
             && !showsResults
+        Group {
+        if let session = search.catchup, session.bank == store.bank {
+            // Ruling 48 (8) — Catch me up opens in place on Home as a chat; Esc, × or Home's cell leave it.
+            CatchupView(session: session, onClose: { closeCatchup() }, openPage: { open(.entity(id: $0)) },
+                        openQuestion: { id in
+                            router?.pendingInboxItem = id
+                            selectedTab = .inbox
+                        })
+        } else {
         GeometryReader { geo in
             VStack(spacing: 0) {
                 // Owner 2026-10-06 — one scroll view carries the headline, the field and the blocks, so a scrolled card
@@ -74,11 +85,15 @@ struct HomeView: View {
                         VStack(spacing: 0) {
                             // R-HS2 — the headline is the row under the band, on the window (DR-50), in the room pages'
                             // title (DR-17): one line, the mock's words.
-                            PageTitle(Copy.homeHeadline)
+                            // ROR-118 round 3 — the worm greets over the headline: the page's one picture, small, on the
+                            // window and never behind a word or a figure (DR-13), at rest or at its mood.
+                            HomeGreeter(state: mascotState)
                                 .id(Self.topAnchor)
+                                .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTop(viewportHeight: viewport.size.height)))
+                                .padding(.bottom, CicadaTheme.scaled(HomeLayout.greeterGap))
+                            PageTitle(Copy.homeHeadline, fontSize: HomeLayout.headlineSize)
                                 .multilineTextAlignment(.center)
                                 .accessibilityAddTraits(.isHeader)
-                                .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTop))
                                 .padding(.bottom, CicadaTheme.scaled(HomeLayout.headlineBottom))
                             fieldColumn(showsResults: showsResults)
                                 .frame(maxWidth: CicadaTheme.scaled(HomeLayout.fieldWidth))
@@ -86,13 +101,18 @@ struct HomeView: View {
                                 // Between the field and the end of the page, and only while the blocks show (R-IB6): the
                                 // first keystroke replaces them too.
                                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
-                                    ForEach(arrangement.order, id: \.self) { id in
+                                    HomeExportWaitStrip()   // ROR-126: the worm waiting on an export, per provider
+                                    ForEach(Array(arrangement.order.enumerated()), id: \.element) { index, id in
+                                        // ROR-118 — Today and Last read are one quiet group when they sit together.
                                         block(id, today: today, gettingStartedVisible: gettingStartedVisible,
-                                              graduated: graduated, empty: empty, tipShown: tipShown)
+                                              graduated: graduated, empty: empty, tipShown: tipShown,
+                                              joinsToday: id == .lastRead && index > 0 && arrangement.order[index - 1] == .today,
+                                              takesLastRead: id == .today && index + 1 < arrangement.order.count
+                                                  && arrangement.order[index + 1] == .lastRead)
                                     }
                                 }
                                 .tourAnchor(.home)
-                                .frame(maxWidth: CicadaTheme.scaled(HomeLayout.columnWidth))
+                                .frame(maxWidth: CicadaTheme.scaled(HomeLayout.fieldWidth))   // ROR-118 r2 — one column: the field's edges
                                 .padding(.top, CicadaTheme.scaled(HomeLayout.fieldToFirstBlock))
                                 .padding(.bottom, CicadaTheme.scaled(HomeLayout.bottomPadding))
                             }
@@ -108,11 +128,18 @@ struct HomeView: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
+        }
+        }
         .background(CicadaTheme.bgBase)
         // Review #1 — onboarding's drawn walkthrough, over Home, from a vendor row's "See how ›".
         .overlay {
             if let vendor = seeHow {
-                HomeWalkthroughLayer(vendor: vendor) { seeHow = nil }
+                HomeWalkthroughLayer(vendor: vendor, onClose: { seeHow = nil }, onHaveFile: {
+                    // CIC8 — straight to the intake's picker (it opens in Downloads); what is picked previews over Home.
+                    seeHow = nil
+                    let urls = IntakePicker.choose()
+                    if !urls.isEmpty { intake.accept(urls: urls, from: .home) }
+                })
             }
         }
         .onAppear { tour.adoptOffer() }
@@ -130,6 +157,14 @@ struct HomeView: View {
         .task(id: store.status.value?.lastSleepAt) { await sleepVM.refreshForHome() }
     }
 
+    /// The worm's mood is the menu bar's, from the same status; the waiting count is already a figure on this page, so
+    /// the badge that carries it there never draws here — a worm reading a book says the same thing without a number.
+    private var mascotState: BookwormState {
+        let state = store.status.value.map { deriveBookwormState($0, justFinishedAt: nil) } ?? .awake
+        if case .curious = state { return .reading }
+        return state
+    }
+
     private func popToRoot() {
         guard let router else { return }
         router.popToRoot(reduceMotion: reduceMotion) {
@@ -137,8 +172,19 @@ struct HomeView: View {
             search.model.setMode(.find)
             search.model.setQuery("")
             seeHow = nil
+            search.catchup = nil
         }
         toTop &+= 1
+    }
+
+    // MARK: Catch me up (ruling 48 (8))
+
+    private func startCatchup(_ queue: [String]) {
+        search.catchup = CatchupSession.live(queue: queue, store: store, inbox: inboxVM)
+    }
+
+    private func closeCatchup() {
+        search.catchup = nil
     }
 
     // MARK: The blocks
@@ -146,8 +192,10 @@ struct HomeView: View {
     /// One block of the column, by id — `HomeArrangement` owns the order, this owns nothing but the mapping.
     @ViewBuilder
     private func block(_ id: HomeBlockID, today: Date, gettingStartedVisible: Bool, graduated: Bool,
-                       empty: HomeEmptiness, tipShown: Bool) -> some View {
+                       empty: HomeEmptiness, tipShown: Bool, joinsToday: Bool, takesLastRead: Bool) -> some View {
         let mode = empty.mode(setupCardShown: gettingStartedVisible)
+        // ROR-118 round 4 — Last read under Today is the status line's last segment, one line, never a second block.
+        let oneLine = mode == .blocks && !empty.todayEmpty && !empty.lastReadNever
         switch id {
         case .setup:
             GettingStartedCard(selectedTab: $selectedTab, seeHow: $seeHow, graduated: graduated)
@@ -155,18 +203,24 @@ struct HomeView: View {
             switch mode {
             case .blocks:
                 TodaySection(today: today, gettingStartedVisible: gettingStartedVisible, empty: empty.todayEmpty,
-                             selectedTab: $selectedTab)
+                             includesLastRead: takesLastRead && oneLine, selectedTab: $selectedTab)
             case .one:
                 HomeEmptyBlock()   // review #8 — one block says it once, where Today would be
             case .hidden:
                 EmptyView()
             }
         case .needsYou:
-            if mode == .blocks { NeedsYouSection(empty: empty.needsYouEmpty, selectedTab: $selectedTab) }
+            if mode == .blocks {
+                NeedsYouSection(empty: empty.needsYouEmpty, selectedTab: $selectedTab,
+                                answerIsPrimary: !gettingStartedVisible,
+                                openPage: { open(.entity(id: $0)) }, startCatchup: { startCatchup($0) })
+            }
         case .readingSites:
             ReadingSitesSection()
         case .lastRead:
-            if mode == .blocks { LastReadSection(empty: empty.lastReadNever, selectedTab: $selectedTab) }
+            if mode == .blocks && !(joinsToday && oneLine) {
+                LastReadSection(empty: empty.lastReadNever, selectedTab: $selectedTab)
+            }
         case .tour:
             // Seam 3 — onboarding's "Open Cicada" asked for the tour's offer; Home asks once.
             if tour.offerPending { TourOfferCard() }
@@ -209,7 +263,7 @@ struct HomeView: View {
                               save(url)
                               return true
                           })
-                .glassCard()
+                .modifier(HomeLeadField())
                 .frame(maxHeight: showsResults ? .infinity : nil)
         }
         .frame(maxHeight: showsResults ? .infinity : nil, alignment: .top)
@@ -254,6 +308,19 @@ struct HomeView: View {
     }
 }
 
+/// ROR-118 round 2 (DR-9, DR-10) — the field is the page's one raised surface: a step lighter than the cards under it
+/// in dark (`bgOption`; light cards are white already) and the input ring (`.input`), never a shadow; the cards below stay on `surface` with the resting ring,
+/// so depth says what leads.
+struct HomeLeadField: ViewModifier {
+    func body(content: Content) -> some View {
+        let shape = CicadaTheme.shape(CicadaTheme.cornerRadius)
+        content
+            .background(shape.fill(CicadaTheme.mode == .dark ? CicadaTheme.bgButton : CicadaTheme.bgFocus))
+            .clipShape(shape)
+            .ringed(.input, in: shape)
+    }
+}
+
 /// Home's page scroll (owner 2026-10-06). With results showing the page is pinned to the viewport by its height, so the
 /// outer scroll has nothing to move and only stops rubber-banding; it never disables scrolling, because
 /// `scrollDisabled` reaches every scroll view inside — the results' and Ask's own — and would freeze them.
@@ -265,5 +332,25 @@ struct HomePageScroll: ViewModifier {
             .scrollBounceBehavior(pinned ? .basedOnSize : .automatic, axes: .vertical)
             .scrollIndicators(.automatic)
             .softTopScrollEdge()
+    }
+}
+
+/// ROR-118 rounds 3 and 4 (DR-13; DESIGN_RULES §9 2026-11-06) — Home's one picture: the study room's worm over the
+/// headline, the room's pixel art on the window's own ground, drawn at a whole 3 points per art pixel and cropped to the
+/// pixels it ever draws. It carries no words and no number, never sits behind either, and its mood and Reduce Motion are
+/// the sprite clock's.
+struct HomeGreeter: View {
+    let state: BookwormState
+
+    var body: some View {
+        // A whole number of points per art pixel at any zoom, like the Sleep page's room (never fractional, so a resize
+        // never blurs a pixel).
+        let cell = max(1, (HomeLayout.greeterCell * CicadaTheme.uiScale).rounded())
+        let ink = HomeLayout.greeterInk
+        BookwormView(state: state, latticeCell: cell)
+            .offset(x: -ink.minX * cell, y: -ink.minY * cell)
+            .frame(width: ink.width * cell, height: ink.height * cell, alignment: .topLeading)
+            .clipped()
+            .accessibilityHidden(true)
     }
 }

@@ -11,7 +11,12 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   in-cycle pass (`sleep_cycle._link_summarizer`, G61 phase 2 S0) and the G102 tail backfill, both
   through `link_enrichment.default_fetch`, the rail's reference transport — **the site check** (G61 S3-b: the Sleep tail's
   `site_sources.verify` reads a proposed official site through `link_enrichment.fetch_identity`, which shares that
-  transport's `_stream_html`; a walled or platform host is never requested) — **the source refresh** (G61, TODO ruling
+  transport's `_stream_html`; a walled or platform host is never requested) — **the organisation-site lookup** (TODO
+  ruling 40, `org_sites`, in the same step: Wikidata's API `www.wikidata.org/w/api.php` — `wbsearchentities` with only an
+  organisation's, tool's or public place's own name and at most two proper-looking aliases, never a person's name, a
+  project's or a private one, then `wbgetclaims` for item and class ids — spaced 0.2 s, 4 s / ≤ 512 KB, no cookies, no
+  proxy env, `net_guard` on every hop, User-Agent `Cicada/1 (<repo URL>) httpx`, a 429 waited out once, ≤ 20 pages a
+  night; and each candidate's homepage through `fetch_identity`) — **the source refresh** (G61, TODO ruling
   26: `source_refresh.run_tail` re-reads the due tracked PUBLIC sources through `_stream_html`, at most 20 a night, one
   per site, a walled or refused host never requested; it states only what the page says in schema.org JSON-LD, and a
   404/410, a name or connection failure, a parking host or "for sale" title, or a landing on another site is a strike —
@@ -19,8 +24,17 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   its own; the engine's search does, so the gate is asked before any engine call, and what reaches the search is only a
   public subject's name plus at most one generic category word, every reported search held to it (the prompt's
   local context, ruling 27a, is never searched) — `capture-and-sleep.md`; on every plan run, scheduled ones included
-  since the plan switch is on by default, ruling 27b) — and
-  paper details (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
+  since the plan switch is on by default, ruling 27b) — **light web context** (TODO ruling 44: `web_context.run_tail`
+  decides the engine before reading any page — plan search only, a metered key never — then asks Wikidata, through
+  `org_sites.wikidata_get`, only for a name that passed the local public test (≤ 20 a run), and the engine's search only
+  with the pinned queries; ≤ `web_context_per_run` lookups a run; `storage.md`) — and
+  paper details (below) — and **book lookups** (G233, `book_lookup`: a scanned ISBN asked of Open Library's
+  `/isbn/<isbn>.json` and `/authors/<id>.json`, else Google Books' `volumes?q=isbn:`, one request a second, 4 s / ≤ 512
+  KB, no cookies, `net_guard` on every hop, a User-Agent naming the software and never a person; at most 30 numbers a
+  run, every answer cached in `$CICADA_HOME/books/isbn_cache.json`; gated on BOTH callers — the background job after a
+  scan and Sleep's tail — so a scan waits while it is off; `capture-and-sleep.md`, "Books"). Goodreads is never
+  fetched: its export is the way in. **A book's cover is not this gate's** (ruling 61): it is a picture the person's view
+  asks for, behind `CICADA_ALLOW_LOGO_FETCH` (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
   The backlog's one-off web-check sweep (`POST /inbox/web-check`, ruling 27b) is the person's start, so the gate is
   reported in its counts, never applied — the same pinned query and nothing else leaves.
   A user-initiated `sync_now`, `POST /maintenance/enrich-links`, `POST /maintenance/verify-sites`, the person's
@@ -32,7 +46,11 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
 - **`CICADA_ALLOW_FEED_FETCH`** gates RSS/ICS polling and is **opt-IN** (`=1`). A fresh install's
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an
   older plist needs the key added by hand. While it is off a subscribed feed's Sources row is not connected and says
-  why (`channel_registry.FEED_FETCH_OFF`, 2026-10-23) — it read Connected over a poll that never ran. The feed poll,
+  why (`channel_registry.FEED_FETCH_OFF`, 2026-10-23) — it read Connected over a poll that never ran. The sentence names
+  no variable since ROR-41 (2026-11-05): the one action is Settings → General → *Keep memory working when Cicada is
+  closed*, which installs the agent whose plist sets the gate, and the feed's page links to that row while `gates.feed_fetch`
+  is off. No setting flips the gate itself: Privacy's *Feeds and calendars* row only shows it. A backend the app spawns
+  (`BackendProcess`, no agent installed) runs with it off. The feed poll,
   the ICS poll and `POST /sources/rss`'s `feedUrl` fetch go through `net_guard` on every hop since 2026-10-23 (they
   used a bare client, so a subscribed URL or a redirect could reach loopback, the LAN or a tailnet peer).
 - **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely, and media previews with it (below). The test suite runs that way
@@ -78,7 +96,18 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   against that list and `net_guard`, at most three; 4 s a request (all its hops) and 10 s for the whole ladder, out of
   time being a transient miss; the body streamed and cut past 512 KB; kept only as a
   PNG or JPEG of 16–1024 px by its bytes (SVG refused whatever its header). `d=404` makes "no photo" a 404, so no
-  default image is cached as a photo.
+  default image is cached as a photo. **A public figure's portrait** (owner 2026-10-28, C; ruling 44's test): for a
+  person page the full public test matched to ONE Wikidata item, after the GitHub rung — first ruling 44's local test
+  once more, sending nothing; then `wbgetclaims` for that item's P18 (the item id only, on `org_sites.wikidata_get`'s
+  rail: 4 s, ≤ 512 KB, no cookies, `net_guard`, a block never retried); then
+  `https://commons.wikimedia.org/wiki/Special:FilePath/<file>?width=256` with the Commons file name P18 holds, every
+  hop pinned to `commons.wikimedia.org` / `upload.wikimedia.org` and `net_guard`, under Wikimedia's User-Agent policy
+  (`Cicada/1 (<repo URL>) httpx`, the project's contact). The person's name is never sent as a query; the Commons file name P18 holds may contain it (a portrait's file is usually named after its subject).
+- **A project's organisation avatar** (owner 2026-10-28, E; behind `CICADA_ALLOW_LOGO_FETCH`, asked by `/logo` and the
+  Sleep tail's logo warm-up like any logo): `https://api.github.com/users/<login>` with the owner login of a trusted
+  repository URL, then — only when it answers `type: Organization` for that login — its `avatar_url` on
+  `avatars.githubusercontent.com` at 256 px. Both pinned to those two hosts, SSRF-checked every hop, 4 s, ≤ 512 KB, no
+  cookies; a personal account's avatar is never requested.
 - **`CICADA_ALLOW_PERSON_PHOTO_PROXY`** (owner 2026-10-09; **on by default since ruling 36 D5, 2026-10-22** — the
   owner: "photo gate ON"; `off` still closes it) is the ToS rail's one exception: a
   person's photo through the unavatar.io avatar proxy, from an X, Instagram or LinkedIn profile link already in the
@@ -180,7 +209,9 @@ item only (fetched once, on the person's click, through `net_guard` under the To
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
 (`CICADA_REMOTE_PORT`) serves **only MCP and the agent API** (below) — none of the FastAPI routers — to cloud AI apps
 through a tunnel **the person** runs (Tailscale Funnel or ngrok); **Cicada never starts, stops or
-reconfigures a tunnel** — `GET /remote/status` only detects one — on PATH or in
+reconfigures a tunnel** (two dated exceptions, each the person's click on the command shown: the tailnet-only serve of
+the backend, owner 2026-10-29, and the funnel of this listener's port, ruling 59, both below) — `GET /remote/status`
+only detects one — on PATH or in
 the standard install folders, since an older LaunchAgent's PATH is bare (F2-back R-B15). Access is a per-connector
 capability token `cic_rc_<id>_<secret>`: shown once, only its sha256 stored in
 `~/.cicada/remote/connectors.db` (0600, never in a bank), scoped (`search`/`read`/`record` default;
@@ -196,6 +227,10 @@ person's own words. Each call leaves one ids-only `remote_call` ledger row, file
 `reads-*.jsonl` so it never ticks the app's consumption domain. Every server-side fetch of someone
 else's URL goes through `net_guard` (`is_global`, never `is_private`, because tailnet addresses are
 neither; the name lookup runs off the event loop).
+
+**What the relay needs of this listener (ruling 57, 2026-11-04).** claude.ai on the web and phone and ChatGPT reach Cicada only here,
+so their default relay (`cicada_capture_turns`) needs a public address: one click since ruling 59, or a tunnel the person runs.
+The Claude desktop app's local relay needs no address.
 
 **Sign-in for the remote connector (ruling 32, owner 2026-10-19).** So claude.ai (web, desktop and its phone apps)
 and ChatGPT can add Cicada as a custom connector, the G135 listener is also an **OAuth 2.1 authorization server**
@@ -265,14 +300,132 @@ word of the person's, and a claim is `origin: remote:<id>`, never the person's o
 (static, nothing about the person). No FastAPI router is reachable through it.
 
 **The tunnel for sign-in is the person's, to this listener only.** claude.ai and ChatGPT reach the Mac from their own
-servers, so the person exposes the G135 listener's port publicly with a stable hostname — `tailscale funnel --bg 8765`
-or `ngrok http 8765 --url <their-domain>`. That is the one public port Cicada is ever reached on: the backend's own port
-(8000) is never funnelled (the headless rail, `headless.md`), and Cicada never starts a tunnel. What the person runs is in
+servers, so the person exposes the G135 listener's port publicly with a stable hostname — Tailscale Funnel, by the one
+click below, or `ngrok http 8765 --url <their-domain>`. That is the one public port Cicada is ever reached on: the backend's own port
+(8000) is never funnelled (the headless rail, `headless.md`). What the person runs is in
 [`docs/connect-remote-apps.md`](../connect-remote-apps.md).
+
+**One click opens it (ruling 59, owner 2026-11-04; amends "never `funnel`").** Settings → Devices → From anywhere, or
+`cicada funnel on` in the person's own shell, runs **exactly the command shown** (`GET /remote/funnel`'s `command`,
+`POST /remote/funnel`, `reach.run_funnel`): `tailscale funnel --bg --https=443 <connector port>`, and
+`tailscale funnel --https=<its port> --set-path=/ off` to close it. Off until clicked; never at install, on start or by
+an agent. The same seam as the serve below: the argv is built in one function from `store.remote_port()` and the
+person's own ServeConfig; the request carries an action and the command the person read (`shown`, compared, never run,
+so a machine that changed since they read it runs nothing); argv only, 10 s, stdin closed; never `up`, a login or
+`reset`. The route is master-token only (`auth.MASTER_ONLY_WRITE_PREFIXES`), absent from MCP and `/v1`, and the CLI's
+`funnel on|off` refuse from an agent's shell.
+- **Only this port.** The API's port and the door's are refused if `CICADA_REMOTE_PORT` is ever set onto them, before
+  Tailscale is even asked, and nothing opens unless this listener is up. The API's port is both the configured one and the
+  socket's own (`scope["server"]`), since `uvicorn --port` leaves the setting at 8000.
+- **The port (read from `serve_v2.go`, v1.104).** Funnel allows 443, 8443 and 10000, and a port is served or funnelled,
+  never both. Three behaviours decide the code: a funnel on a held port silently replaces its `/` and opens every other
+  path on it, so a port holding anything (any config, foreground ones and tailnet-only serves of this same port
+  included) is never used; 8443 is the backend's tailnet mapping and not a candidate at all; 443 first (the clean
+  address, what these docs always said), 10000 only when the person's own mapping holds 443, as `headless.md`'s example
+  does. Both held: `taken`, in words, nothing replaced. The off names `--set-path=/` because without it the CLI deletes
+  every handler on the port.
+- **Read back, never assumed.** Nothing about it is stored (`settings.json` keeps `enabled` and `public_base_url` only);
+  every answer is the ServeConfig plus, on a click or a page open, `reach.probe` through the address. `ok` is the
+  ServeConfig afterwards, never the return code: with Funnel not allowed the CLI prints a link and waits, or exits 0
+  having changed nothing. `url` is on the wire only when the probe just passed. **Its one limit:** from this machine the
+  name should resolve over the tailnet (reasoned from MagicDNS, not yet measured), so a passing probe proves the mapping and the listener, not public DNS (up to 10
+  minutes the first time, Tailscale's figure); the page says so once after the click. Only a device off the tailnet
+  proves the rest.
+- **The mapping outlives the listener (review of #607).** A `--bg` mapping names a port, and with the listener down anyone
+  local may take that port and be public with no auth. So:
+  - **The switch closes it, in the same act, before the listener stops.** Turning the connector off runs each off for the
+    connector's own door and says so (`funnelNote`, "The public address closed too."). Turning it on again never reopens
+    it. Decided because *off* is what the person asked for, and a door left open behind it is the one failure that exposes
+    something else. If the off fails, the connector still goes off and the sentence says the address is open. If Tailscale
+    can't be read at that moment (a hung read, a stopped daemon, signed out, too old), nothing is known, so the sentence says
+    it couldn't be checked and may still be open, never the silence of nothing to close (`reach.FUNNEL_UNREAD_STEPS`).
+  - **A listener that is down is never read as nothing there.** The port is asked (`reach.port_accepts`: connect and close,
+    nothing sent, on every read). Something accepts: `otherProgram: true`, "Another program on this machine is on the
+    connector's port, and this address makes it reachable from the internet. Turn it off.", first on the page, over the
+    bind failure that is the same fact. Nothing accepts: "still open and nothing answers it now, but any program that takes
+    the connector's port will be public" (the serve proxy's 502 to strangers, not yet seen on a real funnel). Both offer the off.
+  - **A clean quit does not close it.** `--bg` persists across restarts and reboots, and a restart or an update would
+    otherwise drop an address only a click may reopen, so a start cannot put it back. With the backend down Cicada can say
+    nothing and only the person's own `tailscale funnel` command closes it. **On the next start:** the listener comes back
+    if the switch is on, and if its port is held, the page and `cicada funnel status` say the above and the log carries one
+    line (`listener.warn_if_exposed`, which reads Tailscale only if the port accepts, so a normal start never does). A start
+    never closes it: that program may be a second Cicada whose address this is. Nothing pushes those words to a person who
+    never opens the page. Tying the mapping to the backend's life (a foreground funnel) was rejected: it needs Cicada to
+    reopen it on every start, which this ruling forbids. Uninstalling Cicada does not touch Tailscale either.
+  - **Any other public mapping is reported, never closed (`others`).** Every funnelled handler proxying to a loopback port
+    but for the connector's own `/`: left on an old port after `CICADA_REMOTE_PORT` moved, or the person's own, which look
+    alike from here. Each comes in words with the command that closes that one mapping, to copy, and *Turn on* still works
+    beside it. Cicada keeps no record of what it opened, so it cannot prove one is its own, and it never removes the
+    person's. The API's port there is named as such.
+- **The command to copy is safe too.** `/remote/status`'s `funnelCommand` was a bare `tailscale funnel --bg <port>`, which
+  means 443. Pasted on a machine serving the API at `/` on 443 it took that serve away and made the connector public
+  there; with the API or anything else on another path of that port, that went public too. The field
+  stays (the app and older `cicada setup` read it) and follows the click's rule: `--https=` the port it already holds, or
+  the first free one. With none safe it is words, a shell comment with nothing a shell acts on, because an older app
+  shows it in a box to copy: both ports held, Tailscale not answering, or the port set onto the API's. `cicada setup`
+  now says `cicada funnel on`. An app newer than its backend still shows that older backend's bare command.
+- **What HTTPS publishes is said before the click:** the app's line above *Turn on*, `funnel status`, and stderr before
+  `funnel on` runs. Enabling HTTPS publishes the machine's and the tailnet's names on a public certificate log, for good.
+- **Connector off at the click:** it is turned on first, and back off if the door then doesn't open, so a failed click
+  changes nothing. The off leaves the connector as it is. An address saved by hand comes first (`address`: clear it), since
+  the listener names only that one.
+- **Failures, in words with the fix:** missing, not running, signed out, off (`FUNNEL_STEPS`), too old (`--bg`, `--https`
+  and `--set-path` arrived in 1.52), Funnel not on for the tailnet (Tailscale's own link), HTTPS certificates off (the DNS
+  admin page), the `funnel` attribute missing from the policy (the access controls page), a refused operator, a hung CLI;
+  a link only ever to Tailscale's own hosts.
+- **What a stranger gets** (requested against a real scratch listener; `test_remote_funnel`): every path but the list
+  above 404s (`/`, `/healthz`, `/graph`, `/docs`, `/openapi.json`, `/remote/*`, `/devices`); `/mcp`, `/v1/*` and a bad
+  `/c/…` link are a 401 with no data; the open documents are the protected-resource and authorization-server metadata and
+  the static `/llms.txt`, `/v1/llms.txt` and `/v1/openapi.json`, which name no person and no memory. `/authorize` for an
+  unknown client is an error page, never a redirect; a sign-in anyone starts only shows a code, approved only by typing it
+  in the app (loopback, master token) and no route on the listener approves anything. Turning on HTTPS writes the machine's
+  name into a public certificate log (the app says so before the click).
+
+**Reach for the person's own devices is guided (G212, 2026-10-29), and one click may serve it (dated amendment to
+G132 (c), owner 2026-10-29: "Yes, one click").** Settings → Devices reads two bounded (2 s), read-only CLI answers
+(`tailscale status --json`, `tailscale funnel status --json`) and shows the one next step; a serve of the backend port
+to the tailnet (`tailscale serve --bg --https=8443 <port>`) or closing a funnel of it is shown as a command to copy.
+On the serve step, *Run it for me* runs **exactly that shown command**; on a served address, *Stop serving* runs that one
+mapping's off (`tailscale serve --https=<its port> --set-path=/ off`, which leaves any other handler on that port),
+named in its confirmation before the click
+(`POST /devices/reach/serve`, master token, `reach.run_serve`). The app sends only the action (`serve` | `stop`); the
+backend builds the argv from its own port and the person's own ServeConfig, never from a request; the tailscale binary is
+resolved like every other read (`find_tool`, then the app bundle's CLI); argv only, never a shell; 10 s cap; stdin
+closed so nothing waits on a prompt; any failure is a sentence (Serve not enabled on the tailnet names the admin URL
+Tailscale printed; a refused operator says to run it in Terminal); then the state is read again and checked the way a
+phone would. **This route never runs `funnel` or `up`**: closing a funnel of the backend stays a command to copy, and
+every other step only says what to do. *Check again* is one
+fetch of this machine's own served `/healthz` (no token, no redirect, no proxy env, 3 s) — the person's own address
+read from their ServeConfig, never a URL a request names, so it is not a `net_guard` fetch of someone else's page and no
+fetch gate applies; it runs only on the page's open or the person's click. No hosted relay sits in the path: a relay
+(T3 Connect's shape) would put a third party in front of the bank, give it a stable public hostname, and let it mint
+credentials (the end-to-end-encrypted relay decided for G132, which sees only ciphertext and mints nothing, is a
+different shape — "Decided, not built", below). A paired phone's token is bound to a key in its Secure Enclave (`api.md`, "Key-bound device tokens"), so a
+token copied off the overlay is useless.
 
 **A failed poll is recorded, not raised** (`sync_state.record_error`) and surfaces per-channel as
 `lastError`; a gate-skipped poll is recorded distinctly (`record_skip`) so a skip never reads as a
 failure or as a stale success.
+
+**Book covers (ruling 61, owner 2026-11-04) are a preview on these terms.** Asked of Open Library's covers host
+(`covers.openlibrary.org/b/id/<id>-M.jpg`, else `/b/isbn/<isbn>-M.jpg`), both `?default=false`. **That host is not the only
+one that sees the ask:** a cover id answers with a redirect through `archive.org` to an `ia*.us.archive.org` host (read
+2026-11-04; one ISBN tried answered directly), so the Internet Archive sees the cover number and this computer's address too,
+each hop through `net_guard`. **What leaves the Mac:** a book's ISBN-13 or cover id and the address, on a view of that book,
+Goodreads books included; never a title, never a person's name. No cover is a 404, never their
+blank image (read 2026-11-04: without it a 43-byte GIF). **Their terms** (openlibrary.org/dev/docs/api/covers): lookups by
+anything but a cover id or OLID are limited to 100 per IP per 5 minutes, a 403 past it; the API is for showing covers, not
+bulk download; don't crawl; a courtesy link to the book's page is appreciated (the page's own link is that). So a cover is
+asked only when the person's view draws that book, once, ever (nothing warms them); a cover id is used before an ISBN; at most
+90 asks per 5 minutes, over that a cover is just not asked yet and no miss is recorded (**the count is this process's own and
+starts again on a restart**, so a restart in the middle of a heavy scroll could reach their limit, where a 403 is the answer);
+a 403 or 429 on that host is their limit, that book asked again as it was, never another way, after an hour or the
+`Retry-After` it sent if longer (a week at most); a real miss waits 7 days. **The query is a cover id or an
+ISBN, never a title.** A title is a public catalogue query and no private person's name, but it reveals what someone reads
+beyond what a scan already does and answers with a guess at a work; the one big ISBN-less set, Apple Books, has its own covers
+on this Mac, and a book with neither draws nothing (the person can add a picture). `cover_id` comes from the ISBN lookup
+already gated by `CICADA_ALLOW_CONNECTOR_FETCH`; no extra request. Apple Books' own covers need no network at all
+(`book_covers`).
 
 **Media previews ride the picture gate (`CICADA_ALLOW_LOGO_FETCH`), like logos.** `GET /entities/{id}/preview` is the
 app drawing a card; the first request for a page's source fetches it once (`media_preview.ensure_preview`) and every
@@ -323,6 +476,266 @@ read once per visit by the agent's browser from the page's own origin without co
 by Cicada; unread means no further page. Private workspaces and walled sites the person has not turned on are never
 offered, and any site can be set to **Never explore**. Cicada's own "may have changed" probe (D6) is slice 3.
 
+**Two ways in for what the person consumes (TODO ruling 47, owner 2026-10-28).** The owner's words: "connecting to
+outside sources through api or third parties is good if mainly for ingestion, you know? Like a direct access to the
+info we are consuming", then: "for a lot of stuff we can accept consumption over browser and macOS harness, that's what
+I think. But for some specific things if we can do api integration that is awesome."
+
+- **Tier 1, the default — the person's own browser and Mac.** What they read, watch and use is captured as they
+  consume it, through the browser harness and the macOS harness: reading with the person's own agent (G166, above),
+  the saved-list reads (G206), activity traces (G218, ruling 38, off by default; trace consolidation belongs to this
+  tier) and the app's Mac readers. Every rail above is unchanged: the person's own signed-in session, Cicada never signs
+  in on their behalf there, ticked or allowed sites only, the read limits, no backend scraping.
+- **Tier 2 — an official API for a specific high-value source where one exists.** Telegram first (47a); candidates
+  Notion, Google, YouTube, Letterboxd (Spotify was one; it is export-only, see the table). "Cicada never signs in" is amended for this tier only: a
+  connection is an API client the person authorised, never a browser session, cookie or profile, and the backend still
+  never fetches a login-walled page. The existing Reddit, X and Pinterest connectors (`api/services/connectors/`) are
+  of this kind.
+
+  **No form for a secret (ROR-113, owner 2026-11-05: "Any one that you ask for a token, find a way to sync it properly, either direct integration, syncing some other type of way, or browser as last resort"):** no app surface asks for a token, key, client id or password. A source connects by its own browser sign-in (Notion, Reddit's Connect, GitHub's code), by the Mac's own readers, by a file, or by the person's own browser; X and Pinterest have no sign-in an app can use, so a not-connected one says so in one line and a connector already connected keeps its row, Refresh and Disconnect. **Notion signs in (ROR-113, owner 2026-11-05):** `Connect Notion` is OAuth 2.0 with PKCE S256 and dynamic client registration against Notion's hosted MCP server (`notion_mcp`), a public client with no secret, every endpoint on `mcp.notion.com` over https; tokens live in `secrets.env`, Disconnect revokes (RFC 7009). It reads through an allow-list of four read tools (search, fetch, list private pages, list shared pages); any other tool name raises before a byte is sent. The sign-in acts as the person, so it can read every page they can open, not only the pages shared with a connection, and the page says so in one line before Connect (`READS`). A token pasted before keeps its row, Refresh and Disconnect on the REST path; no app surface asks for one.
+
+**The choosing rule.** Each source's path is picked on purpose: an API when it gives clean, complete, structured data
+the harness cannot (history, metadata, reliability); otherwise harness consumption. An export stays a way in either
+way. As applied on 2026-10-28:
+
+| Source | Path | Why |
+|---|---|---|
+| Telegram | API (47a) | full chat history and live updates; no harness sees them |
+| Spotify | **no API connector**; the person's own agent reads their library in their own browser (ROR-128, ruling 72: a site's terms do not decide this, 2026-11-06), and the "Extended streaming history" download through G32's import stays a way in | Spotify's Developer Terms (v10, 15 May 2025) forbid it: §IV.2(b)(i) bars "using the Spotify Platform or any Spotify Content to train a machine learning or AI model or otherwise ingesting Spotify Content into a machine learning or AI model", and §IV.3(a) says "you may not store, aggregate or create compilations or databases of Spotify Content" and "Do not store Spotify Content indefinitely" — the bank is a lasting compilation that agents read, so the ToS rail rules the API out (2026-10-29). The download is the person's own data, given to them, not taken through the Spotify Platform. Capturing what is playing through the macOS harness waits on an owner ruling (G223). **Re-checked 2026-11-04 (G232):** the terms are unchanged (v10), the browser is ruled out the same way (its User Guidelines bar "crawling" or "scraping … by automated means" and "ingesting Spotify Content into a machine learning or AI model"), and since 11 Feb 2026 a Development Mode app needs its owner on Premium and serves at most 5 users, so one app could not serve every install anyway |
+| Notion | API | a workspace's pages as structured blocks; a harness sees one page at a time |
+| Readwise | none (built on tier 2 2026-10-29, removed by owner direction 2026-11-03) | — |
+| Google | Calendar on the Mac reader; API only for what the Mac cannot read (Drive, Docs), on ask | the Mac already reads Calendar |
+| YouTube | harness (G71 browser history, Watch later through the agent) | the official API does not return watch history |
+| Letterboxd | harness, plus its public per-diary RSS through the feed gate | its API is granted by request; adopt it only if granted |
+| Substack | harness (the person's agent reads Saved, History and Subscriptions in their own browser, G89, built 2026-11-04), plus each publication's public `/feed` through the feed gate | researched 2026-11-04: no reader API or OAuth app programme (its OAuth server, `substack.com/.well-known/oauth-authorization-server`, serves only its own MCP connector at `mcp.substack.com/api/v1/mcp`, which is publisher analytics for an admin of a Bestseller publication and "cannot access profile data or Notes activity"); no reader export (Exports are a publisher's; a reader can only email a privacy request); no Mac app (iPhone, iPad, Apple TV, Vision Pro); the terms (6 Oct 2026) forbid crawling or scraping "through use of manual or automated means". The private `substack.com/api/v1/...` reader endpoints with the person's session cookie are scraping behind authentication — out (the ToS rail). Revisit if Substack opens its OAuth to third-party apps with a reader scope |
+| WhatsApp | local database, read by the app (built 2026-10-28, `whatsapp_source`; no network at all) | no sanctioned personal-account API; an unofficial client risks a ban |
+| Pocket | export only | the service closed in 2025 |
+
+**Ways in, per source (G232, owner 2026-11-04: "why can't we sync Spotify another way? Is there no way to do similar
+to GitHub … offer the website connection through browser harness, just like a toggle switch, and then also the file
+export. Same for TikTok, same for Pinterest, same for Reddit, same for Instagram").** Researched that day against each
+service's own developer documentation and terms; `ways_in.py` serves the result (`GET /sources/ways-in[/<source>]`,
+read-only) for the standard source page's connect area: the official connection as the one `primary` action when it
+exists, the browser toggle and the file import as `ways`, and every way that does not exist in `notOffered` with its
+reason in words.
+
+| Source | Official API for a desktop app with no secret or server | Read-only scopes | One app for every install | Data download | Browser (G206) | Offered |
+|---|---|---|---|---|---|---|
+| Spotify | Web API, Authorization Code with PKCE (no secret) — but ruled out by its terms (row above) | `user-read-recently-played` (last 50 plays only), `user-library-read`, `playlist-read-private` | no: Development Mode since 2026-02-11 is 5 users and the owner on Premium; extended quota is for organisations (2025-05-15) | Account data / Extended streaming history (JSON, emailed, up to 30 days) | ruled out (User Guidelines: no automated access, no AI ingestion) | **file** (plays, library and — G232 — playlists) |
+| Reddit | yes: an *installed app* "cannot keep a secret, and therefore, does not receive one" (Reddit's OAuth2 wiki) — code flow, Basic auth with the client id and an empty password, `duration=permanent` for a refresh token; no PKCE | `identity history mysubreddits` (saved and upvoted are `history`) | yes, but new access needs Reddit's approval since the Responsible Builder Policy (2025-11-11 ended self-service keys); free tier 100 queries a minute per client id | Settings → Request your data (CSV in a zip): `saved_posts.csv`, `saved_comments.csv`, `post_votes.csv`, `subscribed_subreddits.csv` | Saved | **account** once the client id ships (Connect Reddit), the person's own script app behind "Use your own app"; **browser**; **file** |
+| Pinterest | no: the token exchange is HTTP Basic with the client id and secret, no PKCE (developers.pinterest.com, "Set up authentication") | `boards:read`, `pins:read` (`*_read_secret` for secret boards) | no: an app registered on or after 2026-09-14 gets `PINNER_DATA_ACCESS_DENIED` reading boards and pins of anyone but the Business account that authorised it, without approval through an account manager | Settings → Privacy and data → Request your data (a link by email within 48 h, via SendSafely); its layout is not documented | Saved Pins | the person's own (older) app only, behind "Use your own app"; **browser**; no file reader until a real download's member names have been seen |
+| TikTok | no: Login Kit for desktop requires PKCE but its token requests carry the client secret, "from your server" | `user.info.*`, `video.list` (own public videos) — no likes, favourites or history; the Data Portability API (`portability.*`) is EEA/UK users only, after a security review | — | Settings and privacy → Account → Download your data (JSON or TXT) | Favorites | **browser**; **file** (likes and favourites; history only on request) |
+| Instagram | no: Basic Display was retired on 2024-12-04; the Instagram API serves Business and Creator accounts only and returns no saved or liked posts | — | — | Accounts Center → Export your information (JSON) | Saved (G206) | **browser**; **file** |
+
+The browser rows carry the site's own terms on automated access — Pinterest ("scrape, collect … by using automated
+means (without our express prior permission)"), TikTok ("scrape, crawl, export or otherwise extract any data … for any
+purpose" with automated tools), Reddit and Instagram alike — the same posture G206 took for Instagram and LinkedIn: the
+person's own agent in their own signed-in session, a standing ask for one list page, ≤ 10 reads a day, the person's
+account carrying the risk (the v3 acknowledgement says so). Spotify was the one excluded, because its terms add the AI
+clause the 2026-10-29 ruling rested on; **ruling 72 (2026-11-06) lifted that for the browser path** — the person's own agent
+in their own browser is not an app ingesting Spotify Content, and the saved items are index-only — while the API connector
+stays unbuilt. The backend's own rail is unchanged: it never fetches a page behind authentication and never signs in.
+
+**Connect Reddit (G232).** `connectors/reddit.py` signs in with Cicada's own installed app: `POST
+/sources/connectors/reddit/authorize` returns Reddit's consent page (`client_id`, `response_type=code`, `state`,
+`redirect_uri=http://127.0.0.1:8000/sources/connectors/reddit/callback` — Reddit matches it exactly, so a backend on
+another address is told so in words — `duration=permanent`, `scope=identity history mysubreddits`); the shared
+callback (nonce-gated; open only while the build carries a client id, `base.signs_in`) exchanges the code at
+`https://www.reddit.com/api/v1/access_token` with Basic `client_id:` (no secret), asks `GET /api/v1/me` for the
+account's name, and keeps the access token, refresh token, expiry, name and `HOW` in `secrets.env` (0600; every name in
+`CONNECTOR_SECRET_ENV`). The hour-long token is renewed the same way two minutes before it lapses; a refused renewal
+marks the connection *Reconnect* in words. A sync reads `GET /user/<name>/saved`, `/user/<name>/upvoted` (each newest
+first to its cursor, ≤ 10 pages of 100) and `/subreddits/mine/subscriber` on `oauth.reddit.com` only. **Disconnect** is
+one click: `POST /api/v1/revoke_token` (the refresh token, Basic `client_id:`), then everything is forgotten. Signing in
+removes the person's own script-app fields and saving those fields removes the sign-in — one way connected at a time.
+`reddit.CLIENT_ID` is blank until the app is registered; until then Connect is not offered and the source page leads
+with the browser.
+
+**Registering Cicada's Reddit app (the owner, once).** (1) Request API access under Reddit's Responsible Builder
+Policy (its help-centre article, support.reddithelp.com "Responsible Builder Policy", links the developer request
+form): a personal, non-commercial memory app
+that reads a signed-in user's own saved items, upvotes and subscriptions, read-only, no data resold or used to train a
+model. (2) Once approved, at `https://www.reddit.com/prefs/apps` → *create another app…*: name *Cicada*, type
+**installed app**, redirect uri `http://127.0.0.1:8000/sources/connectors/reddit/callback`, about url
+`https://cicada.rorosaga.com`. (3) Put the id shown under the app's name (a public value, never a secret) in
+`reddit.CLIENT_ID`. Nothing else ships: an installed app has no secret.
+
+What every tier-2 connection keeps:
+
+- **The ToS rail below stands.** Official APIs or sanctioned connectors only. Never scraping behind a login, never an
+  unofficial client that breaks a service's terms or risks the person's account being restricted — which is why
+  WhatsApp stays on its local database, read by the app (no sanctioned personal-account API exists).
+- **The person connects each one.** Off by default; the connect step says in plain words what it reads; disconnect and
+  revoke are one click each, and disconnecting forgets the credential (`base.forget()`).
+- **Read-only scopes wherever the service offers them.** Writing back to a service is a separate, explicit ask, never
+  bundled into the connect.
+- **Credentials** in `~/.cicada/secrets.env` (0600), or the keychain where the app holds them — never in a bank, a log or
+  the repo (the rail below).
+- **The normal capture path.** No model at capture; staged through `episode_staging`, scrubbed, with provenance; other
+  people's words stay theirs (`external:<name>`, G179's rail); a demo bank refuses it like any capture.
+- **Ruling 44's guard.** A private person's name is never sent to a service for a lookup. Ingesting the person's own
+  account data is fine; looking people up through a connection is not.
+- **Spend.** Rulings 4, 31 and 36 still apply: a connection that bills per call says so with its basis (as X's owned
+  reads do), and none runs on a metered key nobody chose.
+- **Gates.** A sync the person started is their click; a scheduled sync is a fetch Sleep or a timer starts on its own and
+  sits behind `CICADA_ALLOW_CONNECTOR_FETCH`, like the connectors already are.
+
+**47a — Telegram live sync, the first tier-2 case (owner yes, 2026-10-28).** Telegram's own client API (MTProto, through an
+official client library) with the person's own login, so the chats they tick sync live like Messages, plus their history
+when they ask. The session secret lives in `~/.cicada/secrets.env` (0600) or a 0600 file beside it in `~/.cicada` — never
+in a bank. The connect step says in plain words that Cicada keeps a signed-in session to their account and how to end it
+(Disconnect in Cicada, or Telegram's own Settings → Devices). Off until connected; only ticked chats are read (G179); the
+bot channel (G29, `CICADA_TELEGRAM_BOT_TOKEN`) is unchanged. Built on `feat/telegram-live` (its own PR).
+**Chat images and faces (2026-11-04, G179).** When the person opens a ticked, consented chat, each of its turns'
+attachments is asked of Telegram through the same session (`GET /sources/telegram/chats/{id}/media`, `/media/full`
+for a photo opened large): the chat's peer and the turn's time only (`TelegramPort.around`, then `media_bytes` —
+Telegram's own photo size nearest 320 px, or the photo at most 20 MB), never a name; kept under
+`$CICADA_HOME/telegram/media/<chat>/` (0700/0600) until untick or sign-out, never in a bank, never sent anywhere else.
+Each start and sign-in keeps every ticked chat's profile photo (`Account.keep_photos`; it was asked only at the tick
+before), at most one ask per chat a week.
+
+**The tier-2 framework (`api/services/connectors/tier2.py`, 2026-10-29).** One module behind every token connector
+after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sources row, `GET/PUT/DELETE
+/sources/connectors/{id}[/credentials]` and `POST …/sync` are the existing connector routes; it declares `TOKEN_ENV`,
+`API_BASE`, `READS` (what it reads, in words, one short line — served as `reads`, with `tokenHelp`, on the status;
+the panel draws them as one line, `ConnectorSetupState.readsLine`, the token's place only until connected — owner
+2026-11-03: "this text is extremely unnecessary in all pages that have it, remove it"), `REFUSED_WORDS`,
+`auth_headers`, `check(client)` and `fetch(client, cursor, bank) -> Batch`.
+- **Connect** is the person's Save: `check` makes one read-only request to the service's own host with the pasted
+  token; a refusal (or no answer) saves nothing and the 422 says why in words. **Disconnect** forgets every name in
+  `SECRET_NAMES` and the connector's cursors in every bank.
+- **Requests** go only to `API_BASE` (any other URL is refused), follow no redirect, keep no cookie (a fresh client per
+  request), 15 s each; a 429 waits its `Retry-After` once (≤ 60 s), then stops in words with the cursor unmoved. No
+  request carries a person's name or any query text.
+- **Gates.** Refresh and `cicada connector sync` are the person's click (never gated). The scheduler's job
+  (`tier2.scheduled_sync`, every 6 h, only connected connectors, the active bank) is a fetch Cicada starts on its own:
+  behind `CICADA_ALLOW_CONNECTOR_FETCH` (a skip recorded in words), and skipped before any request while Sleep holds the
+  pages. Sleep's tail never runs a tier-2 sync.
+- **Errors** on the Sources row are the adapter's sentence or "<service> answered HTTP <status>" — never a URL, body or
+  token (`sync_state.json` is in the bank and committed).
+- **Credentials** — `CICADA_READWISE_TOKEN`, `CICADA_NOTION_TOKEN`, `CICADA_GITHUB_TOKEN` in `secrets.env` (0600); every connector secret (the
+  saved-content connectors' too) is in `connections.base.CONNECTOR_SECRET_ENV`, stripped from every engine child, so a
+  model with tools never holds a key to the person's accounts. `CICADA_SECRET_ENV` (the master `CICADA_API_TOKEN`,
+  the Telegram bot token and webhook secret) is stripped the same way, and the embedding worker and the PDF page
+  reader start from `secretless_env()`, never a copy of the backend's environment. No remote door reaches these routes (the G135 listener
+  serves `/mcp` and `/v1` only).
+
+| Connector | Token | What is read | Terms |
+|---|---|---|---|
+| Notion (`notion.py`, `notion_mcp.py`) | a browser sign-in (OAuth + PKCE, read tools only; ROR-113 below); a token pasted before still reads through the REST path with an internal connection with Read content only, shared page by page; a personal access token is refused; a first sync that finds nothing shared says how to share a page (`NOTHING_SHARED_WORDS`, review of #587) | `POST /v1/search` (pages, no query), `GET /v1/pages/{id}/markdown`, `GET /v1/data_sources/{id}` (a row's database title), `GET /v1/users/me` on Save; Notion-Version 2026-03-11 | developers.notion.com: internal connections are for "syncing data from external tools"; 180 requests a minute per connection outside Business plans, honoured through `Retry-After` |
+| Linear (`linear.py`, `linear_mcp.py`, ROR-115) | a browser sign-in only, no field (OAuth 2.1 + PKCE, dynamic client registration, scope `read`; `/.well-known/oauth-authorization-server` on `mcp.linear.app` lists them); read three times over: the grant, the one URL `https://mcp.linear.app/mcp/readonly` (`API_BASE`, so `tier2.Client` refuses `/mcp` and `/sse`), and `ALLOWED_TOOLS = whoami, list_issues, list_comments` (`WriteToolRefused`, a test names the write tools). The issues the person created or is assigned, newest edit first, each with its comments, one episode per issue `linear:<id>`; the cursor holds Linear's page marker and times only; a sync reads at most 100 issues and stops before the next page; every issue edited in the last 7 days is read again each sync (a hash skip when unchanged). **Whose words (the point of the row):** no Linear turn is ever `user:`. `assistant:` for a comment with `onBehalfOf` set, a bot/app/agent author, `botActor` or `externalUser`, text carrying an agent's mark (an Agent notes fold, a Generated-with line, `Co-Authored-By`/`Claude-Session`), the signed-in account's own (an agent signed in as the person is indistinguishable from the person; compared by id, by name only when an id is absent) and an unreadable author; `speaker:<label>` for another user. Claims on `assistant:` lines are `external:linear`; Stage 1 is told (`entity_extractor.linear_note`). The Sources row says when anything came in under the person's account. **Not detected:** an archived or deleted issue, a comment on an issue quiet for over a week until the issue changes, issues the person only commented on | `POST mcp.linear.app/mcp/readonly` JSON-RPC: `initialize`, `notifications/initialized`, `tools/call` | linear.app/docs/mcp (OAuth 2.1 with dynamic client registration; the `read` scope; `/mcp/readonly`); schema: `Comment.onBehalfOf` is internal, `botActor`, `externalUser` and `user` are public |
+| GitHub (`github.py`, `github_auth.py`, G230) | connected with a code (GitHub's device flow, Cicada's own read-only GitHub App; ruling 53) — the token it grants, its refresh token and when it lapses; a token the person makes (fine-grained, read-only "Metadata", "Contents" and "Starring") only as the fallback behind "Use a token instead" | `GET /user` (once a sync to tell its own repositories apart; the login is kept only as a hash), `GET /user/installations` (signed in by code: whether the app is installed on the person's account), `GET /user/repos?affiliation=owner&sort=full_name` and `GET /user/starred` (the `star+json` type, for when each was starred), 50 a page — a real 100-row page measured 633,641 bytes, past the 512 KB rail, a starred row ~6.1 KB — ≤ 60 pages each (3,000 items); `GET /repos/{owner}/{name}/readme` once for each of the person's repositories whose page a sync is about to make (4 at a time), and for any repository page the person opens | GitHub's REST API with the person's own token: 5,000 requests an hour; a 403 with `x-ratelimit-remaining: 0`, a `retry-after` or a message naming a rate limit (the secondary limit) is read as the rate limit it is, never as a refused token; it says the next sync reads the lists again from the start (it does: every sync reads them whole) |
+**GitHub's transport (G230).** GitHub is the one tier-2 adapter with its own live transport (`github.TRANSPORT`,
+picked up by `tier2.Client`): `https://api.github.com` only, every request through `net_guard`'s address rule, no
+redirect followed, no cookie kept, **4 s and ≤ 512 KB a response — the ToS rail's numbers, not the framework's 15 s**;
+a longer answer is a refusal in words, never a partial read. Only `GET`s; Cicada never writes to GitHub. What a request
+names is the person's own account endpoints and, for a repository's record or README, that repository's own
+`owner/name` sent to GitHub alone — GitHub's own identifier for its own record, never a lookup of a person.
+**A README is read in a sync only for a page about to be born** — one of the person's own repositories with no page on
+the record yet (never one that has its page, one they merged or one they removed) — for its first summary; otherwise
+only when the person opens a repository's page (the person's view, like a saved link's icon — so behind
+`CICADA_ALLOW_LOGO_FETCH`, the picture-and-preview gate), with the token when connected and none for a public
+repository (GitHub allows 60 requests an hour without one). The preview is
+kept outside every bank (`$CICADA_HOME/readmes/<bank>/<entity>.json`, 0600), read again when a week old, and
+**Disconnect forgets every README** with the token and the cursor; the pages and episodes stay, the person's to keep.
+The repository's page link (`https://github.com/<owner>/<name>`) is its trusted source with `kept_by: github`, so the
+source refresh never sends Cicada's own fetcher to github.com for it — the API's record is the re-check. The page's
+picture is the organisation's avatar (`avatars.githubusercontent.com`, through `media_preview`'s ToS rail) only when an
+organisation owns the repository; a personal account's avatar is never asked.
+
+**Connecting GitHub (ruling 53, owner 2026-11-03: "why are you asking for a token for github? cant we just do oauth?
+like a connect?").** *Connect GitHub* asks GitHub's device flow for a code (`POST https://github.com/login/device/code`
+with the public client id), shows it, and opens `github.com/login/device` in the person's browser; the app asks the
+backend every `interval` seconds (`POST /sources/github/connect/poll`) and the backend asks GitHub at most that often
+(`POST https://github.com/login/oauth/access_token`, `grant_type=urn:ietf:params:oauth:grant-type:device_code`),
+honouring `slow_down`, `expired_token`, `access_denied`. **No client secret and no server of Cicada's**: the device flow
+needs neither, the device code never leaves the backend, and nothing is redirected. Both requests go through
+`github_auth.oauth_transport`: those two paths on `github.com` only, `net_guard`'s address rule, no redirect, no
+cookie, 4 s, ≤ 64 KB. The token lasts 8 hours with a 6-month refresh token; a device-flow token is refreshed with the
+client id alone (GitHub: `client_secret` "Required unless the user access token was generated using the device flow"),
+before a sync, a page's README read or the install check, once it is within 5 minutes of lapsing. Everything —
+`CICADA_GITHUB_TOKEN`, `CICADA_GITHUB_REFRESH_TOKEN`, `CICADA_GITHUB_TOKEN_EXPIRES`, `CICADA_GITHUB_AUTH` — is in
+`secrets.env` (0600), stripped from every child; whether the app is installed is kept in
+`$CICADA_HOME/connectors/github-account.json` (two flags and a time). Disconnect forgets all of it and the READMEs; the
+grant on GitHub stays until the person removes it at `github.com/settings/applications` (revoking it needs the app's
+secret, which Cicada does not have), and the panel says so. A token the person pastes instead replaces the code
+sign-in whole (`github.on_token_saved`: its refresh token, expiry, `CICADA_GITHUB_AUTH` and install state are
+forgotten), so a renewal never puts the old sign-in's token back. A refresh GitHub refuses (`bad_refresh_token`: the
+refresh token lapsed or was revoked) marks the sign-in lapsed and the panel reads *Reconnect*.
+
+*Why a GitHub App and not an OAuth App.* An OAuth App reaches a private repository only through the `repo` scope,
+which is full read and write. A GitHub App asks for exactly **Metadata: read** and **Contents: read** on repositories
+(the list and a README) and **Starring: read** on the account — read-only. GitHub's own rule is the cost: a GitHub
+App's user token "can only access resources in an account where it is installed", so after the code the panel offers
+**Install on GitHub** (`https://github.com/apps/<slug>/installations/new`; the person picks all or some repositories)
+until `GET /user/installations` lists an installation on their own account; *I installed it* asks again and syncs.
+Stars are an account permission and come in without it. Until the app is installed the owned list reads empty because
+the app cannot see it, so it replaces nothing: no record is tombstoned for it, and the sync says what to do in words.
+Installed on *selected* repositories, one left out of the selection is out of sight, not deleted: never tombstoned,
+and the sync says how many "aren't shared with Cicada on GitHub".
+
+*The app (registered 2026-11-04).* Cicada's GitHub App is `github.com/apps/cicada-memory`; its public client id
+ships in `github_auth.CLIENT_ID` and its slug in `APP_SLUG` (`CICADA_GITHUB_CLIENT_ID` / `CICADA_GITHUB_APP_SLUG`
+override them — a test, a developer build, a fork with its own app; a blank override falls back to the shipped id). It
+asks for exactly the manifest's permissions — Repository *Contents* and *Metadata* read, Account *Starring* read — with
+Device Flow on; no client secret and no private key were made, and the numeric app id is not used anywhere. Until its
+owner makes it public on GitHub only that account can install it (the install page refuses everyone else). Only a
+build whose client id is blank says *Connect GitHub* is not set up and falls back to the token field.
+
+*Registering an app (done once for Cicada's own; kept for a fork).* Open the link `github_auth.register_url()` prints — GitHub's *Register
+new GitHub App* form, pre-filled by URL parameters: name *Cicada Memory*, homepage, public, webhook off, Metadata /
+Contents / Starring read. GitHub's App Manifest flow carries the same manifest (`github_auth.MANIFEST`) but must be a
+POST form and needs a page of Cicada's to receive its code, so the link is the one click; neither can turn on the
+device flow. Then: **Create GitHub App** → on the app's settings page tick **Enable Device Flow** → Save → copy the
+**Client ID** and the app's slug (its public page is `github.com/apps/<slug>`) into `github_auth.CLIENT_ID` and
+`APP_SLUG`. There is no secret to make or ship; the private key GitHub offers is never needed.
+
+**47a amended — one-to-one chats only, each with the other person's consent (owner, 2026-10-28).** Telegram's terms, read the same day: API Terms §1.5 — "you are prohibited from using, accessing or aggregating data obtained from the Telegram platform to train … or otherwise engage in the development, enhancement or deployment of artificial intelligence, machine learning models" — and telegram.org/tos/content-licensing, "Large Language Models and AI": "Telegram firmly prohibits the scraping, indexing, harvesting, aggregation or use of data obtained from its platform to train, fine-tune, validate or otherwise engage in the development, enhancement, benchmarking or deployment of artificial intelligence, machine learning models and similar technologies. Exceptions may be granted in instances where all relevant users individually provide explicit, informed, affirmative and continued consent that is strictly limited to the specific content and chat, channel, or non-global context window for which it was requested." Sleep reads a sitting with a model, so the owner chose "1:1 with consent": group chats and channels are never offered and the backend refuses them; ticking a one-to-one chat needs the person to confirm, per chat and in plain words, that the other person agreed — explicitly, knowing what it means, for that chat only — said to be the person's responsibility, which Cicada cannot verify; the confirmation is kept with its date outside every bank (`$CICADA_HOME/telegram/consents.json`, 0600, a chat id and a time); unticking withdraws it and stops the reading. **Revisit** if Telegram grants Cicada an exception or changes those terms.
+
+**How 47a is built.** `telegram_port` is the one seam to Telegram (plain values out, a fake in every test): Telethon v1
+(MIT, pure Python, one hashed wheel for the Mac and a server, the whole login one `StringSession` string, no message
+database of its own) over TDLib (Boost, faster at a full sync, but a native `libtdjson` to sign per platform and its
+own encrypted message store — a second copy of the chats outside the bank). It is imported only when the person
+connects. Its AES runs on `cryptg` (CC0, a hashed wheel); Telethon also imports `pyaes` unconditionally, which PyPI
+ships as an sdist only while the release installs wheels only, so pyaes 1.6.1 (MIT) is carried as source in
+`api/vendor/pyaes` (byte for byte from PyPI's sdist, its sha256 in `api/vendor/__init__.py`), loaded under its own
+name by `telegram_port.load_telethon` when no installed one exists; the release lock is compiled `--only-binary :all:`
+with pyaes left out, `test_release_build` fails any locked package with no wheel for the target, and the build's
+import check loads the client (#504 review B5). **One-to-one is Telegram's peer, never a flag** (#504 review B4): a
+user's marked peer id is positive, a group's negative, a channel's `-100…`; the tick route accepts only a chat
+Telegram itself lists as one-to-one with a user, the flush drops any non-user peer's update, and the ingest refuses a
+batch whose peer is not a user or does not match the conversation. `telegram_account` keeps the session at `$CICADA_HOME/telegram/session` — 0600 in a 0700 folder, beside
+`secrets.env` but not in it, because `secrets.env` is projected into the environment every spawned `claude -p` and hook
+inherits; a file anyone else can read is refused. **Connecting is "link a device" (ruling 49, owner 2026-10-29):**
+`POST /sources/telegram/qr` asks Telegram for a sign-in token (`auth.exportLoginToken` through Telethon's `qr_login`,
+`telegram_port.qr_start`/`qr_wait`) and answers `state: qr` with its `tg://login?token=…` link and expiry; a background
+task waits for the person's phone to accept it (Telegram → Settings → Devices → Link Desktop Device), swaps in a fresh
+token each time Telegram expires one (≈30 s; `QR_ROUNDS` = 10, then `off` with a sentence), and moves to `connected` —
+or `password` for a two-step account, the one thing still typed. The wait is Telegram's own lifetime for the token
+(measured on Telegram's clock through the client's time offset) less `QR_MARGIN_S`, never under `QR_FLOOR_S`, so a Mac
+whose clock is off cannot burn the rounds; a refresh that finds the last token already scanned (`loginTokenSuccess`, or
+a DC move then the import) is a sign-in, kept like any other. Any failure from the client in a sign-in step — a flood
+wait, a socket error — answers a sentence (422), never a 500, and an unsigned client is closed. The link is held in memory only while shown, never
+logged or kept. The status carries a `version`; `GET /sources/telegram/status?since=<version>&wait=≤25` answers as soon
+as it moves (in-process reads every 50 ms, nothing asked of Telegram), which is how the QR step sees a scan land
+(chats-ux-v2, 2026-10-29). **Chat pictures (chats-ux-v2):** `GET /sources/telegram/chats/{id}/photo` asks Telegram's API
+for a listed one-to-one chat's small profile photo (`telegram_port.profile_photo`), two at a time, and keeps it — or
+that it has none — a week at `$CICADA_HOME/telegram/photos/<id>.jpg` (0600, ids only, deleted on disconnect); the only
+peer is Telegram itself. A tick also stores it in the chat-photo store (`messages_photos`), where it is the page's
+picture through the chat's correspondent; an untick forgets it. Number → code (`/connect`, `/code`) stays as the fallback. Stopping a sign-in half way (Disconnect while
+`qr`, `code_sent` or `password` with no kept session) closes the client without a log-out — there is no session to
+end. The session appears in Telegram → Devices as "Cicada", the OS family and Cicada's version
+(`telegram_port.device_label`), never the Mac's name. **No local reader (ruling 49):** Telegram for macOS's own store
+is a cache (the owner's probe: 59 one-to-one chats, median 1 message, none older than a year), so the official API is
+the one Telegram path. The number goes to Telegram once and is never kept; codes and
+passwords never. Disconnect logs the session out at Telegram, then deletes the file (a failed log-out still deletes
+it and says where to end it). Cicada's own `api_id`/`api_hash`: a release carries the owner's pair in
+`api/data/telegram_app.json`, written by `bundle.sh` from CI's `CICADA_TELEGRAM_API_ID` variable and
+`CICADA_TELEGRAM_API_HASH` secret (`docs/RELEASING.md`); a person's own pair in `secrets.env` wins. One pair serves every
+install (Telegram Desktop and TDLib clients ship theirs the same way); until the owner sets it, a release has none and
+Connect says to add one (`credentials: null` on the status). The only network
+peer is Telegram's own servers; no private name goes anywhere else.
+
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never
 behind auth. Consent interstitials and login walls are classified and retired as `junk` **without a
 byte fetched**. **A block is never retried with different headers.** No scraping behind
@@ -353,5 +766,439 @@ X and Instagram stay external. A video's picture is the backend's stored preview
 longer loads it from the provider. The app itself makes **no** network call to classify: oEmbed runs
 only on the ingest/enrich path, under the gates that path already has, and the three new
 provider calls take the rail's own 4 s / ≤ 512 KB numbers rather than the older, looser `_TIMEOUT`.
+
+## Decided, not built (G132, ruling 51)
+
+Everything above describes what ships. The owner decided on 2026-10-29 ([TODO ruling 51](../goals/TODO.md),
+[the plan](../plans/2026-10-29-g132-sync-engine.md)) how the person's devices will reach each other without a VPN;
+none of it is built, and until G132's phase 3 ships, reach is the overlay described above. The topology it serves — one
+home, replicas, transactions — is in [`headless.md`](headless.md), "Decided, not built".
+
+**Every device dials out.** Each device (the home, every other computer, the phone) opens an outbound connection to a
+relay, which forwards frames between that person's own devices. **Nothing on a device listens on a public port**; the
+backend's loopback bind is unchanged. NATs and captive networks do not matter, because no device is ever dialled.
+**Direct when possible:** on the same LAN or tailnet the devices talk directly and the relay is the fallback (the way
+Tailscale's own DERP is). Tailscale stays supported and optional; it stops being required.
+
+**The relay's trust model: untrusted by design.** Frames are **end-to-end encrypted** to the person's devices with the
+bank's device-group key, carried by pairing (the QR that exists today). The relay sees **only ciphertext, sizes, timing
+and device ids** — never a page, a transcript or a token — and it **cannot read or forge memory**: a frame it alters or
+invents fails to decrypt or verify on the device, and the home still checks every transaction's token and applies it
+through the tool bodies. No plaintext memory leaves the person's devices. Revoking a device removes it from the device
+group and **rotates the group key**, so a revoked device's key opens nothing sent afterwards. The relay mints no
+credential: pairing, device tokens and the phone's Secure-Enclave key binding (`api.md`) stay between the devices.
+
+**The mailbox.** For a home that is asleep and a phone that was off, the relay stores and forwards: a device's
+transactions wait there, encrypted, and are delivered when the home reconnects; deltas wait the same way. The mailbox is
+**bounded and expiring**. Its count per sending device is metadata the relay already sees, and the queue view on every
+device shows it beside the consolidation queue, never as content.
+
+**Hosted by default, self-hostable.** Cicada is to run one relay so that downloading the app is the whole setup, and
+anyone can run the same relay themselves — one container on a machine with a public address — and paste its URL in
+Settings; either way a self-hosted relay is where the devices meet, not a VPN. **Choosing a host, an account, a domain or
+any spend is the owner's decision, and nothing goes live without the owner's OK.**
+
+**The remote connector through the relay.** The G135 listener's public address (what claude.ai and ChatGPT call,
+ruling 32) may live at the relay and be forwarded to the person's devices over their outbound connection, so the person
+needs no funnel and no Tailscale. The relay stays blind here by **TLS passthrough** — it routes on the server name, and
+the certificate and the decryption live on the device — **never by terminating TLS**. Reads are answered by any online
+replica, writes are transactions queued for the home. The person's own funnel to the listener stays an option.
+
+**Open, decided in the build (the G132 row's phase gates):** how a device gets a TLS certificate for a relay-issued
+hostname under TLS passthrough; what happens to a transaction the home rejects while its device is offline; the phone's
+partial-replica scope. The mailbox's bounds and expiry, the device-group key and the relay's stack were decided in phase
+3a, below.
+
+## The relay: built on localhost, not deployed (G132 phase 3a, ruling 51c)
+
+Built 2026-10-29 and tested on 127.0.0.1 only. **Nothing is deployed, no account or domain exists, nothing is spent**;
+choosing the host is the owner's (ruling 51c). Nothing in the backend imports the relay server, nothing at startup
+imports the device side, so a normal install starts no process and opens no connection
+(`test_sync_relay_isolation.py`). Phase 3b wires the device side into the follower and the outbox.
+
+**Direct first, the relay as fallback (owner, 2026-10-30: "cant we just connect between devices").** Devices talk to
+each other directly whenever they can: on the same LAN, over a tailnet, or through a hole-punched path. The relay is
+only (1) the fallback when no direct path exists, (2) the mailbox for a home that is asleep or a phone that was off, and
+(3) the public address the Claude and ChatGPT connector reaches (phase 4, TLS passthrough). Hosting and a domain wait:
+a relay URL is the person's setting, off by default, and only the self-host container (or the suite's in-process relay)
+on localhost has ever been used. **Built in phase 3b (below, "One transport").** **The frames are identical on either path:** the E2E layer below is
+transport-agnostic — a frame is signed and encrypted end to end before any transport sees it, and a receiver runs the
+same `Endpoint.open` (membership, signature, counter, epoch key) whether the bytes came over a direct socket or out of
+the relay's mailbox. A frame that arrives twice, once each way, is refused the second time by its counter, so a device
+may try both paths for the same frame. What direct needs, for 3b:
+
+- **Discovery.** On a LAN, mDNS/Bonjour (`_cicada._tcp`), advertising only the mailbox id's hash and a port, never a
+  name; on a tailnet, the address the person already gave (`CICADA_REPLICA_OF` / `api_base`, phase 1); otherwise each
+  device's candidate addresses, exchanged as an encrypted `control` frame through the relay (rendezvous only).
+- **NAT traversal**, in order of cost: (a) none — LAN and tailnet are already reachable; (b) our own UDP hole punching
+  with the relay as the rendezvous (it relays the encrypted candidate frames and never carries the session), with QUIC
+  or a websocket over the punched path; (c) iroh (QUIC with hole punching and its own relay fallback, Python 1.2.0 and
+  Swift bindings; 1.0 in June 2026; its FFI is "tier 2") if (b) proves fragile. Either way the punched path carries the
+  same frames.
+- **Authentication on a direct path** is the same challenge the relay uses — a fresh nonce signed by a key on the
+  home-signed membership — so a device admits a peer exactly as the relay admits a device, and no Cicada token crosses
+  the wire. TLS on a direct socket is transport hygiene, not the trust boundary.
+- **Choosing a path.** Try direct, fall back to the relay after a short timeout; queue through the relay whenever the
+  peer is offline. Acks are per path (the relay's relay seq, a direct session's own), the sender counter is shared.
+
+### One transport: direct first, the relay as fallback (G132 phase 3b — built, off unless a relay is set)
+
+**One interface.** Every request a device makes of another — the follower's pack and log, the status frame, the
+outbox's transactions, the registry and keys, and the home-move peer calls — goes through `sync_transport.request`
+(to the home) or `sync_transport.ask_peer` (to one device by its registry row). **With no relay set it is phases 1–2's
+direct request, the same code**: nothing relay-side is imported or started (`test_sync_transport.py`,
+`test_sync_relay_isolation.py`). With a relay set and the memory shared (never a demo), the backend runs one relay link
+(`sync_relay_link`, an asyncio task on its own loop) and the transport chooses:
+
+- **direct first** — the peer's configured address (`replica_of`, a registry address, or a verified discovered one)
+  must accept a TCP connection within 2 s (a success is trusted 5 s); then the request goes direct, with its token;
+- **the relay as fallback** — no answer, or a direct request that dies mid-way with no answer, is sent over the relay
+  with the same `Idempotency-Key`, and direct is tried again after 30 s. The relay path never carries a token
+  (`Authorization` is stripped): the receiver knows the sender by its signed frame;
+- **the relay-only address** — a device paired over the relay with no direct address follows
+  `https://home.relay.invalid` (RFC 2606: never resolves), so a direct try costs nothing.
+
+**Ruling 51f (owner, 2026-11-03) replaces "direct, then the relay" with an ordered route list, and makes the relay an
+Advanced option**; the next section is how requests travel now. What follows about the relay stays true when a person
+sets one.
+
+**What travels over the relay.** The home's link pushes each new HEAD as one `delta` to every device (`previous..HEAD`,
+with `seq`, `head` and `base` inside the ciphertext); a device keeps it until its follower asks for that base, so a copy
+catches up from the mailbox while the home is asleep. A device that stays away is **coalesced**: once four deltas wait
+for it the home drops them at the relay (`supersede`) and sends one bundle from the commit that device last announced
+(`copy_head` on its registry row). A write is one `tx` frame to the home, run there **in process** through the same
+route and the same `idempotency.run_once` a direct request reaches, as the device whose relay key signed it
+(`auth.RELAY_DEVICE_SCOPE`, a scope key no network server can set; the device's row is looked up again, so a revoke
+in between is a 401, and the master-only and capture-only rules apply); the answer comes back as a `control` frame, and
+an answer that arrives after the caller stopped waiting is kept for the outbox's next try (no second frame is queued
+for it). The status frame is latest-only (`status`, every 15 s when it changed; a device keeps its own counter for
+status frames apart, because the relay hands it the latest status before the frames that waited). Every other request
+(the registry, keys, `/sync/peer`, a pack) is a `control` request answered by a `control` reply or, from the relay's
+home, a `delta`/`stream`; the same read asked again while unanswered waits for the first answer. A first copy is a
+`stream` spooled to a 0600 file. Relay state is `$CICADA_HOME/sync/relay-state.json` (0600, outside every bank; the
+counter saved before a frame is sent, what a frame changed saved before it is acknowledged; a message cut by a
+dropped connection is received again from its first part). Logs carry kinds, counts and timings only.
+
+**Measured** (a synthetic owner-scale bank — 8,000 pages, 9,000 episodes, 470 inbox items — a home and a copy on
+loopback, the copy reaching the home through a cuttable forwarder and an in-process relay; nice 10): a home commit
+reaches the copy p50 365 / p95 412 ms direct and p50 473 / p95 518 ms over the relay alone (n=20 each, interleaved; the
+relay leg is the home's 0.5 s head poll plus one sealed delta); a write made right after direct is refused, or after
+direct forwarded it and dropped the answer, lands at the home once in ~0.55 s; a copy starting with the home asleep and
+10 commits waiting is caught up 0.17 s after its backend is up, from the mailbox alone (a peer not heard from in 90 s
+gets 1.5 s per read, not 20 s; the home re-seals its status every 30 s as the heartbeat that tells asleep from quiet);
+a first copy over the relay (pairing confirmed → HEAD equal, the restart included, a ~9.5 MB bundle) takes 8.1 s
+against 7.2 s direct; idle, a relay set costs the home +0.27–0.38 s and the copy +0.06–0.14 s of CPU per 120 s.
+
+**Applied once across both paths** (`test_sync_relay_three_machines.py`): a write that went direct, landed, and lost
+its answer is resent over the relay under the same key and replayed, not re-run; a delta whose base is not the copy's
+head is never applied (ancestry is checked before any file is written); a relay frame already accepted is refused by
+its counter.
+
+**The group.** A replica that is not in the relay group yet enrols over the direct path it already trusts
+(`POST /sync/enrol`, its own token): its relay keys' public halves go on its registry row (`relay_ed`, `relay_x`) and
+the home posts a new epoch before answering. Revoking a device (`DELETE /devices/{id}`) also takes it out of the group:
+a new epoch it holds no key to, and the relay closes its socket. **Revoking cannot take back the copy it already
+holds** (the Devices page says so). Phase 2's move calls `Home.hand_off` after the record commits (the membership names
+the target; the group record goes to the target alone), and the target, once its record arrives, `Home.take_over`s the
+group — before it promotes it still asks the old home for its history (`_home_route`). A take-over (or a take-back)
+starts the group again: a new mailbox rooted in the taker's key, the same devices, announced on the old mailbox with the
+signed take-over record; a device follows it only when that record verifies against the registry, outranks the record
+it holds and names the device whose relay key sent the notice.
+
+### The route list and the home-network door (ruling 51f, G132 phase 3b slice 1 — built; on while a memory is shared)
+
+Owner, 2026-11-03: *"yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"*; no
+rented server, no cloud mailbox, no Tailscale requirement; *"we sync when a machine is on"*. The design is T3 Code's
+connection model (research: [`2026-11-03-sync-without-a-rented-relay.md`](../research/2026-11-03-sync-without-a-rented-relay.md) §12).
+
+**The route list (`sync_routes`).** Each device keeps an ordered list of routes to its home and uses the first that
+answers: `lan` (the home's door at a private address of this network) → `tailnet` (the door at its tailnet address,
+only when Tailscale already runs on both; never required) → `configured` (the address the person set — their
+`tailscale serve` or their own TLS proxy — phases 1–2's HTTP request with the device token) → `mapped`/`ipv6` (slice 2,
+not built) → `relay` (only if the person set one under Advanced) → **queue**. A route that did not answer is skipped for
+60 s and then tried first again, so an earlier route is re-checked every minute; on a network change — this computer's
+own addresses, read from the routing table every 5 s without a packet, or the app's word (`POST /sync/network`
+`{event: changed|returned}`, its path monitor and its return to the front) — every route is tried again at once, and
+the device moves back as soon as an earlier one answers. A LAN address that does not answer away from home costs one
+1 s connect, then nothing for a minute. With no door route known and no relay set, a request is phases 1–2's direct
+request exactly (`test_sync_transport.py`). `GET /sync/routes` shows the routes as kinds and states, never an address.
+
+**Learned routes; identity is the keys.** A door tells every device that reaches it where it is now (its first frame),
+and every device's own door is on its registry row (`door`: port, door key, LAN and tailnet addresses), so each device
+keeps the routes of every device that may become the home. The app's Bonjour finds the door on a new network (`POST
+/sync/discovered` `doors: [{host, port}]`), and the backend keeps a found door only after its own handshake proved it
+is the home's. Switching Wi-Fi never means pairing again: the device reaches the same home, by its keys, on another
+route, and fetches `cursor..HEAD` — only what it missed (`test_sync_door_three_machines.py`).
+
+**The door (`sync_door`, D3: "encryption and security above all").** One TCP listener a computer opens only while it
+shares a memory — it publishes its log, it is a copy, or a device is paired with it (a capture-only phone) — never for a
+demo, `CICADA_SYNC_DOOR=off` to keep it shut. It is **a sealed-frame endpoint only: never the HTTP API, never a token,
+never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
+
+- **TCP, decided (ruling 51f, owner 2026-11-04).** The door's carrier stays TCP (owner 2026-11-04: "if you find TCP
+  working better than UDP, then let's go for TCP"); a UDP door is parked in #590 (draft) after three security-review
+  rounds each found a new availability bug in its hand-rolled reliable channel — unbounded reassembly memory, quadratic
+  CPU from tiny pieces, then a session deadlock once its held-piece cap was reached — while the TCP door passed three
+  rounds clean, and on real Wi-Fi the throughput difference does not matter. Revisit with slice 3 (the hole punch needs
+  UDP), with a vetted transport (QUIC behind the authenticated gate, or a maintained library), never a hand-rolled
+  channel. The app's Bonjour stays `_cicada._tcp`.
+
+- **Who may connect.** T3 Code's rule, made exact: a connection on the loopback socket from loopback, on a private
+  socket from a private address, on a Tailscale socket from Tailscale's ranges; anything else is closed before a byte
+  is read.
+- **A tailnet is Tailscale's only when it is really there** (security re-checks of #586). `100.64.0.0/10` is also
+  carrier-grade NAT's shared space — a computer whose ISP uplink is CGNAT (common on 5G and satellite home lines)
+  holds an address there with no Tailscale at all — and a stray router advertisement on the LAN can make a computer
+  give itself an address in Tailscale's IPv6 range on its Wi-Fi. So an address counts as this computer's tailnet only
+  when both hold (`tailscale_addresses`): (1) **it sits on Tailscale's own interface** (`utun*` on a Mac, `tailscale*`
+  on Linux, read with the C library's `getifaddrs` — no process, no new dependency), which holds both a 100.64/10
+  address and one in `fd7a:115c:a1e0::/48`; (2) **its 100.x is not the default route's IPv4 source** — a carrier's
+  uplink is, Tailscale's is not, and no router advertisement changes IPv4 source selection. Anything else in those
+  ranges is public: never bound, never advertised, never a door its neighbours can reach (`test_sync_door.py`: CGNAT
+  alone, a stray router advertisement, Tailscale on `utun`/`tailscale0`, both, an exit node). Tailscale used as an exit
+  node, and a tailnet with IPv6 turned off, are not recognised — the accepted fail-safe; their devices still reach
+  the door on the LAN or the configured address.
+- **Where it listens: never a wildcard, never a public or global address** (security review of #586). It binds
+  loopback (`127.0.0.1`, `::1`) and each of this computer's own private (RFC 1918, IPv6 unique-local) and Tailscale
+  addresses (below), read from the routing table, one socket each; every 5 s it compares that list with what it holds,
+  binds a new network's address and closes a gone one. A server with a public IPv4 or a global IPv6 address never
+  listens on it, so "nothing on a device listens on a public port" holds; slice 2's switch is the only thing that may
+  ever amend that. `CICADA_SYNC_DOOR_HOST` names the addresses instead (a non-bindable one is ignored). The port is
+  chosen once and kept (`$CICADA_HOME/sync/door.json`, 0600, with the door's X25519 key).
+- **The handshake proves both ends and hides who connects.** The client's first packet is fixed-length: a fresh X25519
+  key, then — sealed under `DH(fresh, door key)` — its P-256 public key and its signature over the door key, the fresh
+  key and the time. The key must be a device of the group: its registered signing key (`sign_jwk`) or the key its
+  token is bound to (a phone's Secure-Enclave key). The door answers with its own fresh key and **its computer's device
+  key signature over the hello**, checked by the client against the registry's key for the device it meant to reach
+  (a stolen door key alone cannot pose as the home). Session keys come from both DH results and the transcript: forward
+  secret. Frames are `u32 length ‖ ChaCha20-Poly1305` with a counter nonce per direction; a replayed, dropped or
+  reordered frame fails and closes the connection.
+- **Unauthenticated first packets are dropped silently.** A hello that does not open, is more than 5 min old or new,
+  repeats a fresh key already seen, or names no device of the group is closed without one byte sent back. Over TCP a
+  scanner learns only that a port accepted a connection; it never learns what listens (a UDP door would show nothing
+  at all — parked until slice 3, above).
+- **Rate-limited.** Per source (an IPv4 address, an IPv6 /64) a bucket of 10 handshakes refilled one per 2 s (a failed one costs 3); at most 32
+  connections waiting for their hello (3 s each) and 128 sessions; a frame at most 513 KiB, a request body 32 MiB, an
+  idle session closes after 120 s.
+- **Small and fuzzed.** The parser is two fixed-length reads and one bounded length; `test_sync_door.py` feeds it random
+  bytes, truncations and single-bit flips (3,300 hellos, 500 replies) and checks it only ever drops.
+- **What it carries.** Requests run **in process** through the same routes a device token reaches
+  (`sync_inprocess`, shared with the relay link), as the device the handshake proved (`auth.RELAY_DEVICE_SCOPE`,
+  `auth.DOOR_DEVICE_SCOPE`): its row is looked up again per request (a revoke is a 401 at once, and the revoked
+  device's open sessions and watch are closed then and there; from then on its key is dropped at the door like a
+  stranger's, so over the door alone it sees its home as unreachable — the door never tells an unproven key anything), the master-only rules
+  hold, a capture-only phone reaches only `auth.CAPTURE_ROUTES`, and a write carries its `Idempotency-Key` into the
+  same `idempotency.run_once` — sent twice by two routes, applied once. A copy holds a watch on the door: the door
+  reads the home's `HEAD` every 0.5 s only while a device watches and tells it of each commit at once.
+- **Pairing in the same room.** Creating a capture pairing (`POST /devices/pairing`) opens the door and returns `door`
+  beside the unchanged QR v1: the home's device id and signing key, the door key, port and addresses, and a one-time
+  256-bit secret (ten minutes, one use) — the phone app's later QR v2. A device not yet in the group proves the secret
+  with an HMAC in its hello's last 32 bytes; that session may make exactly one request, `POST /pair` with the code,
+  redeemed capture-only and bound to the key its hello proved — only that pairing's own code (a secret never spends
+  another pairing's), the tag compared in constant time. The answer is the device's id — never a token.
+- **macOS.** Accepting connections needs no Local Network permission (TN3179); dialing a LAN address does, so a copy
+  dials a non-loopback LAN door only when the app reports the permission and the agent plist names the app
+  (`CICADA_SYNC_LAN_DIAL=on|off` overrides; Linux always may). Binding a LAN address raises the application
+  firewall's question (whether the backend may accept incoming connections) when the firewall is on, so **on a Mac the
+  door stays on loopback until the app reports its permissions step** (`lanAllowed` on `POST /sync/discovered` or
+  `POST /sync/network`), then binds its private and tailnet addresses — nothing asks the person anything unasked; the app's
+  first-share step (D4) covers Local Network and the firewall together.
+
+**The outbox never drops an unsent write (D1).** With no mailbox, a write that never reached the home waits however
+long and applies once when a route answers; only an entry the home may have seen (it answered, or a send's answer was
+lost) keeps the 7-day bound before the home's 8-day key, and one that lapses is listed with the rejected ones
+(`expired_may_have_landed`), never silently lost. Since nothing unsent expires, the outbox is bounded by 5,000
+entries and 256 MB: a write that does not fit is refused in words ("this device's queue for the home is full … Nothing
+that waits was dropped"; `queue_full` from the tool door, 507 from the route table), never queued in words and lost.
+
+**Which route was used** is one telemetry row (`sync_route`) when a device's route changes or it starts queueing, and
+once an hour per device and route at the door — `side`, `route`, `event`, `before` as enums only, never an address,
+host or port. It is how the share of homes that need slice 2 gets measured, not guessed.
+
+**Measured** (2026-11-03; loopback on this Mac, three backends and a phone-shaped client, synthetic data, the door
+reached through forwarders the test cuts; the 5 end-to-end runs beside a full gate run, nice 10):
+
+| What | Result |
+|---|---|
+| Door handshake (connect + both proofs), n=100 | p50 1.28 ms, p95 1.42 ms; a request on the session 0.2 ms |
+| A dead LAN route away from home | 1.0 s once (the connect timeout), then skipped for a minute |
+| A home commit reaches a copy over the door (watch → pack), n=25 | p50 384 ms; each run's first commit after the configured address is cut, 1.0–1.2 s (the copy moving its watch to the door) |
+| Network switch: the home found at another address → copy caught up, 5 missed commits, n=5 | 290–603 ms (p50 315); ~5.3 KB over the new route, every handshake and status read included, against a ~15.9 KB full copy |
+| Move back to the door after the app's word, n=5 | 0.8–1.8 s (p50 0.91 s; one request on the next commit) |
+| Phone-shaped client: a capture on the same network / three queued captures after the home answered on a new network, n=5 | 11–18 ms / 18–40 ms; each kept once, one re-sent after a lost answer |
+| Idle CPU per 120 s, a copy on the door's watch vs on the configured address's `/sync/events` (two alternating rounds) | home 0.39–0.46 s vs 0.50–0.83 s; copy 0.30–0.33 s vs 0.54–0.70 s — the door is cheaper idle |
+
+**The phone, for now a capture device** (owner 2026-11-03: *"for now, the phone i mainly want it as a way to capture,
+so wether im outside, same wifi or wherever, i can send stuff to the same queue to get digested"*). It runs the same
+route list with no copy and no follower: its captures go to the existing capture routes (`/capture/note`, `/capture/file`,
+`/sources/save`) with an `Idempotency-Key`, through the door, its capture-only token's scope applied in process; while
+the home is asleep they wait in its own outbox, never expiring, and land once on the next overlap — on the same Wi-Fi
+today, from anywhere once slice 2 makes the home reachable. `api/tests/_phone_like.py` is the reference client the phone
+app's later build implements (G91).
+
+**Slice 2, not built: reach away from home.** Behind "Reach my memory away from home" (off): the home maps the door's
+port on its router (PCP, NAT-PMP, UPnP-IGD) and uses IPv6 where inbound is allowed, and publishes its current address as
+a signed, encrypted record in the public Mainline DHT (re-published when the address changes, a TTL); the door admits a
+public peer only then. The plan, libraries and rails: [`docs/plans/2026-11-03-g132-routes.md`](../plans/2026-11-03-g132-routes.md).
+
+**Pairing over the relay** (Settings → Devices, the app's PR): `POST /devices/pairing/relay` issues a one-time code
+through `device_tokens` (ten minutes, single use) and the QR v2 `{v, code, relay, slot, home: {ed, x}}` (plus `url` when
+the home has a direct address), and opens the typed path's Argon2id slot too. The new computer posts the QR or the typed
+code with the relay's address (`POST /sync/relay/join`); the home's screen names what answered and, on the typed path,
+both screens show the same six digits; the person confirms on the home (and, typed, on the new computer); then the code
+is spent through `device_tokens.redeem`, the device's relay keys go on its row, the epoch is posted, and only then the
+sealed welcome is sent. A second device answering voids the code: "Two devices answered this code, so neither was
+added." The new computer keeps its token, `replica_of`, the relay setting and the endpoint (all 0600) and starts again
+as a copy. The phone's binding to its Secure-Enclave key waits for phase 4.
+
+**Discovery on the LAN — the app, never the backend.** Apple's TN3179 ("Understanding local network privacy",
+2026-10-06): *"All Bonjour operations require local network access"*, and so does *"Making an outgoing TCP
+connection"* to a local-network address (listening and accepting do not); macOS allows it automatically for *"Any
+daemon started by launchd"*, root, and Terminal/SSH tools, but *"The exception for launchd daemons doesn't apply to
+launchd agents"*. The backend is a launchd agent (`com.cicada.backend`), so a Bonjour call from it would raise the
+Local Network alert on its own, under no app's name. So the app (which may ask, with its usage text) advertises and
+browses `_cicada._tcp` with the instance name `c-<hash>` — the first 80 bits of `sha256("cicada-lan-v1\0" + bank id)`,
+never a name, hostname or the bank id — and hands the backend what it resolved (`POST /sync/discovered`; since ruling 51f the advertised port is the door's, and a
+found door is checked by the door's own handshake). An `https` address is
+trusted only after the peer signs a fresh nonce the backend issued (`GET /sync/discovery` → the peer's open
+`GET /sync/hello`) with the device key the registry holds for it — no token is sent to it before that — and only an
+`https` address is kept (a token never crosses a LAN in the clear). The backend dials a verified LAN address only when
+the app says the person allowed local network access **and** its launchd plist names the app as its responsible code
+(TN3179's `AssociatedBundleIdentifiers`, written by `install-backend-agent.sh` with `CICADA_APP_BUNDLE_ID` when the app
+passes its bundle id — Settings → General's install does since #573, and a release rewrites an older plist once);
+otherwise the configured address and the relay carry everything. **Built in the app (#573):** the advertisement
+(`DNSServiceRegister` for the door's port), the browse (`NWBrowser`), the resolve without a connection, the posted
+`doors`, the `lanAllowed` answer of the first-share step, and the network hints (app.md, "The home-network door, the
+app's side"). A door request stamps the device's `how` (`agent_seen`: `lan`, or `tailscale` from a tailnet peer) so
+the home's Devices page names the route; `tx_outbox.counts` adds `full` (the last write was not kept and the queue
+has not shrunk since, or not even a small one fits). Off on a single-machine install:
+nothing is advertised and `/sync/hello` answers 404.
+
+**The bind.** The backend's HTTP API still binds `127.0.0.1` only; `GET /sync/transport` shows it in words, with where
+the person's other devices reach it (their tailnet's `tailscale serve`, or `CICADA_DEVICE_URL`). The HTTP API is never
+served on the LAN: #572's pinned-certificate HTTPS listener was not built — ruling 51f's door (above) is the one LAN
+listener, sealed frames only, no token.
+
+**Before any hosted relay goes live (pre-go-live, as far as code goes).** Creation is also capped per IPv6 /48 (an
+IPv4 /24): 20 an hour (`RELAY_CREATES_PER_48_PER_HOUR`), so one site handed 65,536 /64s is still one budget; a bank no
+device connected to again after the one that created it is purged after 2 days (`RELAY_UNCONFIRMED_PURGE_S`), not 30;
+behind trusted proxies the forwarded chain is read whole — every `X-Forwarded-For` line in order (`get_all`) — and
+walked from the right past each trusted hop, so a client's own forged entries to the left are never believed.
+
+**What exists.** `relay/` is the relay (`cicada_relay`: `wire`, `config`, `store`, `server`, `health`), standalone —
+it imports nothing from the backend — with its own pinned, hashed `requirements.txt` (PyNaCl, websockets) and one
+`Dockerfile`. The backend side is three modules: `sync_relay_crypto` (keys, frames, epochs, the group),
+`sync_relay_pairing` (the QR and typed-code exchanges) and `sync_relay_client` (the device's outbound websocket).
+
+**The relay's stack (gate g4): one small Python asyncio websocket relay with a SQLite mailbox,** the research's option (b)
+(`reports/g132-relay-research.md`): no lock-in, the same image hosted and self-hosted, pytest runs it in-process, and
+in phase 4 the same process can own :443 and route the connector by SNI without terminating TLS. Measured on this Mac:
+an idle authenticated socket costs **~69 KB of relay RSS** (1,501 sockets on loopback, one process), so 30,000 sockets
+(10,000 people, three devices each) is ~2 GB — the research's estimate holds.
+
+**How a device meets the relay.** It dials out over a websocket to `/v1` (`wss://` always; `ws://` only on loopback),
+answers a fresh challenge with an Ed25519 signature, and names its bank only by a **random mailbox id** (never derived
+from the bank id or a name). The relay admits only keys on the bank's latest membership, which **the bank's home
+signed**; it verifies signatures and mints nothing — no Cicada token, bank id or pairing code ever reaches it. A
+socket of a device the membership drops is closed at once (`4403 revoked`), and the device cannot reconnect.
+
+**Frames.** `MAGIC || u16 header length || canonical-JSON header || body || Ed25519 signature`. The header (signed, and
+the AEAD's associated data) is `{v, mb, ep, from, ctr, kind, at, msg, part, parts, to}`: the mailbox, the epoch, the
+sender's key, its counter, the kind (`tx`, `control`, `delta`, `status`, `stream`, `epoch`), its own creation time, the
+message and part numbers, and the recipients (`*`, `home`, or a list of keys). The body is
+`nonce || XChaCha20-Poly1305(K_epoch, padded part)`; plaintext is padded to buckets (4 KiB doubling to 512 KiB, then
+1 MiB less the header room), so the relay learns a bucket, not a length. A payload larger than one part is consecutive
+parts of one message. Inside, encrypted, the metadata ties a frame to what already de-duplicates it: a transaction
+carries its `Idempotency-Key` and `base_seq`, a delta its `seq` (the follower still checks ancestry before applying).
+
+**The group key (gate g3).** The home holds one 32-byte epoch key and the membership. Every membership change — a
+device paired, a device revoked, the home handed off — is a new epoch: the home draws a new key and posts one signed
+`epoch` frame carrying the statement `{v, mb, epoch, home, devices: [{ed, x}], at}` and, per device, a sealed box
+(`crypto_box_seal` to its X25519 key) of the epoch keys it may hold — never one from before it joined, only those
+started within 8 days. A device accepts a membership only when the home it pinned at pairing signed it; a statement
+naming another home is the hand-off (phase 2's signed record, at the relay too), and the new home is pinned from then
+on. The old home's group record — who joined in which epoch, and when each epoch started — goes to the new home alone,
+signed by the old home and sealed to the new home's key; `Home.take_over` requires it, so a hand-off never wraps a key
+to a device older than the epoch it joined, nor restarts a key's retention. Revoking a device rotates the epoch: it opens nothing sent afterwards, what it sends is refused by every member,
+and the relay drops it, its socket, its queued frames and the frames waiting for it. **Revoking cannot take back the
+copy a device already holds;** it stops everything after.
+
+**Anti-replay and anti-reorder.** A sender's counter only grows; every receiver (and the relay) refuses a counter at or
+below the highest it accepted from that sender, so a replayed frame and a reordered one are both refused, and the
+parts of one message must arrive consecutively. A transaction whose signed creation time is more than 7 days old is
+refused, one day inside the home's 8-day idempotency key, so a transaction replayed after its key expired cannot run
+twice. A lost delta is noticed by its `seq` and the device asks for `cursor..HEAD`.
+
+**Pairing.** *QR (primary):* the QR carries `{v: 2, code, relay, slot, home: {ed, x}}` (plus today's `url` when the
+home is reachable directly). The slot is random, so the relay never learns the code; the device seals
+`{code, name, ed, x, nonce}` to the home's key from the QR, and the welcome (the device token, the mailbox id and the
+epoch frame that admits the device) comes back sealed to the device and signed by the key the QR pinned. *Typed code
+(no camera):* the slot is `Argon2id(code)`, and the exchange is a numeric comparison with a commitment — the home's offer
+commits to its nonce before it sees the device's, reveals it after — so both screens show the same six digits
+(`123 456`) only when nobody stood between them; a relay in the middle matches with probability 10⁻⁶. The home
+releases the welcome only after the person confirms the digits on the home's screen, the device accepts it only after
+the same confirmation on its own, and a slot that receives a second request is void ("Two devices answered this code;
+start again"). A slot lives at most the code's ten minutes and carries at most 8 messages of ≤ 16 KiB.
+
+**The mailbox (gate g2).** Every bound is a `RELAY_*` variable (`cicada_relay/config.py`) and tested
+(`test_sync_relay_store.py`, `test_sync_relay_e2e.py`):
+
+| Bound | Default | Basis (measured 2026-10-29, `benchmarks/scale/relay_bundles.py`) |
+|---|---|---|
+| Frame | 1 MiB (header + ciphertext + signature) | a capture commit's bundle is 1.1 KB p50, 13 KB p95, 21 KB max (n = 30; 4.5 / 16.8 KB framed, the 4 KiB bucket dominating); a Sleep batch's own commits 28 KB to 1.7 MB; a drain's decay commit ~10 MB, about ten parts |
+| Standing mailbox per bank | 128 MiB | a day of use (48 captures, two batches of 25, 54 commits) is 18.5 MB as per-commit deltas to a device that stays online, 11.2 MB as one coalesced `cursor..HEAD`; a week offline uncoalesced (~130 MB) passes the 112 MiB delta room, so the home coalesces (`supersede`, below) |
+| Transactions reserve | 16 MiB of it, never taken by deltas | a transaction pads to 4 KiB plus ~0.4 KB of framing: ~3,700 queued writes |
+| Frames per bank | 20,000 | a day is ~75 frames (54 commits, the decay delta in ~11 parts): a flood guard, not a working limit |
+| Bootstrap | one stream per bank at a time, 256 MiB, 24 h | the synthetic bank's full bundle is 53 MB (its `.git` 89 MB); the owner's real `.git` is 147 MB (a read-only `du`), so its bundle is estimated near 90 MB. The research's 64 MiB was too small; 256 MiB. Beyond it the app says to copy on the same network |
+| TTL | 7 days for transactions, control and deltas, counted from the frame's own signed time | under the home's 8-day key; the outbox expires at 7 |
+| Status | latest only per sender, 16 KiB, never queued | a status frame is one 4 KiB bucket |
+| Idle bank | purged after 30 days with no device connected | the home re-creates it from its signed membership |
+| Relay-wide | 16 GiB of frames (a running total kept by SQLite triggers) and a 20 GiB database file | a full relay answers `relay_full`; it never evicts another bank's frames |
+| A flush | reads sizes, then one frame's bytes at a time, ≤ 4 MiB a batch | a bank's 15 online devices cost ~15 frames of memory, not 15 × 256 MiB |
+| Idle bank never reconnected | purged after 2 days when no device connected again after the one that created it (phase 3b) | a create costs nothing; an abandoned or scripted one should not hold a row for a month |
+| Bank creation | one per connection; 5 an hour per network — an IPv4 /32 or an IPv6 /64, so rotating through a prefix is one key — and 20 an hour per IPv6 /48 or IPv4 /24 (phase 3b); only a created bank counts; a table of at most 50,000 networks, O(1) at the cap, a new network refused when it is full rather than scanned; 16 unauthenticated sockets per network | creating needs no credential (the home's key is the bank's root), so it is rate-limited; addresses are held in memory for the counts only, never logged or stored |
+
+A device spools a bootstrap's parts to a 0600 file outside every bank (`Endpoint.spool_dir`, never in memory), up to
+the relay's 256 MiB; the home seals it from its bundle file a part at a time (`seal_stream`). Any other message is
+assembled in memory up to 64 MiB. When the standing mailbox is full the oldest delta is evicted first (its recipients are told they missed some), never
+a transaction; when only transactions are left a new one is refused `relay_full` and stays in its device's outbox.
+What is still on its way, per sending device, is the relay's `counts` (ruling 51d's "on its way").
+
+**The research's cost model, against these numbers.** The basis is `benchmarks/scale/relay_bundles.py` on a synthetic owner-scale bank (8,001 pages, 9,850 episodes, a 5.2 MB owner page; episode sizes drawn from the owner bank's measured quantiles, p50 859 B, p90 8.2 KB, p99 64 KB, by a read-only `stat`), each bundle made exactly as `sync_pack` makes it. The research assumed ~50 KB a commit and ~6 MB a day out for a heavy user. Capture commits are far smaller (1.1 KB p50), but **every Sleep drain ends with a decay commit that rewrites each decaying page's `confidence` and `decayed_through`**: 7,200 pages, ~10 MB, on the synthetic bank (weeks behind, so each drain catches up a week). On the owner's real bank 1,694 pages carry today's `decayed_through` (a read-only frontmatter count), so its decay commit is estimated near 2.4 MB at the synthetic ~1.4 KB a page. A heavy day is therefore ~12–19 MB to each receiving device (11 MB coalesced), ~25–40 MB out with two other devices — 3–6× the research's estimate. At 10,000 users, a third of them heavy, that is ~6 TB a month, up to ~12 TB if all were: still inside one EU box's included 20 TB, so the research's cost table holds and only its traffic line moves. With coalescing the standing mailbox stays ~10–20 MB per bank, as it planned. The home coalesces with `{"t":"supersede","dev","upto"}` (home only, its own deltas only, never a transaction): the deltas still waiting for an offline device are dropped and one `cursor..HEAD` delta sent instead.
+
+**Threat model.** *What the relay learns:* each device's IP address and online times; how many devices a mailbox has
+and which key is the home's; each frame's kind, bucketed size, timing, sender key and recipients; the membership
+statements (public keys only); that a pairing happened. *What it never holds:* a page, a transcript, a claim, an
+inbox answer, a Cicada token, the bank id, a pairing code on the QR path, or a key that opens a frame — the SQLite file
+and the logs are checked for a known plaintext marker (`test_sync_relay_e2e.py`). *What an attacker who controls the
+relay can do:* drop, delay or reorder frames, or refuse service (a device sees it is behind by the home's `seq` and
+says so: "Waiting for the home"); squat a purged mailbox id (the home makes a new one); fill its own disk (bounded per bank and relay-wide); see the metadata above; on the
+typed-code path, try a man-in-the-middle that the six digits expose. *What it cannot do:* read any frame; forge one
+(every frame is signed by its sender, every membership by the pinned home); replay or reorder one past the counters;
+inject a delta, a bootstrap or a membership (home-only kinds, checked by every device); keep a revoked device in the
+group; or make a transaction run twice. *A member device* can read what the group reads — every full device already
+holds the bank — but cannot forge another member's frames or the home's. Forward secrecy is per epoch, not per frame:
+a device's compromise exposes what that device could already read.
+
+**Self-hosting the relay.** One container on a machine with a public address (a VPS, or a home server with a port
+forward); its URL is what the person pastes in Settings once 3b ships:
+
+```sh
+docker build -t cicada-relay relay
+docker run -d --name cicada-relay -p 8443:8443 -v cicada-relay-data:/data \
+  --read-only --cap-drop ALL --security-opt no-new-privileges \
+  -v /etc/cicada-relay/tls:/tls:ro -e RELAY_TLS_CERT=/tls/fullchain.pem -e RELAY_TLS_KEY=/tls/privkey.pem \
+  cicada-relay
+```
+
+It runs as uid 10001 on `python:3.12.11-slim-bookworm` with only its two hashed dependencies, answers `GET /healthz`
+(the image's `HEALTHCHECK`), keeps its mailbox in `/data` (a cache the devices can rebuild, except transactions still
+in flight, which also stay in their device's outbox), and terminates TLS for its own name only — **TLS should terminate
+in the relay**, so the address it counts is the client's. Behind a TLS proxy, set `RELAY_TRUSTED_PROXIES` to the
+proxy's network (empty by default): its forwarded chain is then read whole (every `X-Forwarded-For` line) and walked from
+the right past each trusted hop, and from any other peer the header is ignored; without it every client counts as the proxy and the per-network limits become relay-wide. Without the TLS
+variables it serves plain `ws://`, which devices accept only on loopback (a TLS proxy on the same machine). Its logs
+carry hashed ids, sizes, counts and timings, never a body, a key, an address or a slot. Without Docker:
+`PYTHONPATH=relay python -m cicada_relay` with the same variables.
 
 ---

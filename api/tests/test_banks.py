@@ -87,7 +87,7 @@ def test_scaffold_seeds_the_real_predicate_map_not_an_empty_placeholder(tmp_path
     assert predicates_path.read_text(encoding="utf-8").strip() != "{}"
 
     card = predicates.build_cardinality_fn(tmp_path)
-    assert card("part-of") is True  # still single-valued
+    assert card("takes-place-in") is True  # still single-valued
     assert card("works-at") is False  # a person holds more than one place (2026-10-14)
     # moved to multi-valued (G98: set-valued predicates, not primary choices)
     assert card("uses") is False
@@ -427,3 +427,9 @@ def test_import_gemini_backdates(tmp_path, monkeypatch):
     parsed = markdown_parser.parse(ep_dir / "ep_2026-02-24_001.md")
     assert parsed.frontmatter["origin"] == "gemini-export"
     config.get_settings.cache_clear()
+
+
+def test_a_live_index_journal_is_derived_and_never_copied():
+    """It comes and goes while an index commits: a copy that listed one and then lost it answered 500."""
+    for db in ("search_index.db", "vector_index.db"):
+        assert {db, f"{db}-wal", f"{db}-shm", f"{db}-journal"} <= set(bank_registry.DERIVED_ARTIFACTS)

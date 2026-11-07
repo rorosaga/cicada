@@ -30,8 +30,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.models.schemas import EpisodeCitations, EpisodeSpan, EpisodeText
-from api.services import evidence, git_service, provenance, sync_service, video_state
+from api.models.schemas import EpisodeCitations, EpisodeSpan, EpisodeText, SourceSpans
+from api.services import authorship, evidence, git_service, provenance, source_spans, sync_service, video_state
 
 router = APIRouter()
 
@@ -63,14 +63,24 @@ async def get_episode_span(
     status = evidence.span_status(text, end=end, hash=hash, appendable=is_episode)
     # R-LS7: a folder file's declared authorship; R-LS2: which turn, from the
     # episode's `turns` sidecar (R-PB4) — both read from the one parse above.
-    override = str(fm.get("evidence_kind") or "") or None
+    override = authorship.of(fm)
     gaps = evidence.gap_ranges(fm, text) if is_episode else ()   # gate B2: from the episode's own record
+    # ROR-16 (G235): the words a hover preview shows. Held, or beside what is held, they stay out of it.
+    # Off the loop: the sensitive scan behind `held` takes about a second on a 1.5M-character source.
+    held = (await run_in_threadpool(source_spans.Source.of, episode_id, fm, text)).held
+    before, after = text[max(0, start - context):start], text[end:end + context]
+    is_held = source_spans.overlaps_held(start, end, held)
+    if source_spans.overlaps_held(max(0, start - context), start, held):
+        before = ""
+    if source_spans.overlaps_held(end, end + context, held):
+        after = ""
     turn = evidence.turn_at(text, start, evidence.turn_stamps(fm), gaps) if is_episode else None
     return EpisodeSpan(
         episode=episode_id,
-        text=text[start:end],
-        before=text[max(0, start - context):start],
-        after=text[end:end + context],
+        text="" if is_held else text[start:end],
+        before="" if is_held else before,
+        after="" if is_held else after,
+        held=is_held,
         start=start,
         end=end,
         length=len(text),
@@ -108,7 +118,7 @@ async def get_episode_text(
     memory_path = settings.memory_path
     etag = sync_service.etag_for(
         memory_path, "episodes", "entities",
-        extra=f"text|{episode_id}|{start}|{end}|{hash or ''}|{focus or ''}|{git_service.AUTHOR_SHAPE}|src1|device1|site1|extras1|recv1|{video_state.VIDEO_SHAPE}",
+        extra=f"text|{episode_id}|{start}|{end}|{hash or ''}|{focus or ''}|{git_service.AUTHOR_SHAPE}|src1|device1|site1|extras1|recv1|note1|{video_state.VIDEO_SHAPE}|{source_spans.SHAPE}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
@@ -141,11 +151,34 @@ async def get_episode_citations(
     from api.services import claims
     etag = sync_service.etag_for(
         memory_path, "episodes", "entities",
-        extra=f"citations|{episode_id}|{git_service.AUTHOR_SHAPE}|{video_state.VIDEO_SHAPE}|validity2|{claims.current_day()}",
+        extra=f"citations|{episode_id}|{git_service.AUTHOR_SHAPE}|{video_state.VIDEO_SHAPE}|validity2|{claims.current_day()}|{source_spans.SHAPE}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     result = await run_in_threadpool(provenance.episode_citations, memory_path, episode_id)
+    if result is None:
+        raise HTTPException(404, f"No stored document {episode_id!r}")
+    return result
+
+
+@router.get("/episodes/{episode_id}/spans", response_model=SourceSpans)
+async def get_source_spans(
+    episode_id: str,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """Every span pointing into this source, grouped by page (ROR-16): which part of a note is about which page. Offsets
+    and ids, no words: the words are ``/text``'s. Engine-free, nothing written. 404 for an unknown, non-bare or locked
+    document. Not a Store domain (the app keeps it in ``ProvenanceCache``, revalidated by this ETag)."""
+    from api.services import claims
+
+    memory_path = settings.memory_path
+    etag = sync_service.etag_for(memory_path, "episodes", "entities",
+                                 extra=f"spans|{episode_id}|{source_spans.SHAPE}|{claims.current_day()}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    result = await run_in_threadpool(source_spans.for_source, memory_path, episode_id)
     if result is None:
         raise HTTPException(404, f"No stored document {episode_id!r}")
     return result

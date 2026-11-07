@@ -180,7 +180,7 @@ def test_the_tool_schema_carries_mode_and_quote():
     server = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(server)
     tools = {t["name"]: t for t in server.TOOLS}
-    assert tools["cicada_check_nudges"]["inputSchema"]["properties"]["mode"]["enum"] == ["ask", "list"]
+    assert tools["cicada_check_nudges"]["inputSchema"]["properties"]["mode"]["enum"] == ["ask", "catchup", "list"]
     assert "quote" in tools["cicada_resolve_inbox"]["inputSchema"]["properties"]
 
 

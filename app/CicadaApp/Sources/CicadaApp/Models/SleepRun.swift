@@ -45,6 +45,23 @@ struct SleepReserveInfo: Codable, Equatable, Hashable {
 
 /// `GET /sleep/engine`'s `reserve`: the line, its choices, whether it applies to the engine a run
 /// you start would use (a plan), and which windows the last run could enforce.
+struct SleepSpendStatus: Codable, Equatable, Hashable {
+    var limitUsd: Double?
+    var choices: [Int]
+    var applies: Bool
+
+    init(limitUsd: Double? = nil, choices: [Int] = [], applies: Bool = false) {
+        self.limitUsd = limitUsd; self.choices = choices; self.applies = applies
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        limitUsd = (try? c.decodeIfPresent(Double.self, forKey: .limitUsd)) ?? nil
+        choices = ((try? c.decodeIfPresent([Int].self, forKey: .choices)) ?? nil) ?? []
+        applies = ((try? c.decodeIfPresent(Bool.self, forKey: .applies)) ?? nil) ?? false
+    }
+}
+
 struct SleepReserveStatus: Codable, Equatable, Hashable {
     var pct: Int?
     var choices: [Int]
@@ -93,8 +110,10 @@ struct SleepPausedRun: Codable, Equatable {
     var runId: String
     var startedBy: String
     var reason: String
-    /// `transient | needs_fix`; older backends omit this and retain the fix guidance.
+    /// `transient | needs_fix | offline`; older backends omit this and retain the fix guidance.
     var engineKind: String?
+    /// For an `offline` pause, why (2026-11-03): `asleep | no_network | connection`.
+    var offlineCause: String? = nil
     /// The pause's diagnosis: a plan's own sentence, or an engine interruption/fix.
     var sentence: String?
     /// The vendor's unix reset time — `nil` when none was given, never guessed.
@@ -108,6 +127,13 @@ struct SleepPausedRun: Codable, Equatable {
     var canContinue: Bool
     var engineLabel: String?
     var autoContinue: AutoContinue?
+
+    /// ROR-96 — the limit this run paused at has reset (ruling 15: a weekly limit still waits for the person's click,
+    /// so the record outlives its limit). `false` without a vendor time: an absent reset is never guessed.
+    func planIsBack(now: Date) -> Bool {
+        guard ["plan_window", "plan_weekly", "overage", "reserve"].contains(reason), let resetsAt else { return false }
+        return Date(timeIntervalSince1970: TimeInterval(resetsAt)) <= now
+    }
 
     init(runId: String = "run", startedBy: String = "user", reason: String, sentence: String? = nil,
          resetsAt: Int? = nil, limit: String? = nil, filed: Int = 0, frozen: Int = 0, calls: Int = 0,
@@ -128,6 +154,7 @@ struct SleepPausedRun: Codable, Equatable {
         startedBy = str(.startedBy) ?? "user"
         reason = str(.reason) ?? "user"
         engineKind = str(.engineKind)
+        offlineCause = str(.offlineCause)
         sentence = str(.sentence)
         resetsAt = (try? c.decodeIfPresent(Int.self, forKey: .resetsAt)) ?? nil
         limit = str(.limit)
@@ -140,7 +167,7 @@ struct SleepPausedRun: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case runId, startedBy, reason, engineKind, sentence, resetsAt, limit, filed, frozen, calls, committedBatches
-        case pausedAt, canContinue, engineLabel, autoContinue
+        case pausedAt, canContinue, engineLabel, autoContinue, offlineCause
     }
 }
 
@@ -182,9 +209,16 @@ struct SleepRunOptions: Codable, Equatable {
     /// TODO ruling 4b (owner, 2026-10-16; amended 2026-10-19): this machine lets scheduled runs use the person's plan.
     /// On by default; only the person's explicit off stops it.
     var scheduledUsePlan: Bool
+    /// ROR-102: a run on a key stops at this figure; `nil` is the person's off.
+    var spendLimitUsd: Double?
+    /// G243: hold the Mac awake while Sleep reads, on power only. Off by default; an older server has no such field.
+    var keepAwake: Bool
 
     init(batchSize: Int = 25, batchSizeChoices: [Int] = [10, 25, 50], continueAfterReset: Bool = false,
-         reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30], scheduledUsePlan: Bool = true) {
+         reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30], scheduledUsePlan: Bool = true,
+         spendLimitUsd: Double? = 5, keepAwake: Bool = false) {
+        self.spendLimitUsd = spendLimitUsd
+        self.keepAwake = keepAwake
         self.batchSize = batchSize; self.batchSizeChoices = batchSizeChoices
         self.continueAfterReset = continueAfterReset; self.reservePct = reservePct; self.reserveChoices = reserveChoices
         self.scheduledUsePlan = scheduledUsePlan
@@ -199,9 +233,11 @@ struct SleepRunOptions: Codable, Equatable {
         reserveChoices = ((try? c.decodeIfPresent([Int].self, forKey: .reserveChoices)) ?? nil) ?? []
         // An older server has no such switch: its scheduled runs never used a plan.
         scheduledUsePlan = ((try? c.decodeIfPresent(Bool.self, forKey: .scheduledUsePlan)) ?? nil) ?? false
+        spendLimitUsd = (try? c.decodeIfPresent(Double.self, forKey: .spendLimitUsd)) ?? nil
+        keepAwake = ((try? c.decodeIfPresent(Bool.self, forKey: .keepAwake)) ?? nil) ?? false
     }
     enum CodingKeys: String, CodingKey {
-        case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices, scheduledUsePlan
+        case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices, scheduledUsePlan, spendLimitUsd, keepAwake
     }
 }
 
@@ -213,13 +249,19 @@ enum SleepRunOptionsChange: Equatable {
     case reservePct(Int?)
     /// Ruling 4b: the machine's "Scheduled runs may use my plan" switch.
     case scheduledUsePlan(Bool)
+    /// ROR-102: the spending limit; `nil` is off.
+    case spendLimitUsd(Double?)
+    /// G243: keep the Mac awake while Sleep reads (on power).
+    case keepAwake(Bool)
 
     var body: [String: Any] {
         switch self {
         case .batchSize(let n): ["batchSize": n]
         case .continueAfterReset(let on): ["continueAfterReset": on]
         case .reservePct(let pct): ["reservePct": pct.map { $0 as Any } ?? NSNull()]
+        case .spendLimitUsd(let usd): ["spendLimitUsd": usd.map { $0 as Any } ?? NSNull()]
         case .scheduledUsePlan(let on): ["scheduledUsePlan": on]
+        case .keepAwake(let on): ["keepAwake": on]
         }
     }
 }
@@ -262,9 +304,11 @@ struct SleepQueueResponse: Codable, Equatable {
     var total: Int
     var offset: Int
     var items: [SleepQueueItem]
+    /// Ruling 62 — saves kept for lookup: no model read them, and one is read when the person talks about it.
+    var kept: Int
 
-    init(total: Int = 0, offset: Int = 0, items: [SleepQueueItem] = []) {
-        self.total = total; self.offset = offset; self.items = items
+    init(total: Int = 0, offset: Int = 0, items: [SleepQueueItem] = [], kept: Int = 0) {
+        self.total = total; self.offset = offset; self.items = items; self.kept = kept
     }
 
     init(from decoder: Decoder) throws {
@@ -272,8 +316,9 @@ struct SleepQueueResponse: Codable, Equatable {
         total = ((try? c.decodeIfPresent(Int.self, forKey: .total)) ?? nil) ?? 0
         offset = ((try? c.decodeIfPresent(Int.self, forKey: .offset)) ?? nil) ?? 0
         items = ((try? c.decodeIfPresent([SleepQueueItem].self, forKey: .items)) ?? nil) ?? []
+        kept = ((try? c.decodeIfPresent(Int.self, forKey: .kept)) ?? nil) ?? 0
     }
-    enum CodingKeys: String, CodingKey { case total, offset, items }
+    enum CodingKeys: String, CodingKey { case total, offset, items, kept }
 }
 
 /// The owner page's beliefs, sampled at a run's start and after its first batch. `nil` on the wire
@@ -314,13 +359,31 @@ struct SleepRunRef: Codable, Equatable {
     var startedBy: String
     /// A scheduled run that stood in for a time the Mac slept or was off through: that time (owner 2026-10-19).
     var catchUpFor: String?
+    /// Owner 2026-10-26 (the run card) — the whole run's figures, joined by the server from its batches and every call
+    /// tagged with it; `nil` when not recorded (telemetry off, an older backend), never zero.
+    var created: Int?
+    var updated: Int?
+    var questionsRaised: Int?
+    var usageSummary: CycleUsageSummary?
+    var models: [String] = []
+    /// G235 — how many conversations this run read holding something likely sensitive, and which kinds; `nil`: none.
+    var sensitive: Sensitive? = nil
+
+    struct Sensitive: Codable, Equatable {
+        var conversations: Int
+        var kinds: [String]
+    }
 
     init(id: String, batches: Int = 0, filed: Int = 0, parked: Int = 0, frozen: Int = 0, pauses: Int = 0,
          readMs: Int = 0, pausedMs: Int = 0, startedAt: String? = nil, finishedAt: String? = nil,
-         state: String? = nil, startedBy: String = "user", catchUpFor: String? = nil) {
+         state: String? = nil, startedBy: String = "user", catchUpFor: String? = nil, created: Int? = nil,
+         updated: Int? = nil, questionsRaised: Int? = nil, usageSummary: CycleUsageSummary? = nil,
+         models: [String] = []) {
         self.id = id; self.batches = batches; self.filed = filed; self.parked = parked; self.frozen = frozen
         self.pauses = pauses; self.readMs = readMs; self.pausedMs = pausedMs; self.startedAt = startedAt
         self.finishedAt = finishedAt; self.state = state; self.startedBy = startedBy; self.catchUpFor = catchUpFor
+        self.created = created; self.updated = updated; self.questionsRaised = questionsRaised
+        self.usageSummary = usageSummary; self.models = models
     }
 
     init(from decoder: Decoder) throws {
@@ -334,10 +397,17 @@ struct SleepRunRef: Codable, Equatable {
         state = (try? c.decodeIfPresent(String.self, forKey: .state)) ?? nil
         startedBy = ((try? c.decodeIfPresent(String.self, forKey: .startedBy)) ?? nil) ?? "user"
         catchUpFor = (try? c.decodeIfPresent(String.self, forKey: .catchUpFor)) ?? nil
+        created = (try? c.decodeIfPresent(Int.self, forKey: .created)) ?? nil
+        updated = (try? c.decodeIfPresent(Int.self, forKey: .updated)) ?? nil
+        questionsRaised = (try? c.decodeIfPresent(Int.self, forKey: .questionsRaised)) ?? nil
+        usageSummary = (try? c.decodeIfPresent(CycleUsageSummary.self, forKey: .usageSummary)) ?? nil
+        models = ((try? c.decodeIfPresent([String].self, forKey: .models)) ?? nil) ?? []
+        sensitive = (try? c.decodeIfPresent(Sensitive.self, forKey: .sensitive)) ?? nil
     }
     enum CodingKeys: String, CodingKey {
+        case sensitive
         case id, batches, filed, parked, frozen, pauses, readMs, pausedMs, startedAt, finishedAt, state, startedBy
-        case catchUpFor
+        case catchUpFor, created, updated, questionsRaised, usageSummary, models
     }
 }
 
@@ -429,6 +499,8 @@ struct SleepRunDetail: Codable, Equatable {
     var pausedMs: Int?
     var pauses: [Pause]
     var questionsRaised: Int?
+    /// G235 — conversations in this run holding something replaced before it was stored; `nil`: not recorded.
+    var replaced: Int?
     var owner: SleepOwnerPageCount?
     var batches: [Batch]
     var models: [CycleUsageModel]
@@ -448,6 +520,7 @@ struct SleepRunDetail: Codable, Equatable {
         calls = opt(.calls); readMs = opt(.readMs); pausedMs = opt(.pausedMs)
         pauses = ((try? c.decodeIfPresent([Pause].self, forKey: .pauses)) ?? nil) ?? []
         questionsRaised = opt(.questionsRaised)
+        replaced = opt(.replaced)
         owner = (try? c.decodeIfPresent(SleepOwnerPageCount.self, forKey: .owner)) ?? nil
         batches = ((try? c.decodeIfPresent([Batch].self, forKey: .batches)) ?? nil) ?? []
         models = ((try? c.decodeIfPresent([CycleUsageModel].self, forKey: .models)) ?? nil) ?? []
@@ -457,6 +530,6 @@ struct SleepRunDetail: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id, startedBy, startedAt, finishedAt, state, filed, frozen, parked, skipped, calls, readMs, pausedMs
-        case pauses, questionsRaised, owner, batches, models, usage, pages
+        case pauses, questionsRaised, replaced, owner, batches, models, usage, pages
     }
 }

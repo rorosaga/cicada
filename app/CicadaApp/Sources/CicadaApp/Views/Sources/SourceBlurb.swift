@@ -15,6 +15,9 @@ enum SourceBlurb {
         return byId[source.id] ?? fallback(kind: source.kind, label: source.label)
     }
 
+    /// source-page-v3 — the sentence for a catalogue entry's channel id when the overview has no row for it yet.
+    static func text(id: String) -> String? { byId[id] }
+
     private static func fallback(kind: SourceKind, label: String) -> String {
         switch kind {
         case .harness:
@@ -29,6 +32,8 @@ enum SourceBlurb {
             return "Messages you send to \(label), as notes."
         case .voice:
             return "Meetings and notes from \(label), with who said what."
+        case .reading:
+            return "Books from \(label), with what you're reading and what you highlighted."
         case .import, .unknown:
             return "Links or files you added through \(label)."
         }
@@ -75,10 +80,26 @@ enum SourceBlurb {
         "wispr-flow": "Your Wispr Flow meetings — with who said what — and Scratchpad notes.",
         // Sources v4 (owner 2026-10-19: "just put what the source is").
         "imessage": "The Messages conversations you ticked, by chat.",
+        "whatsapp": "The WhatsApp chats you ticked, by chat — groups included.",
+        "telegram-chats": "The Telegram chats you ticked, through your own account — groups included.",
         "calendar-local": "Events from the calendars on this Mac.",
         // G219.
         "reminders-local": "Reminders from the lists you ticked.",
+        // G39, G233.
+        "apple-books": "Your Apple Books library: what you're reading and finished, your highlights and notes.",
+        "goodreads": "Your Goodreads shelves, ratings and reviews, from the export you chose.",
+        "book-scan": "Books you added by number or scanned, with what you said you're doing with each.",
         "notion": "Pages and database rows from a Notion export.",
+        // Ruling 47 tier 2.
+        "notion-api": "The Notion pages you shared with your own connection, kept current.",
+        // ROR-115.
+        "linear": "Your Linear issues and the discussion on them, kept current.",
+        "linear-api": "Your Linear issues and the discussion on them, kept current.",
+        // G230.
+        "github": "Repositories you starred or added, each with a preview of its README, and the ones you own.",
+        // G32.
+        "spotify": "Your liked songs, saved albums and podcasts, from your Spotify download.",
+        "spotify-listening": "What you listened to on Spotify, one entry per day, from your Spotify download.",
         // A conversation an agent saved without saying which app it is (no harness on its episodes): kept, and named
         // for what it is, rather than folded into an app it may not be.
         "harness:unknown": "Conversations from agents that didn't say which app they are.",

@@ -10,10 +10,20 @@ Registered by ``install.sh`` under ``hooks.Stop`` — and, as a flush,
 The harness pipes its hook JSON to stdin (``session_id``, ``transcript_path``,
 ``cwd``, ``hook_event_name``); this script POSTs exactly those fields — and,
 when the harness sends one, ``effort.level`` as ``effort`` (round 4 C1) — to
-``POST /capture/transcript`` and exits 0 — always, within 3 s, printing
+``POST /capture/transcript`` and exits 0 — always, within 4 s, printing
 nothing to stdout (a Stop hook's stdout is parsed by the harness). It never
 opens the transcript: the backend validates the path against the harness
 root and does the one read (R2).
+
+No answer is not an error (2026-10-29): the backend answers within 2 s —
+``202 accepted`` when the write takes longer, and it finishes on its own — so
+a request that still gets no answer in :data:`TIMEOUT_S` (backend down, hung,
+or starved) logs ``no answer (timed out at 3s)``, and the request itself (the
+fields above: a path, never the transcript's words) waits in the same spool a
+client uses (``hook_spool``, one entry per session, the newest). The session's
+own next landed firing drops it; any other session's landed firing sends it
+while this firing's budget lasts. So a session's last turn is never left to a
+Stop that may not come. Every answered line carries the round trip in ms.
 
 Why ``Stop`` and not ``SessionEnd`` (R1): ``SessionEnd`` only fires on a
 graceful exit and shares a 1.5 s budget with every other SessionEnd hook; a
@@ -35,7 +45,7 @@ bounded by that request timeout plus interpreter start, not by 1.5 s. A
 concurrent or delayed capture never overwrites a newer one: the writer refuses
 a read of fewer transcript bytes than the episode stores (``superseded``).
 Every log line names its event, so ruling 7's revisit
-signal (a Stop ``error:`` line) never mixes with a flush's.
+signal (a Stop ``no answer`` line, and the ``in <n>ms`` figure) never mixes with a flush's.
 
 Stdlib only, run by path: a hook has no cwd guarantee and no venv on its
 ``sys.path``, so nothing here imports ``api.*`` (R14) — with one exception,
@@ -68,6 +78,12 @@ Codex (R9): its Stop payload is unverified, so a payload without
 ``transcript_path`` is logged as ``skipped: no transcript_path`` and exits 0
 — nothing breaks, and that log line is the verification signal.
 
+A host app (G228, ``host_identity``): when an app such as T3 Code launched the
+harness, the same firing names it — ``host: t3code`` in the body and ``via t3code``
+in the log line — read from this process's own launch chain (parent pid and exec path
+only; never another process's arguments or environment), never from the app's files.
+The session is still the harness's one episode; the host is a label on it.
+
 One line per firing goes to ``~/.cicada/logs/capture.log`` (0600): a
 timestamp, the harness, the first 8 characters of the session id, the event
 (``Stop`` | ``PreCompact`` | ``SessionEnd`` | ``other``), and the outcome — plus, when the demo memory was open, the name of the bank the
@@ -90,6 +106,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from workspace_identity import observe_if_needed, remember  # stdlib sibling, run by path
 import hook_client as remote_client  # stdlib sibling: a client of a server elsewhere (G181 phase 2)
 import hook_spool as spool  # stdlib sibling: what a client could not deliver yet
+import memory_notes  # stdlib sibling: the agent's own memory notes (ruling 43)
+import host_identity  # stdlib sibling: the app that launched this harness, if any (G228)
 
 TIMEOUT_S = 3.0
 #: G110 gate A: a SessionEnd flush delays the session's exit, so its request
@@ -106,7 +124,8 @@ TURN_INPUT_BYTES = 1024 * 1024
 TEXT_MAX_CHARS = 256 * 1024
 
 
-def _post_exchange(payload: dict, *, harness: str, session_id: str, home: Path, environ, post, token: str):
+def _post_exchange(payload: dict, *, harness: str, session_id: str, home: Path, environ, post, token: str,
+                   host: str | None = None):
     """Gemini CLI's ``AfterAgent``: the prompt and the final reply, as one exchange."""
     prompt, reply = payload.get("prompt"), payload.get("prompt_response")
     messages = [{"speaker": speaker, "text": text[:TEXT_MAX_CHARS]}
@@ -118,6 +137,8 @@ def _post_exchange(payload: dict, *, harness: str, session_id: str, home: Path, 
             "retry": payload.get("stop_hook_active") is True,
             "cwd": payload.get("cwd") if isinstance(payload.get("cwd"), str) else None,
             "hook_event": payload.get("hook_event_name")}
+    if host:
+        body["host"] = host
     port = str(environ.get("CICADA_PORT") or "8000")
     return post(f"http://127.0.0.1:{port}/capture/turn", json.dumps(body).encode("utf-8"), token, TIMEOUT_S), None
 
@@ -141,14 +162,15 @@ def _large(path: str) -> bool:
         return False
 
 
-def _detach(payload: dict, *, harness: str, environ) -> bool:
+def _detach(payload: dict, *, harness: str, environ, host: str | None = None) -> bool:
     """Run this same hook on ``payload`` in a child that outlives the harness's wait. True when it started."""
     import subprocess
 
     try:
         child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--harness", harness],
                                  stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                 env={**environ, DETACHED_ENV: "1"}, start_new_session=True, close_fds=True)
+                                 env={**environ, DETACHED_ENV: "1", **({host_identity.ENV: host} if host else {})},
+                                 start_new_session=True, close_fds=True)
         child.stdin.write(json.dumps(payload).encode("utf-8"))
         child.stdin.close()
         return True
@@ -165,7 +187,7 @@ def _client_post(post, url: str, body: bytes, token: str, timeout: float) -> tup
 
 
 def _client_capture(payload: dict, *, harness: str, session_id: str, event: str, tag: str, home: Path, environ,
-                    post, log_path: Path, started: float) -> int:
+                    post, log_path: Path, started: float, host: str | None = None) -> int:
     """G181 phase 2 — this machine is a client (``CICADA_API_BASE``): read the session HERE with Cicada's own
     extractor and post what it keeps to ``/capture/session`` (a turn harness posts ``/capture/turn``, as on one
     machine). A post that does not land is spooled under ``$CICADA_HOME`` and sent by a later firing; nothing is lost
@@ -177,7 +199,7 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
     if not detached and harness not in TURN_HARNESSES and transcript and _large(str(transcript)):
         # Reading a very long session takes longer than the harness waits for this hook: hand the same payload to a
         # child that outlives this process (its own session, nothing on our stdout) and return at once.
-        if _detach(payload, harness=harness, environ=environ):
+        if _detach(payload, harness=harness, environ=environ, host=host):
             _log(log_path, f"{tag} reading a long session in the background")
             return 0
     base, token, problem = remote_client.target(environ)
@@ -205,7 +227,8 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
         if not transcript_path:
             _log(log_path, f"{tag} skipped: no transcript_path")
             return 0
-        conversation, read_bytes, refused = remote_client.read_session(harness, session_id, str(transcript_path))
+        conversation, read_bytes, refused = remote_client.read_session(harness, session_id, str(transcript_path),
+                                                                       host=host)
         if refused:
             _log(log_path, f"{tag} refused: {refused}")
             return 0
@@ -231,6 +254,8 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
         except (OSError, ValueError):
             return fallback
 
+    if host:
+        body["host"] = host   # G228: the app the person typed into; an older server ignores the field
     if "transcript_bytes" in body:
         body["transcript_size"] = size_of(transcript_path, body["transcript_bytes"])
     # D1 (G202): what waits names the server — and, once heard, the bank — it was captured for, and goes only there.
@@ -323,6 +348,79 @@ def _log(path: Path, message: str) -> None:
         pass
 
 
+def _ms(since: float) -> str:
+    return f"{round((time.monotonic() - since) * 1000)}ms"
+
+
+def _no_answer(exc: BaseException, timeout: float) -> str:
+    """What the log says when the backend did not answer: a timeout by its budget, anything else by its class and
+    reason (``Connection refused``) — never a path or a body."""
+    reason = getattr(exc, "reason", None)
+    if isinstance(exc, TimeoutError) or isinstance(reason, TimeoutError):
+        return f"timed out at {timeout:g}s"
+    return f"{type(exc).__name__}: {reason if reason is not None else exc}"
+
+
+#: The route a local capture's spooled request goes back to; a client's ``/capture/session`` entries are never sent
+#: by :func:`_flush_local`.
+LOCAL_ROUTE = "/capture/transcript"
+#: At most this many waiting sessions are sent by one firing: after a long outage the backlog drains over a few
+#: replies instead of holding one reply's hook for its whole budget.
+LOCAL_FLUSH_MAX = 3
+
+
+def _spool_local(home: Path, fields: dict, *, key: str, base: str) -> None:
+    """Keep a local capture request that got no answer (one entry per session, the newest — ``hook_spool``). The
+    entry holds the hook's own fields: the transcript's path, never its words."""
+    try:
+        spool.put(home, LOCAL_ROUTE, fields, key=key, target={"base": base, "bank_id": None})
+    except OSError:
+        pass
+
+
+def _flush_local(home: Path, post, token: str, *, base: str, key: str, event: str, started: float) -> str:
+    """After a local capture landed: its own waiting entry is obsolete, and any other session's that waits is sent
+    while the firing's budget lasts (never on SessionEnd, whose budget is the harness's exit). Returns the log suffix."""
+    if not (Path(home) / "spool" / "capture").is_dir():
+        return ""             # nothing ever waited: no folder is made on a machine that never needed one
+    try:
+        spool.drop(home, key, base)
+        if event == "SessionEnd":
+            return ""
+        paths = [p for p in spool.entries(home) if p.name.startswith("s-")]
+    except OSError:
+        return ""
+    sent = left = 0
+    for path in paths:
+        try:
+            entry = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        target = entry.get("target") if isinstance(entry, dict) else None
+        if entry.get("route") != LOCAL_ROUTE or not isinstance(target, dict) \
+                or not spool.same_server(target.get("base"), base):
+            continue          # a client's entry, or one for another port: never sent from here
+        remaining = started + CLIENT_BUDGET_S - time.monotonic()
+        if remaining <= 0.5 or sent >= LOCAL_FLUSH_MAX:
+            left += 1
+            continue
+        try:
+            status, _text = post(base + LOCAL_ROUTE, json.dumps(entry.get("body") or {}).encode("utf-8"), token,
+                                 min(TIMEOUT_S, remaining - 0.3))
+        except Exception:  # noqa: BLE001 - still no answer: it keeps waiting
+            left += 1
+            break
+        if remote_client.landed(status) or not remote_client.keep(status):
+            sent += 1 if remote_client.landed(status) else 0
+            try:
+                path.unlink()      # landed, or refused for good (the transcript is gone): never resent
+            except OSError:
+                pass
+        else:
+            left += 1
+    return f"; spool: sent {sent}, {left} waiting" if sent or left else ""
+
+
 def _outcome(text: str) -> str:
     try:
         parsed = json.loads(text)
@@ -339,7 +437,19 @@ def _outcome(text: str) -> str:
         return ""
 
 
-def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_path=None, token_path=None) -> int:
+def _memory_notes(environ, *, harness: str, event: str, tag: str, log_path: Path, spawn=None) -> None:
+    """Ruling 43: after a Claude Code Stop or PreCompact, start a detached sweep of the agent's memory notes when one
+    changed (``memory_notes.maybe_start``: a stat of each note, never a read here). Never fails the hook."""
+    try:
+        started = memory_notes.maybe_start(environ, harness=harness, event=event, spawn=spawn)
+    except Exception as exc:  # noqa: BLE001 - the harness must never see a failure
+        started = f"memory notes: error: {type(exc).__name__}"
+    if started:
+        _log(log_path, f"{tag} {started}")
+
+
+def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_path=None, token_path=None,
+         memory_spawn=None) -> int:
     """Forward the harness payload; return 0 unconditionally.
 
     Every collaborator is injectable (``stdin``, ``environ``, ``post``,
@@ -390,16 +500,19 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
         session_id = str(payload.get("session_id") or "")
         event = str(payload.get("hook_event_name") or "")
         event = event if event in EVENTS else "other"
-        tag = f"{harness} {session_id[:8] or '?'} {event}"
+        host = host_identity.detect(environ)
+        tag = f"{harness} {session_id[:8] or '?'} {event}" + (f" via {host}" if host else "")
         transcript_path = payload.get("transcript_path")
-        if remote_client.is_client(environ):
+        if remote_client.captures_elsewhere(environ):   # a client's server, or a copy's home (G132 phase 1 B)
             if not session_id:
                 _log(log_path, f"{tag} skipped: no session_id")
                 return 0
-            return _client_capture(payload, harness=harness, session_id=session_id, event=event, tag=tag,
-                                   home=home, environ=environ,
-                                   post=post if post is not _default_post else _client_send,
-                                   log_path=log_path, started=started)
+            outcome = _client_capture(payload, harness=harness, session_id=session_id, event=event, tag=tag,
+                                      home=home, environ=environ,
+                                      post=post if post is not _default_post else _client_send,
+                                      log_path=log_path, started=started, host=host)
+            _memory_notes(environ, harness=harness, event=event, tag=tag, log_path=log_path, spawn=memory_spawn)
+            return outcome
         if turn_harness:
             if not session_id or event != "AfterAgent":
                 _log(log_path, f"{tag} skipped: not an AfterAgent payload")
@@ -412,7 +525,7 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
                 _log(log_path, f"{tag} skipped: no api_token at {token_path.name}")
                 return 0
             answer, skipped = _post_exchange(payload, harness=harness, session_id=session_id, home=home,
-                                             environ=environ, post=post, token=token)
+                                             environ=environ, post=post, token=token, host=host)
             if skipped:
                 _log(log_path, f"{tag} {skipped}")
                 return 0
@@ -438,6 +551,8 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
             "cwd": payload.get("cwd"),
             "hook_event": payload.get("hook_event_name"),
         }
+        if host:
+            fields["host"] = host
         effort = payload.get("effort")
         workspace = observe_if_needed(fields["cwd"], home=home, environ=environ, harness=harness,
                                       session_id=session_id)
@@ -450,10 +565,29 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
             # not. Only this one field is added; the backend validates it.
             fields["effort"] = level.strip()[:32]
         body = json.dumps(fields).encode("utf-8")
-        status, text = post(url, body, token, SESSION_END_TIMEOUT_S if event == "SessionEnd" else TIMEOUT_S)
-        if status == 200:
-            remember(home, harness, session_id, workspace, environ=environ)
-        _log(log_path, f"{tag} http {status} {_outcome(text)}".rstrip())
+        timeout = SESSION_END_TIMEOUT_S if event == "SessionEnd" else TIMEOUT_S
+        base = f"http://127.0.0.1:{port}"
+        key = f"{harness}:{session_id}"
+        sent_at = time.monotonic()
+        try:
+            status, text = post(url, body, token, timeout)
+        except Exception as exc:  # noqa: BLE001 - refused, unreachable or timed out: no answer, never a crash
+            # 2026-10-29: a timeout is "no answer", not an error — the backend often finished the write a moment
+            # later. Either way the request (a path, never the transcript) waits in the spool and a later firing of
+            # any session sends it again, so a session's last turn is not left to a Stop that may never come.
+            _spool_local(home, fields, key=key, base=base)
+            _log(log_path, f"{tag} no answer ({_no_answer(exc, timeout)}) after {_ms(sent_at)}; spooled for a later "
+                           "firing")
+        else:
+            line = f"{tag} http {status} {_outcome(text)}".rstrip() + f" in {_ms(sent_at)}"
+            if remote_client.landed(status):
+                remember(home, harness, session_id, workspace, environ=environ)
+                line += _flush_local(home, post, token, base=base, key=key, event=event, started=started)
+            elif status is not None and status >= 500:
+                _spool_local(home, fields, key=key, base=base)   # the backend failed this one: a later firing resends
+                line += "; spooled for a later firing"
+            _log(log_path, line)
+        _memory_notes(environ, harness=harness, event=event, tag=tag, log_path=log_path, spawn=memory_spawn)
     except Exception as exc:  # noqa: BLE001 - the harness must never see a failure
         _log(log_path, f"{tag} error: {type(exc).__name__}: {exc}")
     return 0

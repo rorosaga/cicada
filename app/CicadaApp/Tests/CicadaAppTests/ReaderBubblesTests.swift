@@ -223,7 +223,9 @@ final class ReaderBubblesTests: XCTestCase {
         let source = try String(contentsOf: root.appendingPathComponent("Views/Provenance/ReaderColumn.swift"),
                                 encoding: .utf8)
         XCTAssertTrue(source.contains("let trigger = ReaderJumpAsk.trigger(ask, eventType: NSApp.currentEvent?.type)"))
-        XCTAssertTrue(source.contains("case .instant:\n                Instant.run { washVisible = true }"))
+        let drawn = try String(contentsOf: root.appendingPathComponent("Views/Provenance/SourceSpansView.swift"),
+                               encoding: .utf8)
+        XCTAssertTrue(drawn.contains("case .instant:\n                Instant.run { state.washVisible = true }"))
     }
 
     /// DR-60 — a VoiceOver press on the navigator's chevrons or a "Noted" row is never the pointer, whatever event came

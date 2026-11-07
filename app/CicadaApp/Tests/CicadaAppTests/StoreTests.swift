@@ -284,6 +284,14 @@ final class FakeSyncAPI: SyncAPI {
     func withdrawProjectHappening(project: String, claimId: String) async throws -> ProjectWriteResponse {
         try await projectWrite("withdrawProjectHappening:\(project):\(claimId)")
     }
+    var projectChangeReply = ProjectOwnershipResponse(id: "new-project", action: "created")
+    var projectChanges: [ProjectChange] = []
+    func sendProjectChange(_ change: ProjectChange) async throws -> ProjectOwnershipResponse {
+        projectChanges.append(change)
+        try await record("sendProjectChange:\(change.projectId ?? "new")")
+        if let projectWriteError { throw projectWriteError }
+        return projectChangeReply
+    }
 
     // MARK: Entity pictures (C11)
 
@@ -718,7 +726,7 @@ final class StoreTests: XCTestCase {
         await store.refresh([.status])
         XCTAssertNil(store.status.value, "no snapshot has ever landed")
         XCTAssertFalse(store.status.isRefreshing, "a failed fetch must not leave the domain spinning")
-        XCTAssertEqual(store.domainErrors[.status], "Couldn't load status")
+        XCTAssertEqual(store.domainErrors[.status], Copy.Reach.readFailed(.status))
 
         api.replies[.status] = nil
         await store.refresh([.status])
@@ -741,6 +749,26 @@ final class StoreTests: XCTestCase {
         let second = await store.entity("n1")
         XCTAssertEqual(first?.id, "n1")
         XCTAssertEqual(second?.id, "n1")
+        XCTAssertEqual(api.entityFetches, 1)
+    }
+
+    /// Ruling 48 — two readers of the same page at once (the Clusters column and the card it hosts) share one read.
+    func testConcurrentReadsOfOnePageShareOneFetch() async throws {
+        let api = FakeSyncAPI()
+        api.entities["n1"] = try decodeFixture("""
+        {"id":"n1","name":"Cicada","type":"project","status":"active","confidence":0.9,
+         "created":"2026-01-01","lastReferenced":"2026-01-02","decayRate":0.05,
+         "markdownContent":"# Cicada"}
+        """) as Entity
+        api.gateEntityFetch = true
+        let store = Store(cache: tempCache(), api: api)
+        async let first = store.entity("n1")
+        async let second = store.entity("n1")
+        await api.waitForParkedEntityFetch()
+        api.releaseEntityGate()
+        let (a, b) = await (first, second)
+        XCTAssertEqual(a?.id, "n1")
+        XCTAssertEqual(b?.id, "n1")
         XCTAssertEqual(api.entityFetches, 1)
     }
 

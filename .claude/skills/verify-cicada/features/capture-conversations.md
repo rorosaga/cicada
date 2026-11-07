@@ -10,6 +10,10 @@ A conversation with an agent becomes one episode in the bank, with no model invo
 - `capture-session-post` stores a session read on another machine (device token).
 - `capture-agent-save` stores a note an agent saves with `cicada_save_episode` or `cicada save`.
 - `capture-demo-guard` refuses or redirects capture while the demo bank is open.
+- `capture-relay-local` (ruling 57) stores a turn the Claude desktop app's model relays on its local connection. Drive it
+  with `$CV mcp call cicada_capture_turns '{"message": "...", "conversation": "new"}' --client claude-ai`, then the handle
+  its answer gives; `$CV mcp list --client claude-code` must not list the tool. Proof: one episode, `harness: claude-desktop`,
+  `evidence_kind: assistant`, `relay.channel: local`, and `Cicada-Session: lc_...` on the Sleep commit.
 
 ## How to get to it (user POV)
 

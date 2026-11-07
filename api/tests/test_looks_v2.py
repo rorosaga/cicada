@@ -12,6 +12,7 @@
 Synthetic only: pictures drawn here, bob-example.org and example.com links, placeholder names."""
 from __future__ import annotations
 
+import sys
 import json
 import socket
 import struct
@@ -245,6 +246,7 @@ def _git(bank, *args) -> str:
     return subprocess.run(["git", "-C", str(bank), *args], capture_output=True, text=True, check=True).stdout
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="the screenshot decoder is the Mac's sips")
 def test_the_rest_door_takes_the_agent_s_name_and_its_tokens(client):
     c, bank = client
     r = c.post("/design", files={"image": ("shot.png", DARK, "image/png")},

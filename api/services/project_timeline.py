@@ -27,19 +27,20 @@ import os
 import re
 import threading
 from collections import Counter, OrderedDict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable
 
 from api.models.schemas import (
     ActivityDay, ClusterGroup, ClusterMember, MilestoneRow, OpenThread, PendingConversations, ProjectCluster,
-    ProjectNow, ProjectProgress, ProjectRef, ProjectRow, ProjectsResponse, ProjectTimeline, TimelineConversation,
+    ProjectDescriptionBy, ProjectKnowledge, ProjectNow, ProjectProgress, ProjectRef, ProjectRow, ProjectsResponse,
+    ProjectTimeline, TimelineConversation,
     TimelineFact, TimelineItem, TimelineParticipant, TimelineQuote, TimelineWindow,
 )
 from api.services import (
-    bank_index, claim_expiry, entity_body, episode_time, evidence, inbox_context, project_birth, project_sections,
-    project_state, search_index, session_stats, turn_authorship, when,
+    bank_index, claim_expiry, entity_body, episode_time, evidence, inbox_context, project_birth, project_ownership,
+    project_sections, project_state, search_index, session_stats, turn_authorship, when,
 )
 from api.services.claim_reconciler import is_human
 from api.services.claims import (
@@ -60,7 +61,15 @@ from api.services.transclusion_resolver import claim_to_model
 # `people`.
 # g141-6 (2026-10-23): `lastRepoDay` — the newest day an agent session ran in the project's repository (the hook's own
 # observation); its days count as activity in `momentDays`, and a moment needs the project discussed in substance.
-PROJECT_SHAPE = "g141-6"
+# g141-7 (2026-10-27, ruling 45): a row and the detail say `mine` / `mineVia` and the person's `description` (+ who set
+# it); the list adds `suggested` and `dismissed`; the detail adds `influences`, `conversationCount` and `knowledge`.
+# g141-8 (2026-10-28, decisions 9 and 10): an open thread says `waitingOn`; the detail adds `conversationDays` (the
+# pulse) and `pages` / `pagesTotal` / `pageCounts` (Pages in this project, tied by hand).
+# g141-9 (G227, owner 2026-10-29): a "Pages in this project" row whose title another page shares adds `qualifier` and
+# `displayName` (`same_name`).
+# g141-10 (ruling 56, 2026-11-04): `GET /projects` carries only the person's own rows and `suggested` is always empty; a
+# conversation row adds `by` and `reason`, the conversations read adds `proposed`, a page row adds `reason`.
+PROJECT_SHAPE = "g141-10"
 TREE_DEPTH = 2
 MAX_SCAN_PAGES = 200          # §6.6: raw scans are capped; hitting the cap sets `partial`
 COMMONS_DEGREE = 12           # R-PJ20
@@ -198,6 +207,7 @@ def _ref_keys(raw: str) -> tuple[str, str, str]:
 
 
 _EMPTY: dict = {}
+_UNREAD = object()
 _MISS = object()
 
 
@@ -210,6 +220,61 @@ def _day(value) -> str | None:
 
 def _open(c: Claim) -> bool:
     return c.valid_to is None and not c.superseded_by
+
+
+@dataclass
+class _EpisodeEpoch:
+    """Per-claim and per-episode memos keyed on nothing but the episodes folder's state and the zone. A claim is keyed
+    by ``id()``: ``held`` keeps every claim keyed alive for as long as the epoch lives, so no id is reused under it,
+    and the epoch is dropped whole the moment an episode moves (a new conversation, a re-dated one, a deleted one)."""
+    key: tuple
+    ep_keys: dict = field(default_factory=dict)
+    timed: dict = field(default_factory=dict)
+    ep_days: dict = field(default_factory=dict)
+    claim_convs: dict = field(default_factory=dict)
+    anchor_days: dict = field(default_factory=dict)
+    held: list = field(default_factory=list)
+    ts_days: dict = field(default_factory=dict)
+    ep_convs: dict = field(default_factory=dict)
+
+
+#: bank -> its current `_EpisodeEpoch`. Bounded by what one bank's requests touch; past ``_EPOCH_HELD_MAX`` claims
+#: held, a fresh epoch starts (a long-lived process whose pages keep changing never grows without bound).
+_EPOCHS: dict[str, _EpisodeEpoch] = {}
+_EPOCH_HELD_MAX = 200_000
+_EPOCH_LOCK = threading.Lock()
+
+
+def _episode_epoch(memory_path: Path, tz_name: str) -> _EpisodeEpoch:
+    key = (tz_name, bank_index.dir_fingerprint(Path(memory_path) / "episodes"))
+    with _EPOCH_LOCK:
+        epoch = _EPOCHS.get(str(memory_path))
+        if epoch is None or epoch.key != key or len(epoch.held) > _EPOCH_HELD_MAX:
+            epoch = _EPOCHS[str(memory_path)] = _EpisodeEpoch(key=key)
+        return epoch
+
+
+@dataclass
+class _EntityEpoch:
+    """The name index (``names``/``direct``) and every reference resolved through it (``resolved``, ``reverse``), keyed
+    on the entities folder's fingerprint alone: a page renamed, aliased, added or removed moves it and drops the lot."""
+    key: str
+    names: dict | None = None
+    direct: dict = field(default_factory=dict)
+    resolved: dict = field(default_factory=dict)
+    reverse: dict = field(default_factory=dict)
+
+
+_ENTITY_EPOCHS: dict[str, _EntityEpoch] = {}
+
+
+def _entity_epoch(memory_path: Path) -> _EntityEpoch:
+    key = bank_index.dir_fingerprint(Path(memory_path) / "entities")
+    with _EPOCH_LOCK:
+        epoch = _ENTITY_EPOCHS.get(str(memory_path))
+        if epoch is None or epoch.key != key:
+            epoch = _ENTITY_EPOCHS[str(memory_path)] = _EntityEpoch(key=key)
+        return epoch
 
 
 class _Bank:
@@ -227,23 +292,35 @@ class _Bank:
         self._beliefs: dict[str, list[Claim]] = {}
         self._bodies: dict[str, str] = {}
         self._texts: dict[str, str | None] = {}
-        self._names: dict[str, str] | None = None
+        # A page's names and every reference resolved through them depend only on the pages' headers: they outlive
+        # the request while the entities folder holds (`_entity_epoch`, speed 2026-10-29 — the list rebuilt the name
+        # index of every page and re-resolved ~40k claim objects on every read of the owner's bank).
+        names_epoch = _entity_epoch(self.path)
+        self._names_epoch = names_epoch
+        self._names: dict[str, str] | None = names_epoch.names
         self._sessions: dict[str, list[str]] | None = None
         self._parents: tuple[dict[str, str], dict[str, list[str]]] | None = None
         self._citing: dict[str, list[str]] = {}
-        self._ep_keys: dict[str, tuple] = {}
-        self._timed: dict[str, bool] = {}
-        self._ep_days: dict[str, str | None] = {}
-        self._claim_convs: dict[int, tuple[tuple[str, str], ...]] = {}
-        self._anchor_days: dict[int, str | None] = {}
-        self._held: list[Claim] = []
-        self._ts_days: dict[str, str | None] = {}
-        self._resolved: dict[str, str | None] = {}
+        # What a claim's day and conversations are, and every episode fact they rest on, depends only on the episodes
+        # folder and the zone: those memos outlive the request while both hold (`_episode_epoch`, speed 2026-10-29 —
+        # the list re-derived ~10k claims' anchor days and conversations on every read).
+        epoch = _episode_epoch(self.path, self.tz_name)
+        self._ep_keys: dict[str, tuple] = epoch.ep_keys
+        self._timed: dict[str, bool] = epoch.timed
+        self._ep_days: dict[str, str | None] = epoch.ep_days
+        self._claim_convs: dict[int, tuple[tuple[str, str], ...]] = epoch.claim_convs
+        self._anchor_days: dict[int, str | None] = epoch.anchor_days
+        self._held: list[Claim] = epoch.held
+        self._ts_days: dict[str, str | None] = epoch.ts_days
+        self._resolved: dict[str, str | None] = names_epoch.resolved
         self._stems: list[str] | None = None
-        self._direct: dict[str, str] = {}
-        self._reverse: dict[str, tuple[str | None, bool]] = {}
-        self._ep_convs: dict[str, tuple[tuple[str, str]] | None] = {}
-        self._repo_sessions: list[tuple[str, frozenset[str], tuple[str, ...]]] | None = None
+        self._direct: dict[str, str] = names_epoch.direct
+        self._reverse: dict[str, tuple[str | None, bool]] = names_epoch.reverse
+        self._ep_convs: dict[str, tuple[tuple[str, str]] | None] = epoch.ep_convs
+        self._repo_sessions: list[tuple] | None = None
+        self._current_remotes: dict[str, str] | None = None
+        self._salt = _UNREAD
+        self._grouped: dict[tuple[str, ...], list[str]] | None = None
         self.scanned = 0
         self.partial = False
         self.transcript_exists = transcript_exists or session_stats.default_transcript_exists
@@ -254,11 +331,11 @@ class _Bank:
         f = self.entities.get(eid)
         return dict(f.frontmatter or {}) if f else {}
 
-    def repo_sessions(self) -> list[tuple[str, frozenset[str], tuple[str, ...]]]:
-        """``(family, folded repository names, local days)`` of every episode captured in a checkout the hook
-        observed (``project_birth.observed_repo``), once per request: the days are the session's first and last
-        turn, so a session resumed for days counts on the day it was last worked in. Frontmatter only — the backend
-        never looks at the checkout itself (D2)."""
+    def repo_sessions(self) -> list[tuple]:
+        """``(family, folded repository names, local days, hashed remote or "", first, last instant)`` of every
+        episode captured in a checkout the hook observed (``project_birth.observed_repo``), once per request: the days are the session's
+        first and last turn, so a session resumed for days counts on the day it was last worked in. Frontmatter only —
+        the backend never looks at the checkout itself (D2)."""
         if self._repo_sessions is None:
             out = []
             for f in self.episodes.values():
@@ -275,9 +352,69 @@ class _Bank:
                         days.append(when.local_day(instant, self.tz).isoformat())
                 if days:
                     names = frozenset(project_birth.fold(n) for n in repo["names"])
-                    out.append((str(repo["family"]), names, tuple(sorted(set(days)))))
+                    out.append((str(repo["family"]), names, tuple(sorted(set(days))), str(repo.get("remote") or ""),
+                                *project_birth.session_span(fm)))
             self._repo_sessions = out
         return self._repo_sessions
+
+    def page_repo_families(self, page: str, fm: dict) -> tuple[set[str], frozenset[str]]:
+        """``(families, folded names)`` of a project page's repository: the family it was born from and the
+        page's own names and aliases, which a checkout's folder name must fold to.
+
+        G110 D2a (review of #558, round 3): a shared hashed remote never lends a page activity on its own. It proves
+        the same repository, not the same project — a template reused under another name looks exactly like a
+        rename — so a page's activity follows its judged identity: a checkout renamed and judged the same is joined
+        by Sleep, which adds the new name as an alias, and the name rule here then brings its sessions."""
+        family = str(project_birth.born_repo(fm).get("family") or "")
+        folds = frozenset(project_birth.name_folds({"name": fm.get("name") or page,
+                                                    "aliases": fm.get("aliases") or []}))
+        return {family} - {""}, folds
+
+    def page_repo_sessions(self, page: str, fm: dict) -> list[tuple]:
+        """The sessions that ran in a project page's repository (:meth:`page_repo_families`)."""
+        if not self.repo_sessions():
+            return []
+        families, folds = self.page_repo_families(page, fm)
+        listed = self.listed_remotes(fm)
+        current = self.current_remotes() if listed else {}
+        return [s for s in self.repo_sessions() if s[0] in families or (s[1] & folds) or current.get(s[0]) in listed]
+
+    def current_remotes(self) -> dict[str, str]:
+        """``family → the remote its checkout points at now`` over the observed sessions, once per request."""
+        if self._current_remotes is None:
+            self._current_remotes = project_birth.current_remotes([(s[0], s[3], s[4], s[5]) for s in self.repo_sessions()])
+        return self._current_remotes
+
+    def listed_remotes(self, fm: dict) -> set[str]:
+        """The salted hashes of the repositories the person or a trusted agent named on a project (ruling 56): a session
+        whose checkout points at one NOW is in a repository they named as the project's, which is why this may tie where a
+        shared remote alone never does (:meth:`page_repo_families`). Cicada's own ``how: origin`` link names nothing, so it
+        is left out (`github_repos.named_urls`). Compared, never stored; empty with no salt."""
+        from api.services import github_repos
+
+        urls = github_repos.named_urls(fm)
+        if not urls:
+            return set()
+        if self._salt is _UNREAD:
+            self._salt = github_repos._salt()
+        return {h for u in urls if (h := github_repos.remote_hash(u, self._salt))}
+
+    def grouped(self) -> dict[tuple[str, ...], list[str]]:
+        """The episodes a provider's own project id or a relaying app's word groups, once per request:
+        ``("provider", provider, id)`` and ``("relay", folded name)`` → episode ids (`project_conversations`' provider
+        and relay signals). Frontmatter only."""
+        if self._grouped is None:
+            from api.services.project_conversations import ep_provider, ep_relay_project
+
+            out: dict[tuple[str, ...], list[str]] = {}
+            for ep, f in self.episodes.items():
+                fm = f.frontmatter or _EMPTY
+                if "provider_project" in fm and (p := ep_provider(fm)) is not None:
+                    out.setdefault(("provider", *p), []).append(ep)
+                if "relay" in fm and (said := ep_relay_project(fm)) is not None:
+                    out.setdefault(("relay", project_birth.fold(said)), []).append(ep)
+            self._grouped = out
+        return self._grouped
 
     def _fm(self, eid: str) -> dict:
         """`fm` without the copy, for this class's own reads (the list asks for every page's type and status)."""
@@ -350,6 +487,7 @@ class _Bank:
                 for k in keys:
                     idx.setdefault(k.strip().lower(), stem)
             self._names, self._direct = idx, direct
+            self._names_epoch.names, self._names_epoch.direct = idx, direct
         return self._names
 
     def reverse_target(self, ref) -> tuple[str | None, bool]:
@@ -546,19 +684,40 @@ def _repo_days(bank: _Bank, tree: list[str]) -> set[str]:
     """The local days an agent session ran in the repository of a tree page: the repository the page was born from
     (its ``born`` family) or one named for it (``project_birth.repo_match``'s name rule). A session in the repository
     is the project being worked on, said or not (2026-10-23: a project developed every day read "planned" because
-    the live session was not consolidated yet)."""
-    sessions = bank.repo_sessions()
-    if not sessions:
+    the live session was not consolidated yet). The same hashed remote counts too (`_Bank.page_repo_sessions`)."""
+    if not bank.repo_sessions():
         return set()
     days: set[str] = set()
     for page in tree:
-        fm = bank._fm(page)
-        born = fm.get("born") if isinstance(fm.get("born"), dict) else {}
-        family = str(((born or {}).get("repo") or {}).get("family") or "")
-        folds = project_birth.name_folds({"name": fm.get("name") or page, "aliases": fm.get("aliases") or []})
-        for fam, names, seen in sessions:
-            if (family and fam == family) or (names & folds):
-                days.update(seen)
+        for session in bank.page_repo_sessions(page, bank._fm(page)):
+            days.update(session[2])
+    return days
+
+
+def _tied_days(bank: _Bank, root: str) -> set[str]:
+    """The local days of the conversations tied to the project that no claim may cite yet (2026-10-28), and the day the
+    person started it in the app or their shell (2026-11-04): tied by hand
+    (``conversations_added``), by the provider's own project id the page records, or by the relaying app's word —
+    `project_conversations`' added, provider and relay signals; an untied one (``conversations_removed``) never
+    counts. A conversation is activity on its own day, read or not, as a repository session is (`_repo_days`)."""
+    fm = bank._fm(root)
+    eps = set(project_ownership.tied(fm, project_ownership.ADDED_KEY))
+    ids = project_ownership.provider_projects(fm)
+    grouped = bank.grouped()
+    for r in ids:
+        eps.update(grouped.get(("provider", str(r["provider"]), str(r["id"])), ()))
+    if grouped:
+        for name in project_birth._names({"name": fm.get("name") or root, "aliases": fm.get("aliases") or []}):
+            eps.update(grouped.get(("relay", project_birth.fold(name)), ()))
+    eps -= set(project_ownership.tied(fm, project_ownership.REMOVED_KEY))
+    days = {d for ep in eps if ep in bank.episodes and (d := _ep_day(bank, ep))}
+    # Owner 2026-11-04 (New project as a page): the day the person started it in the app or their shell is activity —
+    # a project they made a moment ago is in motion, never under Past as "Nothing heard yet".
+    # Ruling 56: so is the day they adopted a page that was already there.
+    mine = fm.get(project_ownership.MINE_KEY)
+    if isinstance(mine, dict) and mine.get("via") in (project_ownership.VIA_APP, project_ownership.VIA_CLI) \
+            and (d := _day(mine.get("day"))):
+        days.add(d)
     return days
 
 
@@ -600,6 +759,50 @@ def _neg(day: str) -> str:
     `inbox_service._neg_date_key` trick, inlined so the read model never imports
     the inbox service)."""
     return "".join(str(9 - int(ch)) if ch.isdigit() else ch for ch in day)
+
+
+def _header(bank: _Bank, eid: str) -> dict:
+    """Ruling 45: a project's `mine`, `mineVia`, the person's `description` and who set it — and the one line the list
+    shows, which is that description when there is one (Sleep's first line otherwise)."""
+    fm = bank.fm(eid)
+    via = project_ownership.mine_via(fm, logged_progress=project_ownership.logged_progress(bank.claims(eid)))
+    desc = project_ownership.description(fm) or None
+    by = project_ownership.description_by(fm)
+    return {"mine": via is not None, "mine_via": via, "description": desc,
+            "description_by": ProjectDescriptionBy(**{k: str(v) for k, v in by.items()
+                                                      if k in ("by", "day", "session") and v})
+            if by and desc else None,
+            "one_liner": project_ownership.first_line(desc)[:120] if desc else _one_liner(bank, eid)}
+
+
+def _repo_session_count(bank: _Bank, eid: str) -> int:
+    return len(bank.page_repo_sessions(eid, bank.fm(eid)))
+
+
+def _knowledge(memory_path: Path, fm: dict) -> list[ProjectKnowledge]:
+    """The addendum: what a provider project carried — Claude's instructions as a span into the imported episode (shown
+    only while the episode still holds those bytes), and its documents by name."""
+    out = []
+    for row in project_ownership.provider_projects(fm):
+        span = row.get("instructions") if isinstance(row.get("instructions"), dict) else {}
+        text = None
+        start = end = None
+        ep = str(row.get("episode") or "") or None
+        if ep and span:
+            body = evidence.source_text(memory_path, ep)
+            try:
+                start, end = int(span.get("start")), int(span.get("end"))
+            except (TypeError, ValueError):
+                start = end = None
+            if body is not None and start is not None and 0 <= start < end <= len(body) and evidence.span_status(
+                    body, end=end, hash=str(span.get("hash") or "")) in (evidence.SPAN_CURRENT, evidence.SPAN_GROWN):
+                text = body[start:end]
+            else:
+                start = end = None
+        out.append(ProjectKnowledge(provider=str(row["provider"]), project_id=str(row["id"]),
+                                    name=str(row.get("name") or ""), episode=ep, instructions=text, start=start,
+                                    end=end, docs=[str(d) for d in row.get("docs") or [] if isinstance(d, str)][:50]))
+    return out
 
 
 def _one_liner(bank: _Bank, eid: str) -> str:
@@ -1112,7 +1315,22 @@ def _threads(bank: _Bank, root: str, events: list[tuple[Claim, str]], *,
     return [OpenThread(claim_id=c.id, text=c.text or "", since=_day(c.valid_from),
                        last_heard=(_last_heard(bank, c) if heard else "") or _day(c.valid_from),
                        on=page if page != root else None,
-                       verbatim=is_persons_words(c)) for c, page in rows]
+                       verbatim=is_persons_words(c), waiting_on=_waiting_on(bank, c)) for c, page in rows]
+
+
+def _waiting_on(bank: _Bank, c: Claim) -> str | None:
+    """Who an open thread waits on (decision 9's pulse): its first `from` participant that is not the owner — the
+    role the one event writer recorded, never a reading of the thread's words."""
+    for p in c.participants:
+        if str(p.get("role") or "") != "from":
+            continue
+        eid, _ = _linked(bank, p)
+        if eid is not None and eid == bank.owner():
+            continue
+        name = bank.name(eid) if eid else " ".join(str(p.get("surface") or "").split())
+        if name:
+            return name
+    return None
 
 
 def _event_members(bank: _Bank, tree: list[str], owner: str | None,
@@ -1352,7 +1570,9 @@ def _member_fact(bank: _Bank, eid: str) -> str:
                 if _open(c) and c.object_kind == "literal" and c.object and not is_event(c)]
         return " · ".join(lits[:3])
     if t == "person":
-        c = next((c for c in bank.claims(eid) if _open(c) and c.predicate == "works-at"), None)
+        # The newest current place (2026-10-27), as the person card names it — never the first one the page lists.
+        places = [c for c in bank.claims(eid) if _open(c) and c.predicate == "works-at"]
+        c = max(places, key=lambda c: (c.valid_from or "", c.recorded_at or ""), default=None)
         return _object_label(bank, c) if c else ""
     if t == "media":
         media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
@@ -1450,7 +1670,7 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
     # repository, consolidated or not.
     repo_days = _repo_days(bank, tree)
     moment_days = sorted({a.day for c, _, a in rows if c.id in core_ids and a.day}
-                         | {h.day for h in happenings if h.day} | repo_days)
+                         | {h.day for h in happenings if h.day} | repo_days | _tied_days(bank, root))
     core = [c for c, _, _ in rows if c.id in core_ids] + [c for c, _ in events]
     done = [h for h in happenings if h.state == "done" and h.day]
     activity = _activity(bank, core)
@@ -1458,8 +1678,16 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
     targets = [m.target for m in milestones if m.target]
     days = [i.day for i in items if i.day]
     persons = project_sections.people(around, bank.type_of, bank.name, owner=owner)
-    ref = ProjectRef(id=root, name=bank.name(root), one_liner=_one_liner(bank, root), parent=parent,
-                     children=tree[1:], status=str(fm.get("status") or "active"), created=created)
+    ref = ProjectRef(id=root, name=bank.name(root), parent=parent, children=tree[1:],
+                     status=str(fm.get("status") or "active"), created=created, **_header(bank, root))
+    from api.services import project_conversations, project_influences
+
+    from api.services import project_pages
+
+    reasons, _ = project_conversations.tie_reasons(memory_path, root, tz_name=tz_name, bank=bank)
+    tied_count = project_conversations.count(memory_path, root, tz_name=tz_name, bank=bank, reasons=reasons)
+    pages, pages_total, page_counts = project_pages.build(bank, root, tree, around, _commons(bank, around), owner,
+                                                          _member_fact)
     return ProjectTimeline(
         project=ref, tz_name=bank.tz_name,
         window=TimelineWindow(start=min([x for x in (created, *days) if x], default=None),
@@ -1480,7 +1708,13 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
         origin=project_birth.wire(memory_path, root, fm),
         sections=project_sections.build(memory_path, root, bank.body(root), items=items, milestones=milestones,
                                         persons=persons),
-        people=persons)
+        people=persons,
+        # Ruling 45: the side panel.
+        influences=project_influences.build(bank, root, reverse), conversation_count=tied_count,
+        knowledge=_knowledge(memory_path, fm),
+        # Decisions 9 and 10 (2026-10-28): the pulse's weekly bars and Pages in this project.
+        conversation_days=project_conversations.days(bank, reasons), pages=pages, pages_total=pages_total,
+        page_counts=page_counts)
 
 
 def now_next(memory_path: Path, project_id: str) -> tuple[dict | None, dict | None]:
@@ -1582,6 +1816,58 @@ def _followup_counts(bank: _Bank) -> Counter:
 
 
 def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: Callable | None = None) -> ProjectsResponse:
+    """:func:`_list_projects` under one listing per folder (speed 2026-10-29: its readers listed `entities/` and
+    `episodes/` three times a call), remembered while everything it reads holds (:func:`_list_inputs`). A partial
+    list (the word index still building) is never remembered, nor a list read with a caller's own transcript test."""
+    with bank_index.shared_scans():
+        key = _list_inputs(memory_path, tz_name) if transcript_exists is None else None
+        if key is not None:
+            with _EPOCH_LOCK:
+                hit = _LISTS.get(str(memory_path))
+            if hit is not None and hit[0] == key:
+                return hit[1].model_copy(deep=True)
+        out = _list_projects(memory_path, tz_name=tz_name, transcript_exists=transcript_exists)
+    if key is not None and not out.partial:
+        with _EPOCH_LOCK:
+            _LISTS[str(memory_path)] = (key, out.model_copy(deep=True))
+    return out
+
+
+def owner_token(memory_path: Path) -> str:
+    """Which page is the owner's when no page says ``owner: true``: ``owner_identity.resolve_observer`` reads the
+    machine's ``owner.json`` (outside the bank, so no folder stamp sees it move). Its digest rides the list's key and
+    the Projects ETags (review of #533) — never the id itself."""
+    import hashlib
+
+    try:
+        from api.services import owner_identity
+
+        oid = owner_identity.resolve_observer(Path(memory_path), None)
+    except Exception:  # noqa: BLE001 — `_Bank.owner` reads the same and treats a failure as no owner
+        oid = ""
+    return hashlib.blake2b(str(oid).encode("utf-8"), digest_size=6).hexdigest()
+
+
+#: bank -> (the list's inputs, the list). Process-local and disposable.
+_LISTS: dict[str, tuple[tuple, ProjectsResponse]] = {}
+
+
+def _list_inputs(memory_path: Path, tz_name: str | None) -> tuple:
+    """Everything the list reads, as stamps: the zone and the code's shape, every page with its claims ledgers, every
+    episode, the inbox (follow-ups), the provider groupings file, and the word index's files (the reverse layer:
+    ``search_index.claim_rows``), and the owner page (:func:`owner_token`). The `/projects` ETag's own components,
+    plus the index and the ledgers."""
+    from api.services import graph_builder, inbox_inputs
+
+    mp = Path(memory_path)
+    return (tz_name or "UTC", PROJECT_SHAPE, owner_token(mp),
+            bank_index.dir_fingerprint(mp / "entities"), bank_index.ledger_fingerprint(mp / "entities"),
+            bank_index.dir_fingerprint(mp / "episodes"), graph_builder.inbox_stamp(mp),
+            inbox_inputs.file_stamp(mp / "project_groupings.yaml"),
+            *(inbox_inputs.file_stamp(mp / f"{search_index.DB_FILE}{suffix}") for suffix in ("", "-wal")))
+
+
+def _list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: Callable | None = None) -> ProjectsResponse:
     """Every live project, lighter than the detail and honest about it
     (R-PJB19): each project page, the owner page and the FTS claim payloads
     whose object resolves to a tree page — never a member page. `partial`
@@ -1668,14 +1954,15 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
         # list and detail agree (R-PJB19). A milestone is a plan, not activity.
         repo_days = _repo_days(bank, tree)
         days = sorted({d for c in claims if not is_event(c) and (d := _anchor_day(bank, c))}
-                      | {d for c, _ in events if c.predicate == HAPPENED and (d := _day(c.valid_from))} | repo_days)
+                      | {d for c, _ in events if c.predicate == HAPPENED and (d := _day(c.valid_from))} | repo_days
+                      | _tied_days(bank, root))
         milestones = _milestones(bank, tree)
         progress = project_state.progress([m.model_dump(by_alias=True) for m in milestones])
         shown = [m.model_copy(update={"chain": []}) for m in
                  sorted(milestones, key=lambda m: m.status != "planned")[:MILESTONES_IN_ROW]]
         fm = bank.fm(root)
         rows.append(ProjectRow(
-            id=root, name=bank.name(root), one_liner=_one_liner(bank, root), parent=parent, children=tree[1:],
+            id=root, name=bank.name(root), parent=parent, children=tree[1:], **_header(bank, root),
             status=str(fm.get("status") or "active"), created=_day(fm.get("created")),
             origin=project_birth.recorded_kind(fm), planned=bool(milestones), last_moment_day=days[-1] if days else None,
             last_repo_day=max(repo_days) if repo_days else None,

@@ -1,0 +1,106 @@
+"""Who was on the other side of a conversation, in words, from the episode's own fields (lean reads, 2026-10-27).
+
+An answer that rests on a conversation said "the assistant", while the episode already knew it was a Claude Code session
+(resumable by its id), Instinct over Messages, or a relayed claude.ai chat. :func:`actor` reads only the episode's
+frontmatter — ``harness``, ``session_id``, ``source``, ``origin``, ``correspondent``, ``service``, ``relay`` and the
+last agent turn's ``model`` — and never guesses: an episode whose fields name nobody answers ``None``, and the caller
+says nothing rather than invent a speaker.
+
+The person is the person: an episode they captured alone (a dictation, a note) has no other side, so ``None`` again.
+Recall's excerpts, Ask's speaker labels and Ask's "From conversations no page cites" lines all read this one function.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+#: Harnesses whose session id resumes the conversation in that harness (the handshake promises `claude --resume`).
+RESUMABLE = {"claude-code": "claude --resume", "codex": "codex resume"}
+#: Export origins: the person's own downloaded history from a chat app — the other side is that app's assistant.
+EXPORT_APPS = {"chatgpt-export": "ChatGPT", "claude-export": "Claude"}
+EXPORT_SUFFIX = ", from the person's exported conversations"
+#: A Messages conversation's service, as the person sees it.
+MESSAGE_SERVICES = {"iMessage": "Messages", "SMS": "Messages", "RCS": "Messages"}
+
+
+def _label(harness: str) -> str:
+    from api.services.source_overview import HARNESS_LABELS
+
+    return HARNESS_LABELS.get(harness, harness)
+
+
+def _last_model(fm: dict) -> str | None:
+    """The last agent turn's model, read through the one tolerant reader of the agent stamps (``agent_turns``)."""
+    from api.services import agent_turns
+
+    return next((s.model for s in reversed(agent_turns.stamps(fm)) if s.model), None)
+
+
+def actor(fm: dict | None, *, ids: bool = True) -> str | None:
+    """The other side of this episode in words, or ``None`` when its own fields do not say.
+
+    - a hook-captured agent session: ``a Claude Code session (id <session>, resumable, model <m>)`` — "resumable"
+      only for a harness whose id resumes it (:data:`RESUMABLE`), the model only when its last agent turn recorded it;
+    - an agent's saved note: ``an agent's saved note from a Claude Code session (id <session>)``;
+    - a turn a hookless app relayed (ruling 32): ``Claude, relayed through the remote connector``, or, on the desktop
+      app's own connection (ruling 57), ``Claude Desktop, relayed by its model``;
+    - a texted correspondent: ``Instinct (an AI agent), over Messages`` / ``<name>, over Messages``;
+    - an export: ``ChatGPT, from the person's exported conversations``.
+
+    ``ids=False`` drops the parenthesis (session id, resumable, model): Ask's speaker label on every quoted line, where
+    the id would repeat; the reply's own conversation lines carry it.
+    """
+    if not isinstance(fm, dict):
+        return None
+    harness = str(fm.get("harness") or "").strip()
+    session = str(fm.get("session_id") or "").strip()
+    source = str(fm.get("source") or "").strip()
+    origin = str(fm.get("origin") or "").strip()
+    # An upgraded episode holds the export's words (ruling 32), and a later relayed turn says so by its own marker.
+    if isinstance(fm.get("relay"), dict) and not fm["relay"].get("upgraded_at"):
+        how = "by its model" if fm["relay"].get("channel") == "local" else "through the remote connector"
+        return f"{_label(harness) if harness else 'an app'}, relayed {how}"
+    from api.services import authorship
+
+    saved_note = authorship.agent_saved(fm)   # ruling 50: an agent's saved note, by its own record
+    if harness and harness != "unknown" and (session or saved_note):
+        label = _label(harness)
+        if saved_note:
+            return f"an agent's saved note from a {label} session" + (f" (id {session})" if session and ids else "")
+        if not ids:
+            return f"a {label} session"
+        parts = []
+        if session:
+            parts.append(f"id {session}")
+            if harness in RESUMABLE:
+                parts.append("resumable")
+        model = _last_model(fm)
+        if model:
+            parts.append(f"model {model}")
+        return f"a {label} session" + (f" ({', '.join(parts)})" if parts else "")
+    corr = fm.get("correspondent")
+    if isinstance(corr, dict) and str(corr.get("name") or "").strip():
+        name = str(corr["name"]).strip()
+        service = str(fm.get("service") or "").strip()
+        over = f", over {MESSAGE_SERVICES.get(service, service)}" if service else ""
+        kind = str(corr.get("kind") or "")
+        return f"{name} (an AI agent){over}" if kind == "agent" else f"{name}{over}"
+    if origin in EXPORT_APPS:
+        return f"{EXPORT_APPS[origin]}{EXPORT_SUFFIX}"
+    if saved_note:
+        return "an agent's saved note"
+    return None
+
+
+def actor_for(memory_path: Path, episode_id: str, *, ids: bool = True) -> str | None:
+    """:func:`actor` of one stored episode, read through the bank index; ``None`` for a missing or unreadable one.
+    ``ids=False`` for a caller without the person's verbatim words (a remote connection without ``sources``): the
+    agent is named, its session id is not — an id resumes the conversation's words."""
+    from api.services import bank_index, episode_ids
+
+    if not episode_ids.EPISODE_ID_RE.match(str(episode_id or "")):
+        return None
+    try:
+        f = bank_index.file(memory_path, "episodes", f"{episode_id}.md")
+    except Exception:  # noqa: BLE001 — a derived label never fails a read
+        return None
+    return actor(f.frontmatter, ids=ids) if f is not None else None

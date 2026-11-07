@@ -48,8 +48,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN_DIR/CicadaApp" "$APP/Contents/MacOS/CicadaApp"
-# The app icon: the book and glasses on a graphite plate, built by Art/AppIcon/make-icon.swift from the Aseprite art in
-# docs/design/cicada-icon/v4/ (rerun that script after editing the art; the .icns is committed so a build needs no tools).
+# The app icon: the menu-bar bookworm on a graphite plate (owner 2026-10-26, provisional), built by
+# Art/AppIcon/make-icon.swift from the menu bar's own sprite sheet, Sources/CicadaApp/Resources/sprites/bookworm-small.png
+# (rerun that script after editing the art; the .icns is committed so a build needs no tools).
 # Info.plist names it (CFBundleIconFile).
 cp Art/AppIcon/Cicada.icns "$APP/Contents/Resources/Cicada.icns"
 # Bundle.cicadaResources (Utilities/ResourceBundle.swift) resolves the SwiftPM resource bundle relative to the executable —
@@ -109,8 +110,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>NSCalendarsUsageDescription</key><string>Cicada reads your calendar events so your meetings and plans become part of your memory, kept in plain files on this Mac.</string>
   <key>NSRemindersFullAccessUsageDescription</key><string>Cicada reads the reminder lists you choose so the ideas and to-dos you kept there become part of your memory, kept in plain files on this Mac. macOS only offers full access; Cicada never changes or adds a reminder.</string>
   <key>NSRemindersUsageDescription</key><string>Cicada reads the reminder lists you choose so the ideas and to-dos you kept there become part of your memory, kept in plain files on this Mac. Cicada never changes or adds a reminder.</string>
+  <key>NSCameraUsageDescription</key><string>Cicada reads a book's barcode when you press Scan, so you can add the book without typing its number. The picture is never saved or sent; only the number is kept.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Cicada turns the speech in a recording or video you add into words on this Mac, so you can search what it says. Nothing is sent anywhere, and only the files you add are read.</string>
   <key>NSContactsUsageDescription</key><string>Cicada reads your contacts to recognise the people you already talk about — where to look up their details, and their photo. It never adds anyone new, and it stays on this Mac.</string>
-  <key>NSAppleEventsUsageDescription</key><string>Cicada reads your notes in Apple Notes when you sync them, so what you write there becomes part of your memory, kept in plain files on this Mac. It never changes a note.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Cicada reads your notes in Apple Notes when you sync them, and in Chrome the page you save or a bookmark you ask it to remove, so what you keep there becomes part of your memory, kept in plain files on this Mac. It never changes a note.</string>
+  <key>NSLocalNetworkUsageDescription</key><string>Cicada finds your other devices on this network so they can share one memory directly, with nothing in between. It only looks for Cicada on the devices you paired.</string>
+  <key>NSBonjourServices</key><array><string>_cicada._tcp</string></array>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>
@@ -157,6 +162,20 @@ if [ "$WITH_BACKEND" = "1" ]; then
   plutil -replace CicadaUpdatePublicKey -string "$(tr -d '[:space:]' < "$REPO_ROOT_DIR/scripts/release/update-public-key.txt")" \
     "$APP/Contents/Info.plist"
   plutil -replace CicadaUpdateRepo -string "${CICADA_UPDATE_REPO:-rorosaga/cicada}" "$APP/Contents/Info.plist"
+  # Report a problem's private address (owner 2026-10-26): CI's CICADA_REPORT_EMAIL repository variable, never a
+  # default in the repo (it is public). Unset, the key is absent and the sheet offers Copy and Save only.
+  if [ -n "${CICADA_REPORT_EMAIL:-}" ]; then
+    plutil -replace CicadaReportEmail -string "$CICADA_REPORT_EMAIL" "$APP/Contents/Info.plist"
+  fi
+  # Cicada's own Telegram app id (ruling 47a, owner 2026-10-28): CI's CICADA_TELEGRAM_API_ID variable and
+  # CICADA_TELEGRAM_API_HASH secret, never in the repo (it is public; api/data/* is git-ignored). Unset, the file is
+  # absent and the Telegram row asks for the person's own pair from my.telegram.org.
+  if [ -n "${CICADA_TELEGRAM_API_ID:-}" ] && [ -n "${CICADA_TELEGRAM_API_HASH:-}" ]; then
+    TG_FILE="$APP/Contents/Resources/backend/app/api/data/telegram_app.json"
+    [ -d "$(dirname "$TG_FILE")" ] || { echo "✗ no api/data in the bundled backend" >&2; exit 1; }
+    /usr/bin/python3 -c 'import json, sys; json.dump({"api_id": int(sys.argv[1]), "api_hash": sys.argv[2]}, open(sys.argv[3], "w"))' \
+      "$CICADA_TELEGRAM_API_ID" "$CICADA_TELEGRAM_API_HASH" "$TG_FILE"
+  fi
   # Symbols are 60% of the binary and nothing on a tester's Mac reads them.
   strip -x "$APP/Contents/MacOS/CicadaApp"
   "$REPO_ROOT_DIR/scripts/release/sign-app.sh" "$APP"

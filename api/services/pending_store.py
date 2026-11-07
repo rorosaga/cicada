@@ -22,7 +22,9 @@ episode, never a copy of its text). Omitted when empty, so every line written
 before PJ-0b loads and saves byte for byte. A line that holds claims leaves the
 store ONLY through :func:`release`, called after Stage 5.56 wrote them onto the
 page (R-HP4): :func:`take` (promotion) keeps it, :func:`upsert` (a re-park)
-carries its hold, and nothing expires a line (R-HP9).
+carries its hold, and nothing expires a line (R-HP9). The one other way its claims
+leave: the person's inbox answer that the name IS a page (G209) lands them there
+(:func:`answered`) and only then takes exactly those off (:func:`drop_released`).
 """
 
 from __future__ import annotations
@@ -87,9 +89,17 @@ class PendingEntity:
     # G179: a message conversation's correspondent waiting below the promotion bar — ``{name, kind}``. Its line is
     # keyed by the id its page will get (`correspondents.free_id`), never by its plain name, and found by this mark.
     correspondent: dict = field(default_factory=dict)
+    # G209 (2026-10-27): the existing page this name was held AGAINST — a page bears its name (and its slug) but Stage 2
+    # did not decide it is that page. Its held claims are released onto that page only on Stage 2's own verdict.
+    held_against: str = ""
+    # G227 (2026-10-29, #546 review): the person said THIS held mention is none of these pages ("Another one", or
+    # "No, different") — ``{"pages": [ids], "episodes": [the conversations the line held when they answered]}``. Scoped
+    # to the mention, never to the name: a later conversation naming one of those pages still joins it; only a re-read
+    # of these conversations is kept apart, and the line's claims never follow the name onto one of these pages.
+    apart: dict = field(default_factory=dict)
 
     _OPTIONAL = ("summary", "key_facts", "links", "open_questions", "aliases", "item_inputs", "heard_in",
-                 "correspondent")
+                 "correspondent", "held_against", "apart")
 
     def to_dict(self) -> dict:
         data = {
@@ -146,7 +156,25 @@ class PendingEntity:
             item_inputs=[d for d in dicts("item_inputs") if d.get("text") and isinstance(d.get("evidence"), list)],
             heard_in=[d for d in dicts("heard_in") if d.get("episode")],
             correspondent=data.get("correspondent") if isinstance(data.get("correspondent"), dict) else {},
+            held_against=str(data.get("held_against") or ""),
+            apart=_apart(data.get("apart")),
         )
+
+    def apart_pages(self) -> set[str]:
+        """The pages the person said this held mention is not (G227)."""
+        return set((self.apart or {}).get("pages") or ())
+
+    def apart_episodes(self) -> set[str]:
+        """The conversations that answer covered — a re-read of one of them is the same mention."""
+        return set((self.apart or {}).get("episodes") or ())
+
+
+def _apart(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    pages = [str(p) for p in raw.get("pages") or [] if isinstance(p, str) and p.strip()]
+    episodes = [str(e) for e in raw.get("episodes") or [] if isinstance(e, str) and e.strip()]
+    return {"pages": pages, "episodes": episodes} if pages else {}
 
 
 def _texts(*lists) -> list[str]:
@@ -177,8 +205,9 @@ def _carry(prior: PendingEntity, entity: PendingEntity) -> None:
     entity.summary = entity.summary or prior.summary
     entity.description = entity.description or prior.description
     said = fact_policy.sentences(entity.summary or entity.description)
-    displaced = [s for t in displaced for s in fact_policy.sentences(t) if not fact_policy.covered(s, said)]
-    facts, _ = fact_policy.union(list(prior.key_facts), _texts(entity.key_facts, displaced))
+    names = [entity.name, *(entity.aliases or []), *(prior.aliases or [])]
+    displaced = [s for t in displaced for s in fact_policy.standalone(t, names) if not fact_policy.covered(s, said)]
+    facts, _ = fact_policy.union(list(prior.key_facts), _texts(entity.key_facts, displaced), extend_existing=True)
     entity.key_facts = _texts(facts)
     links, urls = [], set()
     for link in list(prior.links) + list(entity.links):
@@ -210,6 +239,9 @@ def _carry(prior: PendingEntity, entity: PendingEntity) -> None:
     entity.source_episode = prior.source_episode or entity.source_episode
     entity.confidence = max(float(prior.confidence or 0), float(entity.confidence or 0))
     entity.correspondent = entity.correspondent or prior.correspondent
+    if prior.apart:   # the person's answer about this mention outlives a re-park (G227)
+        entity.apart = _apart({"pages": [*prior.apart_pages(), *entity.apart_pages()],
+                               "episodes": [*prior.apart_episodes(), *entity.apart_episodes()]})
 
 
 class HoldOutcome(NamedTuple):
@@ -251,6 +283,56 @@ def load(memory_path: Path) -> list[PendingEntity]:
         except Exception:
             continue
     return out
+
+
+#: ``held_line``'s and ``apart_of``'s one index: (store path, (mtime_ns, size, inode), first line's text by lower-cased name,
+#: the pages said apart by lower-cased name). Text, never parsed lines: a large store stays a few untracked strings for
+#: the collector, and each hit parses a fresh ``PendingEntity`` its caller may change. ``save`` replaces the file, so
+#: every write gets a new inode and the next read sees it.
+_INDEX: tuple[str, tuple[int, int, int], dict[str, str], dict[str, frozenset[str]]] | None = None
+
+
+def _index(memory_path: Path) -> tuple[dict[str, str], dict[str, frozenset[str]]]:
+    """The store's lookups, read once per change of the file (the stall of 2026-11-05: Stage 2 asked by name thousands
+    of times a batch, and each ask parsed every line)."""
+    global _INDEX
+    path = store_path(memory_path)
+    try:
+        st = path.stat()
+    except OSError:
+        return {}, {}
+    stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
+    cached = _INDEX
+    if cached is not None and cached[0] == str(path) and cached[1] == stamp:
+        return cached[2], cached[3]
+    by_name: dict[str, str] = {}
+    apart: dict[str, set[str]] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            entry = PendingEntity.from_dict(json.loads(raw))
+        except Exception:
+            continue
+        key = entry.name.lower()
+        by_name.setdefault(key, raw)
+        if entry.apart_pages():
+            apart.setdefault(key, set()).update(entry.apart_pages())
+    frozen = {key: frozenset(pages) for key, pages in apart.items()}
+    _INDEX = (str(path), stamp, by_name, frozen)
+    return by_name, frozen
+
+
+def held_line(memory_path: Path, name: str) -> PendingEntity | None:
+    """The first line held under ``name`` (any case), as ``load`` would find it, without parsing the others."""
+    raw = _index(memory_path)[0].get((name or "").lower())
+    return PendingEntity.from_dict(json.loads(raw)) if raw is not None else None
+
+
+def apart_of(memory_path: Path, name: str) -> frozenset[str]:
+    """The pages the person said a mention held under ``name`` is not, over every line of that name (G227)."""
+    return _index(memory_path)[1].get((name or "").strip().lower(), frozenset())
 
 
 #: ``waiting_ids``' cache: store path -> ((mtime_ns, size), the ids). An inbox read asks it once per question.
@@ -428,7 +510,35 @@ def hold(
         return out
 
 
-def ready(memory_path: Path, target_of: Callable[[str, str], str]) -> list[Release]:
+def reanchor_held(memory_path: Path, move: Callable[[list[Claim]], int]) -> int:
+    """G104 (#581's "left" list): the held claims' spans into a conversation edited since they were heard, moved onto
+    its new body. ``move`` changes the claims' evidence in place and returns how many spans it moved
+    (`episode_revision.reanchor`). Only the ``evidence`` of a held dict is replaced, every other field kept byte for
+    byte; one read, and one write only when a span moved. Returns how many moved."""
+    with _LOCK:
+        entries = load(memory_path)
+        moved = 0
+        for line in entries:
+            parsed: list[tuple[int, Claim]] = []
+            for i, data in enumerate(line.held_claims):
+                try:
+                    parsed.append((i, Claim.from_dict(data)))
+                except (TypeError, ValueError):
+                    continue
+            if not parsed:
+                continue
+            n = move([c for _, c in parsed])
+            if n:
+                for i, claim in parsed:
+                    line.held_claims[i] = {**line.held_claims[i], "evidence": [e.to_dict() for e in claim.evidence]}
+                moved += n
+        if moved:
+            save(memory_path, entries)
+        return moved
+
+
+def ready(memory_path: Path, target_of: Callable[[str, str], str],
+          decided: Iterable[str] = ()) -> list[Release]:
     """Read-only: the holding lines whose claims can go onto a page NOW (R-HP5).
 
     ``target_of(line_name, subject)`` names the page — Stage 5.56 passes Stage
@@ -437,8 +547,13 @@ def ready(memory_path: Path, target_of: Callable[[str, str], str]) -> list[Relea
     back re-keyed onto the target (R-CS1: a claim follows Stage 2's match),
     everything else as held. Nothing is removed here: that is :func:`release`,
     after the write succeeded (R-HP4). A held dict that no longer parses is
-    skipped and counted in a warning — a count, never a name (R-CS3)."""
+    skipped and counted in a warning — a count, never a name (R-CS3).
+
+    G209 (2026-10-27): a line held AGAINST a page (``held_against``) is released onto that page only when its name is in
+    ``decided`` (Stage 2 joined it there this cycle) — never because the page shares its name. A claim held on the
+    line's behalf as its OBJECT (another page's claim about this name) keeps its subject and is re-pointed by object."""
     entities_dir = Path(memory_path) / "entities"
+    decided_names = {str(n).lower() for n in decided or ()}
     out: list[Release] = []
     unreadable = 0
     for line in load(memory_path):
@@ -450,16 +565,126 @@ def ready(memory_path: Path, target_of: Callable[[str, str], str]) -> list[Relea
                 unreadable += 1
         if not claims:
             continue
-        target = target_of(line.name, claims[0].subject) or claims[0].subject
+        slug = sanitize_id(line.name)
+        own = slug if any(slug in (c.subject, c.object) for c in claims) else claims[0].subject
+        target = target_of(line.name, own) or own
+        if line.held_against and target == line.held_against and line.name.lower() not in decided_names:
+            continue
+        if target in line.apart_pages():
+            # G227: the person said this held mention is not that page; another mention of the name joining it this
+            # cycle carries none of these claims there.
+            continue
         page = bank_file(entities_dir, target)
         if page is None or not page.is_file():
             continue
-        for claim in claims:
-            claim.subject = target
-        out.append(Release(line.name, target, claims))
+        out.append(Release(line.name, target, _repoint(claims, slug, target)))
     if unreadable:
         logger.warning(f"pending store: {unreadable} held claim(s) could not be read; they leave with their line")
     return out
+
+
+def _repoint(claims: list[Claim], slug: str, target: str) -> list[Claim]:
+    """A line's claims re-keyed onto ``target``: a claim held for this name as another page's OBJECT keeps its subject
+    (that page keeps the claim) and points its object at ``target``; every other claim takes ``target`` as subject."""
+    for claim in claims:
+        if claim.subject != slug and claim.object == slug:
+            claim.object = target
+        else:
+            claim.subject = target
+    return claims
+
+
+def answered(memory_path: Path, name: str, target: str, *, subject_page: str = "") -> Release | None:
+    """Read-only: the line named ``name`` (case-insensitive) re-keyed onto ``target`` — the page the PERSON said this
+    name is (G209 held release, 2026-10-27: their inbox answer "same as <target>", through their own resolver). The
+    same re-pointing as :func:`ready`; ``held_against`` is not consulted, because the person's answer is the verdict
+    Stage 2 would otherwise wait for. ``None`` when no line holds claims under that name. Nothing is removed here:
+    that is :func:`drop_released`, after the claims are on their pages.
+
+    ``subject_page``: the page the question was asked about, when it was asked about a PAGE (a fold-page question, a
+    page pair) rather than the held mention. A line Sleep held AGAINST that page is skipped: its claims were refused
+    for that page, and an answer about the page says nothing about the mention."""
+    key = (name or "").strip().lower()
+    if not key or not target:
+        return None
+    for line in load(memory_path):
+        if line.name.lower() != key or not line.held_claims:
+            continue
+        if subject_page and line.held_against == subject_page:
+            return None
+        claims: list[Claim] = []
+        for data in line.held_claims:
+            try:
+                claims.append(Claim.from_dict(data))
+            except (TypeError, ValueError):
+                continue
+        if not claims:
+            return None
+        return Release(line.name, target, _repoint(claims, sanitize_id(line.name), target))
+    return None
+
+
+def mark_apart(memory_path: Path, name: str, pages: Iterable[str], episodes: Iterable[str] = ()) -> bool:
+    """G227 (#546 review): the person said the mention held under ``name`` is none of ``pages`` — recorded on ITS line,
+    with the conversations it holds now (plus ``episodes``, the question's own), never as a name→page rejection. False
+    when no line holds the name (nothing is recorded: a later mention is a new question)."""
+    key = (name or "").strip().lower()
+    pages = [str(p) for p in pages if str(p or "").strip()]
+    if not key or not pages:
+        return False
+    entries = load(memory_path)
+    for line in entries:
+        if line.name.lower() != key:
+            continue
+        line.apart = _apart({"pages": [*line.apart_pages(), *pages],
+                             "episodes": [*line.apart_episodes(), *line.episodes(), *episodes]})
+        save(memory_path, entries)
+        return True
+    return False
+
+
+def clear_apart(memory_path: Path, name: str, page: str) -> bool:
+    """The person joined the mention held under ``name`` to ``page`` after all: their earlier "apart" no longer holds
+    for that page (G227 — every join and split stays reversible). True when the store changed."""
+    key = (name or "").strip().lower()
+    entries = load(memory_path)
+    for line in entries:
+        if line.name.lower() == key and page in line.apart_pages():
+            line.apart = _apart({"pages": sorted(line.apart_pages() - {page}),
+                                 "episodes": sorted(line.apart_episodes())})
+            save(memory_path, entries)
+            return True
+    return False
+
+
+def held_against(memory_path: Path, name: str) -> str:
+    """The page the line named ``name`` (case-insensitive) was held against, ``""`` for none."""
+    key = (name or "").strip().lower()
+    return next((line.held_against for line in load(memory_path) if key and line.name.lower() == key), "")
+
+
+def drop_released(memory_path: Path, name: str, claim_ids: Iterable[str]) -> bool:
+    """After an answered release wrote its claims: take those claims off the line named ``name``. The line itself stays
+    (what else it heard is still a first mention; the resolver's :func:`take` retires a line with nothing held, as it
+    always has). A claim that could not land (its page is gone) stays held. True when the store changed. A claim
+    leaves the line at most once, so a later answer or Stage 2 finds nothing to release a second time."""
+    key = (name or "").strip().lower()
+    ids = {str(i) for i in claim_ids if i}
+    if not key or not ids:
+        return False
+    with _LOCK:
+        entries = load(memory_path)
+        changed = False
+        for e in entries:
+            if e.name.lower() != key:
+                continue
+            left = [d for d in e.held_claims if d.get("id") not in ids]
+            if len(left) != len(e.held_claims):
+                e.held_claims = left
+                changed = True
+        if changed:
+            save(memory_path, entries)
+        return changed
 
 
 def release(memory_path: Path, names: Iterable[str]) -> int:

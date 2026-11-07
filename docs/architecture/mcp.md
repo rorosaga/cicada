@@ -34,17 +34,174 @@ with `- … and N more on the full page`; a hit's body is backstopped at 6,000 c
 blocks first (never the top one) and says which in one line (`_fit_recall`); under the budget it is unchanged byte
 for byte. Headings and line shapes are the same; only lengths change.
 
+**Lean reads (2026-10-27, G140/G148/G149).** A real session (values redacted) spent ~6.3k tokens over 5 calls and still
+grepped transcripts: one recall was 14,400 characters — 7 pages, 5 off-topic, the relevant page saying its facts three
+times — and Ask said "the assistant" where the episode recorded a Claude Code session. Now:
+- **A relevance floor** (`_above_floor`). A fused page is shown only when some leg ranks it among its first
+  `RECALL_LEG_KEEP` (3) and close to that leg's best: within `RECALL_VECTOR_GAP` (0.05) of the best cosine, at least
+  `RECALL_WORD_SHARE` (half) of the best word score, or simply ranked there (the claim leg). At most
+  `RECALL_PAGES_SHOWN` (5), never fewer than the fused top one. A page whose name or alias is the query, or appears
+  in it as a whole phrase (`_named_hits`, folded, three letters or more), is always shown, past the cap if it must. The hints block's `suggested_entities`, "Changed
+  recently" and the provisional block follow the pages shown.
+- **A body budget.** The best page's body gets `RECALL_TOP_BODY` (1,800 characters), every other `RECALL_OTHER_BODY`
+  (700) — skills and deadlines too. `summarize_for_recall(collapse=True)` folds a Key Facts, History or Open
+  Questions bullet that only repeats what is already shown (`entity_body.collapse_repeats`: every anchor — a number, a
+  date, a link, a wikilink, a capitalised name — already shown as a whole token, never inside a longer one: `40` is
+  not shown by `400`, nor `5` by `2025` — and 80% of its subject words), saying how many in one line. A bullet carrying anything new is kept; the page is never edited.
+- **The extras earn their place.** "Related (one hop out)" only when a single page passed the floor (160 characters a
+  head); excerpts one passage per conversation, a passage that is mostly a link skipped, each naming who the person
+  was talking to (`episode_actor`), and one line naming the read (`cicada_sources`, only for a caller holding it).
+- **Pictures that match (vision item 3, 2026-10-28).** On a local door (stdio, the CLI, a per-device client) recall
+  adds at most `RECALL_PICTURES_SHOWN` (3) pictures from the one meaning index (`image_index`, `storage.md` "Pictures
+  in the meaning index"), each as its title, where it came from (a look you saved, a screenshot of the saved site, the
+  saved link's own picture, the video's still, or the still of a video watched on a day with that day's episode id),
+  the API path that serves it, and its page with the call that reads it. Only pictures whose lift clears
+  `image_index.LIFT_MIN`, so most recalls carry none. It embeds only the query's words with the table's text model —
+  the vector the entity leg already made — and never the image encoder. **The remote connector never sees it:** no
+  G135 scope covers pictures (`sources` covers the person's verbatim words), so `ctx.is_remote` skips the section
+  (decided 2026-10-28: no picture hits on remote doors). A frame of a video the person added names its time.
+- **From recordings and videos you added (meaning index 2, 2026-10-28).** On the same local doors only, at most
+  `RECALL_FILE_LINES` (3) passages of the words of a recording or video the person added (`media_files`), each its
+  file's name, kind, where in it ("at 12:34") and a short excerpt, under a header that says they are **the
+  recording's words, not the person's**. Hits only (G195: the whole file only on the person's ask); a passage shows only
+  above `media_files.TEXT_LIFT_MIN`. The remote connector never sees it (G195: "the remote connector never sees file
+  search").
+- **Measured** on a 7,962-page bank copy with its own search model, 25 questions (people, events, projects, "who did
+  X", "did I send Y"): 457,788 → 150,672 characters in all (median 18,713 → 6,038, largest 22,453 → 8,625), the answer-bearing fact in 23
+  of 25 replies before and after. The two misses are the same before and after: both facts sit only on the 482 KB
+  owner page, one without its event's name (a Sleep write, not a read).
+
+**Every episode id reads (2026-10-27).** `cicada_sources(entity_id)` takes an episode id Cicada printed (`ep_<day>_<n>`
+from Ask, recall's excerpts, a page) and returns that conversation: a header (id, day, title), `With: <actor>`, a
+removed-from-source or not-yet-read note when true, then its words as stored — scrubbed at capture, the dropped-middle
+marker labelled (gate B2). A bare save (ruling 62) answers one line with its title and link, an agent's way to look
+further. Any other index-only episode (ruling 30: a watched day, a month's summary, a saved-list item, a
+trace day — `history_index.kind`) answers one line saying what it is and that it is indexed for lookup, never its
+text. The door is `cicada_sources` and not a new tool: it is the `sources` scope's own tool, so a
+remote connection reads a conversation only with that scope, at R-R28's 1,000 characters, and every door fences it as
+a read; no schema, CLI row or `/v1` operation changed (a page id still reads as before, and a page that happens to be
+named like an episode id still wins). A stdio read returns up to `EPISODE_READ_MAX` (12,000 characters) and names
+`cicada_continue(session=<id>)` for the rest — only where that stdio-only tool is held.
+
+**Who was on the other side (2026-10-27).** `episode_actor.actor(fm)` names it from the episode's own fields, never
+guessed: `a Claude Code session (id <session>, resumable, model <m>)` (resumable for Claude Code and Codex), `an
+agent's saved note from a … session`, `Claude, relayed through the remote connector` (ruling 32), `Claude Desktop, relayed by its model` (ruling 57), `<name> (an AI
+agent), over Messages` or `<name>, over Messages` (the episode's `correspondent`), `ChatGPT, from the person's
+exported conversations`; `None` — and no label — for the person's own capture. Ask's prompt labels an agent's turn
+`a Claude Code session — the assistant, not the person` (no id; a caller without the person's verbatim words — a remote
+connection without `sources` — gets the agent named and no session id in Ask's reply, since an id resumes the
+conversation's words; a record that names nobody keeps the old words, so a
+benchmark conversation's prompt is byte for byte what it was). Ask's reply adds `· with <actor>` to each "From
+conversations no page cites" line, a **Who spoke in the cited conversations** block (at most 4, agents before an
+export's app) and the `cicada_sources` read line.
+
+**Factual questions go to Ask (contract 22, remote 15).** Item 1 now reads "A factual question: `cicada_ask`, no recall
+first" and names `cicada_sources(entity_id)` for an `ep_…` conversation; the remote contract
+says the same, each tool only where the connection holds it (R12). The empty-state primer is ~1,381 proxy tokens (was
+~1,368), inside the 1,800 budget.
+
+**The turn that says it comes first (G207, 2026-11-06).** A conversation's passage is rarely the line that answers, and
+before Sleep there is no page to fall back on. Recall's excerpts now lead with up to 4 turns from Ask's own search leg
+(`_turn_excerpts` → `ask_sources.search` and `gather_search`, read from up to 6 conversations, 400 characters each, nothing
+read past the clip, index-only records skipped by Ask's own check), then the fused passages below, still one per
+conversation. A passage stays even when a turn of its conversation was quoted: dropping it took preference questions from 4
+of 8 to 1 of 8. Measured with no model, nothing slept: LongMemEval_S questions with an answer turn in recall 45 → 74 of 88,
+answer turns 67 → 116 of 188. The cost is size, against the lean read of 2026-10-27: LongMemEval_S p50 1,054 → 2,785
+characters, p50 21 → 54 ms.
+
+**Recall stays lean (ROR-133, 2026-11-06).** The 4 turns take the person's first and an agent's only in what is left, by a turn's role and
+so in any language; a passage repeating a quoted turn is dropped; a turn says "the person" or "an agent". LongMemEval_S 100, nothing slept,
+an agent holding only recall's words, haiku, one run each: right 47 → 56 (10 gained, 2 lost, p = .04), tokens per right answer 9,220 → 7,421,
+characters p50 2,777 → 2,211.
+
 **Before Sleep (G207, 2026-10-22).** Recall's "Related conversation excerpts" (under the `sources` scope, R-R22)
 rank-fuse two legs, keeping 3: the vector leg (`_leann_search_episodes`), which step 0 fills right after capture
 (`capture-and-sleep.md`, "After capture"), and a word leg over the FTS passages (`_lexical_search_episodes`:
 `search_service.search(kinds=("episode",), vectors=False)`, bm25, ~400 characters of the stored body around the
-matched line, the dropped-middle marker blanked). An excerpt from a conversation still `processed: false` reads
+matched line, the dropped-middle marker blanked). That read asks every word of the query to match, so a question in
+plain words missed a conversation that never says "what" or "decide"; since 2026-10-29, when it finds fewer than 3,
+a second read fills in (`_rare_word_episodes` → `ask_sources.rare_word_conversations`): the query's subject words
+weighed by rarity over the passages (a word in more than 5% of them, never fewer than 20, drops out), a passage
+counting only when it holds every remaining word up to three of them — in one passage, never a long export that says
+each somewhere — index-only records never. Measured on a read-only copy of the owner's bank with a placeholder
+conversation captured into the copy: the first recall hit came 1.2–1.3 s after capture (the index's 1 s freshness
+window; the brief's "next Sleep" was already gone since #423), and 4 of 5 phrasings found it against 2 of 5 before
+(the miss says "percentage" where the conversation said "percent"); the read costs p50 27 ms / p95 36 ms on 65k
+passages. An excerpt from a conversation still `processed: false` reads
 `- [<episode>] (<day>, not yet read by Sleep) …`; a read one is unchanged. When a quick read ran, a block **"Not yet
 read by Sleep (provisional …)"** follows the page summaries. It holds up to 12 provisional claim lines
 (`- [[Page]] <claim text> — \`<claim id>\`, from <episode>`): the top hits' pages first, then claims sharing a word
 with the query. Then one line names up to 5 held names that match a query word. It is shown only while the episode
 is unread, it is an ordinary block under `_fit_recall`'s budget, and it is Cicada's reading, not the person's
 verbatim words, so it follows the claim leg's scope.
+
+**Looking into what Sleep has not read (ROR-29, G207, 2026-11-05; owner: "being able for agents to look into stuff that
+hasn't been consolidated is a big priority", about 198 waiting).** Retrieval, not belief: nothing below writes a page,
+a claim or a question. (1) *Ask reads enough.* The search leg's OTHER CONVERSATIONS used to clip every turn to 600
+characters, so a note's list was cut mid-way and the model called it truncated. A turn of a conversation still
+`processed: false` is now read past that (`ask_sources._read_more`): whole when it is at most 2,400 characters, else up
+to 3 non-overlapping 500-character windows around the question's words (`…` where text was left out), drawing on one
+budget of **4,000 characters (about 1,000 tokens) per question**, on top of the leg's 3,000; the line is labelled "not yet
+read by Sleep" and Ask's rule 12 says a read-whole line is whole and that an answer resting on one is unconfirmed by
+Sleep. A turn of a conversation Sleep has read is clipped as before. An index-only record (a save with no reason, a
+feed item, a watched day, a list save), and a retired locked note, are skipped by `_scored_turns` before any text
+is taken (ruling 62, G234; tests `test_ask_unread`), so nothing new reaches a model for them; the leg runs only with
+`source_words`, so a connector without `sources` gets nothing new. Ask's engine, `resolve_llm_fn` and G235's hold are
+unchanged. (2) *Citations are what the answer rests on.* The model's `used_entities` is used as given, **an empty list
+included** (before, empty fell back to every retrieved page: an answer from an unread conversation listed 14 unrelated
+pages); with no list returned, the pages whose title or alias the answer itself says (`_named_in`), else none. The
+degraded replies ("could not synthesize", no engine) still name the retrieved pages as "Relevant pages", which is what
+they are. (3) *`cicada_pending(query)`.* An optional topic: the same two legs recall's conversation excerpts use
+(`mcp_tools.unread_matches`: the vector leg and the word leg, rank-fused), a pool of four times `limit` (at least 40),
+kept to the ones still `processed: false` and not a bare save, best match first; with no query the list now leads with
+the **newest**. Still stdio and the tool door only; the query is never logged. (4) *The primer* says in item 1 that
+unread material is searched too and marked, that `cicada_pending(query)` lists what waits on a topic, and that an answer
+resting on it is unconfirmed by Sleep (+~31 proxy tokens: 1,456 empty-state, 1,704 with every bridge and method line,
+inside 1,800); item 5's "personal facts are authoritative" is untouched. Measured on a synthetic bank of 1,500
+conversations (188 unread; the word leg only, no search model on the scratch machine): `unread_matches` p50 5 ms / p95
+16 ms, the whole `cicada_pending(query)` p50 4.7 / p95 23 ms, the no-query newest-first list of 50 p50 28 / p95 31 ms; Ask's
+search leg with the deeper read p50 3.4 / p95 4.8 ms.
+
+**Merge, split, undo — in the conversation (G227 follow-up; owner 2026-10-29: "the separation of entities should mainly
+happen by talking to an agent"; `page_join`, `storage.md`).** The agent is the primary door. When the person says "that's
+two different things": `cicada_split_page(page, preview=true)` lists the page's numbered sentences and beliefs; the agent
+picks those about the other thing and calls `preview=true` again with them — a plain-text proposal ("Proposal (nothing
+changed yet): 3 of 5 sentences … move to a new page also called …; links that would follow …") it shows the person;
+only on their yes does it call without `preview`, their own words as `reason` (the commit's `Reason:`). "Those are the
+same": `cicada_merge_pages(page, into, reason)` after asking. "Undo that split": `cicada_undo_join(page, reason?)` takes
+back the newest merge or split on the page still in place (`page_join.latest`; a merged-away id resolves). The
+handshake's item 4 and the skill's *Fixing what memory says* name all three and when to offer them (contract 23). The
+trust list is G198's (`page_editors`): a listed harness applies at once under its own `Cicada-Author`; any other — a
+remote app (`/v1` `page_merge`/`page_split`/`page_undo`, `record` scope) always — files a `page_edit` proposal with a
+`join` payload (`op` merge, split or undo) the person applies or leaves with one tap. **Scopes fail closed (R-R3, #552 review):** a preview answers with a page's prose, beliefs, sources, conversations and linking pages, so on a remote call it needs what `cicada_recall_detail` needs (`read`); a `record`-only token gets a refusal naming the scope and nothing of any page, and its merge, split and undo replies carry ids only. `cicada page merge|split|undo`
+are exposed in the CLI (`cli_map`, `cli.py`) with the same rule; an edit already uncommitted on a page is committed
+apart first. A refusal (no such page, nothing picked, nothing to undo, Sleep holding the pages, a demo bank) writes
+nothing.
+
+**Same name, different things (G227, 2026-10-29).** Every door names a page whose title another page shares by
+its qualifier (`same_name`): recall's heading is `### <name> (<qualifier>) (<type>, …) — id `<id>``;
+`cicada_recall_detail` with a name two pages share answers with each one, its qualifier and its id, instead of picking
+one, and a shared page's text ends with a "Shown as: …" line naming the others by id; `cicada_ask` shows the model
+`name: <name> (<qualifier>)` and links its citation by id (`[[<id>|<name> (<qualifier>)]]`); a related-page hop, a hub
+member or any `_entity_id_for_name` lookup never resolves a shared name to one page unless it is a page's own id as
+written. The CLI and `/v1` run the same bodies; `cicada find` lists `displayName`. A same-title inbox question
+(owner 2026-10-29, pick the page) reaches every door with the options `GET /inbox` serves (`_agent_question`): the list
+and ask lines show "Which <name> is this?" and each page by name, qualifier and `option_key="page:<id>"`, plus
+"Another one" (`option_key="another"`, its own thing);
+catch-up mode lists them as its answers and records the pick with `cicada_resolve_inbox(id, option_key, quote)`.
+
+**What has come up lately weighs more on recall and search (owner 2026-11-06).** The fused page order is multiplied by
+`1 + .3 x page_use.lately_of` (`search_service.rrf_fuse`, `LATELY_WEIGHT`); it reorders what the legs found and adds nothing.
+It reads only those pages, on a fixed scale (8 conversations today count whole), never the bank-wide `lately` table, so a recall in a
+fresh process stays a handful of reads (`test_cold_recall`).
+A page the query names counts a full lift above its own (`lately_lift`), so nothing unnamed overtakes it and, of two pages
+sharing a name, the one said lately leads. The hook's tie-break after name strength and type is `lately` too, from the
+last table with no rebuild (`lately_cached`), never confidence, which ranks no recall. Ask's conversation order is not
+lifted: on 100 questions `x (1 + w x 0.5^(age/14))` took it 71→66 at w=.3 and left it at 71 with temporal 19→17 at w=.1;
+it keeps its reserved newest slot. Measured on a clone of a real bank, counts only: 25 topic queries, pages said lately in
+the top five 14→27 of 125, a query's first page changed on 16; 150 page names, first 124→127 (6 gained, 3 lost, each to
+a page of the same name or alias said more lately). `lately_of` costs 9 ms for 20 pages cold, under 1 ms warm. On slept LoCoMo (5 conversations, 200 questions, `--banks-from`) recency changed recall's words on 24; recall graded on
+those 24 went 15→18 right, one run each. A public bank has only 3 to 11 pages, so it can show no loss, not a win.
 
 **Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the
 FTS lexical leg (names, aliases and prose, word by word), and current claims mapped to their
@@ -124,6 +281,53 @@ that stale identity match. This is one recorded source call, with no chain walk 
 (`CONTRACT_VERSION` 15, A2). The primer and installed skill gently suggest an optional brief `State:`
 (in flight / blocked / next) at the end of working replies; continuity does not depend on it. This line is included
 in the whole ≤1,800 proxy-token handshake budget, including max-primer/startup fixtures; R12 still holds.
+**Projects (rulings 45 and 56).** `cicada_create_project(project, description?, evidence?, reason?, repo?)` starts a
+project the person asked for, and is refused with neither `reason` nor `evidence`: a harness on their G198 trust list
+lands it in their list (`mine: {via: agent}`), any other client — a remote app always — files one `page_edit` inbox
+question (`start_project`) on a quiet concept page, and only their yes starts it. A name a page holds adopts that page
+(`project_ownership.start_target`): same id, words and history; a person, company, place, repository page or the owner's
+is refused by name, two candidates are refused, never picked; a page the person took out is refused. `repo` records the
+hook's observation as `born.repo` only when it names the checkout this session ran in.
+`cicada_link_conversation(project, reason, episode? | session?, remove?)` ties a conversation, with no `episode` the one
+the agent is in: a trusted harness at once, any other as a proposal on the project's page, never counted until taken
+(ruling 56). Each row keeps the agent's name and `reason`; an agent unties only what it tied, and the person's untie is
+final. **An agent ties proactively**, told by the primer, the skill and the tool descriptions: when the conversation shows
+a thing belongs, with a stated reason, never for a mere mention. **On a page not started** `cicada_recall_detail` and
+`cicada_project` add one line, an `own` segment outside the reference markers (G199), that the agent may offer once in its
+own words; only where `cicada_create_project` exists (R12). `cicada_add_influence(project, what? |
+url?, how?, evidence?)` records what fed a project — a link as the agent's source, a name as a claim with the agent as
+observer (`inspired-by`, `references`, `uses`; a person as `works-on` on their page), plain text when no page matches,
+never a page made. `cicada_link_entity(project, entity, reason, remove?)` (decision 10, 2026-10-28) ties a page
+already in memory to a project ("Pages in this project"): a harness on the trust list ties at once, any other — a remote
+app always — records a proposal the person takes or turns down on the page; the person's "Not part of it" is final, and
+an agent takes back only its own tie. A repository page tied by a trusted harness becomes one of the project's repositories
+instead (ruling 53: `repositories:`, `how: agent`, with the session; the person's unlink stays out), and
+`cicada_project` (a `Repositories:` line and `data.repositories`) and `cicada_repo_context` (a `GitHub repositories:`
+line beside the local checkouts) name a project's repositories — a project may span several. All four are `record` remotely, one `cli_map` row each (`projects
+create|link|tie-page|influence`, proposed spellings; `/v1` `projects_create`, `projects_link`, `projects_tie_page`,
+`projects_influence`), admitted, committed alone under the harness. `cicada_project` adds the pulse in words (the last 4
+weeks, what it waits on; Gone quiet is its own "Quiet:" lines) and the pages in the project, proposals apart.
+`cicada_edit_page` takes `name` and `description` for a project (the header, `description_by` the harness; the old name
+stays an alias; untrusted → an inbox proposal). `cicada_project`'s reply says whether the project is in the person's
+list, their description (remote: only with `sources`), and how many conversations and influences are tied. The primer
+names the three in one sentence (ruling 56 amends Option A; contract 25, remote 16). Its state lists what the person
+started under "Current projects", then "Recent project pages, not started as projects" (`projects_started`, state schema
+5), the same 7 rows: on a bank where nothing is started an arriving agent still learns what the person works on. `cicada_capture_turns` takes an optional `project` — the
+relaying app's word on which project the conversation is in, only from its own context, kept as `relay.project`.
+**`cicada_add_book`** (G233, 2026-11-06) adds a book the person asked their agent to add, by an ISBN the agent found itself
+(Cicada never searches by title: ruling 61). `preview: true` asks the lookup for that number and shows title, authors,
+publisher and a description so the agent can say which edition it means, and writes nothing; without it the book goes
+through the scan's writer: one episode staged by ISBN (a repeat is `unchanged`), the page made at once.
+**One body on every door (piece 2b, owner 2026-11-06: "it should work the same everywhere"):** `mcp_tools.add_book` runs in the
+home — the remote runtime (`/mcp` and `/v1`'s `books_add`, scope `record` like a saved link: a write into memory, never the
+person's words, withdrawable only as what the app added, no power `record` does not already hold), the tool door for a
+device, and `cli_map`'s `books add` row (named for the tool door and `/v1`; no shell command yet, like `link save`). A local stdio process hands the same call to the home's generic
+`/tools/call` when the backend is up (no books route exists); with the backend down it only stages the episode and says the
+page follows (Sleep's tail or the next apply makes it). The lookup is the number alone behind the connector gate, never a
+title. The episode names the caller (`book.by` = the commit author), carries no status, and the page reads "Added by an
+agent" beside any other way in; the book is a quiet save (ruling 62) until the person acts on it. The agent never withdraws
+the page; removing it is the person's Remove. The primer does not name it (the 1,800-token handshake, R12): the tool list carries it.
+
 **`cicada_note_progress`** (G141) records a happening or a milestone the person
 described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date
 was decided; `cicada_retract_claim` withdraws an event the same way.
@@ -214,7 +418,14 @@ episode holding the link and the quote as a `page`-kind span, the claim observer
 its pending line, no page is created), moves the question to `inbox/settled/`, and commits alone under the harness
 (`Web check <date>`, the session trailer). Refused, writing nothing: a connected app (it reports, never settles), a
 question that is not public, a link that is not a public page (`reading_hosts.classify`, no walled host), no quote, no
-option key / answer, Sleep running, ten settles a session. **Repository state** ("did PR #n merge", "is G<n> shipped")
+option key / answer, Sleep running, ten settles a session. **A "same as?" pair of two public things (2026-10-29, G21):**
+the nudge line reads `Public pair: look each name up alone (search only "<a>" and "<b>"), then settle it with how "<a>"
+relates to "<b>" — cicada_record_check(…, outcome="settles", proposed_value=<part_of|has_part|made_by|makes|
+alternative_to|version_of|has_version|different>, …)`; the answer goes through `web_settle.settle_pair`, the writer
+Sleep's tail uses — one cited relation claim on the page the name was weighed against, the question to `settled/`,
+undoable under "Settled by a check", and a proposal to remove the alias that made them meet (`storage.md`). "Same" or
+any other value is refused (the person's tap merges); a pair with a person or the person's own work is not public and
+is refused as before. **Repository state** ("did PR #n merge", "is G<n> shipped")
 is never searched: `From the repository: answer it from its commit — cicada_record_check(…, source="commit:<sha>",
 outcome="settles", …, quotes=[{quote: <the commit's subject>}])` is shown to, and accepted from, a harness on the
 person's trust list only (`page_editors`); the source is `commit:<sha>` or a GitHub/GitLab commit or pull-request link,
@@ -351,11 +562,11 @@ then **saved pages of sites the person allowed** (below) — empty unless `readi
 count, the Feed's `waiting` and the settings page: asks are rows, a site's pages are *derived at read* from
 `reading_walls.py` (never fanned out as rows, so a site switch writes one line, a new wall page joins with no write and
 turning a site or the master off dequeues at once). A site entry whose page was not saved through a saved-content channel
-(Telegram, an agent's save, a chat export: the person's own words) is served only to a caller holding `sources`. `cicada_record_read(url, outcome, summary?, excerpts?, via?, note?, title?)` (`record` scope) takes `read |
+(Telegram, an agent's save, a chat export: the person's own words) is served only to a caller holding `sources`. **The reason travels with the read (vision item 1, 2026-10-28):** an ask or site row whose link the person said why they saved (`saved_why.reason_of`: G191's newest answer — its labels, a project as "For <name>", their words — else a `## Saved because` section) ends `— saved because: <one scrubbed line, ≤ 240 chars>`, and the reply's head then says to read for it and to record the page's specifics as `facts`. The reason is the person's own words, so a connection sees it only with `sources` (`ctx.raw_excerpts`); it is filled by `reading_queue.with_why` in `entries()` alone, never on the hook's counting path (`counts`). The copy-for-an-agent prompt (`reading_prompt.READ_FOR`) says the same. `cicada_record_read(url, outcome, summary?, excerpts?, via?, note?, title?, facts?)` (`record` scope) takes `read |
 needs_login | blocked | not_found | failed`. Only a **successful read is memory** (`page_read.py`): one episode
 (`assistant:` summary, then a quoted `attachment [host]:` block, so quotes are `page` spans — text the agent
 *reported*, never the person's words or checked by Cicada —, `processed: true`, `processed_by: agent`), one `describes`
-claim (a re-read closes the previous one), a thin description filled, and a `read:` stamp on the page; it commits alone as
+claim (a re-read closes the previous one), a thin description filled, and a `read:` stamp on the page. **`facts`** (read-for-specifics, 2026-10-28): up to 8 `{subject, predicate, object, quote}` — what the page states about a thing Cicada already has a page for. Each quote joins the episode as one more `> ` page line (never twice), and each fact is a claim on its subject's page through `agentic_write.write_claim` (observer `agent`, confidence 0.6, a remote app's `remote:<id>` origin, never the person's observer) whose evidence is that line's `page` span, with the read link as the agent's own untrusted where-to-check source for that predicate, `entity:` the saved-link page (tombstones and caps drop the source, never the claim). Left out and counted in the reply: a subject with no page (a read never makes one), a person (their facts come from their own words, `cicada_record_profile` or ruling 44), a happening (`cicada_note_progress`), a malformed fact or one past the cap. Every touched page is in the same commit; the field is on all four doors (stdio, the local tool door, `/mcp` + `/v1` from `remote/tools.py`, `cli_map` `--facts` JSON). It commits alone as
 the harness and never mints a page. **Only a link the person asked about, or a wall page of a site they allowed, can be recorded** — plus one dated exception, the person's two YouTube lists (owner 2026-10-16, *YouTube lists* below: a standing ask for exactly those two pages, recorded only through `cicada_record_youtube_list`, never through `cicada_record_read`) (`reading_queue.authorizes`: `("ask", row)`, `("site", None)` or nothing; a row this tool wrote itself, `origin: site`, authorizes only while its site is still allowed and the page still a wall page, so switching a site off revokes recording at once): `cicada_record_read` refuses every outcome for any other URL (a saved public page with no wall included), and `reading_asks.record_outcome` creates a row only for that site case (`create=True`, `origin: site`) — an agent, or a page steering it, cannot rewrite a saved link's description or plant a `needs_login` banner on a link nobody asked about or on a site nobody allowed. **The exposure, stated:** with a site grant the person consented to a *site*, not to a page, so any agent holding `record` can then record a wall page of that site; the structural denials (R-RW5), the master switch, "every outcome but `read` is ask-store only" and `page`-kind spans bound it. A site-origin `read` writes no ask row (the page's own `read:` stamp keeps it out of the queue) and site rows are evicted before any explicit ask (`MAX_SITE_ROWS` 200). A `read` is also refused while Sleep runs on stdio, as the remote path refuses it (its reply says to keep the summary and record it when Cicada has finished). A `page` span from `page_read` reads "From the page, as <agent> read it" everywhere the app labels it (the episode's `source: page-read` rides `/episodes/{id}/text` and the provenance conversation rows), never a bare "From the page". **The other four outcomes touch only the ask store**: no bank write, no commit, no Sleep
 gate (`RemoteRuntime._writes_bank`), and the `reading` sync component (asks + `reading.json` mtimes) moves so the app
 shows "needs you to sign in" over SSE at once; the tool's reply tells the agent to stop. `via` is what the agent *said*
@@ -453,7 +664,7 @@ as "<agent> noted: …". No line says "in your browser" of what an agent did, or
 stuff … like for youtube watch later/history").** The third door onto the watch record (`capture-and-sleep.md`, *Watch
 history*), on this section's rails: Cicada never spawns a browser, never signs in and never fetches either page; it only
 offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned the list on in Reading in your browser
-(`reading.json` `youtube_lists`, `{watch_later|history: day}`, off by default, refused without a current acknowledgement). The switch is a **standing ask for exactly that page**, not
+(`reading.json` `youtube_lists`, `{watch_later|history: day}`, on by default since 2026-10-26 — onboarding asks once, pre-ticked; an older install's for accounts its memory shows (`list_defaults`); an off kept in `youtube_lists_off` is never overridden — refused without a current acknowledgement). The switch is a **standing ask for exactly that page**, not
 a site grant: it never lets a wall page of youtube.com, or any other page of it, be recorded — the one dated exception
 to "only a link the person asked about, or a wall page of a site they allowed" (owner 2026-10-16, CLAUDE.md's rail). **The offer** (`youtube_lists.py`; state in
 `$CICADA_HOME/youtube_lists.json`, ids, enums, counts and times only, `flock`ed): a list is *due* when allowed, not
@@ -477,7 +688,7 @@ walled site: X Bookmarks (`https://x.com/i/bookmarks`), Instagram Saved (the pro
 `https://www.instagram.com/` — Cicada keeps no profile name) and LinkedIn Saved posts
 (`https://www.linkedin.com/my-items/saved-posts/`). Cicada never spawns a browser, never signs in and never fetches a list
 page; it only offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned that site's list on
-(`reading.json` `saved_lists`, `{x|instagram|linkedin: day}`, off by default, refused without a current acknowledgement;
+(`reading.json` `saved_lists`, `{x|instagram|linkedin|reddit|pinterest|tiktok: day}` (the last three G232), on by default since 2026-10-26 on the same terms, offs in `saved_lists_off` — refused without a current acknowledgement;
 `PUT /reading/settings` `savedLists` patch, the Sources page's switch; `GET /reading/settings` carries `savedLists`
 and `saved` — per site the last read, its outcome, item count and pause, plus `readsToday`/`dailyReads`). Like a YouTube
 list it is a **standing ask for exactly that page**, never a site grant: it lets no other page of the site be recorded.
@@ -504,6 +715,81 @@ a post an archive, a connector or a pasted link already saved is a duplicate; th
 for. The post's words become the title (≤ 80) and description (≤ 500), scrubbed; they are the post's, never the
 person's (no `note`). Committed alone as the harness with its session trailer. **Not built:** a post unsaved on the site
 stays saved here (the read only adds); the app's switch (spec in `app.md`, "Saved lists in your browser").
+**Who and where it stands (ROR-114, 2026-11-05).** `cicada_record_saved_list` also takes `handle` and `profile_url`
+(CLI `--handle`, `--profile-url`): the person's name on the site and the link to their own profile, kept beside the last
+attempt in this machine's state, never a bank. `saved_lists.clean_handle` keeps one short token; `clean_profile_url`
+keeps an `https` link on that platform's own host with no credentials or port and drops the query and fragment — a bad
+one is said in the reply and not stored, and one not given leaves the last standing. `GET /reading/settings` →
+`saved.lists.<site>` adds `through: "browser"`, `state` (`read | signed_out | couldnt_read | not_read`, from the last
+attempt alone: `read` the only healthy one), `handle` and `profileUrl`. Cicada learns signed-out only when an agent
+tries the page (cadence 20 h, a login wall pauses 7 days); it reads no cookie and runs no browser in the background.
+
+**Reddit, Pinterest and TikTok join (G232, owner 2026-11-04: "offer the website connection through browser harness,
+just like a toggle switch").** Three more `saved_lists.PLATFORMS`, after LinkedIn in the offer's order, on the same
+terms, bound and tool: **Reddit** Saved (`https://www.reddit.com/user/me/saved/`, `reddit-saved` / `Saved posts` — the
+export's own folder; an item must be `/r/<sub>/comments/<id>[/<slug>[/<comment>]]` on reddit.com, saved at
+`www.reddit.com` with `old.reddit.com` and the bare host as aliases), **Pinterest** Saved Pins (reached from
+`https://www.pinterest.com/` through the person's profile, `pinterest-saved` / `Saved` — a new list origin in
+`history_index.LIST_ORIGINS`; `/pin/<id>/` on pinterest.com or a country host, saved at `www.pinterest.com`) and
+**TikTok** Favorites (reached from `https://www.tiktok.com/` through the profile's Favorites tab, `tiktok-saved` /
+`Favorites` — the export's; `/@<user>/video|photo/<id>`, with the export's `tiktokv.com/share/video/<id>/` as an alias,
+so a favourite the export brought in is the same row). `reading.json`'s `saved_lists` takes the three keys. **Off by
+default** (review of #596): `list_defaults` never turns one of the three on — `apply_list_defaults` walks only
+`reading_settings.DEFAULT_ON_SAVED_LISTS` (X, Instagram, LinkedIn), since the app has no switch or onboarding row for
+them yet, so neither the consent nor the remembered off the 2026-10-26 default rests on exists; only the person's own
+`PUT /reading/settings` turns one on. The app follow-up that ships their switches may revisit the default.
+**Spotify and Goodreads join (ROR-128, ruling 72, owner 2026-11-06: a site's terms do not decide this).** Two more
+`saved_lists.PLATFORMS`, last in the offer's order, off by default (not in `DEFAULT_ON_SAVED_LISTS`), on the same consent,
+bound and tool. **Spotify** Library (`https://open.spotify.com/`, then Your Library: Liked Songs, each playlist, album and
+podcast; `spotify-saved` / `Library` — the export's origin, so an item the download brought in is the same row; an item must
+be `/track|album|show|episode|playlist|artist/<id>` on `open.spotify.com`, an `intl-xx` prefix dropped), index-only like the
+rest. Its API connector stays unbuilt (its Developer Terms, `network.md`). **Goodreads** shelves
+(`https://www.goodreads.com/review/list`) are books, not posts: `cicada_record_saved_list(platform="goodreads", items)` takes
+`{id, title, author, shelf, rating, date_read, date_added, review}` per book and **writes nothing into the bank** — the books
+are held for the person's choice (`goodreads_waiting`, `capture-and-sleep.md`, "Books"); the reply says so. The queue line
+for it names the shelves Read, Currently Reading and Want to Read and the same never-click rule.
+
+**Substack: Saved, History and Subscriptions (G89, owner 2026-11-04: "a direct app integration is best to see history
+of read stuff, saved stuff, etc.").** Substack gives a reader no API, no OAuth app programme, no reader export and no
+Mac app (the research and its sources are in `network.md`, ruling 47's table), so the saved lists' shape is the way in:
+the person's own agent, in their own signed-in browser, on their standing ask. Three lists (`substack_lists.LISTS`):
+**Saved** (`https://substack.com/inbox` → Saved), **History** (`https://substack.com/home` → the clock icon) and
+**Subscriptions** (the account menu → Subscriptions). Cicada never spawns a browser, never signs in and never fetches a
+Substack page; the private reader endpoints with the person's cookie are scraping behind authentication and stay out.
+**Consent:** agent reading on (its sheet acknowledged) AND the person turned that list on (`reading.json`
+`substack_lists`, `{saved|liked|history|subscriptions: day}`, offs in `substack_lists_off`; `PUT /reading/settings`
+`substackLists` patch; `GET` carries `substackLists`, `substackListsOff` and `substack` — per list the last read, its
+outcome and count, and the one pause). **Off until the person turns it on**: no memory shows a Substack account before
+a read, so owner 2026-10-26's on-by-default (for accounts the memory shows) cannot apply. Each switch is a standing ask
+for exactly that page, never a site grant. **The offer** (`substack_lists.py`; `$CICADA_HOME/substack_lists.json`, ids,
+enums, counts and times only, `flock`ed): G206's bounds, shared — a Substack list is due only when no X, Instagram or
+LinkedIn list is (one site's list at a time), one Substack list at a time, Saved and History after 20 hours,
+Subscriptions after 7 days, and every recorded read spends the same 10 reads a UTC day per bank
+(`saved_lists.count_read`). `cicada_reading_queue` (stdio only) appends its lines — the page, what to read, never a
+post's full text, the inbox or messages, never click anything that changes it (no unsave, like, restack, subscribe,
+unsubscribe or reply), never sign in — and `reading_queue.counts` counts it as an ask.
+**`cicada_record_substack_list(list, outcome, items?, via?)`** (`record` scope, stdio only — `catalog.NEVER_REMOTE`; a
+proposed CLI row `read substack`, not exposed) under one admission and page lock: refused, writing nothing, in a demo
+bank, with reading off, for an unknown list or outcome, a list not turned on, or the day's reads spent.
+`needs_login`/`blocked` pause **every** Substack list for 7 days (one sign-in covers them; no bank write) and file a G205
+agent request for `substack.com`; "I signed in" on it lifts the pause (`agent_requests.resolve`, which now also lifts a
+saved list's own pause), as does turning a list on again. A `read` (≤ 200 rows a call), each row checked by
+`substack.post` / `substack.publication` (the rest counted and left out):
+- **Saved** → an indexed save through `media_ingestor.write_prepared` with no fetch, origin `substack-saved`, folder
+  `Saved` (`history_index.LIST_ORIGINS`: `processed_by: index`, never read by a model, ruling 30), the publication as
+  its `channel`. A post is its canonical URL — `<pub>.substack.com/p/<slug>`, the shape a publication's feed links to,
+  so a post a followed feed already brought in is a duplicate, never a second page; `open.substack.com/pub/<pub>/p/…`
+  and `substack.com/@<handle>/p-<id>` ride as aliases; a publication on its own domain keeps its `/p/<slug>` URL.
+- **Liked** (ROR-138, the Likes section of the reader's own profile) → the same write as Saved, origin `substack-saved`, folder `Liked`, so a post both saved and liked is one page on two lists. A feed item (`rss`) is no save: its page says "From a feed" and the app keeps it out of Media unless its kind is chosen. A publication followed from the Subscriptions list (`via: substack-subscriptions`) is polled only while that switch is on (`feed_registry._followed_on`).
+- **History** → reading days (`substack_reads`, `capture-and-sleep.md`), never saves.
+- **Subscriptions** → each publication followed through its own public `/feed` (`feed_registry.subscribe_feed`, tag
+  `substack`, its name as `title`, `via: substack-subscriptions`, `automatic`), polled behind the feed gate like any
+  feed; a feed the person unfollowed in Cicada is remembered (`feeds.yaml` `removed`) and never followed again by this
+  read — only the person's own subscribe lifts it. A profile (`substack.com/@<handle>`) is a person, never a publication.
+Committed alone as the harness with its session trailer. **Not built:** a post unsaved or a publication unsubscribed on
+Substack stays here (the read only adds); the person's Notes, likes, restacks and highlights — no API or export gives
+them, and none of the three pages this read covers lists them (a highlight shared as a Note would be the person's own
+words; reading it needs its own page and an owner ruling first, G89).
 
 **A walled post's title (2026-10-22).** The backend never fetches an X, Instagram or LinkedIn post (R-RW4), so a saved
 one is titled from its URL alone (`media_ingestor._walled_post_title`): "Post by @<user>" for an X status (before, its
@@ -588,6 +874,16 @@ never opens a browser and never schedules an agent.
   refused with "keep the files and record again" while Sleep writes. A shot is a file the agent saved (the design board's
   by-identity refusal of `~/.claude`, `~/.codex`, `~/.cicada`, `~/Library` and the bank) or base64, ≤ 12 MB. When the
   person turned signed-in exploring off, a record claiming `signed_in: true` is refused.
+- **`cicada_export_requests(done?)`** (ROR-126, ruling 58b; stdio only, `catalog.NEVER_REMOTE`; refused in a demo bank) is the
+  person's yes per provider to having their agent request a chat export. No `done` lists what waits (`state: asked`) with the
+  provider's export page and the rules: use the person's own browser session, never sign in or ask for a password, never open
+  their email. `done=[{vendor, outcome: requested|manual, reason?}]` reports each: `requested` starts nothing new (the app's
+  wait began at the yes) and tells the app the export is on its way, `manual` ends the wait and leaves that provider on its
+  walkthrough. Only a provider the person said yes to can be reported on. The queue is `export_requests.py`
+  (`$CICADA_HOME/export_requests/<bank>.json`, 0600, outside every bank, a vendor, a state, dates, the harness's name and
+  a ≤ 200-character reason; rows expire after 14 days) behind `GET/POST/DELETE /export-requests`; Cicada opens no browser,
+  signs in nowhere and schedules no agent, and the handshake does not mention it — the person's yes and "request my exports"
+  are the trigger, as with exploring.
 - **`cicada_explore_queue(limit?)`** is the read-only list; **`cicada_site_map(site?)`** (slice 2) reads a site's map
   by name or by any link on it, or lists the explored sites. All five tools are stdio-only (`catalog.NEVER_REMOTE`);
   the four that act are refused in a demo bank and while "Let an agent read pages for you" is off. Telemetry: one
@@ -636,12 +932,20 @@ wiring stay `install.sh`'s and the app's).
   nothing on stdout, which would become the agent's context. Every capture rail stays in the scripts it runs:
   `CICADA_CAPTURE=off` stops capture and `CICADA_RECALL=off` recall (Cicada's own spawns set both; Sleep's `claude -p`
   also runs `--safe-mode`, which disables plugins), one
-  episode per session, the transcript read by the backend only under the harness root. The plugin's `recall` setting
+  episode per session, the transcript read by the backend only under the harness root. After a `Stop` or `PreCompact`
+  the same capture script also starts the memory-notes sweep (ruling 43, `api/hooks/memory_notes.py`, detached, only
+  when a note changed), so the plugin carries it with no new hook. The plugin's `recall` setting
   (*Remember automatically*, on by default) silences only the recall hooks.
 - **The skill the handshake names.** The Claude Code prelude names the `cicada` skill that is there
   (`handshake.claude_skill`, part of the primer's cache key): `cicada:cicada` when the plugin is on (the same
   `registry.plugin_state` test), else `~/.claude/skills/cicada` when `install.sh --skill` or the Skills page put a copy
   there, else no policy file at all.
+- **The engine the Now line names (2026-10-26).** "engine claude-cli (haiku)" is the engine a Sleep the person starts
+  would run — the Settings picker's choice and its model, Auto's first connected plan, never a leftover API model on an
+  unresolved Auto — read when the primer is built (`state_dictionary.with_live_engine`, `engine_select.expected_settings`,
+  no probe) and part of the primer's cache key, so a choice made after `_state.md` was written reaches the next primer.
+  An Auto nothing has resolved says "engine auto (decided when Sleep starts)". Same line in `cicada handshake`
+  (`storage.md`, "The engine it names").
 - **The MCP server.** `scripts/cicada-mcp` execs the same checkout's `mcp/server.py` or the app's `cicada-mcp`
   launcher; the `memory_path` setting, when set, becomes `CICADA_MEMORY_PATH` (the memory root — the server resolves
   the active bank itself, as install.sh's own registration does).
@@ -670,6 +974,23 @@ wiring stay `install.sh`'s and the app's).
   source checkout so its older Claude Code entries go. A GitHub marketplace follows the default branch (`main`, so a
   release); a checkout can add itself with `/plugin marketplace add ~/code/cicada` to try `dev`.
 
+**T3 Code: the harness's door is its door (G228, 2026-10-29).** T3 Code drives the Claude Code, Codex and Cursor
+installed on the machine and adds its own MCP server per thread beside theirs; it has no hook or plugin API of its
+own to register Cicada in. Its Claude threads are Agent SDK sessions with the CLI's user settings loaded, so the
+plugin above (MCP server `plugin:cicada:cicada`, the skill, the capture and recall hooks) or `install.sh`'s
+user-scope entries reach every thread unchanged — and T3 Code's own `setMcpServers` replaces only servers it added
+itself, never settings-file or plugin servers (Agent SDK docs). The recall note arrives through the same
+SessionStart/UserPromptSubmit hooks (G149); `cicada_continue` and the handshake see the harness's session id. A
+Codex thread gets Cicada's `config.toml` server and `hooks.json` only under T3 Code's "existing Codex login" setup
+(`CODEX_HOME` = `~/.codex`); a T3-managed ChatGPT sign-in runs Codex in a home of T3 Code's, which has no Cicada (Needs
+the owner on G228). A Claude instance T3 Code points at another `CLAUDE_CONFIG_DIR` reads that folder's settings, so
+Cicada must be connected there too (and its transcripts sit outside the root the backend accepts, so they are
+refused unread, `outside_root`). Nothing is installed in T3 Code and nothing of T3 Code's is read; the agent's
+`clientInfo` names the harness, so its writes carry the harness as `Cicada-Author` and its page-edit trust is the
+harness's (G198). The capture label is the hook's (`host: t3code`, read from its own launch chain's exec paths only, `capture-and-sleep.md`). **T3 Chat** (the hosted
+chat app) documents no MCP connector — its FAQ, read 2026-10-29, names none — so it cannot reach the remote connector
+and is not listed; its link to T3 Code is T3 Code's own account relay, not MCP.
+
 **Implicit recall (G149).** G105 stopped capture depending on a model's tool call, and recall now works the
 same way.
 
@@ -680,11 +1001,59 @@ same way.
   never 2 (which erases a prompt), under a 0.9 s client timeout.
 - **The note.** `hook_recall` answers engine-free from the derived FTS index. SessionStart gets the primer. A
   prompt gets at most three pages it **names**: a whole name or alias, and one word only for a person, project,
-  company, tool or place. Each page comes with its summary and at most two current claims with their dates,
-  plus at most one open inbox question — only one the message is ABOUT (the ask gate below), worded as a statement
+  company, tool or place. Each page comes with its summary and at most two current claims with their dates —
+  only claims about what the message is about (2026-10-27, below) —
+  plus at most one open inbox question — only one the message is ABOUT (the ask gate below), the first in the app's
+  order (`question_order`, ruling 70; never the stored priority; ordered only when more than one passes the visibility
+  rule, its tables warmed at launch), worded as a statement
   the agent can act on naturally ("if the message already answers it, it is recorded … and not asked"), with a
   pointer to `cicada_check_nudges(mode="list")`. A follow-up never rides a note. The note is ≤ 400 tokens or
   nothing, produced within a hard 300 ms.
+- **Lines about the message, or none (2026-10-27).** A trace showed a city named in a message about a job carrying
+  a line about a stranger's company and, in another trace, an unrelated 2025 line; the note took a
+  page's newest two claims whatever the message said. Now a claim rides only when it shares two subject words with
+  the message beyond its page's own name (`hook_recall._claim_fits`; one when the message has only one), or names
+  another page the message names ("<A> works on <B>"). The message's subject is its words minus the hook's stopwords
+  and the names it says (`message_subject`); a message that only names the page ("how is alpha going?") keeps the
+  newest claims. A page keeps its summary either way: no claim beats an unrelated one. **A common noun is no name:**
+  a one-word alias (after stopwords: "the hackathon") whose word is in three or more page names
+  (`common_name_words`, from the index, cached ten minutes) names nothing — "hackathon" no longer names one event's
+  page in every message about any hackathon.
+- **A message that names nothing: the topic note (2026-10-29).** Supermemory's write-up of Claude Code's memory
+  scored it down on recall nobody asked for; ours had the same gap — a prompt *about* something with no page name
+  got no note. Now, when the message names no page, `hook_recall.topic_lines` adds at most three current claims
+  its words find, under its own header ("no page is named in this message; these beliefs share its words") and
+  always ending with the pointer to `cicada_recall(query)`. Lexical and engine-free: the message's subject words
+  (from its end, stemmed as `text_fold.subject_terms`) weighed by their rarity over the bank's claims (a word in
+  more than 2% of them finds nothing); a claim rides only when it holds every rare word up to three of them — in its
+  own words, its page's name or its predicate/object — carrying ≥ 40% of the message's rare-word weight, re-checked
+  on its folded words. At most two lines per page, newest first among equals; the person's own page counts (what
+  they said about themselves is about them); a page the session was just shown steps aside; a page changed on disk
+  since the index read it is read again so a closed claim never rides (a stat per page — the person's own page, the
+  largest, parsed only when it changed). The stored claim vectors re-order lines only when the embedder is already
+  warm, never add one. No inbox question rides a topic note. It starts only with 80 ms of the budget left; ledger
+  reason `topic`. Measured: on a labelled synthetic set (`test_hook_topic_recall.py`: 23 topic prompts naming no
+  page, 16 everyday coding asks) the needed fact reached the note for 0/23 before and 22/23 after, with 0 unrelated
+  lines over 22 notes and 0/16 coding asks given a note; on a read-only copy of the owner's bank (19k claims) 20
+  everyday coding asks got the same 2 notes / 3 lines as before (no topic note), 12 personal-topic asks went from 6 to
+  8 notes, and the hook's p50 rose 14 → 21 ms with p95 inside the noise (44 → 33 ms). Precision over reach: the
+  three-word rule turns down "fix the failing test in the parser" (a claim holding "test" and "parser") and also
+  some real hits whose claims say a word differently ("running" vs "runs").
+- **What the person sees (2026-11-06).** The note is between Cicada and the agent; the person now gets one line when it
+  shaped a message ("◪ Cicada added 1 page to this message: <ids>", `hook_recall.shown_line`, `systemMessage`, Claude
+  Code only until Codex's parser is checked). Counts and ids, never the words; never for the session's primer.
+- **A conversation waiting for Sleep (G207, 2026-11-06).** The page and topic notes read pages and claims, so the hook
+  held nothing from a conversation Sleep had not read. Now `hook_recall._with_unread` adds at most two lines below whatever
+  else the note says, inside the same token cap: the person's own turn from an unread conversation
+  (`ask_sources.rare_word_turns`), marked "not yet read by Sleep" and quoted as said, never a claim. The bar is strict
+  because a wrong line in every message costs more than a missed one: the message's words must be rare (in at most 1% of
+  passages), at least two held within 240 characters, covering 60% of the message's rare-word weight, in a turn of at most
+  1,500 characters said by the person. Never this session's own conversation, an index-only record or a save with no reason
+  (ruling 62). `docs.meta` carries `unread` (`Reader.unread_episodes`), which is why the search schema moved to 10 and every
+  index rebuilds once. Ledger reason `unread`. Measured with no model on banks with nothing slept: LongMemEval_S 0 → 16 of 88
+  questions with an answer turn in the note, 1 note with none among 17, 0 of 14 abstention questions spoke; LoCoMo 0 → 37 of
+  375. Everyday coding asks on clones of two real banks: 0 of 36 got a line (an earlier, looser version got 16 of 36 on the
+  bank with 713 unread); p50 45 / p95 62 ms on the largest. Personal-topic reach on a real bank was not measured.
 - **The vectors.** They only re-order pages already named, and only when the on-device embedder is already
   loaded. A hosted embedder is never sent a prompt.
 - **Repeats.** A per-session window keeps a page from being re-sent on consecutive turns.
@@ -768,16 +1137,38 @@ prompt or dynamic rule.
   the fixed `git -c core.fsmonitor=false rev-parse --path-format=absolute` pair with `--git-common-dir` and
   `--show-toplevel`, in the harness's supplied cwd. The pair shares a 100ms monotonic deadline (with a cleanup
   reserve), ≤4KB stdout per command, no shell, optional locks off, global/system config disabled and inherited
-  git directory/index/object/config overrides removed. No status/log/remote/worktree crawl or repository content.
+  git directory/index/object/config overrides removed. No status/log/worktree crawl or repository content; the origin's one hashed read is the next bullet.
   macOS skips the `/usr/bin/git` install-dialog shim; the installed runtime's bundled git is the last fallback.
   Failure or malformed output leaves exact-cwd matching. `resume`, `compact` and `fork` carry their own history
   and get no startup block; they may still supply identity for requested reads.
+- **The remote, hashed (ruling 22 D2a, owner 2026-10-29).** After the pair, inside the same deadline and bounds, the hook
+  runs one more fixed read: `git -c core.fsmonitor=false config --get remote.origin.url`. `normalise_remote` makes
+  every spelling of one repository the same `host/org/repo` (scheme, user, port, `.git`, trailing and doubled
+  slashes, case; scp-style `git@host:org/repo` = `ssh://` = `https://`), and only
+  `sha256(salt + "\0" + normalised)[:16]` is sent as `remote_hash`. The salt is 32 random hex characters made once per
+  install at `$CICADA_HOME/remote-salt` (0600, `O_NOFOLLOW`, created with `O_EXCL`); without one the remote is left
+  out, never hashed unsalted. No origin, a read past the deadline or a malformed line keep the pair's observation
+  without it. The URL is never stored, logged, sent or shown, and the hint cache stays cwd hash + time. The parser
+  keeps `remote_hash` and derives `remote_checkout_hash` = digest(remote + the checkout top level relative to the
+  folder holding the common git directory, lexically: `.` for the main checkout, `.worktrees/x` for one inside it).
+  `same_checkout` is the path keys *or* `remote_checkout_hash`; `same_family` is `family_hash` *or* `remote_hash`.
+  A remote proves the same repository, not the same checkout: selection takes this checkout's own path-keyed rows
+  first, and another checkout at the same place in the remote only when it can be this one renamed, moved or cloned
+  again — its last activity is no later than this checkout's first registered start (`continuity._moved_here`). Two
+  clones active alongside each other are two checkouts (listed as related choices), and worker worktrees stay
+  related choices.
+  A selection made through the remote alone adds one disclosed line ("another folder of this repository … renamed,
+  moved or cloned again"). The salt is per install, so two machines never share a hash: it is not cross-device repo
+  equivalence. Records written before keep their path keys and keep matching by them; nothing is rewritten.
+  Measured (`test_project_remote_identity.py`, real scratch repositories): the startup pointer finds the earlier
+  session after a rename, a move and a re-clone under another URL spelling — 0/3 before, 3/3 after.
 - **Supplied values and privacy.** The hook posts plain checkout root/common-directory strings, an exact cwd hash,
   observation time and a hash scoped to local hook home + device. `workspace_identity` is a pure backend parser:
   it validates shape, age and lexical containment, hashes the supplied strings and never opens, stats, resolves or
   runs git in them. Authentication does not prove an assertion: matches are labelled *harness-observed*, and every
   note still says *workspace state not checked*. Persisted `workspace_identity` holds only `family_hash`,
-  `checkout_hash`, `cwd_hash`, `observed_at`. No supplemental raw path is stored, even in the episode. Git common
+  `checkout_hash`, `cwd_hash`, `observed_at` and, when the hook read one, `remote_hash` + `remote_checkout_hash`. No
+  supplemental raw path is stored, even in the episode. Git common
   directory identifies a family, checkout top level a checkout; no `.git` stripping or `.worktrees`/prefix heuristic.
   Arbitrary linked-worktree layouts associate; clones, independent nested repos, submodules and separate git dirs
   keep their actual supplied identities. This is local device-scoped association, not cross-device repo equivalence.
@@ -845,6 +1236,25 @@ saved resources.
 
 ---
 
+**The page's blocks for an agent (vision item 5, 2026-10-28).** `cicada_recall_detail` takes an optional `include`
+(a list from `page_blocks.INCLUDE`: `relevance`, `summary` — In short, the 2–3 sentences Sleep writes for a long page
+the person talks about often, on both doors (2026-10-29, `in_short`) — `sources`, `coordinates`, `looks`, `ongoing`, `marks` (what they marked in a book, ruling 64),
+`citations`,
+`history`, or `blocks` for all): the same `page_blocks.build` data `GET /entities/{id}` serves the app, worded after the page under
+`## Page blocks` in page order, one line per block and one per row (a source's state and when it was checked, an
+event's status and day with its claim id, each contributor's change count), and as `data.blocks` for the command
+line (`cicada get <entity> --include blocks`; `cli_map` row `get`). Additive (Hyrum): omitted, the reply is byte for
+byte what it was; it rides only a read from the page's start (`start` omitted), and a stored-words tail is a `data`
+segment (G199 fencing). R12: the argument is in both doors' schemas. `history` is the one block that runs git. **Remote:
+`history` is not offered** — the remote schema's enum leaves it out (G199 refuses it by schema), because no remote
+scope covers a page's per-commit history: `read`'s `cicada_timeline` is bank-wide ids and counts, and the per-page rows
+name models, sessions and commit words. Blame is not a block on either door. Without `sources`, an ongoing item in
+the person's own words is named, never quoted (`claims.is_persons_words`, R-PJ23). **`citations` (ruling 48 (16)):**
+the article's numbered sources as the app draws them — `[n] kind "title" (app, first – last)` for the first six, the
+counts, and on a page whose prose cites nothing yet its beliefs as sentences (an inference marked, an ended one with
+its day); without `sources`, a conversation's title (often its first words) and a belief in the person's own sentence
+are masked (`page_citations.for_caller`). Offered on both doors.
+
 **Prose item metadata (G118 sections, 1a-i).** `cicada_recall_detail` still returns
 the raw markdown, including compact scalar `section_provenance` frontmatter when
 present. The 150-bullet/80-episode fixture adds 10,739 bytes (approximately 2,685
@@ -872,6 +1282,13 @@ recall's own inbox block was a body-text token match (a recall for "alpha projec
   options other than both/neither, its own words; `text_fold.subject_terms`, folded and lightly stemmed). An
   identity question (`clarification`, `merge_suggestion`) needs the name said. `decay` never comes up (a
   conversation about the page is its answer — the mention lifts decay) and `normalization` stays app-only.
+  **An everyday page needs two shared words (2026-10-27).** The owner's page, and any page whose own name (never an
+  alias) is said in at least a quarter of the person's latest 200 conversations (`everyday_names`: the derived FTS
+  index, at least 20 conversations, cached ten minutes; measured on the owner's bank: owner 36%, main project 34%,
+  the assistant's name 32%, then a gap down to 18%), puts nothing in scope by being named or recalled: the
+  conversation must share two subject words with the question (`EVERYDAY_TERMS`). A trace raised a question about the
+  main project on a message asking to keep a record of the conversation for that project — its only ties were the
+  project's name and one common word. Never a hardcoded name; an unready index means "not everyday".
 - **Three readers, one gate:** `cicada_check_nudges(mode="ask", topic=<the person's words>, entity_ids)` (at most
   2, highest priority first; no `topic`, no question), recall's proactive block (`_relevant_inbox`, the query as the
   conversation, the session's skips honoured) and the recall hook (`hook_recall._open_question`, the prompt as the
@@ -894,13 +1311,72 @@ recall's own inbox block was a body-text token match (a recall for "alpha projec
   G170). The ledger row says `answered_in: conversation` (an enum). A refused answer leaves no episode. A remote
   connection never sends `quote` (R-R22), and a demo bank never receives it — dropped by the tool and by the backend
   (review B2). Never a guess: only what the person said resolves an item.
-- **On request:** `mode="list"` (the default) lists every visible item plainly — "what is in my inbox", "what
+- **On request:** `mode="list"` (the default) lists every visible item plainly, in the app's order (`question_order`;
+  a remote connection's without the read counter) — "what is in my inbox", "what
   conflicts do I have". Every inbox reader in `mcp_tools` now reads an item as YAML (`read_inbox_item`); the line
   parser flattened a question's `options` into strings ("0) key: a").
 - **Relation to G115/G98.** This is G115 item 6's relevance half (`inbox_ask_gate`, the `mode` argument) without its
   vector-score leg, and it amends G115's copy-only discipline (quote the Cause, lead with the Recommended option) —
   `recommended` and `cause` stay on the wire for agents and tests, never as copy to recite. G98's subject gates are
   unchanged and still run first (`nudge_visible`, `load_inbox`).
+
+**Catching up (vision item 10, owner 2026-10-28).** Owner: "a nice quick, hop on a chat with cicada to catch him up
+to speed … just have the user answer at first those things linked to more accessed entities", in "more human
+concrete format". `cicada_check_nudges(mode="catchup")` is that chat's read (`mcp_tools.catchup_nudges`,
+`inbox_catchup`):
+- **What comes back:** the next `inbox_catchup.LIMIT` (3) questions the person can answer in conversation — every
+  visible kind but `normalization`, `page_edit`, an agent request and the grouped "Confirm N links" review, and never a
+  multi-valued conflict (G98: shown, never asked) — ordered by `question_order` (the expected change in what gets
+  read: what the answer changes × how much of that page is being read, at most one of a type in a row, ruling 70; `features.md`, "The order is the expected
+  change in what gets read"; a chain of same-person questions takes its best member's place). Each block has `Ask:` (the question in a person's words), `Why you are asking`
+  (its reason, from the record), the answers with their unchanged keys, Cicada's guess once, and the call that records
+  it on this door (`cicada_resolve_inbox(…)` on MCP, a `cicada inbox resolve …` line from `cli_map.spell` on the CLI).
+  Decay is included here — it never comes up uninvited (`mode="ask"`), but a catch-up is the person asking.
+- **Nothing repeats:** a session cursor (`inbox_catchup.Cursor`, `$CICADA_HOME/inbox_catchup/<hash>.json` — the hash
+  of the bank's path and the session id, ids and a time only, outside every bank, forgotten after 12 h) holds what the
+  session's catch-up already served; a second call moves on and says how many remain; `skip`ped ids stay out.
+- **One person under several names** is ONE question: open `merge_suggestion` items about people that chain (A~B, B~C)
+  come as "Are A, B and C the same person?" with every item id. A yes is never joined by the agent: the reply tells
+  it to say it noted it — Sleep's tending reads the person's own words from the captured conversation and joins only
+  on them (ruling 29 part 1, ruling 41); "different people" is `reject=true` on each.
+- **Local doors only:** stdio, the CLI and a client machine's tool door. A remote connection is refused
+  (`CATCHUP_REMOTE`) and its schema keeps `["ask", "list"]` (Needs the owner: remote access).
+- **The wording layer** (`inbox_wording.spoken`, template-only, at read, never written; option keys, labels and the
+  stored question unchanged — Hyrum; a conflict's options reach the reader through `present_options`, dated by when each
+  value was said, `features.md`) also adds `Ask it like:` / `The reason, if you ask it:` lines to `mode="ask"`.
+  Per kind: decay by the page's type ("Are you still interested in X?", "Do you still use X?", "Are you still in touch
+  with X?") with "You mentioned it once, about two months ago, and I don't want to push you on it" for a one-off
+  concept or skill; a duplicate pair or group as "the same person/tool/…?" ("your partner" for a relation-titled page
+  with no name, never its title); a conflict on the person's own page in the second person, and the generic "Which is
+  true about X (predicate)?" as "Which is right about X: a or b?", with both sides' ages; a clarification as "Who is X
+  to you?" or "Who or what is X?" with when it was said; a "still?" question with its source cue ("…and your LinkedIn
+  seems a bit stale, so I wasn't sure you still are"). Every question ends in `?` within 160 characters.
+- **Use, derived (S1) - now one input of the order.** `page_use.scores`: per page, log₂(1 + conversations) × ½^(days since
+  last said / 90) plus a 0.25 lift for its links, scaled to the busiest page; the owner's page is 1.0. From frontmatter
+  only (`bank_index`), cached per bank on the entities directory's mtime (every page write is atomic, so a write moves
+  it) and reused for a minute after a write (91 ms p50 to rebuild at 8,028 pages). It is the `use` half of
+  `question_order`'s `exposure`; the other half is the page-read counter (`page_reads`, `storage.md`, "Page-read counter"),
+  which is **not** the telemetry ledger: the ledger is machine-global and its rail is "nothing learned from it is
+  auto-applied", so the order never reads it. `load_inbox` (so `GET /inbox` and the Home's "Needs you"), the catch-up
+  and `mode="ask"` sort by the same score (derived on read, never stored). `mode="list"`, recall's open-question block
+  (only when more than the five it shows pass the gate) and the recall hook's one pointer (only among more than one
+  candidate) put their questions in the same order through `question_order.ranked`; the hook never loads the inbox.
+- **The remote door's order carries nothing from the counter.** `mode="ask"` on a remote connection computes its order
+  with `reads=False`: the counter's counts feed the home's own order, but nothing derived from them crosses that door.
+  A remote connector's own reads do count at the home (they are the person's agents' reads: its surface is `remote`, and a
+  remote `cicada_recall_detail` is an opened page), by the same surface
+  suffixes as a local call (`-recall` shown, a page read in full opened, `cicada_backlog` not counted).
+- **A conversation, not an interrogation (ruling 48 (8), owner 2026-10-28).** Each block also carries "What Cicada has
+  on it" (`catchup_chat.context_lines` — the page's type, when last said, in how many conversations, a few current
+  beliefs: the same lines the app's own turn gives its model), so a follow-up or a rephrase rests on the record; the
+  head asks the agent to follow up when an answer opens something, say a question another way, move to a related one,
+  and save what the person mentions in passing. The skill's "Catching up" section and the `catch_up` prompt say the
+  same. No new tool: in a harness the agent itself is the conversational step; the app's chat has its own turn
+  (`features.md`). Remote stays refused.
+- **The prompt (S3).** The stdio server registers one MCP prompt, `catch_up` (`prompts/list`, `prompts/get`;
+  `capabilities.prompts`), which a harness lists as a command (Claude Code: `/mcp__cicada__catch_up`); its text names
+  only `cicada_check_nudges(mode="catchup")` and `cicada_resolve_inbox`'s real arguments (R12). The plugin skill has a
+  "Catching up" section; the primer is unchanged (its token budget).
 
 **Ask reads what is on the page (owner, 2026-10-14).** Two reproductions on a real bank (values redacted): "what is
 the owner's full name?" answered "only a first name is recorded", the summary "truncated at 'R'"; "who is helping the
@@ -917,6 +1393,52 @@ retrieved page; ranked by words shared with the question, then by where they wer
 owner's page is never a source of links (it links to everyone) nor a linked person. Linked people are citable. The
 synthesis rule 7 says what `also called` and `LINKED PEOPLE` are. `_claim_context` takes an id map (a scan per claim
 was ~1.7 s on a 6,008-claim page). `api/tests/test_ask_hub_context.py` reproduces both at hub scale.
+
+**A request for help is not a question of fact (G148, 2026-11-06, reworked 2026-11-07).** Asked for a recommendation, Ask answered as if
+the answer were on the record: "memory has no inventory of your photography gear", though the lines showed the gear. The first fix was a
+note beside the question, sent when `question_intent.asks_advice` read the question as advice. On the personalization pilot it wasn't enough,
+for two reasons: the detector found 3 of 90 PersonalizationV4 questions, and a question without the note was declined (1 right of 21 on
+PersonaMem-v2, closed-book 12); and with the note, "the ONLY source of truth" still headed the prompt, so answers opened on what memory
+lacks and ran to about 1,300 characters.
+
+So the head of `ASK_SYSTEM_PROMPT` now names two kinds of message, and the model decides which by what it asks for, in any language, with no
+detector. **A question about what is on the record** keeps every rule: the context is the only source, never a guess. **A request for help**
+(advice, a recommendation, a plan, a draft, how to do something, what would suit them or what they would likely do) is answered: first the
+answer and one best choice, in two or three sentences, general knowledge shaped by what the context shows about them, closing on what came
+from memory. General knowledge never supplies a fact about the person. The note is gone. `asks_advice` still widens the meaning leg, to up to 6
+lines and 3,000 characters instead of 2 and 800, because a taste is rarely said in the question's words. With no model on the machine it says
+no, and the question goes on as any other. Over 150 questions translated into 11 languages it finds 16 to 26 of 30 requests for advice, and over 2,456 English questions it fires falsely on 12. A question recalling a recommendation already given ("what advice did she give him?") is a question of fact, so its "other" examples hold those. A rule at the end of the prompt, with "the ONLY source of truth" left at its head, reached 3 of 8
+preference questions; this reaches 6 of 8.
+
+Nothing slept, haiku on answers and judge, one run each, before → after, with tokens per right answer:
+
+| Set | Right | Tokens per right answer |
+|---|---|---|
+| PersonaMem-v2, 90 (closed-book 33 and 35) | 18 → 45 (p < .001) | 38,256 → 15,376 |
+| PersonalizationV4, 90 (closed-book 30, recall's words with general knowledge 40) | 28 → 30 | 25,461 → 23,304 |
+| 30 of those PersonaMem questions in German, Arabic, Japanese and Chinese, 120 (closed-book 30) | 10 → 42 (33 gained, 1 lost) | 74,419 → 17,713 |
+| LongMemEval_S, 100 | 76 → 80, preference 3 → 6 of 8 | 10,358 → 10,151 |
+| The wrong person's memory, 100 | 15 → 15, no flips | |
+| LoCoMo slept, 200 | 159 → 159 | 12,861 → 13,046 |
+| One LoCoMo conversation, questions of fact in the same 4 languages, 160 | 95 → 105 | 11,043 → 10,512 |
+
+LoCoMo with nothing slept was not re-graded.
+
+**Limits.** The personalization figures come from this harness's own judge, not the papers' protocol, and that judge isn't stable on them: the same stored PersonalizationV4 answers score 15 to 40 of 90 by how it is called (`docs/research/2026-11-06-memory-before-sleep.md`). Read their direction, not their size. They weren't re-judged after this change. Translations are a model's, unchecked. Abstention on LongMemEval_S went 13 → 11 of 14, and the 3 answers judged wrong all plainly say memory lacks it, so that's the judge. The failure to watch is a fact read as a request for help, which would invite invention.
+
+**Ask reads a wider window, on every question (G148, 2026-11-06).** A count needs every conversation holding one, and the window
+was built for one fact: LongMemEval_S multi-session answered 5 of 20. `window_limits` gives every question 8 conversations, 12 lines
+and 6,000 characters instead of 4, 6 and 3,000 (`SEARCH_*`). No shape decides it, since the shapes are word lists. `person_first`: an
+agent's turn only fills what the people's turns leave, by a turn's role. Nothing slept, haiku, 100 questions, one run each:
+
+| Window | Right | Multi-session of 20 | Tokens per question | Per right answer | Prompt chars p50 |
+|---|---|---|---|---|---|
+| 4 / 6 / 3,000 | 74 | 5 | 6,349 | 8,580 | 8,220 |
+| **8 / 12 / 6,000** | **77** | **8** | **7,545** | **9,799** | **11,846** |
+| 12 / 20 / 10,000 | 77 | 8 | 9,547 | 12,399 | 17,534 |
+
+So it costs 19% more tokens a question and 14% more per right answer, for 3 more right of 100 (sign p = .58). Wider adds cost and
+nothing else. The score's other part: knowledge-update +2, preference +1, assistant -1, temporal -1, abstention -1.
 
 **Ask reads pages item by item, and the conversations' own words behind them (G148/G118, 2026-10-17).** LoCoMo conv-26
 through Cicada scored J 52.5 against 95.0 for the same reader given the raw conversation; 17 of 19 wrong answers said
@@ -1106,8 +1628,9 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
      turns) matches words. `ask_sources.question_language` (no model) reads a Spanish question: Spanish function words outnumber English ones,
      an article or "de"/"y" next to a capitalised word counting for neither ("Juan de la Torre", "Los Olivos"), and a
      question opening with an English question word or auxiliary without "¿" is English;
-     `by_meaning` is then true — never for an English question whose words the record lacks, which is how an
-     abstention looks (the first cut turned "what is the name of my hamster?" into a lookup). The meaning leg **leads** only when the words can't (review of #385:
+     `by_meaning` is then true — never, on recall, for an English question whose words the record lacks, which is how an
+     abstention looks (the first cut turned "what is the name of my hamster?" into a lookup; for Ask see "The meaning leg fills the
+     prompt's room" below). The meaning leg **leads** only when the words can't (review of #385:
      the owner's Spanish questions over his own Spanish conversations fell 50 → 43 % when it always led): no word of
      the question is weighed, or most of the `LANGUAGE_PASSAGES` = 3 nearest passages are in another language
      (`text_language`, function words). Over conversations in the question's own language the words lead exactly as
@@ -1132,6 +1655,17 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
      tres días" name days. English prompts are
      byte-identical except the judgement questions'. Measured: `docs/research/2026-10-17-memory-benchmarks.md`,
      "Judgements and Spanish".
+- **Every language, no dictionary (2026-11-06, G148).** The word index holds an unspaced run (kana, Han, Thai, Lao, Khmer,
+  Burmese) as one token, so a word inside it could never be found. `text_fold.unspaced_pairs` turns such a run into
+  overlapping character pairs on both sides (`pas.pairs`, `subject_terms`), and rarity decides which pairs count; there
+  is no per-language dictionary. `text_fold.term_pattern` is the one pattern over folded turns. `question_language` and
+  `text_language` return `"other"` for text with no function word of either list, so `by_meaning` holds and the meaning
+  leg carries it. **Measured** on one LoCoMo conversation held and asked in each language (40 questions, translations by
+  a model, unslept), Ask graded: de 35→45, ar 25→42.5, ja 0→42.5, zh 0→62.5; en 60, its reach and prompts unchanged. The
+  same questions over someone else's memory: 0 of 160 right. **Still language-bound:** `question_shape`, `named_days`,
+  `asked_about`, the inference and implied detectors and `text_fold`'s stopwords and stem are word lists; names and claims
+  tables have no pairs, only `pas`; Arabic clitics and Korean particles match by prefix alone; Sleep in other languages
+  is unmeasured.
 - **Implied facts, English over Spanish, names across languages (2026-10-20, G148, the gaps after #385).** No model in
   retrieval; measured in `docs/research/2026-10-17-memory-benchmarks.md`, "Implied facts and the record's language".
   1. *A fact the record only implies.* `ask_sources.asks_implied` (no model) reads a question worded as a fact whose
@@ -1222,6 +1756,22 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   `(episodes: a, b +N more)`.
 - **Cost.** On the benchmark bank the context build is ~20 ms (p95 ~30 ms, warm); the prompt grew from ~6–8k to
   ~8–17k characters. `api/tests/test_ask_source_words.py`.
+
+**Ask failure words (G148, 2026-11-06).** When Ask's model call raises, `ask_failure` sorts the exception with the
+classifiers Sleep uses (`engine_errors` classes, `agent_engine.limit_kind_of`, `engine_cause`, `sleep_drain.offline_cause`
+— no keyword list of its own) into a closed code and `answer` becomes one sentence: what happened, what to do, and when it
+resets only when the vendor gave the time (`plan_window`, `plan_weekly`, `overage`, `plan_limit`, `key_limit`,
+`rate_limited`, `key_refused`, `model_unknown`, `engine_unavailable`, `timeout`, `offline`; `no_engine` is told before a
+call). The retrieved pages are still named, confidence is 0, no figure or price appears (ruling 12), an exception's message
+never does (G199: class and code in the log only), and a named failure is not asked twice (the reply retry is for a reply
+that could not be read). A reply that could not be read twice, or an exception that names none of the codes, degrades as
+before (confidence 0.15, "could not synthesize"). **Wire (additive):** `POST /ask` carries `failure` (the code, or
+`unreadable`; absent on an answer) and `resetsAt` (unix seconds); `cicada_ask` and `/v1` carry the same words in the
+answer text. **The MCP tool's direct path** (backend down) resolves the engine as the route does
+(`engine_select.resolve_settings`, one `ask_service.scoped_llm_fn`): before this, the unresolved default Auto reached
+`key_missing`, which is true for an unresolved Auto, and a person with a signed-in plan was told there was no engine. A
+backend that takes the request and outlasts the wait (`ask_failure.ASK_WAIT_S`, 600 s, the engine's 300 s a call twice) is
+not answered again directly: the tool says Ask is still working, so the job runs once.
 
 **Ask grounding (G93/G118, 2026-10-07).** `/ask` and `cicada_ask` use the same
 validity-aware context. Each structured claim sent to synthesis has its id,
@@ -1451,7 +2001,12 @@ the CLI.
       a warning.
     - Provenance comes from the harness (`session_identity.cli_identity`, never minted, ruling 21):
       `session_id`/`harness` only when given, `project_dir` the folder above, `source: cli` (with `origin: mcp`, G9's
-      closed vocabulary), default title `Agent note`.
+      closed vocabulary), default title `Agent note`. A shell only a harness's own variables mark (Codex's sandbox,
+      `cli_app.agent_shell`) records that harness too — one caller identity (`cli_app.caller`) for the local path and
+      a client machine's door, so a client's `cicada save` names the same harness. A shell stamped `codex` is therefore
+      on the G198 trust list (Codex by default): its CLI page edits write at once rather than proposing. **Ruling 50:** a save from an agent's shell (a harness or
+      session on record) is the agent's words, like every `cicada_save_episode` note over stdio or the remote
+      connector (`authorship.agent_saved`, `storage.md`); one from the person's own terminal stays theirs.
     - With no session id the reply says so (`warnings: ["no_session"]`). A duplicate is `ok: true, code: duplicate`.
       A read-only bank is exit 5.
   - `handshake`: `handshake.build_cli`, a primer like the remote one that names only the commands the CLI holds,
@@ -1465,10 +2020,14 @@ the CLI.
     down: `page list [--type --status]` and `graph` (`graph_builder`, pages only), `page history <entity>`
     (`git_service.get_entity_history`), `find <query> [--kind --limit]` (`search_service.search`, every kind unless
     `--kind`), `inbox all [--kind]` (`inbox_service.load_inbox`: every kind, deferred hidden), `sleep history`,
-    `feed list`, `bank list`.
+    `feed list`, `bank list`, `coverage pictures|sources [--ids --archived]` (`coverage_report`, vision items 1-2,
+    2026-10-28: counts and enums, a few page ids per bucket only with `--ids`).
   - `via="backend"` — the running backend's own routes with the token, because the state is the backend's: `sleep
     status|start [--continue]|stop|end|schedule [--mode --at --every]|engine [--mode --model]|options [--batch-size
     --continue-after-reset --reserve]`, `index status|rebuild|use <model>|install [--model]`, `feed add|remove|poll`,
+    `connector list|connect <id>|disconnect <id>|sync <id>` (ruling 47 tier 2: `connect` reads the token from standard
+    input only — a hidden prompt in a terminal — never an argument, and the backend checks it before saving; the
+    three that act are the person's, refused from an agent's shell),
     `import`'s chat-export branch (above), `settings
     owner [--name --handle --email]`, `engine list`, `page decay <entity> <class>`, `inbox answer <id> [--option
     --answer --defer --days --reject]`, `picture set <entity> <file>|initials|clear`, `bank use|create|rename|delete`.
@@ -1639,6 +2198,71 @@ OWN advertised table (stdio `TOOLS` in `mcp/server.py`, remote `REMOTE_TOOLS`), 
 - **The fixture.** `api/tests/fixtures/mcp_stdio_golden.json` pins whole `tools/call` results (`call_tool`), refusals
   and the spelled-number refusal included; `api/tests/test_mcp_error_contract.py` holds the rest.
 
+- **What `tools/list` costs (G148).** Every client that loads the stdio schemas pays for them on every request, whatever
+  it asks, so the table's size is held: `len(json.dumps(TOOLS))` was 103,111 characters (58 tools, about 25,800 tokens)
+  and is 73,956 (about 18,500), with the same names, arguments, types, enums, limits and `required` lists. Only prose was
+  cut: a tool's description keeps when to use it, when not to, a rail (provenance, "never", exact words, what needs the
+  person's ask) and the shape of a non-obvious argument; a property keeps a note only where its name and type do not
+  say it. A nested `properties` block is never dropped for size, because the door checks nested types, enums, limits and
+  `required` (`tool_contract._value`) and a body such as `design_tokens.clean` drops a bad value with a note where the
+  door refuses it; the shared design-token schema (`design_tokens.JSON_SCHEMA`) is therefore still advertised three
+  times. `api/tests/test_mcp_schema_size.py` fails above that size plus 5%. The remote table (`REMOTE_TOOLS`, and the
+  `/v1` operations generated from it) is a separate table and was not touched.
+
+## A hookless app's own connection (ruling 57, owner 2026-11-04)
+
+`mcp/server.py` holds `cicada_capture_turns` in `TOOLS` for its schema and a `cli_map` row (`capture-turns`, MCP only), and
+answers `tools/list` from `tools_for_client()`: only a client `relay_capture.local_relay_allowed` names is offered it, `call_tool`
+refuses every other with the usual "Unknown tool", and the door asks the same question (with `env={}`, since the caller's
+environment is its own machine's). The primer asks exactly where it is offered: `load_or_build(relay=True)` adds one line to the
+`desktop` prelude (R11), part of the cache key and off by default, so `GET /handshake?client=claude-ai` and an older client machine,
+which sends no `options.relay`, never ask for a tool they do not hold (R12). A real desktop app with `CICADA_CAPTURE=off` keeps the
+`desktop` prelude without the line. The line is 86 tokens by R10's chars/4, in the fixed part `_fit` trims around: the desktop
+primer's fixed part goes from 1,233 to 1,319 (1,486 with reading on), under the 1,800. `_fit` holds the whole under it unless a
+fixed part alone is over: past the one-liners it gives up a project's next and backlog count, its repos, the working agreements, and
+last the projects from the list's end, counted in one line, the first never (R10). Those last steps answer only to the 1,800, never to
+a SessionStart reserve: `compose_note` settles that note whole, so a pointer riding along never costs a project or an agreement. What it stores and how a person turns it
+off: `capture-and-sleep.md`, "The Claude desktop app, on its local connection".
+
+## The meaning leg fills the prompt's room (G148, 2026-11-07)
+
+Ask searches by meaning for every question in any language (`search(any_language=True)`); only its own call does. The words still
+lead. The meaning leg's lines fill what the prompt has left: `ASK_WINDOW_CHARS` less the pages and the words already on it, at most
+3,000 characters, a line for each 500 (`_meaning_budget`). A prompt with no room adds nothing to an English question, so a memory Sleep
+has read barely changes; another language keeps its 2 lines. An English question with no word the record uses now goes by meaning too,
+where it used to find nothing; the prompt says a line counts only when it means what the question asks. Recall stays on the words: in
+its small budget these lines lost 128 → 114 of 200 on slept LoCoMo and 107 → 100 unslept. It costs Ask about 100 ms for the embedding.
+
+Ask, haiku, right answers and tokens per right answer, dev → this:
+
+| Set | Right | Tokens per right answer |
+|---|---|---|
+| LoCoMo unslept, 200 | 123 → 138 (p = .004) | 7,695 → 8,527 |
+| LoCoMo slept, 200 | 159 → 159 | 12,539 → 12,862 |
+| LongMemEval_S unslept, 100 | 77 → 76 | 9,798 → 10,359 |
+| The wrong person's memory, 100 | 15 → 15 | |
+| One conversation translated, 160: German, Arabic, Japanese, Chinese | 94 → 95 | 10,437 → 11,042 |
+
+Unslept multi-hop gained most (34 → 41 of 76). It's a reach problem: before this, 16 of 17 were right with every answer turn on the
+prompt, 4 of 22 with none. LongMemEval_S abstention held at 13 of 14. The gain is in English, since other languages already had a few
+such lines.
+
+## Recording tools join the list when they're needed (G148, owner 2026-11-06)
+
+Seven tools only record what a job found: `cicada_record_read`, `_check`, `_youtube_list`, `_saved_list`, `_substack_list`,
+`_refresh` and `_capture`, about 22k of the list's 74k characters. A client known to re-read `tools/list` starts without them
+(`tool_offer.REFRESHING_CLIENTS`). When a reply or a prompt names one (`cicada_reading_queue`, `cicada_check_nudges`,
+`cicada_explore_claim` and `cicada_refresh_claim` do), it joins the list and the client gets
+`notifications/tools/list_changed`, after the reply. The list only grows during a session. Any other client, an unknown or
+unnamed one included, holds all of them from the start and is promised nothing, so an untested client loses nothing. A held-back
+tool called by name still runs. R12 holds: such a client's primer and the hook's lines name only the queue, whose reply names
+the rest (`CONTRACT_VERSION` 26). The remote door's list is unchanged.
+
+Which clients re-read it, 2026-11-06: Claude Code by test (2.1.319, interactive docs and `-p` run: re-listed within 10 ms and
+called the new tool), VS Code and Gemini CLI by source. Not treated this way: Codex (flag `mcp_tool_list_changed`, off by
+default at 0.165), Claude desktop (no handler found in its bundle), Cursor and OpenCode (a handler, the refresh untested). Adding
+a client is one line after a test.
+
 ## The remote connector's sign-in and capture (ruling 32, owner 2026-10-19)
 
 - **Sign-in.** The G135 listener is also an OAuth 2.1 authorization server (`api/remote/oauth.py`; the whole flow,
@@ -1647,8 +2271,7 @@ OWN advertised table (stdio `TOOLS` in `mcp/server.py`, remote `REMOTE_TOOLS`), 
   lists, scopes, the Sleep gate, the ledger and every write's provenance (`Cicada-Author: <app harness>`,
   `Cicada-Session: rc_…`) are the link connector's, unchanged. The secret link (`/c/<token>/mcp`) still works; the docs
   and the From anywhere group steer Claude and ChatGPT to sign-in, which puts no secret in a URL.
-- **`cicada_capture_turns(message, previous_reply?, conversation)`** (`record` scope, remote only —
-  `catalog.REMOTE_ONLY`, so `test_remote_tools.py` classifies every stdio tool plus it). Not read-only, idempotent, not
+- **`cicada_capture_turns(message, previous_reply?, conversation)`** (`record` scope; on stdio, ruling 57 below). Not read-only, idempotent, not
   destructive and not open-world: an app that confirms writes (ChatGPT) asks the person, who can allow it always.
   `REMOTE_CONTRACT_VERSION` 12 puts "Capture every turn" first in the remote contract, only where the connection holds
   the tool (R12 per scope set). What it writes and why it is never the person's own words: `capture-and-sleep.md`,

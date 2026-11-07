@@ -361,21 +361,134 @@ def test_an_example_picture_finds_the_look_like_it(bank):
     assert "image_model" in design_index.search(bank, image=similar, emb=text_only)["missing"]
 
 
-def test_the_index_lives_outside_the_bank_and_follows_it(bank, tmp_path):
+def test_the_index_is_a_table_of_the_one_meaning_index_and_follows_the_board(bank, tmp_path):
+    """Meaning index 2 (2026-10-28): the board's rows live in the bank's derived `vector_index.db` (git-ignored,
+    never copied or exported), and no other file of its own."""
+    from api.services import bank_registry
+
     a = _add(bank, image=DARK, look=([], []))["ref"]
     _add(bank, image=LIGHT, look=([], []), url="https://launch.example.com")
     design_index.refresh(bank, _fake_embedders())
     path = design_index.index_path(bank)
-    assert path.is_file() and bank not in path.parents
+    assert path == bank / "vector_index.db" and path.name in bank_registry.DERIVED_ARTIFACTS
+    assert not design_index.legacy_path(bank).exists()
     assert not any(p.suffix in (".sqlite", ".db") for p in bank.rglob("*") if "design" in p.parts)
     design_refs.remove_ref(bank, a.id)
     design_index.refresh(bank, _fake_embedders())
     assert design_index.status(bank) == {"images": 1, "notes": 1}
     counts = design_index.refresh(bank, _fake_embedders(model="fake/eg2-next:768"))
     assert counts == {"images": 1, "notes": 1, "failed": 0}, "a new model re-embeds every row"
+    for p in (path, Path(f"{path}-wal"), Path(f"{path}-shm")):
+        p.unlink(missing_ok=True)
     path.write_bytes(b"not a database")
+    assert design_index.refresh(bank, _fake_embedders()) == {"images": 0, "notes": 0, "failed": 0}
+    assert design_index.status(bank) == {"images": 0, "notes": 0}, "never an error"
+    assert path.read_bytes() == b"not a database", "the shared file is never deleted by the board (review of #516)"
+    out = design_index.search(bank, query="dark", emb=_fake_embedders())
+    assert out["mode"] in ("words", "none"), "the board answers by words meanwhile"
+
+
+def test_a_lock_held_by_another_process_never_deletes_the_shared_index(bank):
+    """Review of #516's repro: another process holds the one index (`BEGIN IMMEDIATE`) past the wait. The board says
+    busy and answers by words; every other kind's table — here `keepme` — is still there."""
+    import sqlite3
+    import subprocess
+    import sys
+    import time
+
+    path = design_index.index_path(bank)
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE keepme (x INTEGER)")
+    conn.execute("INSERT INTO keepme VALUES (1)")
+    conn.commit()
+    conn.close()
+    holder = subprocess.Popen([sys.executable, "-c",
+                               "import sqlite3, sys, time\n"
+                               f"c = sqlite3.connect({str(path)!r}, isolation_level=None)\n"
+                               "c.execute('BEGIN IMMEDIATE')\nprint('held', flush=True)\ntime.sleep(8)\n"
+                               "c.execute('ROLLBACK')\n"], stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        started = time.monotonic()
+        with pytest.raises(design_index.BoardIndexUnavailable):
+            design_index._connect(path, bank)        # the board's first setup needs a write: it waits, then is busy
+        assert time.monotonic() - started < 7.5
+        assert design_index.status(bank) == {"images": 0, "notes": 0}
+    finally:
+        holder.wait(timeout=15)
+    assert path.is_file(), "never unlinked"
+    rows = sqlite3.connect(path).execute("SELECT x FROM keepme").fetchall()
+    assert rows == [(1,)], "every other kind is untouched"
+
+
+def test_a_board_read_returns_while_a_text_sync_holds_the_write_lock(bank):
+    """Review of #516: `vector_index._sync_kind` holds the file's write lock across a whole embed; a board read never
+    waits for it (WAL readers don't), only the one-time setup does."""
+    import threading
+
+    from api.services import vector_index
+
+    _add(bank, image=DARK, look=([], []))
+    design_index.refresh(bank, _fake_embedders())                     # the setup, once
+    lock = vector_index._write_lock(design_index.index_path(bank))
+    answers: list[dict] = []
+    with lock:                                                        # a re-embed in progress
+        reader = threading.Thread(target=lambda: answers.append(design_index.status(bank)))
+        reader.start()
+        reader.join(timeout=3)
+        assert not reader.is_alive(), "the read did not wait for the write lock"
+        out = design_index.search(bank, query="moody", emb=_fake_embedders(), embed=False)
+    assert answers == [{"images": 1, "notes": 1}] and out["results"]
+
+
+def test_a_search_that_would_embed_never_waits_for_a_text_sync(bank):
+    """Follow-up to #516's review: a look new or changed while a text sync holds the write lock is embedded but not
+    written — the search answers at once, and the next refresh writes its rows."""
+    import threading
+
+    from api.services import vector_index
+
+    _add(bank, image=DARK, look=([], []))
     design_index.refresh(bank, _fake_embedders())
-    assert design_index.status(bank)["images"] == 1, "a damaged index is rebuilt, never an error"
+    _add(bank, image=LIGHT, note="Bright cards.", look=([], []), url="https://launch.example.com")
+    lock = vector_index._write_lock(design_index.index_path(bank))
+    done: list[dict] = []
+    with lock:
+        t = threading.Thread(target=lambda: done.append(
+            design_index.search(bank, query="bright", emb=_fake_embedders(), embed=True)))
+        t.start()
+        t.join(timeout=3)
+        assert not t.is_alive(), "the search did not wait for the write lock"
+        assert design_index.status(bank) == {"images": 1, "notes": 1}, "nothing written while the sync runs"
+    assert done and done[0]["results"]
+    design_index.refresh(bank, _fake_embedders())
+    assert design_index.status(bank) == {"images": 2, "notes": 2}, "the next refresh writes the rows"
+
+
+def test_the_boards_old_file_is_folded_into_the_one_index_once_and_deleted(bank):
+    """Migration (meaning index 2): the rows of `$CICADA_HOME/design-index/<bank-id>.sqlite` move into the one index
+    with their stamps, so nothing is re-embedded; the old file goes."""
+    import sqlite3
+
+    a = _add(bank, image=DARK, look=([], []))["ref"]
+    old = design_index.legacy_path(bank)
+    old.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(old)
+    conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+    conn.execute("INSERT INTO meta VALUES ('schema', ?)", (design_index.SCHEMA,))
+    conn.execute("CREATE TABLE vectors (ref TEXT, kind TEXT, hash TEXT, model TEXT, dim INTEGER, vec BLOB, "
+                 "PRIMARY KEY (ref, kind))")
+    emb = _fake_embedders()
+    vec = design_index._unit(emb.image(DARK))
+    conn.execute("INSERT INTO vectors VALUES (?, 'image', ?, ?, ?, ?)",
+                 (a.id, a.image["sha256"], emb.image_stamp, int(vec.size), vec.tobytes()))
+    conn.commit()
+    conn.close()
+    assert design_index.status(bank) == {"images": 1, "notes": 0}, "moved, not re-embedded"
+    assert not old.exists()
+    counts = design_index.refresh(bank, emb)
+    assert counts["images"] == 0 and counts["notes"] == 1, "the moved picture vector is current; only the note embeds"
 
 
 def test_one_picture_that_will_not_embed_never_stops_the_rest(bank):
@@ -670,3 +783,43 @@ def test_real_encoder_puts_pictures_and_words_in_one_space():
     words = emb.embed_text(["a dark mode dashboard with a black background",
                             "a bright white landing page"], is_query=True)
     assert float(words[0] @ dark) > float(words[0] @ light) or float(words[1] @ light) > float(words[1] @ dark)
+
+
+
+# --------------------------------------------------------------------------- the preprocessing stamp (2026-10-28)
+
+
+def _counting(fp: str | None, model: str = "fake/eg2:768"):
+    emb = _fake_embedders(model)
+    calls = []
+    image = emb.image
+
+    def counted(data):
+        calls.append(1)
+        return image(data)
+
+    return design_index.Embedders(model=model, image=counted, text=emb.text, image_fingerprint=fp), calls
+
+
+def test_an_image_vector_re_embeds_only_when_the_preprocessing_really_changed(bank):
+    _add(bank, image=DARK, look=([], []))
+    emb, calls = _counting("aaaaaaaaaaaa")
+    design_index.refresh(bank, emb)
+    assert len(calls) == 1
+    design_index.refresh(bank, emb)
+    assert len(calls) == 1, "the same model and the same preprocessing: nothing re-embeds"
+    moved, calls2 = _counting("bbbbbbbbbbbb")
+    design_index.refresh(bank, moved)
+    assert len(calls2) == 1, "a decoder that draws other pixels re-embeds the picture once"
+
+
+def test_a_vector_stored_before_the_stamp_is_kept_while_the_pipeline_is_the_one_that_made_it(bank):
+    _add(bank, image=DARK, look=([], []))
+    design_index.refresh(bank, _fake_embedders())                       # the pre-stamp row: the bare model id
+    kept, calls = _counting(vision_embedder.LEGACY_FINGERPRINT)
+    design_index.refresh(bank, kept)
+    assert calls == [], "adding the stamp re-embeds nothing"
+    assert design_index.search(bank, image=DARK, emb=kept)["results"], "and the old vector is still searched"
+    changed, calls = _counting("cccccccccccc")
+    design_index.refresh(bank, changed)
+    assert len(calls) == 1

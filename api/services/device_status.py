@@ -10,8 +10,13 @@ then every active device token the person issued. Ids, names, enums, times and c
   :data:`CONNECTED_WITHIN_S`.
 * **how** — ``local`` for this server; for a device, how its last request arrived (``agent_seen.HOW``: ``ssh``,
   ``tailscale``, ``lan``), read from the request, never from what the device says; ``None`` before any request.
+* **kind**, **keyBound**, **keyBoundAt** — a device only (2026-10-29): ``capture`` or ``full`` (``device_tokens.KINDS``), whether
+  its token works only with a proof of its own key (``device_proof``), and since when.
 * **queue** — conversations from that machine waiting for Sleep (an episode's ``device`` frontmatter, G181 phase 3;
   none = this server), counted from ``bank_index``'s cached headers, never a body.
+* **catchUp** — G229: what that machine's app is catching up on after it was closed (``reader_catch_up``): its readers
+  in words, what came in while it was away and since it opened; ``None`` when it is not catching up. The same one scan
+  of the headers answers it.
 """
 from __future__ import annotations
 
@@ -56,25 +61,28 @@ def _iso(moment: datetime | None) -> str | None:
     return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if moment else None
 
 
-def queues(memory_path: Path) -> Counter:
+def queues(memory_path: Path, files=None) -> Counter:
     """Waiting conversations per device id (``None`` = this server)."""
     from api.services import bank_index, history_index
 
     counts: Counter = Counter()
-    for f in bank_index.files(memory_path, "episodes"):
+    for f in (bank_index.files(memory_path, "episodes") if files is None else files):
         if history_index.waits_for_model(f.frontmatter):
             counts[f.frontmatter.get("device") or None] += 1
     return counts
 
 
 def snapshot(memory_path: Path, *, asking_device: str | None = None, now: datetime | None = None) -> dict:
-    from api.services import agent_seen, device_tokens
+    from api.services import agent_seen, bank_index, device_tokens, reader_catch_up
 
     now = now or datetime.now(timezone.utc)
-    waiting = queues(memory_path)
+    files = bank_index.files(memory_path, "episodes")
+    waiting = queues(memory_path, files)
+    catching = reader_catch_up.views(memory_path, files=files, now=now)
     seen = agent_seen.devices()
     rows = [{"id": None, "name": machine_name(), "role": "server", "current": asking_device is None,
-             "connected": True, "how": "local", "lastSeenAt": _iso(now), "queue": waiting.get(None, 0)}]
+             "connected": True, "how": "local", "lastSeenAt": _iso(now), "queue": waiting.get(None, 0),
+             "catchUp": catching.get(None)}]
     for device in device_tokens.store().list():
         if not device.active:
             continue
@@ -82,5 +90,8 @@ def snapshot(memory_path: Path, *, asking_device: str | None = None, now: dateti
         last = max((m for m in (_parse(device.last_used_at), _parse(sighting.get("lastSeen"))) if m), default=None)
         rows.append({"id": device.id, "name": device.name, "role": "device", "current": device.id == asking_device,
                      "connected": bool(last and (now - last).total_seconds() <= CONNECTED_WITHIN_S),
-                     "how": sighting.get("how"), "lastSeenAt": _iso(last), "queue": waiting.get(device.id, 0)})
+                     "how": sighting.get("how"), "lastSeenAt": _iso(last), "queue": waiting.get(device.id, 0),
+                     # 2026-10-29: what it may do (`capture` = send captures only) and whether its token needs its key.
+                     "kind": device.kind, "keyBound": device.key_bound, "keyBoundAt": device.key_bound_at,
+                     "catchUp": catching.get(device.id)})
     return {"devices": rows, "connectedWithinSeconds": CONNECTED_WITHIN_S}

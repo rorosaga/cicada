@@ -8,7 +8,9 @@ What this module reads off the record, and nothing more:
 
 - **an alias**: a person page lists a name that another person page carries as its own;
 - **a profile link**: a person page links an account (``x.com/<h>``, ``github.com/<h>``, ``instagram.com/<h>``,
-  ``linkedin.com/in/<h>``) whose handle is another person page's name;
+  ``linkedin.com/in/<h>``) whose handle is another person page's name — a post link counts only among its
+  ``sources:``; one written in its body is a post by that account the subject shared, never theirs
+  (:func:`account_links`, owner 2026-11-04);
 - **a named handle**: an extraction or pending line of the form ``Full Name (handle)`` or ``handle (Full Name)``.
 
 Each is a lead, never proof (2026-10-08: an alias is a lead; ruling 29: never who a person is without their words):
@@ -109,16 +111,51 @@ def profile_handle(url: str) -> tuple[str, str] | None:
 
 def page_urls(page: dict) -> list[str]:
     """The links a page carries: its ``sources:`` refs, then every link written in its body."""
+    return [url for url, _own in page_links(page)]
+
+
+def page_links(page: dict) -> list[tuple[str, bool]]:
+    """``(url, from its sources)`` for every link a page carries: its ``sources:`` refs (``True``), then every link
+    written in its body (``False``)."""
     fm = page.get("frontmatter") or {}
-    urls: list[str] = []
+    links: list[tuple[str, bool]] = []
     for source in fm.get("sources") or []:
         ref = source.get("ref") if isinstance(source, dict) else source
         if isinstance(ref, str) and ref.startswith("http"):
-            urls.append(ref)
+            links.append((ref, True))
     body = str(page.get("body") or "")
-    urls += _MD_LINK.findall(body)
-    urls += [u for u in _BARE_URL.findall(body) if u not in urls]
-    return urls
+    seen = {url for url, _ in links}
+    for url in [*_MD_LINK.findall(body), *_BARE_URL.findall(body)]:
+        if url not in seen:
+            seen.add(url)
+            links.append((url, False))
+    return links
+
+
+def account_links(page: dict) -> list[tuple[str, str]]:
+    """``(site, handle)`` for each account a page links AS ITS OWN: any profile or post link among its ``sources:``,
+    and a link to the profile itself written in its body. A post link in the body (``x.com/<h>/status/…``) is a post BY
+    that account the page's subject shared or read, never their account (owner 2026-11-04: a post the owner shared,
+    written on their page, made "Is <h> the same as <owner>?")."""
+    out: list[tuple[str, str]] = []
+    for url, own in page_links(page):
+        found = profile_handle(url)
+        if found is None:
+            continue
+        if not own and found[0] == "x" and _is_post(url):
+            continue
+        if found not in out:
+            out.append(found)
+    return out
+
+
+def _is_post(url: str) -> bool:
+    """An X link past the account itself: ``x.com/<h>/status/…`` (the only post path :func:`profile_handle` keeps)."""
+    try:
+        segments = [s for s in urlsplit(str(url or "").strip()).path.split("/") if s]
+    except ValueError:
+        return False
+    return len(segments) > 1
 
 
 def page_aliases(page: dict) -> list[str]:
@@ -128,10 +165,6 @@ def page_aliases(page: dict) -> list[str]:
     if not isinstance(values, list):
         return []
     return [text for text in (str(v or "").strip() for v in values) if text]
-
-
-def _is_person(page: dict) -> bool:
-    return str((page.get("frontmatter") or {}).get("type") or "").lower() == "person"
 
 
 def page_name(page: dict) -> str:
@@ -151,16 +184,35 @@ class Lead:
     key: str
 
 
-class PersonIndex:
-    """The bank's person pages, keyed for leads: by name, by alias and by profile handle. Built once per read."""
+#: The types one organisation, lab, project or tool is written under (2026-10-27): a lab Stage 1 called a company in one
+#: conversation and a project in another is still one thing, so an alias lead crosses these three — and only these.
+ORG_TYPES = frozenset({"company", "project", "tool"})
+PERSON_TYPES = frozenset({"person"})
 
-    def __init__(self, pages: list[dict]):
+
+def _page_type(page: dict) -> str:
+    return str((page.get("frontmatter") or {}).get("type") or "").lower()
+
+
+class PersonIndex:
+    """The bank's person pages, keyed for leads: by name, by alias and by profile handle. Built once per read.
+
+    ``types`` widens it to another family (2026-10-27, :data:`ORG_TYPES`): the same alias lead — a page lists, among
+    the names it goes by, a name another page of the family carries as its own — for organisations, labs, projects
+    and tools. A profile handle is a person's only. Never a lead on a shared WORD: the alias must be the other page's
+    whole name."""
+
+    def __init__(self, pages: list[dict], types: frozenset[str] = PERSON_TYPES):
+        self.types = frozenset(types)
         self.by_id: dict[str, dict] = {}
         self.by_name: dict[str, list[str]] = {}
         self.alias_holders: dict[str, list[str]] = {}
         self.handle_holders: dict[str, list[tuple[str, str]]] = {}
+        people = self.types == PERSON_TYPES
         for page in pages:
-            if not _is_person(page) or not page.get("id"):
+            if _page_type(page) not in self.types or not page.get("id"):
+                continue
+            if str((page.get("frontmatter") or {}).get("status") or "active") in ("dropped", "archived") and not people:
                 continue
             pid = str(page["id"])
             self.by_id[pid] = page
@@ -169,10 +221,7 @@ class PersonIndex:
                 holders = self.alias_holders.setdefault(handle_key(alias), [])
                 if pid not in holders:
                     holders.append(pid)
-            for url in page_urls(page):
-                found = profile_handle(url)
-                if found is None:
-                    continue
+            for found in account_links(page) if people else ():
                 holders = self.handle_holders.setdefault(found[1], [])
                 if (pid, found[0]) not in holders:
                     holders.append((pid, found[0]))
@@ -201,7 +250,7 @@ class PersonIndex:
         for holder, kind in self.holders_of(own, exclude=page_id):
             leads.append(Lead(page=page_id, holder=holder, kind=kind, key=own))
         names = [(handle_key(a), "alias") for a in page_aliases(page)]
-        names += [(found[1], f"profile:{found[0]}") for found in map(profile_handle, page_urls(page)) if found]
+        names += [(found[1], f"profile:{found[0]}") for found in account_links(page)]
         for key, kind in names:
             for other in self.by_name.get(key, ()):
                 if other != page_id:

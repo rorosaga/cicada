@@ -91,6 +91,12 @@ protocol SyncAPI: Sendable {
     func resolveInbox(id: String, action: String, answer: String?,
                       optionKey: String?, remindDays: Int?,
                       mergeTarget: String?, mergeSurvivor: String?) async throws
+    /// Ruling 48 (8) — the same answer with the person's located words (`quote`) from the catch-up chat, so the
+    /// resolve carries them as its evidence; `relayedBy`/`sessionId` name the chat.
+    func resolveInbox(id: String, action: String, answer: String?,
+                      optionKey: String?, remindDays: Int?,
+                      mergeTarget: String?, mergeSurvivor: String?,
+                      quote: String?, relayedBy: String?, sessionId: String?) async throws
     func setConnectionTier(_ id: String, tier: String?) async throws -> ConnectionStatus
     /// G74(a) — make (or unmake) the Claude plan the Sleep engine.
     func setUseForSleep(_ id: String, on: Bool) async throws -> ConnectionStatus
@@ -125,6 +131,8 @@ protocol SyncAPI: Sendable {
     func logProjectHappening(project: String, text: String, status: String, when: String?) async throws -> ProjectWriteResponse
     func settleProjectThread(project: String, claimId: String, status: String) async throws -> ProjectWriteResponse
     func withdrawProjectHappening(project: String, claimId: String) async throws -> ProjectWriteResponse
+    /// Projects v2 (ruling 45) — the person's other project writes, one enum (`ProjectChange`), one answer.
+    func sendProjectChange(_ change: ProjectChange) async throws -> ProjectOwnershipResponse
     /// C11 (G146) — the three picture writes (`routers/entities.py`): each answers the page's picture after it and the
     /// inputs the twin re-resolves from; each answers 409 while Sleep runs.
     func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer
@@ -329,3 +337,14 @@ struct SleepEventPayload: Codable, Equatable {
     }
 }
 
+
+extension SyncAPI {
+    /// A double that predates the catch-up's evidence answers the same way, without the words.
+    func resolveInbox(id: String, action: String, answer: String?,
+                      optionKey: String?, remindDays: Int?,
+                      mergeTarget: String?, mergeSurvivor: String?,
+                      quote: String?, relayedBy: String?, sessionId: String?) async throws {
+        try await resolveInbox(id: id, action: action, answer: answer, optionKey: optionKey, remindDays: remindDays,
+                               mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+    }
+}

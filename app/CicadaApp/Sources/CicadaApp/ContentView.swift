@@ -13,6 +13,9 @@ struct ContentView: View {
     @AppStorage("cicada.selectedTab") private var selectedTabRaw = AppTab.home.rawValue
     /// R-DS15 — per viewer: the icon rail (default) or the labelled sidebar.
     @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
+    /// G218 (owner 2026-10-26) — the Traces page is on the rail (mirrored from the recorder's answer).
+    @AppStorage(TracesPageVisibility.key) private var tracesPage = false
+    @Environment(TraceRecorder.self) private var traceRecorder: TraceRecorder?
     // G117 / G145 (round 4 phase B) — the onboarding flow: six pages (Welcome,
     // Import, Agents, Who reads, Keep it running, You're set) replacing Track I's
     // one-screen Welcome and, before it, the four-step first-run sheet. Still gated per-bank (`OnboardingState`, R5)
@@ -27,7 +30,7 @@ struct ContentView: View {
     /// §3). An overlay on this root, not a sheet (A11).
     @State private var paletteOpen = false
     /// "Switch to light/dark" writes the key `CicadaApp` already observes.
-    @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw = AppColorScheme.dark.rawValue
+    @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw = AppearancePreference.defaultChoice.rawValue
     @Environment(FindPaletteModel.self) private var find
     /// R-IB5 — ⌘K on Home focuses this field instead of opening the overlay.
     @Environment(HomeSearch.self) private var homeSearch
@@ -83,7 +86,7 @@ struct ContentView: View {
         // cold launch. `FirstRunGate` holds the rule (unknown is never empty);
         // this view just re-asks it whenever an input lands.
         .onAppear {
-            selectedTab = AppTab.restored(from: selectedTabRaw)
+            selectedTab = AppTab.restored(from: selectedTabRaw).landing(tracesPage: tracesPage)
             evaluateFirstRun()
             intake.welcomeActive = showFirstRun
             resumePermissionStep()
@@ -122,6 +125,7 @@ struct ContentView: View {
             provenance.close()
             provenanceCache.reset()
             LinkFactsCache.shared.reset()
+            Task { await APIClient.shared.resetEntityCards() }
             projectsCache.reset()
             backlogCache.reset()
             channelItemsCache.reset()
@@ -141,6 +145,10 @@ struct ContentView: View {
     var body: some View {
         refreshStage
         .onChange(of: selectedTab) { _, newValue in
+            // Owner 2026-10-26 — a hidden page is never shown, whichever door asked for it (a stored selection, a
+            // hand-off, ⌘K, the tour): it lands where its content is now (`AppTab.landing`).
+            let landing = newValue.landing(tracesPage: tracesPage)
+            guard landing == newValue else { selectedTab = landing; return }
             selectedTabRaw = newValue.rawValue
             // Bug 3 / G108 — a different tab drops the entity card's stale
             // "go deeper" trail (the currently-open card, if any, is left
@@ -148,6 +156,13 @@ struct ContentView: View {
             graphVM.resetNavigationHistory()
         }
         .onChange(of: router.pendingPalette) { _, _ in consumePaletteRequest() }
+        // G218 — the recorder's answer decides the Traces page; before it answers, the last answer stands. A Wipe (or
+        // traces never turned on) takes the page away, and a page left showing lands on Sources.
+        .onChange(of: traceRecorder?.pageShown, initial: true) { _, shown in
+            guard let shown else { return }
+            tracesPage = shown
+            if !shown, selectedTab == .traces { selectedTab = .sources }
+        }
         // R-SU5 — the instant tier is rebuilt off the main actor whenever an
         // input moves, open or not, so the first ⌘K never waits on a build.
         .background { FindIndexTask() }
@@ -161,8 +176,19 @@ struct ContentView: View {
         .onChange(of: router.pendingTab) { _, newTab in
             guard let newTab else { return }
             router.closeSettings()
-            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = newTab }
+            // A hand-off a key made (the full list's Esc back to Home) lands in one frame (DR-60).
+            if router.pendingTabByKey {
+                router.pendingTabByKey = false
+                Instant.run { selectedTab = newTab }
+            } else {
+                withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = newTab }
+            }
             router.pendingTab = nil
+        }
+        // Ruling 48 (1): a question's reason says its age in words, worded by the server for today — a new day
+        // asks for them again (the inbox's ETag moves with the date, so this is one fresh read, never a stale 304).
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            Task { await store.refresh([.inbox]) }
         }
         // G139 — Settings → You → "Show on graph": the tab switch above and
         // the reveal here are staged together by `routeToEntity`.
@@ -243,6 +269,19 @@ struct ContentView: View {
         // DR-33 — Settings is a panel inside this window, above every other layer; the shell
         // under it is inert (R-DS21).
         .overlay { if router.settingsOpen { SettingsPanel() } }
+        // Owner 2026-11-06 — the text size's percentage, a moment after each zoom; it never takes a click.
+        .overlay(alignment: .top) { ZoomPill() }
+        // Report a problem… (tester readiness 2026-10-26): the Help menu and Settings → General open it here.
+        .sheet(isPresented: Binding(get: { router.reportProblemOpen }, set: { router.reportProblemOpen = $0 })) {
+            ReportProblemSheet { router.reportProblemOpen = false }
+        }
+        // ROR-117 — an added recording, video or photo plays or shows here; the sheet closing stops the player.
+        .sheet(item: Binding(get: { router.mediaRoute }, set: { router.mediaRoute = $0 })) { route in
+            MediaSheet(route: route, onAdd: addMedia, openPage: { page in
+                router.mediaRoute = nil
+                router.routeToEntity(page)
+            }) { router.mediaRoute = nil }
+        }
         // R-DS24 — the palette never shares the window with the panel, and the intake's overlay
         // (a drop, the Dock) takes the window back from it.
         .onChange(of: router.settingsOpen) { _, open in if open && paletteOpen { closePalette() } }
@@ -281,6 +320,8 @@ struct ContentView: View {
                     // nothing on screen) posts `store.toast`; show it at the
                     // bottom of whatever page is open (§5.4).
                     .overlay(alignment: .bottom) { toastBanner }
+                    // Production blocker (2026-11-06) — the backend not answering is said here, once, over every page.
+                    .safeAreaInset(edge: .top, spacing: 0) { BackendBannerView() }
             } reader: {
                 ReaderColumn().disabled(tour.isActive)
             }
@@ -301,7 +342,8 @@ struct ContentView: View {
         .toolbar {
             ShellToolbar(labelled: $labelledSidebar, help: .page(selectedTab),
                          chrome: ShellChrome(welcomeShowing: showFirstRun, settingsOpen: router.settingsOpen,
-                                             tourActive: tour.isActive))
+                                             tourActive: tour.isActive),
+                         quietSearch: selectedTab == .home && !tour.spotlights(.commandBar))
         }
         // No `.id(colorSchemeRaw)` here any more. Keying this subtree on the
         // mode string used to be what repainted it, because the tokens were
@@ -346,7 +388,11 @@ struct ContentView: View {
     /// closes at once when the grant took, or asks again. Onboarding's own marker waits for onboarding (`OnboardingView`).
     private func resumePermissionStep() {
         guard let marker = PermissionResume.take(matching: { !$0.isOnboarding }) else { return }
-        if marker.place == .traces { router.routeToSourceDetail(SourceCatalog.tracesId) } else { router.routeToSources() }
+        switch marker.place {
+        case .traces: router.routeToSourceDetail(SourceCatalog.tracesId)
+        case .settings: router.open(.settings(.privacy, .permissions))
+        default: router.routeToSources()
+        }
         PermissionDragHelper.present(kind: marker.kind, place: marker.place) {}
     }
 
@@ -435,7 +481,7 @@ struct ContentView: View {
     /// and opens through `AppRouter.openSettings` (R-HS20).
     private func openFind(_ destination: FindDestination) {
         switch destination {
-        case .entity(let id) where ProjectsModel.isProject(id, in: store.graph.value):
+        case .entity(let id) where PageSwitches.projectsPage && ProjectsModel.isProject(id, in: store.graph.value):
             // G141 PJ-5 (R-PP24, spec §11.1) — a project opens where it is tracked: Projects, its detail open.
             router.routeToProject(id)
         case .entity(let id), .belief(let id, _):
@@ -489,9 +535,29 @@ struct ContentView: View {
             // R-HS20 — the one door (R-DS22). The palette has already closed itself; Home's field
             // (page placement) stays, under the panel.
             router.openSettings(section, row: row)
+        case .addedFile(let id, let at):
+            // ROR-117 — the file plays or shows in the app, at the second the hit matched (`MediaSheet`); moved or
+            // gone, the sheet says so and offers the way to act. The default app stays one click in its header.
+            router.openMedia(id: id, at: at)
+        case .revealAddedFile(let id):
+            // Meaning index 2 — ⌥⏎ shows the file where this Mac last saw it (the app's own record; the backend never
+            // has a path) in Finder. Moved since: said in words, nothing opened.
+            guard let url = MediaFileIndexer.shared.places.url(of: id) else {
+                store.toast = Copy.mediaFileMoved
+                break
+            }
+            NSWorkspace.shared.activateFileViewerSelecting([url])
         case .ask, .askedBefore:
             break
         }
+    }
+
+    /// The viewer's list is empty: the File menu's own door, so the roots guard and the speech rule are the drop's.
+    private func addMedia() {
+        let urls = IntakePicker.chooseMedia()
+        guard !urls.isEmpty else { return }
+        router.mediaRoute = nil
+        intake.accept(urls: urls, from: .fileMenu)
     }
 
     /// R-SU13 — the same calls the owning pages make.
@@ -505,6 +571,7 @@ struct ContentView: View {
         case .actualSize: CicadaTheme.resetZoom()
         case .lightMode: colorSchemeRaw = AppColorScheme.light.rawValue
         case .darkMode: colorSchemeRaw = AppColorScheme.dark.rawValue
+        case .importFile: intake.present(from: .fileMenu)
         }
     }
 
@@ -557,6 +624,7 @@ struct ContentView: View {
                 .accessibilityHidden(selectedTab != .graph)
             if selectedTab != .graph {
                 otherTabContent
+                    .transition(.opacity)   // ROR snappy: the rail's click fades pages (`pageFade`); a key is `Instant`
             }
         }
     }
@@ -597,6 +665,8 @@ struct ContentView: View {
             SkillsPage()
         case .agents:
             AgentsSidebarPage()
+        case .traces:
+            TracesPage()
         }
     }
 }

@@ -7,6 +7,7 @@
       50
     ],
     "continueAfterReset": true,
+    "keepAwake": false,
     "reserveChoices": [
       5,
       10,
@@ -14,7 +15,15 @@
       30
     ],
     "reservePct": 20,
-    "scheduledUsePlan": true
+    "scheduledUsePlan": true,
+    "spendLimitChoices": [
+      1,
+      5,
+      10,
+      20,
+      50
+    ],
+    "spendLimitUsd": 5.0
   },
   "defaults": {
     "batchSize": 25,
@@ -24,6 +33,7 @@
       50
     ],
     "continueAfterReset": false,
+    "keepAwake": false,
     "reserveChoices": [
       5,
       10,
@@ -31,6 +41,14 @@
       30
     ],
     "reservePct": null,
-    "scheduledUsePlan": true
+    "scheduledUsePlan": true,
+    "spendLimitChoices": [
+      1,
+      5,
+      10,
+      20,
+      50
+    ],
+    "spendLimitUsd": 5.0
   }
 }

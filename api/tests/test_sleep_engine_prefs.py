@@ -58,7 +58,7 @@ def test_get_default_shape(client):
     assert body["mode"] == "byok"
     assert body["source"] == "default"
     ids = {c["id"] for c in body["candidates"]}
-    assert ids == {"auto", "agent", "codex", "openrouter", "local", "byok"}
+    assert ids == {"auto", "agent", "codex", "cursor", "opencode", "grok", "openrouter", "local", "byok"}
     codex = next(c for c in body["candidates"] if c["id"] == "codex")
     # Track E Task 4: the ChatGPT plan is a live card now — the fixture's
     # `which` finds `codex`, and `codex login status` is rc 1 (signed out).
@@ -199,7 +199,8 @@ def test_get_carries_prices_only_in_usage_fields_and_never_a_token_count(client)
 
     paths = list(walk(body))
     priced = [p for p in paths if "price" in p.lower() or "cost" in p.lower() or "usd" in p.lower()]
-    assert all(".usage" in p or ".modelPrices" in p for p in priced), priced
+    # The person's own spending limit is a figure for the engine menu, ruling 12's home, and never a price (ROR-102).
+    assert all(".usage" in p or ".modelPrices" in p or p == ".spend.limitUsd" for p in priced), priced
 
 
 # --- R-AG12 / R-AG13: the OpenRouter card, the key-provider list, the selected card ---
@@ -210,7 +211,8 @@ def test_openrouter_is_a_byok_card_that_needs_a_key(client):
     card = next(c for c in body["candidates"] if c["id"] == "openrouter")
     assert card["mode"] == "byok" and card["connected"] is False
     assert card["models"] == ["openrouter/openai/gpt-oss-120b"]
-    assert [c["id"] for c in body["candidates"]] == ["auto", "agent", "codex", "openrouter", "local", "byok"]
+    assert [c["id"] for c in body["candidates"]] == ["auto", "agent", "codex", "cursor", "opencode", "grok", "openrouter",
+                                                     "local", "byok"]
     assert body["selected"] == body["mode"] == "byok"
 
 
@@ -239,13 +241,13 @@ def test_openrouter_is_never_a_mode(client):
     from api.services import engine_select
 
     assert client.put("/sleep/engine", json={"mode": "openrouter"}).status_code == 422
-    assert engine_select.SUBSCRIPTION_MODES == ("agent", "codex")
+    assert engine_select.SUBSCRIPTION_MODES == ("agent", "codex", "cursor", "opencode", "grok")
 
 
 def test_a_provider_pick_writes_its_default_and_its_own_judge(client):
     body = client.put("/sleep/engine", json={"mode": "byok", "model": "anthropic/claude-haiku-4-5"}).json()
     assert (body["selected"], body["provider"], body["disambiguationModel"]) == \
-        ("byok", "anthropic", "anthropic/claude-haiku-4-5")
+        ("byok", "anthropic", "anthropic/claude-haiku-5-5")   # G237: a Claude key's judge is the small tier
 
 
 def test_a_malformed_key_model_is_refused(client):
@@ -259,7 +261,7 @@ def test_from_openrouter_the_api_key_card_writes_a_key_model(client):
     assert next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "byok")["models"] == []
     client.put("/sleep/engine", json={"mode": "byok", "model": "openrouter/openai/gpt-oss-120b"})
     key = next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "byok")
-    assert key["models"] == ["anthropic/claude-haiku-4-5"]      # no key stored: the picker's first provider
+    assert key["models"] == ["anthropic/claude-haiku-5-5"]      # no key stored: the picker's first provider
     assert client.put("/sleep/engine", json={"mode": "byok", "model": key["models"][0]}).json()["selected"] == "byok"
 
 
@@ -365,7 +367,7 @@ def test_key_cards_carry_a_list_price_and_the_last_cycles_charge(client, monkeyp
     assert usage["kind"] == "list-price" and usage["inputPerMillionUsd"] == 0.4
     assert usage["outputPerMillionUsd"] == 1.6 and usage["lastCycleCostUsd"] == 0.42
     assert cards["openrouter"]["modelPrices"] == {
-        "openrouter/openai/gpt-oss-120b": {"inputPerMillionUsd": 0.4, "outputPerMillionUsd": 1.6}}
+        "openrouter/openai/gpt-oss-120b": {"inputPerMillionUsd": 0.4, "outputPerMillionUsd": 1.6, "basis": None}}
     assert cards["byok"]["usage"]["lastCycleCostUsd"] is None
     assert cards["local"]["usage"] is None and cards["auto"]["usage"] is None
 
@@ -457,3 +459,127 @@ def test_the_auto_local_record_is_said_only_while_the_kept_choice_stands():
     checked = {engine_select.AUTO_LOCAL_RECORD_KEY: {"outcome": "checked", "on": "2026-10-22"}}
     assert sleep_engine_prefs._auto_local_kept_on(_Reg({"mode": "local", **checked})) is None
     assert sleep_engine_prefs._auto_local_kept_on(_Reg({})) is None
+
+
+def test_the_signed_in_cli_engines_are_cards_after_the_plans_and_autos_line_names_the_ladder(client, monkeypatch):
+    """G49/G50: Cursor, OpenCode and Grok are plan cards after the two plans, each saying how it is paid for, its
+    live models, and the exact sign-in command when signed out. Auto's line names its ladder in order (ruling 46),
+    never Grok."""
+    from api.services import cli_engines
+
+    def fake_status(spec, *, fresh=False, runner=None, stale_ok=False):
+        if spec is cli_engines.GROK:
+            return cli_engines.Status(True, False, "Grok is signed out — run `grok login`.")
+        return cli_engines.Status(True, True, "Signed in.", ["auto", "sonnet-5"] if spec is cli_engines.CURSOR
+                                  else ["github-copilot/gpt-5.5"], 1.0)
+
+    monkeypatch.setattr(cli_engines, "status", fake_status)
+    body = client.get("/sleep/engine").json()
+    order = [c["id"] for c in body["candidates"]]
+    assert order[:6] == ["auto", "agent", "codex", "cursor", "opencode", "grok"]
+    cards = {c["id"]: c for c in body["candidates"]}
+    assert cards["cursor"]["kind"] == "plan" and cards["cursor"]["engine"] == "cursor-cli"
+    assert cards["cursor"]["mark"] == "cursor" and cards["cursor"]["models"] == ["auto", "sonnet-5"]
+    assert "usage-based pricing" in cards["cursor"]["billingNote"]
+    assert cards["grok"]["connected"] is False and "grok login" in cards["grok"]["detail"]
+    assert cards["agent"]["kind"] == "plan" and cards["byok"]["kind"] == "key" and cards["local"]["kind"] == "local"
+    auto = cards["auto"]["detail"]
+    assert auto.index("Claude plan") < auto.index("ChatGPT plan") < auto.index("Cursor") < auto.index("OpenCode")
+    assert "Grok" not in auto
+
+
+@pytest.mark.shipped_engine_default
+def test_the_page_names_cursor_when_auto_lands_on_it(client, monkeypatch):
+    """Ruling 46: the Sleep page's line names Cursor and its billing note when Auto would land there, read from the
+    tools' cache warmed by the cards — the page never waits on a tool."""
+    import time as _time
+
+    from api.services import cli_engines
+
+    monkeypatch.setattr(cli_engines, "AUTO_SPECS", (cli_engines.CURSOR, cli_engines.OPENCODE))
+
+    def fake_status(spec, *, fresh=False, runner=None, stale_ok=False):
+        st = (cli_engines.Status(True, True, "Signed in to Cursor.", ["auto"], _time.time())
+              if spec is cli_engines.CURSOR else cli_engines.Status(False, False, "not installed", as_of=_time.time()))
+        cli_engines._CACHE[spec.mode] = st
+        return st
+
+    async def signed_out(argv):   # neither plan signed in, so Auto reaches the tools
+        if argv[:3] == ["claude", "auth", "status"]:
+            return CliResult(0, json.dumps({"loggedIn": False}), "")
+        return CliResult(1, "", "Not logged in")
+
+    monkeypatch.setattr(base, "run_cli", signed_out)
+    monkeypatch.setattr(cli_engines, "status", fake_status)
+    manual = client.get("/sleep/engine").json()["preview"]["manual"]
+    assert manual["engine"] == "cursor-cli" and manual["billing"] == "plan"
+    assert "Cursor plan" in manual["why"] and "usage-based pricing" in manual["why"]
+
+
+def test_a_chosen_cli_engine_previews_its_plan_and_its_saved_model_never_vanishes(client, monkeypatch):
+    from api.services import cli_engines
+
+    monkeypatch.setattr(cli_engines, "status", lambda spec, **_kw: cli_engines.Status(
+        True, True, "Signed in.", ["auto", "sonnet-5"], 1.0))
+    assert client.put("/sleep/engine", json={"mode": "cursor", "model": "gone-1"}).status_code == 200
+    body = client.get("/sleep/engine").json()
+    assert (body["mode"], body["model"], body["selected"]) == ("cursor", "gone-1", "cursor")
+    assert body["preview"]["manual"]["engine"] == "cursor-cli" and body["preview"]["manual"]["model"] == "gone-1"
+    assert body["preview"]["manual"]["billing"] == "plan"
+    assert body["preview"]["manual"]["why"] == "Sleep engine set to Cursor plan in Settings"
+    cursor = next(c for c in body["candidates"] if c["id"] == "cursor")
+    assert cursor["models"] == ["auto", "sonnet-5", "gone-1"] and "no longer lists gone-1" in cursor["modelNote"]
+    # Ruling 4b: a scheduled run reaches the chosen plan only through the person's switch.
+    client.put("/sleep/run-options", json={"scheduledUsePlan": False})
+    scheduled = client.get("/sleep/engine").json()["preview"]["scheduled"]
+    assert (scheduled["engine"], scheduled["model"]) == ("none", "")
+
+
+def test_put_refuses_an_opencode_model_on_an_api_key(client):
+    assert client.put("/sleep/engine", json={"mode": "opencode", "model": "github-copilot/gpt-5.5"}).status_code == 200
+    resp = client.put("/sleep/engine", json={"mode": "opencode", "model": "anthropic/claude-sonnet-5"})
+    assert resp.status_code == 422 and "API key" in resp.text
+    assert client.put("/sleep/engine", json={"mode": "grok", "model": "-oops"}).status_code == 422
+
+
+# ---- engine picker v2 (ruling 48 part 11): the catalogue on the wire, Refresh on the person's click only ----------
+
+
+def test_every_listing_card_carries_its_catalogue(client):
+    body = client.get("/sleep/engine").json()
+    agent = next(c for c in body["candidates"] if c["id"] == "agent")
+    assert agent["models"][0] == "sonnet", "a tap writes the card's first model (R-HS7)"
+    assert agent["catalogue"]["engine"] == "claude-cli"
+    assert all(m["familyLabel"] == "Claude" for m in agent["catalogue"]["models"])
+
+
+def test_a_third_party_model_in_cursor_is_labelled_before_it_is_chosen(client, monkeypatch):
+    """Ruling 46a (owner 2026-10-28): Cursor's own models carry no note; a third-party one says it is billed
+    separately at list price, on the wire the picker reads."""
+    from api.services import cli_engines
+
+    status = cli_engines.Status(True, True, "Signed in to Cursor.", ["auto", "composer-2", "grok-4.7", "sonnet-5"],
+                                1.0)
+
+    async def fake_astatus(spec, **kw):
+        return status if spec is cli_engines.CURSOR else cli_engines.Status(False, False, "not installed")
+
+    monkeypatch.setattr(cli_engines, "astatus", fake_astatus)
+    card = next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "cursor")
+    notes = {m["id"]: m.get("billingNote") for m in card["catalogue"]["models"]}
+    assert notes["sonnet-5"] == cli_engines.CURSOR_SEPARATE_BILLING
+    assert notes["auto"] is None and notes["composer-2"] is None and notes["grok-4.7"] is None
+    assert "Auto and scheduled runs use only Cursor's own models" in card["billingNote"]
+
+
+def test_refresh_reads_one_cards_harness_and_answers_like_a_get(client, monkeypatch):
+    from api.services import model_catalogue
+
+    seen = []
+    monkeypatch.setattr(model_catalogue, "refresh_claude", lambda **kw: seen.append("claude") or {})
+    resp = client.post("/sleep/engine/models/refresh", json={"id": "agent"})
+    assert resp.status_code == 200 and seen == ["claude"]
+    ids = {c["id"] for c in client.get("/sleep/engine").json()["candidates"]}
+    assert {c["id"] for c in resp.json()["candidates"]} == ids
+    assert client.post("/sleep/engine/models/refresh", json={"id": "auto"}).status_code == 422
+    assert client.post("/sleep/engine/models/refresh", json={"id": ""}).status_code == 422

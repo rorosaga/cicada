@@ -6,11 +6,15 @@ time and writes nothing — not a second episode, not a second "Note on …". Me
 note wrote one extra note episode.
 
 Keys live outside every bank, in ``$CICADA_HOME/idempotency/keys.db`` (0700/0600, sqlite), scoped to who sent them
-(the device's id, or ``server`` for the server's own token), the bank (its id) and the route, and are forgotten after a day — long
+(the device's id, or ``server`` for the server's own token), the bank (its id) and the route, and are forgotten after a day (8 days for the capture routes and the tool door, below) — long
 enough for an offline queue's retries, short enough to keep nothing about what was saved: a row is the scope, the
 route, the key's sha256, the status and the answer's JSON (ids and titles, no request body). A request with no key
 runs as before. A key the client reuses for a different request gets the first answer — the key is the client's
 promise that it is the same request.
+
+**The tool door (G132 phase 1, ruling 51a).** ``POST /tools/call`` keys a mutating tool's call under the route
+``/tools/call:<tool>``, kept 8 days (:data:`TOOLS_TTL_S`: an outbox entry waits at most 7); its kept answer is the
+tool's reply (the confirmation the agent was shown), only when it was neither a refusal nor an error.
 """
 from __future__ import annotations
 
@@ -27,6 +31,23 @@ from api.services.auth import cicada_home
 
 HEADER = "Idempotency-Key"
 TTL_S = 24 * 3600
+#: G132 phase 1 (coordinator decision 4, 2026-10-29): a write another device sends through the tool door may wait in
+#: its outbox up to 7 days, so its key outlives that by a day. Every other route keeps :data:`TTL_S`.
+TOOLS_ROUTE_PREFIX = "/tools/call:"
+TOOLS_TTL_S = 8 * 24 * 3600
+
+
+#: Review of #566: the capture routes a copy's outbox (or a phone's queue) may send again, days later, with the key
+#: it sent first — kept as long as a tool door key, so an answer lost and resent after a day is still applied once.
+LONG_ROUTES = frozenset({"/capture/note", "/capture/file", "/capture/isbn", "/sources/save"})
+
+
+def _long(route: str) -> bool:
+    return route.startswith(TOOLS_ROUTE_PREFIX) or route in LONG_ROUTES
+
+
+def ttl_for(route: str) -> float:
+    return TOOLS_TTL_S if _long(route) else TTL_S
 KEY_MAX = 200
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS keys (
@@ -78,7 +99,12 @@ def _hash(key: str) -> str:
 
 def _lookup(scope: str, route: str, key_hash: str, now: float) -> tuple[int, dict] | None:
     with _db() as db:
-        db.execute("DELETE FROM keys WHERE created < ?", (now - TTL_S,))
+        long_routes = sorted(LONG_ROUTES)
+        marks = ",".join("?" for _ in long_routes)
+        is_long = f"(substr(route, 1, ?) = ? OR route IN ({marks}))"
+        prefix = (len(TOOLS_ROUTE_PREFIX), TOOLS_ROUTE_PREFIX)
+        db.execute(f"DELETE FROM keys WHERE created < ? AND NOT {is_long}", (now - TTL_S, *prefix, *long_routes))
+        db.execute(f"DELETE FROM keys WHERE created < ? AND {is_long}", (now - TOOLS_TTL_S, *prefix, *long_routes))
         row = db.execute("SELECT status, body FROM keys WHERE scope=? AND route=? AND key_hash=?",
                          (scope, route, key_hash)).fetchone()
     return (int(row[0]), json.loads(row[1])) if row is not None else None
@@ -90,10 +116,66 @@ def _remember(scope: str, route: str, key_hash: str, now: float, status: int, bo
                    (scope, route, key_hash, now, status, json.dumps(body)))
 
 
-async def run_once(scope: str, route: str, key: str | None, work, *, now=time.time) -> tuple[int, dict, bool]:
+EXPORT_PAGE = 1000
+EXPORT_PAGE_MAX = 5000
+SERVER_SCOPE = "server"
+
+
+def _as_seen_elsewhere(scope: str, me: str | None) -> str:
+    """Review of #569: a key this computer's own token wrote (``server|…``) is, at any other home, a write from this
+    device (``device:<me>|…``) — what this computer's own app or agent sends once it follows another home."""
+    who, sep, rest = scope.partition("|")
+    return f"device:{me}{sep}{rest}" if me and who == SERVER_SCOPE else scope
+
+
+def _as_seen_here(scope: str, me: str | None) -> str:
+    who, sep, rest = scope.partition("|")
+    return f"{SERVER_SCOPE}{sep}{rest}" if me and who == f"device:{me}" else scope
+
+
+def export_since(since: float, *, after: str = "", limit: int = EXPORT_PAGE, me: str | None = None) -> list[dict]:
+    """G132 phase 2 (review of #569): the keys kept since ``since`` — scope, route, the key's sha256, when, and the
+    answer it replays — for the person's other full devices, so a write sent again after the home moved is applied
+    once there too. Never the key itself. One page (phase 3b): ordered by ``(created, key_hash)``; the next page starts
+    after the last row's ``created`` and ``keyHash`` (``after``). ``me``: this computer's device id, so its own
+    token's keys read as its device's elsewhere."""
+    limit = max(1, min(int(limit), EXPORT_PAGE_MAX))
+    with _db() as db:
+        rows = db.execute("SELECT scope, route, key_hash, created, status, body FROM keys "
+                          "WHERE created > ? OR (created = ? AND key_hash > ?) ORDER BY created, key_hash LIMIT ?",
+                          (since, since, after or "", limit)).fetchall()
+    return [{"scope": _as_seen_elsewhere(r[0], me), "route": r[1], "keyHash": r[2], "created": r[3],
+             "status": r[4], "body": r[5]} for r in rows]
+
+
+def import_rows(rows: list[dict], *, me: str | None = None) -> int:
+    """Take another home's keys (a copy following it; a new home at its promotion). A key kept here wins. ``me``:
+    this computer's device id, so the keys its device wrote there are its own token's here."""
+    taken = 0
+    with _db() as db:
+        for r in rows or ():
+            try:
+                db.execute("INSERT OR IGNORE INTO keys VALUES (?, ?, ?, ?, ?, ?)",
+                           (_as_seen_here(str(r["scope"]), me), str(r["route"]), str(r["keyHash"]),
+                            float(r["created"]), int(r["status"]), str(r["body"])))
+                taken += 1
+            except (KeyError, TypeError, ValueError):
+                continue
+    return taken
+
+
+def newest() -> float:
+    with _db() as db:
+        row = db.execute("SELECT MAX(created) FROM keys").fetchone()
+    return float(row[0] or 0) if row else 0.0
+
+
+async def run_once(scope: str, route: str, key: str | None, work, *, now=time.time,
+                   keep=None) -> tuple[int, dict, bool]:
     """``(status, body, replayed)``. ``await work()`` returns ``(status, body)``; only a 2xx answer is kept, so a
-    refused request (Sleep held the pages, a bad link) runs again when it is sent again. Without a key, ``work`` runs
-    as before."""
+    refused request (Sleep held the pages, a bad link) runs again when it is sent again. ``keep(status, body)`` narrows
+    that further for a door whose refusals answer 200 (``/tools/call``: a reply with a refusal code or an error).
+    Without a key, ``work`` runs as before."""
     key = clean_key(key)
     if key is None:
         status, body = await work()
@@ -106,7 +188,7 @@ async def run_once(scope: str, route: str, key: str | None, work, *, now=time.ti
             if seen is not None:
                 return seen[0], seen[1], True
             status, body = await work()
-            if 200 <= status < 300:
+            if 200 <= status < 300 and (keep is None or keep(status, body)):
                 await asyncio.to_thread(_remember, scope, route, key_hash, now(), status, body)
             return status, body, False
         finally:

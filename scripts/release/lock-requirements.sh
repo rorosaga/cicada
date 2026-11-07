@@ -9,8 +9,12 @@ REPO="$(cd ../.. && pwd)"
 constraints="$(mktemp)"
 trap 'rm -f "$constraints"' EXIT
 uv export --frozen --no-dev --no-hashes --no-emit-project --directory "$REPO/api" -q > "$constraints"
+# Wheels only (#504 review B5): build-backend.sh installs --only-binary :all:, so a dependency with no wheel for the
+# target fails HERE, when it is added, never in a release build. The one exception is pyaes, carried as source in
+# api/vendor/pyaes (Telethon imports it; PyPI has only its sdist) and so never emitted.
 uv pip compile requirements.in -c "$constraints" --python-version 3.12 \
-  --python-platform aarch64-apple-darwin --generate-hashes --no-header --no-annotate -q -o requirements.lock
+  --python-platform aarch64-apple-darwin --only-binary :all: --no-binary pyaes \
+  --no-emit-package pyaes --generate-hashes --no-header --no-annotate -q -o requirements.lock
 echo "✓ requirements.lock"
 
 # The optional larger search model's runtime (G182 phase 3): sentence-transformers and what it needs beyond the

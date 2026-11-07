@@ -79,7 +79,8 @@ struct EvidenceChip: View {
             // sits beside it — an import's vendor included.
             OriginMark(origin: agent, size: size)
         } else if model.kind == .page {
-            LogoImage(entityId: model.episode, name: meta?.title ?? model.episode, type: .media, size: size)
+            LogoImage(entityId: model.episode, name: meta?.title ?? model.episode, type: .media,
+                      fallbackOrigin: meta?.origin ?? meta?.harness, size: size)
         } else if model.kind == .user, let origin = meta?.origin, EvidenceSpeaker.sourceSpeaker(origin) != nil {
             // "From the feed" / "On your calendar" wear the source's mark, never the person glyph (DR-57).
             OriginMark(origin: origin, size: size)
@@ -234,6 +235,9 @@ struct EvidencePreview: View {
             }
             guard let cache else { return }
             switch await cache.span(ev) {
+            case let .loaded(span) where span.held:
+                // G235 — no words to preview, and nothing said about why; the click still opens the source.
+                phase = .note(Copy.Provenance.showIn(nil))
             case let .loaded(span) where span.stale && span.text.isEmpty:
                 // R-PU25 — the document no longer reaches this span: no words
                 // to quote, and "couldn't open" would be untrue.

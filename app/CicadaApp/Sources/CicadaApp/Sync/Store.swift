@@ -24,6 +24,7 @@ final class Store {
     var bank: String = "default" {
         didSet {
             if publishesBankScope { BankScope.onScreen = bank }
+            inboxRevision &+= 1   // `currentHeld` is per bank
             if oldValue != bank { onBankChanged?() }
         }
     }
@@ -31,7 +32,7 @@ final class Store {
     /// (`BankScope.onScreen`, G183(d)); a test's Store never touches that process-wide value.
     @ObservationIgnored private let publishesBankScope: Bool
     var graph = Snapshot<GraphResponse>()
-    var inbox = Snapshot<[InboxItem]>()
+    var inbox = Snapshot<[InboxItem]>() { didSet { inboxRevision &+= 1 } }
     var banks = Snapshot<BanksResponse>()
     var sources = Snapshot<[MediaFeedItem]>()
     var channels = Snapshot<[SourceChannel]>()
@@ -60,7 +61,7 @@ final class Store {
     /// dropped only once a refreshed snapshot no longer contains it — if a 304
     /// races the server-side delete, the item is still in `inbox.value` and
     /// un-hiding it here would flash the card back for one refresh cycle.
-    var hiddenInboxIds: Set<String> = []
+    var hiddenInboxIds: Set<String> = [] { didSet { inboxRevision &+= 1 } }
 
     /// G183(d) — the one bank switch in flight (`Store.activateBank`), reserved before its first await and released
     /// only by the switch that owns it (`generation`). While it is set every bank-scoped write is held back
@@ -85,8 +86,8 @@ final class Store {
     /// DR-42 (R-DI2) — the one answer inside its Undo window, and the ids whose held answer is on
     /// the wire. Both leave `visibleInbox`, so the rail badge, Home and the palette drop a question
     /// the moment it is tapped — not five seconds later, and not only on the Inbox.
-    var heldResolve: ResolveGrace?
-    var sendingInboxIds: Set<String> = []
+    var heldResolve: ResolveGrace? { didSet { inboxRevision &+= 1 } }
+    var sendingInboxIds: Set<String> = [] { didSet { inboxRevision &+= 1 } }
     @ObservationIgnored var graceTask: Task<Void, Never>?
     @ObservationIgnored var graceToken = 0
     /// How the window waits; tests replace it (it is the only seam `ResolveGraceTests` needs).
@@ -96,10 +97,25 @@ final class Store {
 
     /// The inbox as the UI should see it: the snapshot minus anything hidden by an in-flight or
     /// already-confirmed resolve, and minus an answer inside its Undo window (DR-42).
+    ///
+    /// Inbox freeze (2026-10-29): Home, the rail badge, the Inbox's every derived list and ⌘K each read this several
+    /// times per draw, and each read filtered the whole snapshot. It is kept per `inboxRevision`; the inputs are still
+    /// read on every call, so a view that asks is told when any of them changes.
     var visibleInbox: [InboxItem] {
+        let snapshot = inbox.value ?? []
+        let hidden = hiddenInboxIds
         let grace = graceHiddenIds
-        return (inbox.value ?? []).filter { !hiddenInboxIds.contains($0.id) && !grace.contains($0.id) }
+        if let memo = visibleInboxMemo, memo.revision == inboxRevision { return memo.items }
+        let items = snapshot.filter { !hidden.contains($0.id) && !grace.contains($0.id) }
+        visibleInboxMemo = (inboxRevision, items)
+        return items
     }
+
+    /// Moves on every change to what `visibleInbox` and the Inbox's derived lists read: the snapshot (its value, tag
+    /// or refresh flag), the hidden and sending ids, the held answer, the bank. A spurious move only costs a rebuild;
+    /// a missed one would serve a stale list, so every one of those properties bumps it in its `didSet`.
+    @ObservationIgnored private(set) var inboxRevision = 0
+    @ObservationIgnored private var visibleInboxMemo: (revision: Int, items: [InboxItem])?
 
     /// Transient one-line error surfaced by the UI. Set only when a refresh
     /// fails *and* we had nothing to show — a failed background refresh over
@@ -140,6 +156,9 @@ final class Store {
     var version: VersionVector?
     /// True while the SSE stream is connected.
     var isConnected: Bool = false
+    /// What `BackendWatch` found while the stream was closed. A page that has nothing to show asks `couldNotRead`
+    /// before it says the memory is empty (`Sync/Store+Reach.swift`).
+    var reach: BackendReach = .up
     /// Latest `event: sleep` payload; SleepViewModel observes this.
     var sleepEvent: SleepEventPayload?
 
@@ -319,6 +338,7 @@ final class Store {
         // otherwise the bookworm would render the previous bank's mood.
         let hasStatus = await take(.status, \.status)
         if hasStatus, let s = status.value { pushStatus(s) }
+        prefetchPictures()   // ROR snappy: what is already on disk is in memory before the first page draws
         let summary = "hydrate bank=\(bank) loaded=[\(loaded.joined(separator: ","))]"
         Self.logger.notice("\(summary, privacy: .public)")
     }
@@ -352,7 +372,9 @@ final class Store {
         for domain in SyncDomain.allCases where remaining.contains(domain) {
             switch domain {
             case .banks: continue
-            case .graph: await refreshOne(domain, \.graph) { [api] e in try await api.fetchGraph(etag: e) }
+            case .graph:
+                await refreshOne(domain, \.graph) { [api] e in try await api.fetchGraph(etag: e) }
+                prefetchPictures()
             case .inbox: await refreshOne(domain, \.inbox) { [api] e in try await api.fetchInbox(etag: e) }
             case .sources: await refreshOne(domain, \.sources) { [api] e in try await api.fetchSources(etag: e) }
             case .channels: await refreshOne(domain, \.channels) { [api] e in try await api.fetchChannels(etag: e) }
@@ -444,7 +466,7 @@ final class Store {
             } catch {
                 guard refreshEpoch == startEpoch else { return }
                 if self[keyPath: kp].isEmpty {
-                    let message = "Couldn't load \(domain.rawValue)"
+                    let message = Copy.Reach.readFailed(domain)
                     if !heartbeatRetry { toast = message }   // said once, not on every heartbeat (P2-7)
                     domainErrors[domain] = message
                 }
@@ -492,7 +514,7 @@ final class Store {
             } catch {
                 guard refreshEpoch == startEpoch else { return }
                 if status.isEmpty {
-                    let message = "Couldn't load status"
+                    let message = Copy.Reach.readFailed(.status)
                     if !heartbeatRetry { toast = message }
                     // `refreshOne` latches this for every other domain;
                     // `refreshStatus` has its own loop and must latch it too,
@@ -704,11 +726,26 @@ final class Store {
     /// invalidated by a mutation. The answer is checked against both after the await: one from another bank is
     /// dropped (nil, nothing cached — a caller under the new bank asks again), and one that started before an
     /// invalidation is fetched again, so a pre-mutation body never repopulates the memo.
+    ///
+    /// Ruling 48 (a card open is one request): two readers of the same page at once — the Clusters column and the card
+    /// it hosts both ask as the column opens — share one read in flight instead of each fetching it.
     func entity(_ id: String) async -> Entity? {
         if let cached = entities[id] {
             touchEntity(id)
             return cached
         }
+        if let running = entityReads[id] { return await running.value }
+        let read = Task { @MainActor in await self.readEntity(id) }
+        entityReads[id] = read
+        let value = await read.value
+        entityReads[id] = nil
+        return value
+    }
+
+    /// The pages being read now, by id (`entity(_:)`'s one read in flight per page). Not observed: bookkeeping only.
+    @ObservationIgnored private var entityReads: [String: Task<Entity?, Never>] = [:]
+
+    private func readEntity(_ id: String) async -> Entity? {
         for _ in 0..<3 {
             let startBank = bank
             let startGeneration = entityGeneration

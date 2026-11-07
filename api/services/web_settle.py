@@ -38,12 +38,15 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (bank_index, episode_ids, episode_scrub, inbox_questions, markdown_parser, predicates,
-                          role_people, text_fold)
+                          role_people, text_fold, wrong_aliases)
 
 SOURCE = "web-check"
 SETTLED_DIR = "settled"
 ORIGIN = "web-check"
-KINDS = ("conflict", "clarification")
+#: ``merge_suggestion`` (2026-10-29): "is <A> the same as <B>?" about two public things — a lookup says how they are
+#: related (`entity_relations`), never merges them (:func:`settle_pair`).
+KINDS = ("conflict", "clarification", "merge_suggestion")
+PAIR = "merge_suggestion"
 #: The types a lookup may answer for: a work, product, tool, company or public concept (``media`` holds films, books,
 #: papers, videos). Never ``person``, ``project``, ``directory``, ``location``, ``skill`` or ``deadline``.
 PUBLIC_TYPES = frozenset({"company", "concept", "tool", "media"})
@@ -181,6 +184,32 @@ def own_settings(fm: dict) -> bool:
         return True
     return bool(re.search(r"\bschedul\w*", question, re.IGNORECASE)) and len(labels) >= 2 and all(
         _TIME_OF_DAY.search(label) for label in labels)
+
+
+#: Cicada's own bookkeeping: a plan's usage, limit or counter, how many questions or conversations or pages the bank
+#: holds, how its tests came out (owner 2026-11-06: "shouldn't lead or be asked at all"). A reading said in passing is
+#: that moment's number, not a fact for the person to referee: Cicada knows its own, and the next reading replaces it.
+_BOOKKEEPING_PLAN = frozenset({"usage", "counter", "limit", "quota", "weekly"})
+_BOOKKEEPING_COUNT = re.compile(
+    r"(?:^|-)(?:open-)?inbox-questions?(?:-|$)|(?:^|-)(?:conversations|episodes|entities|pages|person-pages)-in-(?:the-)?(?:bank|memory)(?:-|$)|"
+    r"(?:^|-)person-pages(?:-|$)")
+_BOOKKEEPING_TESTS = re.compile(r"(?:^|-)(?:tests?|test-suite)(?:-[a-z]+)?-results?$|(?:^|-)tests?-passed$")
+
+
+def own_bookkeeping(entity_id: str, predicate: str) -> bool:
+    """A measured value Cicada keeps about itself, by its predicate's own words (``value-of-<what>``): a plan's usage,
+    limit or counter on any page; a count of what the bank holds; a test result on Cicada's own page. Never a setting
+    (:func:`own_settings`), and nothing the person decided."""
+    predicate = str(predicate or "").strip().lower()
+    if not predicate.startswith("value-of-"):
+        return False
+    slug = predicate[len("value-of-"):]
+    tokens = set(slug.split("-"))
+    if "plan" in tokens and tokens & _BOOKKEEPING_PLAN:
+        return True
+    if _BOOKKEEPING_COUNT.search(slug):
+        return True
+    return str(entity_id or "").strip().lower() == OWN_PAGE_ID and bool(_BOOKKEEPING_TESTS.search(slug))
 
 
 def person_context(description: str) -> bool:
@@ -362,6 +391,8 @@ class BankFacts:
     #: Every project page's name and aliases, and its distinctive head word ("Alpha" for "Alpha Project"), folded: a
     #: conflict that names one is about the person's own work.
     project_names: frozenset[str] = frozenset()
+    #: Every project page's own name and aliases as folded words, " w1 w2 " — no head words (a pair, :func:`_own_work`).
+    project_titles: frozenset[str] = frozenset()
     #: The owner's aliases under 3 characters ("DQ"), in their own case: matched only as a whole token.
     owner_short_aliases: frozenset[str] = frozenset()
 
@@ -370,7 +401,7 @@ class BankFacts:
 class Candidate:
     item_id: str
     kind: str
-    scope: str                       # public | repo
+    scope: str                       # public | repo | source (54a: only the page's tracked sources)
     entity_id: str
     name: str
     entity_type: str
@@ -394,6 +425,11 @@ class Candidate:
     #: (``subject_names``) may settle it, never "both" (2026-10-20).
     different_things: bool = False
     subject_names: frozenset[str] = frozenset()
+    #: A pair question (:data:`PAIR`): the page the subject was weighed against — it always has a page.
+    other_id: str = ""
+    other_name: str = ""
+    #: A public handle and a named person (ruling 54, ``public_handle``): the settling step's question.
+    handle: "object | None" = None
 
 
 def _norm(text) -> str:
@@ -433,6 +469,7 @@ def bank_facts(memory_path: Path) -> BankFacts:
     names: set[str] = set()
     owner: set[str] = set()
     projects: set[str] = set()
+    titles: set[str] = set()
     short: set[str] = set()
     for f in files:
         fm = f.frontmatter or {}
@@ -451,6 +488,7 @@ def bank_facts(memory_path: Path) -> BankFacts:
                          if isinstance(a, str) and 2 <= len(a.strip()) < 3)
         if str(fm.get("type") or "").lower() == "project":
             projects.update(own_names)
+            titles.update(own_names)
             projects.update(words[0] for words in (_folded_words(n) for n in own_names)
                             if len(words) > 1 and len(words[0]) >= 3 and words[0] not in _GENERIC_HEADS
                             and words[0] not in text_fold.SUBJECT_STOPWORDS)
@@ -458,6 +496,8 @@ def bank_facts(memory_path: Path) -> BankFacts:
     facts.person_names = frozenset(names)
     facts.owner_names = frozenset(text_fold.fold(n) for n in owner if n)
     facts.project_names = frozenset(text_fold.fold(n) for n in projects if n)
+    facts.project_titles = frozenset(f" {' '.join(w)} " for w in (_folded_words(n) for n in titles if n)
+                                     if len(" ".join(w)) >= 3)
     facts.owner_short_aliases = frozenset(short)
     try:
         lines = pending_store.load(Path(memory_path))
@@ -485,7 +525,8 @@ def _local_description(fm: dict, page: dict | None, body: str) -> str:
     return " ".join(parts)
 
 
-def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[str | None, str]:
+def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts, *,
+             agent: bool = False) -> tuple[str | None, str]:
     """``(scope, reason)``: ``public`` (a lookup may answer it), ``repo`` (a trusted local agent may, from the repo's
     history) or ``None`` with the enum that kept it for the person. Engine-free, network-free."""
     kind = str(fm.get("kind") or "")
@@ -504,6 +545,8 @@ def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[
     page = facts.pages.get(entity_id)
     if page is not None and page.get("owner") is True:
         return None, "owner"
+    if kind == PAIR:
+        return _classify_pair(fm, body, facts, name, page, memory_path, agent=agent)
     options = inbox_questions.normalize_options(fm.get("options"))
     labels = [str(o.get("label") or "") for o in options]
     asked = " ".join([str(fm.get("question") or ""), str(fm.get("title") or ""), name, *labels])
@@ -514,6 +557,8 @@ def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[
         return "repo", "repo_state"
     if own_settings(fm):
         return None, "own_settings"   # the system answers it (Settings), never a search, never the person
+    if fm.get("why_asked"):
+        return None, "person_context"   # Stage 1 read it as the person's alone to answer (G239): nothing public to find
     stype = _subject_type(fm, page)
     if stype == "person" or str(fm.get("uncertainty_type") or "").lower().startswith("unknown relationship"):
         return None, "person"
@@ -557,6 +602,55 @@ def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[
             return None, "no_options"
     if page is None and entity_id not in facts.pending:
         return None, "no_page"
+    return "public", "public"
+
+
+def _own_work(name: str, facts: BankFacts) -> bool:
+    """The name is one of the person's own projects, or carries one's whole name ("<project> admin notifications").
+    Never a project's head word alone: a project named after a tool ("<tool> plugin") must not make the tool private
+    (measured 2026-10-29: head words kept 100 of 160 pairs home, most of them public tools)."""
+    words = f" {' '.join(_folded_words(name))} "
+    return any(t in words for t in facts.project_titles)
+
+
+def _classify_pair(fm: dict, body: str, facts: BankFacts, name: str, page: dict | None,
+                   memory_path: Path | None = None, *, agent: bool = False) -> tuple[str | None, str]:
+    """A "same as?" question (2026-10-29) may be looked up only when BOTH sides are public things: a company, tool,
+    concept or work on each side; neither the owner, a person, the person's own project (or a part of it, by name), a
+    file, a path or a repository's state; never two things that share one title (G227: only the person knows which
+    they meant). Everything else stays for the person — or for Sleep's own reading of the record."""
+    other_id = str(fm.get("merge_target_hint") or "")
+    other = facts.pages.get(other_id) if other_id else None
+    if other is None:
+        return None, "no_page"
+    if fm.get("same_title"):
+        return None, "different_things"
+    if other_id == facts.owner_id or other.get("owner") is True:
+        return None, "owner"
+    other_name = " ".join(str(other.get("name") or other_id).split())
+    types = (_subject_type(fm, page), str(other.get("type") or "").strip().lower())
+    if "person" in types:
+        # Ruling 54 (owner 2026-11-04): a public handle and a named person — the one person pair the settling step may
+        # work (`public_handle`, `settling_agent`); every other person pair stays for the person.
+        if memory_path is not None and types == ("person", "person"):
+            from api.services import public_handle
+
+            if public_handle.test(Path(memory_path), fm, facts, agent=agent).public:
+                return "public", public_handle.REASON
+        return None, "person"
+    for n in (name, other_name):
+        if _norm(n) in facts.person_names or _names_a_person(n, facts.person_names):
+            return None, "person"
+        if _REPO_STATE.search(n) or len(n) > MAX_NAME_CHARS or len(n) < 2 or _PRIVATE_NAME.search(n):
+            return None, "private_file"
+        if _own_work(n, facts):
+            return None, "own_project"
+    if any(t not in PUBLIC_TYPES for t in types):
+        return None, "private_type"
+    if any(p is not None and (p.get("path") or p.get("repos")) for p in (page, other)):
+        return None, "private_file"
+    if person_context(_local_description(fm, page, body)):
+        return None, "person_context"
     return "public", "public"
 
 
@@ -697,15 +791,24 @@ def context_category(c: "Candidate", context: list[str]) -> list[str]:
     return []
 
 
-def candidate(memory_path: Path, item_path: Path, facts: BankFacts) -> Candidate | None:
+def candidate(memory_path: Path, item_path: Path, facts: BankFacts, *, agent: bool = False,
+              via_source: bool = False) -> Candidate | None:
+    """``agent``: read for the person's own local agent (``cicada_record_check``), which may answer a public-handle
+    question whatever Sleep's own switch says (ruling 54). ``via_source`` (54a): a question the page's own tracked
+    sources may answer, whoever the page is about — scope ``source``; ``settling_agent`` opens only those."""
     try:
         parsed = markdown_parser.parse(item_path)
     except Exception:  # noqa: BLE001
         return None
     fm = parsed.frontmatter
-    scope, _ = classify(memory_path, fm, parsed.body, facts)
+    scope, why = ("source", "source") if via_source else classify(memory_path, fm, parsed.body, facts, agent=agent)
     if scope is None:
         return None
+    handle = None
+    if why == "public_handle":
+        from api.services import public_handle
+
+        handle = public_handle.test(Path(memory_path), fm, facts, agent=agent)
     entity_id = str(fm.get("entity_id") or "")
     page = facts.pages.get(entity_id)
     etype = _subject_type(fm, page)
@@ -729,7 +832,9 @@ def candidate(memory_path: Path, item_path: Path, facts: BankFacts) -> Candidate
             claim_ids.append(cid)
     labels = [label for _, label in options] if fm.get("kind") == "conflict" else []
     name = " ".join(str(fm.get("entity_name") or "").split())
-    category = _category(description, type_question=type_question, labels=labels, name=name)
+    # A pair (2026-10-29): each name is searched alone, with no category word.
+    category = [] if fm.get("kind") == PAIR else _category(description, type_question=type_question, labels=labels,
+                                                            name=name)
     return Candidate(
         item_id=item_path.stem, kind=str(fm.get("kind")), scope=scope, entity_id=entity_id,
         name=" ".join(str(fm.get("entity_name") or "").split()), entity_type=etype, has_page=page is not None,
@@ -740,32 +845,42 @@ def candidate(memory_path: Path, item_path: Path, facts: BankFacts) -> Candidate
         claim_ids=claim_ids, category_from="description" if category else "",
         different_things=fm.get("kind") == "conflict" and different_things(fm),
         subject_names=subject_names(fm, page),
+        **(_pair_fields(fm, facts) if fm.get("kind") == PAIR else {}),
+        handle=handle,
     )
+
+
+def _pair_fields(fm: dict, facts: BankFacts) -> dict:
+    """A pair's other side, and no category word: each side is searched by its own name alone."""
+    other_id = str(fm.get("merge_target_hint") or "")
+    other = facts.pages.get(other_id) or {}
+    return {"other_id": other_id, "other_name": " ".join(str(other.get("name") or other_id).split())}
 
 
 #: Clarifications ("what is X") first: the most answerable kind. Conflicts after (owner brief, 2026-10-16: the first
 #: run's eight picks were all conflicts and none settled).
-KIND_ORDER = {"clarification": 0, "conflict": 1}
+#: A pair (2026-10-29) between them: two names searched alone answer it about as often as a "what is it".
+KIND_ORDER = {"clarification": 0, PAIR: 1, "conflict": 2}
 
 
 def candidates(memory_path: Path, *, scope: str = "public", facts: BankFacts | None = None) -> list[Candidate]:
-    """Pending questions of ``scope``: clarifications before conflicts, then highest priority first (then oldest),
-    deferred ones left out. ``web_lookup`` refines the conflicts' order by their local context."""
+    """Pending questions of ``scope``: clarifications before conflicts (what a lookup can answer), and within a kind the
+    order the inbox serves (``question_order``, ruling 70: the expected change in what gets read), deferred ones left out.
+    ``web_lookup`` refines the conflicts' order by their local context."""
     from api.services import inbox_service
 
     memory_path = Path(memory_path)
     facts = facts or bank_facts(memory_path)
-    visible = {i.id for i in inbox_service.load_inbox(memory_path)}
-    out: list[tuple[float, str, Candidate]] = []
+    served = {i.id: n for n, i in enumerate(inbox_service.load_inbox(memory_path))}
+    out: list[tuple[int, Candidate]] = []
     for path in sorted((memory_path / "inbox").glob("inbox-*.md")):
-        if path.stem not in visible:
+        if path.stem not in served:
             continue
         c = candidate(memory_path, path, facts)
         if c is not None and c.scope == scope:
-            fm = markdown_parser.parse(path).frontmatter
-            out.append((-float(fm.get("priority") or 0.0), str(fm.get("created_date") or ""), c))
-    out.sort(key=lambda t: (KIND_ORDER.get(t[2].kind, 2), t[0], t[1]))
-    return [c for _, _, c in out]
+            out.append((served[path.stem], c))
+    out.sort(key=lambda t: (KIND_ORDER.get(t[1].kind, 2), t[0]))
+    return [c for _, c in out]
 
 
 def census(memory_path: Path, facts: BankFacts | None = None) -> dict:
@@ -794,6 +909,9 @@ def census(memory_path: Path, facts: BankFacts | None = None) -> dict:
         _scope, reason = classify(memory_path, parsed.frontmatter, parsed.body, facts)
         row = by_kind.setdefault(kind, {})
         row[reason] = row.get(reason, 0) + 1
+    from api.services import name_guard
+
+    name_guard.release()   # a census is one read; the scan behind a handle question is not kept for it
     return {"by_kind": {k: dict(sorted(v.items())) for k, v in sorted(by_kind.items())},
             "public": sum(v.get("public", 0) for v in by_kind.values()),
             "other_kinds": other}
@@ -802,6 +920,18 @@ def census(memory_path: Path, facts: BankFacts | None = None) -> dict:
 def query_for(c: Candidate) -> str:
     """The ONE thing that leaves the machine for a lookup: the subject's name and generic category words."""
     return " ".join([c.name, *c.category]).strip()
+
+
+def queries_for(c: Candidate) -> tuple[str, ...]:
+    """Every query a lookup may run: :func:`query_for`'s one — or, for a pair, each public name alone (two names that
+    each pass the filter, never one sent with the other's words)."""
+    if c.kind == PAIR and c.handle is not None:
+        from api.services import public_handle
+
+        return public_handle.queries(c.handle)
+    if c.kind == PAIR and c.other_name:
+        return tuple(dict.fromkeys([c.name, c.other_name]))
+    return (query_for(c),)
 
 
 # --------------------------------------------------------------------------- the writer
@@ -855,6 +985,7 @@ def _claim_id(entity_id: str, predicate: str, obj: str, today: str) -> str:
 def _write_episode(memory_path: Path, *, c: Candidate, ref: str, host: str, quote: str, checker_label: str,
                    checker_kind: str, origin: str, session_frontmatter: dict | None) -> str:
     verb = (f"Checked {c.name} in the repository's history." if c.scope == "repo"
+            else f"Checked {c.name} at the page's own source." if c.scope == "source"
             else f"Looked up {c.name} on the web.")
     body = "\n".join([f"assistant: {verb}", "", f"attachment [{host}]: as {checker_label} read it at {ref}",
                       f"> {quote}"])
@@ -895,9 +1026,12 @@ def settle(
     memory_path: Path, item_id: str, *, ref: str, quote: str, option_key: str | None = None, answer: str | None = None,
     checker: str, checker_kind: str, origin: str = "sleep", scopes: tuple[str, ...] = ("public",),
     engine: str | None = None, session_frontmatter: dict | None = None, facts: BankFacts | None = None,
+    via_source: bool = False,
 ) -> Settled:
     """Settle one question with a cited answer. The caller holds the bank (Sleep's window, or admission + page lock),
-    has checked its gates, and commits ``paths``. Raises :class:`NotSettleable` with nothing written."""
+    has checked its gates, and commits ``paths``. Raises :class:`NotSettleable` with nothing written.
+    ``via_source`` (54a, under ruling 26): the page's own tracked source answered, read today — the question's other
+    options must have been said before today; the same day or undated stays the one question it already is."""
     from api.services import pending_store
     from api.services.claims import Claim, MalformedClaimsBlockError, is_event, parse_claims, write_claims
 
@@ -906,10 +1040,15 @@ def settle(
     if not item_path.exists():
         raise NotSettleable("That question is no longer open.")
     facts = facts or bank_facts(memory_path)
-    c = candidate(memory_path, item_path, facts)
+    c = candidate(memory_path, item_path, facts, via_source=via_source)
+    if via_source:
+        scopes = ("source",)
     if c is None or c.scope not in scopes:
         raise NotSettleable("That question is not one a lookup may answer: it is about a person, the person's own "
                             "files, projects or life, or something only their conversations know. It stays for them.")
+    if c.kind == PAIR:
+        raise NotSettleable("A \"same as\" question is settled by how the two are related (`settle_pair`), never "
+                            "by an answer about one of them.")
     ref, host = check_ref(ref, c.scope)
     quote = clean_quote(quote)
     if not quote:
@@ -947,8 +1086,8 @@ def settle(
     objs = [o for o in dict.fromkeys(objs) if o]
     if not objs:
         raise NotSettleable("A conflict is settled by one of its own options: give its key.")
-    if c.kind == "conflict" and any(_SITUATION_LABEL.search(o) or _speaks_as_the_person(o) or _SITUATION.search(o)
-                                    for o in objs):
+    if c.kind == "conflict" and not via_source and any(
+            _SITUATION_LABEL.search(o) or _speaks_as_the_person(o) or _SITUATION.search(o) for o in objs):
         # "Currently uses …", "Superseded by …", "Both are true …": a person's situation, never a page's description.
         raise NotSettleable("That option says how things stand for the person, not what the thing is; it stays "
                             "for them.")
@@ -980,6 +1119,8 @@ def settle(
             if c.kind == "conflict" and not both:
                 option_ids = {str(o.get("claim_id")) for o in inbox_questions.normalize_options(fm_item.get("options"))
                               if o.get("claim_id")}
+                if via_source:
+                    _older_than_today(memory_path, claims, option_ids - {option_claim}, today)
                 for old in claims:
                     # An event (`happened`/`milestone`) is closed only by `progress.py` (G141): never here.
                     if (old.id in option_ids and old.id != option_claim and old.valid_to is None
@@ -1026,6 +1167,114 @@ def settle(
                    paths=paths, lines=lines)
 
 
+def _older_than_today(memory_path: Path, claims: list, ids: set, today: str) -> None:
+    """Ruling 26's dating rule for a source's answer: every belief it would close was said before this capture. The
+    same day or no date is a clash with no clear order: it stays the one question it already is."""
+    from api.services import episode_time, source_refresh
+
+    untimed = episode_time.untimed_ids(memory_path)
+    for old in claims:
+        if old.id in ids and old.valid_to is None:
+            said = source_refresh.said_on(old, untimed)
+            if not said or said >= today:
+                raise NotSettleable("One side was said today or has no date, so a reading today does not outrank it; "
+                                    "the question stays.")
+
+
+def settle_pair(
+    memory_path: Path, item_id: str, *, ref: str, quote: str, relation: str, checker: str, checker_kind: str,
+    origin: str = "sleep", engine: str | None = None, session_frontmatter: dict | None = None,
+    facts: BankFacts | None = None,
+) -> Settled:
+    """Settle one "is <A> the same as <B>?" question about two public things with a cited RELATION (2026-10-29,
+    `entity_relations`): one claim on the page the subject was weighed against — it always has one — with the subject
+    as its object, by id when it has a page and by its slug while it waits. Never a merge: a check that finds them the
+    same settles nothing (the question stays, and the person's tap merges). The question moves to ``settled/`` with
+    the same record :func:`undo` reads; the claim on the record is what keeps the pair from being asked again
+    (`entity_relations.known`). Raises :class:`NotSettleable` with nothing written."""
+    from api.services import entity_relations
+    from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
+
+    memory_path = Path(memory_path)
+    item_path = memory_path / "inbox" / f"{item_id}.md"
+    if not item_path.exists():
+        raise NotSettleable("That question is no longer open.")
+    facts = facts or bank_facts(memory_path)
+    c = candidate(memory_path, item_path, facts)
+    if c is None or c.kind != PAIR or c.scope != "public" or not c.other_id or c.handle is not None:
+        raise NotSettleable("That question is not one a lookup may answer: one side is a person, the person's own "
+                            "project, file or life. It stays for them.")
+    relation = entity_relations.clean(relation)
+    if relation not in entity_relations.RELATIONS and relation != entity_relations.DIFFERENT:
+        raise NotSettleable("A lookup settles a pair only with how the two are related; the same thing stays for "
+                            "the person to merge.")
+    ref, host = check_ref(ref, c.scope)
+    quote = clean_quote(quote)
+    if not quote:
+        raise NotSettleable("The answer needs a short quote from the page, in its own words.")
+    entity_path = memory_path / "entities" / f"{c.other_id}.md"
+    if not entity_path.exists():
+        raise NotSettleable("The page it was weighed against is gone; the question stays.")
+    today = date.today().isoformat()
+    parsed_item = markdown_parser.parse(item_path)
+    predicate = entity_relations.predicate_for(relation)
+    obj = c.entity_id
+    answer = entity_relations.phrase(relation, c.name, c.other_name)
+    label = checker if checker and checker != "agent" else "an agent"
+    pair_c = Candidate(**{**c.__dict__, "name": f"{c.name} and {c.other_name}"})
+    page = markdown_parser.parse(entity_path)
+    try:
+        claims = parse_claims(page.body, strict=True)
+    except MalformedClaimsBlockError as exc:
+        raise NotSettleable("The page's claims could not be read; the question stays for the person.") from exc
+    claim_id = _claim_id(c.other_id, predicate, obj, today)
+    if any(x.id == claim_id for x in claims):
+        raise NotSettleable("That answer is already on the page.")
+    episode_id = _write_episode(memory_path, c=pair_c, ref=ref, host=host, quote=quote, checker_label=label,
+                                checker_kind=checker_kind, origin=origin, session_frontmatter=session_frontmatter)
+    try:
+        claim = Claim(
+            id=claim_id, text=answer, subject=c.other_id, predicate=predicate, object=obj,
+            object_kind="node", observer="agent", source_trust="external", origin=ORIGIN,
+            authored_by=checker or "agent", confidence=0.8, valid_from=today, recorded_at=today,
+            evidence=list(_evidence_for(memory_path, episode_id, quote)))
+        claims.append(claim)
+        markdown_parser.write(entity_path, page.frontmatter, write_claims(page.body, claims))
+    except BaseException:
+        (memory_path / "episodes" / f"{episode_id}.md").unlink(missing_ok=True)
+        bank_index.invalidate(memory_path)
+        raise
+    settled_dir = memory_path / "inbox" / SETTLED_DIR
+    settled_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "at": episode_ids.utc_now_iso(), "by": checker or "agent", "by_kind": checker_kind, "scope": c.scope,
+        "ref": ref, "host": host, "quote": quote, "answer": answer, "predicate": predicate,
+        # The claim's page is the one :func:`undo` takes it back from.
+        "entity_id": c.other_id, "entity_name": c.other_name, "claim_id": claim.id, "claim_ids": [claim.id],
+        "episode": episode_id, "held": False, "closed": [], "relation": relation, "pair": [c.entity_id, c.other_id],
+        **({"engine": engine} if engine else {}),
+    }
+    # The alias that made the two look like one (a page listing the other's name) is the cause: Cicada proposes
+    # removing it, for the person to apply or leave (`wrong_aliases`, G198). Taken back with the settle while waiting.
+    proposals = wrong_aliases.for_pair(memory_path, c.other_id, c.other_name, c.entity_id, c.name, answer + ".",
+                                       day=today)
+    if proposals:
+        record["alias_proposals"] = proposals
+    markdown_parser.write(settled_dir / f"{item_id}.md", {**parsed_item.frontmatter, "settled": record},
+                          parsed_item.body)
+    item_path.unlink()
+    bank_index.invalidate(memory_path)
+    paths = [f"episodes/{episode_id}.md", f"entities/{c.other_id}.md", f"inbox/{item_id}.md",
+             f"inbox/{SETTLED_DIR}/{item_id}.md", *proposals]
+    trigger = "sleep/web-check" if origin == "sleep" else f"mcp/{checker or 'agent'}"
+    lines = [f"episodes/{episode_id}.md: created (source: {item_id}, trigger: {trigger})",
+             f"entities/{c.other_id}.md: updated (source: {episode_id}, trigger: {trigger})",
+             f"inbox/{item_id}.md: settled (source: {episode_id}, trigger: {trigger})",
+             *(f"{rel}: created (source: {item_id}, trigger: {trigger})" for rel in proposals)]
+    return Settled(item_id=item_id, entity_id=c.other_id, claim_id=claim.id, episode_id=episode_id,
+                   paths=paths, lines=lines)
+
+
 # --------------------------------------------------------------------------- the list and the undo
 
 
@@ -1034,7 +1283,9 @@ def list_settled(memory_path: Path) -> list[dict]:
     where, and what it wrote — and "Settled by Sleep" (``group: sleep``, ruling 29) — what Sleep answered or assumed
     and by which rule."""
     out: list[dict] = []
-    for path in (Path(memory_path) / "inbox" / SETTLED_DIR).glob("inbox-*.md"):
+    settled_dir = Path(memory_path) / "inbox" / SETTLED_DIR
+    # ``ctx-*``: a light-context lookup's record (owner ruling 44, ``web_context``) — undone by ``web_context.undo``.
+    for path in [*settled_dir.glob("inbox-*.md"), *settled_dir.glob("ctx-*.md")]:
         try:
             parsed = markdown_parser.parse(path)
         except Exception as exc:  # noqa: BLE001 — one unreadable record never hides the others
@@ -1125,6 +1376,14 @@ def undo(memory_path: Path, item_id: str) -> tuple[str, list[str], list[str]]:
     # The question comes back as it was, plus one mark: the person took this answer back, so no check settles it again.
     markdown_parser.write(inbox_dir / f"{target}.md", {**fm, UNDONE_KEY: "undone"}, parsed.body)
     rec_path.unlink()
+    for rel in rec.get("alias_proposals") or []:
+        # A proposal the settle raised that nobody answered yet goes with it (one the person answered is theirs).
+        proposal = memory_path / str(rel)
+        if (str(rel).startswith("inbox/inbox-") and proposal.is_file()
+                and markdown_parser.parse(proposal).frontmatter.get("origin") == wrong_aliases.ORIGIN):
+            proposal.unlink()
+            paths.append(str(rel))
+            lines.append(f"{rel}: removed (source: {item_id}, trigger: inbox/web-check/undone)")
     bank_index.invalidate(memory_path)
     paths += [f"inbox/{target}.md", f"inbox/{SETTLED_DIR}/{item_id}.md"]
     lines += [f"inbox/{target}.md: reopened (source: {item_id}, trigger: inbox/web-check/undone)"]

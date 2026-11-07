@@ -140,29 +140,37 @@ def has_human_prose(frontmatter: dict, sections: dict[str, str]) -> bool:
         title and title not in CANONICAL_SECTIONS for title in sections) or entity_article.edited(frontmatter, sections)
 
 
-def retain_orientation(sections: dict[str, str], text: str, *, names=()) -> int:
+def retain_orientation(sections: dict[str, str], text: str, *, names=(), before: str = '') -> int:
     """Keep what a displaced orientation says that the page does not, as Key Facts.
 
     An orientation that lost the Summary (an incoming one beside a usable
-    Summary, a replaced or overlong one) is split into sentences; a sentence the
-    Summary or a Key Fact already holds, as the same text (`fact_policy.restates`), is dropped,
-    every other one becomes a Key Fact, so its words survive once. Re-introducing
-    the thing is what a Summary is for, once; History is a timeline, not a drawer
-    for orientations (the "Undated background" bullets this replaced repeated Key
-    Facts word for word). Never assigns a date. Returns the sentences added."""
+    Summary, a replaced or overlong one) is split into facts that each stand
+    alone (`fact_policy.standalone`: a sentence that leans on the one before it
+    — "he had the application form filled in" after one naming the event — stays
+    joined to it); a fact the Summary or a Key Fact already holds, as the same text
+    (`fact_policy.restates`), is dropped, every other one becomes a Key Fact, so its
+    words survive once. Re-introducing the thing is what a Summary is for, once;
+    History is a timeline, not a drawer for orientations (the "Undated background"
+    bullets this replaced repeated Key Facts word for word). ``before``: the
+    sentence that preceded ``text`` where it was written (the Summary's last one,
+    when :func:`lead` kept it), so the first sentence can lean on it too. Never
+    assigns a date. Returns the facts added."""
     text = (text or '').strip()
     if not text:
         return 0
     kept = _summary_sentences(sections.get('Summary', '')) + _bullet_lines(sections.get('Key Facts', ''))
     keys = {_normalize_fact(k) for k in kept}
+    before = ' '.join((before or '').split())
+    facts = fact_policy.standalone(f'{before} {text}' if before else text, names)
+    if before and facts and facts[0] == before:
+        facts = facts[1:]  # the first sentence stands alone: `before` stays where it is
     fresh = []
-    for paragraph in re.split(r'\n\s*\n', text):
-        for sentence in fact_policy.sentences(paragraph):
-            if _normalize_fact(sentence) in keys or _said(sentence, kept, names):
-                continue
-            fresh.append(sentence)
-            kept.append(sentence)
-            keys.add(_normalize_fact(sentence))
+    for sentence in facts:
+        if _normalize_fact(sentence) in keys or _said(sentence, kept, names):
+            continue
+        fresh.append(sentence)
+        kept.append(sentence)
+        keys.add(_normalize_fact(sentence))
     if fresh:
         sections['Key Facts'] = _merge_facts(sections.get('Key Facts', ''), fresh)
     return len(fresh)
@@ -209,12 +217,18 @@ def lead(text: str, *, names=()) -> tuple[str, str]:
     kept: list[str] = []
     rest: list[str] = []
     introduced, full = False, False
+    previous, moved = '', False
     for sentence in fact_policy.sentences(paragraphs[0]):
         intro = fact_policy.introduces(sentence, names)
-        if (full or (intro and introduced) or fact_policy.covered(sentence, kept)
+        # A sentence that leans on one moved out goes with it (`fact_policy.standalone`), never into the Summary.
+        follows = (moved and fact_policy.names_of(previous, names) and fact_policy.leans(sentence, names, previous))
+        previous = sentence
+        if (full or follows or (intro and introduced) or fact_policy.covered(sentence, kept)
                 or _normalize_fact(sentence) in {_normalize_fact(k) for k in kept}):
             rest.append(sentence)
+            moved = True
             continue
+        moved = False
         if len(' '.join(kept + [sentence])) > summary_policy.MAX_CHARS:
             full = True  # the Summary is a prefix: nothing after an over-budget sentence
             rest.append(sentence)
@@ -244,6 +258,7 @@ def bound_summary(sections: dict[str, str], *, previous: str = '', name: str = '
     if not candidate:
         return sections
     kept, rest = lead(candidate, names=names)
+    before = ''
     if not kept:
         sections['Summary'] = previous if summary_policy.usable(previous) else summary_policy.fallback(
             name=name, entity_type=entity_type)
@@ -253,7 +268,8 @@ def bound_summary(sections: dict[str, str], *, previous: str = '', name: str = '
         rest = ''
     else:
         sections['Summary'] = kept
-    retain_orientation(sections, rest, names=names)
+        before = (_summary_sentences(kept) or [''])[-1]
+    retain_orientation(sections, rest, names=names, before=before)
     return sections
 
 
@@ -305,12 +321,15 @@ def _merge_history_bullets(existing: str, new_entries: list[dict]) -> str:
     return _bullets_block(lines)
 
 
-def _merge_facts(existing: str, new_facts: list[str]) -> str:
-    """Existing fact bullets unchanged, then every new fact that is not a repeat.
+def _merge_facts(existing: str, new_facts: list[str], *, extend_existing: bool = True) -> str:
+    """Existing fact bullets, then every new fact that is not a repeat.
 
     A new fact equal to one already there (case, accents, whitespace, wikilink
-    brackets and trailing punctuation aside: `fact_policy.union`) is skipped;
-    everything else is kept. An existing bullet is never removed or reworded."""
+    brackets and trailing punctuation aside: `fact_policy.union`) is skipped; one
+    that another fact says word for word and then more (`fact_policy.extends`) is
+    folded into it — the longer one takes the shorter's place, so no word, date or
+    number is lost; everything else is kept. ``extend_existing=False`` (a page a
+    person edited) leaves every existing bullet exactly as it is."""
     items = _bullet_lines(existing)
     seen = {_normalize_fact(it) for it in items}
     fresh: list[str] = []
@@ -321,7 +340,7 @@ def _merge_facts(existing: str, new_facts: list[str]) -> str:
             continue
         seen.add(key)
         fresh.append(fact)
-    items, _ = fact_policy.union(items, fresh)
+    items, _ = fact_policy.union(items, fresh, extend_existing=extend_existing)
     return _bullets_block(items)
 
 
@@ -439,7 +458,8 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict, *,
 
     new_summary = str(new_fields.get("summary", "") or "").strip()
     old_summary = merged.get('Summary', '')
-    names = [str(new_fields.get('name') or '')]
+    names = [str(new_fields.get('name') or ''),
+             *(str(a) for a in (new_fields.get('aliases') or []) if isinstance(new_fields.get('aliases'), list))]
     if (merged.get('Article') or '').strip() and old_summary:
         # An article page's lead is the article writer's, at any length (`entity_article`): kept exactly; what an
         # incoming orientation says lands in Key Facts below, until the writer next rewrites the lead.
@@ -457,8 +477,7 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict, *,
     # skips a sentence the page already holds (`retain_orientation`'s rule).
     for text, at_end in ((old_summary, False), (new_summary, True)):
         if text and _normalize_fact(text) != _normalize_fact(merged.get('Summary', '')):
-            displaced = [sentence for paragraph in re.split(r'\n\s*\n', text)
-                         for sentence in fact_policy.sentences(paragraph)]
+            displaced = fact_policy.standalone(text, names)
             new_facts = new_facts + displaced if at_end else displaced + new_facts
     # Existing prose (including human facts) remains untouched. Only suppress
     # an incoming fact the retained orientation already says; an exact copy's
@@ -468,7 +487,7 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict, *,
                  if _normalize_fact(str(item)) != _normalize_fact(merged.get('Summary', ''))
                  and not fact_policy.covered(str(item), said)]
     if new_facts or merged.get("Key Facts"):
-        facts = _merge_facts(merged.get("Key Facts", ""), new_facts)
+        facts = _merge_facts(merged.get("Key Facts", ""), new_facts, extend_existing=not human_edited)
         if facts:
             merged["Key Facts"] = facts
 
@@ -917,7 +936,91 @@ def _clip_section(title: str, content: str, limit: int) -> str:
     return f"## {title}\n" + "\n".join(kept)
 
 
-def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
+#: A bullet repeats what was already shown when this share of its subject words is already there (and every anchor).
+REPEAT_SHARE = 0.8
+_ANCHOR = re.compile(r"\[\[[^\]]+\]\]|https?://\S+|\b[\w-]+\.[a-z]{2,}\b|\d[\d.,:/-]*|\b[A-Z][\w'’-]+")
+
+
+def _anchors(text: str) -> set[str]:
+    """What makes a line a distinct fact even when its words repeat: numbers and dates, links and domains, wikilinks,
+    and capitalised names past the line's first word."""
+    from api.services import text_fold
+
+    line = re.sub(r"^\s*[-*]\s+", "", text)
+    return {text_fold.fold(m.group(0)).strip(".,:;") for m in _ANCHOR.finditer(line) if m.start() > 0
+            or m.group(0)[:1].isdigit() or m.group(0).startswith(("[[", "http"))}
+
+
+def _word(ch: str) -> bool:
+    r"""``re``'s ``\w`` for one character: a Unicode letter or digit, or ``_`` (sre's own test)."""
+    return ch.isalnum() or ch == "_"
+
+
+def _shown_whole(anchor: str, folded: str) -> bool:
+    r"""Is ``anchor`` in ``folded`` as a whole token — never inside a longer one (``40`` is not shown by ``400``, nor
+    ``5`` by ``2025``; review of #488).
+
+    Exactly ``re.search(r"(?<![\w.,:/-])" + re.escape(anchor) + r"(?![\w]|[.,:/-]\w)", folded)``, by ``str.find``
+    over the occurrences only (speed 2026-10-29: the regex scanned the whole growing text once per anchor per bullet —
+    2.0 s of 4.3 s across five recalls on the owner's bank; ``test_entity_body_shown_whole`` pins the equivalence)."""
+    if not anchor:
+        return re.search(r"(?<![\w.,:/-])(?![\w]|[.,:/-]\w)", folded) is not None
+    n = len(anchor)
+    i = folded.find(anchor)
+    while i >= 0:
+        before = folded[i - 1] if i > 0 else ""
+        nxt = folded[i + n:i + n + 2]
+        if not (before and (_word(before) or before in ".,:/-")):
+            a = nxt[:1]
+            if not (a and (_word(a) or (a in ".,:/-" and len(nxt) > 1 and _word(nxt[1])))):
+                return True
+        i = folded.find(anchor, i + 1)
+    return False
+
+
+def collapse_repeats(lines: list[str], shown: str) -> tuple[list[str], int]:
+    """``lines`` (a section's bullets) less those that only repeat ``shown`` or a bullet kept before them — render
+    time only, the page is never edited (lean reads, 2026-10-27: one real page held 15 key facts saying about 4
+    things, then said them again in its Article and History).
+
+    Conservative on purpose: a bullet is folded only when every anchor it holds (a number, a date, a link, a name,
+    :func:`_anchors`) is already shown AND at least :data:`REPEAT_SHARE` of its subject words are. A bullet carrying
+    anything new — one date, one name — is kept, so a distinct fact is never dropped. Lines that are not bullets
+    are always kept. Returns the kept lines and how many were folded."""
+    from api.services import text_fold
+
+    seen_terms = set(text_fold.subject_terms(shown))
+    seen_anchors = _anchors(shown) | {text_fold.fold(w) for w in re.findall(r"\d[\d.,:/-]*", shown)}
+    seen_folded = text_fold.fold(shown)
+    kept: list[str] = []
+    folded = 0
+    for line in lines:
+        if not line.lstrip().startswith(("- ", "* ")):
+            kept.append(line)
+            continue
+        terms = text_fold.subject_terms(line)
+        anchors = _anchors(line)
+        new_anchor = any(a not in seen_anchors and not _shown_whole(a, seen_folded) for a in anchors)
+        share = (len(terms & seen_terms) / len(terms)) if terms else 1.0
+        if not new_anchor and share >= REPEAT_SHARE:
+            folded += 1
+            continue
+        kept.append(line)
+        seen_terms |= terms
+        seen_anchors |= anchors
+        seen_folded += " " + text_fold.fold(line)
+    return kept, folded
+
+
+def _collapsed_section(title: str, content: str, shown: str) -> tuple[str, str]:
+    """A section's content with repeated bullets folded (:func:`collapse_repeats`), the fold said in one line."""
+    kept, folded = collapse_repeats(content.splitlines(), shown)
+    if folded:
+        kept.append(f"- ({folded:,} more line(s) here repeat the facts above; the full page has them)")
+    return "\n".join(kept).strip(), shown + "\n" + content
+
+
+def summarize_for_recall(body: str, *, max_chars: int = 3200, collapse: bool = False) -> str:
     """Section-aware truncation that always leads with Summary + Key Facts.
 
     Byte-offset truncation can cut Key Facts (where specific figures live). This
@@ -925,7 +1028,8 @@ def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
     whole lines with the cut said in words (``_clip_section``), Key Facts always
     keeping at least a third of the budget — then appends further canonical
     sections in priority order until the char budget is reached. The result is
-    bounded by about ``max_chars`` whatever the page holds.
+    bounded by about ``max_chars`` whatever the page holds. ``collapse`` (recall, 2026-10-27) folds bullets that only
+    repeat what is already shown (:func:`collapse_repeats`), saying how many in one line; the page is never edited.
     """
     from api.services.claims import strip_claims_block
     sections = parse_sections(strip_claims_block(body))
@@ -934,6 +1038,10 @@ def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
     used = 0
     summary = sections.get("Summary", "").strip()
     facts = sections.get("Key Facts", "").strip()
+    shown = summary
+    if collapse and facts:
+        # Lean reads (2026-10-27): a key fact that only repeats the Summary or an earlier fact is folded at render.
+        facts, shown = _collapsed_section("Key Facts", facts, shown)
     floor = max_chars // 3
     facts_reserve = min(len(facts) + len("## Key Facts\n"), floor) if facts else 0
     # The leading tier, bounded:
@@ -950,6 +1058,8 @@ def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
         if title in ("Summary", "Key Facts"):
             continue
         content = sections.get(title, "").strip()
+        if collapse and content and title in ("History", "Open Questions"):
+            content, shown = _collapsed_section(title, content, shown)
         if not content:
             continue
         block = f"## {title}\n{content}"

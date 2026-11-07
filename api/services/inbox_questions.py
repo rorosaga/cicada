@@ -130,6 +130,7 @@ def refresh_open_questions(
     today: str,
     *,
     stale_after_days: int = 90,
+    keep_values=None,
 ) -> dict:
     """Re-score every open conflict question against this cycle's claims (§2.3).
 
@@ -157,7 +158,9 @@ def refresh_open_questions(
     ``"inbox/inbox-001.md"``) of items removed by organic resolution, so the
     caller can tag exactly those paths with the ``inbox/organic_resolution``
     commit trigger instead of the generic ``sleep/inbox_generation`` one every
-    other ``inbox/`` write gets. ``rewritten_paths`` lists every item bumped
+    other ``inbox/`` write gets. ``keep_values`` (G98, question audit) is the writer a closing question hands itself to
+    first — ``inbox_service.keep_values_of_closed_question`` — so a value only the question held is not lost with its
+    file; the pages it wrote are ``written_paths``, and a question whose values could not be kept stays. ``rewritten_paths`` lists every item bumped
     and/or escalated IN PLACE (not removed) — together with ``resolved_paths``
     this is the exact file set this sweep touched, so a caller committing on
     its own (the idle-cycle twin in ``sleep_cycle._refresh_questions_safely``)
@@ -168,14 +171,19 @@ def refresh_open_questions(
     inbox = Path(memory_path) / "inbox"
     counts = {
         "bumped": 0, "organic_resolutions": 0, "escalated": 0,
-        "resolved_paths": [], "rewritten_paths": [],
+        "resolved_paths": [], "rewritten_paths": [], "written_paths": [],
     }
     if not inbox.exists():
         return counts
 
+    from api.services import episode_time
+
+    untimed = episode_time.untimed_ids(memory_path)
     for filepath in sorted(inbox.glob("inbox-*.md")):
         try:
-            _refresh_one(filepath, claims_by_subject, today, stale_after_days, counts)
+            _refresh_one(
+                filepath, claims_by_subject, today, stale_after_days, counts, untimed, keep_values,
+            )
         except Exception:
             # A file removed or rewritten by a concurrent resolve must not abort
             # the whole sweep — skip it and carry on with the rest of the inbox.
@@ -190,6 +198,8 @@ def _refresh_one(
     today: str,
     stale_after_days: int,
     counts: dict,
+    untimed: frozenset = frozenset(),
+    keep_values=None,
 ) -> None:
     """Re-score ONE open conflict question (the per-file body of the sweep)."""
     from api.services import markdown_parser
@@ -230,6 +240,8 @@ def _refresh_one(
     )
     superseded = _really_superseded(options, by_id)
     if human_answer or (option_claim_ids and superseded):
+        if keep_values is not None:
+            counts["written_paths"].extend(keep_values(fm))   # raises: the question stays, nothing is lost
         filepath.unlink()
         counts["organic_resolutions"] += 1
         counts["resolved_paths"].append(f"inbox/{filepath.name}")
@@ -238,12 +250,17 @@ def _refresh_one(
     changed = False
 
     # --- 1. bump + re-order ------------------------------------------------
+    # An option is bumped by when its claim was last SAID (age counts from when it was said), never by when Sleep
+    # read it: a late read of an old conversation is no reason to call the value fresh. A stored date is only ever
+    # raised here. (Imported here: source_refresh reaches the reconciler, which imports this module.)
+    from api.services import source_refresh
+
     bumped_any = False
     for option in options:
         claim = by_id.get(str(option.get("claim_id") or ""))
         if claim is None:
             continue
-        seen = str(claim.recorded_at or claim.valid_from or "")
+        seen = str(source_refresh.said_on(claim, untimed) or "")
         current = str(option.get("last_referenced") or option.get("observed_at") or "")
         if seen and seen > current:
             option["last_referenced"] = seen
@@ -355,16 +372,16 @@ def decay_question(name: str, last_referenced: str | None, today: str) -> dict:
         "options": [
             {
                 "key": "keep",
-                "label": "Keep active",
-                "description": f"{lead} · still relevant; confidence restored to at least 0.6",
+                "label": "Yes, keep it",
+                "description": f"{lead} · it stays in what I remember",
                 "claim_id": None,
                 "observed_at": last_referenced,
                 "last_referenced": last_referenced,
             },
             {
                 "key": "archive",
-                "label": "Archive",
-                "description": f"{lead} · move it to the archive; it comes back on the next mention",
+                "label": "No, archive it",
+                "description": f"{lead} · it goes to the archive and comes back if it's mentioned again",
                 "claim_id": None,
                 "observed_at": last_referenced,
                 "last_referenced": last_referenced,

@@ -18,12 +18,18 @@ extension Copy {
     static let homeToday = "Today"
     static let homeNeedsYou = "Needs you"
     static let homeLastRead = "Last time Cicada read"
+    /// ROR-118 (round 1) — the first words of Home's last-read row, which has no label above it.
+    static let homeLastReadShort = "Last read"
+    /// Round 5 — the word before the pictures of the pages the read touched.
+    static let homeLastReadTouched = "updated"
+    /// "2 pages updated" / "1 page updated" — the count comes from the same chips the pictures draw.
+    static func homeLastReadPagesUpdated(_ n: Int) -> String { "\(n) \(n == 1 ? "page" : "pages") updated" }
     /// The TODAY sum is the UTC bucket `source_overview` writes (R-A16), so the
     /// hover says which midnight it counts from rather than pretending local.
     static let homeCapturedHelp = "Captured since 00:00 UTC"
     static let homeLoading = "Loading…"
     static let homeNothingCapturedToday = "Nothing captured yet today"
-    static let homeNothingWaiting = "Nothing waiting to be read"
+    static let homeNothingWaiting = "Nothing waiting"
     static let homeNothingNeedsYou = "Nothing needs you right now."
     static let homeNothingReadYet = "Nothing read yet"
     static let homeNothingChanged = "nothing changed"
@@ -36,8 +42,11 @@ extension Copy {
     static func homeCapturedToday(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "\(UsageFormat.count(n, locale: locale)) captured today"
     }
+    /// ROR-118 round 3 — the figure alone beside "captured today": the two share one line.
+    static let homeCapturedWords = "captured today"
+    static let homeWaitingWords = "waiting to read"
     static func homeWaiting(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        "\(UsageFormat.count(n, locale: locale)) waiting to be read"
+        "\(UsageFormat.count(n, locale: locale)) \(homeWaitingWords)"
     }
     static func homeMoreChips(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "+\(UsageFormat.count(n, locale: locale))"
@@ -52,6 +61,8 @@ extension Copy {
     static let costModelKey = "Billed per use by your provider"
     static let engineKeySaved = "Key saved"
     static let engineAddKey = "Add a key in \(plansAndKeys)"
+    /// Nothing can read yet: lead to the row that connects a plan or a key (a link to Plans & keys follows).
+    static let engineConnectLead = "Connect a plan or add a key in"
     static let welcomeNotChosen = "Not chosen yet. Cicada asks before its first read."
     static let welcomeWillRead = "Will read"
     static let welcomeProviderLine = "Plans and keys send what Cicada reads to that provider."
@@ -104,6 +115,8 @@ extension Copy {
     // MARK: The Welcome (Task 4, design §4.1)
     static let welcomeHelloNoName = "Hello."
     static let welcomeYourName = "Your name"
+    /// Tester readiness (2026-10-26): the field's prefill is the Mac account's name, a suggestion until confirmed.
+    static let welcomeNameFromMac = "From this Mac's account. Is that what you go by?"
     static let welcomeWhoReads = "Who reads what you save"
     static let welcomeStarting = "Starting…"
     static let welcomeSetUpLater = "Set up later"
@@ -111,7 +124,9 @@ extension Copy {
     /// The ✕ beside a staged export: it only un-stages it (nothing was imported yet).
     static let welcomeRemoveDrop = "Remove"
     static func welcomeHello(_ first: String) -> String { "Hello, \(first)." }
-    static func welcomeNotYou(_ first: String) -> String { "Not \(first)? Change" }
+    static let welcomeGreetingLead = "Hello,"
+    /// The pencil beside the name — its label for VoiceOver and its hover words.
+    static let welcomeEditName = "Edit your name"
 
     /// Buttons, titles and one-line captions — ≤ 60 characters (CopyConstantsTests).
     // MARK: Reminders (Task 5, design §5.5, R-IB22)
@@ -141,7 +156,7 @@ extension Copy {
         homeHeadline, homeFieldPrompt, homeToday, homeNeedsYou, homeLastRead,
         homeCapturedHelp, homeLoading, homeNothingCapturedToday, homeNothingWaiting, homeNothingNeedsYou,
         homeNothingReadYet, homeNothingChanged, homeShowOnGraph("alpha-project"), homeOpenSleep, homeSaveLink,
-        costModelPlan, costModelLocal, costModelKey, engineKeySaved, engineAddKey, welcomeWillRead,
+        costModelPlan, costModelLocal, costModelKey, engineKeySaved, engineAddKey, engineConnectLead, welcomeWillRead,
         welcomeNotChosen, welcomeProviderLine, welcomePickSaved("ChatGPT plan"), gsBringingIn, gsTitle, gsHide,
         gsDone, gsAgentOn, gsAgentGone, gsFinishInIntegrations, gsChatHistory, gsChatDrop,
         gsReading, gsFinishedNoCount, gsWatchOnSleep, gsOpenGraph, gsTryAgain, gsScheduleQuestion, gsWhenIAsk,
@@ -149,7 +164,7 @@ extension Copy {
         gsWaiting(1_061), gsRunning(read: 1_061, total: 1_061), gsFinished(pages: 1_061),
         gsCapped(read: 1_061, left: 1_061), gsKeepReading,
         welcomeHelloNoName, welcomeYourName, welcomeWhoReads, welcomeStarting, welcomeSetUpLater, welcomeClose,
-        welcomeRemoveDrop, welcomeHello("Ada"), welcomeNotYou("Ada"),
+        welcomeRemoveDrop, welcomeHello("Ada"), welcomeEditName, welcomeNameFromMac,
         reminderRemindMe, reminderInThreeHours, reminderTomorrowMorning, reminderInTwoDays, reminderBody,
         reminderDropHere, reminderDismiss, welcomeAskForOne,
         reminderRowLine(requested: "2 hours ago", reminder: "in 21 hours"),

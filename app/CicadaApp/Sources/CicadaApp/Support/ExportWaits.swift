@@ -39,6 +39,8 @@ enum ReminderDelay: String, CaseIterable, Identifiable {
 /// vendor, gone after 14 days, and the three sentences the twins show.
 enum ExportWaits {
     static let defaultsKey = "cicada.exportWaits"
+    /// Ruling 58: what the retired weekly nudge kept. Only ever removed.
+    static let retiredHabitsKey = "cicada.exportHabits"
     static let maxAge: TimeInterval = 14 * 86_400
     /// How often a shown "requested 2 hours ago" is recomputed (the Feed strip,
     /// Getting started) — a minute is the finest unit the formatter's lines need.
@@ -104,6 +106,10 @@ final class ExportWaitStore {
             .flatMap { try? JSONDecoder().decode([ExportWait].self, from: $0) } ?? []
         waits = ExportWaits.pruned(stored, now: now())
         persist()
+        if defaults.object(forKey: ExportWaits.retiredHabitsKey) != nil {
+            defaults.removeObject(forKey: ExportWaits.retiredHabitsKey)
+            scheduler.removeRetiredNudges()
+        }
     }
 
     func active(bank: String) -> [ExportWait] { ExportWaits.active(waits, bank: bank, now: now()) }

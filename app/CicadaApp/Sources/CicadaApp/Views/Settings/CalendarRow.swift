@@ -53,6 +53,10 @@ struct CalendarRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            // 2026-11-04 (owner: "I don't know why there's an Ada Google account for the macOS calendar, they should be
+            // separate using the respective logos") — the standing "Google calendars come in through macOS…" line and
+            // its *Add a Google account* button are gone: the page lists each account the Mac holds, Google's only when
+            // there is one, with its own mark (`SourceBrowser`).
             row
             // G161 — the events Cicada brought in, by title and day.
             if channel?.connected == true {

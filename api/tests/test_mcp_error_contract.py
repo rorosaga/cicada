@@ -133,7 +133,9 @@ def test_an_answer_carries_no_error_flag_and_is_fenced_as_reference(srv):
     assert "isError" not in result and "structuredContent" not in result
     text = _text(result)
     assert text.startswith(tool_contract.REFERENCE_HEADER + "\n" + tool_contract.FENCE_OPEN + "\n")
-    assert text.endswith(tool_contract.FENCE_CLOSE)
+    # After the markers only Cicada's own direction may follow: this page was never started (ruling 56).
+    tail = text[text.rindex(tool_contract.FENCE_CLOSE) + len(tool_contract.FENCE_CLOSE):]
+    assert tail.startswith("\nNot in the person's projects") and tool_contract.FENCE_OPEN not in tail
 
 
 def test_invalid_arguments_name_the_field_and_run_nothing(srv, monkeypatch):

@@ -36,7 +36,7 @@ from api.services.auth import cicada_home
 
 # G217: every list here derives from the one table (`agent_catalog`). `LIVE_AGENTS` stays the app's eleven pills in
 # its order (pinned by `api/tests/fixtures/agent_catalog.json`); `TRACKED` adds every other way the table names, so a
-# tier-2 agent (Zed, VS Code, Cline…) is reported by its own id and still lights the "another agent" pill.
+# tier-2 agent (Zed, GitHub Copilot, Devin…) is reported by its own id and still lights the "another agent" pill.
 LIVE_AGENTS = agent_catalog.LIVE_PILLS
 FEATURED = agent_catalog.FEATURED   # R-AG1: the owner's nine; Gemini CLI and "another agent" are Settings-only
 TRACKED = agent_catalog.TRACKED
@@ -218,7 +218,8 @@ def _merge(*maps: dict[str, str]) -> dict[str, str]:
 
 def _fold_other(seen: dict[str, str]) -> dict[str, str]:
     """A way the app has no pill for lights the ``other`` pill too (as an unmatched name always did)."""
-    pills = set(LIVE_AGENTS)
+    # A host (G228) is never "another agent": its sessions are a pill's harness's, which lights on its own.
+    pills = set(LIVE_AGENTS) | set(agent_catalog.HOSTS)
     latest = max((ts for agent, ts in seen.items() if agent not in pills), default=None)
     if latest and latest > seen.get(OTHER_AGENT, ""):
         return {**seen, OTHER_AGENT: latest}

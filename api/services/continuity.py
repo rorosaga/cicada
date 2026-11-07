@@ -53,6 +53,7 @@ import yaml
 from loguru import logger
 
 from api.services import continuity_sessions, episode_ids, evidence, markdown_parser, workspace_identity
+from api.services import sensitive_flags
 
 SCHEMA = 3
 #: The index file's suffix in the continuity home: ``<bank-id>.index.json``.
@@ -361,6 +362,39 @@ def activity(row: dict, registry_row: dict | None) -> str:
     return max((s for s in stamps if s), default="")
 
 
+def _path_key(workspace) -> tuple | None:
+    value = workspace_identity.clean(workspace)
+    return (value["family_hash"], value["checkout_hash"]) if value and value.get("family_hash") else None
+
+
+def _moved_here(snapshot: Snapshot, registry_rows: dict[str, dict], workspace: dict,
+                exclude_session: str | None) -> list:
+    """Rows of another checkout at the same place in the same hashed remote (G110 D2a) — only when it can be this
+    checkout renamed, moved or cloned again: that checkout's last activity is no later than this one's first
+    registered start. Two clones active alongside each other are two checkouts (the related tier lists them)."""
+    mine = _path_key(workspace)
+    starts = [r.get("started_at") or "" for r in registry_rows.values()
+              if _path_key(r.get("workspace_identity")) == mine and r.get("started_at")]
+    first = min(starts, default="")
+    last: dict[tuple, str] = {}
+    for row in [*snapshot.rows.values(), *registry_rows.values()]:
+        key = _path_key(row.get("workspace_identity"))
+        if key is not None and key != mine:
+            reg = registry_rows.get(f"{row.get('harness')}:{row.get('session_id')}") if "id" in row else row
+            stamp = activity(row, reg) if "id" in row else max(row.get("started_at") or "",
+                                                                 row.get("last_prompt_at") or "")
+            last[key] = max(last.get(key, ""), stamp)
+    return [(n, r) for n, r in snapshot.rows.items() if r.get("session_id") != exclude_session
+            and workspace_identity.same_checkout(workspace, r.get("workspace_identity"))
+            and (key := _path_key(r.get("workspace_identity"))) != mine
+            and (not first or _before(last.get(key, ""), first))]
+
+
+def _before(a: str, b: str) -> bool:
+    ta, tb = _parse_time(a), _parse_time(b)
+    return ta is not None and tb is not None and ta <= tb
+
+
 def select(snapshot: Snapshot, registry_rows: dict[str, dict], *, cwd: str | None, exclude_session: str | None,
            session: str | None = None, workspace: dict | None = None) -> Selection:
     """The total selection of plan C1: an exact ``session`` (episode id or full
@@ -386,11 +420,13 @@ def select(snapshot: Snapshot, registry_rows: dict[str, dict], *, cwd: str | Non
     match = "latest"
     if not here and workspace:
         here = [(n, r) for n, r in snapshot.rows.items() if r.get("session_id") != exclude_session
-                and workspace_identity.same_checkout(workspace, r.get("workspace_identity"))]
+                and workspace_identity.same_path_checkout(workspace, r.get("workspace_identity"))]
+        if not here:
+            here = _moved_here(snapshot, registry_rows, workspace, exclude_session)
         match = "same_checkout"
         if not here:
             related = [(n, r) for n, r in snapshot.rows.items() if r.get("session_id") != exclude_session
-                       and (r.get("workspace_identity") or {}).get("family_hash") == workspace.get("family_hash")]
+                       and workspace_identity.same_family(workspace, r.get("workspace_identity"))]
             related.sort(key=lambda nr: activity(nr[1], reg(nr[1])), reverse=True)
             if related:
                 return Selection("ambiguous", None, tuple(related[:MAX_LISTED]), reason="related_checkouts")
@@ -527,7 +563,7 @@ def view(memory_path: Path, chosen: tuple[str, dict], *, deadline: float | None 
         return None
     return SessionView(
         filename=name, episode_id=str(fm["id"]), harness=str(fm["harness"]), session_id=str(fm["session_id"]),
-        project_dir=fm.get("project_dir"), title=str(fm.get("title") or ""),
+        project_dir=fm.get("project_dir"), title=sensitive_flags.title_for_others(str(fm.get("title") or "")),
         content_hash=str(fm.get("content_hash") or ""), processed=fm.get("processed") is True,
         processed_by=fm.get("processed_by"), last_turn_at=_iso(fm.get("last_turn_at")),
         captured_at=_iso(fm.get("captured_at")), turn_count=int(fm.get("turn_count") or 0),
@@ -642,7 +678,7 @@ def _caller_workspace(registry, cwd, now) -> dict | None:
         return None
     latest = max(v["observed_at"] for v in values)
     newest = [v for v in values if v["observed_at"] == latest]
-    keys = {(v.get("family_hash"), v.get("checkout_hash")) for v in newest}
+    keys = {tuple(v.get(k) for k in ("family_hash", "checkout_hash", *workspace_identity.REMOTE_KEYS)) for v in newest}
     return workspace_identity.current(newest[0], cwd, now=now) if len(keys) == 1 else None
 
 
@@ -958,6 +994,10 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
     if sel.reason == "same_checkout":
         reserved.append("- Matched by harness-observed git checkout identity, not backend verification of workspace state.")
     source_workspace = sel.chosen[1].get("workspace_identity") if sel.chosen else None
+    if sel.reason == "same_checkout" and ctx.workspace and source_workspace \
+            and not workspace_identity.same_path_checkout(ctx.workspace, source_workspace):
+        reserved.append("- That session ran in another folder of this repository (the same hashed remote): it was "
+                        "renamed, moved or cloned again.")
     if sel.kind == "explicit" and ctx.workspace and source_workspace \
             and not workspace_identity.same_checkout(ctx.workspace, source_workspace):
         reserved.append("- This history is from a different observed checkout; the explicit episode selects it, not a shared role.")

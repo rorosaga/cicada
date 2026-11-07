@@ -13,6 +13,12 @@ struct IntakePanel: View {
     var origin: IntakeOrigin
     /// The `+` root: the drop zone alone, no "how to get it".
     var compact = false
+    /// 2026-11-04 (owner: "the logos of AI companies instead of the logo of Spotify and the icon of a file") — on a
+    /// source's own page, that source's mark (an `OriginIconography` key) on a file glyph, one line, and the export's
+    /// where-from as the zone's hover; never the chat vendors' marks.
+    var mark: String? = nil
+    /// The zone's hover on a source's page: where that export comes from.
+    var how: String? = nil
 
     @Environment(IntakeRouter.self) private var intake
     @Environment(BanksViewModel.self) private var banksVM
@@ -27,8 +33,12 @@ struct IntakePanel: View {
     @State private var newMemoryName = ""
 
     private var vendors: [ChatVendor] { vendor.map { [$0] } ?? ChatVendor.allCases }
+    /// CIC8 (2026-10-29) — a panel drawn inside a page (a Sources entry's detail) is a door, not a host: what its drop
+    /// or pick starts runs in the window overlay the router raises, so the page keeps its idle panel, offers no Cancel
+    /// of its own and takes no Return from the page around it.
+    private var inline: Bool { if case .emptyState = origin { true } else { false } }
     /// A panel shows the router's phase only when it is the host that phase belongs to.
-    private var phase: IntakePhase { intake.host == origin.host ? intake.phase : .idle }
+    private var phase: IntakePhase { !inline && intake.host == origin.host ? intake.phase : .idle }
 
     var body: some View {
         Group {
@@ -55,7 +65,7 @@ struct IntakePanel: View {
             }
             // The overlay's idle state needs its own way out for the keyboard and
             // VoiceOver (design I9); in the `+` sheet the sheet's back control is it.
-            if origin.host == .overlay {
+            if origin.host == .overlay && !inline {
                 HStack {
                     Spacer()
                     Button(Copy.intakeCancel) { intake.dismiss() }
@@ -69,20 +79,26 @@ struct IntakePanel: View {
 
     private var dropZone: some View {
         VStack(spacing: CicadaTheme.spacingSM) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                ForEach(vendors) { VendorMark(vendor: $0, size: CicadaTheme.scaled(28)) }
+            if let mark {
+                SourceWayIcon(icon: .file(mark), points: 28)
+                Text(Copy.SourceLayout.dropExport).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
+            } else {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    ForEach(vendors) { VendorMark(vendor: $0, size: CicadaTheme.scaled(28)) }
+                }
+                Text(Copy.intakeDropTitle).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
+                Text(Copy.intakeDropSubtitle).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .multilineTextAlignment(.center)
             }
-            Text(Copy.intakeDropTitle).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
-            Text(Copy.intakeDropSubtitle).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                .multilineTextAlignment(.center)
-            Button(Copy.intakeChooseFile) { chooseFile() }
+            Button(mark == nil ? Copy.intakeChooseFile : Copy.SourceLayout.chooseFile) { chooseFile() }
                 .buttonStyle(.bordered)
                 // Overlay only: in the `+` sheet a default action here would take
                 // Return away from the tile grid's own Enter-opens-tile (R10).
-                .keyboardShortcut(origin.host == .overlay ? KeyboardShortcut.defaultAction : nil)
+                .keyboardShortcut(origin.host == .overlay && !inline ? KeyboardShortcut.defaultAction : nil)
         }
         .frame(maxWidth: .infinity)
-        .padding(CicadaTheme.spacingLG)
+        .padding(mark == nil ? CicadaTheme.spacingLG : CicadaTheme.spacingMD)
+        .help(how ?? "")
         .background(dropTargeted ? CicadaTheme.meadowWash.opacity(0.4) : CicadaTheme.surface,
                     in: CicadaTheme.shape(CicadaTheme.cornerRadius))
         .overlay(CicadaTheme.shape(CicadaTheme.cornerRadius)
@@ -107,6 +123,7 @@ struct IntakePanel: View {
         VStack(spacing: CicadaTheme.spacingMD) {
             BookwormView(state: .reading, pointSize: 48)
             Text(Copy.intakeReading(names)).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+            bigFile
             Button(Copy.intakeCancel) { intake.cancel() }.buttonStyle(.bordered).keyboardShortcut(.cancelAction)
         }
         .frame(maxWidth: .infinity)
@@ -120,9 +137,18 @@ struct IntakePanel: View {
             if let staged = progress.staged {
                 ProgressView(value: Double(staged), total: Double(max(progress.total, 1)))
                     .frame(maxWidth: CicadaTheme.scaled(280))
+            } else {
+                bigFile
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// One line under the wait for a big file (`IntakeFailureWords.bigFileBytes`).
+    @ViewBuilder private var bigFile: some View {
+        if let note = intake.bigFileNote {
+            Text(note).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+        }
     }
 
     private func failed(_ reason: String) -> some View {
@@ -154,7 +180,9 @@ struct IntakePanel: View {
             if !p.chatFiles.isEmpty {
                 Text(IntakeSummary.previewDelta(p.delta)).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
             }
-            if !p.titles.isEmpty { titleList(p) }
+            if p.offersChoice {
+                ExportChoiceView(preview: p) { intake.updatePreview($0) }
+            } else if !p.titles.isEmpty { titleList(p) }
             ForEach(Array(p.skipped.enumerated()), id: \.offset) { _, s in
                 Text(Copy.intakeSkipped(s.name, s.reason)).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             }

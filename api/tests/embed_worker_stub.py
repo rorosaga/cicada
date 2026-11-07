@@ -47,3 +47,30 @@ def make(model_id: str):
         return vectors(texts, dim, salt)
 
     return embed
+
+
+def picture_vector(data: bytes, dim: int = 768) -> np.ndarray:
+    """A picture's stand-in vector: its bytes hashed to a direction (``vectors`` with the picture salt)."""
+    return vectors([bytes(data).decode("latin-1")], dim, "pic")[0]
+
+
+def make_vision(model_id: str):
+    """The picture child's stand-in (``embed_worker.VISION_FACTORY`` points here in the tests): ``b"bad..."`` fails
+    as a picture that cannot be decoded; every call records its pid in ``EMBED_STUB_PIDFILE``."""
+    from api.services import embed_worker
+
+    def one(data: bytes) -> np.ndarray:
+        if data.startswith(b"bad"):
+            raise ValueError("not a picture")
+        return picture_vector(data)
+
+    rows = embed_worker.picture_rows(one)
+
+    def embed(blobs):
+        pidfile = os.environ.get("EMBED_STUB_PIDFILE")
+        if pidfile:
+            with open(pidfile, "a", encoding="utf-8") as fh:
+                fh.write(f"{os.getpid()} {len(blobs)}\n")
+        return rows(blobs)
+
+    return embed

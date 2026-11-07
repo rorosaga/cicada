@@ -72,8 +72,41 @@ struct IntakePreview: Equatable {
     var historyVideos = 0
     var historyDays = 0
 
+    /// ROR-126 — what the person chose before anything becomes an episode: a start date (`YYYY-MM-DD`) and the chats
+    /// they deselected. The first sniff starts with the chats left out of an earlier import already unticked.
+    var since: String?
+    var deselected: Set<String> = []
+
+    var choice: ImportChoice { ImportChoice(since: since, exclude: deselected.sorted()) }
+
+    /// Whether a listed chat is still going to be brought in under the start date and the unticked rows.
+    func includes(_ t: IntakeTitle) -> Bool {
+        if let key = t.key, deselected.contains(key) { return false }
+        if let since, let day = t.date?.prefix(10), !day.isEmpty, String(day) < since { return false }
+        return true
+    }
+
+    /// New and grown chats still chosen. The list is the source while it is whole (every row keyed and nothing cut off);
+    /// else the backend's delta, which already leaves out the chats from an earlier import.
+    var chatImportCount: Int {
+        guard !titlesTruncated, !titles.isEmpty, titles.allSatisfy({ $0.key != nil && $0.status != nil }) else {
+            return delta.new + delta.grown
+        }
+        return titles.filter { ($0.status == "new" || $0.status == "grown") && includes($0) }.count
+    }
+
+    /// Whether this preview has a list the person can choose from.
+    var offersChoice: Bool { !chatFiles.isEmpty && titles.contains { $0.key != nil } }
+
+    /// The earliest and latest day of the listed chats, for the start date's bounds.
+    var titleDays: ClosedRange<String>? {
+        let days = titles.compactMap { $0.date.map { String($0.prefix(10)) } }.filter { !$0.isEmpty }.sorted()
+        guard let first = days.first, let last = days.last else { return nil }
+        return first...last
+    }
+
     /// Import N = new + grew, plus saved items (design §5.2), plus watched videos the person included.
-    var importCount: Int { delta.new + delta.grown + counts.items + historyVideos }
+    var importCount: Int { chatImportCount + counts.items + historyVideos }
     /// Whether the preview offers "Include watch history": the drop holds history, left out or brought in.
     var offersHistory: Bool { historyExcluded > 0 || historyVideos > 0 }
 
@@ -81,6 +114,7 @@ struct IntakePreview: Equatable {
     func assumingEmptyBank() -> IntakePreview {
         var p = self
         p.delta = IntakeDelta(new: delta.new + delta.grown + delta.unchanged)
+        p.titles = p.titles.map { var t = $0; t.status = "new"; return t }
         return p
     }
 
@@ -117,12 +151,15 @@ struct IntakePreview: Equatable {
             if let from = s.dateRange?.from { p.dateFrom = min(p.dateFrom ?? from, from) }
             if let to = s.dateRange?.to { p.dateTo = max(p.dateTo ?? to, to) }
             p.titles += s.titles
+            p.deselected.formUnion(s.titles.filter(\.deselected).compactMap(\.key))
             p.titlesTruncated = p.titlesTruncated || s.titlesTruncated
         }
         if p.chatFiles.isEmpty && p.savedFiles.isEmpty {
-            return .failed(unreadable.first?.reason
-                            ?? p.skipped.first.map { Copy.intakeSkipped($0.name, $0.reason) }
-                            ?? Copy.intakeNothingReadable)
+            // Which file, and why (2026-11-06): a bare reason named nothing when several were dropped.
+            if !unreadable.isEmpty {
+                return .failed(IntakeFailureWords.summary(unreadable.map { (name: $0.name, reason: $0.reason) }))
+            }
+            return .failed(p.skipped.first.map { Copy.intakeSkipped($0.name, $0.reason) } ?? Copy.intakeNothingReadable)
         }
         p.skipped += unreadable
         p.vendor = vendors.count == 1 ? vendors.first : nil
@@ -211,7 +248,7 @@ enum IntakeAdmission: Equatable {
 
 struct WelcomeDrop: Identifiable, Equatable {
     let id: String
-    let preview: IntakePreview
+    var preview: IntakePreview
 }
 
 /// The one import seam (R-IA20) — testable with a fake.
@@ -221,7 +258,7 @@ protocol IntakeAPI: Sendable {
     /// file's own name (a file the person dropped by itself).
     /// `includeHistory` (G71, 2026-10-16): preview a saved-content file's watch history as the days it becomes.
     func sniffIntake(fileURL: URL, bank: String?, name: String?, includeHistory: Bool) async throws -> IntakeSniff
-    func importIntake(fileURL: URL, bank: String?) async throws -> IntakeImportResponse
+    func importIntake(fileURL: URL, bank: String?, choice: ImportChoice) async throws -> IntakeImportResponse
     func intakeJob(id: String) async throws -> IntakeJobStatus
     func uploadSaved(fileURL: URL, name: String?, includeHistory: Bool) async throws -> UploadResponse
 }
@@ -363,6 +400,9 @@ final class IntakeRouter {
     /// The last sniff's preview, for the importing line's noun and the Into
     /// picker's "new memory" delta.
     private(set) var sniffedPreview: IntakePreview?
+    /// The biggest dropped file's name and size in words, when it is big enough to take a while — shown while the panel
+    /// reads and imports it, so a long wait is expected rather than mistaken for a hang. Nil for an ordinary drop.
+    private(set) var bigFileNote: String?
     /// G71 (2026-10-16): the preview's "Include watch history" switch — off for every new drop. On, the sniff shows
     /// the history as the days it becomes and the import brings it in that way (never as saved links).
     private(set) var includeHistory = false
@@ -400,6 +440,10 @@ final class IntakeRouter {
     /// export someone was waiting for has arrived, whatever door it came in by.
     /// A closure, not state — nothing observes it.
     @ObservationIgnored var onVendorSniffed: ((String) -> Void)?
+    /// Meaning index 2 — where a dropped recording or video goes: never the import (an export it is not), always the
+    /// app's own reader (`MediaFileIndexer`), which transcribes and samples it here and posts only the derivatives.
+    /// A closure so the router's tests see the hand-off without reading a file.
+    @ObservationIgnored var onMedia: (([URL]) -> Void)?
 
     init(api: any IntakeAPI = APIClient.shared,
          sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
@@ -412,7 +456,16 @@ final class IntakeRouter {
     }
 
     /// Strong, like `BrowserWatcher.store` — the app owns both for its lifetime.
-    func attach(store: Store) { self.store = store }
+    func attach(store: Store) {
+        self.store = store
+        if onMedia == nil {
+            onMedia = { [weak store] urls in
+                let indexer = MediaFileIndexer.shared
+                indexer.say = { store?.toast = $0 }
+                Task { await indexer.add(urls) }
+            }
+        }
+    }
 
     /// R-OB10 — where a staged export's import reports in `SyncActivity`. Never cancellable: nothing can be
     /// un-imported (`cancel()`'s rule), so its row shows progress and no ×.
@@ -442,6 +495,14 @@ final class IntakeRouter {
     /// (Z-B6) and is discardable everywhere else.
     @discardableResult
     func accept(urls: [URL], from origin: IntakeOrigin) -> IntakeAcceptance {
+        // Meaning index 2: recordings and videos go to search, read on this Mac — after the roots guard a door that
+        // never walks passes (`refusedRoot`, Z-B5), so nothing under `~/.claude`, `~/.codex` or `~/.cicada` is read.
+        let media = MediaFileIndexer.media(in: urls)
+        if !media.isEmpty, let onMedia, Self.refusedRoot(of: media, home: home, env: env) == nil {
+            onMedia(media)
+            let rest = urls.filter { !media.contains($0) }
+            return rest.isEmpty ? .accepted : accept(urls: rest, from: origin)
+        }
         guard !isImporting else {
             if !origin.answersInPlace { store?.toast = Copy.intakeBusy }
             return .busy
@@ -509,6 +570,20 @@ final class IntakeRouter {
     }
 
     /// The preview's switch: sniff again so the counts say what the import will do.
+    /// ROR-126 — the start date and the unticked chats change the shown preview in place; nothing is sent until Import.
+    func updatePreview(_ change: (inout IntakePreview) -> Void) {
+        guard case .preview(var p) = phase else { return }
+        change(&p)
+        phase = .preview(p)
+        sniffedPreview = p
+    }
+
+    /// The same choice for an export staged on the Welcome, which commits only when the person begins.
+    func updateWelcomeDrop(_ id: String, _ change: (inout IntakePreview) -> Void) {
+        guard let i = welcomeDrops.firstIndex(where: { $0.id == id }) else { return }
+        change(&welcomeDrops[i].preview)
+    }
+
     func setIncludeHistory(_ on: Bool) {
         guard on != includeHistory else { return }
         includeHistory = on
@@ -529,6 +604,7 @@ final class IntakeRouter {
         let bank = targetSlug
         let capped = self.capped
         let history = includeHistory
+        bigFileNote = IntakeFailureWords.bigFileNote(files)
         phase = .reading(files.map(\.lastPathComponent))
         task?.cancel()
         task = Task { [weak self] in
@@ -543,7 +619,7 @@ final class IntakeRouter {
                     }
                     results.append(IntakeFileSniff(url: url, sniff: s))
                 } catch {
-                    results.append(IntakeFileSniff(url: url, error: AddSourceSheet.friendlyError(error)))
+                    results.append(IntakeFileSniff(url: url, error: IntakeFailureWords.reason(error)))
                 }
             }
             guard gen == self.generation else { return }
@@ -583,7 +659,7 @@ final class IntakeRouter {
             }
             for url in preview.chatFiles {
                 do {
-                    let r = try await self.tracked { try await self.api.importIntake(fileURL: url, bank: bank) }
+                    let r = try await self.tracked { try await self.api.importIntake(fileURL: url, bank: bank, choice: preview.choice) }
                     if let job = r.job {
                         let status = try await self.follow(job, gen: gen)
                         outcome.add(created: status.created, updated: status.updated, unchanged: status.skipped, response: r)
@@ -592,7 +668,7 @@ final class IntakeRouter {
                                     unchanged: r.duplicatesSkipped, response: r)
                     }
                 } catch {
-                    outcome.failures.append("\(url.lastPathComponent): \(AddSourceSheet.friendlyError(error))")
+                    outcome.failures.append(IntakeFailureWords.line(name: url.lastPathComponent, error: error))
                 }
             }
             for url in preview.savedFiles {
@@ -604,7 +680,7 @@ final class IntakeRouter {
                     outcome.savedCreated += r.episodesCreated
                     outcome.unchanged += r.duplicatesSkipped
                 } catch {
-                    outcome.failures.append("\(url.lastPathComponent): \(AddSourceSheet.friendlyError(error))")
+                    outcome.failures.append(IntakeFailureWords.line(name: url.lastPathComponent, error: error))
                 }
             }
             await self.store?.refresh([.channels, .status, .sources, .sourcesOverview, .graph, .banks])
@@ -677,7 +753,7 @@ final class IntakeRouter {
                     }
                     results.append(IntakeFileSniff(url: url, sniff: s))
                 } catch {
-                    results.append(IntakeFileSniff(url: url, error: AddSourceSheet.friendlyError(error)))
+                    results.append(IntakeFileSniff(url: url, error: IntakeFailureWords.reason(error)))
                 }
             }
             switch IntakePreview.aggregate(results, capped: capped) {
@@ -734,7 +810,7 @@ final class IntakeRouter {
         var outcome = IntakeOutcome(vendor: preview.vendor, origin: preview.origin)
         for url in preview.chatFiles {
             do {
-                let r = try await tracked { try await api.importIntake(fileURL: url, bank: nil) }
+                let r = try await tracked { try await api.importIntake(fileURL: url, bank: nil, choice: preview.choice) }
                 if let job = r.job {
                     let status = try await follow(job, gen: -1, progress: progress)
                     outcome.add(created: status.created, updated: status.updated, unchanged: status.skipped, response: r)
@@ -742,7 +818,7 @@ final class IntakeRouter {
                     outcome.add(created: r.episodesStaged, updated: r.episodesUpdated, unchanged: r.duplicatesSkipped, response: r)
                 }
             } catch {
-                outcome.failures.append("\(url.lastPathComponent): \(AddSourceSheet.friendlyError(error))")
+                outcome.failures.append(IntakeFailureWords.line(name: url.lastPathComponent, error: error))
             }
         }
         for url in preview.savedFiles {
@@ -751,7 +827,7 @@ final class IntakeRouter {
                 outcome.savedCreated += r.episodesCreated
                 outcome.unchanged += r.duplicatesSkipped
             } catch {
-                outcome.failures.append("\(url.lastPathComponent): \(AddSourceSheet.friendlyError(error))")
+                outcome.failures.append(IntakeFailureWords.line(name: url.lastPathComponent, error: error))
             }
         }
         await store?.refresh([.channels, .status, .sources, .sourcesOverview, .graph, .banks])

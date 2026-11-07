@@ -10,7 +10,7 @@ extension LastCycleRow {
     /// `runBilling` is how THIS run was billed (`runBilling(usage:summary:)`), never today's engine preview — changing
     /// the scheduled engine afterwards does not rewrite what an old run is said to have spent.
     static func runRows(drain: SleepDrainInfo?, paused: SleepPausedRun?, run: SleepRunRef?, detail: SleepRunDetail?,
-                        parkedCount: Int, runBilling: String?, reserveValue: String?,
+                        parkedCount: Int, runBilling: String?, reserveValue: String?, planIsBack: Bool = false,
                         locale: Locale = .autoupdatingCurrent) -> [LastCycleRow] {
         var rows: [LastCycleRow] = []
         if let drain, drain.byOrigin != nil || drain.batchState != nil {
@@ -45,21 +45,23 @@ extension LastCycleRow {
         }
         if let paused {
             let text: String
-            switch paused.reason {
+            switch planIsBack ? "plan_back" : paused.reason {
             case "reserve":
                 text = drain.map { Copy.SleepV5.pausedReserveText(batch: max(1, $0.batch), locale) }
                     ?? Copy.SleepV5.pausedText(filed: paused.filed, frozen: paused.frozen, locale)
             case "engine":
                 text = drain?.stop?.sentence ?? paused.sentence
                     ?? Copy.SleepV5.pausedText(filed: paused.filed, frozen: paused.frozen, locale)
-            case "plan_window", "plan_weekly", "overage":
+            case "plan_window", "plan_weekly", "overage", "key_limit", "spend":
                 text = paused.sentence ?? Copy.SleepV5.pausedText(filed: paused.filed, frozen: paused.frozen, locale)
             default:
                 text = Copy.SleepV5.pausedText(filed: paused.filed, frozen: paused.frozen, locale)
             }
             // A switch that was on but did not fire says why (`autoContinue.blocked`), never silence.
             let why = paused.autoContinue.flatMap { $0.armed ? nil : Copy.SleepV5.autoContinueBlocked($0.blocked) }
-            rows.append(LastCycleRow(kind: .paused, title: Copy.SleepV5.pausedTitle(paused.reason),
+            let titled = planIsBack ? "plan_back" : paused.reason == "engine" && paused.engineKind == "offline"
+                ? (paused.offlineCause == "connection" ? "connection" : "offline") : paused.reason
+            rows.append(LastCycleRow(kind: .paused, title: Copy.SleepV5.pausedTitle(titled),
                                      text: [text, why].compactMap { $0 }.joined(separator: " ")))
             if paused.reason == "reserve", let reserveValue {
                 rows.append(LastCycleRow(kind: .reserve, title: Copy.SleepV5.keepPlanFree,
@@ -215,7 +217,8 @@ struct RunWaitingBlock: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
+        // Lazy, like every "All N" (inbox freeze, 2026-10-29): "Show all" can open a queue of thousands.
+        LazyVStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
             if ownerReady {
                 HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
                     Image(systemName: "person.crop.circle")

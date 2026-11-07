@@ -128,10 +128,14 @@ struct EpisodeSpan: Codable, Hashable {
         self.kind = kind
     }
 
-    enum CodingKeys: String, CodingKey { case episode, text, before, after, start, end, length, stale, grown, kind }
+    /// ROR-16 (G235) — the words are held back: `text`, `before` and `after` are empty.
+    var held = false
+
+    enum CodingKeys: String, CodingKey { case episode, text, before, after, start, end, length, stale, grown, kind, held }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        held = try c.decodeIfPresent(Bool.self, forKey: .held) ?? false
         episode = try c.decodeIfPresent(String.self, forKey: .episode) ?? ""
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
         before = try c.decodeIfPresent(String.self, forKey: .before) ?? ""
@@ -311,9 +315,12 @@ struct EpisodeFocus: Codable, Hashable {
     let derived: Bool
     let stale: Bool
     let grown: Bool
+    /// ROR-16 — the one shape; nil against an older backend.
+    let span: SourceSpan?
 
     init(start: Int?, end: Int?, kind: EvidenceKind = .user, derived: Bool = false,
-         stale: Bool = false, grown: Bool = false) {
+         stale: Bool = false, grown: Bool = false, span: SourceSpan? = nil) {
+        self.span = span
         self.start = start
         self.end = end
         self.kind = kind
@@ -322,7 +329,7 @@ struct EpisodeFocus: Codable, Hashable {
         self.grown = grown
     }
 
-    enum CodingKeys: String, CodingKey { case start, end, kind, derived, stale, grown }
+    enum CodingKeys: String, CodingKey { case start, end, kind, derived, stale, grown, span }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -332,10 +339,12 @@ struct EpisodeFocus: Codable, Hashable {
         derived = try c.decodeIfPresent(Bool.self, forKey: .derived) ?? false
         stale = try c.decodeIfPresent(Bool.self, forKey: .stale) ?? false
         grown = try c.decodeIfPresent(Bool.self, forKey: .grown) ?? false
+        span = try c.decodeIfPresent(SourceSpan.self, forKey: .span)
     }
 
     /// `[start, end)` when the server sent a washable pair, else nil.
     var range: Range<Int>? {
+        if let span { return span.range }
         guard let start, let end, start >= 0, end > start else { return nil }
         return start..<end
     }
@@ -403,8 +412,8 @@ struct EpisodeWatch: Codable, Hashable {
     }
 }
 
-/// Ruling 32 — a conversation a hookless app's model relayed through the remote connector, until an export upgrades
-/// it: `app` is the connector catalog's id, `label` its name ("ChatGPT"), the person's own app. Both may be nil.
+/// Rulings 32, 57 — a conversation a hookless app's model relayed (the remote connector, or the desktop app's own
+/// connection), until an export upgrades it: `app` is the connector catalog's id, `label` its name ("ChatGPT"), the person's own app. Both may be nil.
 struct EpisodeRelay: Codable, Hashable {
     var app: String? = nil
     var label: String? = nil
@@ -442,6 +451,8 @@ struct EpisodeText: Codable, Hashable {
     let origin: String?
     let conversationId: String?
     let captureKind: String?
+    /// ROR-16 — what this source is (`source_spans.kind_of`); nil against an older backend, read as a conversation.
+    var sourceKind: String? = nil
     let turns: [EpisodeTurn]
     let focus: EpisodeFocus?
     /// Round-4 C4 — nil against a backend before D1 and for a harness that never
@@ -468,6 +479,8 @@ struct EpisodeText: Codable, Hashable {
     /// date); nil when the two are the same day or two, for a page, for an episode from before the ruling and from an
     /// older backend.
     var receivedAt: String? = nil
+    /// ROR-15 — Notes' own id for an Apple Note, so the note on screen can be drawn as Notes draws it; nil otherwise.
+    var noteId: String? = nil
 
     var isPage: Bool { kind == "page" }
     var isPageRead: Bool { source == EvidenceSpeaker.pageReadSource }
@@ -500,7 +513,7 @@ struct EpisodeText: Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case episode, kind, text, length, hash, truncated, title, timestamp, harness, origin
-        case conversationId, captureKind, turns, focus, agent, watch, source, correspondent, device, relay, site, unsent
+        case conversationId, captureKind, sourceKind, turns, focus, agent, watch, source, correspondent, device, relay, site, unsent
         case receivedAt
     }
 
@@ -524,6 +537,7 @@ struct EpisodeText: Codable, Hashable {
         harness = try c.decodeIfPresent(String.self, forKey: .harness)
         origin = try c.decodeIfPresent(String.self, forKey: .origin)
         conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
+        sourceKind = try c.decodeIfPresent(String.self, forKey: .sourceKind)
         captureKind = try c.decodeIfPresent(String.self, forKey: .captureKind)
         turns = try c.decodeIfPresent([EpisodeTurn].self, forKey: .turns) ?? []
         focus = try c.decodeIfPresent(EpisodeFocus.self, forKey: .focus)

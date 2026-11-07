@@ -85,6 +85,7 @@ final class MessagesWatcherTests: XCTestCase {
     private var bank = "alpha"
 
     override func setUp() async throws {
+        ContactsTrap.install()   // never this Mac's Contacts service (#527 review)
         synthetic = try SyntheticChatDB()
         defaults = UserDefaults(suiteName: "Messages-\(UUID().uuidString)")!
         instinct = synthetic.chat("+15550000001")
@@ -101,7 +102,24 @@ final class MessagesWatcherTests: XCTestCase {
         MessagesWatcher(api: api, reader: MessagesReader(database: synthetic.url), defaults: defaults,
                         folder: synthetic.dir, debounce: .milliseconds(10), minimumInterval: .zero,
                         makeWatch: { _, _ in nil }, bank: { [unowned self] in self.bank },
-                        lookUpCards: { handles in cards.filter { handles.contains($0.key) } })
+                        lookUpCards: { handles in cards.filter { handles.contains($0.key) } },
+                        lookUpContactsAllowed: { false })
+    }
+
+    /// The guard (#527 review): a watcher built as the app builds it — every default — reaches Contacts only through
+    /// `MessagesContacts`' doors, which the trap answers, so no test here can touch `contactsd` or the address book.
+    func testNoWatcherReachesThisMacsContacts() async throws {
+        let api = FakeMessagesAPI()
+        api.ticked = [instinctId]
+        let defaulted = MessagesWatcher(api: api, reader: MessagesReader(database: synthetic.url), defaults: defaults,
+                                        folder: synthetic.dir, debounce: .milliseconds(10), minimumInterval: .zero,
+                                        makeWatch: { _, _ in nil }, bank: { [unowned self] in self.bank })
+        await defaulted.bankChanged()
+        await defaulted.loadList()
+        XCTAssertGreaterThan(ContactsTrap.knocks, 0, "the default look-ups go through the trapped doors")
+        XCTAssertFalse(MessagesContacts.allowed, "the trap, never this Mac's answer")
+        let cards = await MessagesContacts.cards(for: ["+15550000001"])
+        XCTAssertTrue(cards.isEmpty)
     }
 
     private var instinctId: String { MessagesReader.conversationId(chatGuid: "iMessage;-;+15550000001") }
@@ -141,7 +159,61 @@ final class MessagesWatcherTests: XCTestCase {
         XCTAssertEqual((api.posts.last?["messages"] as? [Any])?.count, 1)
     }
 
+    /// 2026-11-03 (live) — a pass over a ticked conversation with nothing new posts nothing (the backend's last sync
+    /// stays where it was) and still says when it checked and the newest message in it; another memory with nothing
+    /// ticked says nothing.
+    func testAQuietPassSaysWhenItCheckedWithoutPosting() async throws {
+        let api = FakeMessagesAPI()
+        let checkedAt = Date(timeIntervalSince1970: 1_793_000_000)
+        let w = MessagesWatcher(api: api, reader: MessagesReader(database: synthetic.url), defaults: defaults,
+                                folder: synthetic.dir, debounce: .milliseconds(10), minimumInterval: .zero,
+                                makeWatch: { _, _ in nil }, bank: { [unowned self] in self.bank },
+                                lookUpCards: { _ in [:] }, lookUpContactsAllowed: { false }, clock: { checkedAt })
+        XCTAssertNil(w.check, "nothing is said before a pass")
+        await w.loadList()
+        let conversation = try XCTUnwrap(w.conversations.first { $0.id == instinctId })
+        try await w.setTicked(conversation, true)
+        let posted = api.posts.count
+        _ = try await w.syncNow()
+        XCTAssertEqual(api.posts.count, posted, "nothing new: nothing posted, so the backend's last sync cannot move")
+        XCTAssertNotNil(conversation.lastActivity)
+        XCTAssertEqual(w.check, ChatCheck(at: checkedAt, newest: conversation.lastActivity))
+        api.ticked = []
+        bank = "beta"
+        await w.bankChanged()
+        XCTAssertNil(w.check, "another memory with nothing ticked says nothing")
+    }
+
     /// 250 chats, the ticked one the oldest: the Settings list stops at 200, the pass reads it by its own id anyway.
+    /// #527 review B3: at launch the first pass runs before the list or the bubbles read any card. It looks the
+    /// one-to-one handle up itself, and says "" (none or several cards) only for a handle it really looked up.
+    private func launchContact(allowed: Bool, card: MessagesContactCard?) async -> (posts: Int, contact: Any?) {
+        let api = FakeMessagesAPI()
+        api.ticked = [instinctId]
+        let w = watcher(api, cards: card.map { ["+15550000001": $0] } ?? [:])
+        w.lookUpContactsAllowed = { allowed }
+        await w.bankChanged()
+        return (api.posts.count, (api.posts.first?["conversation"] as? [String: Any])?["contact"])
+    }
+
+    func testTheLaunchPassKeepsTheStoredCardWhenContactsCannotBeRead() async {
+        let out = await launchContact(allowed: false, card: nil)
+        XCTAssertEqual(out.posts, 1)
+        XCTAssertNil(out.contact, "not looked up: nothing said about a card, so the backend keeps the stored one")
+    }
+
+    func testTheLaunchPassLooksTheHandleUpBeforePosting() async {
+        let out = await launchContact(allowed: true, card: MessagesContactCard(name: "Instinct", thumbnail: nil,
+                                                                               id: "CARD-1"))
+        XCTAssertEqual(out.contact as? String, "CARD-1")
+    }
+
+    func testTheLaunchPassClearsOnlyAHandleItLookedUp() async {
+        // Several cards hold it (no single id), and it WAS looked up: "" clears the stored one.
+        let out = await launchContact(allowed: true, card: MessagesContactCard(name: "Instinct", thumbnail: nil, id: nil))
+        XCTAssertEqual(out.contact as? String, "")
+    }
+
     func testATickedChatBelowTheListCapStillSyncs() async throws {
         for i in 0..<248 {
             let chat = synthetic.chat(String(format: "+1555100%04d", i))

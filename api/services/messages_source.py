@@ -6,7 +6,19 @@ never does and never opens that path) and reads only the conversations the perso
 reaction/edit/unsend columns and its attachments' *names*. This module parses what it posts — the ``attributedBody``
 through :mod:`typedstream` — and stages it through ``episode_staging``; nothing here reads a database or a file the
 request names. A conversation the person has not ticked is refused (409) whatever the app posts, so a newer or buggier
-app cannot widen what is stored. Group chats are out of this slice.
+app cannot widen what is stored.
+
+**Group chats** (2026-10-28, G179). A group the person ticks is read like a one-to-one chat, under the same rails.
+Each member is one stable **participant key** per chat — the app's hash of the chat and the member's handle, so it
+never carries a phone number or an address and never links two chats by itself — posted with the name the person
+sees for them (their Contacts card, else nothing: the backend never keeps a handle). Every turn carries its speaker:
+``user:`` for the person, ``speaker:<label>:`` for each member (a label per member, unique in the chat), and
+``assistant:`` for the one member whose own one-to-one chat the person marked an AI agent. The episode records
+``group: true`` and ``participants: [{key, marker, name?, kind}]`` — who each marker is — and no ``correspondent``:
+a group is nobody's page. Members reach person pages only through the existing rules (promotion, ``role_people``,
+name leads); in a group only the person's own lines count as their words (`promotion.person_kinds`), and a claim
+resting on one member's lines is that member's (``external:<member>``, `entity_extractor`). A turn's addressee is
+recorded only where the source says so — the speaker of the message it replies to (`turn_signals`) — never guessed.
 
 **Shape.** One episode per *sitting*: messages more than :data:`SITTING_GAP` apart start a new one. The coordinator's
 measurement of the owner's agent conversation (907 rows since 2026-09-03): a 1 h gap gives 87 sittings, 3 h gives 55
@@ -51,8 +63,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import (agent_detectors, episode_ids, episode_staging, evidence, markdown_parser, turn_extras,
-                          typedstream)
+from api.services import (agent_detectors, contact_identity, episode_ids, episode_staging, evidence, markdown_parser, phone_numbers,
+                          turn_extras, typedstream)
 from api.services.agent_detectors import Actor, ConversationMeta
 from api.services.episode_staging import EpisodeDraft, Turn
 from api.services.id_utils import sanitize_id
@@ -73,6 +85,9 @@ MESSAGE_CAP = 4000
 ATTACHMENT_NAME_CAP = 120
 #: A conversation id is a hash the app makes of ``chat.guid`` — never the phone number or address inside it.
 CONVERSATION_ID_RE = re.compile(r"^[0-9a-f]{16,64}$")
+#: A group member's participant key: the app's hash of the chat's guid and the member's handle (G179 groups).
+MEMBER_KEY_RE = re.compile(r"^[0-9a-f]{16,64}$")
+MAX_MEMBERS = 50
 #: Seconds from 1970-01-01 to Apple's 2001-01-01 epoch, which ``message.date`` counts from.
 APPLE_EPOCH = 978_307_200
 _LOCK = threading.RLock()
@@ -107,7 +122,7 @@ def _clean_name(value) -> str:
 
 
 def load_settings(memory_path: Path) -> dict:
-    """``{suggest_agents, conversations: {id: {name, service, ticked, actor?, history}}}`` — never raises."""
+    """``{suggest_agents, conversations: {id: {name, service, ticked, actor?, history, pinned}}}`` — never raises."""
     try:
         data = json.loads(settings_path(memory_path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -127,6 +142,8 @@ def load_settings(memory_path: Path) -> dict:
             "ticked": bool(entry.get("ticked")),
             "actor": actor,
             "history": [h for h in entry.get("history") or [] if isinstance(h, dict)][-50:],
+            # 2026-11-03 — the person's pin on the Sources page (`chat_live.load_settings`'s rule).
+            "pinned": bool(entry.get("pinned")),
         }
     return {"suggest_agents": bool(data.get("suggest_agents", True)), "conversations": conversations}
 
@@ -143,8 +160,8 @@ def update_settings(memory_path: Path, *, suggest_agents: bool | None = None, co
                     now: str | None = None) -> tuple[dict, bool]:
     """Tick or untick one conversation, or mark who it is with; ``(settings, actor_changed)``.
 
-    ``conversation``: ``{id, name?, service?, ticked?, actor?}`` where ``actor`` is ``{kind: agent|person, label?}``
-    or ``{kind: null}`` to clear the person's mark. Every mark is kept in the entry's ``history`` (the spec: "persist
+    ``conversation``: ``{id, name?, service?, ticked?, actor?, pinned?}`` where ``actor`` is ``{kind: agent|person,
+    label?}`` or ``{kind: null}`` to clear the person's mark; ``pinned`` is the Sources page's pin (2026-11-03). Every mark is kept in the entry's ``history`` (the spec: "persist
     attribution corrections with their history"). Unticking keeps the entry, and every saved episode."""
     memory_path = Path(memory_path)
     at = now or episode_ids.utc_now_iso()
@@ -158,7 +175,9 @@ def update_settings(memory_path: Path, *, suggest_agents: bool | None = None, co
             if not CONVERSATION_ID_RE.match(cid):
                 raise PayloadError("a conversation id is the app's hash of the chat, 16–64 hex characters")
             entry = data["conversations"].setdefault(cid, {"name": "", "service": "iMessage", "ticked": False,
-                                                            "actor": None, "history": []})
+                                                            "actor": None, "history": [], "pinned": False})
+            if conversation.get("pinned") is not None:
+                entry["pinned"] = bool(conversation["pinned"])
             if conversation.get("name"):
                 entry["name"] = _clean_name(conversation["name"])
             if conversation.get("service") in SERVICES:
@@ -232,8 +251,10 @@ class Message:
     reply_to: str | None = None
     #: ``[{kind, name, size?, mime?}]`` — never a path, never a byte.
     files: list[dict] = field(default_factory=list)
-    #: ``[{from_me, kind, emoji?}]``, one per reactor, in the order they reacted.
+    #: ``[{from_me, kind, emoji?, sender?}]``, one per reactor, in the order they reacted.
     reactions: list[dict] = field(default_factory=list)
+    #: A group member's participant key (never the person's own message, never a handle).
+    sender: str | None = None
 
 
 @dataclass
@@ -246,6 +267,7 @@ class Reaction:
     remove: bool
     ts: str
     order: int
+    sender: str | None = None
 
 
 #: ``associated_message_type`` → kind: 2000–2007 add a tapback, 3000–3007 remove it; 1000 is a sticker placed on a
@@ -338,7 +360,15 @@ def reaction_from_row(row: dict, ts: str) -> Reaction | None:
     if kind != "emoji":
         emoji = turn_extras.REACTION_EMOJI.get(kind)
     return Reaction(target=target, from_me=bool(row.get("is_from_me")), kind=kind, emoji=emoji, remove=remove,
-                    ts=ts, order=_int(row.get("rowid")))
+                    ts=ts, order=_int(row.get("rowid")), sender=_sender(row))
+
+
+def _sender(row: dict) -> str | None:
+    """A group row's participant key — the app's hash, never a handle; ``None`` for the person's own row."""
+    if row.get("is_from_me"):
+        return None
+    key = str(row.get("sender") or "").strip().lower()
+    return key if MEMBER_KEY_RE.match(key) else None
 
 
 def _file(att: dict) -> dict:
@@ -389,7 +419,7 @@ def message_from_row(row: dict, counts: Counts) -> tuple[str, Message | Reaction
     if retracted or (edited and not words and not attachments):
         counts.unsent += 1
         return "unsent", Message(key=key, ts=ts, from_me=bool(row.get("is_from_me")), text="", unsent=True,
-                                 order=_int(row.get("rowid")))
+                                 order=_int(row.get("rowid")), sender=_sender(row))
     named = [f"[{_attachment_word(a)}: {_attachment_name(a)}]" for a in attachments[:10]]
     if not words and not named:
         counts.empty += 1
@@ -403,7 +433,7 @@ def message_from_row(row: dict, counts: Counts) -> tuple[str, Message | Reaction
     line = _fold(" ".join([words] + named if words else named))
     return "kept", Message(key=key, ts=ts, from_me=bool(row.get("is_from_me")), text=line, edited=edited,
                            attachments=len(named), order=_int(row.get("rowid")), reply_to=reply,
-                           files=[_file(a) for a in attachments[:10]])
+                           files=[_file(a) for a in attachments[:10]], sender=_sender(row))
 
 
 # --- Stored sittings ------------------------------------------------------------------------------------------------
@@ -444,6 +474,7 @@ def stored_sitting(entry: episode_staging.IndexEntry) -> Sitting | None:
     messages: list[Message] = []
     offset = 0
     previous: str | None = None
+    senders = {p["marker"]: p["key"] for p in participants_of(parsed.frontmatter)}
     for i, (line, key) in enumerate(zip(lines, keys)):
         marker, sep, text = line.partition(": ") if not line.startswith("speaker:") else _split_speaker(line)
         # Past the sidecar's head-stable cap (500) a turn carries no time: it is no earlier than the one before it.
@@ -451,8 +482,9 @@ def stored_sitting(entry: episode_staging.IndexEntry) -> Sitting | None:
         if not sep or not ts or marker not in ("user", "assistant") and not marker.startswith("speaker:"):
             return None
         # Odd positions for what was said, even ones for an unsent message before it: same-second ties keep order.
-        message = Message(key=str(key), ts=ts, from_me=marker == "user", text=text, order=2 * i + 1)
-        _restore_extras(message, extras.get(offset) or {}, starts)
+        message = Message(key=str(key), ts=ts, from_me=marker == "user", text=text, order=2 * i + 1,
+                          sender=senders.get(marker) if marker != "user" else None)
+        _restore_extras(message, extras.get(offset) or {}, starts, senders)
         messages.append(message)
         previous = ts
         offset += len(line) + 1
@@ -462,11 +494,12 @@ def stored_sitting(entry: episode_staging.IndexEntry) -> Sitting | None:
             continue
         before = sum(1 for at in starts if at < int(gone["at"]))
         messages.append(Message(key=str(gone["ref"]), ts=ts, from_me=gone.get("speaker") == "user", text="",
-                                unsent=True, order=2 * before))
+                                unsent=True, order=2 * before, sender=senders.get(str(gone.get("speaker") or ""))))
     return Sitting(source_id=str(entry.fm.get("source_id")), messages=messages)
 
 
-def _restore_extras(message: Message, stored: dict, starts: dict[int, str]) -> None:
+def _restore_extras(message: Message, stored: dict, starts: dict[int, str], senders: dict[str, str] | None = None
+                    ) -> None:
     """A stored turn's extras back onto its message, so a pass that rebuilds the sitting keeps them."""
     message.edited = stored.get("edited") is True
     message.files = [f for f in stored.get("attachments") or [] if isinstance(f, dict)]
@@ -476,8 +509,10 @@ def _restore_extras(message: Message, stored: dict, starts: dict[int, str]) -> N
         message.reply_to = starts.get(reply)
     elif isinstance(reply, dict) and reply.get("ref"):
         message.reply_to = str(reply["ref"])
+    senders = senders or {}
     message.reactions = [{"from_me": r.get("by") == "user", "kind": r.get("kind"),
-                          **({"emoji": r["emoji"]} if r.get("emoji") else {})}
+                          **({"emoji": r["emoji"]} if r.get("emoji") else {}),
+                          **({"sender": senders[r["by"]]} if r.get("by") in senders else {})}
                          for r in stored.get("reactions") or [] if isinstance(r, dict) and r.get("kind")]
 
 
@@ -508,23 +543,113 @@ def _title(actor: Actor, first_ts: str) -> str:
     return f"Messages with {actor.label} · {first_ts[:10]}"
 
 
-def sitting_draft(cid: str, source_id: str, messages: list[Message], actor: Actor, service: str) -> EpisodeDraft:
+def participants_of(fm: dict | None) -> list[dict]:
+    """A group sitting's ``participants`` record, tolerant: ``[{key, marker, name?, kind}]``."""
+    out = []
+    for p in (fm or {}).get("participants") or []:
+        if isinstance(p, dict) and MEMBER_KEY_RE.match(str(p.get("key") or "")) and p.get("marker"):
+            out.append(p)
+    return out
+
+
+@dataclass
+class Group:
+    """Who a group chat's members are: participant key -> marker and record (`members_of`)."""
+    name: str
+    markers: dict[str, str]
+    record: list[dict]
+
+
+def _member_label(name: str, key: str, used: set[str]) -> str:
+    label = sanitize_id(name)[:48].strip("-") if name else ""
+    if not label or label == "unnamed":
+        label = f"member-{key[:6]}"
+    base, n = label, 2
+    while label in used:
+        label, n = f"{base}-{n}", n + 1
+    used.add(label)
+    return label
+
+
+def members_of(settings: dict, conversation: dict, stored: list[dict] = ()) -> Group:
+    """The group's members, from what the app posted (``members: [{key, name?, direct?}]``) over what the stored
+    sittings recorded, so a member keeps their marker when a pass names nobody new. A member is ``assistant`` only
+    when the person marked their own one-to-one chat (``direct``) an AI agent, and only when exactly one member is —
+    two agents would share one marker, so then both stay ``speaker:``. Never a handle: a name that looks like a phone
+    number or an address is dropped (`_clean_name`)."""
+    names: dict[str, str] = {}
+    cards: dict[str, str | None] = {}
+    agents: list[str] = []
+    order: list[str] = []
+    for p in stored:
+        key = str(p.get("key"))
+        if key not in names:
+            order.append(key)
+        names[key] = _clean_name(p.get("name"))
+        cards[key] = contact_identity.clean_card_id(p.get("contact"))
+    for raw in (conversation.get("members") or [])[:MAX_MEMBERS]:
+        if not isinstance(raw, dict):
+            continue
+        key = str(raw.get("key") or "").strip().lower()
+        if not MEMBER_KEY_RE.match(key):
+            continue
+        if key not in names:
+            order.append(key)
+        name = _clean_name(raw.get("name"))
+        names[key] = name or names.get(key, "")
+        # The ONE address-book card the app found for this member's handle (`contact_identity`), never the handle.
+        # Absent (None) keeps the stored card; "" says none or several cards hold the handle now, and clears it.
+        if raw.get("contact") is not None:
+            cards[key] = contact_identity.clean_card_id(raw.get("contact"))
+        direct = str(raw.get("direct") or "")
+        mark = (settings["conversations"].get(direct) or {}).get("actor") if CONVERSATION_ID_RE.match(direct) else None
+        if isinstance(mark, dict) and mark.get("kind") == agent_detectors.AGENT:
+            agents.append(key)
+    agent = agents[0] if len(set(agents)) == 1 else None
+    used: set[str] = set()
+    markers: dict[str, str] = {}
+    record: list[dict] = []
+    for key in order:
+        marker = "assistant" if key == agent else f"speaker:{_member_label(names[key], key, used)}"
+        markers[key] = marker
+        record.append({"key": key, "marker": marker, **({"name": names[key]} if names[key] else {}),
+                       "kind": agent_detectors.AGENT if key == agent else agent_detectors.PERSON,
+                       **({"contact": cards[key]} if cards.get(key) and key != agent else {})})
+    title = _clean_name(conversation.get("display_name")) or _clean_name(conversation.get("name"))
+    return Group(name=title, markers=markers, record=record)
+
+
+UNKNOWN_MEMBER = "speaker:member"
+
+
+def sitting_draft(cid: str, source_id: str, messages: list[Message], actor: Actor, service: str,
+                  group: Group | None = None, contact: str | None = None, own: bool = False) -> EpisodeDraft:
     """One sitting's episode: a line per message said, and beside the words (`turn_extras`) each message's reactions,
     reply target, attachments and edit, and where an unsent message was. ``messages`` are in order; at least one was
-    said."""
+    said. ``group``: each member's lines under their own marker, and who each marker is recorded beside the words.
+    ``own`` (chats-ux-v2, 2026-10-29): the person's note to self — every line theirs, whichever device sent it, no
+    correspondent and no card (their own card belongs to their own page, G169)."""
     counterpart = _counterpart_marker(actor)
+
+    def who(from_me: bool, sender: str | None) -> str:
+        if from_me or own:
+            return "user"
+        if group is None:
+            return counterpart
+        return group.markers.get(str(sender or ""), UNKNOWN_MEMBER)
+
     spoken = [m for m in messages if not m.unsent]
     index_of = {m.key: i for i, m in enumerate(spoken)}
     turns: list[Turn] = []
     unsent: list[dict] = []
     for m in messages:
-        marker = "user" if m.from_me else counterpart
+        marker = who(m.from_me, m.sender)
         if m.unsent:
             unsent.append({"before": len(turns), "speaker": marker, "ts": m.ts, "ref": m.key})
             continue
         extras: dict = {}
         if m.reactions:
-            extras["reactions"] = [{"by": "user" if r.get("from_me") else counterpart, "kind": r.get("kind"),
+            extras["reactions"] = [{"by": who(bool(r.get("from_me")), r.get("sender")), "kind": r.get("kind"),
                                     **({"emoji": r["emoji"]} if r.get("emoji") else {})} for r in m.reactions]
         if m.reply_to:
             extras["reply_to"] = index_of[m.reply_to] if m.reply_to in index_of else {"ref": m.reply_to}
@@ -534,10 +659,24 @@ def sitting_draft(cid: str, source_id: str, messages: list[Message], actor: Acto
             extras["edited"] = True
         turns.append(Turn(m.text, marker, m.ts, extras=extras or None))
     first, last = spoken[0].ts, spoken[-1].ts
+    if group is not None:
+        said = {who(m.from_me, m.sender) for m in messages} | {
+            who(bool(r.get("from_me")), r.get("sender")) for m in messages for r in m.reactions}
+        who_is = [p for p in group.record if p["marker"] in said]
+        record = {"group": True, "participants": who_is}
+        title = f"Messages · {group.name} · {first[:10]}" if group.name else f"Messages · group · {first[:10]}"
+    elif own:
+        record = {"self_chat": True}
+        title = f"Messages · notes to yourself · {first[:10]}"
+    else:
+        # A person's one address-book card, by id (`contact_identity`): their page across every source.
+        card = contact if actor.kind == agent_detectors.PERSON else None
+        record = {"correspondent": {**actor.to_dict(), **({"contact": card} if card else {})}}
+        title = _title(actor, first)
     return EpisodeDraft(
-        title=_title(actor, first), source_id=source_id, source_updated_at=last, timestamp=first,
+        title=title, source_id=source_id, source_updated_at=last, timestamp=first,
         original_date=episode_ids.id_day(first), source=SOURCE, origin=ORIGIN, turns=turns, unsent=unsent,
-        extra={"conversation": cid, "service": service, "correspondent": actor.to_dict(),
+        extra={"conversation": cid, "service": service, **record,
                "message_count": len(spoken), "from_person": sum(1 for m in spoken if m.from_me),
                "sitting_first_at": first, "sitting_last_at": last,
                "message_keys": [m.key for m in spoken]},
@@ -575,12 +714,13 @@ def apply_reactions(by_key: dict[str, Message], reactions: list[Reaction], count
             if counts is not None:
                 counts.reactions_orphaned += 1
             continue
+        mine = lambda x: bool(x.get("from_me")) == r.from_me and x.get("sender") == r.sender  # noqa: E731
         if r.remove:
-            target.reactions = [x for x in target.reactions
-                                if not (bool(x.get("from_me")) == r.from_me and x.get("kind") == r.kind)]
+            target.reactions = [x for x in target.reactions if not (mine(x) and x.get("kind") == r.kind)]
         else:
-            target.reactions = [x for x in target.reactions if bool(x.get("from_me")) != r.from_me] + [
-                {"from_me": r.from_me, "kind": r.kind, **({"emoji": r.emoji} if r.emoji else {})}]
+            target.reactions = [x for x in target.reactions if not mine(x)] + [
+                {"from_me": r.from_me, "kind": r.kind, **({"emoji": r.emoji} if r.emoji else {}),
+                 **({"sender": r.sender} if r.sender else {})}]
         if counts is not None:
             counts.reactions_kept += 1
 
@@ -647,7 +787,7 @@ def plan_sittings(cid: str, stored: list[Sitting], incoming: list[Message], reac
 
 
 #: What a sitting's draft decides beyond its words: who the conversation is with, and the title that names them.
-RECORD_KEYS = ("correspondent", "title")
+RECORD_KEYS = ("correspondent", "title", "participants")
 
 
 def _stage(drafts: list[EpisodeDraft], episodes_dir: Path, index: dict[str, episode_staging.IndexEntry], *,
@@ -668,12 +808,19 @@ def _stage(drafts: list[EpisodeDraft], episodes_dir: Path, index: dict[str, epis
         entry = index.get(str(draft.source_id)) if verdict == "skipped" else None
         if entry is None:
             continue
-        wanted = {"correspondent": draft.extra.get("correspondent"), "title": draft.title}
-        if all(entry.fm.get(k) == wanted[k] for k in RECORD_KEYS):
+        wanted = {k: v for k, v in (("correspondent", draft.extra.get("correspondent")), ("title", draft.title),
+                                    ("participants", draft.extra.get("participants")),
+                                    ("self_chat", draft.extra.get("self_chat"))) if v is not None}
+        # As stored (review of #560): a scrubbed value compared raw would read as changed on every sync.
+        wanted = episode_staging.stored_meta(wanted)
+        if all(entry.fm.get(k) == wanted[k] for k in wanted):
             continue
         if episode_staging.reattribute(entry.path, extra=wanted, queue_for_sleep=draft.queue_for_sleep):
             recorded += 1
             staged.paths.append(f"{episodes_dir.name}/{entry.path.name}")
+    from api.services import chat_live   # lazy: chat_live imports this module
+
+    recorded += chat_live.drop_stale_correspondents(drafts, episodes_dir, index, staged)
     return staged, recorded
 
 
@@ -703,8 +850,6 @@ def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict
     cid = str(conversation.get("id") or "")
     if not CONVERSATION_ID_RE.match(cid):
         raise PayloadError("a conversation id is the app's hash of the chat, 16–64 hex characters")
-    if conversation.get("group"):
-        raise PayloadError("group conversations are not read yet")
     service = str(conversation.get("service") or "iMessage")
     if service not in SERVICES:
         raise PayloadError(f"service is one of {', '.join(sorted(SERVICES))}")
@@ -735,8 +880,25 @@ def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict
                 stored.append(sitting)
             else:
                 unreadable.add(str(e.fm.get("source_id")))
+        # Ruling 55: a number in the person's own new words, as its token; a stored line never moves.
+        phone_numbers.tokenise_batch(incoming, {m.key: m for s in stored for m in s.messages}, writer=SCRUB_WRITER,
+                                     bank=Path(memory_path))
         planned, gone = plan_sittings(cid, stored, incoming, reactions, reserved=frozenset(unreadable), counts=counts)
-        drafts = [sitting_draft(cid, sid, msgs, actor, service) for sid, msgs in planned]
+        group = None
+        if conversation.get("group"):
+            known = [p for e in mine.values() for p in participants_of(e.fm)]
+            group = members_of(settings, conversation, known)
+        posted = conversation.get("contact") if not group else None
+        contact = contact_identity.clean_card_id(posted) if posted is not None else None
+        if posted is None and not group:
+            # A pass that names no card keeps the one the stored sittings recorded; "" (none or several cards now)
+            # clears it.
+            contact = next((contact_identity.clean_card_id((e.fm.get("correspondent") or {}).get("contact"))
+                            for e in mine.values() if isinstance(e.fm.get("correspondent"), dict)
+                            and (e.fm.get("correspondent") or {}).get("contact")), None)
+        own = group is None and bool(conversation.get("self_chat"))
+        drafts = [sitting_draft(cid, sid, msgs, actor, service, group, None if own else contact, own=own)
+                  for sid, msgs in planned]
         staged, recorded = _stage(drafts, episodes_dir, index, deleted=gone, bank=bank)
     return {"conversation": cid, "messages_seen": counts.seen, "kept": sum(1 for m in incoming if not m.unsent),
             "reactions": counts.reactions, "reactions_kept": counts.reactions_kept,
@@ -744,7 +906,8 @@ def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict
             "events": counts.events, "empty": counts.empty, "unsent": counts.unsent, "edited": counts.edited,
             "attachments": counts.attachments, "decoded": counts.decoded, "sittings": len(planned),
             "created": staged.created, "updated": staged.updated, "skipped": staged.skipped,
-            "tombstoned": staged.tombstoned, "recorded": recorded, "actor": actor.to_dict(), "paths": staged.paths}
+            "tombstoned": staged.tombstoned, "recorded": recorded, "actor": actor.to_dict(),
+            "group": group is not None, "paths": staged.paths}
 
 
 def reattribute(memory_path: Path, cid: str, *, bank: str | None = None) -> dict:
@@ -764,6 +927,8 @@ def reattribute(memory_path: Path, cid: str, *, bank: str | None = None) -> dict
             sitting = stored_sitting(e)
             if sitting is None or not any(not m.unsent for m in sitting.messages):
                 continue
+            if e.fm.get("group"):
+                continue   # a group's members are re-marked by its next pass (`members_of`), not by this mark
             stored_actor = e.fm.get("correspondent") if isinstance(e.fm.get("correspondent"), dict) else {}
             name = entry.get("name") or str(stored_actor.get("name") or "")
             detection = agent_detectors.Detection() if not settings.get("suggest_agents", True) else agent_detectors.Detection(
@@ -774,7 +939,9 @@ def reattribute(memory_path: Path, cid: str, *, bank: str | None = None) -> dict
             actor = agent_detectors.resolve_actor(name, entry.get("actor"), detection)
             ordered = sorted(sitting.messages, key=lambda m: (_instant(m.ts), m.order))
             drafts.append(sitting_draft(cid, sitting.source_id, ordered, actor,
-                                        str(e.fm.get("service") or entry.get("service") or "iMessage")))
+                                        str(e.fm.get("service") or entry.get("service") or "iMessage"),
+                                        contact=contact_identity.clean_card_id(stored_actor.get("contact")),
+                                        own=bool(e.fm.get("self_chat"))))
         staged, recorded = _stage(drafts, episodes_dir, mine, bank=bank)
     return {"updated": staged.updated, "recorded": recorded, "skipped": staged.skipped - recorded,
             "paths": staged.paths}

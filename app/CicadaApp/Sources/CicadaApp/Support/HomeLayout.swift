@@ -14,11 +14,39 @@ enum HomeLayout {
     /// The headline is Home's first content (the painted band retired, owner 2026-10-16; off since G189(a)): it takes
     /// the room pages' title inset (24 pt, `PageHeader`'s top), well inside DR-26's 120 pt.
     static let headlineTop: CGFloat = 24
-    static let headlineBottom: CGFloat = 20
+    /// ROR-118 — the headline and the field are the page's lead: the headline is 34 pt. Round 2: it starts a fifth of
+    /// the viewport down (24 pt at the least, 150 pt at the most), so the lead sits at the optical centre of the window
+    /// and the page is not all weight at the top over an empty lower half.
+    static let headlineSize: CGFloat = 34
+    static func headlineTop(viewportHeight: CGFloat) -> CGFloat {
+        min(140, max(headlineTop, (viewportHeight * 0.17).rounded()))
+    }
+    /// Round 3 — the worm over the headline. With it the lead is taller, so it starts 17 % of the viewport down (24 pt at
+    /// the least, 140 pt at the most) and the block sits at the window's optical centre.
+    /// Round 4 — drawn at 3 points to the art pixel (it was 2: 112 pt wide, soft beside the thin icons), an integer so
+    /// every pixel stays square and crisp, and cropped to the pixels the sprite ever draws (`greeterInk`, art pixels:
+    /// x 4–60, y 3–48 across every mood), so its transparent margin does not push the headline down.
+    static let greeterCell: CGFloat = 3
+    static let greeterInk = CGRect(x: 4, y: 3, width: 56, height: 45)
+    static let greeterGap: CGFloat = 12
+    static let headlineBottom: CGFloat = 26
     static let blockGap: CGFloat = 24
     /// The field is a block like the rest (owner 2026-10-06): the first card sits one block gap under it.
     static let fieldToFirstBlock: CGFloat = blockGap
     static let labelGap: CGFloat = 6
+    /// ROR-118 — the gap between the quiet rows of Today and Last read (no card, no label), and the lead question's
+    /// card inset.
+    static let pulseGap: CGFloat = 2
+    static let leadInset: CGFloat = 18
+    /// ROR-118 round 2 — a quiet row's glyph column (no tile) and its gap to the words, so every row's text starts on one
+    /// edge, under the lead card's own text.
+    static let rowGlyph: CGFloat = 20
+    static let leadPicture: CGFloat = 44
+    /// ROR-118 round 3 — a page chip's picture under Last read (the smallest `EntityPicture` draws is 20).
+    static let chipPicture: CGFloat = 22
+    /// Round 5 — the status line's gap between its segments (the separator dot sits in it): 12 pt, it was 8 and read as
+    /// one packed string.
+    static let statGap: CGFloat = 12
     static let bottomPadding: CGFloat = 64
     static let gutter: CGFloat = 40
     static let blockInset: CGFloat = 4

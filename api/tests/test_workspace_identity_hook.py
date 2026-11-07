@@ -17,8 +17,16 @@ def observer():
     return mod
 
 
-def test_real_pair_handles_subfolders_and_arbitrary_worktrees(tmp_path, repos):
+def real_git_observer():
+    """For a test about what real git answers, not how fast: `TIMEOUT_S` (0.1 s, unchanged) is the hook's own bound and
+    a loaded machine passes it; the synthetic-clock tests pin it."""
     mod = observer()
+    mod.TIMEOUT_S = 30.0
+    return mod
+
+
+def test_real_pair_handles_subfolders_and_arbitrary_worktrees(tmp_path, repos):
+    mod = real_git_observer()
     env = {"HOME": str(tmp_path), "PATH": os.environ["PATH"]}
     values = [mod.observe(str(repos[k]), home=tmp_path, environ=env) for k in ("root", "sub", "worker", "lexical")]
     assert [v["repo_root"] for v in values] == [str(repos[k]) for k in ("root", "root", "worker", "lexical")]
@@ -27,7 +35,7 @@ def test_real_pair_handles_subfolders_and_arbitrary_worktrees(tmp_path, repos):
 
 
 def test_clones_nested_repos_submodules_and_separate_git_dir(tmp_path, repos):
-    mod = observer()
+    mod = real_git_observer()
     clone, nested = tmp_path / "clone", repos["root"] / "nested"
     repos["git"]("clone", repos["root"], clone)
     repos["git"]("init", nested)
@@ -59,10 +67,13 @@ def test_fixed_argv_environment_and_shared_pair_deadline(tmp_path, monkeypatch):
            "GIT_CONFIG_VALUE_0": "x", "GIT_CONFIG_PARAMETERS": "x", "SECRET_EXAMPLE": "not inherited"}
     value = mod.observe("/synthetic/root/child;$(example)", home=tmp_path, environ=env, run=run, clock=lambda: now[0])
     assert value["repo_root"] == "/synthetic/root"
-    assert len(calls) == 2 and calls[0][3] == calls[1][3] == pytest.approx(10.1)
+    # D2 amended 2026-10-29: a third fixed read (the origin, hashed) shares the pair's one deadline.
+    assert len(calls) == 3 and calls[0][3] == calls[1][3] == calls[2][3] == pytest.approx(10.1)
+    assert calls[2][0][1:] == ["-c", "core.fsmonitor=false", "config", "--get", "remote.origin.url"]
     for argv, cwd, child_env, _ in calls:
         assert argv[0] == "/synthetic/git" and "core.fsmonitor=false" in argv
-        assert "rev-parse" in argv and "--path-format=absolute" in argv
+        assert ("rev-parse" in argv and "--path-format=absolute" in argv) or argv[-3:] == [
+            "config", "--get", "remote.origin.url"]
         assert cwd == "/synthetic/root/child;$(example)"
         assert child_env["GIT_OPTIONAL_LOCKS"] == "0" and child_env["GIT_CONFIG_GLOBAL"] == os.devnull
         assert "SECRET_EXAMPLE" not in child_env and "GIT_DIR" not in child_env

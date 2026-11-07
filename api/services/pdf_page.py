@@ -88,7 +88,9 @@ def render_first_page(data: bytes, *, timeout_s: float = TIMEOUT_S) -> bytes | N
     if not data or len(data) > MAX_PDF_BYTES or not looks_like_pdf(data):
         return None
     root = str(Path(__file__).resolve().parents[2])
-    env = dict(os.environ)
+    from api.services.connections.base import secretless_env
+
+    env = secretless_env()
     env["PYTHONPATH"] = os.pathsep.join(p for p in (root, env.get("PYTHONPATH", "")) if p)
     env["CICADA_CAPTURE"] = "off"
     env["CICADA_RECALL"] = "off"

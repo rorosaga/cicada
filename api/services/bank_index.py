@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import contextvars
 import hashlib
+import contextlib
+import itertools
 import os
 import threading
 from contextlib import contextmanager
@@ -24,6 +26,16 @@ parse_count = 0
 _lock = threading.Lock()
 # (bank path, subdir) -> {filename: IndexedFile}
 _cache: dict[tuple[str, str], dict[str, "IndexedFile"]] = {}
+
+
+#: A folder with more files than this to parse takes its per-folder guard first (see `_files`).
+_PARSE_GUARD_MIN = 32
+_PARSE_GUARDS: dict[tuple[str, str], threading.Lock] = {}
+
+
+def _parse_guard(key: tuple[str, str]) -> threading.Lock:
+    with _lock:
+        return _PARSE_GUARDS.setdefault(key, threading.Lock())
 
 
 @dataclass
@@ -57,13 +69,37 @@ class IndexedFile:
         return markdown_parser.body_of(self.path, content, self.frontmatter)
 
 
+#: (bank, subdir) -> the cache's generation: a number from one process-wide counter, taken anew whenever the folder's
+#: cached headers change (a file parsed, dropped, or the bank invalidated), so a value derived from one generation's
+#: entries (:func:`derived`) is exact while the generation holds. Never reused, so a cleared cache never matches.
+_GEN: dict[tuple[str, str], int] = {}
+_GEN_COUNTER = itertools.count(1)
+#: (bank, subdir) -> (the listing last reconciled with the cache, the generation that left). A listing is never mutated
+#: once made, so the same object again (a `shared_scans` memo, the SSE tick's seeded walk) at the same generation needs
+#: no second comparison of ~9k stamps (source page speed, 2026-10-29).
+_LISTED: dict[tuple[str, str], tuple[dict, int]] = {}
+#: (bank, subdir) -> (generation, the cached entries sorted by name): one sort per change, not per call.
+_SORTED: dict[tuple[str, str], tuple[int, list]] = {}
+#: (bank, subdir, name) -> (generation, value) for :func:`derived`.
+_DERIVED: dict[tuple[str, str, str], tuple[int, object]] = {}
+
+
+def _bump(key: tuple[str, str]) -> None:
+    """The folder's cached headers changed: a new generation. Called under ``_lock``."""
+    _GEN[key] = next(_GEN_COUNTER)
+
+
 def invalidate(memory_path: Path | None = None) -> None:
     with _lock:
         if memory_path is None:
             _cache.clear()
+            for key in list(_GEN):
+                _bump(key)
         else:
             for key in [k for k in _cache if k[0] == str(memory_path)]:
                 _cache.pop(key, None)
+            for key in [k for k in _GEN if k[0] == str(memory_path)]:
+                _bump(key)
 
 
 #: Audit A10 — a per-tick memo of `_scan`, set only by `shared_scans()`. A ContextVar, not a thread-local: the SSE
@@ -101,17 +137,52 @@ def _scan(directory: Path) -> dict[str, tuple[int, int]]:
 
 def _scan_uncached(directory: Path) -> dict[str, tuple[int, int]]:
     out: dict[str, tuple[int, int]] = {}
+    ledgers: dict[str, tuple[int, int]] = {}
     try:
         with os.scandir(directory) as it:
             for entry in it:
-                if entry.is_file() and entry.name.endswith(".md"):
+                name = entry.name
+                if name.endswith(".md"):
+                    if entry.is_file():
+                        st = entry.stat()
+                        out[name] = (st.st_mtime_ns, st.st_size)
+                elif name.endswith(LEDGER_SUFFIX) and entry.is_file():
                     st = entry.stat()
-                    out[entry.name] = (st.st_mtime_ns, st.st_size)
+                    ledgers[name] = (st.st_mtime_ns, st.st_size)
     except OSError:
         # Missing, a plain file, unreadable: an empty listing, never a raise into
         # /sync/version or an ETag (the old max-mtime stamp's contract).
         pass
+    with _lock:
+        seen = _LEDGERS.setdefault(str(directory), [])
+        seen.append((out, ledgers))
+        del seen[:-_LEDGERS_KEPT]
     return out
+
+
+#: ``claims_ledger.SUFFIX``: a page's claims past 64k characters (`entities/<id>.claims.jsonl`).
+LEDGER_SUFFIX = ".claims.jsonl"
+#: directory -> the last few (listing, {ledger file: (mtime_ns, size)}) the scan saw together. The same scan stats both,
+#: so a listing shared under :func:`shared_scans` — or seeded from the SSE tick's walk — has its ledgers for free.
+_LEDGERS: dict[str, list[tuple[dict, dict[str, tuple[int, int]]]]] = {}
+_LEDGERS_KEPT = 4
+
+
+def ledger_fingerprint(directory: Path) -> str:
+    """The folder's claims ledgers as a change stamp (``""`` for none), seen by the same scan as its pages.
+
+    A page write moves the page first and shrinks its ledger just after (``markdown_parser.write``: lines the ledger
+    loses go after the page, so a crash never loses a claim). A read between the two folds a line the page now holds,
+    and a cache keyed on the page's stamp alone would keep that read (review of #518). A key that holds this stamp
+    moves when the ledger does."""
+    listing = _scan(Path(directory))
+    with _lock:
+        ledgers = next((led for seen, led in _LEDGERS.get(str(directory), ()) if seen is listing), None)
+    if ledgers is None:
+        _scan_uncached(Path(directory))   # a listing too old to have its ledgers kept: read them now
+        with _lock:
+            ledgers = (_LEDGERS.get(str(directory)) or [({}, {})])[-1][1]
+    return fingerprint((n, m, size) for n, (m, size) in ledgers.items()) if ledgers else ""
 
 
 def files(memory_path: Path, subdir: str) -> list[IndexedFile]:
@@ -124,6 +195,11 @@ def files(memory_path: Path, subdir: str) -> list[IndexedFile]:
     parse, never torn state, since each caller only stores what it itself
     parsed and only if the file hasn't moved again since.
     """
+    return list(_files(memory_path, subdir)[0])
+
+
+def _files(memory_path: Path, subdir: str) -> tuple[list[IndexedFile], int]:
+    """:func:`files`' entries (a shared list: callers copy it) and the generation they belong to, read together."""
     global parse_count
     directory = Path(memory_path) / subdir
     key = (str(memory_path), subdir)
@@ -131,45 +207,102 @@ def files(memory_path: Path, subdir: str) -> list[IndexedFile]:
 
     to_parse: list[tuple[str, int, int]] = []
     with _lock:
+        if key not in _GEN:
+            _bump(key)
+        listed = _LISTED.get(key)
+        if listed is not None and listed[0] is current and listed[1] == _GEN[key]:
+            # The same listing, reconciled at this generation: nothing to compare (2026-10-29).
+            return _SORTED[key][1], listed[1]
         known = _cache.setdefault(key, {})
-        for name in [n for n in known if n not in current]:
+        gone = [n for n in known if n not in current]
+        for name in gone:
             known.pop(name)
+        if gone:
+            _bump(key)
         for name, (mtime_ns, size) in current.items():
             hit = known.get(name)
             if hit is not None and hit.mtime_ns == mtime_ns and hit.size == size:
                 continue
             to_parse.append((name, mtime_ns, size))
+        # `exact`: the cache will match this listing exactly once the parses below are stored — false when one is not
+        # stored, or another caller changed the cache meanwhile (the generation moved under us).
+        exact, mine = True, _GEN[key]
 
-    for name, mtime_ns, size in to_parse:
-        path = directory / name
-        try:
-            fm, has_turns = markdown_parser.header(path)
-        except Exception as exc:  # malformed file: skip, never crash a caller
-            logger.warning(f"bank_index: skipping malformed {path}: {exc}")
+    # Speed 2026-11-06: a cold folder is parsed by one caller at a time. The launch warm-ups (search, the sensitive
+    # hold, the question order) and the app's first requests all list the same folders at once, and each parsed every
+    # file itself: 22 s to the first `/status` and 45 s to `/graph` on a 9,000-page memory, ~10 s of work alone.
+    # The ones that wait find the cache filled and parse nothing.
+    guard = _parse_guard(key) if len(to_parse) > _PARSE_GUARD_MIN else contextlib.nullcontext()
+    with guard:
+        if len(to_parse) > _PARSE_GUARD_MIN:
             with _lock:
-                stale = _cache.get(key)
-                if stale is not None:
-                    stale.pop(name, None)
-            continue
-        with _lock:
-            store = _cache.setdefault(key, {})
-            # The file may have changed again since we scanned/parsed it — in
-            # that case leave the cache alone (stale or absent) and let the
-            # next call pick up the newer copy rather than storing data that
-            # no longer matches what's on disk.
+                known = _cache.get(key, {})
+                to_parse = [t for t in to_parse
+                            if not ((h := known.get(t[0])) is not None and h.mtime_ns == t[1] and h.size == t[2])]
+        for name, mtime_ns, size in to_parse:
+            path = directory / name
             try:
-                st = os.stat(path)
-                stamp_now = (st.st_mtime_ns, st.st_size)
-            except FileNotFoundError:
-                stamp_now = None
-            if stamp_now == (mtime_ns, size):
-                parse_count += 1
-                store[name] = IndexedFile(path=path, mtime_ns=mtime_ns, size=size, frontmatter=fm,
-                                          has_turns=has_turns)
+                fm, has_turns = markdown_parser.header(path)
+            except Exception as exc:  # malformed file: skip, never crash a caller
+                logger.warning(f"bank_index: skipping malformed {path}: {exc}")
+                with _lock:
+                    exact = False
+                    stale = _cache.get(key)
+                    if stale is not None and stale.pop(name, None) is not None:
+                        _bump(key)
+                continue
+            with _lock:
+                store = _cache.setdefault(key, {})
+                # The file may have changed again since we scanned/parsed it — in
+                # that case leave the cache alone (stale or absent) and let the
+                # next call pick up the newer copy rather than storing data that
+                # no longer matches what's on disk.
+                try:
+                    st = os.stat(path)
+                    stamp_now = (st.st_mtime_ns, st.st_size)
+                except FileNotFoundError:
+                    stamp_now = None
+                if stamp_now == (mtime_ns, size):
+                    parse_count += 1
+                    store[name] = IndexedFile(path=path, mtime_ns=mtime_ns, size=size, frontmatter=fm,
+                                              has_turns=has_turns)
+                    exact = exact and _GEN[key] == mine
+                    _bump(key)
+                    mine = _GEN[key]
+                else:
+                    exact = False
 
     with _lock:
-        known = _cache.setdefault(key, {})
-        return [known[n] for n in sorted(known)]
+        gen = _GEN[key]
+        held = _SORTED.get(key)
+        if held is not None and held[0] == gen:
+            entries = held[1]   # every change to the cache moves the generation: still its entries, sorted
+        else:
+            known = _cache.setdefault(key, {})
+            entries = [known[n] for n in sorted(known)]
+            _SORTED[key] = (gen, entries)
+        # Remembered only when the cache now matches this listing exactly, so the same listing again skips the
+        # comparison; a file that moved while it was parsed, or a change another caller made, is compared next time.
+        if exact and gen == mine:
+            _LISTED[key] = (current, gen)
+        return entries, gen
+
+
+def derived(memory_path: Path, subdir: str, name: str, build):
+    """``build(entries)`` over :func:`files`' entries for ``subdir``, kept until that folder's cached headers change —
+    a per-folder index a read model would otherwise rebuild per request (e.g. ``channel_items``' episodes by origin:
+    one source's list in time proportional to its items, 2026-10-29). ``build`` gets the entries (shared: never
+    mutate them) and returns a value its callers treat as read-only. ``name`` keys it; process-local and disposable."""
+    entries, gen = _files(memory_path, subdir)
+    slot = (str(memory_path), subdir, name)
+    with _lock:
+        hit = _DERIVED.get(slot)
+    if hit is not None and hit[0] == gen:
+        return hit[1]
+    value = build(entries)
+    with _lock:
+        _DERIVED[slot] = (gen, value)
+    return value
 
 
 def stamps(memory_path: Path, subdir: str, *, fresh: bool = False) -> dict[str, tuple[int, int]]:
@@ -222,6 +355,7 @@ def file(memory_path: Path, subdir: str, name: str) -> IndexedFile | None:
             # compares the whole listing, so one entry never reads as "the directory is warm".
             parse_count += 1
             _cache.setdefault(key, {})[name] = entry
+            _bump(key)
     return entry
 
 

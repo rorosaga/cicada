@@ -1,0 +1,996 @@
+"""Ruling 47a, G179 (2026-10-28) — Telegram chats on the person's own account, against a FAKE client only.
+
+No test signs in to Telegram or opens a socket: :class:`FakePort` stands in for `telegram_port.TelethonPort`. Covers
+the rails: nothing happens without a kept session; the QR connect (owner 2026-10-29: nothing typed, refreshed as it
+expires, stops after its rounds, a two-step password, stopping it logs nothing out); the sign-in steps (code, two-step password) keep the session 0600
+outside every bank and never the number, code or password; a session file others can read is refused; credentials
+(the person's own over the release build's, none → a sentence); one-to-one chats only, each with the person's dated
+confirmation that the other person agreed (ruling 47a amendment, owner 2026-10-28) — a group never listed or staged,
+a chat without consent never staged, unticking withdraws it; live events staged for ticked chats only and dropped
+for the rest; who is who (a bot is an agent, Telegram says so); deletes that name only ids; reaction changes as Telegram's whole set; history on ask; the demo bank never written; disconnect logs out
+at Telegram and forgets the file, even when the log-out fails; and the routes."""
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+from api import config, main
+from api.services import (bank_index, chat_live, episode_staging, markdown_parser, telegram_account, telegram_source,
+                          turn_extras)
+from api.services.telegram_port import PasswordNeeded, TelegramError, TgDialog, TgEvent, TgMessage, TgQr, TgSentCode
+
+T0 = 1_788_000_000.0
+FRIEND, BOT, GROUP, OTHER = 1001, 1002, -100777, 1003     # placeholder peer ids
+ME, CAROL, DAVE, HELPER = 1, 2001, 2002, 2003
+
+
+class FakePort:
+    def __init__(self, api_id, api_hash, session):
+        self.session = session or ""
+        self.calls: list[str] = []
+        self.handler = None
+        self.history_rows: dict[int, list[TgMessage]] = {}
+        self.authorized_ok = True
+        self.fail_log_out = False
+        self.two_step = False
+        self.qr_tokens = 0
+        #: What each ``qr_wait`` answers, in order: ``True`` scanned, ``False`` expired; empty = wait forever.
+        self.qr_answers: list[bool] = []
+        #: What the next ``qr_start`` calls do instead of a fresh token: a ``TgQr`` to answer or an exception to raise.
+        self.qr_starts: list = []
+        self.qr_ttl = 30.0
+        self.qr_timeouts: list[float] = []
+        self.fail_send_code: Exception | None = None
+        #: What ``send_code`` answers: a bare hash, as older ports did, or a ``TgSentCode`` with the code's length.
+        self.sent_code = "hash-1"
+
+    async def qr_start(self):
+        self.calls.append("qr_start")
+        if self.qr_starts:
+            nxt = self.qr_starts.pop(0)
+            if isinstance(nxt, BaseException):
+                raise nxt
+            if nxt.signed_in:
+                self.session = "SESSION-STRING-PLACEHOLDER"
+            return nxt
+        self.qr_tokens += 1
+        return TgQr(url=f"tg://login?token=PLACEHOLDER-TOKEN-{self.qr_tokens}", ttl=self.qr_ttl)
+
+    async def qr_wait(self, timeout):
+        self.calls.append("qr_wait")
+        self.qr_timeouts.append(timeout)
+        while not self.qr_answers:
+            await asyncio.sleep(0)
+        ok = self.qr_answers.pop(0)
+        if ok and self.two_step:
+            raise PasswordNeeded("two-step")
+        if ok:
+            self.session = "SESSION-STRING-PLACEHOLDER"
+        return ok
+
+    async def send_code(self, phone):
+        self.calls.append("send_code")
+        if self.fail_send_code is not None:
+            raise self.fail_send_code
+        return self.sent_code
+
+    async def sign_in(self, phone, code, code_hash):
+        self.calls.append("sign_in")
+        if self.two_step:
+            raise PasswordNeeded("two-step")
+        self.session = "SESSION-STRING-PLACEHOLDER"
+
+    async def sign_in_password(self, password):
+        self.calls.append("password")
+        self.session = "SESSION-STRING-PLACEHOLDER"
+
+    async def authorized(self):
+        return self.authorized_ok
+
+    def session_string(self):
+        return self.session
+
+    async def dialogs(self, limit):
+        return [TgDialog(FRIEND, "Bob Example", False, bot=False, last=T0),
+                TgDialog(BOT, "Helper Bot", False, bot=True, last=T0),
+                TgDialog(GROUP, "Weekend crew", True, last=T0),
+                TgDialog(OTHER, "Not ticked", False, bot=False, last=T0),
+                TgDialog(-100999, "A channel", False, last=T0, broadcast=True)]
+
+    async def history(self, chat, *, min_id=0, limit=None):
+        for m in self.history_rows.get(chat, []):
+            if m.id > min_id:
+                yield m
+
+    async def listen(self, handler):
+        self.handler = handler
+        await asyncio.Event().wait()
+
+    async def log_out(self):
+        self.calls.append("log_out")
+        if self.fail_log_out:
+            raise ConnectionError("network down")
+
+    async def disconnect(self):
+        self.calls.append("disconnect")
+
+    #: chats-ux-v2 — the profile photo each peer answers (bytes, or None for none).
+    photos: dict = {}
+
+    async def profile_photo(self, chat):
+        self.calls.append("profile_photo")
+        return self.photos.get(chat)
+
+    #: Chat images (2026-11-04) — the messages each peer holds for `around`, and each message id's picture bytes.
+    held: dict = {}
+    pictures: dict = {}
+
+    async def around(self, chat, date, *, window):
+        self.calls.append("around")
+        return [m for m in self.held.get(chat, []) if abs(m.date - date) <= window]
+
+    async def media_bytes(self, chat, message_id, *, full, cap):
+        self.calls.append("media_full" if full else "media_preview")
+        data = self.pictures.get((message_id, full))
+        return data if data and len(data) <= cap else None
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv(telegram_account.ID_ENV, "12345")
+    monkeypatch.setenv(telegram_account.HASH_ENV, "placeholder-hash")
+    return tmp_path / "home"
+
+
+@pytest.fixture
+def bank(tmp_path, monkeypatch, home):
+    memory = tmp_path / "memory"
+    for sub in ("episodes", "entities", "sources"):
+        (memory / sub).mkdir(parents=True)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    config.get_settings.cache_clear()
+    bank_index.invalidate()
+    yield memory
+    config.get_settings.cache_clear()
+
+
+@pytest.fixture
+def made():
+    ports: list[FakePort] = []
+
+    def factory(api_id, api_hash, session):
+        port = FakePort(api_id, api_hash, session)
+        ports.append(port)
+        return port
+    return ports, factory
+
+
+def run(coro):
+    return asyncio.new_event_loop().run_until_complete(coro)
+
+
+def msg(i, chat, text, *, out=False, sender=None, name="", bot=None, at=None, **kw):
+    return TgMessage(id=i, chat=chat, date=at or T0 + i * 10, out=out, text=text, sender=sender, sender_name=name,
+                     sender_bot=bot, **kw)
+
+
+def tick(bank, chat, *, group=False, history=False, consent=True):
+    cid = telegram_source.conversation_id(chat)
+    chat_live.update_settings(bank, telegram_source.SPEC, {"id": cid, "group": group, "ticked": True},
+                              now="2026-01-01T00:00:00+00:00")
+    if consent:
+        telegram_account.set_consent(cid, True, at="2026-10-28T20:00:00+00:00")
+    if history:
+        chat_live.update_settings(bank, telegram_source.SPEC, {"id": cid, "history": True})
+    return cid
+
+
+def episodes(bank):
+    bank_index.invalidate()
+    index, _ = episode_staging.scan(bank / "episodes")
+    return {sid: markdown_parser.parse(e.path) for sid, e in sorted(index.items())
+            if not e.fm.get("source_deleted_at")}
+
+
+async def connected(made, *, two_step=False):
+    ports, factory = made
+    account = telegram_account.Account(factory)
+    await account.send_code("+1 555 000 0000")
+    ports[-1].two_step = two_step
+    status = await account.submit_code("12 345")
+    if two_step:
+        assert status["state"] == "password"
+        status = await account.submit_password("placeholder-password")
+    assert status["state"] == "connected"
+    await asyncio.sleep(0)
+    return account, ports[-1]
+
+
+def test_nothing_happens_without_a_kept_session(home, made):
+    ports, factory = made
+    account = telegram_account.Account(factory)
+    run(account.resume())
+    assert ports == [] and account.state == "off"
+    assert not (home / "telegram").exists()
+
+
+def test_sign_in_keeps_only_the_session_0600_outside_the_bank(home, bank, made):
+    async def go():
+        account, port = await connected(made, two_step=True)
+        assert port.calls == ["send_code", "sign_in", "password"]
+        await account.stop()
+    run(go())
+    path = home / "telegram" / "session"
+    assert path.read_text().strip() == "SESSION-STRING-PLACEHOLDER"
+    assert oct(path.stat().st_mode & 0o777) == "0o600" and oct((home / "telegram").stat().st_mode & 0o777) == "0o700"
+    everything = "".join(p.read_text(errors="ignore") for p in home.rglob("*") if p.is_file())
+    assert "555" not in everything and "placeholder-password" not in everything and "12345" not in everything
+    assert not any("SESSION-STRING" in p.read_text(errors="ignore") for p in bank.rglob("*") if p.is_file())
+
+
+# --- The QR connect (owner 2026-10-29): "link a device", nothing typed --------------------------------------------------
+
+
+async def settle(account, until):
+    for _ in range(500):
+        if until(account):
+            return
+        await asyncio.sleep(0)
+    raise AssertionError(f"stuck in {account.state}")
+
+
+def test_the_qr_connect_signs_in_with_nothing_typed_and_keeps_only_the_session(home, bank, made):
+    ports, factory = made
+
+    async def go():
+        account = telegram_account.Account(factory)
+        status = await account.start_qr()
+        assert status["state"] == "qr" and status["qr_url"] == "tg://login?token=PLACEHOLDER-TOKEN-1"
+        assert status["qr_expires"].startswith("20")
+        ports[-1].qr_answers = [True]
+        await settle(account, lambda a: a.state == "connected")
+        after = account.status()
+        assert after["qr_url"] is None and after["listening"]
+        await account.stop()
+        return ports[-1]
+    port = run(go())
+    assert port.calls[:2] == ["qr_start", "qr_wait"] and "send_code" not in port.calls
+    path = home / "telegram" / "session"
+    assert path.read_text().strip() == "SESSION-STRING-PLACEHOLDER" and oct(path.stat().st_mode & 0o777) == "0o600"
+    everything = "".join(p.read_text(errors="ignore") for p in home.rglob("*") if p.is_file())
+    assert "PLACEHOLDER-TOKEN" not in everything      # the login link is shown, never kept
+
+
+def test_an_expired_qr_is_replaced_then_stops_after_its_rounds_without_a_log_out(home, made, monkeypatch):
+    ports, factory = made
+    monkeypatch.setattr(telegram_account, "QR_ROUNDS", 3)
+
+    async def go():
+        account = telegram_account.Account(factory)
+        await account.start_qr()
+        port = ports[-1]
+        port.qr_answers = [False]
+        await settle(account, lambda a: (a.status()["qr_url"] or "").endswith("-2"))
+        port.qr_answers = [False, False]
+        await settle(account, lambda a: a.state == "off")
+        return account, port
+    account, port = run(go())
+    assert port.qr_tokens == 3 and "log_out" not in port.calls and "disconnect" in port.calls
+    assert "expired" in account.error and account.port is None and account.status()["qr_url"] is None
+    assert not (home / "telegram" / "session").exists()
+
+
+def test_a_two_step_account_types_only_its_password_after_the_qr(home, bank, made):
+    ports, factory = made
+
+    async def go():
+        account = telegram_account.Account(factory)
+        await account.start_qr()
+        ports[-1].two_step = True
+        ports[-1].qr_answers = [True]
+        await settle(account, lambda a: a.state == "password")
+        status = await account.submit_password("placeholder-password")
+        await account.stop()
+        return status, ports[-1]
+    status, port = run(go())
+    assert status["state"] == "connected" and port.calls.count("password") == 1 and "send_code" not in port.calls
+    assert "placeholder-password" not in "".join(p.read_text(errors="ignore") for p in home.rglob("*") if p.is_file())
+
+
+def test_stopping_a_sign_in_half_way_logs_nothing_out_and_says_nothing_wrong(home, made):
+    ports, factory = made
+
+    async def go():
+        account = telegram_account.Account(factory)
+        await account.start_qr()
+        await asyncio.sleep(0)
+        first = account._qr_task
+        again = await account.start_qr()                 # "Show a new QR": the old wait is cancelled
+        await asyncio.sleep(0)
+        assert again["qr_url"].endswith("-2") and first.done()
+        status = await account.disconnect()
+        await asyncio.sleep(0)
+        return account, status, ports[-1]
+    account, status, port = run(go())
+    assert status["state"] == "off" and status["error"] is None and status["qr_url"] is None
+    assert "log_out" not in port.calls and "disconnect" in port.calls and account._qr_task is None
+
+
+def test_a_scan_between_two_qrs_is_a_sign_in_not_an_error(home, bank, made):
+    """#547 review 1: the token request that should refresh the QR answers loginTokenSuccess — the phone accepted the
+    last one in the gap. That is a live session: kept, never an orphan in Telegram → Devices."""
+    ports, factory = made
+
+    async def go():
+        account = telegram_account.Account(factory)
+        await account.start_qr()
+        port = ports[-1]
+        port.qr_starts = [TgQr(url="", ttl=0.0, signed_in=True)]
+        port.qr_answers = [False]
+        await settle(account, lambda a: a.state != "qr")
+        await account.stop()
+        return account, port
+    account, port = run(go())
+    assert account.state == "connected" and account.error is None
+    assert (home / "telegram" / "session").read_text().strip() == "SESSION-STRING-PLACEHOLDER"
+
+
+def test_a_skewed_clock_never_burns_the_rounds(home, made):
+    """#547 review 1: the wait comes from Telegram's own lifetime minus a margin, with a floor — a token that looks
+    already expired on this Mac's clock is still waited on, never replaced at once."""
+    ports, factory = made
+
+    async def go():
+        account = telegram_account.Account(factory)
+        await account.start_qr()
+        factory_port = ports[-1]
+        factory_port.qr_ttl = -300.0            # the Mac's clock five minutes ahead of Telegram's
+        factory_port.qr_answers = [False]
+        await settle(account, lambda a: len(factory_port.qr_timeouts) >= 2)
+        await account.disconnect()
+        return factory_port
+    port = run(go())
+    assert port.qr_timeouts[0] == 30.0 - telegram_account.QR_MARGIN_S
+    assert port.qr_timeouts[1] == telegram_account.QR_FLOOR_S
+
+
+def test_closing_at_the_password_step_closes_the_unsigned_client(home, made):
+    """#547 review 3: after a scan, a two-step account waits on its password; closing there ends the half sign-in
+    (no log-out — nothing was signed in), by either path."""
+    ports, factory = made
+
+    async def go(phone):
+        account = telegram_account.Account(factory)
+        if phone:
+            await account.send_code("+1 555 000 0000")
+            ports[-1].two_step = True
+            await account.submit_code("12345")
+        else:
+            await account.start_qr()
+            ports[-1].two_step = True
+            ports[-1].qr_answers = [True]
+            await settle(account, lambda a: a.state == "password")
+        status = await account.disconnect()
+        return account, status, ports[-1]
+    for phone in (False, True):
+        account, status, port = run(go(phone))
+        assert status["state"] == "off" and status["error"] is None and account.port is None
+        assert "log_out" not in port.calls and "disconnect" in port.calls
+
+
+def test_a_network_failure_in_a_sign_in_step_is_a_sentence(home, bank, made, monkeypatch):
+    """#547 review 4: a flood wait, a socket error or anything else from the client answers a sentence (422), never a
+    500, and the unsigned client is closed."""
+    ports, factory = made
+    account = telegram_account.Account(factory)
+    monkeypatch.setattr(telegram_account, "ACCOUNT", account)
+
+    def failing(api_id, api_hash, session):
+        port = factory(api_id, api_hash, session)
+        port.qr_starts = [OSError("network down")]
+        port.fail_send_code = ConnectionError("network down")
+        return port
+    account._factory = failing
+    client = TestClient(main.app)
+    r = client.post("/sources/telegram/qr")
+    assert r.status_code == 422 and "reach Telegram" in r.json()["detail"] and account.port is None
+    r = client.post("/sources/telegram/connect", json={"phone": "+1 555 000 0000"})
+    assert r.status_code == 422 and "reach Telegram" in r.json()["detail"] and account.port is None
+    assert all("disconnect" in p.calls and "log_out" not in p.calls for p in ports)
+
+
+def test_the_qr_needs_an_app_id_and_says_where_before_any_socket(home, monkeypatch, tmp_path, made):
+    ports, factory = made
+    monkeypatch.delenv(telegram_account.ID_ENV)
+    monkeypatch.setattr(telegram_account, "APP_FILE", tmp_path / "none.json")
+    with pytest.raises(TelegramError, match="my.telegram.org"):
+        run(telegram_account.Account(factory).start_qr())
+    assert ports == []
+
+
+def test_the_qr_route_answers_the_link_to_draw(home, bank, made, monkeypatch):
+    _, factory = made
+    account = telegram_account.Account(factory)
+    monkeypatch.setattr(telegram_account, "ACCOUNT", account)
+    client = TestClient(main.app)
+    body = client.post("/sources/telegram/qr").json()
+    assert body["state"] == "qr" and body["qrUrl"].startswith("tg://login?token=") and body["qrExpires"]
+    assert client.post("/sources/telegram/disconnect").json()["state"] == "off"
+
+
+def test_a_session_file_others_can_read_is_refused(home, made):
+    telegram_account.save_session("SESSION-STRING-PLACEHOLDER")
+    os.chmod(home / "telegram" / "session", 0o644)
+    ports, factory = made
+    account = telegram_account.Account(factory)
+    run(account.resume())
+    assert ports == [] and account.state == "ended" and "readable" in account.error
+
+
+def test_credentials_the_persons_own_win_and_none_is_a_sentence(home, monkeypatch, tmp_path):
+    assert telegram_account.credentials()[2] == "own"
+    monkeypatch.delenv(telegram_account.ID_ENV)
+    app_file = tmp_path / "telegram_app.json"
+    monkeypatch.setattr(telegram_account, "APP_FILE", app_file)
+    assert telegram_account.credentials() is None
+    with pytest.raises(TelegramError, match="my.telegram.org"):
+        telegram_account.Account(lambda *a: None)._make()
+    app_file.write_text(json.dumps({"api_id": 777, "api_hash": "release-hash"}))
+    assert telegram_account.credentials() == (777, "release-hash", "cicada")
+
+
+def test_the_tick_list_offers_one_to_one_chats_only_and_shows_no_ids(home, bank, made):
+    async def go():
+        account, _ = await connected(made)
+        rows = await account.chats()
+        await account.stop()
+        return rows
+    rows = run(go())
+    assert [r["name"] for r in rows] == ["Bob Example", "Helper Bot", "Not ticked"]   # no group, no channel
+    assert all(chat_live.ID_RE.match(r["id"]) and str(FRIEND) not in r["id"] for r in rows)
+
+
+def test_live_events_stage_ticked_consented_one_to_one_chats_only(home, bank, made):
+    friend = tick(bank, FRIEND)
+    bot = tick(bank, BOT)
+    group = tick(bank, GROUP, group=True)              # even ticked and "consented" in the files, a group is never read
+    other = tick(bank, OTHER, consent=False)           # ticked in the bank, but no confirmation kept
+
+    async def go():
+        account, _ = await connected(made)
+        await account.chats()
+        pending = {
+            FRIEND: [TgEvent("new", FRIEND, msg(1, FRIEND, "Dinner Friday?", sender=FRIEND, name="Bob")),
+                     TgEvent("new", FRIEND, msg(2, FRIEND, "Yes, at 8.", out=True, reply_to=1)),
+                     TgEvent("new", FRIEND, msg(3, FRIEND, "joined", service=True))],
+            BOT: [TgEvent("new", BOT, msg(1, BOT, "Remind me to call alpha-project.", out=True)),
+                  TgEvent("new", BOT, msg(2, BOT, "Reminder set.", sender=BOT, name="Helper Bot", bot=True))],
+            GROUP: [TgEvent("new", GROUP, msg(1, GROUP, "a group line, never stored", sender=DAVE,
+                                               name="Dave Example", bot=False))],
+            OTHER: [TgEvent("new", OTHER, msg(1, OTHER, "no consent, never stored", sender=OTHER))],
+        }
+        out = await account.flush(pending)
+        await account.stop()
+        return out
+    out = run(go())
+    assert set(out) == {friend, bot} and group not in out and other not in out
+    eps = {p.frontmatter["conversation"]: p for p in episodes(bank).values()}
+    assert set(eps) == {friend, bot}
+    assert eps[friend].body.splitlines() == ["speaker:bob-example: Dinner Friday?", "user: Yes, at 8."]
+    assert eps[friend].frontmatter["correspondent"] == {"name": "Bob Example", "kind": "person",
+                                                        "decided_by": "source"}
+    assert [e.get("reply_to") for e in turn_extras.by_offset(eps[friend].frontmatter).values()] == [0]
+    assert eps[bot].body.splitlines() == ["user: Remind me to call alpha-project.", "assistant: Reminder set."]
+    assert eps[bot].frontmatter["correspondent"]["kind"] == "agent"
+    assert "never stored" not in "".join(p.read_text() for p in (bank / "episodes").glob("*.md"))
+    assert eps[friend].frontmatter["origin"] == "telegram-chats"
+    assert eps[friend].frontmatter["title"].startswith("Telegram with Bob Example")
+
+
+def test_the_ingest_itself_refuses_a_group_and_a_chat_without_consent(home, bank):
+    group = tick(bank, GROUP, group=True)
+    with pytest.raises(telegram_source.NotOneToOne):
+        telegram_source.ingest(bank, {"id": group, "chat": GROUP, "group": True}, [msg(1, GROUP, "x", sender=DAVE)])
+    other = tick(bank, OTHER, consent=False)
+    with pytest.raises(telegram_source.NoConsent):
+        telegram_source.ingest(bank, {"id": other, "chat": OTHER}, [msg(1, OTHER, "x", sender=OTHER)])
+    assert list((bank / "episodes").glob("*.md")) == []
+
+
+@pytest.fixture
+def live_account(made, monkeypatch):
+    """The module's ACCOUNT, connected to the fake client, for the routes."""
+    _, factory = made
+    account = telegram_account.Account(factory)
+    account.port, account.state = factory(1, "h", ""), "connected"
+    monkeypatch.setattr(telegram_account, "ACCOUNT", account)
+    return account
+
+
+def test_consent_is_kept_dated_outside_the_bank_and_unticking_withdraws_it(home, bank, live_account):
+    client = TestClient(main.app)
+    cid = telegram_source.conversation_id(FRIEND)
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": cid, "ticked": True}})
+    assert r.status_code == 409 and "agreed" in r.json()["detail"]
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": cid, "group": True, "ticked": True,
+                                                                         "consent": True}})
+    assert r.status_code == 422
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": cid, "ticked": True, "consent": True}})
+    assert r.status_code == 200, r.text
+    path = home / "telegram" / "consents.json"
+    kept = json.loads(path.read_text())
+    assert list(kept) == [cid] and kept[cid]["at"].startswith("20")
+    assert oct(path.stat().st_mode & 0o777) == "0o600"
+    assert not any("consent" in p.name for p in bank.rglob("*"))
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": cid, "ticked": False}})
+    assert r.status_code == 200 and json.loads(path.read_text()) == {}
+    assert telegram_account.CONSENT_ASK.count("{name}") == 1 and "can't check" in telegram_account.CONSENT_ASK
+
+
+# --- #504 review B4: one-to-one is decided from Telegram's own peer, never the client's `group` flag -----------------
+
+def test_the_route_refuses_a_groups_id_even_flagged_one_to_one(home, bank, live_account):
+    client = TestClient(main.app)
+    group = telegram_source.conversation_id(GROUP)
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": group, "group": False, "ticked": True,
+                                                                         "consent": True}})
+    assert r.status_code == 422 and "one-to-one" in r.json()["detail"]
+    assert group not in telegram_account.consents()
+    assert not chat_live.ticked_ids(bank, telegram_source.SPEC)
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": "cd" * 12, "ticked": True,
+                                                                         "consent": True}})
+    assert r.status_code == 422, "an id Telegram does not list is refused too"
+
+
+def test_the_flush_never_stages_a_groups_update_whatever_the_files_say(home, bank, made):
+    lie = tick(bank, GROUP, group=False)                 # the bank says one-to-one, consent kept: both lies
+
+    async def go():
+        account, _ = await connected(made)
+        out = await account.flush({GROUP: [TgEvent("new", GROUP, msg(1, GROUP, "group words", sender=DAVE))]})
+        await account.stop()
+        return out
+    assert run(go()) == {}
+    assert list((bank / "episodes").glob("*.md")) == [] and lie
+
+
+def test_the_ingest_decides_from_the_peer(home, bank):
+    group = tick(bank, GROUP, group=False)
+    with pytest.raises(telegram_source.NotOneToOne):
+        telegram_source.ingest(bank, {"id": group, "chat": GROUP, "group": False}, [msg(1, GROUP, "x", sender=DAVE)])
+    friend = tick(bank, FRIEND)
+    with pytest.raises(telegram_source.NotOneToOne):     # a user's id dressed as another chat's conversation
+        telegram_source.ingest(bank, {"id": friend, "chat": OTHER}, [msg(1, OTHER, "x", sender=OTHER)])
+    with pytest.raises(telegram_source.NotOneToOne):     # a group's message slipped into a one-to-one batch
+        telegram_source.ingest(bank, {"id": friend, "chat": FRIEND}, [msg(1, GROUP, "x", sender=DAVE)])
+    assert list((bank / "episodes").glob("*.md")) == []
+
+
+def test_deletes_by_id_alone_and_reaction_sets_replace(home, bank, made):
+    friend = tick(bank, FRIEND)
+
+    async def go():
+        account, _ = await connected(made)
+        await account.chats()
+        await account.flush({FRIEND: [TgEvent("new", FRIEND, msg(1, FRIEND, "keep", out=True)),
+                                      TgEvent("new", FRIEND, msg(2, FRIEND, "oops wrong chat", sender=FRIEND))]})
+        await account.flush({FRIEND: [TgEvent("reactions", FRIEND, ids=[1], reactions=[
+            {"emoji": "👍", "from_me": False, "sender": FRIEND}, {"emoji": "🔥", "from_me": True}])]})
+        first = episodes(bank)
+        await account.flush({None: [TgEvent("delete", None, ids=[2])],
+                             FRIEND: [TgEvent("reactions", FRIEND, ids=[1], reactions=[{"emoji": "🔥",
+                                                                                        "from_me": True}])]})
+        await account.stop()
+        return first
+    first = run(go())
+    (before,) = first.values()
+    (extras,) = turn_extras.by_offset(before.frontmatter).values()
+    assert sorted(r["by"] for r in extras["reactions"]) == ["speaker:bob-example", "user"]
+    (ep,) = episodes(bank).values()
+    assert ep.body == "user: keep"
+    assert len(turn_extras.unsent(ep.frontmatter)) == 1
+    (extras,) = turn_extras.by_offset(ep.frontmatter).values()
+    assert extras["reactions"] == [{"by": "user", "kind": "emoji", "emoji": "🔥"}]
+    assert ep.frontmatter["conversation"] == friend
+
+
+def test_history_only_on_ask_and_the_cursor_catches_up(home, bank, made):
+    friend = tick(bank, FRIEND)
+
+    async def go():
+        account, port = await connected(made)
+        port.history_rows[FRIEND] = [msg(i, FRIEND, f"old {i}", sender=FRIEND, at=1_700_000_000 + i * 10)
+                                     for i in range(1, 6)]
+        before = await account.read(friend)              # ticked but no history asked: all before the tick
+        chat_live.update_settings(bank, telegram_source.SPEC, {"id": friend, "history": True})
+        after = await account.read(friend)
+        await account.stop()
+        return before, after
+    before, after = run(go())
+    assert before["created"] == 0 and after["created"] == 1
+    (ep,) = episodes(bank).values()
+    assert ep.body.count("\n") == 4
+    assert json.loads((home / "telegram" / "cursors.json").read_text()) == {friend: 5}
+
+
+def test_the_demo_bank_is_never_written(home, bank, made, monkeypatch):
+    tick(bank, FRIEND)
+    monkeypatch.setattr("api.services.demo_guard.is_demo", lambda path: True)
+
+    async def go():
+        account, _ = await connected(made)
+        out = await account.flush({FRIEND: [TgEvent("new", FRIEND, msg(1, FRIEND, "hi", sender=FRIEND))]})
+        await account.stop()
+        return out
+    assert run(go()) == {}
+    assert list((bank / "episodes").glob("*.md")) == []
+
+
+def test_disconnect_logs_out_and_forgets_even_when_telegram_does_not_answer(home, bank, made):
+    async def go(fail):
+        account, port = await connected(made)
+        port.fail_log_out = fail
+        status = await account.disconnect()
+        return port, status
+    port, status = run(go(False))
+    assert "log_out" in port.calls and status["state"] == "off" and status["error"] is None
+    assert not (home / "telegram" / "session").exists()
+    port, status = run(go(True))
+    assert not (home / "telegram" / "session").exists() and "Active sessions" in status["error"]
+
+
+def test_routes_say_the_consent_and_refuse_without_a_connection(bank, home):
+    client = TestClient(main.app)
+    status = client.get("/sources/telegram/status").json()
+    assert status["consent"] == telegram_account.CONSENT and status["state"] in ("off", "ended")
+    assert "Active sessions" in status["consent"] and "one click" in status["consent"]
+    assert client.get("/sources/telegram/chats").status_code == 409
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": "ab" * 12, "history": True}})
+    assert r.status_code == 422   # not connected: Telegram lists nothing, so nothing is one-to-one
+
+
+def test_live_update_cost_p95(home, bank, made):
+    """Telegram update → episode, the backend half: one new message into a chat holding 40 sittings."""
+    friend = tick(bank, FRIEND, history=True)
+
+    async def go():
+        account, _ = await connected(made)
+        await account.chats()
+        await account.flush({FRIEND: [TgEvent("new", FRIEND, msg(i, FRIEND, f"m {i}", sender=FRIEND,
+                                                                   at=T0 + i * 4 * 3600)) for i in range(1, 41)]})
+        took = []
+        for i in range(41, 71):
+            started = time.perf_counter()
+            await account.flush({FRIEND: [TgEvent("new", FRIEND, msg(i, FRIEND, f"live {i}", sender=FRIEND,
+                                                                       at=T0 + 41 * 4 * 3600 + i * 60))]})
+            took.append(time.perf_counter() - started)
+        await account.stop()
+        return sorted(took)
+    took = run(go())
+    p95 = took[int(len(took) * 0.95) - 1]
+    print(f"telegram live update p95 {p95 * 1000:.1f} ms over {len(took)} (flush + commit, 41 sittings)")
+    assert p95 < 1.0 and friend
+
+
+def test_the_status_carries_the_length_of_the_code_telegram_sent(home, made):
+    ports, factory = made
+    account = telegram_account.Account(factory)
+    account.port = factory(1, "hash", "")
+    account.port.sent_code = TgSentCode(hash="hash-1", length=6)
+    status = run(account.send_code("+1 555 000 0000"))
+    assert status["state"] == "code_sent" and status["code_length"] == 6
+    assert account.status()["code_length"] == 6
+    run(account.submit_code("123 456"))
+    assert account.status()["state"] == "connected" and account.status()["code_length"] is None
+
+
+def test_a_bare_hash_leaves_the_code_length_to_the_app(home, made):
+    ports, factory = made
+    account = telegram_account.Account(factory)
+    status = run(account.send_code("+1 555 000 0000"))
+    assert status["state"] == "code_sent" and status["code_length"] is None
+
+
+def test_the_status_route_carries_the_code_length(home, made, monkeypatch):
+    ports, factory = made
+    account = telegram_account.Account(factory)
+    account.port = factory(1, "hash", "")
+    account.port.sent_code = TgSentCode(hash="hash-1", length=6)
+    run(account.send_code("+1 555 000 0000"))
+    monkeypatch.setattr(telegram_account, "ACCOUNT", account)
+    from api.routers.chat_sources import TelegramStatus
+    body = TelegramStatus(**account.status()).model_dump(by_alias=True)
+    assert body["codeLength"] == 6
+
+
+# --- chats-ux-v2 (owner 2026-10-29) -----------------------------------------------------------------------------------
+
+
+def test_a_scan_shows_as_connected_at_once_through_the_status_long_poll(home, bank, made):
+    """"It took a bit to change status to connected": the QR step read the status once a second. It now waits on the
+    status's `version` and answers the moment the sign-in lands. Measured on the fake client: scan → answered."""
+    ports, factory = made
+
+    async def go():
+        account = telegram_account.Account(factory)
+        status = await account.start_qr()
+        held = status["version"]
+        assert held and (await account.wait_change(held, 0.05))["version"] == held, "nothing moved: same answer"
+        waiter = asyncio.get_running_loop().create_task(account.wait_change(held, 10))
+        await asyncio.sleep(0.2)
+        assert not waiter.done(), "a QR still on screen keeps the ask open"
+        scanned = time.perf_counter()
+        ports[-1].qr_answers = [True]
+        answer = await waiter
+        took = time.perf_counter() - scanned
+        await account.stop()
+        return answer, took
+    answer, took = run(go())
+    assert answer["state"] == "connected" and answer["version"]
+    assert took < 0.5, f"scan → connected took {took:.3f} s"
+
+
+def test_the_status_route_waits_for_a_change_only_when_asked(home, made, monkeypatch):
+    ports, factory = made
+    account = telegram_account.Account(factory)
+    monkeypatch.setattr(telegram_account, "ACCOUNT", account)
+    client = TestClient(main.app)
+    first = client.get("/sources/telegram/status").json()
+    assert first["state"] == "off" and first["version"]
+    started = time.perf_counter()
+    again = client.get("/sources/telegram/status", params={"since": first["version"], "wait": 0.2}).json()
+    assert again["version"] == first["version"] and time.perf_counter() - started >= 0.2
+    assert client.get("/sources/telegram/status", params={"wait": 99}).status_code == 422
+
+
+def test_a_chats_profile_photo_is_asked_once_kept_outside_the_bank_and_gone_on_disconnect(home, bank, live_account):
+    cid = telegram_source.conversation_id(FRIEND)
+    live_account.port.photos = {FRIEND: b"\xff\xd8\xff\xe0PLACEHOLDER-JPEG"}
+    client = TestClient(main.app)
+    r = client.get(f"/sources/telegram/chats/{cid}/photo")
+    assert r.status_code == 200 and r.content.startswith(b"\xff\xd8") and r.headers["content-type"] == "image/jpeg"
+    assert client.get(f"/sources/telegram/chats/{cid}/photo",
+                      headers={"If-None-Match": r.headers["etag"]}).status_code == 304
+    assert live_account.port.calls.count("profile_photo") == 1, "asked of Telegram once, then kept"
+    kept = home / "telegram" / "photos" / f"{cid}.jpg"
+    assert kept.exists() and oct(kept.stat().st_mode & 0o777) == "0o600"
+    assert not any(p.suffix == ".jpg" for p in bank.rglob("*")), "never in a bank"
+    none = telegram_source.conversation_id(OTHER)
+    assert client.get(f"/sources/telegram/chats/{none}/photo").status_code == 404
+    assert client.get(f"/sources/telegram/chats/{none}/photo").status_code == 404
+    assert live_account.port.calls.count("profile_photo") == 2, "a chat with no photo is remembered too"
+    assert client.get("/sources/telegram/chats/not-an-id/photo").status_code == 404
+    run(live_account.disconnect())
+    assert not (home / "telegram" / "photos").exists()
+
+
+def test_saved_messages_is_ticked_with_no_consent_question_and_kept_as_your_notes(home, bank, live_account):
+    """Ruling 47a amendment (2026-10-29): the consent rule protects the OTHER participants; Saved Messages has none, so
+    the person's tick is the whole consent — decided from Telegram's own dialog, never the client's word."""
+    me = 1009
+    real = live_account.port.dialogs
+
+    async def dialogs(limit):
+        return [*await real(limit), TgDialog(me, "Placeholder Self", False, bot=False, last=T0, is_self=True)]
+    live_account.port.dialogs = dialogs
+    client = TestClient(main.app)
+    rows = {r["id"]: r for r in client.get("/sources/telegram/chats").json()["chats"]}
+    own, friend = telegram_source.conversation_id(me), telegram_source.conversation_id(FRIEND)
+    assert rows[own]["own"] is True and rows[friend]["own"] is False
+    assert client.put("/sources/telegram/settings",
+                      json={"conversation": {"id": friend, "ticked": True}}).status_code == 409, "others still ask"
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": own, "ticked": True}})
+    assert r.status_code == 200, r.text
+    assert telegram_account.consents()[own].get("self") is True
+    note = msg(1, me, "idea for alpha-project", out=True, at=time.time() + 5)     # live from the tick
+    out = run(live_account.flush({me: [TgEvent(kind="new", chat=me, message=note)]}))
+    assert own in out
+    (ep,) = episodes(bank).values()
+    assert ep.frontmatter["self_chat"] is True and "correspondent" not in ep.frontmatter
+    assert ep.body.splitlines() == ["user: idea for alpha-project"]
+
+
+def test_a_saved_messages_tick_belongs_to_its_account_never_the_next(home, bank, live_account):
+    """#559 review: the `self` consent outlived a disconnect, so after another account signed in, a one-to-one chat
+    with the old account's id would have been stored as the person's notes. The disconnect drops `self` consents and
+    the ingest stages a `self` chat only while Telegram lists it as this account's own."""
+    me = 1009
+    cid = telegram_source.conversation_id(me)
+    chat_live.update_settings(bank, telegram_source.SPEC, {"id": cid, "ticked": True}, now="2026-01-01T00:00:00+00:00")
+    telegram_account.set_consent(cid, True, own=True)
+    friend = tick(bank, FRIEND)
+    note = msg(1, me, "now the old account, texting the new one", at=T0 + 10)
+    with pytest.raises(telegram_source.NoConsent):      # Telegram doesn't list it as this account's own any more
+        telegram_source.ingest(bank, {"id": cid, "chat": me, "name": "Old account", "group": False, "own": False},
+                               [note])
+    assert not episodes(bank)
+    run(live_account.disconnect())
+    assert cid not in telegram_account.consents(), "a Saved Messages tick goes with its session"
+    assert friend in telegram_account.consents(), "another person's dated agreement stays"
+
+
+def test_a_ticked_chats_photo_becomes_its_pages_picture_and_goes_on_untick(home, bank, live_account):
+    from api.services import logo_service, messages_photos
+
+    messages_photos._MEMO.clear()
+    cid = telegram_source.conversation_id(FRIEND)
+    import struct
+
+    app0 = b"\xff\xe0" + struct.pack(">H", 16) + b"JFIF\x00" + b"\x00" * 9
+    jpeg = b"\xff\xd8" + app0 + b"\xff\xc0" + struct.pack(">HBHH", 17, 8, 160, 160) + b"\x03" + b"\x00" * 9 + b"\xff\xd9"
+    live_account.port.photos = {FRIEND: jpeg}
+    client = TestClient(main.app)
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": cid, "ticked": True, "consent": True}})
+    assert r.status_code == 200, r.text
+    meta = messages_photos.read_meta(logo_service.bank_name(bank))
+    assert cid in meta, "the tick kept the chat's photo in the one chat-photo store"
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": cid, "ticked": False}})
+    assert r.status_code == 200
+    assert cid not in messages_photos.read_meta(logo_service.bank_name(bank))
+
+
+# --- Chat images and profile photos (owner 2026-11-04) ------------------------------------------------------------
+
+
+def _jpeg(side=160):
+    import struct
+
+    app0 = b"\xff\xe0" + struct.pack(">H", 16) + b"JFIF\x00" + b"\x00" * 9
+    return b"\xff\xd8" + app0 + b"\xff\xc0" + struct.pack(">HBHH", 17, 8, side, side) + b"\x03" + b"\x00" * 9 + b"\xff\xd9"
+
+
+def _turn_at(ts):
+    return chat_live.utc_from_unix(ts)
+
+
+def test_a_ticked_chats_attachment_is_found_by_its_turn_shown_and_kept_outside_the_bank(home, bank, live_account):
+    """"I don't see images appearing when I open the chat": a Telegram turn's attachment is asked of Telegram when the
+    chat opens — by the turn's second and the attachment's stored kind, name and place — never by a name, and kept
+    outside every bank until the chat is unticked."""
+    cid = tick(bank, FRIEND)
+    at = T0 + 500
+    photo = TgMessage(id=50, chat=FRIEND, date=at, out=False, media={"kind": "image", "name": "", "size": 9000})
+    second = TgMessage(id=51, chat=FRIEND, date=at, out=False, media={"kind": "image", "name": "", "size": 9000})
+    voice = TgMessage(id=52, chat=FRIEND, date=at + 60, out=True,
+                      media={"kind": "audio", "name": "voice.ogg", "mime": "audio/ogg", "duration": 7.0})
+    live_account.port.held = {FRIEND: [photo, second, voice]}
+    live_account.port.pictures = {(50, False): _jpeg(320), (51, False): _jpeg(321), (50, True): _jpeg(900)}
+    client = TestClient(main.app)
+    url = f"/sources/telegram/chats/{cid}/media"
+    r = client.get(url, params={"at": _turn_at(at), "kind": "image", "name": "unnamed", "n": 0})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    import base64
+
+    assert body["found"] is True and body["kind"] == "image" and base64.b64decode(body["preview"]) == _jpeg(320)
+    r = client.get(url, params={"at": _turn_at(at), "kind": "image", "name": "unnamed", "n": 1})
+    assert base64.b64decode(r.json()["preview"]) == _jpeg(321), "the second photo of that second is the second turn's"
+    asked = live_account.port.calls.count("around")
+    again = client.get(url, params={"at": _turn_at(at), "kind": "image", "name": "unnamed", "n": 0})
+    assert again.json() == body and live_account.port.calls.count("around") == asked, "kept, not asked twice"
+    audio = client.get(url, params={"at": _turn_at(at + 60), "kind": "audio", "name": "voice.ogg"}).json()
+    assert audio["found"] is True and audio["duration"] == 7.0 and audio["preview"] is None
+    missing = client.get(url, params={"at": _turn_at(at + 3600), "kind": "image", "name": "unnamed"}).json()
+    assert missing["found"] is False, "a message Telegram doesn't hold is the quiet placeholder"
+    full = client.get(f"{url}/full", params={"at": _turn_at(at), "kind": "image", "name": "unnamed"})
+    assert full.status_code == 200 and full.content == _jpeg(900) and full.headers["content-type"] == "image/jpeg"
+    assert client.get(f"{url}/full", params={"at": _turn_at(at + 60), "kind": "audio",
+                                             "name": "voice.ogg"}).status_code == 404
+    kept = home / "telegram" / "media" / cid
+    assert kept.is_dir() and oct(kept.stat().st_mode & 0o777) == "0o700"
+    assert all(oct(f.stat().st_mode & 0o777) == "0o600" for f in kept.iterdir())
+    assert not any(p.suffix == ".jpg" for p in bank.rglob("*")), "never in a bank"
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": cid, "ticked": False}})
+    assert r.status_code == 200
+    assert not kept.exists(), "unticking takes every image of the chat with it"
+
+
+def test_an_unticked_or_unconsented_chat_shows_nothing_and_asks_telegram_nothing(home, bank, live_account):
+    client = TestClient(main.app)
+    other = telegram_source.conversation_id(OTHER)
+    params = {"at": _turn_at(T0), "kind": "image", "name": "unnamed"}
+    assert client.get(f"/sources/telegram/chats/{other}/media", params=params).status_code == 404
+    no_consent = tick(bank, BOT, consent=False)
+    assert client.get(f"/sources/telegram/chats/{no_consent}/media", params=params).status_code == 404
+    assert client.get("/sources/telegram/chats/not-an-id/media", params=params).status_code == 404
+    friend = tick(bank, FRIEND)
+    assert client.get(f"/sources/telegram/chats/{friend}/media",
+                      params={**params, "kind": "location"}).status_code == 404
+    assert client.get(f"/sources/telegram/chats/{friend}/media",
+                      params={**params, "at": "2026-01-01T00:00:00"}).status_code == 404, "a time without its zone"
+    assert "around" not in live_account.port.calls and "media_preview" not in live_account.port.calls
+
+
+def test_pick_media_matches_the_stored_attachment_then_its_kind():
+    at = T0
+    named = TgMessage(id=3, chat=FRIEND, date=at, out=False, media={"kind": "", "name": "plan.pdf",
+                                                                     "mime": "application/pdf"})
+    photo = TgMessage(id=2, chat=FRIEND, date=at, out=False, media={"kind": "image", "name": ""})
+    late = TgMessage(id=4, chat=FRIEND, date=at + 5, out=False, media={"kind": "image", "name": ""})
+    service = TgMessage(id=5, chat=FRIEND, date=at, out=False, service=True, media={"kind": "image", "name": ""})
+    pick = telegram_account.pick_media
+    msgs = [named, photo, late, service]
+    assert pick(msgs, at=at, kind="file", name="plan.pdf", n=0) is named
+    assert pick(msgs, at=at, kind="image", name="unnamed", n=0) is photo
+    assert pick(msgs, at=at, kind="image", name="unnamed", n=1) is None, "outside the second, or a service message"
+    assert pick(msgs, at=at, kind="file", name="renamed by the scrub", n=0) is named, "the kind when the name moved"
+
+
+def test_every_start_keeps_each_ticked_chats_profile_photo(home, bank, made, monkeypatch):
+    """The root cause of "the profile pictures don't appear in the chats": the photo was asked once, in the tick's own
+    request — a chat ticked before #559, or whose one ask failed, never got one. Each start (and sign-in) now keeps
+    every ticked, consented chat's photo in the one chat-photo store the Sources rows draw."""
+    from api.services import logo_service, messages_photos
+
+    messages_photos._MEMO.clear()
+    cid = tick(bank, FRIEND)
+    unconsented = tick(bank, OTHER, consent=False)
+    telegram_account.save_session("SESSION-STRING-PLACEHOLDER")
+    ports, factory = made
+    FakePort.photos = {FRIEND: _jpeg(), OTHER: _jpeg()}
+    try:
+        account = telegram_account.Account(factory)
+
+        async def go():
+            await account.resume()
+            await account._keeping
+            await account.stop()
+        run(go())
+    finally:
+        FakePort.photos = {}
+    meta = messages_photos.read_meta(logo_service.bank_name(bank))
+    assert cid in meta, "the ticked chat's photo is its face now"
+    assert unconsented not in meta, "a chat without consent is never asked"
+    assert ports[-1].calls.count("profile_photo") == 1
+
+
+def test_a_preview_asks_telegrams_own_size_nearest_320_px_in_telethons_order():
+    from api.services import telegram_port
+
+    def size(name, **kw):
+        return type(name, (), kw)()
+    stripped = size("PhotoStrippedSize", bytes=b"x" * 40, w=40, h=40)
+    small = size("PhotoSize", w=90, h=67, size=1200)
+    middle = size("PhotoSize", w=320, h=240, size=9000)
+    large = size("PhotoSizeProgressive", w=1280, h=960, sizes=[20000, 90000])
+    outline = size("PhotoPathSize", w=512, h=512)
+    order = sorted([small, middle, large, stripped], key=telegram_port._thumb_order)
+    i = telegram_port.preview_index([large, outline, small, stripped, middle])
+    assert order[i] is middle
+    two = sorted([small, stripped], key=telegram_port._thumb_order)
+    assert two[telegram_port.preview_index([small, stripped])] is small, "nothing at 320 px: the largest"
+    assert telegram_port.preview_index([stripped, outline]) is None, "never a stripped blur or a vector outline"
+
+
+def test_a_burst_across_a_second_shows_each_photo_under_its_own_turn():
+    """#597 review B1: photos A and B said at T and C at T+1 — every one "unnamed", timed to the whole second. The app
+    counts a turn's place only among turns of the same second (`ChatMedia.files`), so the backend counts over the same
+    set: C is the first photo of T+1, never A."""
+    a = TgMessage(id=10, chat=FRIEND, date=T0, out=False, media={"kind": "image", "name": ""})
+    b = TgMessage(id=11, chat=FRIEND, date=T0, out=False, media={"kind": "image", "name": ""})
+    c = TgMessage(id=12, chat=FRIEND, date=T0 + 1, out=False, media={"kind": "image", "name": ""})
+    pick = telegram_account.pick_media
+    for msgs in ([a, b, c], [c, b, a]):
+        assert pick(msgs, at=T0, kind="image", name="unnamed", n=0) is a
+        assert pick(msgs, at=T0, kind="image", name="unnamed", n=1) is b
+        assert pick(msgs, at=T0 + 1, kind="image", name="unnamed", n=0) is c
+        assert pick(msgs, at=T0 + 1, kind="image", name="unnamed", n=1) is None
+
+
+def test_a_telegram_chats_id_is_always_a_hash_never_a_signed_peer_id():
+    """A report said a Telegram group's id is negative (`-100…`), so the app's hex-only photo path would drop its
+    photo. The bank never holds a peer id: every Telegram conversation id is a hash (hex), a group is never listed or
+    ticked (ruling 47a), and the one chat-photo store refuses anything else — so the app's hex guard is right."""
+    from api.services import messages_photos, messages_source
+
+    for peer in (FRIEND, GROUP, -1001234567890):
+        assert messages_source.CONVERSATION_ID_RE.match(telegram_source.conversation_id(peer))
+    assert telegram_source.listed(TgDialog(GROUP, "Weekend crew", True, last=T0)) is None
+    with pytest.raises(messages_photos.PayloadError):
+        messages_photos.store("/nonexistent", [{"conversation": "-1001234567890", "photo_b64": None}])

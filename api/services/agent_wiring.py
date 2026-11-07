@@ -423,7 +423,7 @@ def config_prompt(product: str, where: str, key: str, spec: dict) -> str:
 
 
 #: The Agents page's "another agent" row (2026-10-14): any agent that keeps its
-#: own MCP servers — Windsurf, Zed, VS Code, Cline, Goose, one not written yet.
+#: own MCP servers — Devin, Zed, GitHub Copilot, one not written yet.
 GENERIC_AGENT = "other"
 
 
@@ -501,7 +501,7 @@ def setup(harness: str, *, home: Path, memory_root: Path, repo: Path = REPO_ROOT
         # the app's own merge does it with a backup first, merging, never replacing.
         return {"harness": harness, "kind": "config-merge", "title": "Connect the Claude app",
                 "config": {"path": CLAUDE_DESKTOP_CONFIG, "key": "mcpServers.cicada", "value": spec},
-                "note": "Quit and reopen Claude so it picks Cicada up."}
+                "note": "Quit and reopen Claude so it picks Cicada up. It then keeps your chats in Cicada as you talk."}
     if harness in CONFIG_SETUPS:
         product, where, key, note = CONFIG_SETUPS[harness]
         value = config_value(harness, spec)

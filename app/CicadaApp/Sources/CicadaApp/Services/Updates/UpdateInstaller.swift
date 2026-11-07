@@ -58,20 +58,20 @@ enum UpdateFailureMarker {
 /// G182 — "is Sleep writing right now?", asked of the backend itself at hand-off rather than read from the Store's
 /// cached status (which is nil before the first poll). Busy means `status == "running"` — the gate the app's own
 /// write controls once used (`ProjectWriteGate.sleepRunning` now), wider than G177's `writing` because installing stops the backend and
-/// would cut a drain between batches too — or `writing == true`, or `inboxTidy == true` (a real inbox tidy, ruling 29). No answer at all (nothing listening, or no reply in
-/// time) means no cycle is running there; an answer that can't be read is treated as busy.
+/// would cut a drain between batches too — or `writing == true`, or `inboxTidy == true` (a real inbox tidy, ruling 29). Only nothing listening
+/// means no cycle is running there (owner 2026-11-05): a slow answer, a dropped one or one that can't be read is busy, until `BackendSilence` says the backend is hung.
 enum SleepProbe {
-    enum Answer: Equatable, Sendable { case idle, busy, noAnswer, ambiguous }
+    enum Answer: Equatable, Sendable { case idle, busy, noAnswer, slow, ambiguous }
 
-    static func isBusy(_ answer: Answer) -> Bool { answer == .busy || answer == .ambiguous }
+    static func isBusy(_ answer: Answer) -> Bool { answer == .busy || answer == .slow || answer == .ambiguous }
 
     static func statusURL(port: Int) -> URL { URL(string: "http://127.0.0.1:\(port)/sleep/status")! }
 
     static func classify(statusCode: Int?, body: Data?, error: Error?) -> Answer {
         if let error {
-            if let u = error as? URLError, [.cannotConnectToHost, .timedOut, .networkConnectionLost, .cannotFindHost,
-                                              .notConnectedToInternet, .zeroByteResource].contains(u.code) {
-                return .noAnswer
+            if let u = error as? URLError {
+                if [.cannotConnectToHost, .cannotFindHost, .notConnectedToInternet].contains(u.code) { return .noAnswer }
+                if [.timedOut, .networkConnectionLost, .zeroByteResource].contains(u.code) { return .slow }
             }
             return .ambiguous
         }
@@ -108,6 +108,71 @@ enum SleepProbe {
                 return classify(statusCode: nil, body: nil, error: error)
             }
         }
+    }
+}
+
+/// A backend that won't answer, told apart from one that is merely slow (owner 2026-11-05). Slow must never lose a
+/// batch; hung must never block the update that may be its fix. Hung takes all of: three looks at least ten minutes
+/// apart with no real answer between them, two hours from the first to now, and no running drain's record
+/// (`$CICADA_HOME/sleep/<bank>/run.json`, rewritten at every batch commit) touched in those two hours. Two hours is
+/// about seven of the longest batch measured (17 minutes), and being wrong costs at most that batch. The record is the
+/// stronger signal because it is the drain's own progress: CPU can't tell a drain waiting on a model from a stuck one.
+/// The looks live on disk so they outlast the app quitting between them; any real answer, or nothing listening, ends them.
+enum BackendSilence {
+    static let span: TimeInterval = 2 * 60 * 60
+    static let looksNeeded = 3
+    static let lookGap: TimeInterval = 10 * 60
+
+    struct Record: Codable, Equatable, Sendable {
+        var first: TimeInterval
+        var last: TimeInterval
+        var looks: Int
+    }
+
+    static func url(home: URL) -> URL { home.appendingPathComponent("update-backend-silent.json") }
+
+    /// The series after one more look; nil once the backend has answered or nothing is listening.
+    static func next(_ record: Record?, after answer: SleepProbe.Answer, now: TimeInterval) -> Record? {
+        guard answer == .slow || answer == .ambiguous else { return nil }
+        guard var record, record.first <= now else { return Record(first: now, last: now, looks: 1) }
+        if now - record.last >= lookGap {
+            record.last = now
+            record.looks += 1
+        }
+        return record
+    }
+
+    static func isHung(_ record: Record?, now: TimeInterval, runningRecordTouched: TimeInterval?) -> Bool {
+        guard let record, record.looks >= looksNeeded, now - record.first >= span else { return false }
+        guard let runningRecordTouched else { return true }
+        return now - runningRecordTouched >= span
+    }
+
+    /// When a drain's record saying `running` was last written, across every bank.
+    static func newestRunningRecord(home: URL, fileManager fm: FileManager = .default) -> TimeInterval? {
+        let root = home.appendingPathComponent("sleep")
+        let banks = (try? fm.contentsOfDirectory(atPath: root.path)) ?? []
+        return banks.compactMap { bank -> TimeInterval? in
+            let file = root.appendingPathComponent(bank).appendingPathComponent("run.json")
+            guard let data = fm.contents(atPath: file.path),
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  object["phase"] as? String == "running",
+                  let touched = (try? fm.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date else { return nil }
+            return touched.timeIntervalSince1970
+        }.max()
+    }
+
+    /// One look, recorded. True when this answer finds the backend hung.
+    static func note(_ answer: SleepProbe.Answer, home: URL, now: Date = Date(), fileManager fm: FileManager = .default) -> Bool {
+        let file = url(home: home)
+        let held = fm.contents(atPath: file.path).flatMap { try? JSONDecoder().decode(Record.self, from: $0) }
+        let seconds = now.timeIntervalSince1970
+        guard let record = next(held, after: answer, now: seconds) else {
+            try? fm.removeItem(at: file)
+            return false
+        }
+        if record != held, let data = try? JSONEncoder().encode(record) { try? data.write(to: file, options: .atomic) }
+        return isHung(record, now: seconds, runningRecordTouched: newestRunningRecord(home: home, fileManager: fm))
     }
 }
 
@@ -303,7 +368,7 @@ struct UpdateInstaller: Sendable {
 
     /// Writes the helper and starts it detached. `relaunch` reopens the app after the swap ("Restart to update"); a
     /// quit-time install leaves it closed, as the person asked.
-    func handOff(_ staged: StagedUpdate, relaunch: Bool, currentVersion: String?) throws {
+    func handOff(_ staged: StagedUpdate, relaunch: Bool, currentVersion: String?, sleepGate: SleepGate = .strict) throws {
         let fm = FileManager.default
         guard fm.fileExists(atPath: staged.stagedApp.path) else { throw Failure.stage }
         let plan = HelperPlan(
@@ -314,7 +379,7 @@ struct UpdateInstaller: Sendable {
             deferredMarker: UpdateFailureMarker.deferredURL(home: cicadaHome).path, pidFile: helperPIDFile.path,
             statusURL: SleepProbe.statusURL(port: port).absoluteString, tokenFile: tokenFile.path,
             launchAgentPlist: fm.fileExists(atPath: launchAgentPlist.path) ? launchAgentPlist.path : nil,
-            uid: uid, relaunch: relaunch)
+            uid: uid, relaunch: relaunch, sleepGate: sleepGate)
         do {
             try fm.createDirectory(at: workRoot, withIntermediateDirectories: true)
             let script = workRoot.appendingPathComponent("cicada-update-\(UUID().uuidString).sh")
@@ -376,7 +441,15 @@ struct UpdateInstaller: Sendable {
         var launchAgentPlist: String?
         var uid: uid_t
         var relaunch: Bool
+        var sleepGate: SleepGate = .strict
+        /// The helper has outlived the app, so nobody waits on this: long enough for a slow answer to arrive.
+        var probeSeconds = 10
     }
+
+    /// What the helper does with its last look at the backend. `strict` defers on anything but a clear idle or nothing
+    /// listening. `hung` (`BackendSilence` found it so) still defers on a clear "running". `insisted`, only from the
+    /// person's click on the line that says what it costs, doesn't ask.
+    enum SleepGate: String, Sendable { case strict, hung, insisted }
 
     /// Half a second per poll; 120 polls is the minute the helper waits for the app to exit.
     static let quitPolls = 120
@@ -493,23 +566,36 @@ struct UpdateInstaller: Sendable {
           exit 143
         }
         trap on_term TERM
+        sleepgate=\(q(plan.sleepGate.rawValue))
+        no_clear_answer() {
+          if [ "$sleepgate" = hung ]; then
+            say "the backend has given no answer across the bound and no drain moved; treating it as hung"
+            return 1
+          fi
+          say "the backend gave no clear answer; treating Sleep as running"
+          return 0
+        }
         sleep_busy() {
+          if [ "$sleepgate" = insisted ]; then
+            say "the person chose to restart without waiting for Sleep"
+            return 1
+          fi
           if [ -r "$tokenfile" ]; then
-            answer=$(printf 'header = "Authorization: Bearer %s"\\n' "$(/bin/cat "$tokenfile")" | /usr/bin/curl -fsS --noproxy '*' --max-time 2 -K - "$statusurl" 2>/dev/null)
+            answer=$(printf 'header = "Authorization: Bearer %s"\\n' "$(/bin/cat "$tokenfile")" | /usr/bin/curl -fsS --noproxy '*' --max-time \(plan.probeSeconds) -K - "$statusurl" 2>/dev/null)
           else
-            answer=$(/usr/bin/curl -fsS --noproxy '*' --max-time 2 "$statusurl" 2>/dev/null)
+            answer=$(/usr/bin/curl -fsS --noproxy '*' --max-time \(plan.probeSeconds) "$statusurl" 2>/dev/null)
           fi
           code=$?
           case "$code" in
             0) ;;
-            7|28|52|56) return 1 ;;
-            *) return 0 ;;
+            7) return 1 ;;
+            *) no_clear_answer; return $? ;;
           esac
           answer=$(printf '%s' "$answer" | /usr/bin/tr -d ' \\n')
           case "$answer" in
             *'"writing":true'*|*'"status":"running"'*|*'"inboxTidy":true'*) return 0 ;;
             *'"status":'*) return 1 ;;
-            *) return 0 ;;
+            *) no_clear_answer; return $? ;;
           esac
         }
 

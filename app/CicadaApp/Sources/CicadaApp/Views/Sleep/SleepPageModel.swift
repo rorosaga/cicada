@@ -90,6 +90,11 @@ struct SleepPageModel: Equatable {
     var autoContinueWhen: String? = nil
     /// Continue cannot help yet: a weekly plan limit whose reset is still ahead (the board's disabled Continue).
     var continueWaitsForReset: Bool = false
+    /// The paused run's limit has reset (`SleepPausedRun.planIsBack`): the words stop naming the limit or its time.
+    var planIsBack: Bool = false
+    /// The next moment this page's words change on their own, if one is ahead: a pause's reset, an armed automatic
+    /// continue, a plan stop's reset. `SleepView` redraws at it, so no one has to reopen the page (ROR-96).
+    var nextClockEdge: Date? = nil
     /// The Pause was asked for and the run has not stopped yet.
     var pausing: Bool = false
 
@@ -186,8 +191,16 @@ struct SleepPageModel: Equatable {
         model.batchSize = batchSize ?? (status.map { $0.batchSize > 0 ? $0.batchSize : 25 } ?? 25)
         model.readable = readable
         model.parkedCount = parked
-        model.resetWhen = resetDate.map { sleepClockWords($0, now: now, locale: locale, timeZone: timeZone, afterToday: true) }
-        model.autoContinueWhen = autoAt.map { sleepClockWords($0, now: now, locale: locale, timeZone: timeZone, afterToday: false) }
+        // A time that has gone by is never said: past its reset a pause has no "resets …", and an armed continue that
+        // has not fired yet (the Mac just woke) has no "continues after …".
+        model.planIsBack = shownPause?.planIsBack(now: now) ?? false
+        model.resetWhen = resetDate.flatMap { $0 > now
+            ? sleepClockWords($0, now: now, locale: locale, timeZone: timeZone, afterToday: true) : nil }
+        model.autoContinueWhen = autoAt.flatMap { $0 > now
+            ? sleepClockWords($0, now: now, locale: locale, timeZone: timeZone, afterToday: false) : nil }
+        let stopReset = drain?.stop.flatMap { $0.reason == "plan_limit" ? $0.resetsAt : nil }
+            .map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        model.nextClockEdge = [resetDate, autoAt, stopReset].compactMap { $0 }.filter { $0 > now }.min()
         model.continueWaitsForReset = shownPause?.reason == "plan_weekly" && (resetDate.map { $0 > now } ?? false)
         model.pausing = pausing && isRunning
         // A paused run is continued, not consolidated afresh: the one primary is Continue (A4, DR-40).
@@ -267,6 +280,7 @@ extension SleepPageModel {
         context.paused = paused
         context.batchSize = batchSize
         context.resetWhen = resetWhen
+        context.planIsBack = planIsBack
         context.autoContinueWhen = autoContinueWhen
         context.pausing = pausing
         return context

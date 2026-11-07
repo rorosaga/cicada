@@ -183,16 +183,16 @@ def test_decay_one_off_only(memory):
 
 
 def _conflict_page(memory: Path, *, older_human: bool = False, same_day: bool = False) -> None:
-    older = Claim(id="clm_old", text="Tool A runs on alpha-os", subject="tool-a", predicate="runs-on",
+    older = Claim(id="clm_old", text="Tool A runs on alpha-os", subject="tool-a", predicate="takes-place-in",
                   object="alpha-os", valid_from="2026-05-01", recorded_at="2026-05-01",
                   evidence=[Evidence(episode="ep_2026-05-01_001", kind="user")])
     if older_human:
         older.source_trust, older.origin = "user_stated", "clarification"
-    newer = Claim(id="clm_new", text="Tool A runs on beta-os", subject="tool-a", predicate="runs-on",
+    newer = Claim(id="clm_new", text="Tool A runs on beta-os", subject="tool-a", predicate="takes-place-in",
                   object="beta-os", valid_from="2026-05-01", recorded_at="2026-05-01",
                   evidence=[Evidence(episode="ep_2026-05-01_002" if same_day else "ep_2026-08-03_001", kind="user")])
     _entity(memory, "tool-a", type="tool", status="active", body=write_claims("## Summary\nA tool.\n", [older, newer]))
-    _item(memory, "inbox-001", kind="conflict", entity_id="tool-a", entity_name="Tool A", predicate="runs-on",
+    _item(memory, "inbox-001", kind="conflict", entity_id="tool-a", entity_name="Tool A", predicate="takes-place-in",
           question="What does Tool A run on?",
           options=[{"key": "a", "label": "alpha-os", "claim_id": "clm_old"},
                    {"key": "b", "label": "beta-os", "claim_id": "clm_new"},
@@ -579,6 +579,24 @@ def test_a_clarification_answered_in_conversation_is_sleeps_reading_not_the_pers
     assert claim.evidence and claim.evidence[0].kind == "user" and claim.evidence[0].is_span()
 
 
+@pytest.mark.parametrize("has_page", [True, False])
+def test_a_question_asked_on_purpose_is_still_settled_by_the_persons_own_words(memory, has_page):
+    """G239 keeps it from a mention, a lookup and the in-passing rule; ruling 29's located words are the person's answer."""
+    if has_page:
+        _entity(memory, "example-gadget", type="tool", name="Example Gadget", status="active")
+    _item(memory, "inbox-001", kind="clarification", entity_id="example-gadget", entity_name="Example Gadget",
+          title="Who or what is Example Gadget?", source_episode="ep_2026-09-01_001",
+          why_asked="the repair depends on it")
+    ep = _episode(memory, "ep_2026-10-03_001", "user: Example Gadget is the soldering station on my desk.")
+    _commit(memory)
+    fn = _fake({"answered": True, "answer": "a soldering station",
+                "quote": "Example Gadget is the soldering station on my desk"})
+    report = run(inbox_tend.tend(memory, _Settings(memory), episodes=[ep], run_policy=False, llm_fn=fn))
+    assert report.settled == 1
+    assert not (memory / "inbox" / "inbox-001.md").exists()
+    assert (memory / "inbox" / "settled" / "inbox-001.md").exists()
+
+
 # --------------------------------------------------------------------------- review blockers (2026-10-17)
 
 
@@ -805,7 +823,7 @@ def test_the_judges_never_see_the_owners_page_or_a_persons_identity(memory):
 
 
 def test_sleeps_keep_invents_no_mention_reopens_no_claim_and_lifts_no_confidence(memory):
-    faded = Claim(id="clm_faded", text="Example Gadget runs on alpha-os", subject="example-gadget", predicate="runs-on",
+    faded = Claim(id="clm_faded", text="Example Gadget runs on alpha-os", subject="example-gadget", predicate="takes-place-in",
                   object="alpha-os", confidence=0.2, valid_from="2026-05-01", recorded_at="2026-05-01",
                   valid_to="2026-09-01")
     _entity(memory, "example-gadget", type="tool", last_referenced="2026-06-01", confidence=0.3,
@@ -833,16 +851,16 @@ def _words_conflict(memory: Path, *, newer_says_it_too: bool = False, newer_trac
         hit = ev.locate(text, quote)
         return Evidence(episode=eid, start=hit[0], end=hit[1], kind="user", hash=ev.body_hash(text))
 
-    older = Claim(id="clm_old", text="Tool A runs on alpha-os", subject="tool-a", predicate="runs-on",
+    older = Claim(id="clm_old", text="Tool A runs on alpha-os", subject="tool-a", predicate="takes-place-in",
                   object="alpha-os", valid_from="2026-05-01", recorded_at="2026-05-01",
                   evidence=[span("ep_2026-05-01_001", ep_old, "Tool A runs on alpha-os")])
-    newer = Claim(id="clm_new", text="Tool A runs on beta-os", subject="tool-a", predicate="runs-on",
+    newer = Claim(id="clm_new", text="Tool A runs on beta-os", subject="tool-a", predicate="takes-place-in",
                   object="beta-os", valid_from="2026-08-03", recorded_at="2026-08-03",
                   evidence=([span("ep_2026-08-03_001", ep_new, "Tool A moved to beta-os")] if newer_says_it_too
                             else [Evidence(episode="ep_2026-08-03_002", kind="assistant")]),
                   origin="source-refresh" if newer_tracked else None)
     _entity(memory, "tool-a", type="tool", status="active", body=write_claims("## Summary\nA tool.\n", [older, newer]))
-    _item(memory, "inbox-001", kind="conflict", entity_id="tool-a", predicate="runs-on",
+    _item(memory, "inbox-001", kind="conflict", entity_id="tool-a", predicate="takes-place-in",
           options=[{"key": "a", "label": "alpha-os", "claim_id": "clm_old"},
                    {"key": "b", "label": "beta-os", "claim_id": "clm_new"}])
     _commit(memory)
@@ -895,10 +913,10 @@ def test_a_settle_holds_the_page_lock_from_its_first_read_through_its_commit(mem
 
 def _label_conflict(memory: Path, *, human_beta: bool = False, labels=("Runs on alpha-os", "Runs on beta-os")) -> None:
     """An older conflict: every option a label, no claim behind it (the entity path compares page bodies)."""
-    alpha = Claim(id="clm_alpha", text="Tool A runs on alpha-os", subject="tool-a", predicate="runs-on",
+    alpha = Claim(id="clm_alpha", text="Tool A runs on alpha-os", subject="tool-a", predicate="takes-place-in",
                   object="alpha-os", valid_from="2026-05-01", recorded_at="2026-05-01",
                   evidence=[Evidence(episode="ep_2026-05-01_001", kind="user")])
-    beta = Claim(id="clm_beta", text="Tool A runs on beta-os", subject="tool-a", predicate="runs-on",
+    beta = Claim(id="clm_beta", text="Tool A runs on beta-os", subject="tool-a", predicate="takes-place-in",
                  object="beta-os", valid_from="2026-08-03", recorded_at="2026-08-03",
                  evidence=[Evidence(episode="ep_2026-08-03_001", kind="user")])
     if human_beta:
@@ -914,7 +932,7 @@ def _label_conflict(memory: Path, *, human_beta: bool = False, labels=("Runs on 
 
 def test_a_label_is_tied_to_a_claim_by_folded_words_never_fuzzily():
     def claim(obj, text):
-        return Claim(id=f"clm_{obj}", text=text, subject="x", predicate="runs-on", object=obj)
+        return Claim(id=f"clm_{obj}", text=text, subject="x", predicate="takes-place-in", object=obj)
 
     assert inbox_tend.label_matches("Runs on alpha-os", claim("alpha-os", "Tool A runs on alpha-os"))
     assert inbox_tend.label_matches("ALPHA OS", claim("alpha-os", "x"))                     # case and separators
@@ -923,11 +941,11 @@ def test_a_label_is_tied_to_a_claim_by_folded_words_never_fuzzily():
     assert not inbox_tend.label_matches("an os", claim("os", "x"))                            # too short to tie
     options = [{"key": "a", "label": "alpha-os"}, {"key": "b", "label": "beta-os"}]
     beta = claim("beta-os", "Tool A runs on beta-os")
-    assert inbox_tend.label_claims(options, [beta], "runs-on") == {"a": [], "b": [beta]}
+    assert inbox_tend.label_claims(options, [beta], "takes-place-in") == {"a": [], "b": [beta]}
     both = claim("beta-os", "Tool A runs on beta-os or alpha-os")
-    assert inbox_tend.label_claims(options, [both], "runs-on") == {"a": [], "b": []}   # tied to both: neither
+    assert inbox_tend.label_claims(options, [both], "takes-place-in") == {"a": [], "b": []}   # tied to both: neither
     other = Claim(id="clm_o", text="Tool A uses alpha-os", subject="x", predicate="uses", object="alpha-os")
-    assert inbox_tend.label_claims(options, [other], "runs-on") == {"a": [], "b": []}  # another predicate
+    assert inbox_tend.label_claims(options, [other], "takes-place-in") == {"a": [], "b": []}  # another predicate
 
 
 def test_a_label_only_conflict_is_judged_and_settled_by_its_option_key(memory):
@@ -1056,6 +1074,7 @@ def test_a_followup_is_answered_from_the_record_dated_the_day_the_person_said_it
                    valid_from="2026-07-01", recorded_at="2026-07-01", observer="owner-example",
                    evidence=[Evidence(episode="ep_2026-07-01_001", kind="user")])
     _entity(memory, "alpha-project", type="project", name="Alpha Project", status="active",
+            mine={"via": "app", "day": "2026-07-01", "by": "user"},   # ruling 56: a follow-up only on a started project
             body=write_claims("## Summary\nA project.\n", [thread]))
     _item(memory, "inbox-001", kind="followup", entity_id="alpha-project", entity_name="Alpha Project",
           predicate="happened", claim_id="clm_thread", created_date="2026-08-01")
@@ -1164,7 +1183,7 @@ def test_an_agents_saved_note_never_answers_as_the_persons_own_words(memory):
 
 
 def test_a_negated_label_is_never_tied_to_the_value_it_denies():
-    claim = Claim(id="clm_a", text="Tool A runs on alpha-os", subject="x", predicate="runs-on", object="alpha-os")
+    claim = Claim(id="clm_a", text="Tool A runs on alpha-os", subject="x", predicate="takes-place-in", object="alpha-os")
     assert inbox_tend.label_matches("Runs on alpha-os", claim)
     assert not inbox_tend.label_matches("No longer on alpha-os", claim)
     assert not inbox_tend.label_matches("Doesn't run on alpha-os", claim)

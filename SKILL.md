@@ -34,13 +34,16 @@ it).
 | `cicada save "<content>"` | Stage a note for the next Sleep (content `-` reads stdin). |
 | `cicada handshake` | The contract and the current state, for an agent arriving cold. |
 | `cicada timeline` | What changed in memory, day by day. |
+| `cicada page merge <page> <into> <reason>` | Merge a page into another one, with your reason. |
+| `cicada page undo <page>` | Take back the newest merge or split on a page. |
+| `cicada page split <page>` | Split what is about another thing off a page, with your reason. |
 | `cicada skills list` | Agent skills on this Mac, per agent, with updates and requests. |
 | `cicada skills propose <action> <reason>` | Ask the person to install or update a skill (on/off/refresh apply at once if you're trusted). |
 | `cicada skills create <skill> <description> <body>` | Draft a skill for a workflow; held until the person publishes it. |
 | `cicada status` | Which memory this command uses, and whether the app's backend agrees. |
 | `cicada commands` | Every command, and the MCP tool each one mirrors. |
 
-- **Options:** get: `--start`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; timeline: `--since`; skills propose: `--source`, `--skill`, `--agent`; skills create: `--reason`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
+- **Options:** get: `--start`, `--include`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; timeline: `--since`; page undo: `--reason`; page split: `--reason`, `--sentences`, `--claim`, `--source`, `--episode`, `--references`, `--name`, `--page-type`, `--preview`; skills propose: `--source`, `--skill`, `--agent`; skills create: `--reason`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
   text from stdin when it is `-`.
 - **`--json`** (before or after the command) prints one envelope: `{schema, command, ok, code, bank, data,
   text, warnings, version}`. `text` is what the matching MCP tool says; `data` is the structured part.
@@ -66,8 +69,14 @@ bank's current projects and pending questions, and which conversations resume.
 This file only adds the traversal notes below.
 
 ## Two-pass recall (small-model friendly)
-1. `cicada_recall(query)` — Pass 1. Returns concise entity summaries plus an
-   open question only when the query is about that question's own subject.
+0. A direct factual question (who, when, did I, what happened) goes straight to
+   `cicada_ask` — no recall first. It names who was on the other side of each
+   conversation it used ("a Claude Code session (id …, resumable)", "<name> (an AI
+   agent), over Messages"); read one whole with `cicada_sources(entity_id="ep_…")`.
+1. `cicada_recall(query)` — Pass 1. Returns only the pages that match well (at
+   most 5: the best one's summary and distinct key facts, shorter summaries of the
+   rest) plus an open question only when the query is about that question's own
+   subject. Repeated key facts are folded and said in one line.
    Read the summaries and the "Related" list. Each heading says when the page
    was last said and its state (`last said 3 weeks ago on <day> · fading`); a
    page silent for months is a dated belief, so say how old it is before you
@@ -120,6 +129,27 @@ a name that could be two people). They come up naturally or not at all:
 - When they ask "what is in my inbox" or "what conflicts do I have", use
   `mode="list"` and list them plainly.
 
+## Catching up
+When the person asks to catch Cicada up ("let's catch up", "what do you want
+to ask me", "anything you need from me?"), or starts the `catch_up` prompt:
+- Call `cicada_check_nudges(mode="catchup")`. It returns the next few questions,
+  the pages they use most first, each with an `Ask:` line and a `Why` line.
+- It is a conversation, not an interrogation. Ask ONE at a time, in your own
+  words, with its reason ("Are you still working at <org>? Your LinkedIn
+  seems a bit stale, so I wasn't sure"). Follow up when an answer opens
+  something, say it another way if they are unsure, and move to a related
+  question when their answer touches it. Never read the list out, never
+  press: "not now" is an answer (`skip=true`).
+- Each question carries what Cicada has on its page: follow up from that,
+  never read it out, never guess past it.
+- Record each answer as the reply says (their exact words as `quote`). For
+  "are these the same person?", a yes is never joined by you: say you noted
+  it — Cicada joins them from their own words at its next consolidation. A
+  "different people" is `reject=true`. Something new they mention in passing
+  is memory like in any chat: save it (`cicada_save_episode`).
+- When they want more, call it again: nothing repeats in this conversation.
+  Stop when they say so or when it says nothing is left.
+
 ## Hub browsing (filesystem traversal)
 For structured exploration rather than fuzzy search, walk the hub tier:
 `cicada_open_hub(hub)` opens a hub page that lists its member entities.
@@ -136,6 +166,35 @@ start at the index, pick a hub, then drill into entities. Use hubs to answer
 - A link worth keeping (article, repo, video) -> `cicada_save_url(url, note?)`.
   Cicada fetches and indexes it as a media source.
 
+## Projects
+A project starts only from the person: in the app, or by asking you. Nothing
+Cicada detects is a project until they say so.
+- When they ask you to start one ("make this a project", "start a project for
+  the garden") -> `cicada_create_project(project, description?, reason=<what
+  they said>)`, or cite their words in `evidence`. A name a page already holds
+  starts that page, its history kept, never a second one. Give `repo` only when
+  the project IS the repository this session runs in. If they listed your app as
+  one that may edit their memory directly it starts at once; otherwise it waits
+  as a question in their inbox.
+- Your note lists their current projects, then recent project pages they never
+  started. If they are plainly working on one of those, you may offer once, in
+  your own words, to start it; `cicada_recall_detail` and `cicada_project` say
+  the same on the page. Never start it without their yes, never raise it again
+  once they pass, and never make it an inbox question.
+- Tie things to their projects yourself, without being asked, when the
+  conversation shows they belong: this conversation ->
+  `cicada_link_conversation(project, reason)`; a page already in memory that is
+  part of a project (a person on it, a tool it runs on) ->
+  `cicada_link_entity(project, entity, reason)`. Give the one sentence the person
+  will read. Two things mentioned together is not enough. A session in a
+  repository the project lists is tied already. If your app may not edit their
+  memory directly, your link waits as a proposal on the project's page. You can
+  take back only what you tied; what the person took off stays off.
+- Something that fed a project (a film, a paper, a tool, a person) ->
+  `cicada_add_influence(project, what or url, how)`. Rename a project or set its
+  one-line description when asked -> `cicada_edit_page(subject, reason, name=…,
+  description=…)`.
+
 ## Fixing what memory says
 Never edit files under `entities/`, `hubs/`, `backlog/` or `_index.md` directly:
 every write goes through a tool, so provenance (git, the author and session
@@ -145,6 +204,15 @@ trailers) and dedup hold.
   message; the claims on the page are never touched. If the person has not
   listed your app as one that may edit pages, the change waits in their inbox
   for one tap, and the reply says so.
+- One page holds two different things with one name ("that's two different
+  things", "the app and the programme got mixed up") -> separate them in the
+  conversation: `cicada_split_page(page, preview=true)`, pick the sentences
+  about the other thing, call `preview=true` again with them to get a
+  plain-text proposal, show it and ask; only on their yes, call it without
+  `preview`, their own words as `reason`.
+- Two pages are one thing ("those are the same") -> offer
+  `cicada_merge_pages(page, into, reason)`; on their yes, apply.
+- "Undo that split / merge" -> `cicada_undo_join(page)`.
 - A fact is wrong or new -> `cicada_write_claim` (quote the evidence);
   withdraw a claim you wrote with `cicada_retract_claim`.
 - An open question the person just answered -> `cicada_resolve_inbox`.

@@ -1,23 +1,139 @@
 import SwiftUI
 
-/// A working page's headline (DR-17's fourth call site: onboarding headlines) and its one line.
+/// A working page's headline (DR-17's fourth call site: onboarding headlines) and its one line. ROR-118: 40 pt over an
+/// 19 pt medium line (round 5; 18 regular in round 4, 36 over 17 in round 2) in the secondary ink, up from 28 over 14, so the step's name is the first thing read and the line a clear
+/// second (hierarchy, DR-15's display role kept).
 struct OnboardingHeadline: View {
     let title: String
     let subline: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text(title)
-                .font(CicadaTheme.displayFont(size: 28))
-                .tracking(CicadaTheme.displayTracking(size: 28))
+                .font(CicadaTheme.displayFont(size: 40))
+                .tracking(CicadaTheme.displayTracking(size: 40))
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
             Text(subline)
-                .font(CicadaTheme.bodyFont)
+                .font(CicadaTheme.font(size: 19, weight: .medium))
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// One option of a pair that are equals (ROR-118: "Use an API key" read as a stray label beside a plan row that had no
+/// selected state). Round 2: the chosen one is unmistakable at a glance — a 2 pt `textPrimary` ring (DR-5, "selection is
+/// a `textPrimary` ring"), the `bgSelected` fill and a filled check; the other is the same row at rest with an open
+/// circle. With an `action` the whole row is the button.
+struct OnboardingChoice<Content: View>: View {
+    let selected: Bool
+    var action: (() -> Void)? = nil
+    @ViewBuilder var content: (_ indicator: AnyView) -> Content
+
+    var body: some View {
+        let shape = CicadaTheme.shape(CicadaTheme.cornerRadius)
+        let indicator = AnyView(
+            // Round 3: the open circle is read in the secondary ink, a real circle beside the chosen row's filled one,
+            // not a ring-strength ghost beside a 2 pt outline.
+            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                .font(CicadaTheme.font(size: 26, weight: selected ? .regular : .light))
+                .foregroundStyle(selected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                .accessibilityHidden(true))
+        let row = content(indicator)
+            .padding(.vertical, CicadaTheme.spacingSM)
+            .frame(minHeight: CicadaTheme.scaled(144))
+            .background(shape.fill(selected ? CicadaTheme.bgSelected : CicadaTheme.bgFocus))
+            .overlay(shape.strokeBorder(selected ? CicadaTheme.textPrimary : CicadaTheme.ring(.strong),
+                                        lineWidth: selected ? 2 : 1))
+            .contentShape(shape)
+        if let action {
+            Button(action: action) { row }
+                .buttonStyle(.cicadaPlain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+        } else {
+            row.accessibilityElement(children: .combine)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+        }
+    }
+}
+
+/// A row of the working steps (ROR-118 round 2): `ConnectionLine`'s anatomy one step larger and brighter — a 16 pt
+/// medium name over a 14 pt line in the secondary ink, not 14 over a dim 12 — in the one shared `LogoTile`, so every
+/// provider reads as one family (DR-52). Its action is `trailing`; a state, when there is one, `status`.
+struct OnboardingRowLine<Trailing: View, Below: View>: View {
+    var logo: String?
+    var name: String
+    var systemFallback: String = LogoTile.monogramFallback
+    var prominentGlyph = false
+    var detail: String? = nil
+    var status: (word: String, on: Bool)? = nil
+    var detailLines = 1
+    @ViewBuilder var trailing: () -> Trailing
+    @ViewBuilder var below: () -> Below
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            HStack(spacing: CicadaTheme.spacingMD) {
+                LogoTile(logo: logo, name: name, density: .roomy, systemFallback: systemFallback, glyphProminent: prominentGlyph)
+                VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                    Text(name)
+                        .font(CicadaTheme.font(size: 17, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .lineLimit(1)
+                    if let detail, !detail.isEmpty {
+                        Text(detail)
+                            .font(CicadaTheme.font(size: 15))
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .lineLimit(detailLines)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: CicadaTheme.spacingSM)
+                if let status { StatusDot(word: status.word, on: status.on) }
+                trailing()
+            }
+            below()
+        }
+        .padding(.vertical, CicadaTheme.spacingSM)
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(92), alignment: .leading)
+    }
+}
+
+extension OnboardingRowLine where Below == EmptyView {
+    init(logo: String?, name: String, systemFallback: String = LogoTile.monogramFallback, prominentGlyph: Bool = false,
+         detail: String? = nil, status: (word: String, on: Bool)? = nil, detailLines: Int = 1,
+         @ViewBuilder trailing: @escaping () -> Trailing) {
+        self.init(logo: logo, name: name, systemFallback: systemFallback, prominentGlyph: prominentGlyph, detail: detail,
+                  status: status, detailLines: detailLines, trailing: trailing, below: { EmptyView() })
+    }
+}
+
+/// The one action on a working step's row (ROR-118 round 5): a small outlined button, the neutral material (`bgButton`
+/// and the strong ring, DR-40), so it reads as something to press (round 2's bare words did not) and yet stays under
+/// the step's one filled, larger Continue (round 1's four boxed buttons competed with it). The state is the button
+/// itself: a row with nothing to say is not connected, so it says nothing (no repeated "Not connected").
+struct OnboardingRowAction: View {
+    let title: String
+    let action: () -> Void
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let shape = CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+        Button(action: action) {
+            Text(title).font(CicadaTheme.font(size: 15, weight: .medium))
+                .foregroundStyle(CicadaTheme.textPrimary)
+                .padding(.horizontal, CicadaTheme.scaled(14))
+                .frame(height: CicadaTheme.scaled(34))
+                .background(shape.fill(hovering ? CicadaTheme.bgButtonHover : CicadaTheme.bgButton))
+                .overlay(shape.strokeBorder(CicadaTheme.ring(.strong), lineWidth: 1))
+        }
+        .buttonStyle(.cicadaPlain)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
     }
 }
 
@@ -61,5 +177,88 @@ struct OnboardingPointerLine: View {
             }
         }
         .font(CicadaTheme.captionFont)
+    }
+}
+
+/// A quiet action of a working step's foot or of Welcome's action line (ROR-118 round 3): 16 pt medium words in the
+/// secondary ink, brightening on hover, an optional leading chevron for Back. Only Continue is filled; these are the
+/// words around it, all set in one family so Back, Skip and Set up later read as one kind of control in one place.
+struct OnboardingLink: View {
+    let title: String
+    var leadingChevron = false
+    let action: () -> Void
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: CicadaTheme.scaled(4)) {
+                if leadingChevron { Image(systemName: "chevron.left").font(CicadaTheme.font(size: 12, weight: .semibold)) }
+                Text(title).font(CicadaTheme.font(size: 16, weight: .medium))
+            }
+            .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+            .padding(.horizontal, CicadaTheme.spacingSM)
+            .frame(height: CicadaTheme.scaled(40))
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgSelected : .clear))
+        }
+        .buttonStyle(.cicadaPlain)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+    }
+}
+
+/// A way forward that is not the step's one filled action (ROR-118 round 4): the neutral button's material (`bgButton`
+/// and a resting ring, DR-40) at the large Continue's height, so *Try the demo* and *Not Maya? Change* read as buttons
+/// beside it and not as stray words. Only Continue is filled; this one is outlined.
+struct OnboardingOutlinedButton: View {
+    let title: String
+    var systemImage: String? = nil
+    var height: CGFloat = 40
+    let action: () -> Void
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let shape = CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+        Button(action: action) {
+            HStack(spacing: CicadaTheme.scaled(6)) {
+                if let systemImage { Image(systemName: systemImage).font(CicadaTheme.font(size: 13, weight: .medium)) }
+                Text(title).font(CicadaTheme.font(size: 16, weight: .medium))
+            }
+            .foregroundStyle(CicadaTheme.textPrimary)
+            .padding(.horizontal, CicadaTheme.scaled(16))
+            .frame(height: CicadaTheme.scaled(height))
+            .background(shape.fill(hovering ? CicadaTheme.bgButtonHover : CicadaTheme.bgButton))
+            .ringed(in: shape)
+        }
+        .buttonStyle(.cicadaPlain)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+    }
+}
+
+/// The way out of the whole flow (ROR-118 round 4): *Set up later* (*Close* on a rerun) with a close mark, in the
+/// window's top corner on every step that has one — the place a window's own exit lives — so it is never mistaken
+/// for *Skip this step*, which sits in the foot beside Continue and only moves on.
+struct OnboardingLeaveLink: View {
+    let title: String
+    let action: () -> Void
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: CicadaTheme.scaled(6)) {
+                Text(title).font(CicadaTheme.font(size: 15, weight: .medium))
+                Image(systemName: "xmark").font(CicadaTheme.font(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+            .padding(.horizontal, CicadaTheme.spacingSM)
+            .frame(height: CicadaTheme.scaled(36))
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgSelected : .clear))
+        }
+        .buttonStyle(.cicadaPlain)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
     }
 }

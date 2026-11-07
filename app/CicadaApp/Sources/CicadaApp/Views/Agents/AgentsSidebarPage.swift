@@ -195,19 +195,34 @@ enum AgentProducts {
         let wayId: String
         let name: String
         let connects: [String]
+        /// The way's one honest sentence (`Way.note`): how it connects, or what it does not capture (G228's managed
+        /// Codex sign-in). Drawn under its line; on the local line only, never repeated on a remote one.
+        var note: String? = nil
     }
 
     static let remoteConnects: Set<String> = ["remote", "export"]
 
+    /// The connect steps an umbrella's detail offers, pure (tested): each way's own pill, else the pills its setup ids
+    /// name, in order and once each.
+    static func entries(_ ways: [ProviderWay]) -> [AgentCatalogEntry] {
+        var out: [AgentCatalogEntry] = []
+        for way in ways {
+            let found = AgentCatalog.entry(for: way.id).map { [$0] } ?? way.setup.compactMap { AgentCatalog.entry(for: $0) }
+            for entry in found where !out.contains(where: { $0.id == entry.id }) { out.append(entry) }
+        }
+        return out
+    }
+
     static func lines(_ ways: [ProviderWay]) -> [Line] {
         ways.flatMap { way -> [Line] in
+            let note = way.note.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
             guard let remote = way.remoteLabel, !remote.isEmpty else {
-                return [Line(id: way.id, wayId: way.id, name: way.label, connects: way.connects)]
+                return [Line(id: way.id, wayId: way.id, name: way.label, connects: way.connects, note: note)]
             }
             let here = way.connects.filter { !remoteConnects.contains($0) }
             let there = way.connects.filter { remoteConnects.contains($0) }
             var out: [Line] = []
-            if !here.isEmpty { out.append(Line(id: way.id, wayId: way.id, name: way.label, connects: here)) }
+            if !here.isEmpty { out.append(Line(id: way.id, wayId: way.id, name: way.label, connects: here, note: note)) }
             if !there.isEmpty { out.append(Line(id: "\(way.id)#remote", wayId: way.id, name: remote, connects: there)) }
             return out
         }
@@ -222,6 +237,7 @@ private struct AgentDetailColumn: View {
     let backLabel: String?
     let onClose: () -> Void
 
+    @Environment(IntakeRouter.self) private var intake: IntakeRouter?
     @Environment(AppRouter.self) private var router: AppRouter?
     @State private var editors = PageEditorsModel()
     @State private var copied = false
@@ -232,16 +248,10 @@ private struct AgentDetailColumn: View {
     @State private var linkFor: RemoteApp?
     private let runtime = CicadaRuntime.current
 
-    /// The catalog's pills this umbrella's products are (Claude Code, the Claude app …), else Another agent for a
-    /// product that connects through the generic prompt.
-    private var entries: [AgentCatalogEntry] {
-        var out: [AgentCatalogEntry] = []
-        for way in umbrella.ways {
-            let entry = AgentCatalog.entry(for: way.id) ?? (way.setup.contains("other") ? AgentCatalog.entry(for: "other") : nil)
-            if let entry, !out.contains(where: { $0.id == entry.id }) { out.append(entry) }
-        }
-        return out
-    }
+    /// The catalog's pills this umbrella's products are (Claude Code, the Claude app …); for a product with no pill,
+    /// the pills its setup ids name — Another agent for one that connects through the generic prompt, the agents a
+    /// host app drives for T3 Code (G228: connecting Claude Code, Codex or Cursor is what connects its threads).
+    private var entries: [AgentCatalogEntry] { AgentProducts.entries(umbrella.ways) }
     private var entry: AgentCatalogEntry? { entries.first { $0.id == product } ?? entries.first }
 
     private var setupHarness: String? { umbrella.ways.lazy.compactMap(\.setup.first).first }
@@ -272,7 +282,18 @@ private struct AgentDetailColumn: View {
                             if index > 0 { SettingsDivider() }
                             ConnectionLine(logo: AgentSummary.mark(line.wayId), name: line.name, systemFallback: "terminal",
                                            detail: line.connects.compactMap(Copy.AgentsPage.connectsWord)
-                                               .joined(separator: " · ")) { EmptyView() }
+                                               .joined(separator: " · "),
+                                           trailing: { EmptyView() },
+                                           below: {
+                                               // G228 follow-up: the way's own sentence in ConnectionLine's slot
+                                               // under the row (G217's one line; DR-34), secondary ink.
+                                               if let note = line.note {
+                                                   Text(note)
+                                                       .font(CicadaTheme.captionFont)
+                                                       .foregroundStyle(CicadaTheme.textSecondary)
+                                                       .fixedSize(horizontal: false, vertical: true)
+                                               }
+                                           })
                         }
                     }
                     .settingsCardSurface()
@@ -340,7 +361,11 @@ private struct AgentDetailColumn: View {
                                       systemImage: "doc.on.doc", size: .compact) { copySetup(harness) }
                     }
                     if let tile = exportTile {
-                        TextButton(title: Copy.AgentsPage.importExport) { router?.routeToAddSource(tile) }
+                        // CIC8 (2026-10-29) — the one intake, over this page: this used to stage the tile for
+                        // Sources, which had no entry for it, so the person landed on Sources with nothing open.
+                        TextButton(title: Copy.AgentsPage.importExport) {
+                            intake?.present(from: tile.chatVendor.map { .reminder($0) } ?? .menuBar)
+                        }
                     }
                 }
                 if umbrella.ways.contains(where: { $0.connects.contains("hooks") }) {

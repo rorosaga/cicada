@@ -28,6 +28,12 @@ final class FakeProjectsAPI: ProjectsAPI {
         timelineReplies[id] = queue
         return try next.get()
     }
+
+    var conversationReplies: [String: ProjectConversationsPage] = [:]
+    func fetchProjectConversations(id: String, etag: String?) async throws -> Conditional<ProjectConversationsPage> {
+        guard let page = conversationReplies[id] else { throw APIError.serverUnreachable }
+        return Conditional(value: page, etag: "c-\(id)", notModified: false)
+    }
 }
 
 /// R-PP3 / R-PJ7 — the cache revalidates with the server's ETag, keeps last-known-good, says a 404 as "gone", and

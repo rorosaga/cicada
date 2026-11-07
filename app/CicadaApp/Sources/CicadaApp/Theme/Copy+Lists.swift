@@ -26,6 +26,8 @@ extension Copy {
         static let viewHelp = "Types (shared with the Graph), labels and groups"
         static let typesShared = "Types · shared with the Graph"
         static let showEveryType = "Show every type"
+        static let mediaKindAll = "All"
+        static let mediaKindsLabel = "Kinds of media"
         static let labels = "Labels"
         static let searchLabels = "Search labels…"
         static let noLabels = "No labels yet"
@@ -57,6 +59,25 @@ extension Copy {
 
         // The Feed
         static let kind = "Kind"
+        // ROR-138 — Media split by kind, with where each came from (the View menu's Media section).
+        static let mediaSection = "Media"
+        static let groupByChannel = "Group by channel or publication"
+        static let groupByChannelHelp = "Sorts media by the channel or publication it came from and names it under the title. A channel’s own picture is not fetched: only a site you added or confirmed may draw its mark."
+        static func mediaKind(_ id: String) -> String {
+            switch id {
+            case "book": "Books"
+            case "article": "Articles"
+            case "video": "Videos"
+            case "picture": "Pictures"
+            case "paper": "Papers"
+            case "repository": "Repositories"
+            case "link": "Links"
+            case "file": "Files"
+            case "feed": "From feeds"
+            default: id.capitalized
+            }
+        }
+        static func cameFrom(_ origin: String) -> String { "From \(origin)" }
         static let findFeed = "Search saved media…"
         static let sortFeed = "Sort saved items"
         static let relevance = "Relevance"

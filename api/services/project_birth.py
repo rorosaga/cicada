@@ -1,38 +1,46 @@
-"""Where a project page comes from (G141, TODO ruling 36 D4).
+"""What a conversation says about where a project comes from (G141, TODO ruling 36 D4, amended by ruling 56).
 
-A project page is born from one of two things, never from consolidation alone:
+Since ruling 56 (owner, 2026-11-04) Sleep never makes a project: a project starts only from the person, in the app or
+their shell, or from an agent on their ask (``project_ownership``). What this module reads from a conversation is now a
+**signal**, recorded on the page and never acted on by itself:
 
 * **a repository** the person works in with an agent: a harness session whose episode carries the hook's own
   observation of a git checkout (``workspace_identity`` with a ``family_hash``, G110 D2) and whose ``project_dir``
   names the thing Stage 1 called a project. The backend reads only those two stored values; it never opens, stats or
-  runs git in the path. The hook observes no remote (D2 allows only the ``rev-parse`` pair), so the repository's name
-  is read from the stored path itself: its last component, or the one before a ``.worktrees``/``worktrees`` folder.
+  runs git in the path. The repository's name is read from the stored path itself: its last component, or the one
+  before a ``.worktrees``/``worktrees`` folder. Since D2's amendment (owner 2026-10-29) the observation may also carry
+  the origin's salted hash (``remote_hash``; the URL never reaches the backend): it is recorded as ``repo.remote``, and
+  a repository renamed, moved or cloned again is the same page (:func:`same_repository_page`), never a second one.
 * **the person's own words** saying it is a project: one sentence of their own turn (or another person's in a
   meeting) that names the thing beside a word for "project" (a few languages, :data:`PROJECT_WORD`), located exactly
   in the conversation and kept as a span, never a copy (G118).
-* A watched folder the person named in the app (``folder_source.ensure_project``) is the person's own words too: they
-  typed the name. Its ``born`` says ``via: folder``.
+* A watched folder the person named in the app (``folder_source.ensure_project``) is their own act: it does make a
+  project, and its ``born`` says ``via: folder``.
 
-Everything else Stage 1 calls a project is never a project page. Below the promotion bar it waits as a mention in the
+Everything Stage 1 calls a project with no page yet goes one way. Below the promotion bar it waits as a mention in the
 pending store, as any name does (``pending_store``). Over the bar — counted over every spelling the judge says is the
-same thing — it gets a **fallback page** (owner 2026-10-23): a ``concept`` marked :data:`PROPOSED_KEY`, so it shows in
-the app; a later repository or the person's words make that page the project (:func:`retype_on_birth`), never a
-second page (``entity_resolver._settle_unborn``). Pages born before this rule are
-never archived or deleted for it: :func:`classify` says, per page, which origin the bank can show and why, and the
+same thing, and the person's own words calling it a project clear the bar — it gets a **fallback page** (owner
+2026-10-23): a ``concept`` marked :data:`PROPOSED_KEY`, carrying the signal as ``born``. A repository's signal alone
+never clears the bar. A later start makes that page the project in place (:func:`start_page`), never a second page.
+An agent reading a page whose ``born`` is the person's words is told it may offer to start it, once, on the topic
+(``mcp_tools.recall_detail``): that is what replaced the Suggested list. Pages from before this rule are never
+archived, deleted or retyped for it: :func:`classify` says, per page, which origin the bank can show and why, and the
 dry run (``python -m api.scripts.project_origins``) lists them for the owner to read.
 
-The ``born`` frontmatter key is written once, where the page is born, and never rewritten:
-``{origin: repo|words, day, episode, repo?: {name, family}, span?: {start, end, hash, kind}, via?: folder}``.
+The ``born`` frontmatter key is written once and never rewritten:
+``{origin: repo|words, day, episode, repo?: {name, family, remote?}, span?: {start, end, hash, kind}, via?: folder}``,
+or ``{origin: created, via, day, ...}`` for a project someone started from nothing.
 """
 from __future__ import annotations
 
 import posixpath
 import re
+from functools import lru_cache
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
-from api.services import evidence, promotion, workspace_identity
+from api.services import authorship, evidence, promotion, workspace_identity
 
 REPO, WORDS = "repo", "words"
 
@@ -50,8 +58,10 @@ _CLAUSE_BREAK = re.compile(r"[,;:()]")
 _WORKTREE_DIRS = frozenset({".worktrees", "worktrees", ".worktree"})
 
 
+@lru_cache(maxsize=65536)
 def fold(name: str) -> str:
-    """A name as a repository's folder would spell it: no accents, no case, letters and digits only."""
+    """A name as a repository's folder would spell it: no accents, no case, letters and digits only. Remembered per
+    name (speed 2026-10-29: the Projects list folds every page's names on every read, ~8k a call)."""
     decomposed = unicodedata.normalize("NFD", name or "")
     return "".join(c for c in decomposed if c.isalnum() and not unicodedata.combining(c)).lower()
 
@@ -85,10 +95,10 @@ def repo_names(project_dir) -> list[str]:
 
 
 def observed_repo(frontmatter: dict) -> dict | None:
-    """``{family, names}`` when an episode was captured in a git checkout the hook observed, else ``None``.
+    """``{family, names, remote?}`` when an episode was captured in a git checkout the hook observed, else ``None``.
 
     The observation must be bound to the stored ``project_dir`` (its ``cwd_hash``) and carry a family: a failed or
-    foreign observation is no repository."""
+    foreign observation is no repository. ``remote`` is the origin's salted hash when the hook read one."""
     fm = frontmatter or {}
     cwd = fm.get("project_dir")
     seen = workspace_identity.clean(fm.get("workspace_identity"))
@@ -97,7 +107,12 @@ def observed_repo(frontmatter: dict) -> dict | None:
     if seen["cwd_hash"] not in (workspace_identity.digest(cwd), workspace_identity.digest(posixpath.normpath(cwd))):
         return None
     names = repo_names(cwd)
-    return {"family": seen["family_hash"], "names": names} if names else None
+    if not names:
+        return None
+    out = {"family": seen["family_hash"], "names": names}
+    if seen.get("remote_hash"):
+        out["remote"] = seen["remote_hash"]
+    return out
 
 
 def name_folds(entity: dict) -> set[str]:
@@ -107,7 +122,7 @@ def name_folds(entity: dict) -> set[str]:
 
 
 def repo_match(entity: dict, frontmatter: dict) -> dict | None:
-    """``{name, family}`` when the entity is the repository this episode was captured in."""
+    """``{name, family, remote?}`` when the entity is the repository this episode was captured in."""
     repo = observed_repo(frontmatter)
     if repo is None:
         return None
@@ -115,8 +130,112 @@ def repo_match(entity: dict, frontmatter: dict) -> dict | None:
     for name in _names(entity):
         hit = by_fold.get(fold(name))
         if hit is not None:
-            return {"name": hit, "family": repo["family"]}
+            return {"name": hit, "family": repo["family"], **({"remote": repo["remote"]} if "remote" in repo else {})}
     return None
+
+
+def born_repo(frontmatter: dict | None) -> dict:
+    """The ``born.repo`` record a page carries, or ``{}``."""
+    born = (frontmatter or {}).get("born")
+    repo = born.get("repo") if isinstance(born, dict) else None
+    return repo if isinstance(repo, dict) else {}
+
+
+def utc_instant(value) -> str:
+    """An aware moment as a sortable UTC ISO string, else ``""`` (a naive or unreadable value is never guessed)."""
+    from datetime import datetime, timezone
+
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return ""
+    else:
+        return ""
+    return moment.astimezone(timezone.utc).isoformat() if moment.tzinfo else ""
+
+
+#: One observed session for the remote rule: ``(family, remote or "", first instant, last instant)``.
+RemoteSession = tuple[str, str, str, str]
+
+
+def session_span(frontmatter: dict) -> tuple[str, str]:
+    """A session's first and last instant (``timestamp``, ``last_turn_at``), or ``("", "")``."""
+    stamps = [s for s in (utc_instant(frontmatter.get(k)) for k in ("timestamp", "last_turn_at")) if s]
+    return (min(stamps), max(stamps)) if stamps else ("", "")
+
+
+def remote_sessions(memory_path: Path | None) -> list[RemoteSession]:
+    """Every episode the hook observed in a checkout, as :data:`RemoteSession` (the cached frontmatter index; no
+    episode is parsed or written)."""
+    out: list[RemoteSession] = []
+    if memory_path is None:
+        return out
+    from api.services import bank_index
+
+    try:
+        entries = bank_index.files(Path(memory_path), "episodes")
+    except OSError:
+        return out
+    for f in entries:
+        fm = f.frontmatter or {}
+        seen = workspace_identity.clean(fm.get("workspace_identity"))
+        if seen and seen.get("family_hash"):
+            out.append((seen["family_hash"], seen.get("remote_hash") or "", *session_span(fm)))
+    return out
+
+
+def current_remotes(sessions) -> dict[str, str]:
+    """``family → remote`` on its latest session that carried one (by last, then first instant): the origin the
+    checkout points at now. An earlier remote — a template the project was cloned from, then re-pointed away — is
+    stale and never makes two checkouts the same repository."""
+    best: dict[str, tuple[str, str]] = {}
+    for family, remote, first, last in sessions:
+        if remote and (stamp := last or first) >= best.get(family, ("", ""))[0]:
+            best[family] = (stamp, remote)
+    return {f: r for f, (_s, r) in best.items()}
+
+
+def page_remotes(frontmatter: dict | None, sessions, *, stale: bool = False) -> set[str]:
+    """The hashed remote a project page's repository points at now: its ``born.repo.family``'s current remote, else
+    its ``born.repo.remote``. ``stale`` adds every remote the page's repository ever carried (a judge candidate at
+    most, never a join)."""
+    repo = born_repo(frontmatter)
+    family = str(repo.get("family") or "")
+    current = current_remotes(sessions)
+    out = {current[family]} if family in current else ({str(repo["remote"])} if repo.get("remote") else set())
+    if stale:
+        out |= ({str(repo["remote"])} if repo.get("remote") else set())
+        out |= {r for f, r, _a, _b in sessions if r and family and f == family}
+    return out
+
+
+def same_repository_page(birth: dict | None, pages, *, sessions=()) -> tuple[str, bool] | None:
+    """``(page id, sure)`` for the one project page whose repository has the same hashed remote as a repository
+    ``birth``, else ``None`` (no remote, no page, or two pages answer to it).
+
+    A remote proves the same repository, not the same project. ``sure`` (joined with no judge) only when the page's
+    repository points at that remote NOW (:func:`page_remotes`) and the checkout's folder name, folded, is the page's
+    repository name — the same repository cloned again or moved under its own name. A different name (a rename, or a
+    template reused for a new project) or a remote the page's repository only carried once makes the page a
+    candidate for the judge, whose "different" stands. ``pages`` yields ``(id, frontmatter)``."""
+    repo = ((birth or {}).get("repo") or {}) if (birth or {}).get("origin") == REPO else {}
+    remote = repo.get("remote")
+    if not remote:
+        return None
+    pages = list(pages)
+    for stale in (False, True):
+        hits = {pid: fm for pid, fm in pages if remote in page_remotes(fm, sessions, stale=stale)}
+        if hits:
+            break
+    if len(hits) != 1:
+        return None
+    pid, fm = next(iter(hits.items()))
+    page_repo = born_repo(fm)
+    names = {fold(str(n)) for n in (page_repo.get("name"), fm.get("name"), *(fm.get("aliases") or [])) if n}
+    return pid, not stale and fold(str(repo.get("name") or "")) in names
 
 
 # --- the person's words ---------------------------------------------------------------------------------------------
@@ -147,7 +266,8 @@ def _close(sentence: str, a: tuple[int, int], b: tuple[int, int]) -> bool:
     return not _CLAUSE_BREAK.search(between) and len(_WORD.findall(between)) <= MAX_GAP_WORDS
 
 
-def said_project(entity: dict, text: str, *, override: str | None = None, gaps=()) -> evidence.Evidence | None:
+def said_project(entity: dict, text: str, *, override: str | None = None, gaps=(),
+                 persons: frozenset[str] = promotion.PERSON_KINDS) -> evidence.Evidence | None:
     """The first sentence of a person's own turn that names the entity beside a project word, as a span into
     ``text`` (the episode's evidence text), or ``None``. Exact and case-insensitive, never fuzzy; the model's
     turns, a video's and a quoted page's never count (``promotion.PERSON_KINDS``)."""
@@ -155,7 +275,7 @@ def said_project(entity: dict, text: str, *, override: str | None = None, gaps=(
     if pattern is None or not text:
         return None
     for turn in evidence.turns(text, override=override, gaps=gaps):
-        if turn.role not in promotion.PERSON_KINDS:
+        if turn.role not in persons:
             continue
         words = text[turn.content_start:turn.end]
         for s in _SENTENCE.finditer(words):
@@ -173,7 +293,7 @@ def said_project(entity: dict, text: str, *, override: str | None = None, gaps=(
     return None
 
 
-# --- birth, where Stage 1 reads a conversation ----------------------------------------------------------------------
+# --- the signal, where Stage 1 reads a conversation -------------------------------------------------------------
 
 
 def at_extraction(entity: dict, *, episode_id: str, frontmatter: dict, text: str, day: str | None,
@@ -184,7 +304,7 @@ def at_extraction(entity: dict, *, episode_id: str, frontmatter: dict, text: str
     repo = repo_match(entity, frontmatter)
     if repo is not None:
         return {"origin": REPO, **base, "repo": repo}
-    span = said_project(entity, text, override=override, gaps=gaps)
+    span = said_project(entity, text, override=override, gaps=gaps, persons=promotion.person_kinds(frontmatter))
     if span is not None:
         return {"origin": WORDS, **base,
                 "span": {"start": span.start, "end": span.end, "hash": span.hash, "kind": span.kind}}
@@ -202,16 +322,19 @@ def folder_birth(day: str) -> dict:
     return {"origin": WORDS, "day": day, "via": "folder"}
 
 
-# --- the fallback page (owner 2026-10-23, amends D4) ----------------------------------------------------------------
+# --- the fallback page (owner 2026-10-23, amends D4; ruling 56) -----------------------------------------------------
 
-#: The frontmatter key a fallback page carries: Stage 1 called the thing a project, nothing gave it a birth, and it
-#: cleared the promotion bar, so it was written as :data:`FALLBACK_TYPE` instead of waiting unseen in the pending
-#: store. The key is what lets a later birth retype that page (:func:`retype_on_birth`) and lets a later project
-#: mention of the same thing be judged against it (``entity_resolver._candidate_types``).
+#: The frontmatter key a fallback page carries: Stage 1 called the thing a project and it cleared the promotion bar, so
+#: it was written as :data:`FALLBACK_TYPE` instead of waiting unseen in the pending store. The key is what lets a later
+#: start make that page the project (:func:`start_page`) and lets a later project mention of the same thing be judged
+#: against it (``entity_resolver._candidate_types``).
 PROPOSED_KEY = "proposed_type"
 #: ``concept`` is the closed set's general type (``entity_types.FALLBACK``): of the ten, the only one that holds an
 #: endeavour that is not a person, organisation, place, tool, skill or folder — a canoe being built, a garden plan.
 FALLBACK_TYPE = "concept"
+#: What a start changed on a page that was not a project: ``{type, proposed?, wrote_born?}``, so removing it from the
+#: person's projects gives the page back as it was (:func:`undo_start`).
+STARTED_FROM_KEY = "started_from"
 
 
 def proposed(frontmatter: dict | None) -> bool:
@@ -219,19 +342,59 @@ def proposed(frontmatter: dict | None) -> bool:
     return str((frontmatter or {}).get(PROPOSED_KEY) or "").lower() == "project"
 
 
-def retype_on_birth(frontmatter: dict, birth) -> bool:
-    """A fallback page whose thing the person later calls a project in their own words (or a repository gives it):
-    the page becomes the project, its ``born`` written once and the marker gone. True when it changed.
-
-    Only a page this fallback wrote — a ``concept`` carrying :data:`PROPOSED_KEY` and no ``born`` — is ever retyped:
-    a project page, a page born with any other type, or one the person retyped by hand is left as it is."""
+def note_signal(frontmatter: dict, signal) -> bool:
+    """Sleep read a repository or the person's words about a fallback page's thing: the page records it as ``born``,
+    once, and stays what it is. Ruling 56: nothing Sleep reads makes a project. True when it changed."""
     fm = frontmatter
-    if (not isinstance(birth, dict) or not proposed(fm) or str(fm.get("type") or "").lower() != FALLBACK_TYPE
-            or isinstance(fm.get("born"), dict)):
+    if not isinstance(signal, dict) or not proposed(fm) or isinstance(fm.get("born"), dict):
         return False
-    fm["type"] = "project"
-    fm["born"] = birth
-    fm.pop(PROPOSED_KEY, None)
+    fm["born"] = signal
+    return True
+
+
+def said_by_person(frontmatter: dict | None) -> bool:
+    """A fallback page whose thing the person called a project in their own words: what an agent may offer to start."""
+    fm = frontmatter or {}
+    born = fm.get("born")
+    return proposed(fm) and isinstance(born, dict) and born.get("origin") == WORDS
+
+
+def start_page(frontmatter: dict, birth: dict) -> bool:
+    """The person, or an agent on their ask, starts a project from a page that already exists: a concept becomes the
+    project in place, its marker gone. ``born`` is never rewritten: a signal Sleep recorded stays (its repository is
+    what ties the project's sessions), and ``birth`` is written only on a page with none. True when it changed."""
+    fm = frontmatter
+    changed = False
+    was: dict = {}
+    kind = str(fm.get("type") or "").lower()
+    if kind != "project":
+        was["type"] = kind or FALLBACK_TYPE
+        fm["type"] = "project"
+        changed = True
+    if fm.pop(PROPOSED_KEY, None) is not None:
+        was["proposed"] = True
+        changed = True
+    if not isinstance(fm.get("born"), dict):
+        fm["born"] = birth
+        was["wrote_born"] = True
+        changed = True
+    if "type" in was:
+        fm[STARTED_FROM_KEY] = was
+    return changed
+
+
+def undo_start(frontmatter: dict) -> bool:
+    """Remove from the person's projects: a page :func:`start_page` retyped goes back to what it was. True when it did;
+    a page that was a project all along has nothing to undo."""
+    fm = frontmatter
+    was = fm.pop(STARTED_FROM_KEY, None)
+    if not isinstance(was, dict) or not was.get("type"):
+        return False
+    fm["type"] = str(was["type"])
+    if was.get("proposed"):
+        fm[PROPOSED_KEY] = "project"
+    if was.get("wrote_born"):
+        fm.pop("born", None)
     return True
 
 
@@ -316,7 +479,8 @@ def classify(memory_path: Path, stem: str, frontmatter: dict, *, documents=None,
             return Origin(kind=REPO, why=f"A conversation it cites was captured in the repository {repo['name']!r}.",
                           day=_day(efm, ep), episode=ep, repo=repo, episodes_read=seen)
         if words_hit is None:
-            span = said_project(entity, text, override=efm.get("evidence_kind"), gaps=evidence.gap_ranges(efm, text))
+            span = said_project(entity, text, override=authorship.of(efm), gaps=evidence.gap_ranges(efm, text),
+                                persons=promotion.person_kinds(efm))
             if span is not None:
                 words_hit = Origin(kind=WORDS, why="In a conversation it cites, you called it a project.",
                                    day=_day(efm, ep), episode=ep, episodes_read=seen,

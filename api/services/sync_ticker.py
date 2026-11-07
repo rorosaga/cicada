@@ -8,7 +8,8 @@ concurrent subscribers await that one computation.
 
 The filesystem half runs in worker threads under `bank_index.shared_scans()`,
 so `episodes/` is listed once per tick. `/sync/version` and `/sleep/status` stay
-exact per request and never read this cache.
+exact per request and never read this cache; a request's ETag and read may reuse the last walk's listings only
+through :func:`reusable_listings`' gate (speed 2026-10-29).
 
 File-change events (2026-10-16 perf, owner decision 2): with the bank's watcher
 running (`bank_watch`), a tick walks the bank only when the OS reported a change
@@ -27,7 +28,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from api.services import bank_index, bank_watch, sleep_debt, sync_service
+from api.services import bank_index, bank_watch, local_writes, sleep_debt, sync_service
 from api.services.sleep_cycle import get_sleep_state
 
 
@@ -43,6 +44,8 @@ class Tick:
     #: Which watcher ``seq`` was read from (``BankWatch.generation``): a count is comparable only within one watcher.
     watch_gen: int | None = None
     listings: dict | None = field(default=None, repr=False, compare=False)
+    #: ``local_writes.current()`` read BEFORE that walk began: this process's own writes since move it.
+    local_gen: int | None = None
 
 
 _ticks: dict[str, Tick] = {}
@@ -80,6 +83,7 @@ async def current(memory_path: Path, settings, *, max_age: float) -> Tick:
         now = time.monotonic()
         if (watch is not None and tick is not None and tick.seq is not None and tick.listings is not None
                 and watch.generation == tick.watch_gen and watch.seq == tick.seq
+                and local_writes.current() == tick.local_gen   # this process wrote: walk now, never wait for the OS
                 and now - tick.walked_at < bank_watch.FALLBACK_S):
             # Nothing in the bank moved since the last walk: its listings answer, everything else is read now.
             reuse = {k: tick.info.components[k] for k in sync_service.WALKED_OUTSIDE_INDEX
@@ -88,16 +92,50 @@ async def current(memory_path: Path, settings, *, max_age: float) -> Tick:
                 info = await asyncio.to_thread(sync_service.version, memory_path, get_sleep_state(), reuse=reuse)
                 debt = await sleep_debt.compute(memory_path, settings)
             tick = Tick(info=info, debt=debt, at=time.monotonic(), walked_at=tick.walked_at, seq=tick.seq,
-                        watch_gen=tick.watch_gen, listings=tick.listings)
+                        watch_gen=tick.watch_gen, listings=tick.listings, local_gen=tick.local_gen)
         else:
             seq = watch.seq if watch is not None else None   # read BEFORE the walk: a change during it walks again
             gen = watch.generation if watch is not None else None
+            local_gen = local_writes.current()
             with bank_index.shared_scans() as memo:
                 info = await asyncio.to_thread(sync_service.version, memory_path, get_sleep_state())
                 debt = await sleep_debt.compute(memory_path, settings)
             prefix = os.path.join(str(memory_path), "")
             listings = {d: listing for d, listing in (memo or {}).items() if d.startswith(prefix)}
             at = time.monotonic()
-            tick = Tick(info=info, debt=debt, at=at, walked_at=at, seq=seq, watch_gen=gen, listings=listings)
+            tick = Tick(info=info, debt=debt, at=at, walked_at=at, seq=seq, watch_gen=gen, listings=listings,
+                        local_gen=local_gen)
         _ticks[key] = tick
         return tick
+
+
+def reusable_listings(memory_path: Path) -> dict | None:
+    """The last walk's directory listings, for a REQUEST's ETag and read (speed 2026-10-29, item (e)), or ``None``.
+
+    Only while all of these hold: the stream's tick walked this bank under its running watcher; that watcher (the same
+    one) has reported no change since before the walk began; this process wrote nothing since then either
+    (``local_writes``: every page write, and every request that is not a read — so the person's own answer is never
+    served from before it); no Sleep run is under way; and the walk is younger than ``bank_watch.FALLBACK_S``. A
+    change another process made reaches the watcher within its debounce; until then a request may see the bank as the
+    walk did — the same view the stream itself serves. Without a stream (the app closed) there is no tick: every
+    request walks, as before."""
+    key = str(memory_path)
+    tick = _ticks.get(key)
+    if tick is None or tick.listings is None or tick.seq is None or tick.local_gen is None:
+        return None
+    if time.monotonic() - tick.walked_at >= bank_watch.FALLBACK_S:
+        return None
+    watch = bank_watch.running(memory_path)
+    if watch is None or watch.generation != tick.watch_gen or watch.seq != tick.seq:
+        return None
+    if local_writes.current() != tick.local_gen:
+        return None
+    if getattr(get_sleep_state(), "status", "idle") == "running":
+        return None
+    return tick.listings
+
+
+def request_scans(memory_path: Path):
+    """``bank_index.shared_scans`` for one request: seeded with :func:`reusable_listings` when they may answer, else
+    listing each directory once, as every request did."""
+    return bank_index.shared_scans(seed=reusable_listings(memory_path))

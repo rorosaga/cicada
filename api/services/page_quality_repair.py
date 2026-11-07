@@ -39,7 +39,7 @@ from typing import Callable
 from loguru import logger
 
 from api.services import (
-    claims, entity_body, evidence, fact_policy, git_service, markdown_parser, page_lock, promotion,
+    authorship, claims, entity_body, evidence, fact_policy, git_service, markdown_parser, page_lock, promotion,
     section_provenance, summary_policy, write_admission,
 )
 
@@ -106,8 +106,9 @@ def _clears_bar(memory_path: Path, fm: dict, body: str, owner_ids: set[str], pag
     except Exception:
         return None, False
     text = claims.strip_claims_block(episode.body)
-    units = promotion.exchanges(text, override=str(episode.frontmatter.get("evidence_kind") or "") or None,
-                                gaps=evidence.gap_ranges(episode.frontmatter, text))
+    units = promotion.exchanges(text, override=authorship.of(episode.frontmatter),
+                                gaps=evidence.gap_ranges(episode.frontmatter, text),
+                                persons=promotion.person_kinds(episode.frontmatter))
     exchanges, named = promotion.measure(
         {"name": fm.get("name"), "aliases": fm.get("aliases") or [], "type": fm.get("type")}, units)
     if exchanges > promotion.MIN_EXCHANGES and named:
@@ -117,7 +118,8 @@ def _clears_bar(memory_path: Path, fm: dict, body: str, owner_ids: set[str], pag
         partner = pages.get(other or "")
         if not partner or other in owner_ids or float(partner.get("confidence", 0) or 0) < 0.6:
             continue
-        if promotion.person_said({"evidence": [e.to_dict() for e in claim.evidence]}):
+        # The observer rides along: a claim Stage 1 gave to someone else (`external:`) is never the person's link.
+        if promotion.person_said({"evidence": [e.to_dict() for e in claim.evidence], "observer": claim.observer}):
             return "link", True
     return None, True
 
@@ -178,7 +180,7 @@ def _repair(fm: dict, body: str, result: Survey) -> str:
             sections.pop("History", None)
         for bullet in background:
             text = bullet[len(_BACKGROUND):].replace("\n  ", "\n")
-            added = entity_body.retain_orientation(sections, text)
+            added = entity_body.retain_orientation(sections, text, names=names)
             result.background_to_facts += added
             result.background_restated += int(added == 0)
 

@@ -53,7 +53,7 @@ struct InboxFocusCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Text(item.questionText)
+            Text(item.askText)
                 .font(CicadaTheme.displayFont(size: 22))
                 .tracking(CicadaTheme.displayTracking(size: 22))
                 .foregroundStyle(CicadaTheme.textPrimary)
@@ -172,7 +172,7 @@ struct InboxFocusCard: View {
     private var quote: some View {
         if let segments = QuoteSegments.of(item) {
             // Selectable and washed: a selectable `Text` never reaches the span renderer, so the washes ride `CitedPassage`.
-            CitedPassage(segments: segments)
+            RevealingPassage(segments: segments)
                 .quoteBlock()
                 .padding(.top, CicadaTheme.scaled(20))
             if QuoteSegments.isDerived(item) {
@@ -245,7 +245,8 @@ struct InboxFocusCard: View {
         case .informational: InformationalBody(item: item, names: store.entityNames, onAnswer: onAnswer)
         case .freeText: FreeTextBody(item: item, field: $field, onAnswer: onAnswer)
         case .name: NameBody(item: item, field: $field, onAnswer: onAnswer)
-        case .merge: MergeBody(item: item, names: store.entityNames, field: $field, onAnswer: onAnswer)
+        case .merge: MergeBody(item: item, names: store.entityNames, nodes: store.graph.value?.nodes ?? [],
+                               field: $field, onAnswer: onAnswer)
         case .legacyDecay: LegacyDecayBody(onAnswer: onAnswer)
         case .dismissOnly: DismissBody(onAnswer: onAnswer)
         }

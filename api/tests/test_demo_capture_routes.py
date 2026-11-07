@@ -22,6 +22,17 @@ from api.services import bank_registry, demo_guard, sleep_cycle
 #: with a concrete path to call (R-CS15).
 GATED = {
     ("POST", "/sources/save"): "/sources/save",
+    ("POST", "/capture/isbn"): "/capture/isbn",                                  # G233: a scanned book
+    ("POST", "/sources/apple-books/sync"): "/sources/apple-books/sync",          # G39
+    ("PUT", "/sources/apple-books/settings"): "/sources/apple-books/settings",
+    ("POST", "/sources/apple-books/covers"): "/sources/apple-books/covers",      # ruling 61
+    ("POST", "/sources/goodreads/preview"): "/sources/goodreads/preview",        # G233
+    ("POST", "/sources/goodreads/import"): "/sources/goodreads/import",
+    ("POST", "/sources/goodreads/waiting/choose"): "/sources/goodreads/waiting/choose",   # ROR-128
+    ("POST", "/sources/github/repos/project"): "/sources/github/repos/project",   # G230: a repository's project link
+    ("POST", "/sources/github/connect"): "/sources/github/connect",               # G230: connecting by a code
+    ("POST", "/sources/github/connect/poll"): "/sources/github/connect/poll",
+    ("POST", "/sources/github/connect/installation"): "/sources/github/connect/installation",
     ("POST", "/sources/saved-why"): "/sources/saved-why",
     ("PUT", "/sources/saved-why"): "/sources/saved-why",          # G191 v3: the person's edit of one answer
     ("POST", "/sources/bookmarks/remove"): "/sources/bookmarks/remove",   # G191 v3: Remove on a bookmark's page
@@ -45,6 +56,8 @@ GATED = {
     # G71 (2026-10-16): the YouTube videos watched in Chrome — day episodes.
     ("POST", "/sources/watch-history/sync"): "/sources/watch-history/sync",
     ("POST", "/sources/contacts-local/sync"): "/sources/contacts-local/sync",
+    # G154: the Contacts page's faces, outside the bank, but a demo bank takes in no address book.
+    ("PUT", "/sources/contacts-local/book"): "/sources/contacts-local/book",
     # G219: Apple Reminders — the ticked lists, episodes only.
     ("POST", "/sources/reminders-local/sync"): "/sources/reminders-local/sync",
     # 2026-10-16: LinkedIn connections — the import writes person pages; the preview is pointless into a demo bank.
@@ -57,6 +70,15 @@ GATED = {
     ("POST", "/sources/messages/conversations"): "/sources/messages/conversations",
     # 2026-10-16: a ticked chat's shared photo — outside the bank, but a demo bank ticks no chat.
     ("PUT", "/sources/messages/photos"): "/sources/messages/photos",
+    # G179 (2026-10-28): WhatsApp's ticked chats and Telegram's (ruling 47a) — rows, ticks and the sign-in itself.
+    ("POST", "/sources/whatsapp/sync"): "/sources/whatsapp/sync",
+    ("PUT", "/sources/whatsapp/settings"): "/sources/whatsapp/settings",
+    ("POST", "/sources/whatsapp/conversations"): "/sources/whatsapp/conversations",
+    ("PUT", "/sources/telegram/settings"): "/sources/telegram/settings",
+    ("POST", "/sources/telegram/qr"): "/sources/telegram/qr",
+    ("POST", "/sources/telegram/connect"): "/sources/telegram/connect",
+    ("POST", "/sources/telegram/code"): "/sources/telegram/code",
+    ("POST", "/sources/telegram/password"): "/sources/telegram/password",
     # A connector id no adapter has: were the gate missing, the handler 404s
     # before any adapter could reach the network (sync_now passes allow_fetch=True).
     ("POST", "/sources/connectors/{connector_id}/sync"): "/sources/connectors/no-such-connector/sync",
@@ -68,6 +90,13 @@ GATED = {
     ("POST", "/capture/note"): "/capture/note",
     # G91 (ruling 38): a photo or file a paired device sends — its episode into the active bank.
     ("POST", "/capture/file"): "/capture/file",
+    # G132 phase 2: an episode an old home offers back after a take-over — never into a demo bank.
+    ("POST", "/capture/offered"): "/capture/offered",
+    # Ruling 43: an agent's own memory notes, posted by its hook, and their switch.
+    ("POST", "/capture/agent-memory"): "/capture/agent-memory",
+    ("PUT", "/capture/agent-memory/settings"): "/capture/agent-memory/settings",
+    # G229: the app's readers' catch-up — in memory, but no reader reads into a demo bank, so none catches up there.
+    ("PUT", "/sources/catch-up"): "/sources/catch-up",
     # G166: "Add to your graph" writes a skill page into the bank.
     ("POST", "/agent-methods/skills/{skill}/page"): "/agent-methods/skills/browser-harness/page",
 }
@@ -86,6 +115,8 @@ HANDLED_ELSEWHERE = {
     ("PUT", "/sources/connectors/{connector_id}/credentials"):
         "stores the secret in ~/.cicada/secrets.env; only restamps the bank's sync_state.json, no content",
     ("POST", "/sources/connectors/{connector_id}/authorize"): "returns a sign-in link, takes nothing in",
+    ("POST", "/sources/telegram/disconnect"):
+        "ruling 47a: logs the Telegram session out and deletes its file outside every bank; takes nothing in",
     ("PUT", "/reading/settings"): "a machine-wide setting (~/.cicada/reading.json); writes no bank",
     ("POST", "/sources/saved-why/suggest"):
         "G191 v7: scores the reason bank against a link with the installed search model; reads no bank, writes nothing",
@@ -94,7 +125,11 @@ HANDLED_ELSEWHERE = {
        "into a demo bank (test_trace_routes.py)"
        for method, path in [("PUT", "settings"), ("POST", "on"), ("POST", "off"), ("POST", "pause"),
                             ("POST", "sync"), ("POST", "frames"), ("POST", "search"), ("POST", "forget"),
-                            ("POST", "wipe")]},
+                            ("POST", "wipe"), ("POST", "delete")]},
+    **{("POST", f"/sources/traces/{path}"):
+       "G218 (2026-10-28): closes or reopens only claims whose evidence is a traces-day digest, which a demo bank "
+       "never receives; trace_memory.remove/undo write nothing in a demo bank (test_trace_routes.py)"
+       for path in ("remove-from-memory", "remove-from-memory/undo")},
     ("PUT", "/agent-methods"):
         "a machine-wide choice (~/.cicada/agent_methods.json); the skill page beside it is guarded by "
         "demo_guard inside skill_pages.ensure and reports `demo` without writing (test_agent_methods_rest.py)",
@@ -184,7 +219,7 @@ def test_importing_into_your_own_memory_still_works_while_the_demo_is_open(demo_
 
 TAIL_STEPS = ("_refresh_state_safely", "_expire_claims_safely", "_poll_connectors_safely",
               "_poll_feeds_and_calendars_safely", "_backfill_links_safely", "_resolve_papers_safely",
-              "_replay_wispr_todos_safely", "_warm_logos_safely", "_refresh_questions_safely")
+              "_resolve_books_safely", "_replay_wispr_todos_safely", "_warm_logos_safely", "_refresh_questions_safely")
 
 
 def _tail_order(monkeypatch, bank: Path) -> list[str]:

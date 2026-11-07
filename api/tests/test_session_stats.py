@@ -522,6 +522,68 @@ def test_aggregate_conversations_harness_unknown_matches_an_empty_harness(tmp_pa
     assert [r["conversation_id"] for r in rows] == [UUID_A]
 
 
+# --- ROR-109: one partition, the overview's -----------------------------------
+
+def _harness_list(memory, harness):
+    return [r["conversation_id"] for r in session_stats.aggregate_conversations(
+        memory, limit=200, transcript_exists=lambda p, s: False, harness=harness)]
+
+
+def test_other_agents_never_lists_a_conversation_that_has_a_source_of_its_own(tmp_path):
+    """``harness="unknown"`` used to mean "the harness field is empty", which is true of every source-keyed record:
+    a chat, an export, a note, a feed item. Only an agent session that named no app is an unknown agent."""
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_1", timestamp="2026-08-01T09:00:00Z", session_id=UUID_A, origin="mcp")
+    for n, origin in enumerate(("imessage", "whatsapp", "telegram-chats", "claude-export", "apple-notes", "rss"), 2):
+        _episode(memory, f"ep_{n}", timestamp=f"2026-08-0{n}T09:00:00Z", source_id=f"{origin}-thread", origin=origin)
+    bank_index.invalidate()
+    assert _harness_list(memory, "unknown") == [UUID_A]
+
+
+def test_every_harness_row_lists_exactly_the_conversations_it_counts(tmp_path):
+    """The Sources card's number and the list under it are one partition (`source_overview.source_key`), so a host's
+    sessions list under the harness that counts them, and an import stamped with a harness under its import."""
+    from api.services import source_overview
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_1", timestamp="2026-08-01T09:00:00Z", session_id=UUID_A, origin="mcp")
+    _episode(memory, "ep_2", timestamp="2026-08-02T09:00:00Z", session_id=UUID_B, harness="claude-code")
+    _episode(memory, "ep_3", timestamp="2026-08-03T09:00:00Z", session_id="thread-host", harness="claude-code")
+    host = memory / "episodes" / "ep_3.md"
+    host.write_text(host.read_text(encoding="utf-8").replace("harness: claude-code",
+                                                             "harness: claude-code\nhost: t3code"), encoding="utf-8")
+    _episode(memory, "ep_4", timestamp="2026-08-04T09:00:00Z", source_id="chat-1", origin="imessage")
+    _episode(memory, "ep_5", timestamp="2026-08-05T09:00:00Z", source_id="thread-export", harness="claude-code",
+             origin="claude-export")
+    bank_index.invalidate()
+
+    rows = source_overview.build_overview(memory, channels=[])
+    harness_rows = [r for r in rows if r["id"].startswith("harness:")]
+    assert {r["id"] for r in harness_rows} == {"harness:unknown", "harness:claude-code"}
+    for row in harness_rows:
+        assert len(_harness_list(memory, row["harness"])) == row["conversations"], row["id"]
+    # ROR-114: a host app is no source; its session lists under the harness that ran it (host stays on the episode).
+    assert sorted(_harness_list(memory, "claude-code")) == sorted([UUID_B, "thread-host"])
+
+
+def test_a_check_record_is_on_no_agents_list_as_it_is_in_no_row(tmp_path):
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_1", timestamp="2026-08-01T09:00:00Z", session_id=UUID_A, origin="mcp")
+    check = memory / "episodes" / "ep_1.md"
+    check.write_text(check.read_text(encoding="utf-8").replace("origin: mcp", "origin: mcp\nsource: web-check"),
+                     encoding="utf-8")
+    bank_index.invalidate()
+    assert _harness_list(memory, "unknown") == []
+
+
+def test_a_session_split_across_two_rows_lists_under_both_like_the_overview_counts_it(tmp_path):
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_1", timestamp="2026-08-01T09:00:00Z", session_id=UUID_A, origin="mcp")
+    _episode(memory, "ep_2", timestamp="2026-08-02T09:00:00Z", session_id=UUID_A, harness="cursor", origin="mcp")
+    bank_index.invalidate()
+    assert _harness_list(memory, "unknown") == [UUID_A]
+    assert _harness_list(memory, "cursor") == [UUID_A]
+
+
 def test_recent_endpoint_harness_filter_applies_before_the_cap_and_varies_the_etag(tmp_path, monkeypatch):
     """G124 R5 on the wire: ``?harness=`` narrows before ``limit`` and folds
     into the ETag, so a warm client switching source never 304s onto the

@@ -72,7 +72,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import bank_index, inbox_service, markdown_parser, session_stats, sync_service
+from api.services import bank_index, episode_scrub, inbox_service, markdown_parser, sensitive_flags, session_stats, sync_service
 from api.services.claims import strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.skill_tag import is_agent_skill
@@ -85,7 +85,7 @@ STATE_FILENAME = "_state.md"
 # happenings); both absolute, neither today-dependent.
 # 4: G150 — a project row carries backlog_open (items open or doing) when it
 # has any; a bank with no backlog renders as v3 did apart from this number.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5   # 5: ruling 56 — `projects_started`, how many leading project rows the person started
 # R10: the handshake primer that embeds this file is budgeted at ~1,800
 # tokens; 6 KiB of cursor leaves room for the contract text around it.
 MAX_BYTES = 6 * 1024
@@ -277,22 +277,69 @@ def _preferences(memory_path: Path, n: int) -> list[dict]:
         tags = {str(t).strip().lower() for t in raw_tags} if isinstance(raw_tags, list) else set()
         rows.append((0 if tags & WORKING_TAGS else 1, -_confidence(fm), f.stem, f))
     rows.sort(key=lambda r: r[:3])
+    # Ruling 43 (2026-10-29): an agent's own note typed `user`/`feedback` is a candidate too — after the skills tagged
+    # as working agreements, before the rest: it says how the person works with agents, an untagged Stage-4 skill
+    # what they do.
+    notes = _agent_note_rows(memory_path, min(AGENT_NOTE_PREFERENCES, max(0, n)))
+    budget = max(0, n) - len(notes)
     kept, stale = [], []
     for r in rows:
-        if len(kept) >= max(0, n):
+        if len(kept) >= budget:
             break
         body = page(r[2])
         closed = skill_staleness.closed_since(r[3].frontmatter, body[1], page, ends, parsed) if body else []
         if closed:
             stale.append((len(closed), len(stale), r[3]))
             continue
-        kept.append(_row(r[3]))
-    floor = min(max(0, n), PREFERENCE_FLOOR)
+        kept.append((r[0], _row(r[3])))
+    floor = min(budget, PREFERENCE_FLOOR)
     for _count, _order, f in sorted(stale, key=lambda s: s[:2])[: max(0, floor - len(kept))]:
         row = _row(f)
         row["one_liner"] = f"{row['one_liner']} {STALE_MARK}"
-        kept.append(row)
-    return kept
+        kept.append((1, row))
+    # `_fit` trims this list from its end under the file's byte cap, so the order is also what survives.
+    return [row for tag, row in kept if tag == 0] + notes + [row for tag, row in kept if tag != 0]
+
+
+#: The note types an agent's own memory notes declare (Claude Code: user, feedback, project, reference) that say how
+#: the person works with agents — candidates for "How to work with me" (ruling 43, 2026-10-29).
+AGENT_NOTE_TYPES = frozenset({"feedback", "user"})
+#: The most rows of "How to work with me" agent notes may take.
+AGENT_NOTE_PREFERENCES = 2
+#: How an agent note's row is marked wherever it is shown: the agent's words, never the person's.
+AGENT_NOTE_MARK = "an agent's note"
+
+
+def _agent_note_rows(memory_path: Path, n: int) -> list[dict]:
+    """At most ``n`` of an agent's own memory notes typed ``feedback`` or ``user`` (``agent_memory_notes``; ruling 43),
+    ``feedback`` first (guidance on how to work — what the row is for; a ``user`` note is often who the person is),
+    each newest first, as "How to work with me" rows marked :data:`AGENT_NOTE_MARK` — an agent's summary of how the person works with it, still its
+    words (``evidence_kind: assistant``), never theirs. A deleted note (tombstoned) never rides. The row is a cursor:
+    the note's episode id and its own one-line description, never its body."""
+    if n <= 0:
+        return []
+    rows = []
+    for f in bank_index.files(memory_path, "episodes"):
+        fm = f.frontmatter or {}
+        memo = fm.get("agent_memory")
+        if fm.get("source") != "agent-memory" or not isinstance(memo, dict) or fm.get("source_deleted_at"):
+            continue
+        if str(memo.get("type") or "").strip().lower() not in AGENT_NOTE_TYPES:
+            continue
+        # Scrubbed at read too (review of #560): a bank written before the stager scrubbed extras holds them raw, and
+        # this row reaches every primer and `_state.md`.
+        title = episode_scrub.scrub(str(fm.get("title") or "").removeprefix("Agent memory: ").strip())[0]
+        line = " ".join(episode_scrub.scrub(str(memo.get("description") or "") or title)[0].split())
+        if not line:
+            continue
+        if len(line) > ONE_LINER_LIMIT:
+            line = line[: ONE_LINER_LIMIT - 1].rsplit(" ", 1)[0] + "…"
+        kind = str(memo.get("type") or "").strip().lower()
+        rows.append((kind == "feedback", str(fm.get("timestamp") or ""), f.stem,
+                     {"id": str(fm.get("id") or f.stem), "name": title or f.stem, "one_liner": line,
+                      "agent_note": True}))
+    rows.sort(key=lambda r: r[:3], reverse=True)
+    return [r[3] for r in rows[:n]]
 
 
 def _standing(memory_path: Path, n: int) -> list[dict]:
@@ -409,9 +456,14 @@ def _engine_block(settings, connected_ids: list[str] | None) -> dict:
     pass keep working."""
     from api.services import engine_select
 
+    # The engine a Sleep you start would actually run (engine_select.expected_settings): the Settings picker's choice
+    # and its model, Auto read against the cached connected set — never a leftover API model on an unresolved Auto.
+    chosen, settings = engine_select.expected_settings(settings, _registry_for(settings), connected_ids)
     mode = str(getattr(settings, "llm_mode", None) or "byok").strip().lower()
     engine = engine_select.engine_label(settings) if settings is not None else "litellm"
-    if mode == "agent":
+    if engine in (engine_select.AUTO_LABEL, engine_select.NO_ENGINE_LABEL):
+        model = None
+    elif mode == "agent":
         model = getattr(settings, "agent_model", None)
     elif mode == "codex":
         # R-E17: "" = the plan's current default, which only a cycle's
@@ -421,7 +473,46 @@ def _engine_block(settings, connected_ids: list[str] | None) -> dict:
         model = f"ollama/{getattr(settings, 'ollama_model', 'llama3.1')}"
     else:
         model = getattr(settings, "effective_consolidation_model", None) or getattr(settings, "litellm_model", None)
-    return {"mode": mode, "engine": engine, "model": model or None, "connected": list(connected_ids or [])}
+    return {"mode": chosen, "engine": engine, "model": model or None, "connected": list(connected_ids or [])}
+
+
+def _registry_for(settings):
+    """The connections registry for a real ``Settings`` (prefs are a file read, statuses a cache), ``None`` for a
+    hermetic stand-in or when it cannot be built — the engine block then reads configuration alone."""
+    if settings is None or not hasattr(settings, "model_fields_set"):
+        return None
+    try:
+        from api.services.connections.registry import get_registry
+
+        return get_registry(settings)
+    except Exception:  # noqa: BLE001 — naming the engine never fails a projection
+        return None
+
+
+def engine_phrase(eng: dict | None) -> str:
+    """The engine as the Now line and ``_state.md``'s body name it: the engine id a Sleep commit's ``Cicada-Engine``
+    trailer carries and its model — or, for an Auto no cache has resolved, that a run decides it."""
+    eng = eng or {}
+    if eng.get("engine") == "auto":
+        return "engine auto (decided when Sleep starts)"
+    return f"engine {eng.get('engine')} ({eng.get('model') or 'unset'})"
+
+
+def with_live_engine(state: dict | None, settings=None) -> dict | None:
+    """``state`` with its engine read NOW: ``_state.md`` is rewritten only when the bank changes, so a choice made in
+    Settings since would otherwise be named stale on every primer. Uses the connected set the file recorded (the
+    writer's cache) — a read path never probes. ``None`` stays ``None``."""
+    if state is None:
+        return None
+    try:
+        if settings is None:
+            from api.config import get_settings
+
+            settings = get_settings()
+        recorded = (state.get("engine") or {}).get("connected") or []
+        return {**state, "engine": _engine_block(settings, list(recorded))}
+    except Exception:  # noqa: BLE001 — the recorded engine is the fallback, never a failed primer
+        return state
 
 
 def _default_git_runner(memory_path: Path, args: list[str]) -> str | None:
@@ -490,7 +581,9 @@ def _conversations(memory_path: Path, n: int) -> list[dict]:
     rows = session_stats.aggregate_conversations(memory_path, limit=max(1, n) + RECORD_HEADROOM,
                                                  transcript_exists=lambda *_: False)
     rows = [r for r in rows if not inbox_tend.record_origin(r.get("origin"))][:max(1, n)]
-    return [{"id": r["conversation_id"], "harness": r["harness"], "title": r["title"][:TITLE_LIMIT],
+    # G235: a capture's title is its first line, which may be the very line; this list rides every agent's primer.
+    return [{"id": r["conversation_id"], "harness": r["harness"],
+             "title": sensitive_flags.title_for_others(r["title"])[:TITLE_LIMIT],
              "last_seen": r["last_seen"], "episode_count": r["episode_count"]} for r in rows]
 
 
@@ -506,6 +599,21 @@ def _now() -> datetime:
     run "the next night" against a still bank and assert nothing is written —
     the idle-night rail (R1) is only real if it holds across a date change."""
     return datetime.now(timezone.utc)
+
+
+def _ranked_projects(memory_path: Path, today: date, n: int) -> list[tuple[bank_index.IndexedFile, bool]]:
+    """``(page, started)``: the person's own projects first (ruling 45's list, the same rule), then recent project pages
+    they never started, up to ``n`` together. Ruling 56 keeps those in the note on purpose: a bank whose person has
+    started none (the owner's, 2026-11-04: 0 of 711) would otherwise tell every arriving agent nothing about what they
+    work on. Each row says which it is, so the note never calls a page the person's project when it is not."""
+    from api.services import project_ownership
+
+    ranked = _ranked(memory_path, "project", today, 1 << 30)
+    own = [f for f in ranked if project_ownership.listed(f.frontmatter, f.path)]
+    mine = {f.stem for f in own}
+    rest = [f for f in ranked if f.stem not in mine and not project_ownership.dismissed(f.frontmatter)]
+    top = own[:max(0, n)]
+    return [(f, True) for f in top] + [(f, False) for f in rest[:max(0, n - len(top))]]
 
 
 def _limit(settings, key: str) -> int:
@@ -554,7 +662,8 @@ def build(
         open_backlog = {}
 
     projects = []
-    for f in _ranked(memory_path, "project", today, _limit(settings, "state_projects")):
+    ranked_projects = _ranked_projects(memory_path, today, _limit(settings, "state_projects"))
+    for f, _started in ranked_projects:
         row = {
             "id": f.stem, "name": _name(f), "one_liner": _one_liner(f),
             "confidence": round(float(f.frontmatter.get("confidence", 0.5) or 0.0), 2),
@@ -600,6 +709,7 @@ def build(
         "sleep": _sleep_block(memory_path, git_runner),
         "inbox": _inbox_block(memory_path),
         "projects": projects,
+        "projects_started": sum(1 for _f, started in ranked_projects if started),
         "people": people,
         "conversations": _conversations(memory_path, _limit(settings, "state_conversations")),
         "preferences": preferences,
@@ -619,14 +729,15 @@ def render_body(fm: dict) -> str:
         return f"- [[{p['name']}]] (`{p['id']}`)" + (f" — {p['one_liner']}" if p.get("one_liner") else "")
 
     lines = ["# Cicada — now", "",
-             f"Bank `{fm['bank']}` · engine {fm['engine']['engine']} ({fm['engine']['model'] or 'unset'}) · "
+             f"Bank `{fm['bank']}` · {engine_phrase(fm['engine'])} · "
              f"inbox {fm['inbox']['pending']} pending · queue {fm['sleep']['queue_depth']} · "
              f"last Sleep {fm['sleep']['last_at'] or 'never'} · as of {fm['generated_at']}"]
     if fm.get("owner_id"):
         lines += ["", "## The person",
                   f"- `{fm['owner_id']}`" + (f" — {fm['owner_one_liner']}" if fm.get("owner_one_liner") else "")]
     lines += ["", "## Projects"]
-    for p in fm["projects"]:
+
+    def project_line(p: dict) -> str:
         repo_bits = ", ".join(
             f"{r['path']}@{r['branch']}" + (f" (dirty {r['dirty']})" if r.get("dirty") else "")
             if r.get("state") == "ok"
@@ -634,8 +745,13 @@ def render_body(fm: dict) -> str:
             else f"{r['path']} ({r.get('state')})" for r in p.get("repos", [])
         )
         tail = f" — {p['one_liner']}" if p.get("one_liner") else ""
-        lines.append(f"- [[{p['name']}]] (`{p['id']}`){tail}{_cursor(p)}"
-                     + (f" — repo: {repo_bits}" if repo_bits else ""))
+        return f"- [[{p['name']}]] (`{p['id']}`){tail}{_cursor(p)}" + (f" — repo: {repo_bits}" if repo_bits else "")
+
+    started = fm.get("projects_started", len(fm["projects"]))
+    lines += [project_line(p) for p in fm["projects"][:started]]
+    if fm["projects"][started:]:
+        lines += ["", "## Recent pages, not started"]
+        lines += [project_line(p) for p in fm["projects"][started:]]
     if not fm["projects"]:
         lines.append("- (no active projects yet)")
     lines += ["", f"## In focus (last {FOCUS_WINDOW_DAYS} days)"]
@@ -646,7 +762,8 @@ def render_body(fm: dict) -> str:
     lines += [f"- `{c['id']}` · {c['harness'] or 'unknown'} · {c['title']} · {c['last_seen'][:10]}"
               for c in fm["conversations"]] or ["- (none recorded)"]
     lines += ["", "## How to work with me"]
-    lines += [row(p) for p in fm["preferences"]] or ["- (none extracted yet)"]
+    lines += [f"- {p['one_liner'] or p['name']} — {AGENT_NOTE_MARK} (`{p['id']}`)" if p.get("agent_note") else row(p)
+              for p in fm["preferences"]] or ["- (none extracted yet)"]
     lines += ["", "## Standing"]
     lines += [row(p) for p in fm.get("standing") or []] or ["- (none yet)"]
     lines += ["", "## Rules for agents",
@@ -730,6 +847,12 @@ def refresh(
     """
     memory_path = Path(memory_path)
     path = state_path(memory_path)
+    from api.services import replica_guard
+
+    if replica_guard.blocks():
+        # G132 phase 1 (51e2): a replica never refreshes the cursor; the home does, commits it alone, and the copy
+        # follows — so the primer read here is the home's, never an older one written locally.
+        return {"written": False, "reason": "replica", "path": str(path)}
     previous = read_state(memory_path)
     if not force and previous is not None and previous.get("inputs_version") == inputs_version(memory_path):
         return {"written": False, "reason": "inputs unchanged", "path": str(path)}
@@ -805,6 +928,22 @@ async def refresh_and_commit(
             f"{type(exc).__name__}: {exc}"
         )
     return result
+
+
+async def refresh_held(memory_path: Path, settings=None, **refresh_kw) -> dict | None:
+    """``refresh_and_commit`` for a route already inside its admitted transaction, after its own commit: ``_state.md``
+    commits alone, and it is skipped — ``None`` — while Sleep holds the pages. Best-effort: a failure logs and returns
+    ``None``, never failing the write that came before it. For a write an arriving agent must see at once (ruling 56:
+    starting or removing a project moves it in the primer)."""
+    from api.services import write_admission
+
+    try:
+        if write_admission.holding():
+            return None
+        return await refresh_and_commit(memory_path, settings, **refresh_kw)
+    except Exception as exc:  # noqa: BLE001 — the projection never fails the person's write
+        logger.info(f"state refresh skipped: {type(exc).__name__}")
+        return None
 
 
 async def refresh_admitted(memory_path: Path, settings=None, **refresh_kw) -> dict | None:

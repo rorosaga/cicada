@@ -98,3 +98,15 @@ def test_a_five_hour_window_beside_a_weekly_event_still_reaches_the_stop_rule(cl
     # A window listed beside the reported one was not the one the CLI flagged:
     # it never carries a rejection, only its fraction.
     assert by_type["five_hour"].status == "allowed"
+
+
+def test_a_search_result_keeps_its_links_prose_and_real_count():
+    """The CLI's own report of one web search (shape read off 2.1.318): the settling step opens only these links and
+    counts ``searchCount``, since one tool call may run several searches (ruling 54)."""
+    line = json.dumps({"type": "user", "message": {"content": []}, "tool_use_result": {
+        "query": "bex42", "searchCount": 3, "durationSeconds": 5.9,
+        "results": [{"tool_use_id": "x", "content": [{"title": "Bea", "url": "https://example.org/a"}]}, "Some prose."]}})
+    other = json.dumps({"type": "user", "message": {"content": []}, "tool_use_result": "plain text"})
+    out = agent_stream.parse_stream(line + "\n" + other)
+    assert out.search_results == [{"query": "bex42", "links": [{"title": "Bea", "url": "https://example.org/a"}],
+                                   "text": "Some prose.", "count": 3}]

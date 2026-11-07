@@ -105,17 +105,34 @@ def inline_files(tool: str, arguments: dict) -> dict | str:
     return args
 
 
+def _local_token(environ) -> str:
+    """This computer's own backend's token (``CICADA_API_TOKEN``, else ``$CICADA_HOME/api_token``)."""
+    token = (environ.get("CICADA_API_TOKEN") or "").strip()
+    if token:
+        return token
+    try:
+        return (runtime_layout.cicada_home(environ) / "api_token").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def call(tool: str, arguments: dict, *, caller: dict, state: dict, surface: str = "mcp", options: dict | None = None,
-         environ=os.environ, timeout: float | None = None) -> dict:
-    """POST one call to the server's tool door; the decoded answer ``{text, code, data, state, error}``."""
+         environ=os.environ, timeout: float | None = None, local: bool = False) -> dict:
+    """POST one call to the server's tool door; the decoded answer ``{text, code, data, state, error}``. ``local``
+    (G132 phase 1 B): this computer's own backend instead, which keeps a copy and sends the write to its home."""
     import urllib.error
     import urllib.request
 
-    try:
-        base = runtime_layout.api_base(environ)
-    except ValueError as exc:
-        raise ToolClientError(f"Cicada's server address is not usable: {exc}.") from None
-    token = runtime_layout.client_token(environ)
+    if local:
+        base, token = runtime_layout.local_backend_url(environ), _local_token(environ)
+    else:
+        try:
+            base = runtime_layout.api_base(environ)
+        except ValueError as exc:
+            raise ToolClientError(f"Cicada's server address is not usable: {exc}.") from None
+        token = runtime_layout.client_token(environ)
+    if not token and local:
+        raise ToolClientError("This computer's Cicada backend has no token yet; open the Cicada app once.")
     if not token:
         raise ToolClientError("This device has no Cicada token (CICADA_API_TOKEN or ~/.cicada/device_token). "
                               "The person issues one on the server with `cicada device add`.")
@@ -147,6 +164,8 @@ def call(tool: str, arguments: dict, *, caller: dict, state: dict, surface: str 
         raise ToolClientError("Cicada's server answered something that is not JSON.") from None
     if not isinstance(answer, dict):
         raise ToolClientError("Cicada's server answered something unexpected.")
+    if local:
+        return answer
     _flush_spool_soon(environ)
     bank = answer.get("bank") if isinstance(answer.get("bank"), str) else ""
     ident = answer.get("bankId") if isinstance(answer.get("bankId"), str) else ""

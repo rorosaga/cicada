@@ -1,10 +1,12 @@
 import asyncio
+import contextlib
 import os
 import re
 import subprocess
 import tempfile
 import threading
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, timedelta
 from functools import lru_cache
@@ -28,6 +30,18 @@ class GitError(Exception):
     pass
 
 
+def _replica_refusal():
+    """G132 phase 1 (ruling 51e2): on a replica a git write is refused unless the follower's apply makes it. A
+    ``GitError`` (every caller already handles one) that is also ``replica_guard.ReplicaReadOnly``."""
+    from api.services import replica_guard
+
+    class ReplicaGitRefused(GitError, replica_guard.ReplicaReadOnly):
+        def __init__(self):
+            replica_guard.ReplicaReadOnly.__init__(self, "git")
+
+    return ReplicaGitRefused()
+
+
 # Commit-author trailer (backlog A2). Every Cicada write records which agent
 # authored it as one or more ``Cicada-Author:`` lines in the commit body — a
 # model id (e.g. "gpt-5.4-mini") for sleep-cycle/agent writes, or "user" for
@@ -47,7 +61,7 @@ SESSION_TRAILER = "Cicada-Session"
 _SESSION_RE = re.compile(rf"^{SESSION_TRAILER}:\s*(.+?)\s*$")
 
 # Engine trailer (G74(a) Task 6). Records WHICH ENGINE drove a Sleep commit —
-# "claude-cli" | "codex-cli" | "ollama" | "litellm" — mirroring `/sleep/status`'s
+# "claude-cli" | "codex-cli" | "ollama" | "litellm" | "anthropic-api" (G237: a Claude key, its own SDK) — mirroring `/sleep/status`'s
 # `lastEngine` field into the git history so `/sleep/history` can stop being
 # the one place in the app "reflects what actually ran" (Ruling 4) never
 # reached. Singular (one trailer, not a list like authors/sessions): a commit
@@ -160,6 +174,9 @@ def build_commit_message(
     id equal to a session id emits both. ``engine`` defaults to ``None``
     (no trailer at all) so every pre-existing call site stays byte-identical.
     """
+    from api.services import direct_engines
+
+    engine = direct_engines.trailer_engine(engine, authors)
     parts = [subject]
     if body_lines:
         parts.append("\n".join(body_lines))
@@ -269,6 +286,41 @@ def _parse_entity_sessions(body: str, entity_id: str) -> list[str]:
                 seen.add(sid)
                 out.append(sid)
     return out
+
+
+_ENTITY_LINE_TRIGGER_RE = re.compile(r"\(.*?\btrigger:\s*([^,)]+)")
+
+#: Vision item 5 (2026-10-28): the door a change came through, read from its manifest line's trigger, so a history row
+#: shows Sleep as a tag and the contributor (the model, or the person) as its picture. Derived on read, never stored.
+HISTORY_VIAS = ("sleep", "app", "agent", "remote", "inbox", "sync", "cicada", "unknown")
+_SYNC_TRIGGERS = frozenset({"user/calendar_poll", "user/feed_poll", "user/notes_sync"})
+
+
+def _parse_entity_trigger(body: str, entity_id: str) -> str:
+    """This entity's own ``trigger:`` from its manifest line in a commit body; ``""`` when it has none (a hand-made or
+    pre-manifest commit). Its own line only, like :func:`_parse_entity_sessions`: a batched commit names many."""
+    prefix = f"entities/{entity_id}.md:"
+    for line in body.splitlines():
+        line = line.strip()
+        if line.startswith(prefix) and (m := _ENTITY_LINE_TRIGGER_RE.search(line)):
+            return m.group(1).strip()
+    return ""
+
+
+def history_via(trigger: str | None) -> str:
+    """Which of :data:`HISTORY_VIAS` a change came through, from its trigger alone. ``sleep/…`` and an inbox question
+    Sleep settled (``inbox/<kind>/settled…``) are Sleep; ``user/…`` the person in the app, except a reader that polls
+    on its own (``sync``, like ``sync/…``); ``mcp/…`` a local agent; ``remote/…`` a connected app; any other
+    ``inbox/…`` the person answering a question; anything else (``migration/…``, housekeeping) Cicada's own."""
+    t = (trigger or "").strip().lower()
+    if not t:
+        return "unknown"
+    head = t.split("/", 1)[0]
+    if head == "sleep" or (head == "inbox" and "/settled" in t):
+        return "sleep"
+    if head == "sync" or t in _SYNC_TRIGGERS:
+        return "sync"
+    return {"user": "app", "mcp": "agent", "remote": "remote", "inbox": "inbox"}.get(head, "cicada")
 
 
 # --- G15: contributor visual identity (kind / provider / avatar) ------------
@@ -477,7 +529,15 @@ def _user_avatar_url(handle: str | None) -> str | None:
 WRITE_SUBCOMMANDS = frozenset({
     "add", "apply", "checkout", "cherry-pick", "clean", "commit", "merge", "mv",
     "reset", "restore", "revert", "rm", "stash", "update-index", "update-ref", "read-tree",
+    # Git's own derived index of the history (`write_commit_graph_sync`): never a content commit, but a writer of
+    # `.git/objects/info`, so it waits for the bank's lock like every other.
+    "commit-graph",
+    # G132 phase 1: the replica's follower fetches the home's bundle into `refs/cicada/home` (its one write).
+    "fetch",
 })
+#: What the replica backstop refuses beside the write subcommands: commands that write `.git` itself.
+_REPLICA_GUARDED = WRITE_SUBCOMMANDS | {"config", "init", "gc", "prune", "repack", "notes", "hash-object",
+                                        "commit-tree", "write-tree", "remote", "tag", "branch", "worktree"}
 #: Waits between tries while ANOTHER process holds the index (R-B2): five tries
 #: in about two seconds. A terminal's `git add` takes milliseconds; an editor left
 #: open by `git commit` does not, and that case is R-B5's to keep.
@@ -509,16 +569,52 @@ def _spawn(memory_path: Path, args: tuple[str, ...]) -> subprocess.CompletedProc
     return subprocess.run(["git", *args], cwd=str(memory_path), capture_output=True)
 
 
+#: G132 phase 3b (review of #569): the commits this context made, in order, while a caller asked to know them
+#: (``recording_commits``) — so a publishing home journals the commit a write itself produced as its ``headAfter``,
+#: never a HEAD another writer moved in between. None (the default): nothing is noted and nothing is spawned.
+_COMMITS_MADE: ContextVar[list | None] = ContextVar("cicada_commits_made", default=None)
+
+
+@contextlib.contextmanager
+def recording_commits():
+    """Collect the sha of every commit this context (and the threads it hands its context to) makes."""
+    made: list[str] = []
+    token = _COMMITS_MADE.set(made)
+    try:
+        yield made
+    finally:
+        _COMMITS_MADE.reset(token)
+
+
+def _note_commit(memory_path: Path, args: tuple[str, ...]) -> None:
+    made = _COMMITS_MADE.get()
+    if made is None or not args:
+        return
+    if args[0] == "commit" or (args[0] == "update-ref" and len(args) > 1 and args[1] == "HEAD"):
+        try:
+            proc = _spawn(memory_path, ("rev-parse", "HEAD"))   # still under the write lock the commit held
+        except OSError:
+            return
+        if proc.returncode == 0:
+            made.append(proc.stdout.decode(errors="replace").strip())
+
+
 def _git_sync(memory_path: Path, *args: str) -> str:
     """One git command, called with the bank's write lock held. Retries only git's
     index-lock refusal and never deletes the lock (R-B2): another process owns
     it, and removing it under a live commit corrupts the index."""
+    if args and args[0] in _REPLICA_GUARDED:
+        from api.services import replica_guard
+
+        if replica_guard.blocks():
+            raise _replica_refusal()
     for delay in (*INDEX_LOCK_BACKOFF_S, None):
         try:
             proc = _spawn(memory_path, args)
         except OSError as exc:
             raise GitError(f"git {' '.join(args)} failed: {exc}") from exc
         if proc.returncode == 0:
+            _note_commit(memory_path, args)
             return proc.stdout.decode(errors="replace")
         stderr = proc.stderr.decode(errors="replace")
         if delay is None or not _index_lock_busy(stderr):
@@ -552,7 +648,24 @@ def run_git_write_sync(memory_path, *args: str) -> str:
 
 #: Write subcommands that can change a working-tree file (``add``, ``commit``, ``update-index`` and ``update-ref`` never
 #: touch one).
-_TREE_WRITERS = WRITE_SUBCOMMANDS - {"add", "commit", "update-index", "update-ref"}
+_TREE_WRITERS = WRITE_SUBCOMMANDS - {"add", "commit", "update-index", "update-ref", "commit-graph"}
+
+
+def write_commit_graph_sync(memory_path) -> bool:
+    """Keep git's commit-graph current, with changed-path Bloom filters (owner via the coordinator, 2026-10-29).
+
+    Every per-page history read — the History tab (``page_history``), ``entity_history``, the provenance strip's
+    ``entity_commit_authors`` — is a path-limited ``git log`` that walks the whole history; the filters let git skip
+    commits that never touched the path. Measured on an owner-scale bank copy in PR ``perf/commit-graph``. The file
+    is git-internal and derived (``.git/objects/info/commit-graph``): never tracked, never a commit, rebuilt from the
+    history at any time, and git ignores it when it is missing or stale. One full rewrite, under the bank's write lock
+    (R-B1): git reuses the filters it already has, so a night's rewrite costs the new commits. ``False`` for a bank
+    with no git."""
+    mp = Path(memory_path)
+    if not (mp / ".git").exists():
+        return False
+    run_git_write_sync(mp, "commit-graph", "write", "--reachable", "--changed-paths")
+    return True
 
 
 #: The commit identity a bank falls back to when none is configured (G181, G203): placeholder values, never the
@@ -680,6 +793,10 @@ def _git_env_sync(memory_path: Path, env: dict, *args: str) -> str:
     """One git command against a PRIVATE index (``GIT_INDEX_FILE``), called with
     the bank's write lock held. Nothing else contends for that index, so there
     is no lock to retry."""
+    from api.services import replica_guard
+
+    if replica_guard.blocks():
+        raise _replica_refusal()
     try:
         proc = subprocess.run(["git", *args], cwd=str(memory_path), capture_output=True, env=env)
     except OSError as exc:
@@ -735,6 +852,238 @@ def _commit_kept_apart_sync(memory_path: Path, contents: dict[str, bytes | None]
         return True
     finally:
         index.unlink(missing_ok=True)
+
+
+def commit_contents_sync(memory_path, contents: dict[str, bytes], message: str) -> bool:
+    """Commit exactly ``contents`` — these bytes at these paths, never what the working tree holds by then, never
+    another path, never the index's other entries — under the bank's write lock (G132 phase 1's capture commit,
+    ``capture_commit``). Built in a private index like the kept-apart commit; the working tree is never touched.
+    Returns whether a commit was made (``False`` when HEAD already holds them)."""
+    memory_path = Path(memory_path)
+    if not contents:
+        return False
+    with write_lock(memory_path):
+        return _commit_kept_apart_sync(memory_path, dict(contents), message)
+
+
+class NotFastForward(GitError):
+    """The home's head is not a descendant of the copy's: the copy never applies it (it is copied again on the
+    person's word)."""
+
+
+class DirtyCopy(GitError):
+    """A tracked file of the copy differs from its HEAD: something wrote it outside the apply; never overwritten."""
+
+
+#: The ref the home's bundle is fetched into on a replica (never a branch anything else moves).
+HOME_REF = "refs/cicada/home"
+#: Up to this many paths an apply asks git about them alone (status, index); past it, the whole tree.
+_APPLY_PATHSPEC_MAX = 1000
+
+
+def _blobs_at(memory_path: Path, rev: str, paths: list[str]) -> dict[str, bytes]:
+    """``{path: bytes}`` of ``paths`` at ``rev``, through one ``git cat-file --batch`` (a read)."""
+    if not paths:
+        return {}
+    proc = subprocess.run(["git", "cat-file", "--batch"], cwd=str(memory_path), capture_output=True,
+                          input="".join(f"{rev}:{p}\n" for p in paths).encode("utf-8"))
+    if proc.returncode != 0:
+        raise GitError("git cat-file --batch failed")
+    out, pos, got = proc.stdout, 0, {}
+    for p in paths:
+        nl = out.index(b"\n", pos)
+        header = out[pos:nl].split()
+        pos = nl + 1
+        if len(header) < 3 or header[1] != b"blob":
+            raise GitError(f"not a file at {rev}: {p}")
+        size = int(header[2])
+        got[p] = out[pos:pos + size]
+        pos += size + 1
+    return got
+
+
+def _write_atomically(path: Path, data: bytes) -> None:
+    """The page rule: a temp file beside it, then ``os.replace`` — a reader sees the old file or the new one."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.cicada-apply")
+    try:
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def fast_forward_sync(memory_path, bundle: Path, *, expect: str | None = None, rewrite: bool = False) -> dict:
+    """The replica's apply (G132 phase 1, ruling 51a): bring this copy to the home's head in ``bundle``.
+
+    Under the bank's write lock: fetch the bundle into :data:`HOME_REF`; require the copy's HEAD to be an ancestor of
+    it (ancestry checked here, never a seq trusted alone) and every tracked file clean; write each changed file
+    atomically (``os.replace``, so no reader parses a torn page) and remove each removed one; then move HEAD
+    (compare-and-swap) and bring the index to it. ``rewrite`` is only the person's "copy again" after the home's
+    history was rewritten: the whole tree is written over and HEAD is moved without the ancestry test.
+    Returns ``{"head", "old", "changed", "removed"}``. Called inside ``replica_guard.applying()``."""
+    memory_path = Path(memory_path)
+    with write_lock(memory_path):
+        finish_interrupted_apply_sync(memory_path)   # a cut-short apply is finished first, never read as dirty
+        _git_sync(memory_path, "fetch", "-q", "--no-tags", "--no-write-fetch-head", str(bundle),
+                  f"+HEAD:{HOME_REF}")
+        new = _git_sync(memory_path, "rev-parse", "--verify", "-q", f"{HOME_REF}^{{commit}}").strip()
+        if expect and new != expect:
+            raise GitError("the bundle's head is not the one the home named")
+        try:
+            old = _git_sync(memory_path, "rev-parse", "--verify", "-q", "HEAD^{commit}").strip()
+        except GitError:
+            old = ""
+        if old == new:
+            return {"head": new, "old": old, "changed": [], "removed": []}
+        if old and not rewrite:
+            ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", old, new], cwd=str(memory_path),
+                                      capture_output=True)
+            if ancestor.returncode != 0:
+                raise NotFastForward("the home's head does not descend from this copy's")
+            changed, removed = _tree_change(memory_path, old, new)
+            # Only the paths this apply writes need to be clean (a copy's other files are not touched): asking git
+            # about them alone keeps a one-file apply from walking an owner-scale tree.
+            scope = ("--", *changed, *removed) if len(changed) + len(removed) <= _APPLY_PATHSPEC_MAX else ()
+            if _git_sync(memory_path, "status", "--porcelain", "-z", "--untracked-files=no", *scope).strip("\0").strip():
+                raise DirtyCopy("a tracked file of this copy was changed outside the apply")
+        else:
+            changed, removed = _tree_change(memory_path, old if old else None, new, whole=True)
+        # Review of #566: the journal goes down BEFORE any file is touched, so an apply cut short anywhere (the process
+        # killed, a restart, a git refusal) is finished by the next one, never mistaken for a dirty copy.
+        _write_journal(memory_path, {"old": old, "new": new, "whole": bool(rewrite or not old)})
+        _write_tree(memory_path, new, changed, removed)
+        if old and not rewrite:
+            _git_sync(memory_path, "update-ref", "HEAD", new, old)
+        else:
+            _git_sync(memory_path, "update-ref", "HEAD", new)
+        touched = [*changed, *removed]
+        if old and not rewrite and touched and len(touched) <= _APPLY_PATHSPEC_MAX:
+            _git_sync(memory_path, "reset", "-q", "--", *touched)   # only these index entries moved
+        else:
+            _git_sync(memory_path, "reset", "-q")
+        _journal_path(memory_path).unlink(missing_ok=True)
+    from api.services import bank_index, markdown_parser
+
+    markdown_parser.invalidate_pages(memory_path)
+    bank_index.invalidate(memory_path)
+    return {"head": new, "old": old, "changed": changed, "removed": removed}
+
+
+#: The replica's apply journal, inside ``.git`` (never a tracked file, never sent): ``{old, new, whole}`` from before
+#: the first file is written until HEAD and the index are the new commit's.
+APPLY_JOURNAL = "cicada-apply.json"
+
+
+def _journal_path(memory_path: Path) -> Path:
+    return Path(memory_path) / ".git" / APPLY_JOURNAL
+
+
+def _write_journal(memory_path: Path, data: dict) -> None:
+    import json
+
+    path = _journal_path(memory_path)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
+
+
+def _tree_change(memory_path: Path, old: str | None, new: str, *, whole: bool = False) -> tuple[list[str], list[str]]:
+    """``(changed, removed)`` from ``old`` to ``new``; ``whole``: every file of ``new``, and what ``old`` had beyond."""
+    if not whole and old:
+        fields = [f for f in _git_sync(memory_path, "diff", "--name-status", "-z", "--no-renames", old, new)
+                  .split("\0") if f]
+        changed, removed = [], []
+        for status, path in zip(fields[0::2], fields[1::2]):
+            (removed if status.startswith("D") else changed).append(path)
+        return changed, removed
+    changed = [p for p in _git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", new).split("\0") if p]
+    have = set()
+    if old:
+        have = {p for p in _git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", old).split("\0") if p}
+    return changed, sorted(have - set(changed))
+
+
+def _write_tree(memory_path: Path, new: str, changed: list[str], removed: list[str]) -> None:
+    blobs = _blobs_at(memory_path, new, changed)
+    for rel in changed:
+        _write_atomically(memory_path / rel, blobs[rel])
+    for rel in removed:
+        (memory_path / rel).unlink(missing_ok=True)
+
+
+def finish_interrupted_apply_sync(memory_path) -> str | None:
+    """Finish an apply the journal says was cut short (review of #566), under the bank's write lock: write ``old..new``
+    again from ``new``'s blobs (no dirty check — those files are the apply's own half-done work), move HEAD to ``new``
+    from wherever it is, bring the whole index to it, drop the journal. Returns the head it finished at, else None.
+    Called inside ``replica_guard.applying()`` (the follower's start, and every apply before it fetches)."""
+    import json
+
+    memory_path = Path(memory_path)
+    path = _journal_path(memory_path)
+    if not path.exists():
+        return None
+    with write_lock(memory_path):
+        try:
+            journal = json.loads(path.read_text(encoding="utf-8"))
+            old, new = str(journal.get("old") or ""), str(journal["new"])
+        except (OSError, ValueError, KeyError):
+            path.unlink(missing_ok=True)   # an unreadable journal: the next apply's own checks decide
+            return None
+        _git_sync(memory_path, "rev-parse", "--verify", "-q", f"{new}^{{commit}}")
+        changed, removed = _tree_change(memory_path, old or None, new, whole=bool(journal.get("whole")) or not old)
+        _write_tree(memory_path, new, changed, removed)
+        try:
+            current = _git_sync(memory_path, "rev-parse", "--verify", "-q", "HEAD^{commit}").strip()
+        except GitError:
+            current = ""
+        if current != new:
+            _git_sync(memory_path, "update-ref", "HEAD", new, *([current] if current else []))
+        _git_sync(memory_path, "reset", "-q")
+        path.unlink(missing_ok=True)
+    from api.services import bank_index, markdown_parser
+
+    markdown_parser.invalidate_pages(memory_path)
+    bank_index.invalidate(memory_path)
+    logger.info("replica: finished an apply that was cut short")
+    return new
+
+
+def bootstrap_from_bundle_sync(target: Path, bundle: Path) -> str:
+    """A replica's first copy: a new git repository at ``target`` (which must not exist) holding the bundle's history,
+    its tree checked out on ``main``. Returns the head. Called inside ``replica_guard.applying()``."""
+    target = Path(target)
+    if target.exists():
+        raise GitError("the copy's folder already exists")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _git_sync(target.parent, "init", "-q", "-b", "main", target.name)
+    try:
+        with write_lock(target):
+            _git_sync(target, "fetch", "-q", "--no-tags", "--no-write-fetch-head", str(bundle), f"+HEAD:{HOME_REF}")
+            head = _git_sync(target, "rev-parse", "--verify", "-q", f"{HOME_REF}^{{commit}}").strip()
+            _git_sync(target, "reset", "-q", "--hard", head)
+    except BaseException:
+        import shutil
+
+        shutil.rmtree(target, ignore_errors=True)
+        raise
+    return head
+
+
+def head_blob_sync(memory_path, rel: str) -> bytes | None:
+    """What HEAD holds at ``rel`` (memory-relative), or ``None`` when it holds nothing there. A read."""
+    try:
+        proc = subprocess.run(["git", "cat-file", "blob", f"HEAD:{rel}"], cwd=str(memory_path), capture_output=True,
+                              timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        raise GitError("git cat-file failed") from None
+    return proc.stdout if proc.returncode == 0 else None
 
 
 def commit_touched_sync(memory_path, message: str, paths, *, before: dict[str, bytes | None] | None = None,
@@ -1010,6 +1359,8 @@ async def entity_history(
             commit_hash=commit_hash,
             diff=diff,
             sessions=sessions,
+            trigger=(trigger := _parse_entity_trigger(body, entity_id)),
+            via=history_via(trigger),
         ))
 
     return entries, truncated
@@ -1301,6 +1652,10 @@ async def get_entity_commit_diff(
     )
 
 
+#: bank path -> (the HEAD folded, the per-author aggregate at it): `get_contributors` folds only new commits.
+_CONTRIBUTOR_AGG: dict[str, tuple[str, dict[str, dict]]] = {}
+
+
 async def get_contributors(
     memory_path: Path, *, github_user: str | None = None
 ) -> list[Contributor]:
@@ -1328,24 +1683,44 @@ async def get_contributors(
     sep = "\x1f"
     rec = "\x1e"
     try:
-        out = await _run_git(
-            memory_path,
-            "log",
-            f"--format={rec}%H{sep}%ad{sep}%b{sep}",
-            "--date=short",
-            "--name-only",
-            "--root",
-            "--no-renames",
-            # A `log.showSignature` config prints each signed commit's check
-            # before its record, which would land in the previous commit's
-            # file list.
-            "--no-show-signature",
-        )
+        head = (await _run_git(memory_path, "rev-parse", "HEAD")).strip()
     except GitError:
         return []
-
-    # author -> aggregation state
-    agg: dict[str, dict] = {}
+    key = str(memory_path)
+    held = _CONTRIBUTOR_AGG.get(key)
+    base: str | None = None
+    if held is not None and held[0] != head:
+        # Speed 2026-11-06: only the commits since the last HEAD this process folded (`git log <old>..HEAD`) when
+        # that HEAD is still an ancestor of this one; a rewound or unknown history is walked whole, as before.
+        try:
+            await _run_git(memory_path, "merge-base", "--is-ancestor", held[0], head)
+            base = held[0]
+        except GitError:
+            base = None
+    if held is not None and held[0] == head:
+        agg = held[1]
+        out = ""
+    else:
+        try:
+            out = await _run_git(
+                memory_path,
+                "log",
+                *([f"{base}..{head}"] if base else [head]),
+                f"--format={rec}%H{sep}%ad{sep}%b{sep}",
+                "--date=short",
+                "--name-only",
+                "--root",
+                "--no-renames",
+                # A `log.showSignature` config prints each signed commit's check
+                # before its record, which would land in the previous commit's
+                # file list.
+                "--no-show-signature",
+            )
+        except GitError:
+            return []
+        # author -> aggregation state; a copy of the kept one, so two requests folding the same range never double count
+        agg = {a: {"commits": st["commits"], "files": set(st["files"]), "entities": set(st["entities"]),
+                   "last": st["last"]} for a, st in (held[1].items() if base and held else ())}
 
     for record in out.split(rec):
         if not record.strip():
@@ -1372,6 +1747,8 @@ async def get_contributors(
                     state["entities"].add(f)
             if date > state["last"]:
                 state["last"] = date
+
+    _CONTRIBUTOR_AGG[key] = (head, agg)
 
     # Resolve the user-avatar handle once (explicit setting wins; else origin
     # remote), and only pay the git remote lookup if there's actually a `user`

@@ -38,10 +38,16 @@ from typing import Callable, Iterable
 from loguru import logger
 
 from api.models.schemas import SearchHit, SearchResponse
-from api.services import bank_index, evidence, inbox_questions, inbox_service, markdown_parser, search_index, text_fold
+from api.services import (bank_index, evidence, inbox_questions, inbox_service, markdown_parser, page_use, search_index,
+                          text_fold)
 from api.services.claims import EVENT_PREDICATES, is_current, is_record, parse_claims, read_valid_to
 
 KINDS = ("entity", "claim", "episode", "media", "inbox", "backlog")
+#: Kinds served only when asked for by name, never part of "every kind" (`KINDS`, which `cicada find` and other
+#: callers use as their default): pictures (vision item 3) and the words of added recordings (meaning index 2) —
+#: ranked by meaning, never counted, hybrid only.
+OPT_IN_KINDS = ("image", "file")
+_ORDER = KINDS + OPT_IN_KINDS
 _KIND_ALIASES = {
     "entity": "entity", "entities": "entity",
     "claim": "claim", "claims": "claim", "belief": "claim", "beliefs": "claim",
@@ -49,6 +55,8 @@ _KIND_ALIASES = {
     "media": "media", "source": "media", "sources": "media", "paper": "media", "papers": "media",
     "inbox": "inbox",
     "backlog": "backlog", "task": "backlog", "tasks": "backlog",
+    "image": "image", "images": "image", "picture": "image", "pictures": "image",
+    "file": "file", "files": "file", "recording": "file", "recordings": "file", "audio": "file", "video": "file",
 }
 MODES = ("prefix", "hybrid")
 MAX_PER_KIND = 20
@@ -79,7 +87,7 @@ def parse_kinds(kinds: str | None, indexes: str | None = None) -> list[str]:
     """
     raw = kinds if kinds is not None and kinds.strip() else (indexes or "")
     wanted = {_KIND_ALIASES.get(part.strip().lower()) for part in raw.split(",")}
-    return [k for k in KINDS if k in wanted] or ["entity"]
+    return [k for k in _ORDER if k in wanted] or ["entity"]
 
 
 def rrf_scores(*ranked_lists: list[dict], k: int = RRF_K, key: Callable[[dict], str | None] | None = None):
@@ -97,13 +105,29 @@ def rrf_scores(*ranked_lists: list[dict], k: int = RRF_K, key: Callable[[dict], 
     return scores, keep
 
 
-def rrf_fuse(*ranked_lists: list[dict], k: int = RRF_K, key: Callable[[dict], str | None] | None = None) -> list[dict]:
-    """Reciprocal-rank fusion: score(id) = Σ 1/(k + rank), first-seen hit kept.
+#: A page said most lately counts this much more in fused order than a quiet one (owner, 2026-11-06: what has come up
+#: lately weighs more). It only reorders what the legs found, and confidence still ranks nothing. Rank scores are flat
+#: (1/61 v 1/68 within one leg), so this moves a page ahead of those one leg put first, not ahead of pages two legs agree on.
+LATELY_WEIGHT = 0.3
+
+
+def lately_lift(lately: dict[str, float], named: Iterable[str]) -> dict[str, float]:
+    """``lately`` with a page the query names counted a full lift above its own: nothing unnamed can overtake it (150 names
+    on a real clone, 9 lost first place without this), and of two pages sharing the name, the one said lately leads."""
+    return {**lately, **{ref: 1.0 + lately.get(ref, 0.0) for ref in named}}
+
+
+def rrf_fuse(*ranked_lists: list[dict], k: int = RRF_K, key: Callable[[dict], str | None] | None = None,
+             lately: dict[str, float] | None = None) -> list[dict]:
+    """Reciprocal-rank fusion: score(id) = Σ 1/(k + rank), first-seen hit kept, times ``1 + LATELY_WEIGHT x lately[id]``
+    with ``lately`` (:func:`page_use.lately_of`, :func:`lately_lift`).
 
     The one reciprocal-rank fusion: ``/search`` and MCP recall
     (``mcp_tools._rrf_fuse`` is this function, G140 Q-R1).
     """
     scores, keep = rrf_scores(*ranked_lists, k=k, key=key)
+    if lately:
+        scores = {h: v * (1.0 + LATELY_WEIGHT * lately.get(h, 0.0)) for h, v in scores.items()}
     return [keep[h] for h in sorted(scores, key=lambda h: -scores[h])]
 
 
@@ -341,6 +365,9 @@ def _pages_kind(ctx: _Ctx, kind: str, lexical: list[_Page], claims: list["_Claim
     keys = [p.doc.ref for p in lexical]
     if ctx.legs is not None:
         order, scores = _fuse(keys, _dedupe(vec), via_claim)
+        lately = lately_lift(page_use.lately_of(ctx.memory_path, scores), [p.doc.ref for p in lexical if p.label in ("name", "alias")])
+        scores = {ref: v * (1.0 + LATELY_WEIGHT * lately.get(ref, 0.0)) for ref, v in scores.items()}
+        order = sorted(scores, key=lambda ref: -scores[ref])
     else:
         # Prefix mode keeps the exact-name hit on top: lexical order first,
         # pages reached only through one of their claims after it.
@@ -584,14 +611,18 @@ def _episode_hit(ctx: _Ctx, ep: _Episode, score: float, chunk: str = "") -> Sear
         # `evidence.kind_for` (every row here is an episode, whatever its stem).
         override = meta.get("evidence_kind")
         gaps = tuple(tuple(g) for g in (meta.get("gaps") or []) if isinstance(g, list) and len(g) == 2)
-        kind = evidence.speaker_kind(text, start, gaps)
+        kind = evidence.speaker_kind(text, start, gaps, saved=override == evidence.SAVE_KIND)
         if kind == evidence.GAP_KIND or evidence.touches_gap(start, end, gaps):
             # Gate B2: Cicada's dropped-middle line is nobody's words — no span,
             # no kind, no hash (the index blanks it; this holds for any row that
             # still carries it).
             start = end = kind = None
+        elif evidence.in_label(text, start):
+            kind = "page"   # a filing label (a folder, a list) is never anyone's words, as in `evidence.kind_for`
         elif override in evidence.OVERRIDE_KINDS:
             kind = override
+        elif override == evidence.AGENT_KIND:
+            kind = evidence.agent_words(kind)   # ruling 50: an agent's saved note is never the person's words
     snippet, offsets = snippet_window(src, ctx.tokens)
     return SearchHit(
         id=ep.doc.ref,
@@ -680,7 +711,9 @@ def _inbox_kind(ctx: _Ctx) -> tuple[list[SearchHit], int | None]:
             kind="inbox", subtitle=meta.get("entity_name") or None, snippet_offsets=offsets,
             matched_field=label, subject_id=meta.get("entity_id") or None,
         )
-        ranked.append(((-score, -float(meta.get("priority") or 0.0), bm), hit))
+        # Text match decides, then bm25. The stored priority no longer orders anything (ruling 70): a palette result's
+        # place is how well it matches, and the served order of the inbox is `orderIndex` in the app.
+        ranked.append(((-score, bm), hit))
     ranked.sort(key=lambda r: r[0])
     total = len(ranked) if len(rows) < INBOX_SCAN else None
     return [hit for _k, hit in ranked][: ctx.per_kind], total
@@ -788,6 +821,8 @@ def _search_fallback(ctx: _Ctx) -> tuple[dict[str, list[SearchHit]], dict[str, i
     index and come back empty; ``index_state`` says why."""
     out: dict[str, list[SearchHit]] = {k: [] for k in ctx.kinds}
     totals: dict[str, int] = {}
+    if not {"entity", "media"} & set(ctx.kinds):
+        return out, totals   # conversations only: every page's frontmatter walked for nothing, 25 ms a search at 4,700 pages
     docs: dict[str, search_index.Doc] = {}
     lexical: dict[str, list[_Page]] = {"entity": [], "media": []}
     for f in bank_index.files(ctx.memory_path, "entities"):
@@ -841,7 +876,7 @@ def search(
         reader=None,
         q=q or "",
         tokens=text_fold.query_tokens(q),
-        kinds=[k for k in KINDS if k in wanted] or ["entity"],
+        kinds=[k for k in _ORDER if k in wanted] or ["entity"],
         per_kind=max(1, min(int(per_kind or 1), MAX_PER_KIND)),
         mode=mode if mode in MODES else "hybrid",
     )
@@ -865,9 +900,77 @@ def search(
             ctx.reader = None
     if grouped is None:
         grouped, totals = _search_fallback(ctx)
-    ran = ctx.mode if ctx.mode == "prefix" or ctx.legs is not None else "lexical"
+    if "image" in ctx.kinds:
+        grouped["image"] = _image_kind(ctx, embed_fn) if semantic else []
+    if "file" in ctx.kinds:
+        # ROR-117: the words leg runs on every pass (the palette's prefix pass included, no embedding call); the
+        # meaning leg only on a hybrid one.
+        grouped["file"] = _file_kind(ctx, embed_fn, semantic)
+    meaning_ran = ctx.legs is not None or (semantic and (grouped.get("image") or grouped.get("file")))
+    ran = ctx.mode if ctx.mode == "prefix" or meaning_ran else "lexical"
     results = [hit for kind in ctx.kinds for hit in grouped.get(kind, [])]
+    _qualify(ctx.memory_path, results)
     return SearchResponse(results=results, totals=totals, mode=ran, index_state=state)
+
+
+def _qualify(memory_path: Path, results: list[SearchHit]) -> None:
+    """G227: a page hit whose title another page shares carries its qualifier and the name to show (`same_name`)."""
+    from api.services import same_name
+
+    same = same_name.qualifiers(memory_path)
+    if not same:
+        return
+    for hit in results:
+        if hit.kind in ("entity", "media") and (q := same.get(hit.id)):
+            hit.qualifier, hit.display_name = q, same_name.display(hit.name, q)
+
+
+def _image_kind(ctx: _Ctx, embed_fn) -> list[SearchHit]:
+    """Pictures by meaning (vision item 3): the one index's ``images`` kind, only those well above the query's mean
+    over every picture (``image_index.LIFT_MIN``) — so a query about nothing pictured returns no group, not its
+    nearest picture. Hybrid only: it embeds the query's words (never the image encoder); prefix never reaches it.
+    Ranked, not counted (no total)."""
+    from api.services import image_index
+
+    hits = []
+    for row in image_index.search(ctx.memory_path, ctx.q, top_k=ctx.per_kind, embed_fn=embed_fn):
+        meta = row.get("metadata") or {}
+        hits.append(SearchHit(
+            id=row["key"], name=str(meta.get("title") or "A picture"), type="image", status="active", confidence=0.0,
+            score=float(row["score"]), kind="image", matched_field="semantic",
+            subject_id=meta.get("entity_id") or None, episode_id=meta.get("episode_id") or None,
+            timestamp=meta.get("day") or None, thumbnail=meta.get("thumb") or None,
+            image_source=meta.get("source") or None, file_id=meta.get("file_id") or None, at_seconds=meta.get("at"),
+        ))
+    return hits
+
+
+def _file_kind(ctx: _Ctx, embed_fn, semantic: bool = True) -> list[SearchHit]:
+    """Recordings and videos the person added, and the text read from their pictures (meaning index 2; ROR-117):
+    passages found by their words (``file_words``, every pass) and by meaning (hybrid, only those well above the
+    query's mean, ``media_files.TEXT_LIFT_MIN``), fused into one hit per passage (``media_files.find``). The snippet
+    is the recording's words — never the person's (``subtitle`` says so; a picture's says it was read from the
+    picture). Ranked, never counted."""
+    from api.services import media_files
+
+    hits = []
+    for row in media_files.find(ctx.memory_path, ctx.q, top_k=ctx.per_kind, embed_fn=embed_fn, semantic=semantic,
+                                plain_words=ctx.mode == "hybrid"):
+        meta = row.get("metadata") or {}
+        at = row["at"]
+        from_picture = meta.get("from") == "picture"
+        snippet, offsets = snippet_window(row.get("text") or "", ctx.tokens)
+        hits.append(SearchHit(
+            id=f"{meta.get('file_id')}@{int(at)}" + (":text" if from_picture else ""),
+            name=str(meta.get("name") or "A recording"),
+            type=str(meta.get("kind") or "audio"), status="active", confidence=0.0, score=float(row["score"]),
+            snippet=snippet, snippet_offsets=offsets, kind="file",
+            matched_field="semantic" if row["via"] == "meaning" else "passage",
+            subtitle=("text read from the picture" if from_picture else "the recording's words")
+            + f", at {media_files.clock(at)}", file_id=meta.get("file_id") or None,
+            at_seconds=at, end_seconds=meta.get("end"),
+        ))
+    return hits
 
 
 def lexical_entity_hits(memory_path: Path, query: str, top_k: int = 8) -> list[dict]:

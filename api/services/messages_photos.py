@@ -1,5 +1,10 @@
 """The photo a ticked Messages chat shares, as its correspondent page's picture everywhere (G179, owner 2026-10-16).
 
+**Every chat source (chats-ux-v2, 2026-10-29).** The same rung, the same store and the same link rule for a ticked
+WhatsApp chat (the photo WhatsApp keeps on this Mac, read and posted by the app exactly as Messages') and a ticked
+Telegram one-to-one chat (its profile photo, `telegram_photos`). A group chat or a chat with the person themselves has
+no correspondent record, so its photo is the chat's face on the Sources page and never a page's picture.
+
 #312 drew the photo a chat's other side shares through Messages' "Share Name and Photo" on the Messages bubble only,
 in the app's memory. This module makes it a rung of the one picture precedence (`entity_picture.resolve`): the
 person's own choice → a Contacts photo → **the photo the chat shares in Messages** → the rest → a monogram — so the
@@ -118,6 +123,22 @@ def _decode(raw) -> tuple[bytes, str]:
         raise PayloadError(str(exc))
 
 
+#: chats-ux-v2 (owner 2026-10-29: "why the pfp are not there") — the same rung for every chat source: the photo a
+#: ticked WhatsApp chat holds on this Mac (posted by the app, as Messages') and a ticked Telegram chat's profile photo
+#: (`telegram_photos`). Each reader hashes its own conversation ids, so one store keyed by id holds them all.
+CHAT_ORIGINS = ("imessage", "whatsapp", "telegram-chats")
+
+
+def ticked_chats(memory_path: Path) -> set[str]:
+    """Every ticked chat's id, across Messages and the live chat sources (`chat_live`). Never raises."""
+    from api.services import chat_live, messages_source, telegram_source, whatsapp_source
+
+    out = {cid for cid, e in messages_source.load_settings(memory_path)["conversations"].items() if e.get("ticked")}
+    for spec in (whatsapp_source.SPEC, telegram_source.SPEC):
+        out |= chat_live.ticked_ids(memory_path, spec)
+    return out
+
+
 def store(memory_path: Path, items: list[dict], *, bank: str | None = None) -> dict:
     """One post from the app: ``[{conversation, photo_b64 | None}]`` for the ticked chats it looked up. ``None``
     means the chat shares no photo (any stored one goes); bytes replace a different stored photo. A chat that is not
@@ -128,7 +149,7 @@ def store(memory_path: Path, items: list[dict], *, bank: str | None = None) -> d
     bank = bank or logo_service.bank_name(memory_path)
     if not isinstance(items, list) or len(items) > MAX_ITEMS:
         raise PayloadError(f"at most {MAX_ITEMS} conversations per post")
-    ticked = {cid for cid, e in messages_source.load_settings(memory_path)["conversations"].items() if e.get("ticked")}
+    ticked = ticked_chats(memory_path)
     decoded: dict[str, tuple[bytes, str] | None] = {}
     for item in items:
         cid = str((item or {}).get("conversation") or "")
@@ -136,15 +157,14 @@ def store(memory_path: Path, items: list[dict], *, bank: str | None = None) -> d
             raise PayloadError("a conversation id is the app's hash of the chat, 16–64 hex characters")
         if cid not in ticked:
             raise messages_source.NotSelected(
-                "This conversation isn't ticked on the Sources page → Messages, so its photo wasn't kept.")
+                "This chat isn't ticked on the Sources page, so its photo wasn't kept.")
         raw = item.get("photo_b64")
         decoded[cid] = _decode(raw) if raw else None
     stored = removed = unchanged = 0
     with _LOCK:
         # Read the ticks again under the lock: an untick (and its `forget`, which takes this lock) that landed since the
         # check above must not be followed by this post writing the chat's photo back (gone on untick).
-        still = {cid for cid, e in messages_source.load_settings(memory_path)["conversations"].items()
-                 if e.get("ticked")}
+        still = ticked_chats(memory_path)
         meta = read_meta(bank)
         for cid, photo in decoded.items():
             if cid not in still:
@@ -188,7 +208,7 @@ def links(memory_path: Path) -> dict[str, dict]:
     """``{page id: {conversation, sha, ext}}`` — each stored photo of a ticked chat at the page its correspondent
     record resolves to. Empty, reading no episode, when no photo is stored (most banks). Memoized on what it reads:
     the index, the Messages settings, and the episodes' and pages' fingerprints."""
-    from api.services import bank_index, correspondents, messages_source
+    from api.services import bank_index, messages_source
 
     memory_path = Path(memory_path)
     bank = logo_service.bank_name(memory_path)
@@ -202,38 +222,78 @@ def links(memory_path: Path) -> dict[str, dict]:
         except OSError:
             return 0
 
+    from api.services import chat_live, telegram_source, whatsapp_source
+
     key = (json.dumps(meta, sort_keys=True), mtime(messages_source.settings_path(memory_path)),
+           *(mtime(chat_live.settings_path(memory_path, s)) for s in (whatsapp_source.SPEC, telegram_source.SPEC)),
            bank_index.dir_fingerprint(memory_path / "episodes"), bank_index.dir_fingerprint(memory_path / "entities"))
     memo = _MEMO.get(str(memory_path))
     if memo is not None and memo[0] == key:
         return dict(memo[1])
-    ticked = {cid for cid, e in messages_source.load_settings(memory_path)["conversations"].items() if e.get("ticked")}
+    ticked = ticked_chats(memory_path)
     wanted = {cid for cid, entry in meta.items() if cid in ticked and isinstance(entry, dict)
               and isinstance(entry.get("sha"), str) and entry.get("ext") in entity_picture.UPLOAD_EXTS}
     out: dict[str, dict] = {}
-    if wanted:
-        newest: dict[str, tuple[str, dict]] = {}
-        for f in bank_index.files(memory_path, "episodes"):
-            fm = f.frontmatter or {}
-            cid = str(fm.get("conversation") or "")
-            if fm.get("origin") != messages_source.ORIGIN or cid not in wanted or fm.get("source_deleted_at"):
-                continue
-            last = str(fm.get("sitting_last_at") or fm.get("timestamp") or "")
-            if cid not in newest or last >= newest[cid][0]:
-                record = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}
-                newest[cid] = (last, record)
-        idents = {cid: correspondents.identity(record) for cid, (_, record) in newest.items()}
-        if any(idents.values()):
-            pages = [{"id": f.stem, "frontmatter": f.frontmatter or {}}
-                     for f in bank_index.files(memory_path, "entities")]
-            # Oldest first, so when two chats name one page the most recently active one is its picture.
-            for cid in sorted(idents, key=lambda c: (newest[c][0], c)):
-                ident = idents[cid]
-                page = correspondents.find_page(pages, ident) if ident is not None else None
-                if page is not None:
-                    out[str(page["id"])] = {"conversation": cid, "sha": meta[cid]["sha"], "ext": meta[cid]["ext"]}
+    for cid, page in chat_pages(memory_path, wanted).items():
+        out[page] = {"conversation": cid, "sha": meta[cid]["sha"], "ext": meta[cid]["ext"]}
     _MEMO[str(memory_path)] = (key, out)
     return dict(out)
+
+
+def chat_pages(memory_path: Path, conversations, *, newest: dict[str, tuple[str, dict]] | None = None) -> dict[str, str]:
+    """``{conversation: page id}`` — the page each chat stands for: the page its newest live sitting's decided
+    ``correspondent`` record resolves to (the address-book card the record names first, then the record's own name and
+    type, `correspondents.find_page`), the rule Stage 2 resolves the correspondent by. A chat with no decided record
+    (a group, the person's own chat) or no such page yet is left out. When two chats name one page, the most recently
+    active one keeps it. Reads only the episodes and pages already on the record; never raises on a bad file.
+    ``newest`` (``{conversation: (sitting_last_at or timestamp, correspondent record)}``) is a caller's own scan of the
+    same episodes (a chat source's list), so they are not walked twice."""
+    from api.services import bank_index, contact_identity, correspondents
+
+    wanted = {str(c) for c in conversations or () if c}
+    if not wanted:
+        return {}
+    if newest is not None:
+        newest = {cid: v for cid, v in newest.items() if cid in wanted}
+    else:
+        newest = _newest_records(memory_path, wanted)
+    idents = {cid: correspondents.identity(record) for cid, (_, record) in newest.items()}
+    if not any(idents.values()):
+        return {}
+    pages = [{"id": f.stem, "frontmatter": f.frontmatter or {}} for f in bank_index.files(Path(memory_path), "entities")]
+    by_card = contact_identity.card_pages(pages)
+    by_id = {str(p["id"]): p for p in pages}
+    find = correspondents.page_finder(pages)
+    by_page: dict[str, str] = {}
+    # Oldest first, so when two chats name one page the most recently active one is its picture.
+    for cid in sorted(idents, key=lambda c: (newest[c][0], c)):
+        ident = idents[cid]
+        # One person across sources (2026-10-28): the page the correspondent's address-book card names comes first, as
+        # Stage 2 resolves it; then the record's own name and type.
+        card = contact_identity.clean_card_id(newest[cid][1].get("contact")) if ident is not None else None
+        page = by_id.get(by_card.get(card or "", ""))
+        if page is None:
+            page = find(ident) if ident is not None else None
+        if page is not None:
+            by_page[str(page["id"])] = cid
+    return {cid: page for page, cid in by_page.items()}
+
+
+def _newest_records(memory_path: Path, wanted: set[str]) -> dict[str, tuple[str, dict]]:
+    """Each wanted chat's newest live sitting's ``(sitting_last_at or timestamp, correspondent record)``."""
+    from api.services import bank_index
+
+    newest: dict[str, tuple[str, dict]] = {}
+    for f in bank_index.files(Path(memory_path), "episodes"):
+        fm = f.frontmatter or {}
+        cid = str(fm.get("conversation") or "")
+        if fm.get("origin") not in CHAT_ORIGINS or cid not in wanted or fm.get("source_deleted_at"):
+            continue
+        last = str(fm.get("sitting_last_at") or fm.get("timestamp") or "")
+        if cid not in newest or last >= newest[cid][0]:
+            record = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}
+            newest[cid] = (last, record)
+    return newest
 
 
 def picture_path(memory_path: Path, entity_id: str, chats: dict | None = None) -> Path | None:

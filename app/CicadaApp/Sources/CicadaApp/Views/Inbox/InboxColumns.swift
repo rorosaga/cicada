@@ -18,13 +18,41 @@ struct InboxColumns: Equatable {
 
     enum Escape: Equatable { case closeReader, closeQuestion, none }
 
-    /// G115 — the inbox's one order: priority, then newest.
+    /// G115 — the order of a server that does not send `orderIndex`: priority, then newest. Only the fallback; against a
+    /// current server the list's order is the server's own (`ordered`), which `priority` no longer decides.
     static func precedes(_ a: InboxItem, _ b: InboxItem) -> Bool {
         a.priority != b.priority ? a.priority > b.priority : a.createdDateValue > b.createdDateValue
     }
 
+    /// Ruling 70 — whether this whole list is in the server's order: EVERY question carries `orderIndex`. Decided for
+    /// the list, never per pair (a pairwise "index when both have one, else priority" is not transitive), so one item
+    /// without it sends the whole list to the fallback.
+    static func usesServedOrder(_ items: [InboxItem]) -> Bool {
+        !items.isEmpty && items.allSatisfy { $0.orderIndex != nil }
+    }
+
     static func visible(_ items: [InboxItem], filter: InboxKind?) -> [InboxItem] {
-        items.filter { filter == nil || $0.kind == filter }.sorted(by: precedes)
+        ordered(items.filter { filter == nil || $0.kind == filter }, served: usesServedOrder(items))
+    }
+
+    /// `items` in the list's order. With `served` (default: every question has `orderIndex`) that is the server's order —
+    /// the expected change in what gets read, `question_order` — and a tie keeps arrival order. Otherwise the G115 order,
+    /// `precedes`, with each question's day read once rather than twice per comparison; ties (same priority and day,
+    /// undated ones included) keep the order the server sent, as its stable sort does.
+    static func ordered(_ items: [InboxItem], served: Bool? = nil) -> [InboxItem] {
+        if served ?? usesServedOrder(items) {
+            return items.enumerated().sorted { a, b in
+                let (x, y) = (a.element.orderIndex ?? Int.max, b.element.orderIndex ?? Int.max)
+                return x != y ? x < y : a.offset < b.offset
+            }.map(\.element)
+        }
+        return items.enumerated().map { (item: $1, at: $0, priority: $1.priority, day: $1.createdDateValue) }
+            .sorted { a, b in
+                if a.priority != b.priority { return a.priority > b.priority }
+                if a.day != b.day { return a.day > b.day }
+                return a.at < b.at
+            }
+            .map(\.item)
     }
 
     /// DR-29 — the Reader stays on a swap only when the new question cites its conversation.
@@ -128,7 +156,11 @@ enum InboxRows {
         var rows = visible.map(InboxRowEntry.item)
         guard let held, let item = snapshot.first(where: { $0.id == held.id }),
               filter == nil || filter == item.kind else { return rows }
-        let at = visible.firstIndex { !InboxColumns.precedes($0, item) } ?? visible.count
+        // The Undo row sits where its question sat in the snapshot's own order (ruling 70: the served order, else G115's).
+        let place = Dictionary(InboxColumns.ordered(snapshot).enumerated().map { ($1.id, $0) },
+                               uniquingKeysWith: { first, _ in first })
+        let mine = place[item.id] ?? Int.max
+        let at = visible.firstIndex { (place[$0.id] ?? Int.max) > mine } ?? visible.count
         rows.insert(.undo(held, item), at: at)
         return rows
     }
@@ -154,7 +186,8 @@ struct InboxRowSlots: Equatable {
 enum InboxEyebrow {
     /// Say it once (owner 2026-10-19) — "Inbox", whatever is open: the tabs beside it carry the counts ("All 9"), the
     /// selected row says which question is open and the card names its kind, so the eyebrow repeats none of them.
-    static func text(visible: [InboxItem], openId: String?) -> String { Copy.Inbox.title }
+    /// Ruling 48 (2): the list is Home's sub-view, so the eyebrow is the path back — Esc takes it.
+    static func text(visible: [InboxItem], openId: String?) -> String { Copy.Inbox.homePath }
 }
 
 /// DR-45 — "All 6 · Decay 1 · Conflict 2 …": the kinds present, in a stable order, never a dot.

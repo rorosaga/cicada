@@ -8,6 +8,7 @@ import SwiftUI
 struct ClustersPage: View {
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(AppRouter.self) private var router
+    @Environment(Store.self) private var store
     @Environment(ProvenanceRouter.self) private var provenance
     @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
     @AppStorage(ClustersModel.expandAllKey) private var expandAll = false
@@ -20,6 +21,9 @@ struct ClustersPage: View {
     @State private var labels: Set<String> = []
     /// Owner 2026-10-20 — "we can filter looks inside the entities page": only the pages that show a look.
     @State private var onlyWithLooks = false
+    /// ROR-138 — Media's kinds shown (empty = every kind but unmentioned feed items) and the channel grouping.
+    @State private var mediaKinds: Set<String> = []
+    @State private var groupByChannel = false
     /// The Looks tab (review of #384): every look the person saved, as tiles, searchable by words and by picture.
     @State private var showLooks = false
     @State private var looksQuery = ""
@@ -71,13 +75,19 @@ struct ClustersPage: View {
 
     private var looksCache: LooksCache { .shared }
 
+    /// Media entities by kind, for the chips and the View menu.
+    private var mediaKindCounts: [String: Int] {
+        Dictionary(graphVM.entities.compactMap(\.mediaKind).map { ($0, 1) }, uniquingKeysWith: +)
+    }
+
     private var isFiltered: Bool {
-        !labels.isEmpty || onlyWithLooks || graphVM.filter.types.count < EntityType.selectableCases.count
+        !labels.isEmpty || onlyWithLooks || !mediaKinds.isEmpty || groupByChannel || graphVM.filter.types.count < EntityType.selectableCases.count
     }
 
     var body: some View {
         let filtered = ClustersModel.filtered(graphVM.entities, types: graphVM.filter.types, labels: labels,
-                                              withLooks: onlyWithLooks ? LooksCache.shared.pagesWithLooks : nil)
+                                              withLooks: onlyWithLooks ? LooksCache.shared.pagesWithLooks : nil,
+                                              mediaKinds: mediaKinds, groupByChannel: groupByChannel)
         let groups = ClustersModel.groups(filtered)
         let found = ClustersModel.matches(query: findOpen ? query : "", within: filtered) {
             graphVM.clusterSearchIndex().rank($0)
@@ -91,8 +101,8 @@ struct ClustersPage: View {
                                                                                        label: $0.label, count: $0.count) }
                                          + [TextTab(id: .looks, label: Copy.Looks.tab,
                                                     count: looksCache.board?.refs.count)],
-                                     selection: pageTabs, menuTitle: Copy.Lists.type)
-                    PageFindButton(isOpen: $findOpen).padding(.leading, CicadaTheme.spacingSM)
+                                     selection: pageTabs, menuTitle: Copy.Lists.type, strongCounts: true)
+                    PageFindButton(isOpen: $findOpen).padding(.leading, CicadaTheme.spacingLG)
                     TextButton(title: isFiltered ? Copy.Lists.viewFiltered : Copy.Lists.view,
                                help: Copy.Lists.viewHelp) { viewMenuOpen.toggle() }
                         .popover(isPresented: $viewMenuOpen, arrowEdge: .bottom) {
@@ -101,13 +111,21 @@ struct ClustersPage: View {
                                              typeCounts: Dictionary(grouping: graphVM.entities, by: \.type)
                                                  .mapValues(\.count),
                                              expandAll: $expandAll, onlyWithLooks: $onlyWithLooks,
-                                             looksCount: LooksCache.shared.pagesWithLooks.count)
+                                             looksCount: LooksCache.shared.pagesWithLooks.count,
+                                             mediaKinds: $mediaKinds,
+                                             kindCounts: mediaKindCounts,
+                                             groupByChannel: $groupByChannel)
                         }
                 }
             }
         } list: { plan in
             let state = ClustersListState.of(hasEntities: !graphVM.entities.hasNoContentBeyondOwner, isLoading: graphVM.isLoading,
                                              groupsEmpty: groups.isEmpty, matches: found)
+            VStack(spacing: 0) {
+                if tab == .media, !showLooks, !mediaKindCounts.isEmpty {
+                    MediaKindChips(selected: $mediaKinds, counts: mediaKindCounts, gutter: plan.gutter)
+                }
+                Group {
             if showLooks {
                 LooksGallery(refs: looksCache.visible, total: looksCache.board?.refs.count ?? 0, phase: looksCache.phase,
                              names: Dictionary(graphVM.entities.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }),
@@ -129,7 +147,8 @@ struct ClustersPage: View {
                                  open: { openEntity($0) },
                                  showTab: { type in Instant.run { tabSelection.wrappedValue = type } },
                                  move: { delta in
-                                     move(delta, visible: ClustersGrid.visible(groups, tab: tab, expandAll: expandAll))
+                                     move(delta, visible: ClustersGrid.visible(groups, tab: tab, expandAll: expandAll,
+                                                                               pictured: { ClustersGrid.isPictured($0, store: store) }))
                                  },
                                  escape: { escape() })
                     .focused($focus, equals: .list)
@@ -155,6 +174,9 @@ struct ClustersPage: View {
                     // the person stop would lose its hole in a real bank.
                     .tourAnchor(.clusters)
             }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         } detail: { plan in
             if let entity = open {
                 ClustersCardColumn(entity: entity, gutter: plan.gutter,
@@ -168,6 +190,7 @@ struct ClustersPage: View {
             ReaderColumn().focused($focus, equals: .reader)
         }
         .background(CicadaTheme.bgBase)
+        .environment(\.clusterShowsChannel, groupByChannel)
         // The looks' pages, for the View menu's "Only pages with looks": read on appear and again when the menu opens
         // (an ETag makes an unchanged answer a 304; owner 2026-10-20).
         .task(id: viewMenuOpen) { await LooksCache.shared.refresh() }

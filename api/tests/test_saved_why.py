@@ -484,3 +484,40 @@ def test_the_installed_model_scores_every_bank_reason_from_the_title_and_site(mo
     assert saved_why.model_scores(title="A video", url="https://www.youtube.com/watch?v=abc", embed=embed) == \
         saved_why.model_scores(title="A video", url="https://www.youtube.com/watch?v=abc", embed=embed)
     assert saved_why.model_scores(title="", url="", embed=embed) == {"basis": "none", "scores": []}
+
+
+# ---- the reason as a reader is handed it (vision item 1, 2026-10-28) ----------------------------------------------
+
+
+def _ep(memory: Path, eid: str, fm: dict, body: str) -> None:
+    (memory / "episodes").mkdir(parents=True, exist_ok=True)
+    markdown_parser.write(memory / "episodes" / f"{eid}.md", {"id": eid, **fm}, body)
+
+
+def test_reason_of_reads_the_newest_answer_then_a_saved_because_section(tmp_path):
+    from api.services import saved_why
+
+    memory = tmp_path / "memory"
+    _ep(memory, "ep_2026-09-01_001", {"saved_why": {"reasons": ["design"], "text": "the docs layout",
+                                                    "at": "2026-09-01T10:00:00+00:00"}}, "# T")
+    _ep(memory, "ep_2026-09-02_001", {"saved_why": {"reasons": ["read_later"], "text": None,
+                                                    "at": "2026-09-02T10:00:00+00:00"}}, "# T")
+    _ep(memory, "ep_2026-09-03_001", {}, "# T\n\n## Saved because\nfor the  pricing\npage\n\n## User note\nx")
+    _ep(memory, "ep_2026-09-04_001", {}, "# T\n\n## Description\nno reason here")
+    newest = saved_why.reason_of(memory, ["ep_2026-09-01_001", "ep_2026-09-02_001"])
+    assert (newest.text, newest.episode) == ("To read later", "ep_2026-09-02_001")
+    because = saved_why.reason_of(memory, ["ep_2026-09-03_001"])
+    assert (because.text, because.at) == ("for the pricing page", "")
+    assert saved_why.reason_of(memory, ["ep_2026-09-04_001", "not-an-episode"]) is None
+    assert saved_why.reason_of(memory, []) is None
+
+
+def test_reason_span_is_the_sections_words_without_its_heading(tmp_path):
+    from api.services import evidence, saved_why
+
+    memory = tmp_path / "memory"
+    _ep(memory, "ep_2026-09-03_001", {}, "# T\n\n## Why it was saved\nSaid x.\n- The design\n\n## User note\nmine")
+    start, end = saved_why.reason_span(memory, "ep_2026-09-03_001")
+    assert evidence.source_text(memory, "ep_2026-09-03_001")[start:end] == "Said x.\n- The design"
+    _ep(memory, "ep_2026-09-04_001", {}, "# T")
+    assert saved_why.reason_span(memory, "ep_2026-09-04_001") is None

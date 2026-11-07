@@ -13,7 +13,7 @@ final class ProvenanceRouterTests: XCTestCase {
         XCTAssertEqual(ReaderTarget.evidence(span, subjectId: "alpha-project")?.focus,
                        .span(start: 3, end: 9, hash: "h", derived: false))
         let inferred = Evidence(episode: "ep_1", start: -1, end: -1, kind: .reasoning, hash: "h")
-        XCTAssertEqual(ReaderTarget.evidence(inferred, subjectId: nil)?.focus, .inferred)
+        XCTAssertEqual(ReaderTarget.evidence(inferred, subjectId: nil)?.focus, ReaderTarget.Focus.none)
         XCTAssertNil(ReaderTarget.evidence(Evidence(episode: "", start: -1, end: -1, kind: .reasoning),
                                            subjectId: nil), "reasoning with no document has nowhere to open")
     }
@@ -33,7 +33,7 @@ final class ProvenanceRouterTests: XCTestCase {
 
     func testTheQueryIsTheOneTheServerTakes() {
         XCTAssertEqual(ReaderTarget(episode: "e", focus: .mention(entityId: "a")).query, .mention(entityId: "a"))
-        XCTAssertEqual(ReaderTarget(episode: "e", focus: .inferred).query, ReaderFocusQuery.none)
+        XCTAssertEqual(ReaderTarget(episode: "e", focus: .none).query, ReaderFocusQuery.none)
         XCTAssertEqual(ReaderTarget(episode: "e", focus: .span(start: 1, end: 2, hash: nil, derived: true)).query,
                        .span(start: 1, end: 2, hash: nil))
     }
@@ -241,6 +241,14 @@ final class FakeProvenanceAPI: ProvenanceAPI, @unchecked Sendable {
 
     func fetchEpisodeCitations(episode: String, etag: String?) async throws -> Conditional<EpisodeCitations> {
         Conditional(value: citations, etag: "\"c1\"", notModified: false)
+    }
+
+    var sourceSpans: SourceSpans?
+    var sourceSpansAsks = 0
+    func fetchSourceSpans(source: String, etag: String?) async throws -> Conditional<SourceSpans> {
+        sourceSpansAsks += 1
+        if etag != nil { return Conditional(value: nil, etag: etag, notModified: true) }
+        return Conditional(value: sourceSpans, etag: "\"s1\"", notModified: false)
     }
 
     func fetchSourcesOverview(entityId: String, etag: String?) async throws -> Conditional<PageSourcesOverview> {

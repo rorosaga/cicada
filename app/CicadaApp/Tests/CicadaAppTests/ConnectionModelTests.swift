@@ -89,6 +89,34 @@ final class ConnectionModelTests: XCTestCase {
         XCTAssertEqual(AgentProducts.lines([older]).map(\.name), ["Claude app"])
     }
 
+    /// G228 follow-up: a way's note is drawn under its own line — once, on the local line, never on the remote one —
+    /// so "T3 Code's own Codex sign-in is not captured" is visible where the person reads how T3 Code connects.
+    func testAWaysNoteRidesItsLocalLineOnly() throws {
+        let t3 = try JSONDecoder().decode(ProviderWay.self, from: Data(
+            #"{"id":"t3code","label":"T3 Code","connects":["hooks","stdio"],"note":"Those threads are not captured."}"#.utf8))
+        XCTAssertEqual(AgentProducts.lines([t3]).map(\.note), ["Those threads are not captured."])
+        let claude = ProviderWay(id: "claude", label: "Claude Desktop", connects: ["stdio", "remote"],
+                                 note: "One sentence.", remoteLabel: "claude.ai")
+        XCTAssertEqual(AgentProducts.lines([claude]).map(\.note), ["One sentence.", nil])
+        let blank = ProviderWay(id: "zed", label: "Zed", connects: ["stdio"], note: "  ")
+        XCTAssertNil(AgentProducts.lines([blank])[0].note, "a blank note draws nothing")
+    }
+
+    /// G228: a host app (T3 Code) has no pill of its own; its detail offers the connect steps of the agents it
+    /// drives, in the table's order, while every other way keeps what it offered before.
+    func testAHostAppOffersTheConnectStepsOfTheAgentsItDrives() {
+        let t3 = ProviderWay(id: "t3code", label: "T3 Code", connects: ["hooks", "stdio"], tier: 2,
+                             setup: ["claude-code", "codex", "cursor"])
+        XCTAssertEqual(AgentProducts.entries([t3]).map(\.id), ["claude-code", "codex", "cursor"])
+        let zed = ProviderWay(id: "zed", label: "Zed", connects: ["stdio"], tier: 2, setup: ["other"])
+        XCTAssertEqual(AgentProducts.entries([zed]).map(\.id), ["other"], "the generic prompt, as before")
+        let code = ProviderWay(id: "claude-code", label: "Claude Code", setup: ["claude-code"])
+        let claude = ProviderWay(id: "claude", label: "Claude Desktop", setup: ["claude-desktop", "claude"])
+        XCTAssertEqual(AgentProducts.entries([code, claude]).map(\.id), ["claude-code", "claude"])
+        XCTAssertEqual(AgentProducts.entries([code, t3]).map(\.id), ["claude-code", "codex", "cursor"], "once each")
+        XCTAssertTrue(AgentProducts.entries([ProviderWay(id: "grok-build", label: "Grok Build")]).isEmpty)
+    }
+
     func testAPastedProfileLinkIsKeptAsIsWithItsServicesMark() {
         XCTAssertEqual(ProfileLink.normalized("linkedin.com/in/bob-example"), "https://linkedin.com/in/bob-example")
         XCTAssertNil(ProfileLink.normalized("not a link"))
@@ -100,10 +128,14 @@ final class ConnectionModelTests: XCTestCase {
         XCTAssertFalse(ProfileLink.needsConnecting("https://github.com/bob-example"))
     }
 
+    /// Agents is the ninth cell, ⌘9. G218's Traces page (2026-10-26) is appended after it as the tenth, with no ⌘ key
+    /// (⌘0 is Actual Size), so no existing shortcut moved (DR-22).
     func testTheAgentsPageIsTheNinthCellAndNoShortcutMoved() {
-        XCTAssertEqual(AppTab.allCases.last, .agents)
+        XCTAssertEqual(AppTab.allCases.suffix(2), [.agents, .traces])
         XCTAssertEqual(RailItem.digit(for: .agents), 9)
+        XCTAssertEqual(RailItem.shortcut(for: .agents), "⌘9")
         XCTAssertEqual(RailItem.digit(for: .projects), 8)
+        XCTAssertNil(RailItem.keyDigit(for: .traces), "a tenth page gets no digit key")
         XCTAssertEqual(AppTab.restored(from: "Agents"), .agents)
     }
 

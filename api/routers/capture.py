@@ -23,7 +23,8 @@ from pydantic import BaseModel, Field, model_validator
 
 from api.config import Settings, get_settings
 from api.services import (
-    awake_read, bank_registry, continuity_sessions, demo_guard, episode_ids, harness_integrations, hook_recall,
+    agent_memory_notes, awake_read, bank_registry, continuity_sessions, demo_guard, episode_ids, harness_integrations,
+    hook_recall, write_admission,
 )
 from api.services.telegram_capture import (
     TELEGRAM_WEBHOOK_SECRET_ENV,
@@ -155,6 +156,77 @@ async def capture_telegram(
     return result
 
 
+#: How long a session-capture route waits for its writer before it answers ``202 accepted`` and lets the write finish
+#: on its own (2026-10-29). The Stop hook gives up after ``TIMEOUT_S`` (3 s); a capture is usually done in well under a
+#: second, but a long transcript read while other sessions, a notes sweep or Sleep share the process took 3-9 s, and
+#: the hook then logged an error for a capture that landed a moment later. The writer is the same either way — same
+#: lock, same find-or-create, same refusals — only the answer stops waiting for it.
+CAPTURE_ANSWER_S = 2.0
+#: Writes that outlived their answer, held so the event loop keeps a reference until they finish.
+_LATE_WRITES: set = set()
+
+
+async def answer_within(work, landed, budget: float | None = None):
+    """Run ``work`` (blocking) off the event loop; its result when it finishes within ``budget`` seconds, else ``None``
+    — and then, when it does finish, ``landed(result)`` runs on the loop for a write that was not refused (the step a
+    route takes after a write: the awake read's queue). Never cancels the write: a request the client dropped still
+    finishes, and so does one that answered ``accepted``."""
+    budget = CAPTURE_ANSWER_S if budget is None else budget
+    task = asyncio.ensure_future(asyncio.to_thread(work))
+
+    def late(t: asyncio.Task) -> None:
+        _LATE_WRITES.discard(t)
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            logger.warning(f"capture: a write that answered accepted failed: {type(exc).__name__}")
+            return
+        result = t.result()
+        if result.status == "refused":
+            logger.info(f"capture: a write that answered accepted was refused: {result.reason}")
+            return
+        try:
+            landed(result)
+        except Exception as e:  # noqa: BLE001 - the write is done; what follows it never takes it back
+            logger.warning(f"capture: after a late write: {type(e).__name__}")
+
+    try:
+        done, _ = await asyncio.wait({task}, timeout=budget)
+    except asyncio.CancelledError:
+        _LATE_WRITES.add(task)
+        task.add_done_callback(late)
+        raise
+    if task in done:
+        return task.result()
+    _LATE_WRITES.add(task)
+    task.add_done_callback(late)
+    return None
+
+
+def _after_write(memory_path, target, req, settings):
+    """What a session-capture route does once its writer returned a write that was not refused — at once, or later
+    for one that answered ``accepted``: name a demo redirect in the log and queue the awake read."""
+    def landed(result) -> None:
+        if target is not None and target.redirected_from:
+            logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
+        awake_read.after_capture(memory_path, result.episode_id, status=result.status, settings=settings,
+                                 hook_event=req.hook_event)
+    return landed
+
+
+def accepted(*, bank: str | None, redirected_from: str | None, bank_id: str | None = None):
+    """``202``: the capture is being written and was not done within :data:`CAPTURE_ANSWER_S`. Nothing is lost by not
+    waiting — the next Stop re-sends the whole session and is idempotent."""
+    from fastapi.responses import JSONResponse
+
+    body = {"status": "accepted", "episodeId": None, "turnsUser": None, "turnsAssistant": None, "summary": None,
+            "bank": bank, "redirectedFrom": redirected_from}
+    if bank_id is not None:
+        body["bankId"] = bank_id
+    return JSONResponse(status_code=202, content=body)
+
+
 class TranscriptCaptureRequest(BaseModel):
     """What the Stop hook forwards — harness stdin plus D2's git observation.
     Snake_case on purpose: the sender is a stdlib
@@ -172,6 +244,9 @@ class TranscriptCaptureRequest(BaseModel):
     effort: str | None = Field(default=None, max_length=32)
     # D2: plain hook-observed git values; only parsed/hashed, never opened.
     workspace: Any = None
+    # G228, additive: the app that launched the harness (T3 Code), read by the hook from its own ancestors. Free text
+    # on the wire — an unknown value is dropped by the writer, never a refused capture.
+    host: str | None = Field(default=None, max_length=32)
 
 
 @router.post("/capture/transcript")
@@ -215,20 +290,22 @@ async def capture_transcript_endpoint(
             effort=req.effort,
             hook_event=req.hook_event,
             workspace=req.workspace,
+            host=req.host,
             # G110: the continuity registry's every-bank guard needs the root and
             # every configured bank — resolved once, off the event loop.
             bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
         )
 
-    result = await asyncio.to_thread(_capture)
+    _landed = _after_write(memory_path, target, req, settings)
+    result = await answer_within(_capture, _landed)
+    if result is None:
+        return accepted(bank=target.name if target is not None else None,
+                        redirected_from=target.redirected_from if target is not None else None)
     if target is None or result.status == "refused":
         if target is None or result.reason == "demo_bank":
             raise HTTPException(status_code=409, detail=demo_guard.HOOK_REFUSAL)
         raise HTTPException(status_code=400, detail=result.reason)
-    if target.redirected_from:
-        logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
-    awake_read.after_capture(memory_path, result.episode_id, status=result.status, settings=settings,
-                             hook_event=req.hook_event)
+    _landed(result)
     return {
         "status": result.status,
         "episodeId": result.episode_id,
@@ -261,6 +338,8 @@ class SessionCaptureRequest(BaseModel):
     #: gave); when no bank of this server's memory has that id it is refused (409 ``bank_mismatch``) and the client
     #: holds it for its own memory. Absent (every live post): filed where a capture goes now, as before.
     bank_id: str | None = Field(None, max_length=128)
+    #: G228, additive: the app that launched the harness on the client (an unknown value is dropped).
+    host: str | None = Field(None, max_length=32)
 
 
 def _filed_in(settings: Settings, target, claimed: str | None) -> str | None:
@@ -298,17 +377,19 @@ async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
             keep_assistant=settings.capture_assistant_replies, bank=memory_path.name, effort=req.effort,
             hook_event=req.hook_event, workspace=req.workspace,
             bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
-            device=device.id if device is not None else None, utc_offset_minutes=req.utc_offset_minutes)
+            device=device.id if device is not None else None, utc_offset_minutes=req.utc_offset_minutes,
+            host=req.host)
 
-    result = await asyncio.to_thread(_capture)
+    _landed = _after_write(memory_path, target, req, settings)
+    result = await answer_within(_capture, _landed)
+    if result is None:
+        return accepted(bank=target.name if target is not None else None, bank_id=filed,
+                        redirected_from=target.redirected_from if target is not None else None)
     if target is None or result.status == "refused":
         if target is None or result.reason == "demo_bank":
             raise HTTPException(status_code=409, detail=demo_guard.HOOK_REFUSAL)
         raise HTTPException(status_code=400, detail=result.reason)
-    if target.redirected_from:
-        logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
-    awake_read.after_capture(memory_path, result.episode_id, status=result.status, settings=settings,
-                             hook_event=req.hook_event)
+    _landed(result)
     return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
             "turnsAssistant": result.turns_assistant, "summary": result.summary, "bank": target.name,
             "bankId": filed, "redirectedFrom": target.redirected_from}
@@ -342,10 +423,13 @@ class TurnCaptureRequest(BaseModel):
     #: gave); when no bank of this server's memory has that id it is refused (409 ``bank_mismatch``) and the client
     #: holds it for its own memory. Absent (every live post): filed where a capture goes now, as before.
     bank_id: str | None = Field(None, max_length=128)
+    #: G228, additive: the app that launched the harness (T3 Code driving Cursor); an unknown value is dropped.
+    host: str | None = Field(None, max_length=32)
 
 
 @router.post("/capture/turn")
-async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = Depends(get_settings)):
+async def capture_turn_endpoint(req: TurnCaptureRequest, request: Request,
+                                settings: Settings = Depends(get_settings)):
     """Capture-everywhere: a harness whose hook carries each turn's text (Cursor,
     Gemini CLI) instead of a transcript path. Bearer-authed like
     ``/capture/transcript``, the same one-episode-per-session write
@@ -363,7 +447,8 @@ async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = De
             turn_id=req.turn_id, retry=req.retry, model=req.model, cwd=req.cwd,
             keep_assistant=settings.capture_assistant_replies, bank=memory_path.name,
             bank_paths=continuity_sessions.bank_paths_for(settings.memory_root), hook_event=req.hook_event,
-            utc_offset_minutes=req.utc_offset_minutes)
+            utc_offset_minutes=req.utc_offset_minutes, host=req.host,
+            device=getattr(getattr(request.state, "device", None), "id", None))
 
     result = await asyncio.to_thread(_capture)
     if target is None or result.status == "refused":
@@ -443,7 +528,74 @@ async def hook_context_endpoint(req: HookContextRequest, settings: Settings = De
     latency_ms = int((time.perf_counter() - started) * 1000)
     hook_recall.record(req.event, req.harness, result, latency_ms=latency_ms, model=req.model, bank=bank)
     return {"additionalContext": result.text, "injected": list(result.injected),
-            "reason": result.reason, "latencyMs": latency_ms}
+            "reason": result.reason, "latencyMs": latency_ms, "shown": hook_recall.shown_line(result)}
+
+
+# ── Ruling 43 (owner 2026-10-27): an agent's own memory notes ──────────────────────────────────────────────────────
+# The harness's hook reads `~/.claude/projects/*/memory/*.md` on the machine where they live and posts their bytes;
+# the backend opens nothing (`agent_memory_notes`). One switch per memory, on by default.
+
+
+class AgentMemoryNote(BaseModel):
+    project: str = Field(..., min_length=1, max_length=255)
+    file: str = Field(..., min_length=1, max_length=255)
+    text: str = Field(..., max_length=agent_memory_notes.MAX_NOTE_CHARS)
+    #: The file's modification time, aware ISO-8601 — the note's own date when its head names none.
+    modified_at: str | None = Field(None, max_length=64)
+
+
+class AgentMemoryRequest(BaseModel):
+    """Every note under the harness root, read by its hook. Snake_case: the sender is a stdlib script."""
+
+    harness: Literal[*agent_memory_notes.HARNESSES]
+    notes: list[AgentMemoryNote] = Field(..., max_length=agent_memory_notes.MAX_NOTES)
+    #: True when ``notes`` is everything the root holds — only then is a note missing from it tombstoned.
+    complete: bool = False
+
+
+class AgentMemorySettings(BaseModel):
+    enabled: bool
+
+
+@router.get("/capture/agent-memory/settings", response_model=AgentMemorySettings)
+async def get_agent_memory_settings(settings: Settings = Depends(get_settings)):
+    return AgentMemorySettings(**agent_memory_notes.load_settings(settings.memory_path))
+
+
+@router.put("/capture/agent-memory/settings", response_model=AgentMemorySettings,
+            dependencies=[Depends(refuse_capture_into_demo)])
+@write_admission.route()
+async def put_agent_memory_settings(req: AgentMemorySettings, settings: Settings = Depends(get_settings)):
+    from api.services import folder_source
+
+    saved = agent_memory_notes.save_settings(settings.memory_path, enabled=req.enabled)
+    await folder_source.commit_paths_for(
+        settings.memory_path, [f"sources/{agent_memory_notes.SETTINGS_FILENAME}"],
+        subject="Agent memory notes setting", trigger="user/companion_app")
+    return AgentMemorySettings(**saved)
+
+
+@router.post("/capture/agent-memory", dependencies=[Depends(refuse_capture_into_demo)])
+@write_admission.route()   # held, never refused: notes stage while Sleep runs, as a session does
+async def capture_agent_memory(req: AgentMemoryRequest, request: Request, settings: Settings = Depends(get_settings)):
+    """Ruling 43: one episode per note, the agent's words (``evidence_kind: assistant``), dated when the note was last
+    written; an edit updates in place, a note gone from a complete post is tombstoned. ``{"status": "off"}`` when the
+    person turned the source off for this memory — nothing is read. 409 in a demo bank. The device that signed the
+    post files its own notes, so two machines never tombstone each other's."""
+    from api.services import folder_source
+
+    memory_path = settings.memory_path
+    if not agent_memory_notes.load_settings(memory_path)["enabled"]:
+        return {"status": "off", "bank": memory_path.name}
+    device = getattr(request.state, "device", None)
+    report = await asyncio.to_thread(
+        agent_memory_notes.ingest, memory_path, [n.model_dump() for n in req.notes], harness=req.harness,
+        device=device.id if device is not None else None, complete=req.complete)
+    paths = report.pop("paths")
+    if paths:
+        await folder_source.commit_paths_for(memory_path, paths, subject="Agent memory notes",
+                                             trigger="capture/agent_memory", author=req.harness)
+    return {"status": "ok", "bank": memory_path.name, **report}
 
 
 # ── G212 (owner 2026-10-22): a paired phone's captures ─────────────────────────────────────────────────────────────
@@ -607,3 +759,26 @@ async def my_captures(request: Request, settings: Settings = Depends(get_setting
         return mine
 
     return {"captures": await asyncio.to_thread(scan)}
+
+
+class OfferedEpisodeRequest(BaseModel):
+    """G132 phase 2: one episode an old home set aside after a take-over, offered back (``home_move.reconcile``)."""
+
+    episode: str = Field(..., min_length=1, max_length=2_000_000)
+    #: The offering device's id and the take-over's term — recorded on the episode, never trusted for anything else.
+    from_: str | None = Field(None, alias="from", max_length=16)
+    term: int | None = Field(None, ge=0)
+
+
+@router.post("/capture/offered", dependencies=[Depends(refuse_capture_into_demo)])
+async def capture_offered(req: OfferedEpisodeRequest, settings: Settings = Depends(get_settings)):
+    """Write an offered episode through this home's own writer (``offered_episode``): scrubbed, its id minted here,
+    waiting for Sleep — or ``already`` when its conversation or its words are here. Capture-shaped, like every Awake
+    writer: no admission, the episode lock only. One write by its own content (a resend answers ``already``)."""
+    from api.services import offered_episode
+
+    result = await asyncio.to_thread(offered_episode.write, settings.memory_path, req.episode,
+                                     from_device=req.from_, term=req.term)
+    if result.get("status") == "refused":
+        raise HTTPException(status_code=422, detail=result.get("reason"))
+    return result

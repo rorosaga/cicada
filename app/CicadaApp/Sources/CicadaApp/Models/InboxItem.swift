@@ -25,6 +25,8 @@ enum InboxKind: String, Codable {
     // G205: an agent asking the person to do something only they can (today: sign in to a site so it can read a page).
     // Drawn as a small card above the questions, never as a question row; sent as a Mac notification once.
     case agentRequest = "agent_request"
+    // G235: the one review of what may be sensitive. Drawn as a card above the questions, the person's alone.
+    case sensitive
     // Forward-compat fallback (matches `EntityType`/`Epistemic`/`SourceTrust`'s
     // existing pattern in this codebase). Before this, an unrecognized raw
     // value threw `DecodingError.dataCorrupted` out of `InboxItem.init(from:)`,
@@ -39,19 +41,41 @@ enum InboxKind: String, Codable {
         self = InboxKind(rawValue: raw) ?? .unknown
     }
 
+    /// A kind in a person's words (inbox v2, owner 2026-10-26: "I don't really get … possible duplicates and stuff"):
+    /// the tabs, the glyph's help and VoiceOver. "Decay", "Clarification", "Divergence" and "Predicate fold" were the
+    /// pipeline's names; the wire values above never change.
     var label: String {
         switch self {
-        case .decay: "Decay"
+        case .decay: "Fading"
         case .conflict: "Conflict"
-        case .clarification: "Clarification"
+        case .clarification: "Question"
         case .mergeSuggestion: "Possible duplicate"
-        case .divergence: "Divergence"
-        case .normalization: "Predicate fold"
+        case .divergence: "Disagreement"
+        case .normalization: "Wording"
         case .removal: "Removed bookmark"
         case .followup: "Follow-up"
         case .pageEdit: "Page edit"
         case .agentRequest: "Agent request"
+        case .sensitive: "May be sensitive"
         case .unknown: "Update available"
+        }
+    }
+
+    /// The heading of a kind's group in the Inbox (inbox v2): what the questions under it are, plural.
+    var groupTitle: String {
+        switch self {
+        case .decay: "Fading pages"
+        case .conflict: "Conflicts"
+        case .clarification: "Questions"
+        case .mergeSuggestion: "Possible duplicates"
+        case .divergence: "Disagreements with an agent"
+        case .normalization: "Wording to check"
+        case .removal: "Removed bookmarks"
+        case .followup: "Follow-ups"
+        case .pageEdit: "Proposed page edits"
+        case .agentRequest: "Agent requests"
+        case .sensitive: "May be sensitive"
+        case .unknown: "Other questions"
         }
     }
 
@@ -68,6 +92,7 @@ enum InboxKind: String, Codable {
         case .followup: "arrow.uturn.backward.circle"
         case .pageEdit: "pencil"
         case .agentRequest: "person.crop.circle.badge.questionmark"
+        case .sensitive: "lock"
         case .unknown: "questionmark.circle"
         }
     }
@@ -95,6 +120,11 @@ struct InboxOption: Identifiable, Hashable {
     var ageDays: Int?
     var recommended: Bool = false
     var verdict: String? = nil
+    /// G227 (owner 2026-10-29, pick the page) — an option that IS one of several pages with a name: its id, its plain
+    /// name and its qualifier (drawn as a `Tag`); `label` keeps "<name> (<qualifier>)" for every reader without them.
+    var pageId: String? = nil
+    var pageName: String? = nil
+    var qualifier: String? = nil
 
     var id: String { key }
 
@@ -115,6 +145,7 @@ struct InboxOption: Identifiable, Hashable {
 extension InboxOption: Codable {
     enum CodingKeys: String, CodingKey {
         case key, label, description, claimId, observedAt, lastReferenced, ageDays, recommended, verdict
+        case pageId, pageName, qualifier
     }
 
     /// Tolerant on purpose: a `SnapshotCache` payload written before G115 has
@@ -131,6 +162,9 @@ extension InboxOption: Codable {
         ageDays = try c.decodeIfPresent(Int.self, forKey: .ageDays)
         recommended = try c.decodeIfPresent(Bool.self, forKey: .recommended) ?? false
         verdict = try c.decodeIfPresent(String.self, forKey: .verdict)
+        pageId = try? c.decodeIfPresent(String.self, forKey: .pageId)
+        pageName = try? c.decodeIfPresent(String.self, forKey: .pageName)
+        qualifier = try? c.decodeIfPresent(String.self, forKey: .qualifier)
     }
 }
 
@@ -278,6 +312,40 @@ struct AgentRequestInfo: Codable, Equatable {
     }
 }
 
+/// G235 — one conversation of the sensitive review: which one, what kind, who read it. Never the words.
+struct SensitiveRow: Codable, Equatable, Identifiable {
+    var id: String
+    var episode: String
+    var title: String
+    var day: String
+    var kinds: [String]
+    var readBy: [String]
+    var heldKinds: [String]
+    var heldFrom: [String]
+    var earlier: Bool
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        episode = try c.decode(String.self, forKey: .episode)
+        title = ((try? c.decodeIfPresent(String.self, forKey: .title)) ?? nil) ?? ""
+        day = ((try? c.decodeIfPresent(String.self, forKey: .day)) ?? nil) ?? ""
+        kinds = ((try? c.decodeIfPresent([String].self, forKey: .kinds)) ?? nil) ?? []
+        readBy = ((try? c.decodeIfPresent([String].self, forKey: .readBy)) ?? nil) ?? []
+        heldKinds = ((try? c.decodeIfPresent([String].self, forKey: .heldKinds)) ?? nil) ?? []
+        heldFrom = ((try? c.decodeIfPresent([String].self, forKey: .heldFrom)) ?? nil) ?? []
+        earlier = ((try? c.decodeIfPresent(Bool.self, forKey: .earlier)) ?? nil) ?? false
+    }
+
+    /// "A password held back from Claude plan · Nov 1".
+    static func line(_ row: SensitiveRow) -> String {
+        let day = row.day.isEmpty ? nil : SleepHistoryPresentation.dateText(row.day)
+        return [Copy.Sensitive.fate(kinds: row.kinds, heldKinds: row.heldKinds, readBy: row.readBy,
+                                    heldFrom: row.heldFrom, earlier: row.earlier), day]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
 /// G61 "Where to check" (ruling 36 D5, #422) — one waiting link of the grouped review (`asks: "sources"`): its page,
 /// the link, what kind of link it is, who added it and where it was found (offsets, never a copy).
 struct WhereToCheckRow: Codable, Equatable, Identifiable {
@@ -287,6 +355,9 @@ struct WhereToCheckRow: Codable, Equatable, Identifiable {
         var end: Int?
         var kind: String?
         var page: Bool?
+        /// A public listing the proposal came from (`"wikidata"`), and why Cicada did not trust it on its own.
+        var lookup: String?
+        var reason: String?
     }
 
     var id: String
@@ -320,6 +391,13 @@ struct WhereToCheckRow: Codable, Equatable, Identifiable {
         addedBy = try c.decodeIfPresent(String.self, forKey: .addedBy) ?? ""
         evidence = try? c.decodeIfPresent(Evidence.self, forKey: .evidence)
     }
+}
+
+/// One pair of a same-person chain (`InboxItem.chainPairs`): the pair's question id and its two names as said.
+struct ChainPair: Codable, Equatable {
+    var id: String
+    var a: String
+    var b: String
 }
 
 /// Decodes to nil instead of throwing, so one unreadable element never loses its siblings.
@@ -383,6 +461,27 @@ struct InboxItem: Identifiable, Codable {
     /// G61 "Where to check" — the links waiting (`asks: "sources"`), and whether this is the ONE grouped review.
     var rows: [WhereToCheckRow]? = nil
     var review: Bool = false
+    /// G235 — a `sensitive` item's rows, and how many conversations hold something replaced before it was stored.
+    var sensitiveRows: [SensitiveRow]? = nil
+    var replaced: Int? = nil
+    /// Ruling 48 (1) — the question as a person would ask it and its reason (`inbox_wording`, derived at read). Home's
+    /// rows, a page's questions strip and the catch-up chat say these; nil from an older server or cache.
+    var spokenQuestion: String? = nil
+    var spokenReason: String? = nil
+    /// #501's same-person chain, served at read: every member's item ids (served order), the chain's one question and
+    /// reason, and each pair's spoken names. Asked once, answered pair by pair (ruling 41). nil on every other item.
+    var chain: [String]? = nil
+    var chainQuestion: String? = nil
+    var chainReason: String? = nil
+    var chainPairs: [ChainPair]? = nil
+    /// G227 — the item's page, or a merge question's other page, named with its qualifier when its title is shared;
+    /// and, for a question about a name several pages share, those pages' ids. Display only.
+    var entityDisplayName: String? = nil
+    var mergeTargetDisplayName: String? = nil
+    var sameTitle: [String]? = nil
+    /// Ruling 70 — this question's place in the list the server served (0 first), derived there from the expected change
+    /// in what gets read. It carries no magnitude and is never compared with `priority`; nil from an older server.
+    var orderIndex: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, kind, requiredInput, status, priority
@@ -391,7 +490,9 @@ struct InboxItem: Identifiable, Codable {
         case uncertaintyType, suggestedClassification, suggestedConfidence, mergeTargetHint, asks
         case entityType, sourceEpisode, sourceEpisodeTimestamp, claimId, cause
         case extractorConfidence, extractorModel, recommendedKey, informational, checks
-        case subject, fold, request, rows, review
+        case subject, fold, request, rows, review, spokenQuestion, spokenReason, sensitiveRows, replaced
+        case chain, chainQuestion, chainReason, chainPairs
+        case entityDisplayName, mergeTargetDisplayName, sameTitle, orderIndex
     }
 
     init(from decoder: Decoder) throws {
@@ -449,17 +550,31 @@ struct InboxItem: Identifiable, Codable {
         request = (try? c.decodeIfPresent(AgentRequestInfo.self, forKey: .request)) ?? nil
         rows = ((try? c.decodeIfPresent([Lenient<WhereToCheckRow>].self, forKey: .rows)) ?? nil)?.compactMap(\.value)
         review = (try? c.decodeIfPresent(Bool.self, forKey: .review)) ?? false
+        sensitiveRows = ((try? c.decodeIfPresent([Lenient<SensitiveRow>].self, forKey: .sensitiveRows)) ?? nil)?.compactMap(\.value)
+        replaced = (try? c.decodeIfPresent(Int.self, forKey: .replaced)) ?? nil
+        spokenQuestion = (try? c.decodeIfPresent(String.self, forKey: .spokenQuestion)) ?? nil
+        spokenReason = (try? c.decodeIfPresent(String.self, forKey: .spokenReason)) ?? nil
+        chain = (try? c.decodeIfPresent([String].self, forKey: .chain)) ?? nil
+        chainQuestion = (try? c.decodeIfPresent(String.self, forKey: .chainQuestion)) ?? nil
+        chainReason = (try? c.decodeIfPresent(String.self, forKey: .chainReason)) ?? nil
+        chainPairs = ((try? c.decodeIfPresent([Lenient<ChainPair>].self, forKey: .chainPairs)) ?? nil)?
+            .compactMap(\.value)
+        entityDisplayName = (try? c.decodeIfPresent(String.self, forKey: .entityDisplayName)) ?? nil
+        mergeTargetDisplayName = (try? c.decodeIfPresent(String.self, forKey: .mergeTargetDisplayName)) ?? nil
+        sameTitle = (try? c.decodeIfPresent([String].self, forKey: .sameTitle)) ?? nil
+        orderIndex = (try? c.decodeIfPresent(Int.self, forKey: .orderIndex)) ?? nil
     }
 
     /// G61 — the one grouped "Confirm N links" review, drawn as its own card above the questions.
     var isWhereToCheckReview: Bool { asks == "sources" && review && !(rows ?? []).isEmpty }
     /// Drawn above the questions, never as a question row (G205 agent requests, the G61 grouped review).
-    var isTopCard: Bool { kind == .agentRequest || isWhereToCheckReview }
+    var isTopCard: Bool { kind == .agentRequest || kind == .sensitive || isWhereToCheckReview }
 
     /// Display name for the card header, falling back to the title when no
     /// entity name is attached (pure clarification with no entity yet).
     var displayName: String {
-        entityName.isEmpty ? title : entityName
+        if let entityDisplayName, !entityDisplayName.isEmpty { return entityDisplayName }   // G227
+        return entityName.isEmpty ? title : entityName
     }
 
     /// What the focus card shows as its H1, and a row as its question.
@@ -468,10 +583,48 @@ struct InboxItem: Identifiable, Codable {
         return title.isEmpty ? body : title
     }
 
-    var createdDateValue: Date {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        return f.date(from: createdDate) ?? .now
+    /// Ruling 48 (1) — what Home, a page's strip and the catch-up say: the plain question, else the stored one.
+    var askText: String {
+        if isChain, let chainQuestion, !chainQuestion.isEmpty { return chainQuestion }
+        if let spokenQuestion, !spokenQuestion.isEmpty { return spokenQuestion }
+        return questionText
+    }
+
+    /// The reason said with `askText`.
+    var askReason: String? { isChain ? (chainReason ?? spokenReason) : spokenReason }
+
+    /// One of a same-person chain of three names or more (asked once, answered pair by pair).
+    var isChain: Bool { (chain?.count ?? 0) > 1 }
+
+    /// The day the question was raised, read in the viewer's zone, parsed once per day (`InboxCreatedDay`). Inbox
+    /// freeze (2026-10-29): this built a fresh `DateFormatter` per call, and the G115 sort called it twice per
+    /// comparison — ~8,000 formatters per sort of a 465-question inbox, several sorts per draw.
+    ///
+    /// A missing or malformed day is the newest, and always the same instant (review of #542): a fresh `.now` per call
+    /// put undated questions in reverse and let them swap on a rebuild. The server sorts an empty day first too
+    /// (`inbox_service._neg_date_key`), and `InboxColumns.ordered` keeps their arrival order among themselves.
+    var createdDateValue: Date { InboxCreatedDay.date(createdDate) ?? .distantFuture }
+}
+
+/// `createdDate` ("yyyy-MM-dd") as a date in the viewer's zone, parsed once per distinct day: an inbox holds a few
+/// hundred days at most. Its own memo, not `ISOStamp.remembered`'s, whose keys are stamps another reader parses its way.
+enum InboxCreatedDay {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var memo: [String: Date?] = [:]
+    static let memoLimit = 4096
+
+    static func date(_ raw: String, timeZone: TimeZone = .autoupdatingCurrent) -> Date? {
+        let key = "\(timeZone.identifier)\u{1}\(raw)"
+        lock.lock()
+        let kept = memo[key]
+        lock.unlock()
+        if let kept { return kept }
+        let value = ISOStamp.date(raw, format: "yyyy-MM-dd", timeZone: timeZone, posix: false)
+        lock.lock()
+        if memo.count >= memoLimit { memo.removeAll(keepingCapacity: true) }
+        memo[key] = .some(value)
+        lock.unlock()
+        return value
     }
 }
 

@@ -424,7 +424,7 @@ struct SaveWhyReasonChips: View {
 
     private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: CicadaTheme.scaled(4)) {
+            HStack(spacing: CicadaTheme.scaled(3)) {
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                     .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(selected ? CicadaTheme.Notch.textPrimary : CicadaTheme.Notch.textTertiary)
@@ -434,8 +434,8 @@ struct SaveWhyReasonChips: View {
                     .lineLimit(1)
                     .fixedSize()
             }
-            .padding(.leading, CicadaTheme.scaled(6))
-            .padding(.trailing, CicadaTheme.scaled(8))
+            .padding(.leading, CicadaTheme.scaled(5))
+            .padding(.trailing, CicadaTheme.scaled(6))
             .padding(.vertical, CicadaTheme.scaled(5))
             .background(Capsule().fill(selected ? CicadaTheme.Notch.chipSelected : Color.clear))
             .overlay(Capsule().strokeBorder(selected ? CicadaTheme.Notch.chipSelectedRing : CicadaTheme.Notch.chipRing,

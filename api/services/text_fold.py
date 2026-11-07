@@ -53,8 +53,15 @@ MAX_TOKENS = 8
 
 def fold(text: str | None) -> str:
     """NFD, combining marks dropped, ``lower`` — "Zürich" → "zurich", and
-    "Hauptstraße" stays "hauptstraße", as ``unicode61`` indexes it."""
-    decomposed = unicodedata.normalize("NFD", text or "")
+    "Hauptstraße" stays "hauptstraße", as ``unicode61`` indexes it.
+
+    ASCII — most of a bank — is its own NFD with no combining marks, so it folds to ``lower()`` (speed 2026-10-29: a
+    per-character pass over every recalled page's sections was a sixth of a recall)."""
+    if not text:   # None, "" — and any other falsy value, as `text or ""` always read it
+        return ""
+    if text.isascii():
+        return text.lower()
+    decomposed = unicodedata.normalize("NFD", text)
     return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
 
 
@@ -146,6 +153,33 @@ def stem(word: str) -> str:
     return word
 
 
+#: Scripts written without spaces between words (2026-11-06, G148): kana, Han, Thai, Lao, Khmer, Burmese. The word index
+#: holds such a run as one token, so a word inside it could never be found; both sides use its overlapping pairs instead
+#: of a dictionary per language, and rarity decides which pairs count.
+_UNSPACED = "\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u0e00-\u0e7f\u0e80-\u0eff\u1780-\u17ff\u1000-\u109f"
+_UNSPACED_RUN = re.compile(f"[{_UNSPACED}]+")
+
+
+def unspaced_pairs(folded: str) -> list[str]:
+    """The overlapping character pairs of every unspaced run in already folded text; a run of one is itself."""
+    pairs: list[str] = []
+    for run in _UNSPACED_RUN.findall(folded):
+        pairs += [run] if len(run) == 1 else [run[i:i + 2] for i in range(len(run) - 1)]
+    return pairs
+
+
+def is_unspaced(term: str) -> bool:
+    """Whether ``term`` is one of :func:`unspaced_pairs`: it has no word boundary to match at."""
+    return bool(_UNSPACED_RUN.match(term or ""))
+
+
+def term_pattern(terms) -> "re.Pattern":
+    """One pattern over folded text for ``terms``, longest first, group 1 the term: a word at a word's start, any ending
+    (as the word index matches a prefix); a pair of an unspaced script anywhere."""
+    return re.compile("(" + "|".join((re.escape(t) if is_unspaced(t) else r"\b" + re.escape(t))
+                                     for t in sorted(terms, key=len, reverse=True)) + ")")
+
+
 def subject_terms(text: str | None, *, spanish: bool = False) -> set[str]:
     """The subject words of ``text``: folded, three letters or more, function words and numbers dropped, stemmed.
     ``spanish``: a Spanish question — its function words (:data:`SPANISH_STOPWORDS`) go too.
@@ -158,7 +192,18 @@ def subject_terms(text: str | None, *, spanish: bool = False) -> set[str]:
 @lru_cache(maxsize=16384)
 def _subject_terms(text: str, spanish: bool) -> frozenset[str]:
     drop = SUBJECT_STOPWORDS | SPANISH_STOPWORDS if spanish else SUBJECT_STOPWORDS
-    return frozenset(stem(w) for w in words(text) if len(w) >= 3 and w not in drop and not w.isdigit())
+    out: set[str] = set()
+    for w in words(text):
+        pairs = unspaced_pairs(w)
+        if pairs:
+            out.update(pairs)
+            w = _UNSPACED_RUN.sub(" ", w).strip()   # a Latin name inside the run stays a word
+            if " " in w or not w:
+                out.update(stem(x) for x in w.split() if len(x) >= 3 and x not in drop and not x.isdigit())
+                continue
+        if len(w) >= 3 and w not in drop and not w.isdigit():
+            out.add(stem(w))
+    return frozenset(out)
 
 
 def contains_all(text: str | None, q: str | None) -> bool:

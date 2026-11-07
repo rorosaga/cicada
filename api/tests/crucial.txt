@@ -13,6 +13,9 @@ test_capture_hook.py::test_cicada_cli_spawns_carry_capture_off
 test_capture_hook.py::test_hook_module_imports_nothing_from_api
 # G207 (ruling 36 D2): the job after capture only queues in the capture's thread; its quick read is provisional
 test_awake_read.py::test_after_capture_only_queues_and_debounces
+# 2026-10-29: a slow write answers accepted inside the hook's budget and still lands once; no answer waits, never lost
+test_capture_answer.py::test_a_slow_write_answers_accepted_and_still_lands
+test_capture_answer.py::test_a_timeout_is_no_answer_and_waits_for_a_later_firing
 test_awake_read.py::test_quick_read_writes_a_provisional_record_and_nothing_else
 
 ## Capture: a transcript is read only under the harness root as <session_id>.jsonl within the cap (G105)
@@ -54,13 +57,35 @@ test_write_window_guards.py::test_reading_routes_are_never_gated
 test_status_writing.py::test_status_says_writing_only_inside_the_window
 
 ## Ruling 4 / 4b / 4c: a scheduled run uses a plan only through the person's switch, on unless they turned it off
-test_engine_select.py::test_ruling_4_names_both_plans_in_one_tuple
+test_engine_select.py::test_ruling_4_names_every_plan_in_one_tuple
 test_engine_select.py::test_a_settings_chosen_plan_never_runs_on_a_schedule_with_the_switch_off
 test_server_readers.py::test_with_the_switch_off_a_scheduled_run_never_uses_a_plan_chosen_in_settings
 test_server_readers.py::test_the_switch_is_on_by_default_and_an_explicit_off_stays_off
 test_server_readers.py::test_with_the_switch_a_scheduled_run_uses_the_claude_plan_chosen_in_settings
 test_server_readers.py::test_the_switch_is_stored_beside_the_reading_options_and_reads_off_when_corrupt
 test_sleep_scheduled_drain.py::test_a_scheduled_drain_reads_every_batch_but_never_selects_a_plan
+
+## Ruling 62: a save with no reason is indexed with no engine, found, and read once when the person talks about it
+test_lean_pass.py::test_a_first_run_commits_alone_with_no_engine_and_no_model_ever_sees_a_save
+test_lean_pass.py::test_a_batch_wakes_what_its_conversation_named_and_the_next_run_reads_it
+test_lean_pass.py::test_the_hook_note_carries_a_save_and_reads_nothing_back_into_the_bank
+test_lean_pass.py::test_a_drain_commits_a_long_session_on_its_own_before_a_stop_can_cost_it
+test_lean_pass.py::test_ask_shows_a_tab_group_only_to_a_caller_with_the_source_scope
+test_lean_pass.py::test_a_woken_group_that_changes_before_its_read_stays_queued_and_found
+
+## G49/G50: the person's own Cursor, OpenCode and Grok — no tools, no capture, no key, never on Auto's ladder
+test_cli_engines.py::test_success_reads_the_answer_without_tools_capture_or_keys
+test_cli_engines.py::test_opencode_never_calls_a_key_backed_model
+test_cli_engines.py::test_a_plan_limit_is_a_throttle_so_sleep_pauses
+test_cli_engines.py::test_grok_alone_is_never_autos_engine_and_is_never_asked
+test_cli_engines.py::test_opencode_with_only_key_backed_models_is_no_engine_said_in_words
+test_cli_engines.py::test_a_scheduled_run_reaches_cursor_only_through_the_switch
+test_cli_engines.py::test_a_hung_tool_is_skipped_in_words_and_the_next_rung_reads
+test_cli_engines.py::test_grok_never_loads_claude_or_cursor_mcp_servers_or_their_config
+test_cli_engines.py::test_opencode_turns_off_every_mcp_server_the_persons_config_names
+test_cli_engines.py::test_cicadas_own_mcp_server_offers_nothing_inside_an_engine_call
+test_cli_engines.py::test_a_grok_model_that_is_not_xais_own_is_never_offered_or_called
+test_cli_engines.py::test_a_chosen_cli_engine_resolves_with_its_models_and_ruling_4_on_schedules
 
 ## Ruling 31: the default is Auto — a plan, else a local model — never a metered key nobody chose
 test_engine_select.py::test_the_default_install_never_falls_to_a_metered_key
@@ -96,6 +121,9 @@ test_evidence.py::test_locate_exact_then_normalised_then_case_insensitive_never_
 test_evidence.py::test_verify_falls_back_to_reasoning_never_a_faked_span
 test_claims_evidence.py::test_evidence_round_trips_through_the_claims_block
 test_claims_jsonl.py::test_append_keeps_every_existing_byte_and_writes_json_lines
+
+## Recovered history is never reopened by any writer (G148): a scan of the whole tree, so CI sees a new writer
+test_claim_recovery.py::test_every_reopen_in_the_code_consults_the_recovered_history_test
 
 ## A page's claims ledger: a write never drops a ledger line; git commits and restores a page with its ledger
 test_hub_pages.py::test_a_write_from_the_page_alone_never_drops_a_ledger_line
@@ -146,6 +174,11 @@ test_default_summarize_gate.py::test_a_blocked_page_is_never_summarized_or_retri
 test_media_preview.py::test_a_wall_is_a_miss_and_never_retried_with_other_headers
 test_reading_walled_never_fetched.py::test_enrich_never_touches_the_client_for_a_walled_host
 test_reading_never_spawns_browser.py::test_no_module_imports_a_browser_driver_or_names_a_browser_binary
+# G132 phase 3a (ruling 51c): the relay sees only ciphertext and cannot forge; unset, the backend never reaches it
+test_sync_relay_crypto.py::test_neither_the_relay_nor_another_device_can_forge_a_frame
+test_sync_relay_crypto.py::test_revoke_rotates_the_epoch_and_the_revoked_device_opens_nothing_after
+test_sync_relay_e2e.py::test_offline_delivery_both_ways_and_the_relay_stores_no_plaintext
+test_sync_relay_isolation.py
 
 ## Search model download: every file sha256-checked; credentials live in secrets.env at 0600
 test_fetch_embedding_model.py::test_a_checksum_mismatch_installs_nothing
@@ -159,6 +192,11 @@ test_backend_never_reads_folders.py::test_repos_location_resume_and_state_never_
 test_auth.py::test_healthz_is_open_but_status_requires_token
 test_auth.py::test_wrong_token_rejected
 test_auth.py::test_cors_allows_loopback_origins_only
+
+## A read stays cheap: a cold recall reads a handful of pages, never the bank (G148)
+test_cold_recall.py::test_a_cold_recall_reads_a_handful_of_pages_not_the_bank
+test_cold_recall.py::test_a_cold_recall_never_scans_for_an_owner_who_gave_no_name
+test_cold_recall.py::test_importing_the_recall_path_never_imports_litellm
 
 ## Portability: no owner name primes a prompt
 test_owner_name_portability.py::test_no_llm_prompt_is_primed_with_a_person
@@ -188,3 +226,21 @@ test_where_to_check.py::test_without_the_persons_own_words_naming_it_nothing_is_
 test_trace_store.py::test_nothing_on_disk_holds_a_title_an_address_or_recognized_text_in_the_clear
 test_trace_routes.py::test_no_agent_door_reads_the_traces_store
 test_trace_routes.py::test_another_device_can_neither_read_nor_send_traces
+
+## Ruling 63: a Claude key works, and Auto never reaches it unchosen
+test_anthropic_engine.py::test_cicadas_call_shape_is_a_request_the_api_takes
+test_anthropic_engine.py::test_a_fan_out_writes_once_and_reads_the_rest
+test_anthropic_engine.py::test_a_429_is_a_pause_that_never_says_the_persons_plan
+test_anthropic_card.py::test_auto_never_reaches_a_claude_key
+test_engine_parity.py::test_same_answers_make_the_same_memory_on_both_paths
+test_engine_parity.py::test_a_connection_cut_mid_run_is_a_pause_and_no_conversation_is_parked
+test_engine_parity.py::test_a_leg_leaves_the_process_environment_as_it_found_it
+test_anthropic_engine.py::test_a_call_that_failed_after_the_provider_answered_reaches_the_ledger_with_its_cost
+test_spend_limit.py::test_a_run_past_the_limit_is_a_pause_in_words_and_keeps_what_it_read
+test_spend_limit.py::test_an_unpriced_model_stops_before_any_call_is_made
+
+## Inventories a new route or writer must join, and no owner name in shipped code (each went red unnoticed, 2026-11-06)
+test_write_admission_sites.py::test_every_writing_route_is_classified
+test_replica_routes_inventory.py::test_every_non_get_route_is_classified_and_none_is_stale
+test_section_provenance_writer_inventory.py::test_writer_calls_have_an_explicit_preserve_refresh_or_uninstrumented_disposition
+test_owner_name_portability.py::test_no_capitalised_owner_name_survives_in_shipped_code

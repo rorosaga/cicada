@@ -32,11 +32,24 @@ struct MemorySearchHit: Decodable, Equatable, Sendable {
     let supersededBy: String?
     let eventStatus: String?
     let eventDay: String?
+    /// Meaning index 2 — a picture hit's thumbnail path and where it came from; a file hit's file and its times.
+    let thumbnail: String?
+    let imageSource: String?
+    let fileId: String?
+    let atSeconds: Double?
+    let endSeconds: Double?
+    /// G227 — an entity or saved-link hit whose title another page shares: its qualifier and the name to show.
+    let qualifier: String?
+    let displayName: String?
+
+    /// The row's title: the qualified name when the title is shared (the bold ranges index its leading name).
+    var shownName: String { displayName ?? name }
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, score, snippet, kind, subtitle, snippetOffsets, matchedField, subjectId
         case episodeId, conversationId, harness, origin, site, timestamp, start, end, hash, evidenceKind
         case validFrom, validTo, supersededBy, eventStatus, eventDay
+        case thumbnail, imageSource, fileId, atSeconds, endSeconds, qualifier, displayName
     }
 
     init(from decoder: Decoder) throws {
@@ -67,6 +80,13 @@ struct MemorySearchHit: Decodable, Equatable, Sendable {
         supersededBy = try c.decodeIfPresent(String.self, forKey: .supersededBy)
         eventStatus = try c.decodeIfPresent(String.self, forKey: .eventStatus)
         eventDay = try c.decodeIfPresent(String.self, forKey: .eventDay)
+        thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail)
+        imageSource = try c.decodeIfPresent(String.self, forKey: .imageSource)
+        fileId = try c.decodeIfPresent(String.self, forKey: .fileId)
+        atSeconds = try? c.decodeIfPresent(Double.self, forKey: .atSeconds)
+        qualifier = try? c.decodeIfPresent(String.self, forKey: .qualifier)
+        displayName = try? c.decodeIfPresent(String.self, forKey: .displayName)
+        endSeconds = try? c.decodeIfPresent(Double.self, forKey: .endSeconds)
     }
 }
 
@@ -114,6 +134,14 @@ enum FindSleepers {
 
 enum FindServerPhase: Equatable, Sendable {
     case idle, searching, done, unreachable
+    /// The backend answered and refused or failed the search (a key it does not accept, a 5xx): said, where it used
+    /// to end with no note (2026-11-06).
+    case failed
+
+    static func isFailure(_ error: Error) -> Bool {
+        if let api = error as? APIError, case .httpError(let code, _) = api { return code == 401 || code >= 500 }
+        return false
+    }
 
     /// A backend that is not answering — as opposed to a cancelled request
     /// (the next keystroke) or an error reply (an old backend, a 422), which

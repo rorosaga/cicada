@@ -161,7 +161,7 @@ def test_a_real_sweep_commits_exactly_its_merge_under_cicada_and_leaves_the_tree
     log = _git(memory, "log", "--format=%H", f"{seed}..HEAD").split()
     assert len(log) == 1, "one commit for the one merge"
     files = set(_git(memory, "show", "--name-only", "--format=", log[0]).split())
-    assert files == {"entities/esa.md", "entities/esta.md"}
+    assert files == {"entities/esa.md", "entities/esta.md", "_redirects.yaml"}   # the loser keeps resolving
     message = _git(memory, "log", "-1", "--format=%B")
     assert message.startswith("Dedup sweep ")
     assert "entities/esta.md: removed (merged, trigger: maintenance/dedup-sweep)" in message

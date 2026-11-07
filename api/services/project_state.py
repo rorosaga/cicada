@@ -93,10 +93,15 @@ def timeline_state(state_in: dict, today) -> dict:
     if last is None and state_in.get("momentDays"):
         last = max(_d(x) for x in state_in["momentDays"])
     idle = None if last is None else (today - last).days
-    if str(state_in.get("status") or "active") in RESTING_STATUSES or idle is None or idle > QUIET_SECTION_DAYS:
+    # Activity inside the rhythm wins over the page's decay status (2026-10-28): decay is charged from the
+    # conversations Sleep has read, so progress logged today, or a conversation Sleep has not read yet, can sit on a
+    # page still marked decaying — and a project worked on today never reads as Past.
+    if idle is None or idle > QUIET_SECTION_DAYS:
         section = "resting"
     elif idle <= q:
         section = "inMotion"
+    elif str(state_in.get("status") or "active") in RESTING_STATUSES:
+        section = "resting"
     else:
         section = "quiet"
     threads = []

@@ -24,7 +24,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from starlette.concurrency import run_in_threadpool
 
@@ -41,8 +41,8 @@ from api.models.schemas import (
     IntakeTitle,
 )
 from api.routers import conversations as conv
-from api.services import (bank_registry, demo_guard, episode_staging, intake_jobs, media_ingestor, notion_export,
-                          saved_exports)
+from api.services import (bank_registry, demo_guard, episode_staging, import_choices, intake_jobs, media_ingestor,
+                          notion_export, saved_exports)
 
 router = APIRouter()
 
@@ -70,6 +70,14 @@ NOT_GEMINI_REASON = ("This is Google activity for another product. "
                      "Export only Gemini Apps from Takeout.")
 NOT_A_CHAT_PAGE = "This page isn't a chat export Cicada can read."
 EMPTY_ZIP_REASON = "This zip has no conversations Cicada can read."
+#: 2026-11-06 — a file that is not whole, in words and with the way out. Never the parser's own message (G199): a
+#: `Expecting value: line 1 column 1 (char 0)` tells a person nothing and may quote the file. The file the provider's
+#: export needs to be is `conversations.json` (ChatGPT and Claude both), or the whole `.zip`.
+CUT_SHORT_JSON_REASON = ("This file is damaged or was cut short. Download the export again, "
+                         "then drop conversations.json or the whole .zip.")
+UNKNOWN_JSON_REASON = "This isn't a chat export Cicada knows. Drop conversations.json, or the whole .zip."
+BAD_ZIP_REASON = ("This zip is damaged or didn't finish downloading. "
+                  "Download the export again, then drop the whole .zip.")
 EMPTY_EXPORT_REASON = "Nothing in this file is a conversation."
 #: Refusals the sniff never hands on to the saved-content parser (R-IA8). Both
 #: pages are full of ``<a href>`` links, which ``media_ingestor``'s Netscape
@@ -118,6 +126,8 @@ class ParsedExport:
     ignored: list[dict] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     counts: dict[str, int] = field(default_factory=dict)
+    #: Ruling 45 addendum: the projects a Claude export's ``projects.json`` names (``conv.claude_project_list``).
+    claude_projects: list[dict] = field(default_factory=list)
 
     @property
     def vendor(self) -> str | None:
@@ -134,6 +144,7 @@ class ParsedExport:
         self.warnings += other.warnings
         self.vendors |= other.vendors
         self.origins |= other.origins
+        self.claude_projects += other.claude_projects
         for key, value in other.counts.items():
             self.counts[key] = self.counts.get(key, 0) + value
         if self.format == "unknown":
@@ -229,7 +240,8 @@ def _parse_json(content: bytes, base: str) -> ParsedExport:
     try:
         data = json.loads(content)
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
-        raise HTTPException(400, f"Failed to parse file: {e}")
+        logger.info(f"Intake: unreadable JSON ({type(e).__name__})")
+        raise HTTPException(400, CUT_SHORT_JSON_REASON)
     if isinstance(data, dict) and (("prompt_template" in data and "uuid" in data)
                                    or "conversations_memory" in data or "memory_files" in data):
         # Claude's newer export writes one project per file (`projects/<name>.json`)
@@ -239,11 +251,12 @@ def _parse_json(content: bytes, base: str) -> ParsedExport:
     source = conv.detect_source(data, base)
     shape = _JSON_SHAPES.get(source)
     if shape is None:
-        raise HTTPException(400, "Unrecognized JSON export format")
+        raise HTTPException(400, UNKNOWN_JSON_REASON)
     fmt, vendor, origin, key = shape
     episodes = conv._stamp_origin(_JSON_PARSERS[source](data), origin)
+    projects = conv.claude_project_list(data) if source == "anthropic_projects" else []
     return ParsedExport(episodes, fmt, {vendor}, {origin}, [base or "export.json"],
-                        counts={key: len(episodes)})
+                        counts={key: len(projects) if projects else len(episodes)}, claude_projects=projects)
 
 
 def _parse_zip(content: bytes, *, owner_names: tuple[str, ...] = ()) -> ParsedExport:
@@ -254,7 +267,8 @@ def _parse_zip(content: bytes, *, owner_names: tuple[str, ...] = ()) -> ParsedEx
     try:
         zf = zipfile.ZipFile(io.BytesIO(content))
     except zipfile.BadZipFile as e:
-        raise HTTPException(400, f"Invalid zip file: {e}")
+        logger.info(f"Intake: unreadable zip ({type(e).__name__})")
+        raise HTTPException(400, BAD_ZIP_REASON)
     if notion_export.looks_like(zf):
         return _parse_notion(zf, owner_names)
     out = ParsedExport()
@@ -398,6 +412,8 @@ class ImportResult:
     #: Unchanged conversations whose export carries extras (`turn_extras`): the job writes them beside their words,
     #: frontmatter only, after its own writes — counted in ``skipped`` already, never in the job's total.
     extras_only: list[dict] = field(default_factory=list)
+    #: Ruling 45 addendum: what the job runs after staging (a Claude export's projects), given the stager's result.
+    after: object = None
 
 
 def resolve_target(settings: Settings, bank: str | None, *, scaffold: bool = True) -> tuple[str, Path, bool]:
@@ -439,12 +455,21 @@ def owner_names(target: Path, settings: Settings | None = None) -> tuple[str, ..
 
 
 def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str | None = None,
-                 defer: bool = False) -> ImportResult:
+                 defer: bool = False, since: str | None = None, exclude: set[str] | None = None) -> ImportResult:
     """Parse, plan, stage — the one import every route shares (R-IA10). With
     ``defer`` (only ``POST /intake/import``), a large write is handed back as
-    ``pending`` for the job runner instead of staged here (R-IA12)."""
+    ``pending`` for the job runner instead of staged here (R-IA12).
+
+    ROR-126: before anything becomes an episode, the person's choice is applied — ``since`` (a start date) and
+    ``exclude`` (the chats they deselected, which are remembered for this bank). With no ``exclude`` the chats left out
+    of an earlier import stay out, whichever door the file comes through."""
     name, target, active = resolve_target(settings, bank)
     parsed = parse_export(content, filename, owner_names=owner_names(target, settings))
+    if exclude is not None:
+        import_choices.remember(target, (import_choices.key_for(e) for e in parsed.episodes), exclude)
+    left_out = exclude if exclude is not None else import_choices.remembered(target)
+    parsed.episodes = import_choices.select(parsed.episodes, since=import_choices.parse_since(since),
+                                            deselected=left_out)
     date_from, date_to = date_range(parsed.episodes)
     staging = plan(parsed.episodes, target)
     legacy = {id(e) for e in staging.legacy}
@@ -461,11 +486,24 @@ def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str
         # stays out of the job's count and the request returns as fast as before.
         extras_only = [e for e in staging.skip if id(e) not in legacy
                        and (e.get("unsent") or any(m.get("extras") for m in e.get("messages") or []))]
+        after = None
+        if parsed.claude_projects:
+            from api.services import provider_projects
+
+            def after(staged, _projects=parsed.claude_projects, _target=target):
+                provider_projects.after_import(_target, _projects, staged)
         return ImportResult(name, active, parsed, 0, 0, len(staging.skip), date_from, date_to,
-                            pending=(pending, target / "episodes"), extras_only=extras_only)
+                            pending=(pending, target / "episodes"), extras_only=extras_only, after=after)
     # `episode_staging.stage` holds its own process-wide lock (G114 ids).
     staged = conv._stage_export(todo, target / "episodes")
     created, updated, skipped = staged.as_tuple()
+    if parsed.claude_projects:
+        # Ruling 45 addendum: each project the person made in Claude makes or matches its page, after its knowledge
+        # episode is staged (so the page can point at the instructions by span).
+        from api.services import provider_projects
+
+        if provider_projects.after_import(target, parsed.claude_projects, staged) == "deferred":
+            parsed.warnings.append(provider_projects.DEFERRED)
     # G207: what this import wrote becomes recallable now; a small one is also read right away.
     from api.services import awake_read
 
@@ -552,8 +590,15 @@ def sniff_bytes(content: bytes, filename: str, settings: Settings, bank: str | N
     _, target, _ = resolve_target(settings, bank, scaffold=False)
     staging = plan(parsed.episodes, target)
     date_from, date_to = date_range(parsed.episodes)
-    titles = sorted(({"title": str(e.get("title") or "Untitled"), "date": e.get("original_date")}
+    # ROR-126: a chat left out of an earlier import into this bank is offered unticked and never counted as new.
+    left_out = import_choices.remembered(target)
+    status = {id(e): "new" for e in staging.create} | {id(e): "grown" for e in staging.update}
+    titles = sorted(({"title": str(e.get("title") or "Untitled"), "date": e.get("original_date"),
+                      "key": import_choices.key_for(e), "status": status.get(id(e), "unchanged"),
+                      "deselected": import_choices.key_for(e) in left_out}
                      for e in parsed.episodes), key=lambda t: t["date"] or "", reverse=True)
+    new_count = sum(1 for e in staging.create if import_choices.key_for(e) not in left_out)
+    grown_count = sum(1 for e in staging.update if import_choices.key_for(e) not in left_out)
     return IntakeSniffResponse(
         recognized=True,
         kind="chat",
@@ -563,7 +608,7 @@ def sniff_bytes(content: bytes, filename: str, settings: Settings, bank: str | N
         ignored=[IntakeIgnored(**i) for i in parsed.ignored],
         counts=IntakeCounts(**parsed.counts),
         date_range=BankImportDateRange(**{"from": date_from, "to": date_to}),
-        delta=IntakeDelta(new=len(staging.create), grown=len(staging.update), unchanged=len(staging.skip)),
+        delta=IntakeDelta(new=new_count, grown=grown_count, unchanged=len(staging.skip)),
         titles=[IntakeTitle(**t) for t in titles[:MAX_SNIFF_TITLES]],
         titles_truncated=len(titles) > MAX_SNIFF_TITLES,
         warnings=parsed.warnings,
@@ -591,18 +636,29 @@ async def import_file(
     response: Response,
     background_tasks: BackgroundTasks,
     bank: str | None = Query(None, max_length=128),
+    since: str | None = Form(None, max_length=10),
+    exclude: str | None = Form(None, max_length=4_000_000),
     settings: Settings = Depends(get_settings),
 ) -> IntakeImportResponse:
     """Stage a chat export into ``bank`` (default: the active one). Chat only —
     a saved-content file commits through ``/sources/upload`` (R-IA32). More than
-    ``BACKGROUND_THRESHOLD`` episodes to write: 202 + ``job``."""
+    ``BACKGROUND_THRESHOLD`` episodes to write: 202 + ``job``.
+
+    ROR-126: ``since`` (``YYYY-MM-DD``) and ``exclude`` (a JSON list of the ``key`` the sniff gave each deselected
+    chat) are the person's choice, applied before anything is staged; ``exclude`` is remembered for the bank."""
     content = await file.read()
-    result = await run_in_threadpool(import_bytes, content, file.filename or "", settings, bank=bank, defer=True)
+    try:
+        left_out = {str(k) for k in json.loads(exclude)} if exclude else None
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, "exclude must be a JSON list of chat keys") from exc
+    result = await run_in_threadpool(import_bytes, content, file.filename or "", settings, bank=bank, defer=True,
+                                     since=since, exclude=left_out)
     if result.pending is None:
         return _import_response(result)
     todo, episodes_dir = result.pending
     job = intake_jobs.start(len(todo), already_skipped=result.skipped)
-    background_tasks.add_task(intake_jobs.run, job.id, todo, episodes_dir, extras_only=result.extras_only)
+    background_tasks.add_task(intake_jobs.run, job.id, todo, episodes_dir, extras_only=result.extras_only,
+                              after=result.after)
     response.status_code = 202
     return _import_response(result, job=job)
 

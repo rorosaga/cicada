@@ -60,3 +60,10 @@ a JSON-heavy Ask prompt measured ~1.45× that on the plan.
   `plan-claude` shim, telemetry into the scratch home. **Not on `synth`'s banks:** their episodes are word salad, and
   the model refused every extraction call it got (15 of 15, 2026-10-24, stopped by hand). It needs a bank of
   natural-language synthetic conversations, which nothing here generates yet.
+- **The meaning index (vision item 3, meaning index 2).** `benchmarks.perf.image_fusion` (how picture and text scores
+  meet, synthetic vectors); `benchmarks.perf.image_index_build --bank <dir>` (the picture kind's cold build with the real
+  image encoder on drawn shapes, and the floor check); `benchmarks.perf.media_index_build --bank <dir>` (an hour of
+  synthetic speech into the `files` kind, the passage floor); `benchmarks.perf.meaning_index_p95 --bank <copy>`
+  (`/search` and recall before and after). **Media:** a video's frame sampling runs in the app —
+  `MEDIA_BENCH_FILE=<synthetic video> swift test --filter MediaFileIndexerTests/testBenchFrameSampling` prints its
+  samples, kept frames and seconds per hour (make the video with ffmpeg's `lavfi` sources; never a real one).

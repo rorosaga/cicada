@@ -25,7 +25,7 @@ final class LogoAssetTests: XCTestCase {
     /// G217 (2026-10-22): the set replaced those favicon rasters with vendor marks at 256 px. What stays under the
     /// floor is two PNG sources the vendor serves no larger (shipped as served — upscaling is fake resolution).
     static let legacy128: Set<String> = []
-    static let servedSmall: [String: Int] = ["instinct": 64, "warp": 196]
+    static let servedSmall: [String: Int] = ["instinct": 64, "warp": 196, "vivaldi": 192, "dia": 180]
 
     /// Marks that are a single flat colour and therefore invisible in one of
     /// the two themes without a sibling (R4). `codex` and `x` are the two
@@ -40,7 +40,7 @@ final class LogoAssetTests: XCTestCase {
     /// accepted the rasterized llama. Membership here is therefore always
     /// decided by the tool; nothing is added to this set by eye.
     /// G217: the set flags its black-on-transparent marks (`dark_variant` in its manifest).
-    static let needsDarkVariant: Set<String> = ["openai", "ollama", "zed", "devin", "cline", "github"]
+    static let needsDarkVariant: Set<String> = ["openai", "ollama", "zed", "devin", "copilot", "github", "zai", "moonshot"]
 
     private func logoURLs() throws -> [URL] {
         let urls = Bundle.cicadaResources.cicadaResources(ext: "png", in: "logos")
@@ -66,11 +66,12 @@ final class LogoAssetTests: XCTestCase {
     /// exemption; that 0.02 is also why the threshold below is 0.5 and not an
     /// exact zero.
     ///
-    /// G217 (2026-10-22): the set ships eleven vendors' own tiled app icons as published (its README: they publish no
-    /// bare glyph at the top rung); `LogoTile` and `PlatformTile` clip every mark to their curvature.
+    /// G217 (2026-10-22; Goose and Poke retired 2026-10-26): the set ships vendors' own tiled app icons as published
+    /// (its README: they publish no bare glyph at the top rung); `LogoTile` and `PlatformTile` clip every mark to
+    /// their curvature.
     static let opaquePlate: Set<String> = [
-        "amp", "goose", "grok", "hermes", "instinct", "notion", "opencode", "openrouter", "poke", "tailscale", "warp",
-        "wispr", "x", "readwise", "devin", "devin-dark",
+        "amp", "grok", "hermes", "instinct", "notion", "opencode", "openrouter", "tailscale", "warp",
+        "wispr", "x", "readwise", "devin", "devin-dark", "goodreads", "comet",
     ]
 
     func testEveryMarkIsSquareBigEnoughAndKeepsItsCornersTransparent() throws {

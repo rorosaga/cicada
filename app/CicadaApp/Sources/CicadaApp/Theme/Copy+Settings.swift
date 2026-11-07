@@ -15,6 +15,9 @@ extension Copy {
     static let appearanceSystem = "System"
     static let appearanceLight = "Light"
     static let appearanceDark = "Dark"
+    static let appearanceSystemHelp = "Follow your Mac: light or dark as macOS is"
+    static let appearanceLightHelp = "Always light"
+    static let appearanceDarkHelp = "Always dark"
     // Settings → General → Scene retired with the painted art (owner 2026-10-16): there is no painting left to pick.
     static let textSize = "Text size"
     static let textSizeDetail = "⌘+ and ⌘− do the same from any page."
@@ -215,6 +218,15 @@ extension Copy {
     static let calendarStopTitle = "Stop reading your calendars?"
     static let calendarStopDetail = "Events already in your memory stay there."
     static let calendarStop = "Stop reading"
+    /// 2026-10-26 — Google Calendar on the Mac: the accounts the Calendar app holds, and the one way to add Google's.
+    static let calendarOnMyMac = "On My Mac"
+    static func calendarIncludes(_ groups: [CalendarAccountGroup], locale: Locale = .autoupdatingCurrent) -> String {
+        "Includes " + groups.map { group in
+            let count = group.calendars == 1 ? "1 calendar"
+                : "\(UsageFormat.count(group.calendars, locale: locale)) calendars"
+            return "\(group.name) (\(count))"
+        }.joined(separator: " · ")
+    }
 
     // MARK: Sources → Reminders (G219)
     static let remindersTitle = "Reminders"
@@ -322,6 +334,10 @@ extension Copy {
     static let transcriptsFact = "When an agent finishes a reply, Cicada reads that conversation to keep your words and the agent's final answer. It never opens those files for anything else."
     /// D6's word budget: the fact in one line.
     static let transcriptsShort = "Read only for your words and the agent's final answer."
+    /// Ruling 43 (owner 2026-10-27): the notes a coding agent keeps about your work. Provider-neutral: the step, not
+    /// the product. A promise, so it must be true: the agent's words, never yours; the hook reads them, nothing else.
+    static let agentNotesTitle = "Your agents' notes"
+    static let agentNotesShort = "Notes your agents keep about your work, saved as their words, never yours."
     static let bankActive = "Active"
     static func bankCounts(entities: Int, episodes: Int) -> String {
         "\(UsageFormat.count(entities)) \(entities == 1 ? "entity" : "entities") · \(UsageFormat.count(episodes)) \(episodes == 1 ? "conversation" : "conversations")"
@@ -434,9 +450,9 @@ extension Copy {
         static func usingLocal(_ label: String) -> String { "Using \(label) on this Mac — no plan is signed in." }
         static let usingKey = "Using your API key."
         static let nothingYet = "Nothing to read with yet. Sign in to a plan and Auto uses it."
-        /// Ruling 36 D1 (2026-10-22): Auto has no local rung.
-        static let rule = "Auto uses your Claude plan if you're signed in, else your ChatGPT plan. "
-            + "It never uses an API key you didn't choose."
+        /// Ruling 36 D1 (2026-10-22): Auto has no local rung. Ruling 46 (2026-10-28): Cursor, then OpenCode, last.
+        static let rule = "Auto uses your Claude plan if you're signed in, else your ChatGPT plan, else Cursor, "
+            + "else OpenCode on a subscription. It never uses an API key you didn't choose."
         static let chosen = "You chose this engine instead of Auto."
         static let backToAuto = "Back to Auto"
         static let backToAutoHelp = "Let Cicada pick your signed-in plan"

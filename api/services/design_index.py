@@ -1,7 +1,8 @@
 """Search the design board by words, by meaning or by an example picture (design taste, 2026-10-14).
 
-**Derived and disposable, outside every bank** (``$CICADA_HOME/design-index/<bank-id>.sqlite``, the continuity
-index's precedent): one row per reference and kind — ``image`` (the screenshot's EmbeddingGemma 2 vector,
+**Derived and disposable, in the one meaning index** (meaning index 2, 2026-10-28: the ``look_vectors`` table of the
+bank's ``vector_index.db``, git-ignored and never copied or exported with the bank; the board's own file under
+``$CICADA_HOME/design-index/`` is folded in once and deleted, :func:`_migrate`): one row per reference and kind — ``image`` (the screenshot's EmbeddingGemma 2 vector,
 ``vision_embedder``) and ``note`` (the vector of what the person said plus the look's words, the same model's text
 encoder) — each stamped with the model and the hash of what was embedded, so a changed note, a new screenshot or a
 new model re-embeds exactly that row. Deleting the file costs a re-embed and never a reference; it is never in git.
@@ -52,6 +53,23 @@ class Embedders:
     model: str
     image: Callable[[bytes], np.ndarray] | None = None
     text: Callable[[list[str], bool], np.ndarray] | None = None
+    #: The image encoder's preprocessing fingerprint (`vision_embedder.fingerprint`): an image row is current only
+    #: while its stamp matches the model AND this (vision item 3, 2026-10-28). None: rows are stamped with the model.
+    image_fingerprint: str | None = None
+
+    def image_current(self, stored: str) -> bool:
+        from api.services import vision_embedder
+
+        if self.image_fingerprint is None:
+            return stored == self.model
+        return vision_embedder.stamp_current(stored, self.model, self.image_fingerprint)
+
+    @property
+    def image_stamp(self) -> str:
+        from api.services import vision_embedder
+
+        return self.model if self.image_fingerprint is None else vision_embedder.stamp_for(self.model,
+                                                                                           self.image_fingerprint)
 
 
 def default_embedders(environ=None) -> Embedders | None:
@@ -60,10 +78,28 @@ def default_embedders(environ=None) -> Embedders | None:
     from api.services import onnx_embedder, providers, vision_embedder
 
     environ = os.environ if environ is None else environ
+    from api.services import embed_worker
+
     vision = vision_embedder.get(environ)
     if vision is not None:
-        return Embedders(model=vision.model_id or onnx_embedder.PREFERRED_ID, image=vision.embed,
-                         text=lambda texts, q: vision.embed_text(texts, is_query=q))
+        try:
+            fp = vision_embedder.fingerprint()
+        except Exception:  # noqa: BLE001 — a decoder that cannot run embeds no picture anyway
+            fp = None
+        image = vision.embed
+        if embed_worker.enabled(environ):
+            # Vision item 3 (2026-10-28): every picture vector is made in the picture child, never in the backend —
+            # a Core ML predict holds the GIL and the image encoder is ~300 MB (``embed_worker`` "Pictures too").
+            # Only the image encoder's folder is read here; the text half of `vision` loads only for a query.
+            in_child = embed_worker.images(onnx_embedder.PREFERRED_ID)   # one picture child for every caller
+
+            def image(data: bytes) -> np.ndarray:
+                row = np.asarray(in_child([data]), dtype=np.float32)[0]
+                if not np.all(np.isfinite(row)):
+                    raise ValueError("the picture didn't embed")
+                return row
+        return Embedders(model=vision.model_id or onnx_embedder.PREFERRED_ID, image=image,
+                         text=lambda texts, q: vision.embed_text(texts, is_query=q), image_fingerprint=fp)
     if onnx_embedder.find(onnx_embedder.PREFERRED_ID, environ) is None:
         return None
     try:
@@ -77,6 +113,17 @@ def default_embedders(environ=None) -> Embedders | None:
 
 
 def index_path(memory_path, environ=None) -> Path:
+    """The one meaning index of the bank (``vector_index.db``): the board's rows are its ``look_vectors`` table
+    (meaning index 2, 2026-10-28). Derived and disposable like every vector there — git-ignored, never copied or
+    exported with the bank (``bank_registry.DERIVED_ARTIFACTS``)."""
+    from api.services.vector_index import INDEX_DB_FILE
+
+    return Path(memory_path) / INDEX_DB_FILE
+
+
+def legacy_path(memory_path, environ=None) -> Path:
+    """Where the board's own file lived before it joined the one index (``$CICADA_HOME/design-index/<bank-id>``);
+    read once by :func:`_migrate`, then deleted."""
     from api.services import continuity_sessions, runtime_layout
 
     home = runtime_layout.cicada_home(os.environ if environ is None else environ)
@@ -85,6 +132,9 @@ def index_path(memory_path, environ=None) -> Path:
 
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
+TABLE = "look_vectors"
+SCHEMA_KEY = "schema:looks"
+_COLUMNS = "(ref TEXT, kind TEXT, hash TEXT, model TEXT, dim INTEGER, vec BLOB, PRIMARY KEY (ref, kind))"
 
 
 def _lock(path: Path) -> threading.Lock:
@@ -92,35 +142,149 @@ def _lock(path: Path) -> threading.Lock:
         return _LOCKS.setdefault(str(path), threading.Lock())
 
 
-def _connect(path: Path) -> sqlite3.Connection:
+class BoardIndexUnavailable(RuntimeError):
+    """The one index can't be used for the board right now — another writer holds it past the wait, or the file is
+    damaged. The board answers by words meanwhile; the file is never deleted here (review of #516)."""
+
+
+def _ready(conn: sqlite3.Connection) -> bool:
+    """Whether the board's table is set up at this schema — a read, so no lock and no write."""
+    try:
+        got = conn.execute("SELECT value FROM index_meta WHERE key = ?", (SCHEMA_KEY,)).fetchone()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc):
+            return False
+        raise
+    has = conn.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (TABLE,)).fetchone() is not None
+    return got is not None and got[0] == SCHEMA and has
+
+
+def _set_up(conn: sqlite3.Connection) -> None:
+    """The one-time schema write: the board's table and its stamp. Only ``look_vectors`` is ever dropped."""
+    conn.execute("CREATE TABLE IF NOT EXISTS index_meta (key TEXT PRIMARY KEY, value TEXT)")
+    got = conn.execute("SELECT value FROM index_meta WHERE key = ?", (SCHEMA_KEY,)).fetchone()
+    if got is None or got[0] != SCHEMA:
+        conn.execute(f"DROP TABLE IF EXISTS {TABLE}")
+        conn.execute("INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)", (SCHEMA_KEY, SCHEMA))
+    conn.execute(f"CREATE TABLE IF NOT EXISTS {TABLE} {_COLUMNS}")
+    conn.commit()
+
+
+def _connect(path: Path, memory_path=None) -> sqlite3.Connection:
+    """The board's table in the one index. **The file is shared with every kind and is never deleted here** (review
+    of #516: a lock wait read as damage once removed entities, claims, episodes, pictures and files).
+
+    * **Reads take no lock.** Once ``schema:looks`` is set (and no old board file waits to be folded in) this only
+      opens the file — WAL readers never wait for a writer, so the board answers while a text re-embed holds
+      ``vector_index``'s write lock for minutes.
+    * **The one-time setup** (the table, its stamp, :func:`_migrate`) takes that write lock, once.
+    * **A lock past the wait** (``OperationalError``: "database is locked") is busy, not damage: it raises
+      :class:`BoardIndexUnavailable` and the caller answers by words; the next call tries again.
+    * **Real damage** (a ``DatabaseError`` that is not operational: "malformed", "not a database") drops and recreates
+      ``look_vectors`` alone when SQLite still can; a file it can't open at all is left as it is, for the text index's
+      own rebuild — never unlinked, never its WAL under an open connection."""
+    from api.services.vector_index import _write_lock
+
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, timeout=5)
     try:
-        conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
-        got = conn.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
-        if got is None or got[0] != SCHEMA:
-            conn.execute("DROP TABLE IF EXISTS vectors")
-            conn.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (SCHEMA,))
-        conn.execute("CREATE TABLE IF NOT EXISTS vectors (ref TEXT, kind TEXT, hash TEXT, model TEXT, dim INTEGER, "
-                     "vec BLOB, PRIMARY KEY (ref, kind))")
-        conn.commit()
-    except sqlite3.DatabaseError:
+        if _ready(conn) and (memory_path is None or not legacy_path(memory_path).is_file()):
+            return conn
+        lock = _write_lock(path)
+        if not lock.acquire(blocking=False):   # a text sync holds it for minutes: never wait, try next time
+            if _ready(conn):
+                return conn                    # the setup is done; only the old file's fold-in waits
+            conn.close()
+            raise BoardIndexUnavailable("the meaning index is busy")
+        try:
+            _set_up(conn)
+            if memory_path is not None:
+                _migrate(conn, memory_path)
+        finally:
+            lock.release()
+        return conn
+    except sqlite3.OperationalError as exc:
         conn.close()
-        path.unlink(missing_ok=True)   # damaged: disposable, rebuilt
+        logger.debug(f"design_index: the meaning index is busy ({type(exc).__name__}); words answer for now")
+        raise BoardIndexUnavailable("the meaning index is busy") from None
+    except sqlite3.DatabaseError as exc:
+        conn.close()
+        logger.warning(f"design_index: the meaning index looks damaged ({type(exc).__name__}); "
+                       f"only the board's table is rebuilt")
+        return _rebuild_table(path)
+
+
+def _rebuild_table(path: Path) -> sqlite3.Connection:
+    """Drop and recreate ``look_vectors`` alone (its rows are re-embedded later); every other kind is left as it is.
+    :class:`BoardIndexUnavailable` when SQLite can't even do that (the file isn't a database)."""
+    from api.services.vector_index import _write_lock
+
+    try:
         conn = sqlite3.connect(path, timeout=5)
-        conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
-        conn.execute("INSERT INTO meta VALUES ('schema', ?)", (SCHEMA,))
-        conn.execute("CREATE TABLE vectors (ref TEXT, kind TEXT, hash TEXT, model TEXT, dim INTEGER, vec BLOB, "
-                     "PRIMARY KEY (ref, kind))")
+        with _write_lock(path):
+            conn.execute(f"DROP TABLE IF EXISTS {TABLE}")
+            conn.execute("DELETE FROM index_meta WHERE key = ?", (SCHEMA_KEY,))
+            conn.commit()
+            _set_up(conn)
+        return conn
+    except sqlite3.DatabaseError:
+        raise BoardIndexUnavailable("the meaning index can't be read") from None
+
+
+def _migrate(conn: sqlite3.Connection, memory_path) -> int:
+    """Move the rows of the board's old file into the one index, then delete the file (meaning index 2). A row
+    already in the index wins; an unreadable old file is simply deleted (its vectors are re-embedded). Returns the
+    rows moved. Caller holds the index's write lock."""
+    old = legacy_path(memory_path)
+    if not old.is_file():
+        return 0
+    moved = 0
+    try:
+        src = sqlite3.connect(f"file:{old}?mode=ro", uri=True, timeout=5)
+        try:
+            schema = src.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
+            rows = src.execute("SELECT ref, kind, hash, model, dim, vec FROM vectors").fetchall() \
+                if schema and schema[0] == SCHEMA else []
+        finally:
+            src.close()
+        before = conn.total_changes
+        conn.executemany(f"INSERT OR IGNORE INTO {TABLE} VALUES (?, ?, ?, ?, ?, ?)", rows)
         conn.commit()
-    return conn
+        moved = conn.total_changes - before
+    except sqlite3.DatabaseError as exc:
+        logger.debug(f"design_index: the old board file was unreadable ({type(exc).__name__}); its rows re-embed")
+    for p in (old, Path(f"{old}-wal"), Path(f"{old}-shm")):
+        p.unlink(missing_ok=True)
+    try:
+        old.parent.rmdir()   # the folder goes with its last bank's file
+    except OSError:
+        pass
+    if moved:
+        logger.info(f"design_index: {moved} look vector(s) moved into the meaning index")
+    return moved
 
 
 def _rows(conn: sqlite3.Connection) -> dict[tuple[str, str], tuple[str, str, np.ndarray]]:
     out = {}
-    for ref, kind, h, model, dim, blob in conn.execute("SELECT ref, kind, hash, model, dim, vec FROM vectors"):
+    for ref, kind, h, model, dim, blob in conn.execute(f"SELECT ref, kind, hash, model, dim, vec FROM {TABLE}"):
         out[(ref, kind)] = (h, model, np.frombuffer(blob, dtype=np.float32, count=int(dim)))
     return out
+
+
+def read_rows(memory_path) -> dict[tuple[str, str], tuple[str, str, np.ndarray]]:
+    """``{(ref, kind): (hash, stamp, vector)}`` of the board's rows, or ``{}`` (for ``image_index``, which reuses a
+    look's current picture vector instead of embedding it twice)."""
+    path = index_path(memory_path)
+    if not path.is_file():
+        return {}
+    try:
+        conn = sqlite3.connect(path, timeout=5)
+        try:
+            return _rows(conn)
+        finally:
+            conn.close()
+    except sqlite3.DatabaseError:
+        return {}
 
 
 def _unit(v) -> np.ndarray:
@@ -134,27 +298,31 @@ def _text_hash(text: str) -> str:
 
 def refresh(memory_path, emb: Embedders | None, *, refs=None, limit: int | None = REFRESH_LIMIT) -> dict:
     """Bring the index up to the board: embed what is missing or stale (at most ``limit`` pictures), drop rows of
-    references that are gone. ``{"images": n, "notes": n, "failed": n}``; never raises on a picture or a model."""
+    references that are gone. ``{"images": n, "notes": n, "failed": n}``; never raises on a picture or a model.
+    Everything is embedded first and written after, in one short transaction under the index's one write lock —
+    the file is shared with the text kinds, so it is never held across an embed."""
+    from api.services.vector_index import _write_lock
+
     refs = design_refs.list_refs(memory_path) if refs is None else refs
     path = index_path(memory_path)
     counts = {"images": 0, "notes": 0, "failed": 0}
     with _lock(path):
-        conn = _connect(path)
+        try:
+            conn = _connect(path, memory_path)
+        except BoardIndexUnavailable:
+            return counts   # busy or unreadable: nothing embedded, the next call goes on
         try:
             have = _rows(conn)
             live = {r.id for r in refs}
             gone = [key for key in have if key[0] not in live]
-            conn.executemany("DELETE FROM vectors WHERE ref=? AND kind=?", gone)
-            if emb is None:
-                conn.commit()
-                return counts
-            if emb.image is not None:
+            writes: list[tuple] = []
+            if emb is not None and emb.image is not None:
                 for ref in refs:
                     if limit is not None and counts["images"] + counts["failed"] >= limit:
                         break
                     sha = (ref.image or {}).get("sha256") or ""
                     old = have.get((ref.id, "image"))
-                    if not sha or (old and old[0] == sha and old[1] == emb.model):
+                    if not sha or (old and old[0] == sha and emb.image_current(old[1])):
                         continue
                     found = design_refs.image_file(memory_path, ref)
                     if found is None:
@@ -165,10 +333,9 @@ def refresh(memory_path, emb: Embedders | None, *, refs=None, limit: int | None 
                         counts["failed"] += 1
                         logger.debug(f"design_index: a picture didn't embed ({type(exc).__name__})")
                         continue
-                    conn.execute("INSERT OR REPLACE INTO vectors VALUES (?, 'image', ?, ?, ?, ?)",
-                                 (ref.id, sha, emb.model, int(vec.size), vec.tobytes()))
+                    writes.append((ref.id, "image", sha, emb.image_stamp, int(vec.size), vec.tobytes()))
                     counts["images"] += 1
-            if emb.text is not None:
+            if emb is not None and emb.text is not None:
                 todo = []
                 for ref in refs:
                     text = design_refs.describe_for_embedding(ref)
@@ -185,10 +352,25 @@ def refresh(memory_path, emb: Embedders | None, *, refs=None, limit: int | None 
                     if vecs is not None:
                         for (rid, text), v in zip(todo, vecs):
                             v = _unit(v)
-                            conn.execute("INSERT OR REPLACE INTO vectors VALUES (?, 'note', ?, ?, ?, ?)",
-                                         (rid, _text_hash(text), emb.model, int(v.size), v.tobytes()))
+                            writes.append((rid, "note", _text_hash(text), emb.model, int(v.size), v.tobytes()))
                             counts["notes"] += 1
-            conn.commit()
+            if gone or writes:
+                # Never wait for the write lock (review of #516): a text sync holds it across a whole embed, and a
+                # board search must not hang behind it. Busy now: the rows are written by the next refresh.
+                lock = _write_lock(path)
+                if not lock.acquire(blocking=False):
+                    logger.debug("design_index: a text sync holds the index; the board's rows wait for the next refresh")
+                    return {"images": 0, "notes": 0, "failed": counts["failed"]}
+                try:
+                    conn.executemany(f"DELETE FROM {TABLE} WHERE ref=? AND kind=?", gone)
+                    conn.executemany(f"INSERT OR REPLACE INTO {TABLE} VALUES (?, ?, ?, ?, ?, ?)", writes)
+                    conn.commit()
+                except sqlite3.OperationalError as exc:   # another process held the file past the wait: next time
+                    conn.rollback()
+                    logger.debug(f"design_index: the board's rows wait for the next refresh ({type(exc).__name__})")
+                    counts = {"images": 0, "notes": 0, "failed": counts["failed"]}
+                finally:
+                    lock.release()
         finally:
             conn.close()
     return counts
@@ -225,17 +407,32 @@ def refresh_in_background(memory_path, *, embedders: Callable[[], Embedders | No
 def status(memory_path) -> dict:
     """How many references have each kind of vector (for the board's footnote)."""
     path = index_path(memory_path)
-    if not path.is_file():
+    if not path.is_file() and not legacy_path(memory_path).is_file():
         return {"images": 0, "notes": 0}
     try:
-        conn = sqlite3.connect(path, timeout=5)
+        conn = _connect(path, memory_path)
         try:
-            rows = dict(conn.execute("SELECT kind, COUNT(*) FROM vectors GROUP BY kind").fetchall())
+            rows = dict(conn.execute(f"SELECT kind, COUNT(*) FROM {TABLE} GROUP BY kind").fetchall())
         finally:
             conn.close()
-    except sqlite3.DatabaseError:
+    except (sqlite3.DatabaseError, BoardIndexUnavailable):
         return {"images": 0, "notes": 0}
     return {"images": int(rows.get("image", 0)), "notes": int(rows.get("note", 0))}
+
+
+def _stored(memory_path) -> dict[tuple[str, str], tuple[str, str, np.ndarray]]:
+    """The board's stored rows for a search — a read with no lock; ``{}`` (words answer) while the index is busy
+    past the wait or unreadable."""
+    try:
+        conn = _connect(index_path(memory_path), memory_path)
+    except BoardIndexUnavailable:
+        return {}
+    try:
+        return _rows(conn)
+    except sqlite3.DatabaseError:
+        return {}
+    finally:
+        conn.close()
 
 
 # --------------------------------------------------------------------------- search
@@ -312,12 +509,8 @@ def search(memory_path, *, query: str | None = None, image: bytes | None = None,
     if emb is not None:
         if embed:
             refresh(memory_path, emb, refs=refs)
-        conn = _connect(index_path(memory_path))
-        try:
-            have = _rows(conn)
-        finally:
-            conn.close()
-        images = {r: v for (r, k), (_, m, v) in have.items() if k == "image" and m == emb.model}
+        have = _stored(memory_path)
+        images = {r: v for (r, k), (_, m, v) in have.items() if k == "image" and emb.image_current(m)}
         notes = {r: v for (r, k), (_, m, v) in have.items() if k == "note" and m == emb.model}
         if query and emb.text is not None:
             try:
@@ -379,12 +572,8 @@ def similar(memory_path, ref_id: str, *, limit: int = 8, emb: Embedders | None |
     if emb is not None:
         if embed:
             refresh(memory_path, emb, refs=refs)
-        conn = _connect(index_path(memory_path))
-        try:
-            have = _rows(conn)
-        finally:
-            conn.close()
-        images = {r: v for (r, k), (_, m, v) in have.items() if k == "image" and m == emb.model}
+        have = _stored(memory_path)
+        images = {r: v for (r, k), (_, m, v) in have.items() if k == "image" and emb.image_current(m)}
         mine = images.pop(ref_id, None)
         if mine is not None and images:
             legs["picture"] = _close(_ranked(images, mine))

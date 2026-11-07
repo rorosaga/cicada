@@ -19,6 +19,20 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertEqual(HomeLayout.labelGap, 6)
     }
 
+    /// ROR-118 (Home) — the headline leads at 34 pt; round 2: it starts a fifth of the viewport down, between the room
+    /// pages' 24 pt inset and 150 pt; Today and Last read are rows with a 2 pt gap, not cards.
+    func testTheHeadlineLeadsAndTheLowerRowsAreQuiet() {
+        XCTAssertEqual(HomeLayout.headlineSize, 34)
+        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 100), 24, "never above the room pages' inset")
+        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 600), 102, "round 3: 17 %, above the worm")
+        XCTAssertEqual(HomeLayout.headlineTop(viewportHeight: 2000), 140, "never past 140 pt")
+        XCTAssertEqual(HomeLayout.greeterCell, 3, "round 4 — a whole 3 points per art pixel, crisp")
+        XCTAssertEqual(HomeLayout.greeterCell, HomeLayout.greeterCell.rounded(), "never a fractional pixel")
+        XCTAssertEqual(HomeLayout.greeterInk, CGRect(x: 4, y: 3, width: 56, height: 45), "the pixels every mood draws")
+        XCTAssertEqual(HomeLayout.pulseGap, 2)
+        XCTAssertLessThan(HomeLayout.pulseGap, HomeLayout.blockGap)
+    }
+
     /// Owner 2026-10-06 — "i dont like how the boxes get clipped with the portion of the search bar." The field sat
     /// outside the blocks' scroll view, whose top edge ran flush under it, so a scrolled card was cut mid-border. One
     /// scroll view now carries the headline, the field and the blocks, and the first block sits one block gap under the
@@ -28,7 +42,7 @@ final class HomeLayoutTests: XCTestCase {
         let text = try String(contentsOf: file, encoding: .utf8)
         XCTAssertEqual(text.components(separatedBy: "ScrollView {").count - 1, 1, "one scroll view for the page")
         let scroll = try XCTUnwrap(text.range(of: "ScrollView {"))
-        let title = try XCTUnwrap(text.range(of: "PageTitle(Copy.homeHeadline)"))
+        let title = try XCTUnwrap(text.range(of: "PageTitle(Copy.homeHeadline"))
         let field = try XCTUnwrap(text.range(of: "fieldColumn(showsResults:"))
         let blocks = try XCTUnwrap(text.range(of: "GettingStartedCard(selectedTab:"))
         XCTAssertLessThan(scroll.lowerBound, title.lowerBound, "the headline scrolls with the page")
@@ -101,9 +115,41 @@ final class HomeLayoutTests: XCTestCase {
         for suffix in ["Views/Home/HomeView.swift", "Views/Home/HomeSections.swift"] {
             let file = try XCTUnwrap(files.first { $0.path.hasSuffix(suffix) })
             let text = try String(contentsOf: file, encoding: .utf8)
-            for needle in ["triggerManually", "Copy.consolidateNow", "PrimaryActionButton("] {
+            for needle in ["triggerManually", "Copy.consolidateNow"] {
                 XCTAssertFalse(text.contains(needle), "\(suffix) — \(needle)")
             }
+            // Round 5 — Home's one accent primary is Answer (DR-5 (2)); never a second.
+            let primaries = text.components(separatedBy: "PrimaryActionButton(").count - 1
+            XCTAssertLessThanOrEqual(primaries, 1, suffix)
         }
+    }
+
+    /// ROR-118 round 2 — one column (the cards and rows sit on the field's 640 pt edges), a lead card of the question and
+    /// one foot line, rows with no tile and no strip of marks, and the titlebar's search quiet on Home alone.
+    /// Round 5 — the status line says "today" once (the last read drops its own), and "Today" only goes when it is the
+    /// leading day word of a read with a time.
+    func testWithoutTodayDropsOnlyTheLeadingDayWord() {
+        XCTAssertEqual(HomeFigures.withoutToday("Today 2:07 PM"), "2:07 PM")
+        XCTAssertEqual(HomeFigures.withoutToday("Yesterday 11:40 PM"), "Yesterday 11:40 PM")
+        XCTAssertEqual(HomeFigures.withoutToday("Today"), "Today")
+        XCTAssertEqual(HomeFigures.withoutToday("Oct 3 7:27 AM"), "Oct 3 7:27 AM")
+    }
+
+    func testRoundTwoColumnCardRowsAndQuietTitlebar() throws {
+        let files = try ThemeTokenTests.swiftSources()
+        func text(_ suffix: String) throws -> String {
+            try String(contentsOf: XCTUnwrap(files.first { $0.path.hasSuffix(suffix) }), encoding: .utf8)
+        }
+        let view = try text("Views/Home/HomeView.swift")
+        XCTAssertFalse(view.contains("HomeLayout.columnWidth"), "the blocks share the field's column")
+        let sections = try text("Views/Home/HomeSections.swift")
+        XCTAssertFalse(sections.contains("OriginMark("), "no strip of marks on a row; the origins are its hover")
+        XCTAssertFalse(sections.contains("bgOption"), "a row's glyph has no tile")
+        XCTAssertFalse(sections.contains("Text(row.reason"), "the reason is the card's hover, not more small type")
+        let bar = try text("Views/Shell/CommandBar.swift")
+        XCTAssertTrue(bar.contains("router.requestPalette()"), "the bar still opens the palette on every other page")
+        let content = try text("ContentView.swift")
+        XCTAssertTrue(content.contains("quietSearch: selectedTab == .home && !tour.spotlights(.commandBar)"))
+        XCTAssertTrue(try text("Views/Find/FindPanelBody.swift").contains("if placement == .page {\n                FindModeSwitch("))
     }
 }

@@ -26,6 +26,7 @@
 #   scripts/fetch-logos.sh --check         offline, read-only: do the bytes match the ledger?
 #   scripts/fetch-logos.sh --accept        record upstream drift instead of failing on it
 #   scripts/fetch-logos.sh --only <id>     restrict a real run to one manifest id
+#   scripts/check-logo-upstream.py         read-only: which set sources differ from what their URL serves now
 #
 # ORIGINS (the manifest's `origin` field): `set` (G217: the curated one-mark-per-umbrella set, sources committed
 # in app/assets/logo-set/, rasterized offline by scripts/build-logo-set.py), `commons` (a Wikimedia Commons SVG),
@@ -60,7 +61,7 @@ while [[ $# -gt 0 ]]; do
         --check)  MODE="check"; shift ;;
         --accept) ACCEPT=1; shift ;;
         --only)   ONLY="${2:-}"; [[ -n "$ONLY" ]] || { echo "--only needs an id" >&2; exit 2; }; shift 2 ;;
-        -h|--help) sed -n '3,39p' "$0"; exit 0 ;;
+        -h|--help) sed -n '3,40p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1 (see --help)" >&2; exit 2 ;;
     esac
 done

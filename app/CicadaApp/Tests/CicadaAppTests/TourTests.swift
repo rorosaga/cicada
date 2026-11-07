@@ -24,6 +24,8 @@ final class TourTests: XCTestCase {
 
     func testSixStopsInTheBriefsOrder() {
         XCTAssertEqual(TourStop.allCases, [.search, .home, .inbox, .person, .projects, .sleep])
+        XCTAssertEqual(TourStop.shown(projectsPage: true), TourStop.allCases)
+        XCTAssertEqual(TourStop.shown(projectsPage: false), [.search, .home, .inbox, .person, .sleep])
     }
 
     func testTheDemoOpensItsShowcaseAndARealBankOnlyThePages() {
@@ -80,6 +82,7 @@ final class TourTests: XCTestCase {
         XCTAssertTrue(tour.spotlights(.commandBar))
         tour.back()
         XCTAssertEqual(tour.currentStop, .search, "Back stops at the first stop")
+        XCTAssertEqual(tour.count, 6, "ruling 45: the Projects stop is back")
         for _ in 0..<5 { tour.next() }
         XCTAssertEqual(tour.currentStop, .sleep)
         XCTAssertTrue(tour.isLast)

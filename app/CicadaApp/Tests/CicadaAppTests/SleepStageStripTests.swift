@@ -50,7 +50,7 @@ final class SleepStageStripTests: XCTestCase {
         XCTAssertEqual(SleepStages.all.map(\.detail), [
             "Each episode is read once for people, projects, tools and ideas.",
             "New mentions are matched against what you already have.",
-            "Contradictions become questions in your Inbox; old beliefs fade.",
+            "Contradictions become questions on Home; old beliefs fade.",
             "Habits that recur become skills.",
             "Everything is written to the graph and committed with its provenance.",
         ])

@@ -216,6 +216,11 @@ class Claim:
     # ...]``, waiting for the decay pass that places each on its day (`claim_reconciler._place_on_time`) — nothing is
     # charged mid-drain. Cleared by that pass; omitted when unset.
     read_late: list | None = None
+    # Owner 2026-10-28 (#499): the person's own reaction on the turn this claim rests on, ``[{by, stance, kind,
+    # episode, turn}]`` — ``turn`` the reacted turn's offset in that episode, the reaction's key in its
+    # ``turn_extras``, so the reaction is the claim's evidence by turn id. It moved the confidence, never the observer.
+    # Omitted when empty.
+    reactions: list[dict] = field(default_factory=list)
 
     def all_session_ids(self) -> list[str]:
         """Every session that has written or reinforced this claim, deduped,
@@ -254,6 +259,9 @@ class Claim:
                 data.pop(key, None)
         if not data.get("read_late"):
             data.pop("read_late", None)
+        data["reactions"] = clean_reactions(data.get("reactions"))
+        if not data["reactions"]:
+            data.pop("reactions", None)
         return data
 
     @classmethod
@@ -296,6 +304,7 @@ class Claim:
             recovered_by=_opt_str(data.get("recovered_by")),
             faded_by_age=_opt_str(data.get("faded_by_age")),
             read_late=_read_late(data.get("read_late")),
+            reactions=clean_reactions(data.get("reactions")),
         )
 
 
@@ -474,6 +483,16 @@ def is_event(claim) -> bool:
 
 
 PERSONS_WORDS_ORIGINS = frozenset({"companion_app", "clarification"})
+#: ROR-95, ruling 64: what the person marked in a book, word for word, written only by `book_marks`. Its text is a
+#: passage or the person's note, so it is gated like their own words and is never a belief, a citation or a conflict.
+HIGHLIGHTED, NOTED = "highlighted", "noted"
+MARK_ORIGIN = "book"
+
+
+def is_mark(claim) -> bool:
+    """A highlight or note `book_marks` wrote, by predicate AND origin: a model writing the same predicate is not one."""
+    return (getattr(claim, "predicate", "") in (HIGHLIGHTED, NOTED)
+            and (getattr(claim, "origin", None) or "") == MARK_ORIGIN)
 
 
 def is_persons_words(claim) -> bool:
@@ -482,7 +501,7 @@ def is_persons_words(claim) -> bool:
     (`clarification`) both are, so a remote reader without `sources` is shown
     neither (G141 final review — the inbox note path had leaked). Over-hiding
     a "Still going" that restated an extractor's sentence is the safe side."""
-    return (getattr(claim, "origin", None) or "") in PERSONS_WORDS_ORIGINS
+    return (getattr(claim, "origin", None) or "") in PERSONS_WORDS_ORIGINS or is_mark(claim)
 
 
 def event_cardinality(predicate: str) -> str | None:
@@ -490,6 +509,29 @@ def event_cardinality(predicate: str) -> str | None:
     `_predicates.yaml` is stale and `build_cardinality_fn` reads only it. The
     one-head-per-slug rule lives in `claim_reconciler.reconcile_events`."""
     return "multi" if (predicate or "").strip().lower() in EVENT_PREDICATES else None
+
+
+REACTION_STANCES = ("agree", "doubt")
+
+
+def clean_reactions(raw) -> list[dict]:
+    """A claim's ``reactions``, validated: the person's own, a known stance, an episode id and a turn offset."""
+    out: list[dict] = []
+    for item in raw if isinstance(raw, list) else ():
+        if not isinstance(item, dict) or item.get("by") != "user" or item.get("stance") not in REACTION_STANCES:
+            continue
+        try:
+            turn = int(item.get("turn"))
+        except (TypeError, ValueError):
+            continue
+        episode = str(item.get("episode") or "")
+        if turn < 0 or not episode.startswith("ep_"):
+            continue
+        entry = {"by": "user", "stance": item["stance"], "kind": str(item.get("kind") or "")[:16],
+                 "episode": episode, "turn": turn}
+        if entry not in out:
+            out.append(entry)
+    return out[:8]
 
 
 def clean_participants(raw) -> list[dict]:

@@ -52,11 +52,9 @@ final class DesignConsistencySnapshotTests: XCTestCase {
             try snapshot(looks, size: CGSize(width: 720, height: 640), mode: mode,
                          to: out.appendingPathComponent("page-looks-\(name).png"))
 
-            // Every folding section, side by side: Projects' detail and list, the entity card.
+            // Every folding section left, side by side: the entity card's (Projects has none since v3, decision 17).
             let disclosures = VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                ProjectSectionHeader(title: "What happened", meta: "9", isOpen: false, toggle: {})
-                ProjectSectionHeader(title: "Plan", meta: "", isOpen: true, toggle: {})
-                ProjectsDisclosure(title: "Fading", count: 4, isOpen: false, help: "", action: {})
+                ProjectOpenLabel(title: "Timeline", count: 9, all: {})
                 CardDisclosure(title: "Where this came from", summary: "· 12", isOpen: .constant(false)) { EmptyView() }
                 CardDisclosure(title: "Beliefs", isOpen: .constant(true)) {
                     Text("Open content").font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)

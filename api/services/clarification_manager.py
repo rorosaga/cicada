@@ -1,11 +1,12 @@
 """Clarification queue — holds entities Cicada couldn't confidently extract.
 
-A clarification is created when an entity is extracted with low confidence and
-no existing match. The user (or a later, higher-confidence extraction) resolves
-it. Three resolution paths exist:
+A clarification is created when Stage 1 says only the person can tell who or what
+a name is and something rests on it (``ask_person``, G239); a low confidence alone
+asks nothing, the name waits in the index. Three resolution paths exist:
 
 1. **Organic** — a later sleep cycle extracts the same entity with confidence
-   >= 0.6 and the pending clarification is auto-resolved.
+   >= 0.6 and the pending clarification is auto-resolved, unless it was asked on
+   purpose (``why_asked``): that one stays with the person.
 2. **Agent-initiated** — Bookworm surfaces the clarification when the current
    query touches it, letting the agent ask in conversation flow.
 3. **Manual** — the user answers via the companion app.
@@ -27,7 +28,6 @@ from thefuzz import fuzz
 from api.services import markdown_parser
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
-CONFIDENCE_THRESHOLD = 0.5
 ORGANIC_RESOLUTION_THRESHOLD = 0.6
 
 _CLARIFICATION_KINDS = ("clarification", "merge_suggestion")
@@ -51,8 +51,19 @@ class ClarificationManager:
         suggested_confidence: float,
         source_context: str,
         source_episode_timestamp: str | None = None,
+        heard_in: dict | None = None,
+        same_title: list[str] | None = None,
+        target_id: str | None = None,
+        why_asked: str | None = None,
     ) -> str | None:
         """Create a clarification file. Returns its id, or None if duplicate.
+
+        ``why_asked`` (G239): the model's clause on why only the person can answer this, said on the card. Its presence
+        also marks a question asked on purpose, which no lookup answers and no "said in passing" rule closes.
+
+        ``same_title`` / ``target_id`` (G227): a mention titled exactly as one or more pages — the candidate's own id
+        is the merge target (a name two pages share never resolves to one), and every page sharing the title is kept
+        (``same_title``) so the question names each one (`inbox_wording`).
 
         ``source_episode_timestamp`` is the ISO timestamp of the conversation
         that originally triggered the clarification. Persisting it lets the
@@ -71,7 +82,7 @@ class ClarificationManager:
         # the sorted entity pair for a merge suggestion. A collision is a
         # RE-ASK of the same question — bump `updated_date` and write nothing.
         second = (
-            self._merge_target_hint(uncertainty_type) or ""
+            (target_id or self._merge_target_hint(uncertainty_type) or "")
             if is_duplicate
             else (uncertainty_type or "")
         )
@@ -88,10 +99,56 @@ class ClarificationManager:
                     entity_name, second,
                 )
                 return None
+            from api.services import pending_store
+
+            if second in pending_store.apart_of(self.memory_path, entity_name):
+                # G227: the person already said the mention held under this name is another one — never asked again.
+                return None
+            # 2026-10-29: the record already says the two are two things (a part and its whole, a product and its
+            # maker…, `entity_relations.known`) — never a person pair, whose identity takes the person's words.
+            from api.services import entity_relations
+
+            if (not str(suggested_classification or "").lower().startswith("person")
+                    and entity_relations.known(self.memory_path, sanitize_id(entity_name), second)):
+                logger.info("clarification: merge pair already related on the record — not proposing")
+                return None
+            # Owner 2026-11-04 (`pair_evidence`): the owner's page is never paired with another person without the
+            # person's own words naming themselves so; two people are asked about only on a conversation that names
+            # both, which becomes the question's evidence; "Cicada's guess" is a guess about the pair, bounded.
+            from api.services import pair_evidence
+
+            person = (str(suggested_classification or "").lower().startswith("person")
+                      or pair_evidence._is_person_page(self.memory_path, second))
+            if person and pair_evidence.answered_by_check(self.memory_path, sanitize_id(entity_name), second):
+                logger.info("clarification: a check already answered who this handle is — not proposing")
+                return None
+            verdict = pair_evidence.judge(
+                self.memory_path, a_id=sanitize_id(entity_name), a_name=entity_name, b_id=second,
+                b_name=self._duplicate_candidate(uncertainty_type) or "", person=person,
+                source_episode=str(source_episode or ""), base=suggested_confidence, fresh=False,
+                two_places=bool(isinstance(heard_in, dict) and heard_in.get("mention") and heard_in.get("page")))
+            if not verdict.ask:
+                logger.info("clarification: duplicate question not asked ({})", verdict.reason)
+                return None
+            if verdict.episode and verdict.episode != source_episode:
+                source_episode = verdict.episode
+                source_episode_timestamp = pair_evidence.episode_timestamp(self.memory_path, verdict.episode)
+            suggested_confidence = verdict.guess
         open_path = find_open(self.memory_path, kind, sanitize_id(entity_name), second)
+        if open_path is None and is_duplicate and same_title and len(same_title) >= 2:
+            # G227 (owner 2026-10-29): one question per mention, never one per pair — a mention already asked about
+            # through another of the pages that share its name is the same question.
+            open_path = next((p for p in (find_open(self.memory_path, kind, sanitize_id(entity_name), str(pid))
+                                          for pid in same_title if str(pid) != second) if p is not None), None)
+        if open_path is None and why_asked and not is_duplicate:
+            # G239: one question a name, whatever the mention's own wording made of its type.
+            open_path = self._open_question(sanitize_id(entity_name))
         if open_path is not None:
             parsed = markdown_parser.parse(open_path)
             parsed.frontmatter["updated_date"] = str(date.today())
+            if why_asked and not is_duplicate and not parsed.frontmatter.get("why_asked"):
+                # G239: the model now says something rests on a question already open, raised before it had a stake.
+                parsed.frontmatter["why_asked"] = str(why_asked)
             markdown_parser.write(open_path, parsed.frontmatter, parsed.body)
             return None
 
@@ -126,11 +183,28 @@ class ClarificationManager:
         # the companion app can offer a one-tap merge. The candidate is carried
         # as a display name in ``uncertainty_type`` ("Possible duplicate of X").
         if is_duplicate:
-            target_hint = self._merge_target_hint(uncertainty_type)
+            target_hint = target_id or self._merge_target_hint(uncertainty_type)
             if target_hint:
                 frontmatter["merge_target_hint"] = target_hint
+            if same_title:
+                frontmatter["same_title"] = [str(i) for i in same_title][:6]
+                if len(frontmatter["same_title"]) >= 2:
+                    # G227 (owner 2026-10-29, pick the page): one question for the mention, answered by picking one
+                    # of the pages (`same_name_pick` serves them as options at read) or "none of these".
+                    frontmatter["title"] = f"Which {entity_name} is this?"
+                elif target_id:
+                    # G227: the stored title names the one page its answers act on, by its qualifier — every reader
+                    # without the wording layer (an old client, a plain listing) asks the same yes/no question.
+                    from api.services import same_name
+
+                    frontmatter["title"] = f"Is this {same_name.label(self.memory_path, target_id, entity_name)}?"
         if source_episode_timestamp:
             frontmatter["source_episode_timestamp"] = str(source_episode_timestamp)
+        if why_asked and not is_duplicate:
+            frontmatter["why_asked"] = str(why_asked)
+        if is_duplicate and isinstance(heard_in, dict) and heard_in.get("mention") and heard_in.get("page"):
+            # Where each side was heard (`entity_resolver._held_alias_questions`): words for the question, never ids.
+            frontmatter["heard_in"] = {"mention": str(heard_in["mention"])[:40], "page": str(heard_in["page"])[:40]}
         filepath = self.dir / f"{clar_id}.md"
         markdown_parser.write(filepath, frontmatter, source_context.strip())
         logger.info(f"Clarification created: {clar_id} ({entity_name})")
@@ -175,19 +249,25 @@ class ClarificationManager:
 
         ``merged_into``: the page Stage 2 just matched the name to. A "Possible duplicate" question is answered by that
         only when it is the page the question proposed (G209): a name that matched its own page leaves the question
-        "is it the same as that other page?" open, as it was."""
+        "is it the same as that other page?" open, as it was.
+
+        A question asked on purpose (``why_asked``, G239) is never closed here: it was raised on a stake, whatever the
+        confidence, and a confident mention says nothing about the stake. Only the person's own words settle it
+        (their answer, or `inbox_tend`'s located words, ruling 29)."""
         if confidence < ORGANIC_RESOLUTION_THRESHOLD:
             return False
         existing = self._existing_for(entity_name)
         if not existing:
             return False
-        if merged_into is not None:
-            try:
-                fm = markdown_parser.parse(existing).frontmatter
-            except Exception:
-                fm = {}
-            if fm.get("kind") == "merge_suggestion" and str(fm.get("merge_target_hint") or "") != merged_into:
-                return False
+        try:
+            fm = markdown_parser.parse(existing).frontmatter
+        except Exception:
+            fm = {}
+        if fm.get("why_asked"):
+            return False
+        if (merged_into is not None and fm.get("kind") == "merge_suggestion"
+                and str(fm.get("merge_target_hint") or "") != merged_into):
+            return False
         try:
             existing.unlink()
             logger.info(
@@ -219,6 +299,16 @@ class ClarificationManager:
                 return filepath
         return None
 
+    def _open_question(self, entity_id: str) -> Path | None:
+        for filepath in sorted(self.dir.glob("inbox-*.md")):
+            try:
+                fm = markdown_parser.parse(filepath).frontmatter
+            except Exception:  # noqa: BLE001
+                continue
+            if fm.get("kind") == "clarification" and fm.get("status") == "pending" and fm.get("entity_id") == entity_id:
+                return filepath
+        return None
+
     def _next_id(self) -> str:
         max_num = 0
         # A settled question (``inbox/settled/``) keeps its number for its undo.
@@ -235,8 +325,13 @@ def _same_mention(left: str, right: str) -> bool:
         return False
     if left == right:
         return True
+    # 2026-10-29: the one fuzzy rule (`entity_resolver.fuzzy_same`): two names a ratio joins that differ by a word, a
+    # letter-prefix ("<x>stack" / "stack"), an acronym ("GDPR" / "DPR") or a model number ("G1" / "Go2") are two
+    # things, and their questions are two questions — never folded into one the person answers for both.
+    from api.services.entity_resolver import distinct_names
+
     if fuzz.ratio(left, right) > 85:
-        return True
+        return not distinct_names(left, right)
     left_tokens = _mention_tokens(left)
     right_tokens = _mention_tokens(right)
     if not left_tokens or not right_tokens:

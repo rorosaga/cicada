@@ -12,5 +12,11 @@ extension Copy {
         static func openConversationLabel(_ title: String) -> String { "Open the conversation \(title)" }
         /// While an answer is being worked out — over the still skeleton, or above the last answer (DR-43, round 3).
         static let asking = "Asking your memory…"
+        /// A request that did not complete (G148): what happened and what to do, one line each.
+        static let timedOut = "Ask is taking longer than expected. Ask again in a moment."
+        static let unreachable = "Cicada isn't answering on this computer. Open Cicada again, then ask."
+        static let cancelled = "Ask was stopped."
+        static let unreadableAnswer = "Cicada couldn't read the answer. Ask again."
+        static let failed = "Ask didn't finish. Ask again in a moment."
     }
 }

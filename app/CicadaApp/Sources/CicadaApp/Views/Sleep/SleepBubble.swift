@@ -44,7 +44,7 @@ func sleepBubbleText(_ state: BookwormState, _ ctx: BubbleContext) -> String {
         }
     case .digesting: return pick(["That was a good one.", "Filed. Give me a second."])
     case .happy: return pick(["All read. Nothing waiting.", "Caught up. Bring me something new."])
-    case .curious(let count): return "\(count) waiting on you in the Inbox."
+    case .curious(let count): return "\(count) waiting on you on Home."
     case .hungry:
         if let h = ctx.hoursSinceLastCycle, h >= 48 {
             return "It's been \(Int(h / 24)) days. I'm behind."

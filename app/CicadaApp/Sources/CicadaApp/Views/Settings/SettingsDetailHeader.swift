@@ -129,7 +129,7 @@ struct SettingsPage<Content: View>: View {
             }
             .padding(.horizontal, CicadaTheme.spacingXL)
             .padding(.bottom, CicadaTheme.spacingXL)
-            .frame(maxWidth: CicadaTheme.scaled(760), alignment: .leading)
+            .frame(maxWidth: CicadaTheme.scaled(900), alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

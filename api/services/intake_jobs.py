@@ -47,6 +47,10 @@ class Job:
 
 
 _jobs: dict[str, Job] = {}
+#: What the panel says when a background write stops (G199: the exception stays in the log, as its class). What was
+#: already written is kept, and a second drop of the same file only adds the rest.
+WRITE_FAILED = "Cicada couldn't finish saving this export. What was saved is kept; drop the file again to add the rest."
+
 _lock = threading.Lock()
 
 
@@ -78,7 +82,8 @@ def reset() -> None:
         _jobs.clear()
 
 
-def run(job_id: str, episodes: list[dict], episodes_dir: Path, *, extras_only: list[dict] = ()) -> None:
+def run(job_id: str, episodes: list[dict], episodes_dir: Path, *, extras_only: list[dict] = (),
+        after=None) -> None:
     """Stage ``episodes`` in one ``episode_staging.stage`` call. ``staged``
     advances per draft only after that draft's verdict is on disk, so the
     panel's count is never ahead of the bank. Always ends ``done``; a failure
@@ -111,10 +116,12 @@ def run(job_id: str, episodes: list[dict], episodes_dir: Path, *, extras_only: l
         if extras_only:
             episode_staging.stage([episode_staging.draft_from_export(e) for e in extras_only], episodes_dir,
                                   bank=episodes_dir.parent.name)
+        if after is not None:
+            after(staged)   # ruling 45 addendum: a Claude export's projects, once their episodes are on disk
     except Exception as exc:  # recorded for the panel, never raised into the server
         logger.error(f"Intake job {job_id} failed: {type(exc).__name__}")
         with _lock:
-            job.error = f"{type(exc).__name__}: {exc}"
+            job.error = WRITE_FAILED
     finally:
         with _lock:
             job.done = True

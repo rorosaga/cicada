@@ -6,12 +6,14 @@ Only the person's door calls these: a route the app or a person-only CLI command
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from api.services import skill_catalog, skill_folders, skill_inventory, skill_sources, skill_store, skill_tools
 
-#: The suggestions onboarding offers: the two harnesses (ticked) and the video skill (not ticked), owner 2026-10-15.
-ONBOARDING_IDS = ("browser-harness", "macos-harness", "watch")
+#: The suggestions onboarding offers: the two harnesses (ticked) and the video skill (not ticked), owner 2026-10-15;
+#: hoff, the show-me cursor (not ticked), owner 2026-10-29 (G220).
+ONBOARDING_IDS = ("browser-harness", "macos-harness", "watch", "hoff-harness")
 
 
 def catalog_entry(entry_id: str) -> dict:
@@ -51,8 +53,24 @@ async def install_suggested(entry_id: str, agents: list[str], *, base: Path | No
         raise skill_store.StoreError("That suggestion's folder holds several skills; add it by its address instead.")
     plan = skill_sources.take(shown["planId"])
     if plan is not None:
+        check_reviewed(entry, plan.files)
         plan.source = {**plan.source, "ref": pin.get("ref") or plan.source.get("ref"), "catalogId": entry["id"]}
     return skill_store.install_plan(shown["planId"], agents, base=base)
+
+
+def check_reviewed(entry: dict, files: dict[str, bytes]) -> None:
+    """A suggestion installs only the bytes that were reviewed: the pin's SKILL.md hash and every other file it pins
+    (``scripts/verify-skills.sh`` re-checks the same values upstream). A commit is already fixed content, so this
+    catches a catalog typo or a rewritten history, never a newer version the person chose (``update`` is that)."""
+    pin = entry.get("pin") or {}
+    expected = dict(pin.get("files") or {})
+    if pin.get("skillMdSha256"):
+        expected[skill_folders.SKILL_FILE] = pin["skillMdSha256"]
+    for rel, sha in expected.items():
+        data = files.get(rel)
+        if data is None or hashlib.sha256(data).hexdigest() != sha:
+            raise skill_store.StoreError(f"What arrived for {entry.get('title') or entry.get('id')} doesn't match "
+                                         "the version Cicada reviewed, so nothing was installed.")
 
 
 def _agents_with(name: str, base: Path | None = None) -> list[str]:

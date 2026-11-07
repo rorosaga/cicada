@@ -168,3 +168,30 @@ def test_content_hash_covers_server_derived_fields(tmp_path):
     bank_index.invalidate()
     again = next(n for n in build_graph(tmp_path).nodes if n.id == "a")
     assert again.content_hash == pending.content_hash
+
+
+def test_a_proposed_source_is_never_drawn_until_the_person_takes_it(tmp_path):
+    """Ruling 36 D5: a saved link's where-to-check proposal carries `entity:` (its saved-link page) from the moment
+    Sleep files it; the graph draws its source edge only once the person takes it."""
+    from api.services import bank_index, markdown_parser
+    from api.services.graph_builder import build_graph
+
+    bank_index.invalidate()
+    (tmp_path / "entities").mkdir()
+    ref = "https://blog.bob-example.org/delta-review"
+    proposal = {"ref": ref, "kind": "url", "added_by": "cicada", "proposed": True, "entity": "media-delta-review",
+                "evidence": {"episode": "ep_2026-09-06_001", "kind": "save"}}
+    markdown_parser.write(tmp_path / "entities" / "delta-tool.md",
+                          {"name": "Delta Tool", "type": "tool", "sources": [proposal]}, "## Summary\nA tool.\n")
+    markdown_parser.write(tmp_path / "entities" / "media-delta-review.md",
+                          {"name": "Delta review", "type": "media"}, "## Summary\nA saved link.\n")
+
+    def edges(g):
+        return [(link.source, link.target) for link in g.links if link.kind == "source"]
+
+    assert edges(build_graph(tmp_path)) == []
+    taken = {k: v for k, v in proposal.items() if k != "proposed"} | {"accepted": True}
+    markdown_parser.write(tmp_path / "entities" / "delta-tool.md",
+                          {"name": "Delta Tool", "type": "tool", "sources": [taken]}, "## Summary\nA tool, taken.\n")
+    bank_index.invalidate()
+    assert edges(build_graph(tmp_path)) == [("delta-tool", "media-delta-review")]

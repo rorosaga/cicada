@@ -92,6 +92,7 @@ struct LampPopover: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            keepAwakeRow
             if failed {
                 Text(Copy.scheduleWriteFailed)
                     .font(CicadaTheme.captionFont)
@@ -107,6 +108,25 @@ struct LampPopover: View {
         .padding(CicadaTheme.spacingLG)
         .frame(width: 360, alignment: .leading)
         .background(CicadaTheme.surface)
+    }
+
+    /// G243 — one machine-wide switch, off by default, beside the schedule; it holds an assertion only while a run
+    /// reads and changes nothing about what may run. Hidden until the reading options have loaded.
+    @ViewBuilder private var keepAwakeRow: some View {
+        if let options = sleepVM.runOptions {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                Toggle(Copy.keepAwakeSwitch, isOn: Binding(
+                    get: { options.keepAwake },
+                    set: { on in sleepVM.bankTask { await sleepVM.updateRunOptions(.keepAwake(on)) } }))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .font(CicadaTheme.font(size: 13, weight: .semibold))
+                Text(sleepVM.runOptionsWriteFailed ? Copy.keepAwakeWriteFailed : Copy.keepAwakeCaption)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(sleepVM.runOptionsWriteFailed ? CicadaTheme.danger : CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private func write(_ on: Bool) {

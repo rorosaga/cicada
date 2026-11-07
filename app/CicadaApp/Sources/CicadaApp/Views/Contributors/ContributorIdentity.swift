@@ -86,6 +86,46 @@ enum ContributorIdentity {
         }
     }
 
+    /// The picture of the MODEL an author id names (ROR-127), whichever provider served it: the maker read from the id
+    /// (`ModelMaker`: the provider's own organisation segment, else the model's family) mapped to a bundled mark.
+    /// When the maker is unknown (or ships no mark here) and the id came through a router or host that has a mark of its
+    /// own (`ModelMaker.router`), that router's mark draws — a mark, not initials (owner, 2026-11-06); only an id with
+    /// neither draws initials, never a guess. One function, so the avatar and the claim chip agree.
+    static func modelMark(author: String) -> String? {
+        if let mark = ModelMaker.maker(of: author).flatMap(makerMark) { return mark }
+        return ModelMaker.router(of: author).flatMap(routerMark)
+    }
+
+    /// A maker's bundled mark. Meta's is the infinity (`meta-infinity`; `muse` stays the Muse agent's), so a Llama
+    /// wears it.
+    static func makerMark(_ maker: ModelMaker.Maker) -> String? {
+        switch maker {
+        case .anthropic: "claude"
+        case .openai: "chatgpt"
+        case .google: "gemini"
+        case .mistral: "mistral"
+        case .deepseek: "deepseek"
+        case .qwen: "qwen"
+        case .zai: "zai"
+        case .moonshot: "moonshot"
+        case .minimax: "minimax"
+        case .xai: "grok"
+        case .meta: "meta-infinity"
+        }
+    }
+
+    /// A router's or host's own bundled mark: who served the model when the id does not say who made it.
+    static func routerMark(_ router: ModelMaker.Router) -> String? {
+        switch router {
+        case .openrouter: "openrouter"
+        case .ollama: "ollama"
+        case .together: "together"
+        case .fireworks: "fireworks"
+        case .deepinfra: "deepinfra"
+        case .groq: "groq"
+        }
+    }
+
     /// A provider's product family for a sentence — "Claude (claude-sonnet-4-5)"
     /// (G118 slice 2, §4.5: "the model family first and the raw id in
     /// parentheses"). nil for "other" and nil: the raw id then stands alone,
@@ -108,6 +148,8 @@ enum ContributorIdentity {
     /// into the claimed-names list — this is the only thing that stops a
     /// provider mark from reading as an orphaned asset.
     static let allProviderMarks: [String] = ["claude", "chatgpt", "gemini", "ollama", "openrouter"]
+        + ModelMaker.Maker.allCases.compactMap(makerMark)
+        + ModelMaker.Router.allCases.compactMap(routerMark)
 
     /// Initials for the badge when no mark applies. Delegates to
     /// `LogoImage.monogram(for:)` so a contributor badge and a platform tile

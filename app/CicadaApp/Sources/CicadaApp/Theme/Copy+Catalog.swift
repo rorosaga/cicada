@@ -3,15 +3,30 @@ import Foundation
 /// G217 (ruling 36 D6) — the Sources catalogue's words. Few on purpose: a row is a mark, a name and one status word.
 extension Copy {
     enum Catalog {
-        static let accounts = "Accounts and browser"
-        static let thisMac = "This Mac"
-        static let exports = "Exports"
-        static let feeds = "Feeds"
+        /// ROR-7 — the grid's sections: what waits on the person, what is connected, what they could add.
+        static let needsYou = "Needs you"
+        static let suggested = "Suggested"
+        static let messaging = "Messaging"
+        static let calendarsAndContacts = "Calendars and contacts"
+        static let browsers = "Browsers"
+        static let social = "Social"
+        static let videoAndMusic = "Video and music"
+        static let notesAndWork = "Notes and work"
+        static let filesAndActivity = "Files and activity"
         static let conversations = "Agents' conversations"
+        static let searchPrompt = "Search sources"
+        static func noMatch(_ words: String) -> String { "No source called \u{201C}\(words.prefix(40))\u{201D}" }
 
         static let connected = "Connected"
         static let needsSignIn = "Needs sign-in"
         static let off = "Off"
+        /// A list that is on but that only the person's own agent reads, while no agent on this Mac is connected.
+        static let waitingForAgent = "On · waits for your agent"
+        static let waitingForAgentHelp = "Your own agent reads this in your signed-in browser. Connect one on the "
+            + "Agents page; until then nothing is read."
+        /// A tile's short form of `waitingForAgent`: its section already says it is waiting.
+        static let waitsForAgent = "Waits for your agent"
+        static let needsAccess = "Needs access"
         static let justNow = "just now"
 
         static let connect = "Connect"
@@ -38,6 +53,38 @@ extension Copy {
             + "dated when they were created; importing again only adds what changed. Cicada never writes to Notion."
         static let calendarFeeds = "Calendar feeds"
 
+        /// G95 (2026-11-03) — meeting recorders: Hex's Markdown folder, Wispr Flow, any folder of transcripts.
+        static let meetings = "Meeting recorders"
+        static let meetingFolders = "Transcripts"
+        static let addHexFolder = "Add Hex's folder"
+        static let hexHow = "Hex saves each meeting it records as a Markdown file in its meetings folder. Pick that "
+            + "folder and Cicada keeps up with new and edited meetings."
+        static let meetingFolderHow = "Any recorder's transcripts: Markdown, text, subtitles (VTT or SRT) or JSON, one "
+            + "meeting per file. Cicada reads the words, never the audio."
+        /// Said once under a meeting source: whose words they are, and that Sleep reads them (owner, 2026-11-03).
+        static let meetingWords = "Lines marked You or Me are your own words; everyone else's stay theirs, and the "
+            + "recorder's summary is never yours. Sleep reads every meeting like a conversation."
+        static let addMeetingTitle = "Add a meeting folder"
+
+        /// 2026-10-26 — where each platform hands out the file an "Import a file" row takes, in the platform's own
+        /// words, checked that day (TikTok against its data-types page; the backend reads today's JSON layout).
+        static let howYouTube = "From Google Takeout: Deselect all, tick YouTube and YouTube Music, keep history and "
+            + "playlists, export once, and drop the .zip here."
+        static let howInstagram = "From Instagram: Accounts Center → Your information and permissions → Export your "
+            + "information → Saved, format JSON. Unzip it and drop saved_posts.json here."
+        static let howTikTok = "From TikTok: Profile → menu → Settings and privacy → Account → Download your data, "
+            + "file format JSON. When it's ready (a few days), unzip it and drop user_data_tiktok.json here."
+        static let howSpotify = "From Spotify: on spotify.com, open Account → Privacy settings → Download your "
+            + "data, and ask for Extended streaming history (every play) or Account data (the last year and your "
+            + "library). Spotify emails a .zip, which can take up to 30 days; drop it here. Each day of listening "
+            + "becomes one entry, and your liked songs, albums and podcasts become saved items."
+        static let howLinkedIn = "From LinkedIn: Settings → Data privacy → Get a copy of your data → Saved items. "
+            + "Unzip the archive and drop Saved Items.csv here."
+        /// CIC8 — where a chat export comes from, and where its conversations show once imported.
+        static let howChatExports = "ChatGPT, Claude and Gemini each email a link to a .zip of your chats. Drop it "
+            + "here as it is, without unzipping. Imported chats also show on their app's row on the Agents page."
+        static let howBookmarksFile = "A bookmarks file any browser exports (HTML or JSON) — in Chrome, Bookmarks → "
+            + "Bookmark manager → ⋮ → Export bookmarks."
         static let whatCameIn = "What came in"
         static let reading = "Reading"
         static func readSite(_ name: String) -> String { "Your agent may read \(name) in your browser" }
@@ -51,12 +98,21 @@ extension Copy {
             switch site {
             case "x": "Read my Bookmarks in my browser"
             case "linkedin": "Read my Saved posts in my browser"
+            case "goodreads": "Read my shelves in my browser"
+            case "spotify": "Read my Library in my browser"
             default: "Read my Saved in my browser"
             }
         }
-        static let chatExportsHere = "Each chat export sits on its agent's row."
-        static let dropHint = "Drop an export or a bookmarks file here."
+        /// CIC8 (2026-10-29) — the Sources header's one add, named for what people arrive holding.
+        static let importChatsOrFiles = "Import chats or files"
+        static let dropHint = "A chat export from ChatGPT, Claude or Gemini, a bookmarks file or another export. "
+            + "You can also drop one anywhere on the window."
         static func eyebrow(_ connected: Int) -> String { "\(connected) connected" }
+        /// `channel_registry.FEED_FETCH_OFF`, for a poll the person asked for.
+        static let feedsNotChecked =
+            "Feeds and calendar links aren't being checked: turn on Keep memory working in Settings → General."
+        /// The one action beside it: the row that holds that switch.
+        static let feedsTurnOn = "Open setting"
 
         // 2026-10-23 — connectors that work, said as they work.
         static let disconnect = "Disconnect"

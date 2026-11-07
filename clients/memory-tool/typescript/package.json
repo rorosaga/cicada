@@ -1,0 +1,22 @@
+{
+  "name": "cicada-memory-tool",
+  "version": "0.1.0",
+  "description": "A person's Cicada memory as the backend for Claude's memory tool, over Cicada's agent API (/v1).",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p ."
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": ">=1.3"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": { "optional": true }
+  },
+  "devDependencies": {
+    "typescript": ">=5"
+  }
+}

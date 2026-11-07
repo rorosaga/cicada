@@ -50,8 +50,15 @@ struct PageLooksSection: View {
     private var cache: LooksCache { .shared }
 
     var body: some View {
-        PageLooksBlock(refs: cache.looks(on: entityId), unplaced: cache.unplaced, entityId: entityId,
-                       emptyOpen: $emptyOpen, onOpen: { opened = $0 })
+        // Ruling 48 (17), DR-81 — on the page a section with nothing in it is not drawn: the card asks for this one
+        // only when the page holds a look, and while the board is still being read it draws nothing, never the fold.
+        Group {
+            let refs = cache.looks(on: entityId)
+            if !refs.isEmpty {
+                PageLooksBlock(refs: refs, unplaced: cache.unplaced, entityId: entityId,
+                               emptyOpen: $emptyOpen, onOpen: { opened = $0 })
+            }
+        }
             .sheet(item: $opened) { ref in
                 PageLookSheet(summary: ref, names: names, onClose: { opened = nil },
                               onOpenPage: { id in opened = nil; navigate(id) })

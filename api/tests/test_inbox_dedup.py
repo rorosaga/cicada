@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from api.services import inbox_generator, markdown_parser, predicates
 from api.services.claim_reconciler import _conflict_nudge
 from api.services.claims import Claim
@@ -61,9 +63,11 @@ def test_conflict_nudge_emits_a_question_object_with_age_descriptions():
     assert opts[0]["claim_id"] == "clm_a"
     assert opts[0]["observed_at"] == "2026-02-18"
     assert opts[0]["last_referenced"] == "2026-02-18"
-    # Description leads with the age phrase so staleness is visible first.
-    assert "6 months ago" in opts[0]["description"]
-    assert "ep_2026-02-18_004" in opts[0]["description"]
+    # The description is one clause, the day it was last said: no frozen age (the reader words the age when it is
+    # read) and no conversation id (it rides beside, as `source_episode`).
+    assert opts[0]["description"] == "Last mentioned 2026-02-18"
+    assert opts[0]["source_episode"] == "ep_2026-02-18_004"
+    assert "source_episode" not in opts[1]            # a claim with no conversation has none to name
     assert opts[2]["claim_id"] is None
 
 
@@ -177,7 +181,7 @@ def test_write_claim_nudges_merges_instead_of_duplicating(tmp_path):
             "id": "rodrigo",
             "action": "conflict_nudge",
             "entity": {"name": "Rodrigo"},
-            "predicate": "part-of",
+            "predicate": "takes-place-in",
             "question": "What is Rodrigo part of now?",
             "allow_other": True,
             "allow_defer": True,
@@ -214,7 +218,7 @@ def test_write_claim_nudges_returns_written_and_merged_counts(tmp_path):
             "id": "rodrigo",
             "action": "conflict_nudge",
             "entity": {"name": "Rodrigo"},
-            "predicate": "part-of",
+            "predicate": "takes-place-in",
             "question": "What is Rodrigo part of now?",
             "allow_other": True,
             "allow_defer": True,
@@ -266,6 +270,7 @@ def test_clarification_collision_bumps_updated_date_instead_of_duplicating(tmp_p
     assert fm["updated_date"] == str(__import__("datetime").date.today())
 
 
+@pytest.mark.usefixtures("pair_conversations")   # the dedup key, not the evidence (`test_pair_evidence`)
 def test_a_different_uncertainty_about_the_same_mention_is_a_new_question(tmp_path):
     from api.services.clarification_manager import ClarificationManager
 
@@ -327,10 +332,11 @@ def test_write_claim_nudges_persists_source_episode_and_skips_multi_valued(tmp_p
             "question": "q?", "allow_other": True, "allow_defer": True, "conflict_context": "c",
             "options": [{"key": "a", "label": "x"}, {"key": "b", "label": "y"}],
             "claim_id": "clm_b", "existing_claim_id": "clm_a", "source_episode": "ep_2026-08-20_001"}
-    single = {**base, "predicate": "part-of"}
+    single = {**base, "predicate": "takes-place-in"}
     multi = {**base, "predicate": "uses"}   # the seed says a tech stack is a set (G98)
     out = inbox_generator.write_claim_nudges([single, multi], memory)
-    assert out == {"written": 1, "merged": 0, "skipped_multi_valued": 1, "skipped_confirmed_folds": 0}
+    assert out == {"written": 1, "merged": 0, "skipped_multi_valued": 1, "skipped_confirmed_folds": 0,
+                   "skipped_bookkeeping": 0}
     [path] = sorted((memory / "inbox").glob("inbox-*.md"))
     fm = markdown_parser.parse(path).frontmatter
-    assert fm["predicate"] == "part-of" and fm["source_episode"] == "ep_2026-08-20_001"
+    assert fm["predicate"] == "takes-place-in" and fm["source_episode"] == "ep_2026-08-20_001"

@@ -16,6 +16,14 @@ import Foundation
 /// Short labels join `sleepV5Labels`, which `HomeSleepCopyTests`' rules read too.
 extension Copy {
     enum SleepV5 {
+        /// ROR-118 (the owner asked for it, 2026-11-06) - the lamp-off wording the page had before round 3, without its
+        /// full stop so "last read ..." can follow it (`Copy.lampOffSentence` is the same words, ended).
+        static let lampOffShort = "The lamp is off — I read when you ask"
+        /// The Waiting list's two right-hand columns, named once.
+        static let columnOldest = "Oldest"
+        static let columnItems = "Items"
+        /// ROR-118 round 5 - the list's last row: the saves nothing reads, with their count in the Items column (the tooltip says the rest).
+        static let keptForLookupRow = "Kept for lookup"
         // MARK: Counting words
 
         static func count(_ n: Int, _ locale: Locale) -> String { UsageFormat.count(n, locale: locale) }
@@ -67,11 +75,37 @@ extension Copy {
         static let pausedPlanWindowLead = "Paused. Your plan window is full."
         static let pausedPlanWeeklyLead = "Paused. Your plan's week is used up."
         static let pausedOverageLead = "Paused at your plan's limit."
+        /// ROR-96 — past the reset: the run still waits for the person (ruling 15), and the plan is no longer the reason.
+        static let planBackLead = "Paused. Your plan is back."
         static func resetsContinue(_ when: String) -> String { "Resets \(when). Continue when you like." }
         static func resetsThenContinue(_ when: String) -> String { "Resets \(when). Continue then." }
         static let continueWhenItResets = "Continue when your plan resets."
         static let pausedEngineLead = "Paused. The engine stopped answering."
         static let pausedEngineFixLead = "Paused. The engine needs a look."
+        /// The network left and did not come back while the run waited (2026-11-03): nothing to fix in the engine.
+        /// One lead per cause, each the backend's own diagnosis in brief (#575 review).
+        static let pausedOfflineLead = "Paused. This Mac was offline."
+        static let pausedAsleepLead = "Paused. This Mac was asleep."
+        static let pausedConnectionLead = "Paused. The connection kept dropping."
+        static func pausedOfflineLead(cause: String?) -> String {
+            switch cause {
+            case "asleep": pausedAsleepLead
+            case "connection": pausedConnectionLead
+            default: pausedOfflineLead
+            }
+        }
+        static func continueWhenOnline(filed: Int, frozen: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
+            "Continue once it's online. \(filedOf(filed, frozen, locale))."
+        }
+        /// While a run waits for the network to come back, then reads that part again on its own.
+        static let waitingForNetworkLead = "Waiting for the network."
+        static func waitingForNetworkTail(_ cause: String) -> String {
+            switch cause {
+            case "asleep": "The Mac slept mid-read. That part is read again once it's back."
+            case "no_network": "This Mac is offline. That part is read again once it's back."
+            default: "The connection dropped. It tries again shortly."
+            }
+        }
         static let readingStoppedLead = "Reading stopped."
         static let readingStoppedTail = "See what needs a fix in Past reads, then try again."
         static func continueToTryAgain(filed: Int, frozen: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
@@ -106,6 +140,8 @@ extension Copy {
         static let readingOptions = "Reading options…"
         /// The control row's third button (owner 2026-10-16); it opens the reading options sheet.
         static let options = "Options…"
+        /// ROR-118 round 4 - beside the room, "Options" with a slider mark (no ellipsis: a sheet, not a menu).
+        static let optionsShort = "Options"
         static let optionsHelp = "How a run reads: how often it saves, and what it runs on"
         static let seeYourPage = "See your page ›"
         static let retry = "Retry"
@@ -117,6 +153,10 @@ extension Copy {
 
         static let endRunHelp = "Forgets this pause. Nothing waiting changes, and Consolidate now starts a new run."
         static let continueFailed = "Couldn't continue the run — nothing changed."
+        static let startFailed = "Couldn't start reading. Nothing changed; try again in a moment."
+        static let engineUnread = "Couldn't read which engine is set."
+        static let engineUnsaved = "Couldn't change the engine. Nothing changed."
+        static let engineTryAgain = "Try again"
         static let endRunFailed = "Couldn't end the run — nothing changed."
         static let retryFailed = "Couldn't retry — nothing changed."
         static func runningFor(_ elapsed: String) -> String { "Running \(elapsed)" }
@@ -211,7 +251,7 @@ extension Copy {
         /// `scheduledSpend` stands alone in the engine menu.
         static func scheduledSpendClause(_ billing: String?) -> String? {
             switch billing {
-            case "charged": "Charged per use; Cicada sets no limit."
+            case "charged": "Charged per use; the spending limit is in the engine menu."
             case "local": "It stays on this Mac."
             default: nil
             }
@@ -225,6 +265,12 @@ extension Copy {
 
         static let keepPlanFree = "Keep plan free"
         static let off = "Off"
+        static let spendLimit = "Stop a run at"
+        static func spendChoice(_ usd: Double) -> String {
+            usd == usd.rounded() ? "$\(Int(usd))" : "$" + String(format: "%.2f", usd)
+        }
+        static let spendHelp = "Sleep runs only. A run stops here and files what it read, about one read over at most."
+        static let keyLimitTail = "Stopped at your API key's limit — details in Past reads."
         static func reserveChoice(_ pct: Int) -> String { "\(pct)% of the window" }
         static func reserveValue(_ pct: Int, windows: [String]) -> String {
             guard !windows.isEmpty else { return "\(pct)% of each window it reports" }
@@ -238,7 +284,7 @@ extension Copy {
         /// How a scheduled run spends (ruling 16), from `preview.scheduled.billing` — never a provider name.
         static func scheduledSpend(_ billing: String?) -> String? {
             switch billing {
-            case "charged": "It reads everything waiting and is charged per use; Cicada sets no limit."
+            case "charged": "It reads everything waiting and is charged per use, up to the spending limit here."
             case "local": "It reads everything waiting, on this Mac."
             default: nil
             }
@@ -272,7 +318,7 @@ extension Copy {
         }
         static func scheduledRunNote(_ billing: String?) -> String? {
             guard billing == "charged" else { return nil }
-            return "This run started on its schedule. It spends until the queue is empty; Cicada sets no limit."
+            return "This run started on its schedule. It spends until the queue is empty or it reaches your spending limit."
         }
         static func ownerBeliefsTitle(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "Your page has \(count(n, locale)) \(n == 1 ? "belief" : "beliefs")"
@@ -303,7 +349,12 @@ extension Copy {
             case "user": "Paused by you"
             case "reserve": "Paused to leave room in your plan"
             case "plan_window", "plan_weekly", "overage": "Paused at your plan's limit"
+            case "key_limit": "Paused at your API key's limit"
+            case "spend": "Paused at your spending limit"
+            case "plan_back": planBackLead
             case "engine": "Paused — the engine stopped"
+            case "offline": "Paused — this Mac was offline"
+            case "connection": "Paused — the connection kept dropping"
             case "restart": "Paused — Cicada restarted"
             case "bank_switched": bankSwitchedLead
             default: "Paused"
@@ -388,7 +439,11 @@ extension Copy {
             case "user": "you paused it"
             case "reserve": "to leave room in your plan"
             case "plan_window", "plan_weekly", "overage": "the plan's limit"
+            case "key_limit": "the API key's limit"
+            case "spend": "your spending limit"
             case "engine": "the engine stopped"
+            case "offline": "this Mac was offline"
+            case "connection": "the connection kept dropping"
             case "restart": "Cicada restarted"
             default: "paused"
             }
@@ -431,16 +486,17 @@ extension Copy {
 
     /// DR-59 over the v5 labels (short, plain, sentence case, priceless) — read by `HomeSleepCopyTests`' rules.
     static let sleepV5Labels: [String] = [
-        SleepV5.pause, SleepV5.pausing, SleepV5.continueRun, SleepV5.endRun, SleepV5.readingOptions, SleepV5.options,
+        SleepV5.pause, SleepV5.pausing, SleepV5.continueRun, SleepV5.endRun, SleepV5.readingOptions, SleepV5.options, SleepV5.optionsShort,
         SleepV5.seeYourPage, SleepV5.retry, SleepV5.optionsTitle, SleepV5.whatItReads, SleepV5.saveProgressEvery,
         SleepV5.runsOn, SleepV5.leaveRoom, SleepV5.setInEngineMenu, SleepV5.continueAfterReset, SleepV5.cancel,
         SleepV5.keepPlanFree, SleepV5.off, SleepV5.runLiveTitle, SleepV5.runDoneTitle, SleepV5.runStoppedTitle,
         SleepV5.ownerReadyTitle, SleepV5.parkedTitle, SleepV5.readingAll, SleepV5.batchesTitle,
         SleepV5.pagesItTouched, SleepV5.whatHappened, SleepV5.took, SleepV5.calls, SleepV5.window,
         SleepV5.continueOnSleepPage, SleepV5.stagesLabel, SleepV5.filingLead, SleepV5.pausingLead,
-        SleepV5.pausedLead, SleepV5.pausedTitle("reserve"), SleepV5.pausedTitle("user"),
-        SleepV5.pausedTitle("plan_window"), SleepV5.pausedTitle("engine"), SleepV5.pausedTitle("restart"),
-        SleepV5.consolidateAll(287), SleepV5.pausedMenuTitle(filed: 98, frozen: 287), SleepV5.pausedMenuPlain,
+        SleepV5.pausedLead, SleepV5.pausedTitle("reserve"), SleepV5.pausedTitle("user"), SleepV5.spendLimit,
+        SleepV5.pausedTitle("key_limit"), SleepV5.pausedTitle("spend"),
+        SleepV5.pausedTitle("plan_window"), SleepV5.pausedTitle("plan_back"), SleepV5.pausedTitle("engine"), SleepV5.pausedTitle("restart"),
+        SleepV5.pausedTitle("offline"), SleepV5.pausedTitle("connection"), SleepV5.consolidateAll(287), SleepV5.pausedMenuTitle(filed: 98, frozen: 287), SleepV5.pausedMenuPlain,
         SleepV5.scheduledRunTitle, SleepV5.retryAfterRun,
     ]
 
@@ -453,9 +509,13 @@ extension Copy {
         SleepV5.pausedByYouTail(filed: 74, frozen: 287), SleepV5.pausedReserveLead,
         SleepV5.continueWhenYouLike(filed: 98, frozen: 287), SleepV5.continuesAfter("3:40 PM", filed: 98, frozen: 287),
         SleepV5.willContinueBySelf("3:40 PM"), SleepV5.pausedPlanWindowLead, SleepV5.pausedPlanWeeklyLead,
-        SleepV5.pausedOverageLead, SleepV5.resetsContinue("after 2:00 PM"), SleepV5.resetsThenContinue("Tue 2:00 PM"),
+        SleepV5.planBackLead, SleepV5.pausedOverageLead, SleepV5.resetsContinue("after 2:00 PM"), SleepV5.resetsThenContinue("Tue 2:00 PM"),
         SleepV5.continueWhenItResets, SleepV5.pausedEngineLead, SleepV5.continueToTryAgain(filed: 98, frozen: 287),
         SleepV5.pausedEngineFixLead, SleepV5.continueWhenFixed(filed: 98, frozen: 287),
+        SleepV5.pausedOfflineLead, SleepV5.pausedAsleepLead, SleepV5.pausedConnectionLead,
+        SleepV5.continueWhenOnline(filed: 98, frozen: 287),
+        SleepV5.waitingForNetworkLead, SleepV5.waitingForNetworkTail("asleep"),
+        SleepV5.waitingForNetworkTail("no_network"), SleepV5.waitingForNetworkTail("connection"),
         SleepV5.readingStoppedLead, SleepV5.readingStoppedTail,
         SleepV5.restartLead, SleepV5.restartTail(filed: 98, frozen: 287), SleepV5.bankSwitchedLead,
         SleepV5.bankSwitchedTail, SleepV5.filedLead(286), SleepV5.parkedLine(1),

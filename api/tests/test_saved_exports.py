@@ -174,6 +174,17 @@ def test_tiktok_json_under_another_wrapper_is_still_read():
     assert {i.folder for i in items} == {"Favorites", "Likes"}
 
 
+def test_tiktok_json_in_todays_layout_comes_in_through_the_archive_member():
+    """``user_data_tiktok.json`` today: saves under "Likes and Favorites", history under "Your Activity" (2026-10-26)."""
+    data = {"Likes and Favorites": {k: v for k, v in TIKTOK_JSON["Your Activity"].items()
+                                    if k != "Video Browsing History"},
+            "Your Activity": {"Watch History": TIKTOK_JSON["Your Activity"]["Video Browsing History"]}}
+    items, platform, excluded = saved_exports.parse_member("TikTok/user_data_tiktok.json", json.dumps(data).encode())
+    assert platform == "tiktok"
+    assert {i.folder for i in items} == {"Favorites", "Likes"}
+    assert excluded == 1
+
+
 # --- YouTube -------------------------------------------------------------------
 
 

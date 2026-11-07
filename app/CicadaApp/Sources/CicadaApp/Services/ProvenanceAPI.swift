@@ -16,6 +16,8 @@ protocol ProvenanceAPI: Sendable {
         -> Conditional<EpisodeText>
     func fetchEntityProvenance(entityId: String, etag: String?) async throws -> Conditional<EntityProvenance>
     func fetchEpisodeCitations(episode: String, etag: String?) async throws -> Conditional<EpisodeCitations>
+    /// ROR-16 — every span pointing into a source, grouped by page.
+    func fetchSourceSpans(source: String, etag: String?) async throws -> Conditional<SourceSpans>
     /// Owner 2026-10-14 — "Where this comes from": `GET /entities/{id}/sources/overview`.
     func fetchSourcesOverview(entityId: String, etag: String?) async throws -> Conditional<PageSourcesOverview>
     /// G198 — "Who wrote it": `GET /entities/{id}/blame`. No ETag (read from git on demand).
@@ -92,6 +94,10 @@ extension APIClient: ProvenanceAPI {
 
     func fetchEpisodeCitations(episode: String, etag: String?) async throws -> Conditional<EpisodeCitations> {
         try await getConditional(Self.provenancePath("/episodes", episode, "/citations"), etag: etag)
+    }
+
+    func fetchSourceSpans(source: String, etag: String?) async throws -> Conditional<SourceSpans> {
+        try await getConditional(Self.provenancePath("/episodes", source, "/spans"), etag: etag)
     }
 
     func fetchSourcesOverview(entityId: String, etag: String?) async throws -> Conditional<PageSourcesOverview> {

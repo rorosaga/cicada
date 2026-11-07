@@ -24,6 +24,7 @@ from fastapi import HTTPException
 
 from api.config import Settings
 from api.models.schemas import (
+    ModelCatalogue,
     SleepEngineCandidate,
     SleepEngineChoice,
     SleepEngineModelPrice,
@@ -33,9 +34,11 @@ from api.models.schemas import (
     SleepEngineProvider,
     SleepEngineResponse,
     SleepReserveStatus,
+    SleepSpendStatus,
     SleepReserveWindow,
 )
-from api.services import agent_engine, codex_app_server, codex_engine, cycle_usage, engine_select, telemetry
+from api.services import (agent_engine, anthropic_models, cli_engines, codex_app_server, codex_engine, cycle_usage,
+                          engine_select, model_catalogue, price_supplement, telemetry)
 from api.services.connections import byok, secrets
 from api.services.connections import registry as registry_module
 
@@ -45,10 +48,10 @@ PREF_KEY = engine_select.SLEEP_ENGINE_PREF_KEY
 # `codex` be writable here yet silently ignored there, or the reverse.
 VALID_MODES = engine_select._VALID_PREF_MODES
 
-# The agent rung's model picker offers these plus whatever `agent_model` is
-# already configured (so an existing non-default choice never disappears
-# from the list just because this page hasn't seen it before).
-_AGENT_MODEL_CHOICES = ("sonnet", "haiku", "opus")
+# The agent rung's model picker: Claude Code has no command that lists models outside its interactive `/model`, so
+# its list is what `claude --help` names plus the documented aliases (`model_catalogue.claude_plan`, vision item 4) —
+# each alias always the latest model of its family — plus whatever `agent_model` is configured, so an existing
+# non-default choice never disappears from the list.
 
 # R-AG12: a key model is handed to LiteLLM as-is, so the PUT checks its shape
 # before it is stored — a leading letter or digit (never `-`, never a space),
@@ -112,6 +115,12 @@ def _resolved_model_pair(settings: Settings, reg, mode: str, source: str) -> tup
         disambiguation = (overrides.get("codex_disambiguation_model")
                           or codex_engine.model_for_stage(settings, "disambiguation") or model)
         return model, disambiguation
+    if mode in engine_select.CLI_ENGINE_MODES:
+        # G49/G50: "" = the tool's own default (OpenCode's pre-flight picks the first plan model it lists).
+        model = overrides.get("cli_engine_model") or cli_engines.model_for_stage(settings, None)
+        disambiguation = (overrides.get("cli_engine_disambiguation_model")
+                          or cli_engines.model_for_stage(settings, "disambiguation") or model)
+        return model, disambiguation
     if mode == "local":
         # Ollama binds one model for every stage (providers.resolve_llm_fn
         # forces `ollama/<ollama_model>` regardless of the caller's
@@ -140,7 +149,11 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
     chatgpt = statuses.get(engine_select.CODEX_CONNECTION_ID)
     ollama = statuses.get(engine_select.OLLAMA_CONNECTION_ID)
 
-    agent_models = list(_AGENT_MODEL_CHOICES)
+    # Vision item 4 (2026-10-28): the Claude plan's aliases as `claude --help` names them (cached a day, refreshed in
+    # the background — this read never waits on it), the documented ones beside them; a configured or saved choice
+    # stays listed (never swapped).
+    saved_agent = (model if mode == "agent" else None) or settings.agent_model or None
+    agent_models, agent_catalogue = model_catalogue.claude_plan(saved_agent)
     if settings.agent_model and settings.agent_model not in agent_models:
         agent_models.append(settings.agent_model)
 
@@ -178,17 +191,26 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
     key_models: list[str] = []
     if selected_card(mode, model) == "openrouter" or (settings.litellm_model or "").startswith("openrouter/"):
         with_key = [p for p in byok.PICKER if secrets.has_secret(p.env)]
-        key_models = [(with_key or list(byok.PICKER))[0].default_model]
+        key_models = [_provider_default((with_key or list(byok.PICKER))[0])]
+    # G237: a chosen Claude key lists what that key can use (the saved model first, so a tap keeps it), read from the
+    # key's own list, the documented floor before one. No read here: a list is read on a click, a save or a run.
+    claude_model = model if mode == "byok" and anthropic_models.is_claude(model) else None
+    claude_catalogue = None
+    if claude_model:
+        key_models, claude_catalogue = anthropic_models.card(claude_model)
 
     cards = [
         SleepEngineCandidate(
             id="auto", label="Auto", available=True,
-            detail="Your Claude plan if you're signed in, else your ChatGPT plan. Never an API key unless you choose it.",
+            # Ruling 46 (2026-10-28): the ladder in the order `engine_select._AUTO_LADDER` walks it.
+            detail=("Your Claude plan if you're signed in, else your ChatGPT plan, else Cursor, else OpenCode on a "
+                    "subscription. Never an API key unless you choose it."),
         ),
         SleepEngineCandidate(
             id="agent", label="Claude plan",
             available=bool(claude and claude.available), connected=bool(claude and claude.connected),
             models=agent_models, detail=claude.detail if claude else None,
+            next_command=claude.next_command if claude else None,
         ),
         SleepEngineCandidate(
             id="codex", label="ChatGPT plan",
@@ -196,6 +218,7 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
             models=codex_models,
             detail=((chatgpt.plan_label or "Signed in to ChatGPT.") if chatgpt and chatgpt.connected
                     else (chatgpt.detail if chatgpt else None)),
+            next_command=chatgpt.next_command if chatgpt else None,
         ),
         SleepEngineCandidate(
             id="openrouter", label="OpenRouter", mode="byok", available=True, connected=or_connected,
@@ -212,11 +235,109 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
             detail="Your own key from Anthropic, OpenAI, Gemini, xAI, Groq or Mistral.",
         ),
     ]
+    for card in cards:
+        card.kind = {"auto": "auto", "agent": "plan", "codex": "plan", "local": "local"}.get(card.id, "key")
+        card.engine = {"agent": "claude-cli", "codex": "codex-cli", "local": "ollama", "openrouter": "litellm",
+                       "byok": "litellm"}.get(card.id)
+    # G49/G50: the person's own signed-in Cursor, OpenCode and Grok, after the two plans — all choosable; Cursor and
+    # OpenCode are also Auto's last two rungs (ruling 46), Grok never. Each probe is cached for 30 s, and this read
+    # warms the cache the previews below resolve Auto against.
+    statuses_cli = await asyncio.gather(*(cli_engines.astatus(spec, stale_ok=True)
+                                          for spec in cli_engines.SPECS.values()))
+    at = next(i for i, c in enumerate(cards) if c.id == "codex") + 1
+    for offset, (spec, st) in enumerate(zip(cli_engines.SPECS.values(), statuses_cli)):
+        saved = (model if mode == spec.mode else None) or None
+        cards.insert(at + offset, SleepEngineCandidate(
+            id=spec.mode, label=spec.name, kind="plan", engine=spec.label, mark=spec.mode,
+            available=st.available, connected=st.connected,
+            models=cli_engines.model_choices(spec, st, saved),
+            detail=st.detail, billing_note=spec.billing_note, sign_in=st.sign_in or spec.sign_in,
+            not_ready=st.not_ready, next_command=st.next_command,
+            model_note=cli_engines.stale_model_sentence(spec, st, saved),
+        ))
+    _attach_catalogues(cards, agent_catalogue=agent_catalogue, snap=snap, configured_codex=configured_codex,
+                       ollama_models=ollama_models, cli_statuses=dict(zip(cli_engines.SPECS, statuses_cli)),
+                       mode=mode, model=model, claude_catalogue=claude_catalogue)
     key_model = (model if mode == "byok" and model and selected_card(mode, model) != "openrouter" else None) \
         or (key_models[0] if key_models else None) or settings.litellm_model
     await _attach_usage(cards, snap, or_models=or_models, key_model=key_model,
-                        bank=telemetry.bank_name(settings))
+                        bank=telemetry.bank_name(settings), key_models=key_models if claude_model else None)
+    if claude_model:
+        card = next(c for c in cards if c.id == "byok")
+        card.model_note = anthropic_models.forwarded_sentence(claude_model)
     return cards
+
+
+def _provider_default(provider) -> str:
+    """The model a provider's key starts on: for Claude, the small tier of the key's own list (G237), the table's
+    default for every other provider."""
+    return anthropic_models.default_model() if provider.id == "anthropic" else provider.default_model
+
+
+async def refresh_models(settings: Settings, card_id: str) -> bool:
+    """The person's Refresh on one card: re-read its model list from its own harness now, through the same cached
+    probe the page reads (so the GET that follows serves the new answer). ``False`` for a card with no list to read
+    (Auto, the key cards). A probe that fails keeps the last answer — never an empty list."""
+    if card_id == "agent":
+        await asyncio.to_thread(model_catalogue.refresh_claude)
+        return True
+    if card_id == "codex":
+        await codex_app_server.snapshot(fresh=True)
+        return True
+    if card_id in cli_engines.SPECS:
+        await asyncio.to_thread(cli_engines.status, cli_engines.SPECS[card_id], fresh=True)
+        return True
+    if card_id == "local":
+        return True   # Ollama's tags are read live on every GET already
+    if card_id == "byok" and secrets.has_secret(anthropic_models.KEY_ENV):
+        # G237: the one key card with a list of its own: a read that bills nothing, on the person's click.
+        await asyncio.to_thread(anthropic_models.refresh)
+        return True
+    return False
+
+
+def _attach_catalogues(cards, *, agent_catalogue: dict, snap, configured_codex: str, ollama_models: list[str],
+                       cli_statuses: dict, mode: str, model: str | None, claude_catalogue: dict | None = None) -> None:
+    """Vision item 4: each card's ``models`` described — where each came from and when — from the reads this request
+    already made (no probe of its own). The key cards list one default, said as ``default``."""
+    import time as _time
+
+    by_id = {c.id: c for c in cards}
+    if (c := by_id.get("agent")) is not None:
+        c.catalogue = ModelCatalogue(**agent_catalogue)
+    if (c := by_id.get("codex")) is not None:
+        roster = [(m, "harness") for m in (snap.models if snap else ())]
+        c.catalogue = ModelCatalogue(**model_catalogue.catalogue(
+            "codex-cli", roster, as_of=snap.as_of if snap else None, source="model/list",
+            drift=bool(snap and snap.models_drift), saved=configured_codex or None))
+    if (c := by_id.get("local")) is not None:
+        c.catalogue = ModelCatalogue(**model_catalogue.catalogue(
+            "ollama", [(m, "harness") for m in ollama_models], as_of=_time.time() if ollama_models else None,
+            source="ollama tags", saved=model if mode == "local" else None))
+    for card_id in ("openrouter", "byok"):
+        if (c := by_id.get(card_id)) is not None:
+            if card_id == "byok" and claude_catalogue is not None:
+                c.catalogue = ModelCatalogue(**claude_catalogue)
+                continue
+            c.catalogue = ModelCatalogue(**model_catalogue.catalogue(
+                "litellm", [(m, "default") for m in c.models], as_of=None, source="default"))
+    for spec_mode, st in cli_statuses.items():
+        spec, c = cli_engines.SPECS[spec_mode], by_id.get(spec_mode)
+        if c is None:
+            continue
+        listed = set(st.models or ())
+        rows = [(m, "harness" if m in listed else ("default" if m in spec.default_models else "saved"))
+                for m in c.models]
+        cat = model_catalogue.catalogue(
+            spec.label, [r for r in rows if r[1] != "saved"], as_of=st.as_of or None,
+            source=f"{spec.binaries[0]} models", drift=st.drift, tool=spec.name,
+            saved=next((m for m, how in rows if how == "saved"), None))
+        if spec is cli_engines.CURSOR:
+            # Ruling 46a: a third-party model in Cursor says how it is billed before it is chosen.
+            for row in cat["models"]:
+                if not cli_engines.cursor_own_model(row["id"]):
+                    row["billingNote"] = cli_engines.CURSOR_SEPARATE_BILLING
+        c.catalogue = ModelCatalogue(**cat)
 
 
 def _plan_window_usage(snap) -> SleepEngineUsage | None:
@@ -228,17 +349,19 @@ def _plan_window_usage(snap) -> SleepEngineUsage | None:
                             resets_at=resets, as_of=snap.as_of, source="codex-snapshot")
 
 
-async def _attach_usage(cards, snap, *, or_models: list[str], key_model: str, bank: str | None = None) -> None:
+async def _attach_usage(cards, snap, *, or_models: list[str], key_model: str, bank: str | None = None,
+                        key_models: list[str] | None = None) -> None:
     """Fill each card's caption source. The ledger read and litellm's price
     table are off the event loop (the table's import is slow and cached)."""
     by_id = {c.id: c for c in cards}
     last = await asyncio.to_thread(cycle_usage.last_cycles, None, bank)
-    wanted = list(dict.fromkeys([*or_models, key_model]))
+    wanted = list(dict.fromkeys([*or_models, key_model, *(key_models or [])]))
     prices = await asyncio.to_thread(lambda: {m: cycle_usage.list_price_per_million(m) for m in wanted})
 
     def _price(m: str) -> SleepEngineModelPrice:
         i, o = prices[m]
-        return SleepEngineModelPrice(input_per_million_usd=i, output_per_million_usd=o)
+        return SleepEngineModelPrice(input_per_million_usd=i, output_per_million_usd=o,
+                                     basis=price_supplement.price_basis(m))
 
     if (c := by_id.get("codex")) is not None:
         c.usage = _plan_window_usage(snap)
@@ -257,7 +380,7 @@ async def _attach_usage(cards, snap, *, or_models: list[str], key_model: str, ba
         c.usage.last_run_share = list(run.get("share") or [])
         c.usage.last_run_equiv_usd = run.get("equiv_usd")
     for card_id, model_id, models in (("openrouter", or_models[0] if or_models else None, or_models),
-                                      ("byok", key_model, [key_model])):
+                                      ("byok", key_model, key_models or [key_model])):
         card = by_id.get(card_id)
         if card is None or not model_id:
             continue
@@ -304,7 +427,8 @@ def run_keeps_engine(settings: Settings, previews: SleepEnginePreviews) -> bool:
 
 #: How a run on an engine is billed, from its id alone (Sleep page v5). No provider is named:
 #: the app words it from this enum and the engine label the person already chose.
-_BILLING = {"claude-cli": "plan", "codex-cli": "plan", "litellm": "charged", "ollama": "local"}
+_BILLING = {"claude-cli": "plan", "codex-cli": "plan", "litellm": "charged", "ollama": "local",
+            "cursor-cli": "plan", "opencode-cli": "plan", "grok-cli": "plan"}
 
 
 def billing_for(engine: str | None) -> str:
@@ -317,7 +441,7 @@ def _reserve_status(settings: Settings, reg, manual_engine: str) -> SleepReserve
     from api.services import sleep_cycle, sleep_run_prefs
 
     opts = sleep_run_prefs.load(reg)
-    applies = manual_engine in engine_select.PLAN_ENGINES
+    applies = manual_engine in engine_select.RESERVE_ENGINES
     windows: list[SleepReserveWindow] = []
     ds = getattr(sleep_cycle.get_sleep_state(), "drain", None)
     guard = getattr(ds, "guard", None) if ds is not None else None
@@ -327,6 +451,14 @@ def _reserve_status(settings: Settings, reg, manual_engine: str) -> SleepReserve
         windows = [SleepReserveWindow(window="five_hour"), SleepReserveWindow(window="seven_day")]
     return SleepReserveStatus(pct=opts.reserve_pct, choices=list(sleep_run_prefs.RESERVE_CHOICES),
                               applies=applies, windows=windows)
+
+
+def _spend_status(reg, manual_billing: str | None) -> SleepSpendStatus:
+    """The spending limit (ROR-102): what is set, and whether a run you start would be charged per use."""
+    from api.services import sleep_run_prefs, sleep_spend
+
+    return SleepSpendStatus(limit_usd=sleep_run_prefs.load(reg).spend_limit_usd, choices=list(sleep_spend.CHOICES),
+                            applies=manual_billing == "charged")
 
 
 async def build_response(settings: Settings, reg) -> SleepEngineResponse:
@@ -341,9 +473,11 @@ async def build_response(settings: Settings, reg) -> SleepEngineResponse:
     # status cache their cheap probes read (a cold cache falls back to a CLI spawn).
     candidates = await _candidates(settings, reg, mode=mode, model=model)
 
-    manual_settings, manual_why = await engine_select.resolve_settings(settings, reg, user_triggered=True)
+    # Ruling 46: the page never waits on a tool's status (`cli_wait=0`) — the read above already warmed it, and a
+    # refresh still running reads as the last known answer.
+    manual_settings, manual_why = await engine_select.resolve_settings(settings, reg, user_triggered=True, cli_wait=0)
     scheduled_settings, scheduled_why = await engine_select.resolve_settings(
-        settings, reg, user_triggered=False
+        settings, reg, user_triggered=False, cli_wait=0
     )
     preview = SleepEnginePreviews(
         manual=_preview(manual_settings, manual_why),
@@ -365,7 +499,7 @@ async def build_response(settings: Settings, reg) -> SleepEngineResponse:
     # R-AG11: the picker — ids, names and key PRESENCE only, never a value.
     providers = [
         SleepEngineProvider(id=p.id, label=p.brand, connection_id=p.connection_id,
-                            has_key=secrets.has_secret(p.env), default_model=p.default_model,
+                            has_key=secrets.has_secret(p.env), default_model=_provider_default(p),
                             key_url=p.key_url)
         for p in byok.PICKER
     ]
@@ -374,6 +508,7 @@ async def build_response(settings: Settings, reg) -> SleepEngineResponse:
         source=source, candidates=candidates, preview=preview, allow_overage=allow_overage,
         selected=selected_card(mode, model), provider=provider, providers=providers,
         reserve=_reserve_status(settings, reg, preview.manual.engine),
+        spend=_spend_status(reg, preview.manual.billing),
         run_keeps_engine=run_keeps_engine(settings, preview),
         auto_local_kept_on=_auto_local_kept_on(reg),
     )
@@ -395,7 +530,7 @@ def validate_and_write(body: SleepEngineChoice, reg) -> None:
     if body.mode not in VALID_MODES:
         raise HTTPException(status_code=422, detail=f"mode must be one of {VALID_MODES}")
 
-    if body.mode in ("agent", "codex"):
+    if body.mode in ("agent", "codex", *engine_select.CLI_ENGINE_MODES):
         # Both plan engines pass the id to a CLI as `--model`/`-m`: the same
         # charset `build_argv` enforces before any spawn (a leading `-` must
         # never become a flag) is checked here, before it is ever stored.
@@ -407,6 +542,11 @@ def validate_and_write(body: SleepEngineChoice, reg) -> None:
             raise HTTPException(
                 status_code=422, detail="invalid disambiguation model id for this engine"
             )
+        # Rail 2: an OpenCode model on an API key is refused here too, before it is stored.
+        if body.mode == "opencode":
+            for value in (body.model, body.disambiguation_model):
+                if value and cli_engines.metered_refusal(cli_engines.OPENCODE, value):
+                    raise HTTPException(status_code=422, detail=cli_engines.metered_refusal(cli_engines.OPENCODE, value))
     elif body.mode == "local":
         if body.model is not None and not body.model.strip():
             raise HTTPException(status_code=422, detail="model must not be blank")
@@ -453,4 +593,6 @@ def validate_and_write(body: SleepEngineChoice, reg) -> None:
     # is an OpenAI model and cannot run on an Anthropic, Groq or OpenRouter key.
     if (body.mode == "byok" and "model" in body.model_fields_set and body.model
             and "disambiguation_model" not in body.model_fields_set):
-        reg.set_pref(PREF_KEY, "disambiguation_model", body.model)
+        # G237: on a Claude key the judge is the small tier, as on the plan, whatever the main model is.
+        judge = anthropic_models.default_model() if anthropic_models.is_claude(body.model) else body.model
+        reg.set_pref(PREF_KEY, "disambiguation_model", judge)

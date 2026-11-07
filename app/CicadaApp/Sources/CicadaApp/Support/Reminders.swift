@@ -9,6 +9,8 @@ protocol ReminderScheduling {
     func requestPermission() async -> Bool
     func schedule(_ wait: ExportWait) async
     func cancel(_ wait: ExportWait)
+    /// Ruling 58 — a weekly export nudge a build from before it left with macOS, which would otherwise keep firing.
+    func removeRetiredNudges()
 }
 
 /// `UNUserNotificationCenter.current()` raises in a process with no app bundle
@@ -52,7 +54,22 @@ struct LiveReminderScheduler: ReminderScheduling {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [Self.identifier(wait)])
     }
 
+    func removeRetiredNudges() {
+        guard ReminderAvailability.current else { return }
+        Task { @MainActor in
+            let center = UNUserNotificationCenter.current()
+            let pending = await center.pendingNotificationRequests().map(\.identifier)
+            center.removePendingNotificationRequests(withIdentifiers: pending.filter(Self.isRetired))
+            let delivered = await center.deliveredNotifications().map(\.request.identifier)
+            center.removeDeliveredNotifications(withIdentifiers: delivered.filter(Self.isRetired))
+        }
+    }
+
     static func identifier(_ wait: ExportWait) -> String { "cicada.exportWait.\(wait.id)" }
+    /// The identifiers the retired nudge and arrival notice were posted under; a wait's own never matches.
+    nonisolated static func isRetired(_ identifier: String) -> Bool {
+        identifier.hasPrefix("cicada.exportWeekly.") || identifier.hasPrefix("cicada.exportArrived.")
+    }
 }
 
 /// A tapped reminder, held until the router attaches (the `DockOpenQueue` shape).

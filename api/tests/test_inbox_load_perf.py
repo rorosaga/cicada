@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 
 from _inbox_bench_bank import build
 from api import config, main
-from api.services import id_utils, inbox_service, markdown_parser
+from api.services import id_utils, inbox_service, markdown_parser, search_index, search_service
 
 
 def _settle(directory: Path) -> None:
@@ -131,14 +131,141 @@ def test_the_inbox_route_reads_off_the_event_loop(tmp_path, monkeypatch):
     assert seen == [False, False, False]
 
 
+def _person(memory: Path, eid: str, episodes: list[str] | None = None) -> None:
+    (memory / "entities").mkdir(parents=True, exist_ok=True)
+    markdown_parser.write(memory / "entities" / f"{eid}.md",
+                          {"name": eid.replace("-", " ").title(), "type": "person", "status": "active",
+                           "source_episodes": episodes or []}, "Body.")
+
+
+def _pair_question(memory: Path, item_id: str, a: str, b: str) -> None:
+    (memory / "inbox").mkdir(parents=True, exist_ok=True)
+    markdown_parser.write(memory / "inbox" / f"{item_id}.md",
+                          {"kind": "merge_suggestion", "status": "pending", "priority": 0.5, "entity_id": a,
+                           "entity_name": a, "merge_target_hint": b, "title": f"Is {a} the same as {b}?",
+                           "created_date": "2026-09-01"}, "Context.")
+
+
+def _conversation(memory: Path, episode: str, body: str) -> None:
+    (memory / "episodes").mkdir(parents=True, exist_ok=True)
+    markdown_parser.write(memory / "episodes" / f"{episode}.md",
+                          {"id": episode, "timestamp": "2026-08-01T10:00:00+00:00", "processed": True}, body)
+
+
+def test_a_rebuild_never_searches_nor_starts_an_index_build(tmp_path, monkeypatch):
+    """Regression (G209, 6a410524): each person question with no pairing conversation on hand ran four
+    `search_service.search` calls, and each of those started the index build and walked every page while none existed:
+    0.19 s to 10.6 s a rebuild at the owner's scale, on the path of a person opening the Inbox."""
+    memory = tmp_path / "memory"
+    _person(memory, "alice-example")
+    _person(memory, "bob-example")
+    _pair_question(memory, "inbox-001", "alice-example", "bob-example")
+
+    def refused(*args, **kw):
+        raise AssertionError("the Inbox's read path searched")
+
+    monkeypatch.setattr(search_service, "search", refused)
+    monkeypatch.setattr(search_index, "ensure_fresh", refused)
+    monkeypatch.setattr(search_index, "_spawn", refused)
+    assert [i.id for i in inbox_service.load_inbox(memory)] == ["inbox-001"]
+    assert not search_index.db_path(memory).exists(), "a read builds nothing"
+
+
+def test_a_card_finds_the_pairing_conversation_only_the_index_knows(tmp_path):
+    """The sides sit in different passages of a conversation neither page lists; a newer one names one side only."""
+    memory = tmp_path / "memory"
+    _person(memory, "alice-example")
+    _person(memory, "bob-example")
+    _pair_question(memory, "inbox-001", "alice-example", "bob-example")
+    filler = "A placeholder sentence about an ordinary day and the errands that filled it. " * 60
+    _conversation(memory, "ep_2026-08-01_001", f"user: Alice Example called. {filler}{filler} Bob Example replied.")
+    for n in range(2, 12):
+        _conversation(memory, f"ep_2026-08-{n:02d}_001", f"user: Alice Example called about something else. {filler}")
+    assert inbox_service.load_inbox(memory)[0].cause.episode_id is None, "no index yet: the usual tiers, no wait"
+
+    search_index.ensure_fresh(memory, wait=True)
+    inbox_service.reset_built()
+    assert inbox_service.load_inbox(memory)[0].cause.episode_id == "ep_2026-08-01_001"
+
+
+def test_a_conversations_only_search_with_no_index_walks_no_page(tmp_path, monkeypatch):
+    """The fallback answers pages from frontmatter; a search for conversations alone has nothing for it to look at."""
+    memory = tmp_path / "memory"
+    _page(memory, "alpha-project")
+    monkeypatch.setattr(search_index, "ensure_fresh", lambda *a, **kw: "building")
+    monkeypatch.setattr(search_service.bank_index, "files",
+                        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("walked the pages")))
+    found = search_service.search(memory, "alpha", kinds=("episode",), mode="prefix", vectors=False)
+    assert found.results == [] and found.index_state == "building"
+
+
 @pytest.mark.bench
 def test_load_inbox_at_the_owners_scale_is_well_under_half_a_second(tmp_path):
     memory = build(tmp_path / "memory")              # 4,700 pages, 913 items
     _settle(memory / "entities")
     inbox_service.load_inbox(memory)
-    runs = []
+    # The build itself, every run (the built list would answer a repeat for nothing, speed 2026-10-29), in CPU time:
+    # a wall clock failed this whenever the Mac ran 30–55 other processes, and the budget is the code's cost.
+    # Each budget also holds the wall clock under 4× itself (review of #518): CPU alone would pass a read that waits.
+    def timed(reset) -> tuple[float, float]:
+        cpus, walls = [], []
+        for _ in range(3):
+            reset()
+            cpu, wall = time.process_time(), time.perf_counter()
+            inbox_service.load_inbox(memory)
+            cpus.append(time.process_time() - cpu)
+            walls.append(time.perf_counter() - wall)
+        return min(cpus), min(walls)
+
+    def rebuild():
+        inbox_service.reset_built()
+
+    def cold():   # and the caches a rebuild leans on: the cut excerpts and the untimed ids (review of #518)
+        from api.services import episode_time, inbox_context
+
+        inbox_service.reset_built()
+        inbox_context._EXCERPTS.clear()
+        episode_time._UNTIMED.clear()
+
+    for label, reset in (("rebuild", rebuild), ("cold rebuild", cold)):
+        cpu, wall = timed(reset)
+        print(f"load_inbox {label} at 4,700 pages / 913 items: {cpu * 1000:.0f} ms CPU, {wall * 1000:.0f} ms wall")
+        assert cpu < 0.5 and wall < 2.0, (label, cpu, wall)
+    search_index.ensure_fresh(memory, wait=True)     # each person question then also asks the index (G209)
+    cpu, wall = timed(rebuild)
+    print(f"load_inbox rebuild, index built, at 4,700 pages / 913 items: {cpu * 1000:.0f} ms CPU, {wall * 1000:.0f} ms wall")
+    assert cpu < 0.5 and wall < 2.0, ("rebuild, index built", cpu, wall)
+    cpu, wall = timed(lambda: None)
+    print(f"load_inbox, nothing moved: {cpu * 1000:.1f} ms CPU, {wall * 1000:.1f} ms wall")
+    assert cpu < 0.1 and wall < 0.4, (cpu, wall)
+
+
+@pytest.mark.bench
+def test_the_read_order_at_8000_pages_costs_a_rebuild_nothing_it_can_feel(tmp_path, monkeypatch):
+    """Ruling 70: the order reads a raw claim count for each question's pages and a small counter - no parse. At 8,000
+    pages with a counter of 2,000 rows a warm rebuild stays under the 4,700-page budget above (measured: the old and the
+    new order within noise of each other, ~0.25 s)."""
+    from datetime import date, timedelta
+
+    from api.services import bank_registry, page_reads
+
+    monkeypatch.setenv("CICADA_TELEMETRY", "on")
+    memory = build(tmp_path / "memory", pages=8000)
+    bank_registry.ensure_bank_ids(memory)
+    _settle(memory / "entities")
+    today = date.today()
+    for k in range(10, 0, -1):
+        for n in range(0, 8000, 4):
+            page_reads.count(memory, f"thing-{n:04d}", "app", today=today - timedelta(days=k))
+    page_reads.reset()
+    inbox_service.load_inbox(memory)
+    cpus, walls = [], []
     for _ in range(3):
-        t = time.perf_counter()
-        inbox_service.load_inbox(memory)
-        runs.append(time.perf_counter() - t)
-    assert min(runs) < 0.5, runs
+        inbox_service.reset_built()
+        cpu, wall = time.process_time(), time.perf_counter()
+        served = inbox_service.load_inbox(memory)
+        cpus.append(time.process_time() - cpu)
+        walls.append(time.perf_counter() - wall)
+    print(f"load_inbox rebuild at 8,000 pages / {len(served)} served, 2,000 counted: "
+          f"{min(cpus) * 1000:.0f} ms CPU, {min(walls) * 1000:.0f} ms wall")
+    assert min(cpus) < 0.5 and min(walls) < 2.0, (cpus, walls)

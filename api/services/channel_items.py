@@ -21,6 +21,9 @@ means wherever the bank records it, and says so channel by channel below:
   (``sources/bookmark_seen.json``) joined to the saved-URL index, then the
   links Cicada kept after they left the browser, each with ``left`` (G191 v4);
   a bank synced before that file existed falls back to the browser's media pages.
+* ``rss`` — as the next line says, each row also filed under the followed feed that brought it in (ROR-108,
+  :func:`_feed_rows`, the page's list of feeds :func:`_feed_tree`): the feed a poll stamped on its ``url_index`` row;
+  with no stamp yet, the one followed feed on the item's host; else *Other* (a pasted feed, an unfollowed one).
 * ``safari-tabs``, the connectors, ``rss``, ``files`` — the media pages stamped
   with the channel's origins (``source_overview.CATALOG``); ``files`` also takes
   the pages written before writers stamped an origin, as its card does.
@@ -35,7 +38,10 @@ means wherever the bank records it, and says so channel by channel below:
   listed (they are counted from these days). A day opens to its videos through
   :func:`watched_day` (Sources v4, owner 2026-10-19: "what I watched in one
   day: a dropdown and you see all the videos I watched that day").
-* ``imessage`` — one row per chat (``kind: chat``), titled by **who the chat is
+* ``apple-books``, ``goodreads``, ``book-scan`` (G39, G233) — one row per book that door's records hold, a ``page`` row
+  once it has its book page (a book page's own origin is ``book``, so the media-origin lists never find it, and it has
+  no saved link, so the Feed holds no row for it to open).
+* ``imessage``, ``whatsapp``, ``telegram-chats`` (chats-ux-v2) — one row per chat (``kind: chat``), titled by **who the chat is
   with** (its sittings' ``correspondent`` record), dated by its newest sitting,
   with ``sittings`` and ``chat``: the app's conversation hash, that name, and
   the stored photo's hash when the chat shares one (Sources v4). A chat opens to
@@ -53,6 +59,10 @@ the newest answer the person gave to "What made you save this?"
 (``saved_why`` on the link's episode: the reasons' labels and their own
 words), when there is one.
 
+``place`` (G161, ROR-111) says that an item can be opened where it lives and what kind of place that is (``notes``,
+``github``, ``web``); absent when none is known. A list still never carries the URL or a note's id: :func:`place`
+answers them for one item, when the person clicks.
+
 Titles only on the wire (scrubbed, one line, ≤ 120 characters), never a body.
 Engine-free, read-only, never outside the bank, and never a Store domain: the
 router ETags each page and the app keeps it in memory, like provenance. The
@@ -62,14 +72,20 @@ number (the drifts above are real and disclosed).
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
+import time
 from datetime import date, datetime, timezone
+from functools import cached_property
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from api.services import (
     bank_index,
     bookmark_seen,
     bookmark_sync,
+    books,
     calendar_local,
     episode_ids,
     episode_time,
@@ -77,6 +93,7 @@ from api.services import (
     reminders_local,
     episode_scrub,
     fact_sources,
+    feed_registry,
     folder_source,
     history_index,
     media_ingestor,
@@ -85,8 +102,10 @@ from api.services import (
     notes_sync,
     reading_hosts,
     saved_why,
+    source_collections,
     source_overview,
     tab_groups,
+    text_fold,
     watch_history,
     wispr_flow,
 )
@@ -100,7 +119,23 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-6`: marks-2 — a saved YouTube video's row carries `video` (its still is asked by the page's id), and a saved
 #: link still waiting for Sleep (an episode row) carries `host`/`site` (its icon is asked by the episode's id).
 #: `g161-7`: ruling 39 — a row whose item came in days after its own date carries `received` (that day).
-SHAPE = "g161-7"
+#: `g161-8`: ruling 47 tier 2 — the Readwise and live Notion rows list their episodes.
+#: `g161-9`: G32 — the Spotify listening row lists its days.
+#: `g161-10`: chats-ux-v2 — WhatsApp and Telegram list one row per chat too; a chat row carries `messages` and `group`.
+#: `g161-11`: source-page-v3, on top of `g161-10` — a page carries `all` and `latest`, and `q` narrows it (the route
+#: folds `q` into the ETag's extra).
+#: `g161-12`: 2026-11-03 — a chat row carries `ticked`, `pinned`, `last_at`, `synced_at` and its face's `picture`;
+#: pinned chats list first.
+#: `g161-13`: G230 — the GitHub row lists its repository pages.
+#: `g161-14`: G39, G233 — Apple Books, Goodreads and book scans list their books.
+#: `g161-15`: 2026-11-04 — a meeting row carries `duration_s`; `collection` narrows a page to one calendar, list or
+#: Notes folder (`collections`).
+#: `g161-17`: G161 (ROR-111) — a row whose item records where it lives carries `place`, the kind of that place.
+#: `g161-18`: ROR-108 — `collection` narrows RSS to one followed feed; `collections` lists the feeds.
+#: `g161-19`: ROR-108 — a followed feed's row carries the mark it wears: `mark` (a bundled one) or `site`.
+#: `g161-20`: G89 — a followed Substack publication lists on `substack-feeds`; `rss` lists only the other feeds.
+#: `g161-21`: ROR-15 — a Notes row the person pinned in Notes carries `pinned` (pinned rows list first, as a chat's do).
+SHAPE = "g161-21"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -113,10 +148,19 @@ _ORIGIN_CHANNELS = {
     "wispr-flow": (wispr_flow.ORIGIN,),
     "telegram": ("telegram",),
     "imessage": ("imessage",),
+    "whatsapp": ("whatsapp",),
+    "telegram-chats": ("telegram-chats",),
     "notion": ("notion-export",),
+    # Ruling 47 tier 2: what the person's own connection brought in (a live Notion page).
+    "notion-api": ("notion-api",),
+    # ROR-115: a Linear issue and its comments.
+    "linear-api": ("linear-api",),
+    # G32: a Spotify download's listening days, one row each (index-only, opened in the Reader).
+    "spotify-listening": ("spotify-history",),
 }
-#: A channel whose items are media pages, by the origins its catalog row owns.
-_MEDIA_CHANNELS = ("safari-tabs", "pinterest", "reddit", "x", "rss", "files")
+#: A channel whose items are media pages, by the origins its catalog row owns. G230: GitHub's row lists the
+#: repository pages (starred or added); the repositories the person owns are offered in its own panel.
+_MEDIA_CHANNELS = ("safari-tabs", "pinterest", "reddit", "x", "rss", "files", "github")
 #: Sources v3 — a saved source with no channel (a one-shot import): listed by its Sources row id, by its origins.
 _SAVED_SOURCE_ROWS = {spec.id: spec.origins for spec in source_overview.CATALOG
                       if spec.channel is None and spec.id in source_overview.SAVED_SOURCES}
@@ -139,7 +183,7 @@ def known(memory_path: Path, channel_id: str) -> bool:
     """A channel id this bank can list: every fixed row, the always-listed local
     sources, each browser's bookmarks and tab groups, and every registered folder."""
     if (channel_id in CHANNEL_IDS or channel_id in _ORIGIN_CHANNELS or channel_id in _SAVED_SOURCE_ROWS
-            or channel_id in _HISTORY_ROWS):
+            or channel_id in _HISTORY_ROWS or channel_id in books.DOORS):
         return True
     if channel_id in (calendar_local.CHANNEL_ID, contacts_local.CHANNEL_ID, reminders_local.CHANNEL_ID):
         return True
@@ -147,9 +191,9 @@ def known(memory_path: Path, channel_id: str) -> bool:
         return True
     if channel_id in {tab_groups.channel_id(b) for b in tab_groups.BROWSERS}:
         return True
-    if channel_id.startswith(folder_source.CHANNEL_PREFIX):
-        folder_id = channel_id[len(folder_source.CHANNEL_PREFIX):]
-        return folder_source.get_folder(memory_path, folder_id) is not None
+    if (folder_id := folder_source.folder_id_of(channel_id)) is not None:
+        folder = folder_source.get_folder(memory_path, folder_id)
+        return folder is not None and folder_source.channel_for(folder) == channel_id
     return False
 
 
@@ -227,9 +271,35 @@ def _without_day(title: str, day: str | None) -> str:
     return title
 
 
+#: Rows already built, by what they were built from (source page speed, 2026-10-29): a title's scrub and a stamp's
+#: parse are most of a long list's time, and an unchanged header is the same object between reads (`bank_index`), so
+#: ``(key) -> (the inputs, held, the row)`` answers it by identity. The inputs are held, so an id is never reused while
+#: its entry lives; the local zone rides the check (a naive stamp is read in it). Bounded: cleared past the cap.
+_ROWS: dict[tuple, tuple] = {}
+_ROWS_MAX = 100_000
+
+
+def _memo_row(key: tuple, inputs: tuple, build) -> dict:
+    """A copy of the row ``build()`` made from ``inputs`` (compared by identity, and the zone by value)."""
+    stamp = (time.timezone, time.altzone, time.daylight)
+    hit = _ROWS.get(key)
+    if hit is not None and hit[1] == stamp and len(hit[0]) == len(inputs) and all(
+            a is b for a, b in zip(hit[0], inputs)):
+        return dict(hit[2])
+    row = build()
+    if len(_ROWS) >= _ROWS_MAX:
+        _ROWS.clear()
+    _ROWS[key] = (inputs, stamp, dict(row))
+    return row
+
+
 def _episode_row(fm: dict, stem: str, *, when_key: str | None = None) -> dict:
     """An episode by its own title. The day is `when_key`'s value when given (an event's start), else the
     day the source dated it (`original_date`), else the day Cicada captured it."""
+    return _memo_row(("episode", stem, when_key), (fm,), lambda: _build_episode_row(fm, stem, when_key=when_key))
+
+
+def _build_episode_row(fm: dict, stem: str, *, when_key: str | None = None) -> dict:
     own = fm.get(when_key) if when_key else None
     when = own or fm.get("original_date") or fm.get("timestamp")
     # An event's day is its own calendar day as written (`2026-10-01T09:00:00-05:00` is Oct 1), never shifted to UTC.
@@ -239,27 +309,133 @@ def _episode_row(fm: dict, stem: str, *, when_key: str | None = None) -> dict:
     return _with_received(row, episode_time.received_after(when, fm.get(episode_ids.RECEIVED_KEY)))
 
 
+# --- the indexes a list reads (source page speed, 2026-10-29) ---------------------------------------------------------
+# A source's list used to walk every episode (and every page, and parse the url index) on each read: ~65 ms for an
+# empty source on a 9k-episode bank. These indexes are derived from `bank_index`'s cached headers and kept until that
+# folder's cache changes (`bank_index.derived`), so a list reads only its own source's files. Disposable, process-local.
+
+#: `source_id` families a list selects by prefix: a calendar's events, the reminders, each browser's tab groups.
+_FAMILIES = (calendar_local.SOURCE_PREFIX, reminders_local.SOURCE_PREFIX,
+             *(f"{tab_groups.SOURCE_PREFIX}{browser}:" for browser in tab_groups.BROWSERS))
+
+
+class _EpisodeIndex:
+    """The episode headers by what a list selects on — origin, ``source_id`` family, id, chat, folder — each bucket in
+    the folder's own (name) order, so a list sees its files in the order a full walk did."""
+
+    def __init__(self, entries):
+        self.by_origin: dict[str, list] = {}
+        self.by_family: dict[str, list] = {}
+        self.by_id: dict[str, list] = {}
+        self.by_conversation: dict[str, list] = {}
+        self.by_folder: dict[str, list] = {}
+        for f in entries:
+            fm = f.frontmatter or {}
+            self.by_origin.setdefault(str(fm.get("origin") or ""), []).append(f)
+            self.by_id.setdefault(str(fm.get("id") or f.stem), []).append(f)
+            sid = str(fm.get("source_id") or "")
+            for prefix in _FAMILIES:
+                if sid.startswith(prefix):
+                    self.by_family.setdefault(prefix, []).append(f)
+            if cid := str(fm.get("conversation") or ""):
+                self.by_conversation.setdefault(cid, []).append(f)
+            if fm.get("origin") == folder_source.ORIGIN:
+                self.by_folder.setdefault(str(fm.get("folder_id") or ""), []).append(f)
+
+    def origins(self, origins) -> list:
+        """The files of any of ``origins``, in name order."""
+        buckets = [self.by_origin.get(o, []) for o in dict.fromkeys(origins)]
+        if len(buckets) == 1:
+            return buckets[0]
+        return sorted((f for b in buckets for f in b), key=lambda f: f.path.name)
+
+
+def _episode_index(memory_path: Path) -> _EpisodeIndex:
+    return bank_index.derived(memory_path, "episodes", "channel_items", _EpisodeIndex)
+
+
+class _MediaPages:
+    """The media pages (``pages``: id -> frontmatter, in the folder's order) and their ids by stamped origin."""
+
+    def __init__(self, entries):
+        self.pages = {f.stem: f.frontmatter or {} for f in entries if (f.frontmatter or {}).get("type") == "media"}
+        self.by_origin: dict[str, list[str]] = {}
+        self.position = {}
+        for i, (entity_id, fm) in enumerate(self.pages.items()):
+            self.by_origin.setdefault(str(fm.get("origin") or "").strip(), []).append(entity_id)
+            self.position[entity_id] = i
+
+
+def _media_pages(memory_path: Path) -> _MediaPages:
+    return bank_index.derived(memory_path, "entities", "channel_items.media", _MediaPages)
+
+
+def _person_pages(memory_path: Path) -> list:
+    return bank_index.derived(memory_path, "entities", "channel_items.people",
+                              lambda entries: [f for f in entries if (f.frontmatter or {}).get("type") == "person"])
+
+
+#: bank -> ((mtime_ns, size, inode) of `sources/url_index.json`, (by_hash, by_entity)). The index is written by an
+#: atomic rename (`media_ingestor.save_url_index`), so the stamp moves with every write.
+_URL_INDEX: dict[str, tuple[tuple, tuple[dict, dict]]] = {}
+
+
+def _url_index(memory_path: Path) -> tuple[dict, dict]:
+    path = Path(memory_path) / "sources" / "url_index.json"
+    try:
+        st = path.stat()
+        stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
+    except OSError:
+        stamp = None
+    hit = _URL_INDEX.get(str(memory_path))
+    if stamp is not None and hit is not None and hit[0] == stamp:
+        return hit[1]
+    try:
+        index = media_ingestor.load_url_index(Path(memory_path))
+    except Exception:
+        index = {}
+    by_hash = index if isinstance(index, dict) else {}
+    by_entity: dict[str, dict] = {}
+    for entry in by_hash.values():
+        if isinstance(entry, dict) and entry.get("media_entity_id") and not entry.get("alias_of"):
+            by_entity.setdefault(str(entry["media_entity_id"]), entry)
+    if stamp is not None:
+        _URL_INDEX[str(memory_path)] = (stamp, (by_hash, by_entity))
+    return by_hash, by_entity
+
+
 class _Media:
-    """The saved-URL index and the media pages, read once per request."""
+    """The saved-URL index and the media pages (both kept between reads, read-only here), each read on first use: a
+    chat export's list that saved no link never lists the pages."""
 
     def __init__(self, memory_path: Path):
-        self.pages = {f.stem: f.frontmatter or {} for f in bank_index.files(memory_path, "entities")
-                      if (f.frontmatter or {}).get("type") == "media"}
-        try:
-            index = media_ingestor.load_url_index(memory_path)
-        except Exception:
-            index = {}
-        self.by_hash = index if isinstance(index, dict) else {}
-        self.by_entity: dict[str, dict] = {}
-        for entry in self.by_hash.values():
-            if isinstance(entry, dict) and entry.get("media_entity_id") and not entry.get("alias_of"):
-                self.by_entity.setdefault(str(entry["media_entity_id"]), entry)
+        self._memory_path = memory_path
+
+    @cached_property
+    def _pages(self) -> _MediaPages:
+        return _media_pages(self._memory_path)
+
+    @property
+    def pages(self) -> dict[str, dict]:
+        return self._pages.pages
+
+    @cached_property
+    def by_hash(self) -> dict:
+        return _url_index(self._memory_path)[0]
+
+    @cached_property
+    def by_entity(self) -> dict:
+        return _url_index(self._memory_path)[1]
 
     def row(self, entity_id: str) -> dict | None:
         fm = self.pages.get(entity_id)
         if fm is None or source_overview.is_hidden(fm):
             return None   # the Feed hides it too (F6), so a click would land nowhere
-        entry = self.by_entity.get(entity_id) or {}
+        held = self.by_entity.get(entity_id)
+        return _memo_row(("media", entity_id), (fm, held), lambda: self._build_row(entity_id, fm, held or {}))
+
+    @staticmethod
+    def _build_row(entity_id: str, fm: dict, entry: dict) -> dict:
         own = entry.get("content_saved_at") or entry.get(episode_time.PUBLISHED_KEY)
         saved = own or entry.get("saved_at") or fm.get("created")
         title = entry.get("title") or fm.get("name") or entry.get("url") or entity_id
@@ -269,16 +445,21 @@ class _Media:
         # Read only for the page served (`items`): the site and the why are per-row file reads at thousands of rows.
         row["_url"] = entry.get("url") or fm.get("url")
         row["_episode"] = entry.get("episode_id")
+        row["_feed"] = entry.get("feed")
+        row["_publication"] = fm.get("channel")
         return row
 
     def by_origins(self, origins: tuple[str, ...], *, unstamped: bool = False) -> list[dict]:
-        wanted = set(origins)
+        wanted = list(dict.fromkeys(origins))
+        if unstamped and "" not in wanted:
+            wanted.append("")
+        buckets = [self._pages.by_origin.get(o, []) for o in wanted]
+        ids = buckets[0] if len(buckets) == 1 else sorted((i for b in buckets for i in b),
+                                                          key=self._pages.position.__getitem__)
         rows = []
-        for entity_id, fm in self.pages.items():
-            origin = str(fm.get("origin") or "").strip()
-            if (origin in wanted) or (unstamped and not origin):
-                if (row := self.row(entity_id)) is not None:
-                    rows.append(row)
+        for entity_id in ids:   # the pages' own order, as a walk of every page took them
+            if (row := self.row(entity_id)) is not None:
+                rows.append(row)
         return rows
 
 
@@ -297,6 +478,130 @@ def _site(url) -> dict:
     return out
 
 
+#: ROR-108 — the RSS channel, and the collection holding what no followed feed accounts for.
+FEED_CHANNEL = "rss"
+#: G89 (owner 2026-11-05): the followed Substack publications, on the Substack page; how their posts arrive is RSS's.
+SUBSTACK_FEEDS = "substack-feeds"
+FEED_CHANNELS = (FEED_CHANNEL, SUBSTACK_FEEDS)
+FEED_OTHER = "other"
+
+
+def _bare_host(url) -> str:
+    return reading_hosts.display_host(reading_hosts.host_of(str(url or ""))) or ""
+
+
+def _followed(memory_path: Path) -> dict[str, dict]:
+    """The followed feeds by id, in subscription order."""
+    out: dict[str, dict] = {}
+    for record in feed_registry.list_feeds(memory_path):
+        if isinstance(record, dict) and record.get("url"):
+            out.setdefault(feed_registry.feed_id(str(record["url"])), record)
+    return out
+
+
+def _feed_mark(record: dict) -> str | None:
+    """The bundled mark a followed feed wears, nothing asked of anyone."""
+    return "substack" if feed_registry.is_substack(record) else None
+
+
+def _feed_mark_fields(record: dict) -> dict:
+    """What a feed's row draws before its name: its bundled mark, else the key of its own site."""
+    if mark := _feed_mark(record):
+        return {"mark": mark}
+    site = reading_hosts.mark_key(str(record.get("url") or ""))
+    return {"site": site} if site else {}
+
+
+def feed_site(memory_path: Path, feed: str) -> str | None:
+    """The one site a followed feed's own icon may be asked of: the registrable domain of THAT feed's own URL
+    (`logo_service.own_site_domain`), only for a feed the person follows and only when no bundled mark draws it — else
+    None, and the route answers 404 with nothing asked. Never a name the caller supplies."""
+    from api.services import logo_service
+
+    record = _followed(Path(memory_path)).get(feed)
+    if record is None or _feed_mark(record):
+        return None
+    return logo_service.own_site_domain(str(record["url"]))
+
+
+def _feed_filer(followed: dict[str, dict]):
+    """Which followed feed an item belongs to, by its stamp and URL. The host is asked only of an item with no usable
+    stamp: a host two feeds share names neither."""
+    hosts: dict[str, list[str]] = {}
+    for fid, record in followed.items():
+        hosts.setdefault(_bare_host(record["url"]), []).append(fid)
+
+    def file(stamp, url) -> str:
+        if stamp in followed:
+            return stamp
+        owners = hosts.get(_bare_host(url), [])
+        return owners[0] if len(owners) == 1 else FEED_OTHER
+
+    return file
+
+
+def _substack_feeds(followed: dict[str, dict]) -> set[str]:
+    return {fid for fid, record in followed.items() if feed_registry.is_substack(record)}
+
+
+def _feed_rows(memory_path: Path, media: "_Media", channel_id: str = FEED_CHANNEL) -> list[dict]:
+    """One feed channel's rows, each filed under its feed (``_collection``): a Substack publication's on
+    ``substack-feeds``, every other's, and what no followed feed claims, on RSS (G89, owner 2026-11-05)."""
+    followed = _followed(memory_path)
+    substack, file = _substack_feeds(followed), _feed_filer(followed)
+    rows = []
+    for row in media.by_origins(_catalog_origins(FEED_CHANNEL)):
+        row["_collection"] = file(row.get("_feed"), row.get("_url"))
+        # ROR-138: RSS is how a Substack publication is followed, so RSS lists every followed feed's items and the
+        # Substack row only its own publications' (the second a view of the first).
+        if channel_id == FEED_CHANNEL or row["_collection"] in substack:
+            rows.append(row)
+    return rows
+
+
+def substack_feed_pages(memory_path: Path) -> set[str]:
+    """The media pages a followed Substack publication brought in, hidden ones too: an episode's row follows its page
+    wherever the page is listed (`source_overview`), so the two rows partition the feeds' episodes."""
+    followed = _followed(Path(memory_path))
+    substack = _substack_feeds(followed)
+    if not substack:
+        return set()
+    media, file = _Media(Path(memory_path)), _feed_filer(followed)
+    out: set[str] = set()
+    for entity_id in media._pages.by_origin.get(FEED_CHANNEL, []):
+        entry = media.by_entity.get(entity_id) or {}
+        url = entry.get("url") or (media.pages.get(entity_id) or {}).get("url")
+        if file(entry.get("feed"), url) in substack:
+            out.add(entity_id)
+    return out
+
+
+def _feed_tree(memory_path: Path, channel_id: str = FEED_CHANNEL) -> dict:
+    """Every feed this channel lists, one collection each with nothing in it included, then *Other* when anything is
+    there. A feed's name: its record's title, else the publication its newest item names, else its host. ``problem``
+    says a failed last poll in words, ``polled`` is that poll's day; neither is asked of the network."""
+    held: dict[str, list[dict]] = {}
+    for row in _collect(memory_path, channel_id):
+        held.setdefault(row["_collection"], []).append(row)
+    feeds = []
+    for fid, record in _followed(memory_path).items():
+        if channel_id == SUBSTACK_FEEDS and not feed_registry.is_substack(record):
+            continue
+        mine = held.pop(fid, [])
+        newest = max(mine, key=lambda r: r["_sort"], default={})
+        name = record.get("title") or newest.get("_publication") or _bare_host(record["url"]) or record["url"]
+        feeds.append({"id": fid, "name": _title(name), "count": len(mine), "latest": _latest(mine),
+                      "url": str(record["url"]), "polled": record.get("last_polled"),
+                      "problem": feed_registry.problem_words(record), **_feed_mark_fields(record)})
+    feeds.sort(key=lambda c: (str(c["name"]).casefold(), c["id"]))
+    other = [row for rows in held.values() for row in rows]
+    if other:
+        feeds.append({"id": FEED_OTHER, "name": "Other", "count": len(other), "latest": _latest(other)})
+    count = sum(c["count"] for c in feeds)
+    accounts = [{"name": None, "provider": None, "count": count, "collections": feeds}] if feeds else []
+    return {"channel": channel_id, "accounts": accounts}
+
+
 def _live(fm: dict) -> bool:
     return not fm.get("source_deleted_at")
 
@@ -310,16 +615,42 @@ def _notes(memory_path: Path) -> list[dict]:
         index = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     except Exception:
         index = {}
-    wanted = {str(v.get("episode_id")) for v in (index.values() if isinstance(index, dict) else [])
+    # 2026-11-04 — each note's account and folder as the index keeps them (`notes_sync._placement`).
+    placed = {str(v.get("episode_id")): v for v in (index.values() if isinstance(index, dict) else [])
               if isinstance(v, dict) and v.get("episode_id")}
-    return [_episode_row(f.frontmatter or {}, f.stem) for f in bank_index.files(memory_path, "episodes")
-            if str((f.frontmatter or {}).get("id") or f.stem) in wanted]
+    by_id = _episode_index(memory_path).by_id
+    found = sorted((f for w in placed for f in by_id.get(w, ())), key=lambda f: f.path.name)
+    rows = []
+    for f in found:
+        fm = f.frontmatter or {}
+        if history_index.kind(fm) == "locked":
+            continue   # G234: never a row, never in a folder's count
+        row = _episode_row(fm, f.stem)
+        entry = placed.get(str(fm.get("id") or f.stem)) or {}
+        account = str(entry.get("account") or fm.get("account") or "").strip()
+        folder = str(entry.get("folder") or fm.get("folder") or "").strip()
+        row["_account"], row["_folder"] = account, folder
+        row["_collection"] = note_collection_id(account, folder)
+        row["_note"] = entry.get("note_id") or fm.get("note_id")
+        if fm.get("pinned") is True:
+            row["pinned"] = True
+        rows.append(row)
+    return rows
 
 
-def _episodes(memory_path: Path, keep, *, when_key: str | None = None, media: _Media | None = None) -> list[dict]:
+def note_collection_id(account: str, folder: str) -> str:
+    """A Notes folder's collection id: opaque and stable — the same account and folder name give the same id."""
+    return "nf-" + hashlib.sha256(f"{account}\0{folder}".encode()).hexdigest()[:12]
+
+
+def _episodes(memory_path: Path, keep, *, among, when_key: str | None = None,
+              media: _Media | None = None, collection_key: str | None = None) -> list[dict]:
+    """The live episodes ``keep`` takes, read from ``among`` (the index bucket that holds every one of them).
+    ``collection_key`` (2026-11-04): the frontmatter key naming the collection an item lives in (a calendar's id, a
+    Reminders list's id), kept on the row for :func:`collections` and the ``collection`` filter."""
     rows: list[dict] = []
     seen_media: set[str] = set()
-    for f in bank_index.files(memory_path, "episodes"):
+    for f in among:
         fm = f.frontmatter or {}
         if not _live(fm) or not keep(fm):
             continue
@@ -331,17 +662,20 @@ def _episodes(memory_path: Path, keep, *, when_key: str | None = None, media: _M
                 rows.append(row)
             continue
         row = _episode_row(fm, f.stem, when_key=when_key)
+        if collection_key:
+            row["_collection"] = str(fm.get(collection_key) or "")
         # marks-2 — a saved link Sleep has not made a page of yet still names its site, so its row asks that site's
         # icon by the episode's id (`GET /sources/saved/episodes/{id}/site-icon`) instead of drawing a letter.
         if url := saved_episode_url(fm):
             row["_url"] = url
+        row["_place_url"] = fm.get("url")
         rows.append(row)
     return rows
 
 
 def _contacts(memory_path: Path) -> list[dict]:
     rows = []
-    for f in bank_index.files(memory_path, "entities"):
+    for f in _person_pages(memory_path):
         fm = f.frontmatter or {}
         if fm.get("type") != "person" or fm.get("status") == "dropped":
             continue
@@ -386,64 +720,204 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
     if channel_id == calendar_local.CHANNEL_ID:
         return _episodes(memory_path,
                          lambda fm: str(fm.get("source_id") or "").startswith(calendar_local.SOURCE_PREFIX),
-                         when_key="event_start")
+                         when_key="event_start", collection_key="calendar_id",
+                         among=_episode_index(memory_path).by_family.get(calendar_local.SOURCE_PREFIX, ()))
     if channel_id == "calendar":
-        return _episodes(memory_path, lambda fm: fm.get("origin") == "calendar", when_key="event_start")
+        return _episodes(memory_path, lambda fm: fm.get("origin") == "calendar", when_key="event_start",
+                         among=_episode_index(memory_path).origins(("calendar",)))
     if channel_id == contacts_local.CHANNEL_ID:
         return _contacts(memory_path)
     if channel_id == reminders_local.CHANNEL_ID:
         return _episodes(memory_path,
-                         lambda fm: str(fm.get("source_id") or "").startswith(reminders_local.SOURCE_PREFIX))
+                         lambda fm: str(fm.get("source_id") or "").startswith(reminders_local.SOURCE_PREFIX),
+                         collection_key="reminder_list_id", among=_episode_index(memory_path).by_family.get(reminders_local.SOURCE_PREFIX, ()))
     for browser in tab_groups.BROWSERS:
         if channel_id == tab_groups.channel_id(browser):
             prefix = f"{tab_groups.SOURCE_PREFIX}{browser}:"
-            return _episodes(memory_path, lambda fm: str(fm.get("source_id") or "").startswith(prefix))
+            return _episodes(memory_path, lambda fm: str(fm.get("source_id") or "").startswith(prefix),
+                             among=_episode_index(memory_path).by_family.get(prefix, ()))
     media = _Media(memory_path)
     if channel_id in {bookmark_sync.channel_for(b) for b in bookmark_sync.CHROMIUM_BROWSERS} \
             or channel_id == "safari-bookmarks":
         return _bookmarks(memory_path, channel_id, media)
+    if channel_id in FEED_CHANNELS:
+        return _feed_rows(memory_path, media, channel_id)
     if channel_id in _MEDIA_CHANNELS:
         return media.by_origins(_catalog_origins(channel_id), unstamped=channel_id == "files")
+    if channel_id in books.DOORS:
+        return _book_rows(memory_path, channel_id, media)
     if channel_id in _SAVED_SOURCE_ROWS:
         return media.by_origins(tuple(_SAVED_SOURCE_ROWS[channel_id]))
     if channel_id in _HISTORY_ROWS:
         return _watched_days(memory_path, set(_HISTORY_ROWS[channel_id]))
-    if channel_id == messages_source.ORIGIN:
-        return _chat_rows(memory_path)
+    if channel_id in CHAT_CHANNELS:
+        return _chat_rows(memory_path, CHAT_CHANNELS[channel_id])
     if channel_id in _ORIGIN_CHANNELS:
         origins = set(_ORIGIN_CHANNELS[channel_id])
-        return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") in origins, media=media)
-    if channel_id.startswith(folder_source.CHANNEL_PREFIX):
-        return _folder(memory_path, channel_id[len(folder_source.CHANNEL_PREFIX):])
+        return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") in origins, media=media,
+                         among=_episode_index(memory_path).origins(_ORIGIN_CHANNELS[channel_id]))
+    if (folder_id := folder_source.folder_id_of(channel_id)) is not None:
+        return _folder(memory_path, folder_id)
     return []
+
+
+def _book_rows(memory_path: Path, channel_id: str, media: "_Media") -> list[dict]:
+    """A door's books, one row each. A book has no saved link, so the Feed holds no row for it: its row opens the book's
+    page and carries its cover when it has one (ruling 61; an acted-on scan is no save, so it is found by its
+    ``book_entity_id``). One whose page waits stays its episode."""
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for f in _episode_index(memory_path).origins((channel_id,)):
+        fm = f.frontmatter or {}
+        if fm.get("origin") != channel_id or not _live(fm):
+            continue
+        page = str(fm.get("book_entity_id") or fm.get("media_entity_id") or "").strip()
+        if not page:
+            # A scan whose number is still being looked up is no item of its own: the book appears when it resolves.
+            rows.append({**_episode_row(fm, f.stem), "kind": "unknown", "title": "Looking it up…"}
+                        if channel_id == books.SCAN_ORIGIN else _episode_row(fm, f.stem))
+        elif page not in seen and (row := media.row(page)) is not None:
+            seen.add(page)
+            cover = media_preview.preview_path(page, media.pages.get(page) or {})
+            rows.append({**row, "kind": "page", "book": True, **({"cover": cover} if cover else {})})
+    return rows
 
 
 def _watched_days(memory_path: Path, origins: set[str]) -> list[dict]:
     """One row per watched day (never the month summaries, which are counted from these days), with `videos`."""
     rows = []
-    for f in bank_index.files(memory_path, "episodes"):
+    for f in _episode_index(memory_path).origins(sorted(origins)):
         fm = f.frontmatter or {}
         if str(fm.get("origin") or "") not in origins or not _live(fm) or history_index.kind(fm) == "month":
             continue
         row = _episode_row(fm, f.stem)
         try:
-            row["videos"] = max(0, int(fm.get("videos") or len(fm.get("watched") or [])))
+            row["videos"] = max(0, int(fm.get("videos") or len(watch_history.stored_rows(memory_path, fm))))
         except (TypeError, ValueError):
             row["videos"] = 0
         rows.append(row)
     return rows
 
 
-def _chat_rows(memory_path: Path) -> list[dict]:
-    """Messages — one row per chat (review of #358: "one row per chat, newest day, N sittings"), titled by who it is
-    with, its day the newest sitting's, carrying the chat and how many sittings it holds; a sitting with no chat hash
-    (never written today) stays its own episode row."""
+#: chats-ux-v2 (owner 2026-10-29: "so much repetition") — every chat source lists one row per chat: its channel → the
+#: origin its sittings carry. Messages since Sources v4; WhatsApp and Telegram listed one row per sitting, each
+#: "Telegram with <name>" beside a compact age, so two chats read as a dozen identical rows.
+CHAT_CHANNELS = {"imessage": messages_source.ORIGIN, "whatsapp": "whatsapp", "telegram-chats": "telegram-chats"}
+CHAT_ORIGINS = frozenset(CHAT_CHANNELS.values())
+#: A chat with the person themselves (WhatsApp's "message yourself", `self_chat`) is named for what it is.
+SELF_CHAT_TITLE = "Notes to yourself"
+#: A ticked chat with no name kept and nothing stored yet.
+UNNAMED_CHAT_TITLE = "Unnamed chat"
+
+
+def _chat_settings(memory_path: Path, origin: str) -> dict[str, dict]:
+    """Each chat's settings entry for a chat source (its name, tick and pin), keyed by the chat's id."""
+    from api.services import chat_live, telegram_source, whatsapp_source
+
+    if origin == messages_source.ORIGIN:
+        return messages_source.load_settings(memory_path)["conversations"]
+    spec = {s.origin: s for s in (whatsapp_source.SPEC, telegram_source.SPEC)}.get(origin)
+    if spec is None:
+        return {}
+    return chat_live.load_settings(memory_path, spec)["conversations"]
+
+
+def _chat_names(memory_path: Path, origin: str) -> dict[str, str]:
+    """The name the person sees for each chat of a live chat source (a group's own name too), from its settings."""
+    if origin == messages_source.ORIGIN:
+        return {}
+    return {cid: c["name"] for cid, c in _chat_settings(memory_path, origin).items() if c.get("name")}
+
+
+def _iso(at: datetime | None) -> str | None:
+    return at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if at else None
+
+
+def _owner_page(memory_path: Path) -> str | None:
+    """The bank's ``owner: true`` page when ``_state.md`` names none yet (a bank before its first Sleep): the first by
+    id, the `owner_identity.owner_page_id` tie-break without its observer read."""
+    owners = sorted(f.stem for f in bank_index.files(memory_path, "entities")
+                    if (f.frontmatter or {}).get("owner") is True)
+    return owners[0] if owners else None
+
+
+def _chat_pictures(memory_path: Path, self_chats: set[str], newest: dict[str, tuple[str, dict]]) -> dict[str, str]:
+    """2026-11-03 (owner, on a self-chat's monogram beside the picker's photo: "then why doesnt the pfp appear") — the
+    picture a chat's face draws by the one precedence (`entity_picture.resolve_page`) when the chat stands for a page:
+    the person's own chat → the owner's page; a one-to-one chat whose newest sitting's correspondent record resolves to
+    a page (`messages_photos.chat_pages`, Stage 2's rule) → that page, so the person's own choice and a Contacts photo
+    outrank the chat's own photo there too. ``{chat id: an API path on Cicada}``; a chat with no page, or a page with no
+    picture, keeps the chat's own photo or its monogram. Reads only pages already on the record; nothing is fetched."""
+    from api.services import entity_picture, everyday_names, messages_photos
+
+    pages: dict[str, str] = {}
+    owner = (everyday_names.owner_id(memory_path) or _owner_page(memory_path)) if self_chats else None
+    if owner:
+        pages.update({cid: owner for cid in self_chats})
+    try:
+        for cid, page in messages_photos.chat_pages(memory_path, set(newest) - set(self_chats), newest=newest).items():
+            pages.setdefault(cid, page)
+    except Exception:  # noqa: BLE001 — a face without a page's picture keeps its own photo or monogram
+        pass
+    out: dict[str, str] = {}
+    resolved: dict[str, str | None] = {}
+    shared: dict = {}
+    if pages:
+        # The bank's logo sets, people-photo index and chat links, read once for every page (the graph builder's way).
+        from api.services import logo_service, person_photo
+
+        try:
+            bank = logo_service.bank_name(memory_path)
+            shared = {"cached": logo_service.cached_ids(bank), "missed": logo_service.missed_ids(bank),
+                      "photos": person_photo.read_meta(bank), "chats": messages_photos.links(memory_path)}
+        except Exception:  # noqa: BLE001 — each page then reads its own, as a single-page caller does
+            shared = {}
+    for cid, page in pages.items():
+        if not page or "/" in page or page.startswith("."):
+            continue
+        if page not in resolved:
+            f = bank_index.file(memory_path, "entities", f"{page}.md")
+            url = None
+            if f is not None:
+                try:
+                    url = entity_picture.resolve_page(memory_path, page, f.frontmatter or {}, "",
+                                                      page_mtime=f.mtime_ns / 1e9, **shared)[0].url
+                except Exception:  # noqa: BLE001 — the same: never a failed list for a picture
+                    url = None
+            resolved[page] = url
+        if resolved[page]:
+            out[cid] = resolved[page]
+    return out
+
+
+def _count(raw) -> int:
+    try:
+        return max(0, int(raw or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _chat_rows(memory_path: Path, origin: str = messages_source.ORIGIN) -> list[dict]:
+    """One row per chat (review of #358: "one row per chat, newest day, N sittings"; every chat source since
+    chats-ux-v2), titled by who it is with — the sittings' ``correspondent`` record, else the chat's own name (a
+    group's), else the title — dated by its newest sitting, carrying the chat, how many sittings and messages it holds
+    and whether it is a group. A sitting with no chat hash (never written today) stays its own episode row.
+
+    2026-11-03 (owner: the synced chats "in the same order as the apps themselves", "right click → pin", "a green dot
+    for chats that are synced, and a last synced text") — each chat also says whether it is ticked now (``ticked``)
+    and pinned (``pinned``; pinned rows list first, `items`), when its newest stored message was said (``last_at``, the
+    apps' order) and when Cicada last stored its words (``synced_at``: the newest write of any of its sittings), and
+    its face's ``picture`` when the chat stands for a page (`_chat_pictures`)."""
     photos = source_overview._chat_photos(memory_path)
+    states = _chat_settings(memory_path, origin)
+    names = _chat_names(memory_path, origin)
     chats: dict[str, dict] = {}
+    selves: set[str] = set()
+    records: dict[str, tuple[str, dict]] = {}   # each chat's newest sitting's correspondent record
     rows = []
-    for f in bank_index.files(memory_path, "episodes"):
+    for f in _episode_index(memory_path).origins((origin,)):
         fm = f.frontmatter or {}
-        if fm.get("origin") != messages_source.ORIGIN or not _live(fm):
+        if fm.get("origin") != origin or not _live(fm):
             continue
         row = _episode_row(fm, f.stem)
         cid = str(fm.get("conversation") or "")
@@ -451,44 +925,96 @@ def _chat_rows(memory_path: Path) -> list[dict]:
             rows.append(row)
             continue
         record = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}
-        name = _title(record.get("name"), fallback="")
+        name = ((SELF_CHAT_TITLE if fm.get("self_chat") else "") or _title(record.get("name"), fallback="")
+                or _title(names.get(cid), fallback=""))
+        if fm.get("self_chat"):
+            selves.add(cid)
+        last = str(fm.get("sitting_last_at") or fm.get("timestamp") or "")
+        if not fm.get("source_deleted_at") and (cid not in records or last >= records[cid][0]):
+            records[cid] = (last, record)
         held = chats.get(cid)
         if held is None:
-            chats[cid] = held = {**_row("chat", cid, name or row["title"], row["day"], None), "sittings": 0}
+            chats[cid] = held = {**_row("chat", cid, name or row["title"], row["day"], None), "sittings": 0,
+                                 "messages": 0}
             held["_sort"] = row["_sort"]
+            held["_last"] = held["_synced"] = None
         held["sittings"] += 1
+        held["messages"] += _count(fm.get("message_count"))
+        if fm.get("group"):
+            held["group"] = True
+        said = _instant(fm.get("sitting_last_at")) or _instant(fm.get("timestamp"))
+        if said and (held["_last"] is None or said > held["_last"]):
+            held["_last"] = said
+        written = datetime.fromtimestamp(f.mtime_ns / 1e9, tz=timezone.utc)
+        if held["_synced"] is None or written > held["_synced"]:
+            held["_synced"] = written
         if row["_sort"] >= held["_sort"]:
             held["_sort"], held["day"] = row["_sort"], row["day"]
             if name:
                 held["title"] = name
+    pictures = _chat_pictures(memory_path, selves, records) if chats else {}
     for cid, held in chats.items():
         held["chat"] = {"id": cid, "label": held["title"], "photo": photos.get(cid)}
+        if pictures.get(cid):
+            held["chat"]["picture"] = pictures[cid]
+        if not held["messages"]:
+            del held["messages"]       # sittings written before counts were kept: no number rather than a false 0
+        state = states.get(cid) or {}
+        held["ticked"] = bool(state.get("ticked"))
+        if state.get("pinned"):
+            held["pinned"] = True
+        last, synced = held.pop("_last"), held.pop("_synced")
+        if last:
+            held["last_at"] = _iso(last)
+            held["_sort"] = max(held["_sort"], last.timestamp())
+        if synced:
+            held["synced_at"] = _iso(synced)
         rows.append(held)
+    # 2026-11-03 — a chat the person ticked lists at once, before its first message is stored (live from the tick):
+    # its name from its settings, "Synced", no recency; it opens to an empty conversation. Ids and names only.
+    for cid, state in states.items():
+        if cid in chats or not state.get("ticked") or not messages_source.CONVERSATION_ID_RE.match(cid):
+            continue
+        title = _title(state.get("name"), fallback="") or UNNAMED_CHAT_TITLE
+        row = {**_row("chat", cid, title, None, None), "sittings": 0, "ticked": True}
+        row["chat"] = {"id": cid, "label": title, "photo": photos.get(cid)}
+        if state.get("group"):
+            row["group"] = True
+        if state.get("pinned"):
+            row["pinned"] = True
+        rows.append(row)
     return rows
 
 
 def chat_sittings(memory_path: Path, conversation: str) -> dict | None:
-    """One chat's sittings, newest first — what its row opens to: each sitting's episode (it opens in the Reader), its
-    day and how many messages it holds. Titles are not repeated: the row above already names the chat. None for an id
-    that is not a chat hash or has no live sitting."""
+    """One chat's sittings, newest first — what its row opens to: each sitting's episode (its stored conversation, read
+    with `GET /episodes/{id}/text`), its day and how many messages it holds. Titles are not repeated: the row above
+    already names the chat. Any chat source's chat (each reader hashes its own ids). None for an id that is not a chat
+    hash, or a chat Cicada holds nothing of and the person has not ticked.
+
+    2026-11-03 (G179's ticked-only rail, on the chat page's panel: an unticked chat shows its name, picture and recency,
+    never its messages) — ``ticked`` says whether the chat is ticked now on any chat source, and an unticked chat
+    lists no sittings, so no client of this route opens its words from the chat's page; what was stored stays in
+    memory, read where it is cited (the Reader). A ticked chat with nothing stored yet answers an empty list."""
+    from api.services import messages_photos
+
     if not messages_source.CONVERSATION_ID_RE.match(str(conversation or "")):
         return None
+    ticked = conversation in messages_photos.ticked_chats(Path(memory_path))
     out = []
-    for f in bank_index.files(Path(memory_path), "episodes"):
+    for f in _episode_index(Path(memory_path)).by_conversation.get(conversation, ()):
         fm = f.frontmatter or {}
-        if (fm.get("origin") != messages_source.ORIGIN or not _live(fm)
+        if (fm.get("origin") not in CHAT_ORIGINS or not _live(fm)
                 or str(fm.get("conversation") or "") != conversation):
             continue
         row = _episode_row(fm, f.stem)
-        try:
-            messages = max(0, int(fm.get("message_count") or 0))
-        except (TypeError, ValueError):
-            messages = 0
-        out.append({"id": row["id"], "day": row["day"], "messages": messages or None, "_sort": row["_sort"]})
-    if not out:
+        out.append({"id": row["id"], "day": row["day"], "messages": _count(fm.get("message_count")) or None,
+                    "_sort": row["_sort"]})
+    if not out and not ticked:
         return None
     out.sort(key=lambda r: (-r["_sort"], r["id"]))
-    return {"conversation": conversation, "sittings": [{k: v for k, v in r.items() if k != "_sort"} for r in out]}
+    sittings = [{k: v for k, v in r.items() if k != "_sort"} for r in out] if ticked else []
+    return {"conversation": conversation, "ticked": ticked, "sittings": sittings}
 
 
 #: A watched day's videos on the wire: at most this many (a day keeps at most `watch_history.MAX_PER_DAY`).
@@ -510,7 +1036,7 @@ def watched_day(memory_path: Path, episode_id: str) -> dict | None:
         return None
     media = _Media(Path(memory_path))
     videos = []
-    for r in (fm.get("watched") or [])[:DAY_VIDEOS_MAX]:
+    for r in watch_history.stored_rows(Path(memory_path), fm)[:DAY_VIDEOS_MAX]:
         if not isinstance(r, dict) or not watch_history.watch_url(str(r.get("url") or "")):
             continue
         url = str(r["url"])
@@ -541,7 +1067,7 @@ def day_has_video(memory_path: Path, episode_id: str, video_id: str) -> bool:
     fm = (f.frontmatter or {}) if f is not None else {}
     if str(fm.get("origin") or "") != watch_history.ORIGINS["youtube"] or not _live(fm):
         return False
-    for r in (fm.get("watched") or [])[:DAY_VIDEOS_MAX]:
+    for r in watch_history.stored_rows(Path(memory_path), fm)[:DAY_VIDEOS_MAX]:
         if isinstance(r, dict) and video_id in str(r.get("url") or ""):
             ref = video_urls.resolve(str(r["url"]))
             if ref is not None and ref.provider == "youtube" and ref.video_id == video_id:
@@ -578,7 +1104,7 @@ def _folder(memory_path: Path, folder_id: str) -> list[dict]:
     (`folder_source.drafts_for_file`), and the list names the file once, by its own name, opening at its first
     section. The folder's label and the path are not repeated — the row already says which folder (DR-38)."""
     by_file: dict[str, tuple[str, dict, str]] = {}
-    for f in bank_index.files(memory_path, "episodes"):
+    for f in _episode_index(memory_path).by_folder.get(folder_id, ()):
         fm = f.frontmatter or {}
         if fm.get("origin") != folder_source.ORIGIN or str(fm.get("folder_id") or "") != folder_id or not _live(fm):
             continue
@@ -594,7 +1120,14 @@ def _folder(memory_path: Path, folder_id: str) -> list[dict]:
         name = relpath.rsplit("/", 1)[-1]
         stem_name = name.rsplit(".", 1)[0] if "." in name.lstrip(".") else name
         row = _episode_row(fm, stem)
-        row["title"] = _title(stem_name, fallback=row["title"])
+        if fm.get("folder_kind") != "meetings":   # a meeting is listed by its own title (G95), a note by its file
+            row["title"] = _title(stem_name, fallback=row["title"])
+        else:
+            # 2026-11-04 (owner: "the view of meeting transcriptions") — a meeting row says how long it ran, when the
+            # recorder wrote it down (`meeting_transcripts`' `duration_s`).
+            meeting = fm.get("meeting") if isinstance(fm.get("meeting"), dict) else {}
+            if isinstance(meeting.get("duration_s"), int) and meeting["duration_s"] > 0:
+                row["duration_s"] = meeting["duration_s"]
         rows.append(row)
     return rows
 
@@ -622,9 +1155,58 @@ def _why(memory_path: Path, episode_id) -> dict | None:
     return {"labels": labels, "text": text or None}
 
 
+#: What Notes itself calls a note (`id of note`). An id from an older shape, or a key made up when a dump had none,
+#: is no place: Notes would only say it has no such note.
+_NOTE_ID = re.compile(r"x-coredata://[A-Za-z0-9._/-]+\Z")
+_WEB_SCHEMES = ("http", "https")
+_GITHUB_HOSTS = ("github.com", "www.github.com")
+
+
+def _web_place(raw) -> dict | None:
+    """A stored URL is data: only a plain http(s) link with a host is a place. ``file:``, a custom scheme, a link
+    carrying credentials and anything a browser and this parser could read differently (a backslash, a space, a control
+    character) is none. The host is what says GitHub, so a look-alike is only a web link."""
+    url = str(raw or "")
+    if not url or any(c.isspace() or ord(c) < 32 or c == "\\" for c in url):
+        return None
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        if parts.scheme.lower() not in _WEB_SCHEMES or not host or parts.username or parts.password:
+            return None
+        parts.port   # raises on a malformed port
+    except ValueError:
+        return None
+    return {"kind": "github" if host in _GITHUB_HOSTS else "web", "url": url}
+
+
+def _row_place(row: dict) -> dict | None:
+    """Where a listed item lives, from what its row already holds: nothing is fetched or looked up."""
+    note = str(row.get("_note") or "")
+    if _NOTE_ID.match(note):
+        return {"kind": "notes", "note_id": note}
+    return _web_place(row.get("_url")) or _web_place(row.get("_place_url"))
+
+
+def place(memory_path: Path, channel_id: str, item_id: str) -> dict | None:
+    """Where one item of this channel lives, or None: a channel it does not list, or no place known. Only what the
+    channel lists can be asked, so a retired note or a hidden page never answers (G234 never lists them). Read when the
+    person clicks; the Notes branch reads the id from a header, never a body."""
+    memory_path = Path(memory_path)
+    if not known(memory_path, channel_id):
+        return None
+    for row in _collect(memory_path, channel_id):
+        if row.get("id") == item_id:
+            return _row_place(row)
+    return None
+
+
 def _enrich(memory_path: Path, row: dict) -> dict:
-    """A served saved-link row gains its `site` and its `why`; every private key is dropped."""
+    """A served saved-link row gains its `site` and its `why`, any row with a known place its kind; every private key
+    is dropped."""
     out = {k: v for k, v in row.items() if not k.startswith("_")}
+    if found := _row_place(row):
+        out["place"] = found["kind"]
     if row.get("kind") == "episode" and row.get("_url"):
         out.update(_site(row["_url"]))
     if row.get("kind") == "media":
@@ -638,17 +1220,145 @@ def _enrich(memory_path: Path, row: dict) -> dict:
     return out
 
 
-def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = LIMIT_DEFAULT) -> dict | None:
-    """One page of what `channel_id` brought in, newest first — or None for a channel this bank does not know."""
+#: source-page-v3 — the longest search a source page sends; past it the words are cut, never refused.
+Q_MAX = 200
+
+
+def _latest(rows: list[dict]) -> str | None:
+    """The day the newest item came in — the source page's "last item <day>" (owner 2026-10-29: "a better status for
+    when it's connected"). Ruling 39: when Cicada received an item days after its own date (``received``), that day
+    counts, so an old chat's history read today says today, and a feed's back catalogue never reads as stale. A day
+    still ahead (a calendar's coming event) is not an item that came in: it is never the answer. Days here are UTC
+    days, so west of UTC in the evening this can be the person's tomorrow; the app clamps it to its local today
+    (`SourcePageStatus.cameIn`, #561 review) — the body stays one answer for every viewer, so the ETag needs no clock."""
+    # An item's day may be local: east of UTC just after midnight it is already ahead of the UTC day, and it came in today.
+    now = datetime.now(timezone.utc)
+    today = max(now.date(), now.astimezone().date()).isoformat()
+    days = [d for r in rows for d in (r.get("received"), r.get("day")) if d and d <= today]
+    return max(days) if days else None
+
+
+def _haystack(row: dict) -> str:
+    """What a source page's search reads of a row without opening anything: its title, a chat's name and the bare
+    host of a saved link (never the URL's path or query)."""
+    chat = row.get("chat") if isinstance(row.get("chat"), dict) else {}
+    host = reading_hosts.display_host(reading_hosts.host_of(str(row.get("_url") or ""))) if row.get("_url") else ""
+    return " ".join(str(x) for x in (row.get("title"), chat.get("label"), host) if x)
+
+
+def _search(memory_path: Path, rows: list[dict], q: str) -> list[dict]:
+    """The rows ``q`` finds (source-page-v3): every word in the row's own words (:func:`_haystack`, folded, AND), or —
+    where the words index has them — in the words of the episode the row is (a note, a watched day, a sitting, a
+    conversation), the saved link's episode, or any sitting of a chat. Order is kept; the query is never logged."""
+    from api.services import search_index
+
+    hits = search_index.episodes_with_words(memory_path, q) or set()
+    chats: set[str] = set()
+    if hits and any(r.get("kind") == "chat" for r in rows):
+        for ep in hits:   # a chat row stands for its sittings: a sitting that matched finds its chat
+            f = bank_index.file(memory_path, "episodes", f"{ep}.md")
+            if f is not None and (cid := str((f.frontmatter or {}).get("conversation") or "")):
+                chats.add(cid)
+    out = []
+    for r in rows:
+        if text_fold.contains_all(_haystack(r), q):
+            out.append(r)
+        elif r.get("kind") == "chat":
+            if r.get("id") in chats:
+                out.append(r)
+        elif r.get("id") in hits or (r.get("_episode") and r.get("_episode") in hits):
+            out.append(r)
+    return out
+
+
+def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = LIMIT_DEFAULT,
+          q: str | None = None, collection: str | None = None) -> dict | None:
+    """One page of what `channel_id` brought in, newest first — or None for a channel this bank does not know.
+
+    source-page-v3 (owner 2026-10-29): ``q`` narrows the list to what it finds (:func:`_search`); ``total`` is then
+    the matches' count and ``all`` the channel's whole count, and ``latest`` is the day the newest item came in
+    (:func:`_latest`, over the whole channel whatever ``q`` says). ``collection`` (2026-11-04) keeps one collection's
+    items (a calendar, a Reminders list, a Notes folder — :func:`collections`' ids); ``all`` and ``latest`` are then
+    that collection's."""
     memory_path = Path(memory_path)
     if not known(memory_path, channel_id):
         return None
     offset = max(0, int(offset))
     limit = max(1, min(int(limit), LIMIT_MAX))
     rows = _collect(memory_path, channel_id)
-    rows.sort(key=lambda r: (-r["_sort"], r["title"].casefold(), r["id"]))
+    if collection:
+        rows = [r for r in rows if r.get("_collection") == collection]
+    everything = len(rows)
+    latest = _latest(rows)
+    query = str(q or "").strip()[:Q_MAX]
+    if text_fold.fold(query).strip():
+        rows = _search(memory_path, rows, query)
+    # A chat the person pinned lists first (2026-11-03, `_chat_rows`); every other row has no pin.
+    rows.sort(key=lambda r: (not r.get("pinned"), -r["_sort"], r["title"].casefold(), r["id"]))
     page = [_enrich(memory_path, r) for r in rows[offset:offset + limit]]
-    return {"channel": channel_id, "total": len(rows), "offset": offset, "limit": limit, "items": page}
+    return {"channel": channel_id, "total": len(rows), "all": everything, "latest": latest, "offset": offset,
+            "limit": limit, "items": page}
+
+
+#: 2026-11-04 — the channels whose items live in collections the way their own app files them.
+COLLECTION_CHANNELS = ("notes", calendar_local.CHANNEL_ID, reminders_local.CHANNEL_ID)
+
+
+def collections(memory_path: Path, channel_id: str) -> dict | None:
+    """Where a channel's items live, as their own app files them (owner 2026-11-04: "starting from those that are
+    iCloud … then you go into it … you can see folders"): accounts, each holding its collections with how many items
+    each holds and the day the newest came in — or None for a channel this bank does not know. A channel that files
+    nothing this way (Contacts, a meeting folder) answers no accounts, and the page lists its items directly.
+
+    Names come from where the bank already keeps them: a Notes folder and its account from the Notes index; a calendar
+    and a Reminders list from what the channel's last sync named (`source_collections`). A collection the last sync no
+    longer named (a calendar removed, a list unticked) keeps its items, under its id's last known name or, with none,
+    the channel's own word. Accounts list in the order the apps put them — iCloud, then this Mac, then the rest by
+    name; a collection by name. Every name is clipped and scrubbed of nothing new: they are titles the episodes'
+    bodies already hold."""
+    memory_path = Path(memory_path)
+    if not known(memory_path, channel_id):
+        return None
+    if channel_id in FEED_CHANNELS:
+        return _feed_tree(memory_path, channel_id)
+    if channel_id not in COLLECTION_CHANNELS:
+        return {"channel": channel_id, "accounts": []}
+    rows = _collect(memory_path, channel_id)
+    named = {} if channel_id == "notes" else source_collections.known(memory_path, channel_id)
+    fallback = {calendar_local.CHANNEL_ID: "Calendar", reminders_local.CHANNEL_ID: "Reminders"}.get(channel_id, "Notes")
+    groups: dict[str, dict] = {}
+    for row in rows:
+        cid = str(row.get("_collection") or "")
+        if channel_id == "notes":
+            account, title, kind = row.get("_account") or "", row.get("_folder") or fallback, None
+        else:
+            record = named.get(cid) or {}
+            account, title, kind = record.get("account") or "", record.get("title") or fallback, record.get("provider")
+        acct = groups.setdefault(account, {"name": account or None, "provider": kind, "collections": {}})
+        acct["provider"] = acct["provider"] or kind
+        coll = acct["collections"].setdefault(cid, {"id": cid, "name": title, "count": 0, "_days": []})
+        coll["count"] += 1
+        coll["_days"].append(row)
+    accounts = []
+    for acct in groups.values():
+        colls = [{"id": c["id"], "name": c["name"], "count": c["count"], "latest": _latest(c["_days"])}
+                 for c in acct["collections"].values()]
+        colls.sort(key=lambda c: (str(c["name"]).casefold(), c["id"]))
+        accounts.append({"name": acct["name"], "provider": acct["provider"],
+                         "count": sum(c["count"] for c in colls), "collections": colls})
+    accounts.sort(key=_account_order)
+    if channel_id == "notes":
+        # G234: how many locked notes the last read found, kept only as this count (`notes_sync.locked_count`).
+        return {"channel": channel_id, "accounts": accounts, "locked": notes_sync.locked_count(memory_path)}
+    return {"channel": channel_id, "accounts": accounts}
+
+
+def _account_order(account: dict) -> tuple:
+    """iCloud first, then this Mac, then the other accounts by name, an unnamed one (an older sync's) last."""
+    name = str(account.get("name") or "")
+    kind = account.get("provider") or {"icloud": "icloud", "on my mac": "local"}.get(name.casefold())
+    rank = 0 if kind == "icloud" else 1 if kind == "local" else 3 if not name else 2
+    return rank, name.casefold()
 
 
 def saved_episode_site(memory_path: Path, episode_id: str) -> str | None:

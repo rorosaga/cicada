@@ -123,6 +123,77 @@ struct RemoteStatus: Codable, Equatable {
     var reachable: Bool? = nil
     let funnelCommand: String
     let ngrokCommand: String
+    /// Only on the answer to turning the connector off: what became of its public address, in words.
+    var funnelNote: String? = nil
+}
+
+/// Ruling 59 — `GET /remote/funnel`: the connector's public address, read from Tailscale each time, never stored. `step`
+/// is one of `reach.FUNNEL_STEPS`; `command` exactly what a click on `off` runs; `url` only when a probe through that
+/// address just passed (`answers`), never the configuration's say-so.
+struct RemoteFunnel: Codable, Equatable {
+    /// Another public mapping on this machine: left on an old port, the person's own, or the API's. Its off is to copy.
+    struct Other: Codable, Equatable, Identifiable {
+        let url: String
+        let port: Int
+        let message: String
+        var command: String? = nil
+        var kind: String? = nil
+
+        var id: String { url }
+    }
+
+    let step: String
+    var message: String? = nil
+    var command: String? = nil
+    var stopCommand: String? = nil
+    var url: String? = nil
+    var answers: Bool? = nil
+    /// The listener is down and another program holds its port, so that program is what the address serves.
+    var otherProgram: Bool? = nil
+    var fixUrl: String? = nil
+    var others: [Other]? = nil
+
+    var isOpen: Bool { step == "on" }
+    /// Drawn with the switch off too: the switch closes the connector's own door, but one can outlive it (it failed, it
+    /// came from a terminal), and other mappings are never Cicada's to close.
+    var needsSightWhileOff: Bool { isOpen || step == "terminal" || !(others ?? []).isEmpty }
+    /// Nothing the app can act on: no Tailscale here, so the other ways in (ngrok, an address of their own) stay on show.
+    var isAbsent: Bool { step == "install" }
+
+    /// A plain poll asks nothing of the address, so it must not flip a known answer back to "Checking…".
+    func keepingAnswer(of old: RemoteFunnel?) -> RemoteFunnel {
+        guard answers == nil, isOpen, let old, old.isOpen, old.stopCommand == stopCommand else { return self }
+        var merged = self
+        merged.answers = old.answers
+        merged.url = old.url
+        merged.message = old.message
+        return merged
+    }
+
+    /// Why a click was refused outright (a replica, say), in the backend's words. An off also gets the command, because
+    /// the address is still open and this is how to close it from here.
+    static func refusal(_ detail: String?, stopCommand: String?) -> String {
+        guard let detail, !detail.isEmpty else { return Copy.remoteFunnelFailed }
+        guard let stopCommand else { return detail }
+        return "\(detail) To close it here, run: \(stopCommand)"
+    }
+
+    /// The only addresses offered as a link: Tailscale's own, where the person fixes what stopped the click.
+    static func fixLink(_ raw: String?) -> URL? {
+        guard let raw, let url = URL(string: raw), url.scheme == "https",
+              let host = url.host, ["console.tailscale.com", "login.tailscale.com", "tailscale.com"].contains(host)
+        else { return nil }
+        return url
+    }
+}
+
+/// `POST /remote/funnel`: what the click did, then the state read back.
+struct RemoteFunnelRun: Codable, Equatable {
+    let ok: Bool
+    var message: String? = nil
+    var fixUrl: String? = nil
+    var ran: String? = nil
+    let funnel: RemoteFunnel
 }
 
 /// What a connector may do, in plain verbs (R-R22). Order is the backend's
@@ -147,7 +218,7 @@ enum RemoteScope: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .search: "Find things in your memory."
         case .read: "Open full pages and Cicada's questions."
-        case .record: "Save notes, links and facts, marked as from this app."
+        case .record: "Keep this app's chats, and save notes, links and facts, marked as from this app."
         case .sources: "Read what you said, word for word."
         case .answer: "Record your answers to Cicada's questions as yours."
         case .ask: "Let Cicada write answers for it. Uses your plan."
@@ -232,7 +303,7 @@ enum RemoteApp: String, CaseIterable, Identifiable {
         case .claudeCode: "Claude Code"
         case .codex: "Codex"
         case .cursor: "Cursor"
-        case .vscode: "VS Code"
+        case .vscode: "GitHub Copilot"
         case .geminiCLI: "Gemini CLI"
         case .other: "Other app"
         }
@@ -388,10 +459,38 @@ enum RemoteReach: Equatable {
     case checking(String)
     case unreachable(String)
     case setUp(message: String, command: String?)
+    /// Ruling 59: Tailscale is ready; the one click runs exactly this command.
+    case funnelReady(command: String)
+    /// Ruling 59: open, and a probe through the address just answered. The only state that names the address.
+    case funnelOpen(String)
+    case funnelChecking
+    case funnelWaiting(String)
+    /// Ruling 59: what stands in the way, in the backend's words.
+    case funnelBlocked(String)
+    /// The connector is down and another program holds its port: that program is public. First, over a bind failure,
+    /// which is the same fact seen from the listener's side.
+    case funnelExposed(String)
 
-    static func of(_ s: RemoteStatus) -> RemoteReach {
+    /// `funnel` is nil for an older backend without the route: the page is what it was, the command to copy.
+    static func of(_ s: RemoteStatus, funnel: RemoteFunnel? = nil) -> RemoteReach {
         guard s.enabled else { return .off }
+        if funnel?.otherProgram == true, let message = funnel?.message { return .funnelExposed(message) }
         if let error = s.listenerError { return .problem("Cicada couldn't open its door: \(error).") }
+        if let funnel, s.publicBaseUrl == nil, !funnel.isAbsent {
+            switch funnel.step {
+            case "on":
+                switch funnel.answers {
+                case .some(true): if let url = funnel.url { return .funnelOpen(url) }
+                case .some(false): return .funnelWaiting(funnel.message ?? "")
+                case .none: break
+                }
+                return .funnelChecking
+            case "off":
+                if let command = funnel.command { return .funnelReady(command: command) }
+            default:
+                if let message = funnel.message { return .funnelBlocked(message) }
+            }
+        }
         if let url = s.effectiveUrl {
             switch s.reachable {
             case .some(true): return .reachable(url)

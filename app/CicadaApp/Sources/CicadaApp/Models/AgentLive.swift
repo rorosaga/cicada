@@ -26,12 +26,23 @@ struct AgentLiveRow: Decodable, Equatable, Identifiable {
         via = c.lenient(.via)
         lastCalledAt = c.lenient(.lastCalledAt)
     }
+
+    /// Connected on this Mac — its config names Cicada or it called through stdio (`via` `config` or `mcp`), never
+    /// only through the remote connector. Only such an agent can read a walled site's saved list in the person's
+    /// signed-in browser (G166/G206: those reading tools are stdio only).
+    var connectedLocally: Bool { connected && via != "remote" }
 }
 
 struct AgentLiveResponse: Decodable, Equatable {
     var agents: [AgentLiveRow] = []
 
     init(agents: [AgentLiveRow] = []) { self.agents = agents }
+
+    /// Whether any agent on this Mac is connected (`AgentLiveRow.connectedLocally`) — what a list read in the
+    /// person's browser needs before the Sources page may call it Connected.
+    static func anyConnectedLocally(_ rows: some Sequence<AgentLiveRow>) -> Bool {
+        rows.contains { $0.connectedLocally }
+    }
 
     enum CodingKeys: String, CodingKey { case agents }
 

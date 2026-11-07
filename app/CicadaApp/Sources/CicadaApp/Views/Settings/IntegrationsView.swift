@@ -138,7 +138,8 @@ struct IntegrationsView: View {
     }
 
     private func showsWispr(_ rows: [SourceChannel]) -> Bool {
-        localSources.wisprInstalled || rows.contains { $0.id == LocalSourceWatcher.wisprChannel }
+        SourceCatalog.wisprOffered
+            && (localSources.wisprInstalled || rows.contains { $0.id == LocalSourceWatcher.wisprChannel })
     }
 
     /// Three grey rows under a spinner rather than a bare spinner: the page's
@@ -197,7 +198,9 @@ struct IntegrationsView: View {
                     if channel.id != LocalSourceWatcher.wisprChannel,
                               channel.id != CalendarRow.channelId,
                               channel.id != ContactsReader.channel,
-                              channel.id != MessagesWatcher.channel {
+                              channel.id != MessagesWatcher.channel,
+                              channel.id != WhatsAppWatcher.channel,
+                              channel.id != TelegramChats.channel {
                         // Wispr Flow, the Calendar app and Contacts each have a row the app owns (below).
                         IntegrationChannelRow(channel: channel)
                     }
@@ -212,6 +215,8 @@ struct IntegrationsView: View {
                 }
                 if category == .messaging {
                     MessagesRow(channel: rows.first { $0.id == MessagesWatcher.channel })
+                    WhatsAppSourceRow(channel: rows.first { $0.id == WhatsAppWatcher.channel })
+                    TelegramSourceRow(channel: rows.first { $0.id == TelegramChats.channel })
                 }
                 if category == .voiceAndMeetings, showsWispr(rows) {
                     WisprFlowRow(channel: rows.first { $0.id == LocalSourceWatcher.wisprChannel })

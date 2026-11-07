@@ -51,6 +51,29 @@ struct SleepWaitingList: View {
                           onSelectEntity: onSelectEntity, room: room)
                 .id(DetailsSection.waiting.anchorID)
                 .saturation(liveness.saturation)
+            if let kept = queue?.kept, kept > 0 {
+                // ROR-118 round 5 - the list's own last row, in the table's columns: the chevron's slot, the mark's tile,
+                // the words in the name column and the number in the Items column, so it is a row, not a stranded line.
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Color.clear.frame(width: CicadaTheme.iconPoints(.inline), height: 1)
+                    Image(systemName: "tray")
+                        .font(CicadaTheme.icon(.inline))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .frame(width: CicadaTheme.scaled(22), height: CicadaTheme.scaled(22))
+                        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBadge))
+                    Text(Copy.SleepV5.keptForLookupRow).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                        .lineLimit(1)
+                    Spacer(minLength: CicadaTheme.spacingMD)
+                    Text(UsageFormat.count(kept)).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                        .monospacedDigit()
+                        .frame(minWidth: CicadaTheme.scaled(StudyListCard.countColumn), alignment: .trailing)
+                }
+                .padding(.horizontal, CicadaTheme.scaled(10))
+                .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 12))
+                .padding(.top, -CicadaTheme.spacingCard + CicadaTheme.spacingXS)
+                .help(Copy.keptForLookup(kept) ?? "")
+                .accessibilityElement(children: .combine)
+            }
         }
     }
 }
@@ -76,6 +99,10 @@ struct SleepPastReads: View {
     var runDetails: [String: SleepRunDetail] = [:]
     var expandedRun: String? = nil
     var onToggleRun: (String) -> Void = { _ in }
+    /// The run cards' dropdowns (owner 2026-10-26): what each consolidation read and wrote, and the loader an open asks.
+    var items: [SleepConsolidatedKey: SleepConsolidated] = [:]
+    var itemsFailed: Set<SleepConsolidatedKey> = []
+    var onLoadItems: (SleepConsolidatedKey) -> Void = { _ in }
 
     /// Retry on a parked conversation only when the server would take it: no run reading, none waiting paused.
     private var canRetry: Bool {
@@ -118,9 +145,16 @@ struct SleepPastReads: View {
                                  && history.first(where: { $0.kind == "sleep" })?.engine == lastFigures?.engine)
                 .id(DetailsSection.readout.anchorID)
                 .saturation(liveness.saturation)
-            ConsolidationHistoryCard(entries: history, details: details, expanded: expanded,
-                                     onToggle: onToggleHistory, onSelectEntity: onSelectEntity,
-                                     runDetails: runDetails, expandedRun: expandedRun, onToggleRun: onToggleRun)
+            ConsolidationHistoryCard(entries: history, details: details, expanded: expanded, expandedRun: expandedRun,
+                                     runDetails: runDetails, items: items, itemsFailed: itemsFailed,
+                                     onToggle: { card in
+                                         switch card.key {
+                                         case .run(let id): onToggleRun(id)
+                                         case .commit(let hash): onToggleHistory(hash)
+                                         }
+                                         onLoadItems(card.key)
+                                     },
+                                     onSelectEntity: onSelectEntity, onLoadItems: onLoadItems)
                 .id(DetailsSection.pastNights.anchorID)
                 .saturation(liveness.saturation)
         }
@@ -235,7 +269,10 @@ struct LastCycleRow: Equatable, Identifiable {
         }
         // The vendor's own sentence, whole (it carries the reset time) — until that time has passed.
         if let drain, drain.stop?.reason == "plan_limit", !planPauseLapsed {
-            rows.append(LastCycleRow(kind: .paused, title: Copy.SleepDetailsWords.pausedTitle,
+            // G237: a key's limit is the key's, never the person's plan.
+            let title = drain.stop?.limit == "key_limit" ? Copy.SleepV5.pausedTitle("key_limit")
+                : Copy.SleepDetailsWords.pausedTitle
+            rows.append(LastCycleRow(kind: .paused, title: title,
                                      text: drain.stop?.sentence ?? Copy.SleepDetailsWords.pausedFallback))
         }
         if drainHasNews(drain), let drain {

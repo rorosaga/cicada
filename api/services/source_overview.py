@@ -24,10 +24,11 @@ from dataclasses import dataclass
 from datetime import date as _date, datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import bank_index, folder_source
+from api.services import bank_index, episode_time, folder_source
 
 # G134: meetings and dictation are their own section, VOICE & MEETINGS (R-LS25).
-KIND_ORDER = ("harness", "browser", "social", "feed", "messaging", "voice", "import")
+# G39/G233: books — Apple Books, a Goodreads export, a scanned ISBN — are their own section, READING.
+KIND_ORDER = ("harness", "browser", "social", "feed", "messaging", "voice", "reading", "import")
 
 # R-A16: the Memory-sources sparkline's window. Bounded so the payload cannot
 # grow with the age of the bank, and keyed by ABSOLUTE dates so a 304'd
@@ -95,7 +96,8 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("dia-bookmarks", "Dia bookmarks", "browser", "dia-bookmark", ("dia-bookmark",), "dia-bookmarks"),
     # Round 4 (G160 first slice): Chrome's open tab groups — one snapshot episode per group.
     SourceSpec("chrome-tab-groups", "Chrome tab groups", "browser", "chrome-tab-group", ("chrome-tab-group",), "chrome-tab-groups"),
-    SourceSpec("pinterest", "Pinterest", "social", "pinterest", ("pinterest",), "pinterest"),
+    # `pinterest-saved`: the person's own agent reading Saved Pins (G232) files under the export's origin, like Reddit's.
+    SourceSpec("pinterest", "Pinterest", "social", "pinterest", ("pinterest", "pinterest-saved"), "pinterest"),
     SourceSpec("reddit", "Reddit", "social", "reddit-saved", ("reddit-saved",), "reddit"),
     # `x-likes`: the X archive's like.js (saved_exports); bookmarks come from the connector.
     SourceSpec("x", "X", "social", "x-bookmarks", ("x-bookmarks", "x-likes"), "x"),
@@ -107,20 +109,45 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("linkedin", "LinkedIn", "social", "linkedin-saved", ("linkedin-saved",), None),
     SourceSpec("tiktok", "TikTok", "social", "tiktok-saved", ("tiktok-saved",), None),
     SourceSpec("tiktok-history", "TikTok history", "social", "tiktok-history", ("tiktok-history",), None),
+    # G32: Spotify's own download — the library as saved items, the plays as listening days (index-only, ruling 30).
+    SourceSpec("spotify", "Spotify", "social", "spotify", ("spotify-saved",), None),
+    SourceSpec("spotify-listening", "Spotify listening", "social", "spotify", ("spotify-history",), None),
+    # G89 (2026-11-04): the person's Substack, read by their own agent — Saved as saves, History as reading days.
+    SourceSpec("substack", "Substack", "social", "substack-saved", ("substack-saved",), None),
+    SourceSpec("substack-history", "Substack reading", "social", "substack-history", ("substack-history",), None),
     SourceSpec("rss", "RSS feeds", "feed", "rss", ("rss",), "rss"),
+    # G89 (owner 2026-11-05): the publications followed. Their episodes carry `origin: rss`; `build_overview` moves them
+    # here by the feed that brought them, so no origin of its own.
+    SourceSpec("substack-feeds", "Publications", "feed", "substack-saved", (), "substack-feeds"),
     SourceSpec("calendar", "Calendars", "feed", "calendar", ("calendar",), "calendar"),
     # G142 (round 4): Apple Calendar through EventKit, so its episodes never read as a raw id.
     SourceSpec("calendar-local", "Apple Calendar", "feed", "calendar-local", ("calendar-local",), "calendar-local"),
-    SourceSpec("telegram", "Telegram", "messaging", "telegram", ("telegram",), "telegram"),
+    SourceSpec("telegram", "Telegram bot", "messaging", "telegram", ("telegram",), "telegram"),
     # G179: the Messages conversations the person ticked — one episode per sitting.
     SourceSpec("imessage", "Messages", "messaging", "imessage", ("imessage",), "imessage"),
+    # G179 (2026-10-28): WhatsApp read live from its Mac store, the Messages way.
+    SourceSpec("whatsapp", "WhatsApp", "messaging", "whatsapp", ("whatsapp",), "whatsapp"),
+    # Ruling 47a: the person's own Telegram one-to-one chats, through their own account.
+    SourceSpec("telegram-chats", "Telegram", "messaging", "telegram-chats", ("telegram-chats",),
+               "telegram-chats"),
     SourceSpec("wispr-flow", "Wispr Flow", "voice", "wispr-flow", ("wispr-flow",), "wispr-flow"),
+    # G39: Apple Books on this Mac (the app reads it); G233: a Goodreads export, and a book scanned on the phone.
+    SourceSpec("apple-books", "Apple Books", "reading", "apple-books", ("apple-books",), "apple-books"),
+    SourceSpec("goodreads", "Goodreads", "reading", "goodreads", ("goodreads",), None),
+    SourceSpec("book-scan", "Book scans", "reading", "book-scan", ("book-scan",), None),
     SourceSpec("notes", "Apple Notes", "import", "apple-notes", ("apple-notes",), "notes"),
     # G219: Apple Reminders (the person's own lists, read by the app) and a Notion export — the person's own words,
     # so `import`, never a saving door (`inbox_tend.saved_origin` reads `browser`/`social`/`feed` as saved text).
     SourceSpec("reminders-local", "Apple Reminders", "import", "reminders-local", ("reminders-local",),
                "reminders-local"),
     SourceSpec("notion", "Notion", "import", "notion-export", ("notion-export",), "notion"),
+    # Ruling 47 tier 2: the pages shared with the person's own Notion connection, live — its own row beside the
+    # export's, so each says what came in its way.
+    SourceSpec("notion-api", "Notion (live)", "import", "notion-export", ("notion-api",), "notion-api"),
+    # ROR-115: the issues the person created or holds in Linear and their comments, live through a sign-in.
+    SourceSpec("linear-api", "Linear", "import", "linear-api", ("linear-api",), "linear-api"),
+    # G230: the person's GitHub — the repositories they starred (saves, each a page) and the ones they own (offered).
+    SourceSpec("github", "GitHub", "social", "github", ("github-starred", "github-owned", "github-added"), "github"),
     SourceSpec("files", "Files & links", "import", "bookmark", ("saved-link",), "files"),
     # 2026-10-23: a note typed on a paired phone (`/capture/note`, `origin: phone`) or another device (`note`), so
     # neither reads as its raw id ("phone").
@@ -135,13 +162,19 @@ CATALOG: tuple[SourceSpec, ...] = (
 #: is `captured`. A fact of the catalog, served on every row as `intent`, so every client groups the same way.
 SAVED_SOURCES = frozenset({
     "chrome-bookmarks", "safari-bookmarks", "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
-    "pinterest", "reddit", "x", "instagram", "youtube", "linkedin", "tiktok", "files",
+    "pinterest", "reddit", "x", "instagram", "youtube", "linkedin", "tiktok", "files", "spotify", "github",
+    "substack", "goodreads",
 })
 INTENTS = ("saved", "captured")
 #: Folded into `/sources/overview`'s ETag: bump it when the body changes for the same bank files (v3: `intent`;
 #: v4: `waiting`, `faces`/`faces_more`, and check records left out; v5: a nil-origin save on Files & links, the Phone
-#: and device-notes rows; v6: the device-files row; v7: Apple Reminders and Notion, G219).
-SHAPE = "overview-v7"
+#: and device-notes rows; v6: the device-files row; v7: Apple Reminders and Notion, G219;
+#: v8: Readwise and Notion live, ruling 47 tier 2; v9: WhatsApp, G179; v10: Telegram chats, ruling 47a;
+#: v11: Spotify's library and listening, G32; v12: Readwise removed by owner direction, 2026-11-03; v13: GitHub, G230;
+#: v14: Substack's saves and reading days, G89; v15: Telegram chats labelled "Telegram", the bot feed
+#: "Telegram bot", 2026-11-04; v16: Apple Books, Goodreads and book scans, the Reading kind, G39/G233; v17: `kept`,
+#: ruling 62; v18: the publications followed, on their own row out of RSS's, G89).
+SHAPE = "overview-v18"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent
@@ -153,7 +186,7 @@ CHECK_RECORD_SOURCES = frozenset({"web-check", "source-check"})
 #: Sources v4 (owner 2026-10-19: "the first three and then a fourth circle in the back that says '+N more'") — how many
 #: faces a row carries: the chats that fed Messages, the sites a saved source's things came from.
 MAX_FACES = 3
-FACE_CHAT_SOURCES = frozenset({"imessage"})
+FACE_CHAT_SOURCES = frozenset({"imessage", "whatsapp", "telegram-chats"})
 
 
 def is_check_record(fm: dict) -> bool:
@@ -208,7 +241,7 @@ HARNESS_LABELS = {
     "grok": "Grok",                     # round 4 R-AG7
     "claude-code-remote": "Claude Code (remote)",
     "codex-remote": "Codex (remote)",
-    "vscode": "VS Code",
+    "vscode": "GitHub Copilot",
     "gemini-cli": "Gemini CLI",
     "remote-app": "Other remote app",
     "agent-api": "Agents over HTTP",   # G213: an agent token's episodes (`catalog.API_HARNESS`)
@@ -228,10 +261,13 @@ def source_key(fm: dict) -> str:
     """
     origin = str(fm.get("origin") or "").strip()
     if fm.get("session_id") or origin == "mcp":
+        # G228 (amended 2026-11-05): a session a host app launched (T3 Code driving Claude Code) counts and lists under
+        # the harness that ran it; the episode keeps its `host` for provenance, and the host is no source (the Agents
+        # page says whether Cicada is set up there).
         return "harness:" + (str(fm.get("harness") or "").strip() or UNKNOWN)
     # G133: one card per watched folder, not one "folder" card for all of them.
     if origin == folder_source.ORIGIN and fm.get("folder_id"):
-        return folder_source.channel_id(str(fm["folder_id"]))
+        return folder_source.channel_id(str(fm["folder_id"]), fm.get("folder_kind"))
     if not origin:
         # A save's episode written before origins were stamped, or from a bookmarks file imported through Files and
         # links (2026-10-23: it read as a row called "unknown"): the Files & links card, where its nil-origin page is
@@ -240,6 +276,18 @@ def source_key(fm: dict) -> str:
             return "files"
         return f"origin:{UNKNOWN}"
     return _ORIGIN_TO_ID.get(origin, f"origin:{origin}")
+
+
+def row_key(fm: dict) -> str | None:
+    """The row an episode counts under, or ``None`` when it counts nowhere — what the overview's numbers and a source's
+    own conversation list (`session_stats`) both read, so a card and the list under it are one partition (ROR-109)."""
+    from api.services import history_index
+
+    if is_check_record(fm):
+        return None   # Sources v4: a settled check's citation, not an intake (`CHECK_RECORD_SOURCES`)
+    if history_index.kind(fm) == "locked":
+        return None   # G234: a retired locked note counts nowhere
+    return source_key(fm)
 
 
 def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
@@ -251,7 +299,7 @@ def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
         spec = _BY_ID[key]
         label, kind, mark, origins, channel = spec.label, spec.kind, spec.mark, list(spec.origins), spec.channel
         harness = None
-    elif key.startswith(folder_source.CHANNEL_PREFIX):
+    elif folder_source.folder_id_of(key) is not None:
         known = (labels or {})
         label, kind, mark, origins, channel = (
             known.get(key, "Folder (removed)"), "import", "folder", [folder_source.ORIGIN],
@@ -266,6 +314,8 @@ def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
         # Sources v4 — this source's episodes still waiting for Sleep's read (`history_index.waits_for_model`, the
         # rule Sleep's own queue count uses), so the detail's "Consolidate now · N waiting" is the server's number.
         "waiting": 0,
+        # Ruling 62: this source's saves kept for lookup, unread until the person talks about one.
+        "kept": 0,
         "faces": [], "faces_more": 0,
         # Sparse ISO-UTC-day -> captures that day (R-A16); a silent day has no
         # key, so a gap can never be read as a zero the backend asserted.
@@ -274,6 +324,19 @@ def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
         "last_error": None, "actions": [], "channel_id": channel,
         "origins": origins, "harness": harness,
     }
+
+
+def is_files_media(fm: dict) -> bool:
+    """A media page the person saved as a link or file: nil-origin (saved before writers stamped one) or `saved-link`.
+    A saved-list post, a bookmark, a pin or a feed item is another source's, so it never makes Files & links read
+    Connected (sources-truth)."""
+    origin = str(fm.get("origin") or "").strip()
+    return fm.get("type") == "media" and (not origin or origin in _FILES_ORIGINS) and not is_hidden(fm)
+
+
+def files_media_count(memory_path: Path) -> int:
+    """How many saved links and files the Files & links page lists (the one set the card, the page and the channel share)."""
+    return sum(1 for f in bank_index.files(Path(memory_path), "entities") if is_files_media(f.frontmatter))
 
 
 def build_overview(memory_path: Path, *, channels: list[dict], today: _date | None = None) -> list[dict]:
@@ -293,7 +356,7 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
     memory_path = Path(memory_path)
     states: dict[str, dict] = {}
     episode_key: dict[str, str] = {}
-    labels = {folder_source.channel_id(f["id"]): str(f.get("label") or "Folder")
+    labels = {folder_source.channel_for(f): str(f.get("label") or "Folder")
               for f in folder_source.list_folders(memory_path)}
     today = today or datetime.now(timezone.utc).date()
     window_start = (today - timedelta(days=ACTIVITY_DAYS - 1)).isoformat()
@@ -301,17 +364,24 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
 
     from api.services import history_index
 
+    from api.services import channel_items   # lazy: channel_items imports this module
+
     chats: dict[str, dict[str, tuple[float, str]]] = {}
+    substack_pages = channel_items.substack_feed_pages(memory_path)
     for f in bank_index.files(memory_path, "episodes"):
         fm = f.frontmatter
-        if is_check_record(fm):
-            continue   # Sources v4: a settled check's citation, not an intake (`CHECK_RECORD_SOURCES`)
-        key = source_key(fm)
+        key = row_key(fm)
+        if key is None:
+            continue
+        if key == "rss" and str(fm.get("media_entity_id") or "") in substack_pages:
+            key = channel_items.SUBSTACK_FEEDS
         episode_key[str(fm.get("id") or f.stem)] = key
         state = states.setdefault(key, _new_state(key, labels))
         state["episodes"] += 1
         if history_index.waits_for_model(fm):
             state["waiting"] += 1
+        elif history_index.kind(fm) == "saved" and not fm.get("source_deleted_at"):
+            state["kept"] += 1
         if key in FACE_CHAT_SOURCES and fm.get("conversation") and not fm.get("source_deleted_at"):
             _note_chat(chats.setdefault(key, {}), fm)
         conversation = str(fm.get("session_id") or fm.get("source_id") or "").strip()
@@ -323,12 +393,12 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         day = _activity_day(ts)
         if day is not None and window_start <= day <= window_end:
             state["activity"][day] = state["activity"].get(day, 0) + 1
-        # The row's last activity is the newest capture WRITE, not the conversation's first moment (2026-10-23, live
-        # test: Claude Code read "1 day ago" right after a capture, since one session is one episode and its
-        # `timestamp` is when it began). `captured_at` is the capture writer's stamp on every create and update,
-        # `last_turn_at` the last kept turn's own time; the activity buckets above stay on `timestamp`.
-        latest = max((str(fm.get(k) or "") for k in ("timestamp", "captured_at", "last_turn_at")), key=_sortable)
-        if _sortable(latest) > _sortable(state["last_activity_at"]):
+        # The row's last activity is when Cicada last GOT something from it, never the conversation's own date
+        # (2026-10-23: Claude Code read "1 day ago" right after a capture; CIC8 2026-10-29, ruling 39: a chat export
+        # read "1 yr. ago" right after its import). `episode_time.delivered_at` is the one rule; the activity
+        # buckets above stay on `timestamp`, which is when things were said.
+        latest = episode_time.delivered_at(fm)
+        if episode_time.is_later(latest, state["last_activity_at"]):
             state["last_activity_at"] = latest
 
     # Final review M1: the `files` card must count what its page renders. The
@@ -353,7 +423,7 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         # link saved before they did carries none, and both are the same card.
         # F6: skipping the hidden ones is what keeps this count equal to the
         # list `GET /sources/{id}` renders — the same predicate, one module.
-        if fm.get("type") == "media" and (not origin or origin in _FILES_ORIGINS) and not is_hidden(fm):
+        if is_files_media(fm):
             files_media += 1
         for ep_id in fm.get("source_episodes", []) or []:
             key = episode_key.get(str(ep_id))
@@ -403,8 +473,6 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
             states[key]["faces_more"] = max(0, len(ordered) - MAX_FACES)
     # A saved row's faces come from the set its list lists, and only while its count says it holds something (review
     # of #358: "Nothing saved yet" beside three faces read as a contradiction) — never a bookmark that left the browser.
-    from api.services import channel_items   # lazy: channel_items imports this module
-
     for key, state in states.items():
         if state["intent"] == "saved" and state["items"] > 0:
             faces, more = channel_items.saved_faces(memory_path, state["channel_id"] or key, limit=MAX_FACES)
@@ -443,12 +511,11 @@ def _note_chat(by_chat: dict[str, tuple[float, str]], fm: dict) -> None:
 
 def _chat_photos(memory_path: Path) -> dict[str, str]:
     """Each ticked chat's stored photo hash (`messages_photos`, outside every bank) — the face's `?v=`."""
-    from api.services import logo_service, messages_photos, messages_source
+    from api.services import logo_service, messages_photos
 
     try:
         meta = messages_photos.read_meta(logo_service.bank_name(memory_path))
-        ticked = {cid for cid, e in messages_source.load_settings(memory_path)["conversations"].items()
-                  if e.get("ticked")}
+        ticked = messages_photos.ticked_chats(memory_path) if meta else set()
     except Exception:  # noqa: BLE001 — a face without a photo draws its monogram
         return {}
     return {cid: str(e["sha"]) for cid, e in meta.items()

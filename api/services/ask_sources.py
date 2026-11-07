@@ -24,14 +24,16 @@ Only bank files are opened (``evidence.source_document``); transcripts under ``~
 """
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Callable
 from pathlib import Path
 
 from loguru import logger
 
-from api.services import evidence, text_fold
+from api.services import authorship, evidence, question_intent, text_fold
 
 MAX_EPISODES = 8
 MAX_EXCERPTS = 10
@@ -119,6 +121,10 @@ class Excerpt:
     title: str = ""
     #: The turn's own stamp (else the episode's), as stored: :func:`local_day` reads the day it was said, locally.
     stamp: str = ""
+    #: Its conversation is still ``processed: false`` — Sleep has not read it (G207): the line says so.
+    unread: bool = False
+    #: The turn's role, for a reader that says who spoke in its own words.
+    role: str = ""
 
 
 def local_day(raw):
@@ -153,18 +159,19 @@ def _clip(text: str, at: int | None, limit: int) -> str:
     return " ".join(_clip_around(text, at, limit).split())
 
 
-#: Episodes an agent wrote through a tool door (``mcp_tools`` stamps ``source``): a block with no turn marker is the
-#: agent's note, not the person speaking — ``evidence`` reads an unmarked block as the person's (R4), Ask may not.
-AGENT_SOURCES = frozenset({"mcp", "mcp-remote", "cli"})
-
-
 def _who(turn, fm: dict, owner_name: str | None) -> str:
-    if turn.role == "user" and turn.marker is None and str(fm.get("source") or "") in AGENT_SOURCES:
+    if turn.marker is None and authorship.agent_saved(fm):
+        # Ruling 50: an agent's saved note (its turns are `assistant`), under the label Ask always gave it.
         return "an agent's saved note (not the person's own words)"
     if turn.role == "user":
         return f"{owner_name} (the person this memory belongs to)" if owner_name else "the person this memory belongs to"
     if turn.role == "assistant":
-        return "the assistant (an AI agent, not the person)"
+        # Lean reads (2026-10-27): which agent, from the episode's own fields — "a Claude Code session", "<name> (an
+        # AI agent), over Messages" — so the answer can say who did it. A record naming nobody keeps the old words.
+        from api.services import episode_actor
+
+        actor = episode_actor.actor(fm, ids=False)
+        return f"{actor} — the assistant, not the person" if actor else "the assistant (an AI agent, not the person)"
     if turn.role == "speaker":
         label = (turn.marker or "").split(":", 1)[-1].strip() or "someone else"
         corr = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}
@@ -179,23 +186,23 @@ def _who(turn, fm: dict, owner_name: str | None) -> str:
 
 def _first_match(text: str, terms: set[str]) -> int | None:
     """Where the first word holding one of ``terms`` starts: the word itself, or a longer form of it (as the word
-    index matches a prefix)."""
-    for m in re.finditer(r"\w+", text):
-        word = text_fold.fold(m.group(0))
-        if text_fold.stem(word) in terms or any(len(t) >= 4 and word.startswith(t) for t in terms):
-            return m.start()
-    return None
+    index matches a prefix); a pair of an unspaced script, where it first stands."""
+    found = _match_starts(text, terms)
+    return found[0] if found else None
 
 
 def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name: str | None = None,
            terms: set[str] | None = None, max_episodes: int = MAX_EPISODES, max_excerpts: int = MAX_EXCERPTS,
-           total_chars: int = TOTAL_CHARS, breadth: bool = False, follow: bool = False) -> list[Excerpt]:
+           total_chars: int = TOTAL_CHARS, breadth: bool = False, follow: bool = False,
+           deep: dict | None = None) -> list[Excerpt]:
     """The excerpts for ``question`` from the episodes ``found`` points at, oldest first (see the module doc).
     ``terms``: the question's words to rank turns by (default: all of its subject words). ``breadth`` (a count or
     a list): each episode's best turn first, in rank order, each at most :data:`BREADTH_EXCERPT_CHARS` — one line from
     every conversation the shown items came from before a second from any — then the rest by score. ``follow`` (a
     question by meaning, :func:`by_meaning`): a shown line leads to the turn that told it by the line's own words, as
-    for ``breadth`` — the question's words are not the record's, so they find no turn."""
+    for ``breadth`` — the question's words are not the record's, so they find no turn. ``deep`` (ROR-29, G207): the
+    one reading budget (:data:`UNREAD_EXTRA_CHARS`) the caller shares with :func:`gather_search`; a ``breadth`` line of
+    a conversation Sleep has not read is read past :data:`BREADTH_EXCERPT_CHARS` from it, a read one never."""
     terms = set(terms) if terms else question_terms(question)
     terms = (terms - QUESTION_WORDS) or terms
     by_episode: dict[str, dict] = {}
@@ -221,7 +228,7 @@ def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name
         spans = [p for p in by_episode[ep]["spans"]
                  if 0 <= p.start < p.end <= len(text)
                  and evidence.span_status(text, end=p.end, hash=p.hash) != evidence.SPAN_STALE]
-        turns = [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm), override=fm.get("evidence_kind"),
+        turns = [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm), override=authorship.of(fm),
                                            gaps=gaps) if t.role != evidence.GAP_KIND]
         docs[ep] = (fm, text, turns)
         extra = by_episode[ep]["terms"] - terms
@@ -247,15 +254,17 @@ def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name
         led = {id(c) for c in lead}
         candidates = lead + [c for c in candidates if id(c) not in led]
         return _take(candidates, docs, terms, owner_name, max_excerpts=max_excerpts, total_chars=total_chars,
-                     excerpt_chars=BREADTH_EXCERPT_CHARS)
+                     excerpt_chars=BREADTH_EXCERPT_CHARS, deep=deep)
     return _take(candidates, docs, terms, owner_name, max_excerpts=max_excerpts, total_chars=total_chars)
 
 
 def _take(candidates: list[tuple], docs: dict[str, tuple], terms: set[str], owner_name: str | None, *,
           max_excerpts: int, total_chars: int, taken: set[tuple[str, int]] | None = None,
-          excerpt_chars: int = EXCERPT_CHARS, context: bool = True) -> list[Excerpt]:
+          excerpt_chars: int = EXCERPT_CHARS, context: bool = True, deep: dict | None = None) -> list[Excerpt]:
     """The excerpts for ``candidates`` (``(score, rank, turn index, episode, turn, span)``, best first) within the
-    budget, oldest first. ``taken``: ``(episode, turn index)`` already shown elsewhere in the prompt — never twice."""
+    budget, oldest first. ``taken``: ``(episode, turn index)`` already shown elsewhere in the prompt — never twice.
+    ``deep`` (``{"left": characters}``, G207): a turn of a conversation Sleep has not read is read past
+    ``excerpt_chars`` — whole when short, else its matching passages — drawing on that budget (:func:`_read_more`)."""
     chosen: list[Excerpt] = []
     taken = set(taken or ())
     used = 0
@@ -271,12 +280,16 @@ def _take(candidates: list[tuple], docs: dict[str, tuple], terms: set[str], owne
         clipped = _clip(body, at, min(excerpt_chars, total_chars - used))
         if len(clipped) < 20 and len(body.strip()) >= 20:
             break
+        unread = not fm.get("processed", False)
+        text_shown = clipped
+        if unread and deep is not None:
+            text_shown = _read_more(body, terms, clipped, deep) or clipped
         # Ruling 34: the day the turn was said in the person's zone, never a UTC stamp's first ten characters.
         said = local_day(turn.ts or fm.get("timestamp"))
         day = said.isoformat() if said is not None else episode_day(ep)
-        excerpt = Excerpt(episode=ep, day=day, who=_who(turn, fm, owner_name), text=clipped,
+        excerpt = Excerpt(episode=ep, day=day, who=_who(turn, fm, owner_name), text=text_shown,
                           order=(day, ep, i), title=str(fm.get("title") or "").strip(),
-                          stamp=str(turn.ts or fm.get("timestamp") or "") or day)
+                          stamp=str(turn.ts or fm.get("timestamp") or "") or day, unread=unread, role=turn.role)
         taken.add((ep, i))
         used += len(clipped)
 
@@ -302,6 +315,61 @@ def _take(candidates: list[tuple], docs: dict[str, tuple], terms: set[str], owne
     return chosen
 
 
+#: G207: what Ask may read past its usual excerpt of a conversation Sleep has not read, in all, beyond
+#: :data:`SEARCH_CHARS` (≈ 1,000 tokens): a turn this short is shown whole; a longer one by up to
+#: :data:`UNREAD_PASSAGES` windows of :data:`UNREAD_PASSAGE_CHARS` around where its words are. No page holds such a
+#: conversation yet, so its excerpt is the only way its detail (a list, a number) reaches the model.
+UNREAD_EXTRA_CHARS = 4000
+UNREAD_WHOLE_CHARS = 2400
+UNREAD_PASSAGES = 3
+UNREAD_PASSAGE_CHARS = 500
+
+
+def _match_starts(text: str, terms: set[str]) -> list[int]:
+    """Where every word holding one of ``terms`` starts (:func:`_first_match`'s rule), in order."""
+    out: list[int] = []
+    unspaced = {t for t in terms if text_fold.is_unspaced(t)}
+    if unspaced:
+        folded, back = text_fold.fold_with_map(text)
+        out = [back[m.start()] for m in text_fold.term_pattern(unspaced).finditer(folded)]
+    for m in re.finditer(r"\w+", text):
+        word = text_fold.fold(m.group(0))
+        if text_fold.stem(word) in terms or any(len(t) >= 4 and word.startswith(t) for t in terms):
+            out.append(m.start())
+    return sorted(set(out))
+
+
+def _read_more(body: str, terms: set[str], clipped: str, deep: dict) -> str | None:
+    """More of one turn of an unread conversation than ``clipped``, or ``None``: the whole turn when it is at most
+    :data:`UNREAD_WHOLE_CHARS`, else its matching passages (non-overlapping windows, in order, ``…`` where text was
+    left out). What it adds beyond ``clipped`` is taken from ``deep["left"]``; with that spent, ``None``."""
+    whole = " ".join(body.split())
+    if len(clipped) >= len(whole):
+        return None
+    room = deep["left"] + len(clipped)
+    if len(whole) <= UNREAD_WHOLE_CHARS and len(whole) <= room:
+        text = whole
+    else:
+        starts: list[int] = []
+        for at in _match_starts(whole, terms):
+            if not starts or at - starts[-1] >= UNREAD_PASSAGE_CHARS:
+                starts.append(at)
+        if not starts:
+            return None
+        pieces = [_clip(whole, at, UNREAD_PASSAGE_CHARS) for at in starts[:UNREAD_PASSAGES]]
+        text = " ".join(pieces)
+        while len(text) > room and len(pieces) > 1:
+            pieces.pop()
+            text = " ".join(pieces)
+        if len(text) > room:
+            return None
+    extra = len(text) - len(clipped)
+    if extra <= 0:
+        return None
+    deep["left"] -= extra
+    return text
+
+
 def shown_turns(excerpts: list[Excerpt]) -> set[tuple[str, int]]:
     """``(episode, turn index)`` of every turn ``excerpts`` put in front of the model, context turns included."""
     return {(e.episode, i) for e in excerpts for i in (e.order[2], *e.shown)}
@@ -325,6 +393,11 @@ SEARCH_CHARS = 3000
 ENUM_EPISODES = 16
 ENUM_EXCERPT_CHARS = 300
 ENUM_CHARS = 3600
+#: What Ask reads of the search leg, for every question in every language (2026-11-06, G148): no shape decides it, since the
+#: shapes are word lists. Twice as much as one fact takes; measured in `mcp.md`. A caller with a budget of its own (recall) passes its own.
+ASK_WINDOW_EPISODES = 8
+ASK_WINDOW_EXCERPTS = 12
+ASK_WINDOW_CHARS = 6_000
 #: A count or a list about one speaker ("how many … have I …", "what books has <name> read"): another speaker's turn
 #: counts this share of its words' weight — the other side of a chat repeats the words ("did you enjoy the wedding?")
 #: but never did the thing.
@@ -337,6 +410,9 @@ ENUM_CHUNKS = 32
 #: every line of a two-person chat, "plan"); the rarer a word, the more a turn holding it counts. A question made only
 #: of such words cannot tell one conversation from another, and the leg shows nothing for it.
 COMMON_SHARE = 0.5
+#: …and never a word said in this few. In a new memory every word is "most of the conversations": with one conversation
+#: a share would drop all of them, and Ask would say nothing matches about something the person said a minute ago.
+COMMON_FLOOR = 5
 #: Rows counted per word for its share: past this the word is common in any bank that has them.
 DF_CAP = 20000
 #: A conversation is on the question's subject when it holds at least this share of the weight of the question's
@@ -874,8 +950,15 @@ _EN_OPENERS = frozenset("what which who whom whose when where why how is are was
                         "should will have has had am".split())
 
 
+#: A language the word lists here were not written for (2026-11-06): the meaning leg, which has none, carries it.
+LANGUAGE_OTHER = "other"
+#: In Latin letters, a passage this long with no function word of either list is another language; a shorter one may
+#: be a name and a number.
+OTHER_MIN_WORDS = 20
+
+
 def question_language(question: str) -> str:
-    """``"es"`` for a Spanish question, else ``"en"`` — the language the shape detectors and the word index's stemming
+    """``"es"`` for a Spanish question, :data:`LANGUAGE_OTHER` for one with no function word of either list, else ``"en"`` — the language the shape detectors and the word index's stemming
     were written for. English when it opens with an English question word or auxiliary and has no "¿"; otherwise
     Spanish when its Spanish function words outnumber its English ones (an opening "¿" breaks a tie). An article or
     "de"/"y" next to a capitalised word is part of a name (review of #385: "the house at Los Olivos") and counts for
@@ -895,6 +978,8 @@ def question_language(question: str) -> str:
             es += 1
         elif w in _EN_WORDS:
             en += 1
+    if not es and not en and "¿" not in text:
+        return LANGUAGE_OTHER
     return "es" if es > en or ("¿" in text and es >= en) else "en"
 
 
@@ -955,6 +1040,12 @@ class Searched:
     #: An English question whose nearest conversations include some in another language (:func:`record_language`):
     #: that language, else ``""``.
     record_lang: str = ""
+    #: The person asks for advice (:func:`question_intent.asks_advice`): the meaning leg adds more, since their taste is
+    #: rarely said in the question's words.
+    advice: bool = False
+    #: The person asks what has come up lately (:func:`question_intent.asks_lately`): the newest conversations, newest
+    #: first, whatever their words (:func:`newest_conversations`).
+    lately: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1010,7 +1101,7 @@ def _lexical(memory_path: Path, terms: set[str], *, common_share: float = COMMON
             rows = {int(r) for (r,) in conn.execute(
                 f"SELECT rowid FROM pas WHERE pas MATCH ? LIMIT {DF_CAP}", (f'"{t}"*',)) if (int(r) >> bits) in refs}
             df = len({r >> bits for r in rows})
-            if df and df <= common_share * n:
+            if df and df <= max(common_share * n, COMMON_FLOOR):
                 weights[t] = math.log((n + 1) / (df + 0.5))
                 rows_by_term[t] = rows
             elif df and common is not None:
@@ -1027,6 +1118,174 @@ def _lexical(memory_path: Path, terms: set[str], *, common_share: float = COMMON
         best[ep] = max(best.get(ep, 0.0), score)
     ranked = sorted(best, key=lambda ep: (-best[ep], -sum(weights[t] for t in held[ep]), ep))
     return weights, ranked, held
+
+
+#: The query's words a passage must hold together for recall's word leg (all of them when it has fewer).
+RECALL_WORDS_HELD = 3
+#: A word in more than this share of the passages finds nothing for that leg ("what", "user", the person's name).
+RECALL_COMMON_SHARE = 0.05
+#: …never fewer passages than this.
+RECALL_COMMON_FLOOR = 20
+#: Passages read per word; past it the word is common in any bank.
+RECALL_DF_CAP = 5000
+
+
+def rare_word_conversations(memory_path: Path, query: str, k: int) -> list[tuple[str, int, int]]:
+    """``[(episode id, start, end)]`` of the passage that best holds ``query``'s words together, one per conversation,
+    best first, at most ``k`` — recall's second word read (2026-10-29). Recall's first read asks every word of the
+    query to match, so a question in plain words ("what did we decide about the deploy pipeline?") missed the
+    conversation captured a minute ago that says "deploy pipeline" but not "what" or "decide". Here the query's
+    subject words (:func:`search_terms`) are weighed by their rarity over the passages, a word past
+    :data:`RECALL_COMMON_SHARE` of them drops out, and a passage counts only when it holds every remaining word, up
+    to :data:`RECALL_WORDS_HELD` of them — in one passage, so a long export that says each word somewhere is not a
+    match. An index-only record (ruling 30) is never one. Never raises; the query is never logged."""
+    import math
+
+    from api.services import search_index
+
+    terms = sorted(search_terms(query))
+    if not terms:
+        return []
+    try:
+        if search_index.ensure_fresh(memory_path) not in ("ready", "stale"):
+            return []
+        bits = search_index.ROW_BITS
+        with search_index.Reader(memory_path) as reader:
+            conn = reader.conn
+            n = int(conn.execute("SELECT count(*) FROM pas").fetchone()[0])
+            weights: dict[str, float] = {}
+            rows: dict[str, set[int]] = {}
+            # One row past "common" is enough to know; a small bank has no common word (a share of 40 passages is 2).
+            cap = min(RECALL_DF_CAP, int(max(RECALL_COMMON_SHARE * n, RECALL_COMMON_FLOOR)) + 1)
+            for t in terms:
+                found = {int(r) for (r,) in conn.execute(
+                    "SELECT rowid FROM pas WHERE pas MATCH ? LIMIT ?", (f'"{t}"*', cap))}
+                if found and len(found) < cap:
+                    weights[t] = math.log((n + 1) / (len(found) + 0.5))
+                    rows[t] = found
+            need = min(RECALL_WORDS_HELD, len(weights))
+            if not need:
+                return []
+            score: dict[int, float] = {}
+            held: dict[int, int] = {}
+            for t, found in rows.items():
+                for r in found:
+                    score[r] = score.get(r, 0.0) + weights[t]
+                    held[r] = held.get(r, 0) + 1
+            best: dict[int, int] = {}
+            for r in (r for r in score if held[r] >= need):
+                doc = r >> bits
+                if doc not in best or score[r] > score[best[doc]]:
+                    best[doc] = r
+            order = sorted(best, key=lambda d: (-score[best[d]], -d))
+            docs = reader.docs(order[: max(0, k) * 4])
+            out: list[tuple[str, int, int]] = []
+            for d in order:
+                doc = docs.get(d)
+                if doc is None or doc.kind != "episode" or doc.meta.get("index_only"):
+                    continue
+                s, e = conn.execute("SELECT s, e FROM pas WHERE rowid = ?", (best[d],)).fetchone()
+                out.append((doc.ref, int(s), int(e)))
+                if len(out) == k:
+                    break
+            return out
+    except Exception as exc:  # noqa: BLE001 — a missing index is a leg fewer
+        logger.debug(f"recall word leg: word index unavailable ({type(exc).__name__})")
+        return []
+
+
+#: The hook's stricter reading of "rare" (G207, 2026-11-06): a word in more than 1% of the passages finds nothing, and a
+#: turn past this length is a paste, not something the person said about the subject.
+UNREAD_COMMON_SHARE = 0.01
+UNREAD_TURN_CHARS = 1500
+#: The most of a message's rare-word weight a turn must hold, and how close together its words must sit.
+UNREAD_MIN_COVER = 0.6
+UNREAD_NEAR_CHARS = 240
+
+
+def _held_near(folded: str, pattern, need: int) -> set[str]:
+    """The most distinct words of ``pattern`` inside one window of :data:`UNREAD_NEAR_CHARS`, once it reaches ``need``."""
+    hits = [(m.start(), m.group(1)) for m in pattern.finditer(folded)]
+    best: set[str] = set()
+    for i, (at, _word) in enumerate(hits):
+        held = {w for pos, w in hits[i:] if pos - at <= UNREAD_NEAR_CHARS}
+        if len(held) > len(best):
+            best = held
+    return best if len(best) >= need else set()
+
+
+def rare_word_turns(memory_path: Path, query: str, k: int, *, recent: frozenset[str] = frozenset(),
+                    session_id: str | None = None, pool: int = 12) -> list[tuple[str, object, dict, str]]:
+    """``[(episode id, turn, frontmatter, text)]``: what the person themselves said in a conversation Sleep has not read
+    yet, about what ``query`` says (G207, 2026-11-06, the hook's leg): their own turn holding its rare words close
+    together, at most one per conversation, best first, at most ``k``. The other side of a chat repeats a message's
+    words but never did the thing; a long paste says every word somewhere. Never this session's own conversation, an
+    index-only record or a save with no reason. Engine-free; never raises; the query is never logged."""
+    from api.services import history_index, search_index
+
+    terms = sorted(search_terms(query))
+    if len(terms) < 2:
+        return []
+    try:
+        if search_index.ensure_fresh(memory_path) not in ("ready", "stale"):
+            return []
+        bits = search_index.ROW_BITS
+        with search_index.Reader(memory_path) as reader:
+            unread = reader.unread_episodes()
+            if not unread:
+                return []
+            conn = reader.conn
+            n = int(conn.execute("SELECT count(*) FROM pas").fetchone()[0])
+            cap = min(RECALL_DF_CAP, int(max(UNREAD_COMMON_SHARE * n, RECALL_COMMON_FLOOR)) + 1)
+            weights: dict[str, float] = {}
+            docs_of: dict[str, set[int]] = {}
+            for t in terms:
+                found = [int(r) for (r,) in conn.execute("SELECT rowid FROM pas WHERE pas MATCH ? LIMIT ?",
+                                                         (f'"{t}"*', cap))]
+                if found and len(found) < cap:
+                    weights[t] = math.log((n + 1) / (len(found) + 0.5))
+                    docs_of[t] = {r >> bits for r in found if (r >> bits) in unread}
+        need = min(RECALL_WORDS_HELD, len(weights))
+        if need < 2:
+            return []
+        total = sum(weights.values())
+        scored: dict[int, float] = {}
+        count: dict[int, int] = {}
+        for t, ids in docs_of.items():
+            for d in ids:
+                scored[d] = scored.get(d, 0.0) + weights[t]
+                count[d] = count.get(d, 0) + 1
+        order = sorted((d for d in scored if count[d] >= need), key=lambda d: (-scored[d], -d))[:pool]
+        pattern = text_fold.term_pattern(weights)
+        found_turns: list[tuple[float, str, object, dict, str]] = []
+        for d in order:
+            ep = unread[d]
+            if ep in recent:
+                continue
+            doc = evidence.source_document(memory_path, ep)
+            if doc is None:
+                continue
+            fm, text = doc
+            if fm.get("processed") or history_index.is_index_only(fm):
+                continue
+            if session_id and str(fm.get("session_id") or "") == session_id:
+                continue
+            best: tuple[float, object] | None = None
+            for turn in evidence.turns(text, stamps=evidence.turn_stamps(fm), override=authorship.of(fm),
+                                       gaps=evidence.gap_ranges(fm, text)):
+                if turn.role != "user" or turn.end - turn.content_start > UNREAD_TURN_CHARS:
+                    continue
+                held = _held_near(text_fold.fold(text[turn.content_start:turn.end]), pattern, need)
+                score = sum(weights[t] for t in held)
+                if held and score >= UNREAD_MIN_COVER * total and (best is None or score > best[0]):
+                    best = (score, turn)
+            if best is not None:
+                found_turns.append((best[0], ep, best[1], fm, text))
+        found_turns.sort(key=lambda f: (-f[0], f[1]))
+        return [(ep, turn, fm, text) for _s, ep, turn, fm, text in found_turns[:k]]
+    except Exception as exc:  # noqa: BLE001 — a missing index is a leg fewer
+        logger.debug(f"unread turn leg: unavailable ({type(exc).__name__})")
+        return []
 
 
 def _reserve(order: list[str], kept: list[str], window: int) -> list[str]:
@@ -1129,7 +1388,7 @@ def _whole_words_first(memory_path: Path, cands: list[str], own: set[str]) -> li
         if doc is None:
             return 0
         fm, text = doc
-        turns = evidence.turns(text, stamps=evidence.turn_stamps(fm), override=fm.get("evidence_kind"),
+        turns = evidence.turns(text, stamps=evidence.turn_stamps(fm), override=authorship.of(fm),
                                gaps=evidence.gap_ranges(fm, text))
         return max((len(own & text_fold.subject_terms(text[t.content_start:t.end])) for t in turns
                     if t.role != evidence.GAP_KIND), default=0)
@@ -1202,7 +1461,7 @@ def _pick_ends(memory_path: Path, ends: Ends, terms: set[str], weights: dict[str
         w = ranked[i][1]
         if not w:
             return None
-        pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(w, key=len, reverse=True)) + ")")
+        pattern = text_fold.term_pattern(w)
         found = _scored_turns(memory_path, [ep], pattern, w, {}, 1)
         return min(found, key=lambda c: (-c[0], c[2]))[2] if found else None
 
@@ -1281,13 +1540,22 @@ LANGUAGE_PASSAGES = 3
 #: By meaning beside the words (`Searched.adds`): at most this many more lines, in this many characters.
 MEANING_EXTRA_EXCERPTS = 2
 MEANING_EXTRA_CHARS = 800
+#: Ask, with room in the prompt: at most this many characters by meaning, a line for each of these.
+MEANING_FILL_CHARS = 3000
+MEANING_LINE_CHARS = 500
+#: The same for a request for advice (2026-11-06): LongMemEval_S preference, answer turns in the prompt 4 → 8 of 14.
+ADVICE_EXTRA_EXCERPTS = 6
+ADVICE_EXTRA_CHARS = 3000
 
 
 def text_language(text: str) -> str:
-    """``"es"`` when a text's Spanish function words outnumber its English ones, else ``"en"`` — a passage's language,
+    """``"es"`` when a text's Spanish function words outnumber its English ones, :data:`LANGUAGE_OTHER` with neither, else ``"en"`` — a passage's language,
     cheaply (no model)."""
     words = text_fold.words(text)
-    return "es" if sum(w in _ES_WORDS for w in words) > sum(w in _EN_WORDS for w in words) else "en"
+    es, en = sum(w in _ES_WORDS for w in words), sum(w in _EN_WORDS for w in words)
+    if not es and not en and (len(words) >= OTHER_MIN_WORDS or any(c.isalpha() and ord(c) > 0x24f for c in text)):
+        return LANGUAGE_OTHER
+    return "es" if es > en else "en"
 
 
 def _other_language(passages: dict[str, list[str]], lang: str) -> bool:
@@ -1343,7 +1611,8 @@ def record_language(passages: dict[str, list[str]], lang: str, best: dict[str, f
 
 
 def by_meaning(question: str) -> bool:
-    """Whether the question's own words can't be trusted to find what the record says of it: it is not in English
+    """Whether the question's own words can't be trusted to find what the record says of it, for a caller on the words
+    alone (recall; Ask asks for the meaning leg in any language, `search`'s ``any_language``): it is not in English
     (the stemming, the stopwords and the shape detectors are English-first, and a person's record is often in another
     language or in both). Never because its words are missing from the record: that is also how a question about
     something never said looks (an abstention), and the nearest passage by meaning would answer it wrongly — the
@@ -1351,8 +1620,57 @@ def by_meaning(question: str) -> bool:
     return question_language(question) != "en"
 
 
+#: What's come up lately: this many conversations at most, this many from one day, so a busy day leaves room for the
+#: days before it.
+LATELY_EPISODES = 10
+LATELY_PER_DAY = 3
+LATELY_EXCERPTS = 10
+LATELY_CHARS = 4000
+
+
+def newest_conversations(memory_path: Path, limit: int = LATELY_EPISODES, *, today=None) -> list[str]:
+    """The conversations said last, newest first, read or not: an id's day is the conversation's own (ruling 34). Never a
+    record with no mention behind it (a memory export entry, a feed item, a watched day, a bare save: rulings 30, 39, 62)."""
+    from api.services import bank_index, episode_time, history_index
+
+    today = (today or date.today()).isoformat()
+    per_day: dict[str, int] = {}
+    out: list[str] = []
+    for path in sorted((Path(memory_path) / "episodes").glob("ep_*.md"), key=lambda p: p.name, reverse=True):
+        day = episode_day(path.stem)
+        if day > today or per_day.get(day, 0) >= LATELY_PER_DAY:
+            continue
+        entry = bank_index.file(memory_path, "episodes", path.name)
+        fm = entry.frontmatter if entry is not None else None
+        if fm is None or history_index.is_index_only(fm) or not episode_time.counts_as_activity(fm):
+            continue
+        per_day[day] = per_day.get(day, 0) + 1
+        out.append(path.stem)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def search(memory_path: Path, question: str, *, terms: set[str] | None = None, embed_fn=None,
-           indexer=None, today=None) -> Searched:
+           indexer=None, today=None, any_language: bool = False) -> Searched:
+    """:func:`_search_words`, and for a question about what has come up lately, the newest conversations beside it. No
+    word finds those: it asks about no subject, so before this it found nothing in most languages."""
+    found = _search_words(memory_path, question, terms=terms, embed_fn=embed_fn, indexer=indexer, today=today,
+                          any_language=any_language)
+    try:
+        if indexer is None:
+            from api.services.vector_index import SqliteVecIndexer
+
+            indexer = SqliteVecIndexer(memory_path, embed_fn=embed_fn) if embed_fn else SqliteVecIndexer(memory_path)
+        if question_intent.asks_lately(indexer, question, no_subject=not found.weights):
+            found.lately = newest_conversations(memory_path, today=today)
+    except Exception as exc:  # noqa: BLE001 — a leg fewer; never the question in a log
+        logger.debug(f"ask search leg: lately unavailable ({type(exc).__name__})")
+    return found
+
+
+def _search_words(memory_path: Path, question: str, *, terms: set[str] | None = None, embed_fn=None,
+                  indexer=None, today=None, any_language: bool = False) -> Searched:
     """The conversations most likely to hold what ``question`` asks, read from the derived indexes only — never a
     model, never a write, never the question in a log. Two legs, fused by rank: the word index (:func:`_lexical`) and
     the vector index's episode chunks (the question's vector is the page leg's: one embed per Ask, through the
@@ -1403,7 +1721,9 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
     # question (`RECORD_FLOORS`, review of #390), the question goes by meaning too.
     record_lang = (record_language(passages, lang, best, record_floor(indexer))
                    if passages and indexer is not None and not by_meaning(question) else "")
-    by_mean = bool(passages) and (by_meaning(question) or bool(record_lang))
+    # `any_language` (Ask): the meaning leg beside the words for every question, since it fills only the room the prompt has
+    # (`gather_search`'s `meaning_room`). Recall stays as it was: in its small budget these lines cost it 128 → 114 of 200.
+    by_mean = bool(passages) and (any_language or by_meaning(question) or bool(record_lang))
     # Review of #385 (the owner's Spanish questions over his own Spanish conversations fell 50 → 43 %): the meaning leg
     # leads only when the words can't — no word of the question is weighed, or the nearest passages are in another
     # language than the question. Over conversations in the question's own language the words already find the
@@ -1422,23 +1742,28 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
             first += [ep for ep in _episodes_on(memory_path, named_m) if ep not in passages]
             passages = {ep: passages.get(ep, []) for ep in first} | {ep: v for ep, v in passages.items()
                                                                        if ep not in first}
+    advice = question_intent.asks_advice(indexer, question)
     similar = None
     if indexer is not None and (shape == SHAPE_ENUMERATE or meaning or asks_inference(question)
-                                or asks_implied(question)):
+                                or asks_implied(question) or advice):
         similar = _similarity(indexer, question, MEANING_TEXTS if meaning else SIMILAR_TEXTS)
     by = ({"meaning": meaning, "adds": not meaning, "passages": passages, "record_lang": record_lang,
-           "turn_similar": _similarity(indexer, _without(question, common), MEANING_TURNS)
+           "advice": advice, "turn_similar": _similarity(indexer, _without(question, common), MEANING_TURNS)
            if indexer is not None else None}
-          if by_mean else {})
+          if by_mean or (advice and passages) else {"advice": advice})
+    if not weights and advice and passages and not meaning:
+        # Advice in words the record does not use: what the vector leg found is all there is to tailor it by.
+        return Searched(episodes=list(passages), weights={}, shape=shape, similar=similar, meaning=True,
+                        **{k: v for k, v in by.items() if k not in ("meaning", "adds")})
     if not weights:
         if meaning:
             # No word the record uses, but the search model found where it speaks of this: its passages lead.
             return Searched(episodes=list(passages), weights={}, shape=shape, similar=similar, **by)
         # With no word to weigh (no word index yet, or only common words) no turn can be told apart: nothing shown.
-        return Searched(episodes=[], weights={}, shape=shape, similar=similar)
+        return Searched(episodes=[], weights={}, shape=shape, similar=similar, advice=advice)
     order, _ = _fuse(lexical, semantic)
     if not order:
-        return Searched(episodes=[], weights=weights, shape=shape, similar=similar)
+        return Searched(episodes=[], weights=weights, shape=shape, similar=similar, advice=advice)
 
     # The subject: what the best conversation holds of the question's words, by weight. A conversation is on it when
     # it holds at least half of that weight — the thing without the attribute ("the gravel bike" said again without
@@ -1496,18 +1821,45 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
     return Searched(episodes=order, weights=weights, shape=shape, kept=kept, more=more, similar=similar, **by)
 
 
+def _meaning_budget(question: str, found: Searched, room: int | None, used: int) -> tuple[int, int]:
+    """``(lines, characters)`` the meaning leg adds beside the words. With ``room``, in any language, what the prompt has
+    left, so a memory Sleep has read, or words that filled the window, cost nothing: unslept LoCoMo 123 → 134 of 200 when
+    it isn't limited by pages, while slept stayed 159 at 9% more tokens. A question not in English keeps its few lines,
+    since its words find less (#693)."""
+    if found.advice:
+        return ADVICE_EXTRA_EXCERPTS, ADVICE_EXTRA_CHARS
+    fixed = (MEANING_EXTRA_EXCERPTS, MEANING_EXTRA_CHARS)
+    if room is None:
+        return fixed
+    chars = min(MEANING_FILL_CHARS, room - used)
+    if chars >= MEANING_LINE_CHARS:
+        lines = chars // MEANING_LINE_CHARS
+        return (lines, chars) if not by_meaning(question) or chars >= fixed[1] else fixed
+    return fixed if by_meaning(question) else (0, 0)
+
+
+def window_limits() -> dict:
+    """``gather_search``'s limits for Ask."""
+    return {"max_episodes": ASK_WINDOW_EPISODES, "max_excerpts": ASK_WINDOW_EXCERPTS, "total_chars": ASK_WINDOW_CHARS,
+            "person_first": True}
+
+
 def gather_search(memory_path: Path, question: str, found: Searched, *, owner_name: str | None = None,
                   taken: set[tuple[str, int]] | None = None, max_episodes: int = SEARCH_EPISODES,
-                  max_excerpts: int = SEARCH_EXCERPTS, total_chars: int = SEARCH_CHARS) -> list[Excerpt]:
+                  max_excerpts: int = SEARCH_EXCERPTS, total_chars: int = SEARCH_CHARS,
+                  deep: dict | None = None, excerpt_chars: int = EXCERPT_CHARS,
+                  person_first: bool = False, meaning_room: int | None = None) -> list[Excerpt]:
     """The turns of the best :func:`search` conversations that hold the question's words, the rarer words counting
     more, oldest first. A conversation kept for its day (the newest on the subject, a day the question names) shows
     its best turn before the others fill the budget by score, so the one that settled the subject is never crowded out.
     A count or a list then adds one short line from each further conversation on the subject (``found.more``) in a
     budget of its own. A turn holding only common words is never one. ``taken``: turns the page leg already showed.
-    Same who-spoke labels, clipping and bounds as :func:`gather`; index-only episodes are skipped (ruling 30)."""
+    Same who-spoke labels, clipping and bounds as :func:`gather`; index-only episodes are skipped (ruling 30).
+    ``meaning_room`` (Ask): what the prompt still has for words, pages counted; the meaning leg's lines fill what these
+    turns leave of it (:func:`_meaning_budget`)."""
     weights = found.weights
     if not found.episodes or not (weights or found.meaning):
-        return []
+        return _lately_excerpts(memory_path, found, owner_name, set(taken or ()), deep, max_excerpts, excerpt_chars)
     terms = set(weights)
     taken = set(taken or ())
     docs: dict[str, tuple] = {}
@@ -1517,7 +1869,7 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
     if weights:
         # A turn holds a word as the word index found it: at a word's start, any ending ("decid" meets "decided" and
         # "deciding", as `"decid"*` did) — one pattern over the turn's folded text, longest first.
-        pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True)) + ")")
+        pattern = text_fold.term_pattern(terms)
         candidates = _scored_turns(memory_path, found.episodes, pattern, weights, docs, max_episodes)
     else:
         pattern, candidates = None, []
@@ -1546,8 +1898,7 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         for pick in found.ends:
             if pick.episode is None or not pick.weights:
                 continue
-            own = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(pick.weights, key=len, reverse=True))
-                             + ")")
+            own = text_fold.term_pattern(pick.weights)
             mine: dict[str, tuple] = {}
             turns_e = _scored_turns(memory_path, [pick.episode], own, pick.weights, mine, 1)
             docs.update({k: v for k, v in mine.items() if k not in docs})
@@ -1583,9 +1934,16 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         # gives every other conversation its line.
         asked = asked_about(question, owner_name)
         candidates = _about_first(candidates, docs, asked, weights, owner_name)
+    if person_first:
+        # An agent's turn repeats the words of a question and rarely did the thing, so it only fills what the people's
+        # turns leave. It comes from a turn's role, so no language decides it.
+        candidates = sorted(candidates, key=lambda c: c[4].role == "assistant")
     led = {id(c) for c in lead}
+    # G207: one budget for everything read past the usual excerpt — the caller's when the page leg drew on it too.
+    deep = deep if deep is not None else {"left": UNREAD_EXTRA_CHARS}
     chosen = _take(lead + [c for c in candidates if id(c) not in led], docs, terms, owner_name,
-                   max_excerpts=max_excerpts, total_chars=total_chars, taken=taken)
+                   max_excerpts=max_excerpts, total_chars=total_chars, taken=taken, deep=deep,
+                   excerpt_chars=excerpt_chars)
     if enumerate_:
         taken |= shown_turns(chosen)
         # The window's conversations the budget left without a line, then the further ones on the subject.
@@ -1600,7 +1958,7 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
                 firsts[c[3]] = c
         chosen += _take(sorted(firsts.values(), key=lambda c: c[1]), extra_docs, terms, owner_name,
                         max_excerpts=len(firsts), total_chars=ENUM_CHARS, taken=taken,
-                        excerpt_chars=ENUM_EXCERPT_CHARS, context=False)
+                        excerpt_chars=ENUM_EXCERPT_CHARS, context=False, deep=deep)
         chosen.sort(key=lambda e: e.order)
     if found.adds:
         # Beside the words: the meaning leg's best turns not already shown, a conversation the words left out first.
@@ -1611,10 +1969,40 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         for c in _meaning_turns(memory_path, found, near_docs, shown):
             firsts.setdefault(c[3], c)
         extra = sorted(firsts.values(), key=lambda c: (c[3] in shown_eps, c[1]))
-        chosen += _take(extra, near_docs, terms, owner_name, max_excerpts=MEANING_EXTRA_EXCERPTS,
-                        total_chars=MEANING_EXTRA_CHARS, taken=shown)
+        lines, chars = _meaning_budget(question, found, meaning_room, sum(len(e.text) for e in chosen))
+        chosen += _take(extra, near_docs, terms, owner_name, max_excerpts=lines, total_chars=chars, taken=shown,
+                        deep=deep) if lines else []
+        chosen.sort(key=lambda e: e.order)
+    if found.lately:
+        chosen += _lately_excerpts(memory_path, found, owner_name, taken | shown_turns(chosen), deep, max_excerpts,
+                                   excerpt_chars)
         chosen.sort(key=lambda e: e.order)
     return chosen
+
+
+def _lately_excerpts(memory_path: Path, found: Searched, owner_name: str | None, taken: set[tuple[str, int]],
+                     deep: dict | None, max_excerpts: int, excerpt_chars: int) -> list[Excerpt]:
+    """What each of the newest conversations was about: the person's first turn, then their last, newest conversation
+    first, in a budget of its own. A conversation with no turn of theirs shows the first one it has."""
+    docs: dict[str, tuple] = {}
+    first: list[tuple] = []
+    last: list[tuple] = []
+    for rank, ep in enumerate(found.lately):
+        doc = evidence.source_document(memory_path, ep)
+        if doc is None:
+            continue
+        fm, text = doc
+        turns = [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm), override=authorship.of(fm),
+                                           gaps=evidence.gap_ranges(fm, text))
+                 if t.role != evidence.GAP_KIND and text[t.content_start:t.end].strip()]
+        docs[ep] = (fm, text, turns)
+        theirs = [i for i, t in enumerate(turns) if t.role != "assistant"] or list(range(len(turns)))[:1]
+        if theirs:
+            first.append((0.0, rank, theirs[0], ep, turns[theirs[0]], None))
+        if len(theirs) > 1:
+            last.append((0.0, rank, theirs[-1], ep, turns[theirs[-1]], None))
+    return _take(first + last, docs, set(), owner_name, max_excerpts=min(LATELY_EXCERPTS, max_excerpts),
+                 total_chars=LATELY_CHARS, taken=taken, deep=deep, excerpt_chars=excerpt_chars, context=False)
 
 
 #: First-person words: a question in them is about the person this memory belongs to ("how many … have I …").
@@ -1661,9 +2049,10 @@ def _names(name: str, words: frozenset[str]) -> bool:
 
 
 def _turn_asked(turn, fm: dict, asked: Asked) -> bool:
-    """Whether ``turn`` is said by someone ``asked`` names. An agent's saved note is nobody's."""
+    """Whether ``turn`` is said by someone ``asked`` names. An agent's saved note is the agent's (ruling 50: its turns
+    are ``assistant``, ``authorship.of``), never the person's."""
     if turn.role == "user":
-        return asked.person and not (turn.marker is None and str(fm.get("source") or "") in AGENT_SOURCES)
+        return asked.person
     if turn.role == "assistant":
         return asked.agent
     if turn.role == "speaker":
@@ -1750,7 +2139,7 @@ def _meaning_turns(memory_path: Path, found: Searched, docs: dict, taken: set[tu
         if ep not in docs:
             gaps = evidence.gap_ranges(fm, text)
             docs[ep] = (fm, text, [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm),
-                                                             override=fm.get("evidence_kind"), gaps=gaps)
+                                                             override=authorship.of(fm), gaps=gaps)
                                    if t.role != evidence.GAP_KIND])
         for i, turn in enumerate(docs[ep][2]):
             if (any(turn.start < end and turn.end > at for at, end in spans) and (ep, i) not in taken
@@ -1783,7 +2172,7 @@ def _scored_turns(memory_path: Path, episodes: list[str], pattern, weights: dict
         if history_index.is_index_only(fm):
             continue
         gaps = evidence.gap_ranges(fm, text)
-        turns = [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm), override=fm.get("evidence_kind"),
+        turns = [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm), override=authorship.of(fm),
                                            gaps=gaps) if t.role != evidence.GAP_KIND]
         rank = len(docs)
         docs[ep] = (fm, text, turns)
@@ -1801,6 +2190,8 @@ def render(excerpts: list[Excerpt], *, with_episode: bool = False) -> str:
     lines: list[str] = []
     for e in excerpts:
         at = f"{e.day} [{e.episode}]" if with_episode else e.day
+        if e.unread:
+            at += ", not yet read by Sleep"
         if e.before:
             lines.append(f"- {at}, {e.before[0]} (the turn before): \"{e.before[1]}\"")
         lines.append(f"- {at}, {e.who}: \"{e.text}\"")

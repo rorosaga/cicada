@@ -13,6 +13,8 @@ struct QuickIndexInputs: Sendable {
     var isSleeping = false
     var unprocessed = 0
     var appearance: AppColorScheme = .dark
+    /// G218 (owner 2026-10-26) — the Traces page is on the rail, so ⌘K offers "Go to Traces".
+    var tracesPage = false
 
     @MainActor
     static func from(_ store: Store, askHistory: [AskHistoryEntry]) -> QuickIndexInputs {
@@ -22,7 +24,7 @@ struct QuickIndexInputs: Sendable {
                          askHistory: askHistory,
                          isSleeping: store.status.value?.sleep.status == "running",
                          unprocessed: store.status.value?.episodes.unprocessed ?? 0,
-                         appearance: CicadaTheme.mode)
+                         appearance: CicadaTheme.mode, tracesPage: TracesPageVisibility.stored)
     }
 
     /// Changes whenever an input could have (R-SU5) — timestamps, counts and
@@ -43,7 +45,7 @@ struct QuickIndexInputs: Sendable {
                      "\(askHistoryCount)",
                      store.status.value?.sleep.status ?? "",
                      (store.status.value?.episodes.unprocessed ?? 0) > 0 ? "waiting" : "rested",
-                     CicadaTheme.mode.rawValue]
+                     CicadaTheme.mode.rawValue, TracesPageVisibility.stored ? "traces" : "-"]
         return ([store.bank] + stamps + flags).joined(separator: "|")
     }
 }
@@ -140,13 +142,15 @@ extension QuickIndex {
         nodes.compactMap { node in
             guard !node.isFacet, !node.isHub, node.type != .hub, node.type != .media else { return nil }
             var fields = [QuickMatch.Field(node.name, weight: QuickMatch.Weight.name)]
+            // G227: the qualifier is a word the person may type ("<name-a> IDE").
+            if let qualifier = node.qualifier { fields.append(QuickMatch.Field(qualifier, weight: QuickMatch.Weight.keyword)) }
             fields += node.aliases.map { QuickMatch.Field($0, weight: QuickMatch.Weight.alias) }
             fields += node.tags.map { QuickMatch.Field($0, weight: QuickMatch.Weight.keyword) }
             if let summary = node.summary, !summary.isEmpty {
                 fields.append(QuickMatch.Field(summary, weight: QuickMatch.Weight.body))
             }
             let row = FindRow(key: FindRowKey(kind: .entity, id: node.id), group: .entities, title: node.name,
-                              detail: node.summary.flatMap(firstLine), badge: node.type.label,
+                              qualifier: node.qualifier, detail: node.summary.flatMap(firstLine), badge: node.type.label,
                               mark: .entity(id: node.id, name: node.name, type: node.type),
                               tieBreak: Double(node.degree), destination: .entity(id: node.id),
                               secondary: .entityInClusters(id: node.id))
@@ -185,15 +189,19 @@ extension QuickIndex {
         }
     }
 
+    /// A tie in the palette goes to the question the server asks first (`orderIndex`, ruling 70), for the whole list or
+    /// not at all; an older server that serves none keeps the stored priority, as it always did.
     static func inboxDocs(_ items: [InboxItem]) -> [Doc] {
-        items.map { item in
+        let served = items.allSatisfy { $0.orderIndex != nil }
+        return items.map { item in
             let row = FindRow(key: FindRowKey(kind: .inbox, id: item.id), group: .inbox, title: InboxSearch.title(item),
                               // Say it once — no page name under a question that already names it.
                               detail: item.entityName.isEmpty
                                   || InboxRowWords.repeats(name: item.entityName, in: InboxSearch.title(item))
                                   ? nil : item.entityName,
                               badge: item.kind.label,
-                              mark: .symbol(item.kind.icon), tieBreak: item.priority, destination: .inbox(id: item.id))
+                              mark: .symbol(item.kind.icon), tieBreak: served ? -Double(item.orderIndex ?? 0) : item.priority,
+                              destination: .inbox(id: item.id))
             return Doc(row: row, fields: InboxSearch.fields(item))
         }
     }

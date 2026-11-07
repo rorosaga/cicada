@@ -42,7 +42,13 @@ def _split(value: str | None) -> set[str] | None:
 # Owner ruling 2026-10-20: "+quiet" (spelled before "+source-links", the pinned tail) — a node gained `quiet` (a page only
 # an import made, not yet mentioned; `quiet_pages`). Derived from the entity files the ETag already covers, so no
 # component moved: the bump is what makes every client take one 200.
-NODE_SHAPE = "aliases+f1-facets+pictures+previews+quiet+source-links"
+#
+# G227 (owner 2026-10-29): "+same-name" (before the pinned tail) — a node whose title another page shares gained
+# `qualifier` and `displayName` (`same_name`), derived from the entity files the ETag already covers.
+#
+# ROR-135 (owner 2026-11-06): "+byline" (before the pinned tail) — a book's node gained `byline`, its authors for the
+# graph's hover card, derived from the entity files the ETag already covers: no component moved, so the bump does.
+NODE_SHAPE = "aliases+f1-facets+pictures+previews+quiet+same-name+byline+source-links"
 
 
 @router.get("/graph", response_model=GraphResponse)

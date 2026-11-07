@@ -4,24 +4,26 @@ credits and `GET /sources/channels` state. Hermetic: a throwaway bank under
 tmp_path; the real memory/ is never read. No network, no LLM."""
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
 from api import config, main
-from api.services import bank_index, channel_registry, source_overview, sync_state
+from api.services import bank_index, channel_registry, feed_registry, media_ingestor, source_overview, sync_state
 
 UUID_A = "0f8f1c2a-4b5d-4e6f-8a9b-0c1d2e3f4a5b"
 UUID_B = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
 
 
 def _episode(memory, episode_id, *, timestamp, origin=None, session_id=None,
-             source_id=None, harness=None, title="Untitled"):
+             source_id=None, harness=None, title="Untitled", media_entity_id=None):
     d = memory / "episodes"
     d.mkdir(parents=True, exist_ok=True)
     lines = ["---", f"id: {episode_id}", f"timestamp: '{timestamp}'", f"title: {title}",
              "processed: true"]
     for key, value in (("origin", origin), ("session_id", session_id),
-                       ("source_id", source_id), ("harness", harness)):
+                       ("source_id", source_id), ("harness", harness), ("media_entity_id", media_entity_id)):
         if value is not None:
             lines.append(f"{key}: {value}")
     lines += ["---", "", "body"]
@@ -103,6 +105,32 @@ def test_a_harness_rows_last_activity_is_its_newest_capture_write_not_the_sessio
     assert row["activity"] == {} or "2026-10-22" in row["activity"], "the activity day stays the session's start"
 
 
+def test_an_imports_recency_is_when_cicada_received_it_never_the_chats_own_date(tmp_path):
+    """CIC8 (2026-10-29, ruling 39): a chat export read "Connected · 1 yr. ago" right after its import, because the
+    row's recency was the conversations' own (backdated) dates. Both recency lines — the overview's and the import
+    channel's — read `received_at`; an episode from before ruling 39 keeps its timestamp."""
+    from api.services import origin_stats
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    for i, (said, received) in enumerate((("2025-10-09T10:00:00+00:00", "2026-10-29T13:10:00+00:00"),
+                                          ("2025-10-10T10:00:00+00:00", "2026-10-29T13:10:01+00:00"))):
+        (memory / "episodes" / f"ep_{said[:10]}_001.md").write_text(
+            f"---\nid: ep_{said[:10]}_001\ntimestamp: '{said}'\ntitle: T{i}\nprocessed: false\n"
+            f"origin: chatgpt-export\nsource: chatgpt\nsource_id: chatgpt:gpt-{i}\nreceived_at: '{received}'\n---\n\nbody",
+            encoding="utf-8")
+    # An episode from before ruling 39 (no received_at): its own date is all that is known.
+    _episode(memory, "ep_2024-01-01_001", timestamp="2024-01-01T09:00:00+00:00", origin="claude-export")
+
+    rows = _rows(memory)
+    assert rows["chat-export:chatgpt"]["last_activity_at"] == "2026-10-29T13:10:01+00:00"
+    assert rows["chat-export:claude"]["last_activity_at"] == "2024-01-01T09:00:00+00:00"
+    origin_stats._MEMO.clear()
+    channels = {c["id"]: c for c in channel_registry.build_channels(memory, telegram_enabled=False)}
+    assert channels["chat-export:chatgpt"]["last_sync"] == "2026-10-29T13:10:01+00:00"
+    assert channels["chat-export:claude"]["last_sync"] == "2024-01-01T09:00:00+00:00"
+
+
 def test_a_phone_note_reads_as_phone_never_its_raw_id(tmp_path):
     memory = tmp_path / "memory"
     memory.mkdir()
@@ -179,7 +207,8 @@ def test_files_row_counts_nil_origin_media_pages_not_the_url_index(bank):
     rows = _rows(bank)
     assert rows["files"]["items"] == 1 and rows["files"]["connected"] is True
     channels = {c["id"]: c for c in channel_registry.build_channels(bank, telegram_enabled=False)}
-    assert channels["files"]["count"] == 4, "the channel row keeps counting the whole index — only the card changed"
+    assert channels["files"]["count"] == 1 and channels["files"]["connected"] is True, \
+        "the channel row counts the set the page lists, so the app's Connected agrees with the card (sources-truth)"
     assert rows["safari-bookmarks"]["items"] == 42, "an origin-bearing row still reads its channel's count"
     # only imported pages -> no nil-origin evidence -> no Files & links card (R2)
     (bank / "entities" / "media-3.md").unlink()
@@ -250,6 +279,31 @@ def test_sources_items_carry_origin_and_folder(client, bank):
     items = client.get("/sources").json()["items"]
     row = next(i for i in items if i["mediaEntityId"] == "media-alpha")
     assert row["origin"] == "safari-bookmark" and row["folder"] == "Favorites/Papers"
+
+
+def test_a_publications_episodes_and_count_leave_rss_for_its_own_row(bank):
+    """G89 (owner 2026-11-05): a publication's episodes count on its own row, once, and never on RSS."""
+    url = "https://alpha.substack.com/feed"
+    feed_registry.subscribe_feed(bank, url, [])
+    post = "https://alpha.substack.com/p/one"
+    (bank / "sources").mkdir(exist_ok=True)
+    (bank / "sources" / "url_index.json").write_text(json.dumps({media_ingestor.url_hash(post): {
+        "media_entity_id": "media-post", "url": post, "title": "x", "saved_at": "2026-08-07",
+        "feed": feed_registry.feed_id(url)}}))
+    _episode(bank, "ep_2026-08-07_001", timestamp="2026-08-07T10:00:00+00:00", origin="rss",
+             media_entity_id="media-post")
+    _media_page(bank, "media-post", origin="rss")
+    bank_index.invalidate()
+
+    channels = channel_registry.build_channels(bank, telegram_enabled=False, connectors_connected={},
+                                               feed_fetch_allowed=True)
+    by_id = {c["id"]: c for c in channels}
+    # ROR-138 (owner 2026-11-06): a Substack publication is followed through its public feed, so RSS lists it too.
+    assert by_id["rss"]["count"] == 1 and by_id["rss"]["connected"] is True
+    assert by_id["substack-feeds"]["count"] == 1 and by_id["substack-feeds"]["connected"] is True
+    rows = {r["id"]: r for r in source_overview.build_overview(bank, channels=channels)}
+    assert rows["rss"]["episodes"] == 0, "each episode counts once"
+    assert rows["substack-feeds"]["episodes"] == 1 and rows["substack-feeds"]["items"] == 1
 
 
 def test_saved_links_and_feeds_now_credit_their_own_rows(bank):
@@ -438,3 +492,11 @@ def test_a_saved_row_without_a_channel_counts_its_saved_pages_like_its_list(tmp_
     from api.services import channel_items
     assert youtube["intent"] == "saved"
     assert youtube["items"] == 2 == channel_items.items(m, "youtube")["total"], "the row's number is its list's"
+
+
+def test_the_pinterest_saved_list_origin_is_the_pinterest_row_not_an_unnamed_import():
+    from api.services import saved_lists, source_overview
+
+    origins = {o for spec in source_overview.CATALOG for o in spec.origins}
+    for key, platform in saved_lists.PLATFORMS.items():
+        assert platform.origin in origins, f"{key}'s saved list files under {platform.origin}, which no overview row names"

@@ -16,7 +16,7 @@ import re
 from pathlib import Path
 
 from api.services import markdown_parser
-from api.services.id_utils import build_name_index, resolve_entity_id
+from api.services.id_utils import build_name_index, link_targets
 from api.services.inbox_generator import _write_graph_edges
 
 _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
@@ -33,6 +33,21 @@ def extract_wikilinks(body: str) -> list[str]:
         if name:
             names.append(name)
     return names
+
+
+def _link_target(entities_dir: Path, display: str, name_index: dict, fm: dict) -> str | None:
+    """The one page a link means (G227): by id, or the one page holding the name; when two or more pages share the
+    name, the one the linking page already relates to (``related:``) if exactly one of them — otherwise none. An edge
+    is never drawn to a page picked by listing order."""
+    targets = link_targets(entities_dir, display, name_index)
+    if len(targets) == 1:
+        return targets[0]
+    if not targets:
+        return None
+    related = {str(r).strip() for r in (fm.get("related") or []) if str(r).strip()} \
+        if isinstance(fm.get("related"), list) else set()
+    held = [t for t in targets if t in related]
+    return held[0] if len(held) == 1 else None
 
 
 def materialize_wikilink_edges(memory_path: Path, extracted: list[dict] | None = None, settings=None) -> int:
@@ -69,12 +84,12 @@ def materialize_wikilink_edges(memory_path: Path, extracted: list[dict] | None =
 
     new_edges: list[dict] = []
     seen: set[tuple[str, str]] = set()
-    for source_id, _fm, body in pages:
+    for source_id, fm, body in pages:
         for display in extract_wikilinks(body):
             if refs.is_speaker(display):
                 target_id = refs.owner_id
             else:
-                target_id = resolve_entity_id(entities_dir, display, name_index)
+                target_id = _link_target(entities_dir, display, name_index, fm)
             if not target_id or target_id == source_id:
                 continue
             key = (source_id, target_id)

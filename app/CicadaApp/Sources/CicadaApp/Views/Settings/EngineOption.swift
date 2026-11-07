@@ -21,7 +21,7 @@ enum EngineOption {
     /// visible (and says why) instead of vanishing. The server accepts any
     /// valid mode; this is UX, not validation. `selectedMode` is the selected CARD.
     static func isSelectable(_ candidate: SleepEngineCandidate, selectedMode: String) -> Bool {
-        guard signInIds.contains(candidate.id) else { return true }
+        guard signInIds.contains(candidate.id) || isPlan(candidate) else { return true }
         return candidate.connected || candidate.id == selectedMode
     }
 
@@ -37,7 +37,7 @@ enum EngineOption {
             case .ready: return "Ready"
             }
         default:
-            if !candidate.available { return "Not installed" }
+            if !candidate.available { return candidate.notReady ? Copy.Intelligence.notReady : Copy.Intelligence.notInstalled }
             return candidate.connected ? "Signed in" : "Not signed in"
         }
     }
@@ -55,6 +55,23 @@ enum EngineOption {
         default:
             return candidate.detail
         }
+    }
+
+    /// G49/G50 — a card the server declares a plan (`kind: "plan"`): the two plans, and the person's own signed-in
+    /// Cursor, OpenCode or Grok. An older backend sends no kind, and the id table answers as before.
+    static func isPlan(_ candidate: SleepEngineCandidate) -> Bool {
+        candidate.kind.map { $0 == "plan" } ?? planIds.contains(candidate.id)
+    }
+
+    /// G49/G50 — a plan that runs the person's own agent tool, signed in through that tool (never Plans & keys, and
+    /// never a rung on Auto's ladder).
+    static func isOwnTool(_ candidate: SleepEngineCandidate) -> Bool {
+        isPlan(candidate) && !planIds.contains(candidate.id)
+    }
+
+    /// The card's mark: the logo the server names, else the id table's.
+    static func logoName(for candidate: SleepEngineCandidate) -> String? {
+        candidate.mark ?? logoName(for: candidate.id)
     }
 
     static func connectionId(for candidateId: String) -> String? {
@@ -76,22 +93,29 @@ enum EngineOption {
     /// card wears, from the engine id the preview reports. R-AG12 / DR-52: a
     /// `litellm` run on an `openrouter/` model is the OpenRouter card, so it
     /// wears OpenRouter's mark rather than the key card's glyph.
-    static func previewMark(engine: String, model: String? = nil) -> String? {
+    static func previewMark(engine: String, model: String? = nil, candidates: [SleepEngineCandidate] = []) -> String? {
         switch engine {
         case "claude-cli": logoName(for: "agent")
         case "codex-cli": logoName(for: "codex")
         case "ollama": logoName(for: "local")
         case "litellm" where runsOnOpenRouter(model): logoName(for: "openrouter")
-        default: nil
+        // G49/G50: any other engine wears the mark of the card that declares it.
+        default: card(forEngine: engine, in: candidates)?.mark
         }
+    }
+
+    /// The card whose `engine` is this label — how a preview of an engine the id tables do not know finds its card.
+    static func card(forEngine engine: String, in candidates: [SleepEngineCandidate]) -> SleepEngineCandidate? {
+        candidates.first { $0.engine == engine && $0.kind != "key" }
     }
 
     /// The card a preview's engine belongs to — `previewMark`'s inverse — so a line that names what
     /// will run uses the card's own label ("Claude plan"), never a fresh coinage (R-HS8). R-AG12:
     /// OpenRouter and the API key are both `litellm`; the model tells them apart, as the server's
     /// `selected_card` does.
-    static func candidateId(forEngine engine: String, model: String? = nil) -> String? {
-        EngineReadiness.candidateId(forEngine: engine, model: model)
+    static func candidateId(forEngine engine: String, model: String? = nil,
+                            candidates: [SleepEngineCandidate] = []) -> String? {
+        EngineReadiness.candidateId(forEngine: engine, model: model, candidates: candidates)
     }
 
     /// R-AG12 — the server's `selected_card` rule, on the app side: a key model routed through
@@ -102,8 +126,11 @@ enum EngineOption {
 
     /// The engine word a preview line prints: exactly `Copy.engineLabel`, except a key run through
     /// OpenRouter, which reads "OpenRouter" — "API key · openrouter/…" named the wrong card (R-AG12).
-    static func previewName(engine: String, model: String?) -> String {
-        engine == "litellm" && runsOnOpenRouter(model) ? Copy.openRouterName : Copy.engineLabel(engine)
+    static func previewName(engine: String, model: String?, candidates: [SleepEngineCandidate] = []) -> String {
+        if engine == "litellm" && runsOnOpenRouter(model) { return Copy.openRouterName }
+        // G49/G50: the person's own tool is named by its card — the label they chose.
+        if let card = card(forEngine: engine, in: candidates), isOwnTool(card) { return card.label }
+        return Copy.engineLabel(engine)
     }
 
     /// R-AG14 / DR-44 — Ollama is the one engine that reads on this Mac; its card wears a Local tag
@@ -136,6 +163,17 @@ enum EngineOption {
         return "To use your \(names.joined(separator: " or ")), sign in on"
     }
 
+    /// "To use your Claude plan or ChatGPT plan, install it in" + the Plans & keys link — a plan card whose tool isn't
+    /// on this Mac (its caption says Not installed). The link lands on the row that gives the line to paste; Home's
+    /// First read and the Welcome lead to the same fix Settings shows.
+    static func installHint(_ candidates: [SleepEngineCandidate]) -> String? {
+        let names = candidates
+            .filter { planIds.contains($0.id) && !$0.available && !($0.nextCommand ?? "").isEmpty }
+            .map(\.label)
+        guard !names.isEmpty else { return nil }
+        return Copy.Intelligence.installHint(names)
+    }
+
     /// R-E13: extra usage is a Claude-only choice and only matters where a
     /// cycle can run on the Claude plan — chosen outright, or through Auto.
     static func showsOverageToggle(selectedMode: String) -> Bool {
@@ -144,6 +182,12 @@ enum EngineOption {
 
     /// G117 (owner 2026-09-04): each option states how it is paid for BEFORE it
     /// is chosen — a cost model in words, never a price (2026-09-03).
+    /// The card's cost model, the server's declared kind first (G49/G50): a plan is a plan whatever its id.
+    static func costModel(for candidate: SleepEngineCandidate) -> String? {
+        if isOwnTool(candidate) { return Copy.costModelPlan }
+        return costModel(for: candidate.id)
+    }
+
     static func costModel(for candidateId: String) -> String? {
         switch candidateId {
         case "agent", "codex": Copy.costModelPlan
@@ -159,7 +203,25 @@ enum EngineOption {
     /// keeps the install's configured default (`byok` unless a pref or
     /// `CICADA_LLM_MODE` says otherwise), which `EngineReadiness` reports honestly.
     static func compactCandidates(_ candidates: [SleepEngineCandidate]) -> [SleepEngineCandidate] {
-        candidates.filter { $0.id != "auto" }
+        // G49/G50: the person's own Cursor, OpenCode or Grok wait in Settings → Intelligence; onboarding keeps its four.
+        // Ruling 36 D1: a local model runs only when chosen and is never a first rung, so it stands last.
+        let shown = candidates.filter { $0.id != "auto" && !isOwnTool($0) }
+        return shown.filter { !isLocal($0.id) } + shown.filter { isLocal($0.id) }
+    }
+
+    /// Onboarding's rule for a click: `isSelectable`, and a local model that is not installed is not offered as a
+    /// choice (it stays when it is already the saved one, so the card never vanishes under a pick).
+    static func isSelectableCompact(_ candidate: SleepEngineCandidate, selectedMode: String) -> Bool {
+        guard isSelectable(candidate, selectedMode: selectedMode) else { return false }
+        guard isLocal(candidate.id), candidate.id != selectedMode else { return true }
+        return OllamaGuideState.from(candidate: candidate) != .notInstalled
+    }
+
+    /// Nothing can read yet: no plan signed in, no key, no local model ready. The chooser then leads to
+    /// Plans & keys instead of leaving a stranger to pick a card that cannot run.
+    static func nothingConnected(_ candidates: [SleepEngineCandidate], hasKey: Bool) -> Bool {
+        guard !hasKey else { return false }
+        return !candidates.contains { isPlan($0) && $0.connected } && !EngineReadiness.ollamaReady(candidates)
     }
 
     /// The key card's state comes from `Store.connections`, never from the byok
@@ -196,7 +258,7 @@ struct EngineHeadline: Equatable {
         guard response.selected == "auto" else {
             let card = candidates.first { $0.id == response.selected }
             let title = card?.label ?? response.selected
-            let facts = [card.flatMap { EngineOption.costModel(for: $0.id) }, card.map { EngineOption.caption(for: $0) }]
+            let facts = [card.flatMap { EngineOption.costModel(for: $0) }, card.map { EngineOption.caption(for: $0) }]
                 .compactMap { $0 }
             return EngineHeadline(title: title, line: facts.isEmpty ? Copy.EngineHeadline.chosen : facts.joined(separator: " · "),
                                   mark: response.selected, isAuto: false)

@@ -90,6 +90,8 @@ final class ProvenanceCache {
         LRUCache<String, Tagged<EntityProvenance>>(capacity: ProvenanceCache.provenanceCapacity)
     @ObservationIgnored private var citationSets =
         LRUCache<String, Tagged<EpisodeCitations>>(capacity: ProvenanceCache.citationsCapacity)
+    @ObservationIgnored private var spanSets =
+        LRUCache<String, Tagged<SourceSpans>>(capacity: ProvenanceCache.citationsCapacity)
     /// Owner 2026-10-14 — a page's "Where this comes from" (`/sources/overview`), by entity id. Same contract as
     /// `provenances`: revalidated by ETag on every ask (a source the person just added shows at once), a failure keeps
     /// the last-known-good copy, a 404 is gone.
@@ -108,6 +110,7 @@ final class ProvenanceCache {
         documents = LRUCache(capacity: Self.documentCapacity)
         provenances = LRUCache(capacity: Self.provenanceCapacity)
         citationSets = LRUCache(capacity: Self.citationsCapacity)
+        spanSets = LRUCache(capacity: Self.citationsCapacity)
         overviews = LRUCache(capacity: Self.overviewCapacity)
         blames = LRUCache(capacity: Self.blameCapacity)
     }
@@ -212,6 +215,22 @@ final class ProvenanceCache {
         } catch {
             if Self.isGone(error) { blames.remove(entityId) }
             return Self.classify(error, cached: cached)
+        }
+    }
+
+    /// ROR-16 — every span pointing into `source`, by page. Same contract as `citations`: revalidated by ETag on every
+    /// ask, a failure keeps the last-known-good copy, a 404 is gone.
+    func sourceSpans(source: String) async -> ProvenanceLoad<SourceSpans> {
+        let cached = spanSets.get(source)
+        do {
+            let result = try await api.fetchSourceSpans(source: source, etag: cached?.etag)
+            if result.notModified, let cached { return .loaded(cached.value) }
+            guard let value = result.value else { return Self.classify(nil, cached: cached?.value) }
+            spanSets.set(source, Tagged(etag: result.etag, value: value))
+            return .loaded(value)
+        } catch {
+            if Self.isGone(error) { spanSets.remove(source) }
+            return Self.classify(error, cached: cached?.value)
         }
     }
 

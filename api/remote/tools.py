@@ -21,7 +21,8 @@ Cicada never fetches the video itself.
 `cicada_add_source` is not open-world: it only records a reference (G61 phase 2 S1).
 `cicada_change_source` (G61 S3-a) corrects or removes only an entry this connection added; a removal is a mark
 in the page and a commit, so it stays history and is not `destructive`.
-`cicada_capture_turns` (record, ruling 32) is capture for an app with no hook: idempotent (a re-sent turn changes
+`cicada_capture_turns` (record, ruling 32; ruling 57 gives the desktop app's local connection its twin) is capture for
+an app with no hook: idempotent (a re-sent turn changes
 nothing) and not destructive; it is a write, so an app that confirms writes asks — the person can allow it always.
 `cicada_reading_queue` (read) and `cicada_record_read` (record) are G166's: the person's own agent reads a
 page in their signed-in session, and Cicada records what it reported. Neither description names the other
@@ -71,7 +72,21 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           "Return one page of the person's memory in full, by id or by name.",
           {"entity_id": {"type": "string", "description": "The page id or name, for example 'alpha-project'."},
            "start": {"type": "integer", "description": "The first line to return. A long page comes in parts; each "
-                                                     "part names the next call. Omit for the beginning."}},
+                                                     "part names the next call. Omit for the beginning."},
+           # Vision item 5 (2026-10-28): the page's blocks — never its per-commit history, which no remote scope
+           # covers (`page_blocks.REMOTE_INCLUDE`).
+           "include": {"type": "array", "maxItems": 9,
+                       "items": {"type": "string",
+                                 "enum": ["blocks", "relevance", "summary", "sources", "coordinates", "looks",
+                                          "ongoing", "marks", "citations"]},
+                       "description": "Also return what the page holds, as short blocks after it: `relevance` (why it "
+                                      "matters to the person), `summary` (the 2-3 sentence In short Sleep writes for "
+                                      "a long page the person talks about often), `sources` (where to check, each "
+                                      "with its state), "
+                                      "`coordinates` (a place's stored position), `looks` (colours and type of a "
+                                      "saved design), `ongoing` (open happenings and planned milestones), `marks` (how many passages the person marked in a book), "
+                                      "`citations` (the article's numbered sources), or "
+                                      "`blocks` for all of them."}},
           ("entity_id",), read_only=True),
     _tool("cicada_get_perspective",
           "Return the facts currently believed about one subject — optionally only one observer's view "
@@ -109,7 +124,11 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           "Cicada stores what you relay as relayed by this app, not as the person's own words.",
           {"message": {"type": "string", "description": "The person's message this turn, word for word."},
            "previous_reply": {"type": "string",
-                              "description": "Your previous reply, word for word. Omit on the first turn."}},
+                              "description": "Your previous reply, word for word. Omit on the first turn."},
+           # Ruling 45 addendum: the app's own word on which project this conversation is in.
+           "project": {"type": "string", "maxLength": 120,
+                       "description": "Optional: the name of the project this conversation is in, only when you "
+                                      "know it from your own context (the app's project); never a guess."}},
           ("message",), read_only=False, idempotent=True),
     _tool("cicada_write_claim",
           "Record one fact as subject – predicate – object, marked as coming from this app. Use observer "
@@ -220,6 +239,15 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           {"url": {"type": "string", "description": "The http(s) link."},
            "note": {"type": "string", "description": "Optional: why it matters."}},
           ("url",), read_only=False, idempotent=True, open_world=True),
+    _tool("cicada_add_book",
+          "Add a book the person asked you to add. Find its ISBN yourself (a web search or the person's words, never "
+          "a guess), call with preview true to see which edition that number names, show the person its title, "
+          "authors and publisher, and add it only once they agree. It lands as a quiet saved book with no reading "
+          "status; its description is a public source's, not the person's words. A repeat changes nothing. Cicada "
+          "never searches by title.",
+          {"isbn": {"type": "string", "description": "The book's ISBN-13 or ISBN-10."},
+           "preview": {"type": "boolean", "description": "true: show the edition this number names, write nothing."}},
+          ("isbn",), read_only=False, idempotent=True, open_world=True),
     _tool("cicada_record_watch",
           "After you watch a video the person saved, record what it covers: a short summary and up to 12 "
           "short quotes with the time each is said. Cicada keeps these quotes as the video's words, never "
@@ -302,7 +330,19 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "via": {"type": "string", "description": "Optional: the tool you read with. Shown as what you said, never as proof."},
            "note": {"type": "string", "description": "Optional: one short sentence for the person (at most 200 characters). Shown with the link in Cicada as your words."},
            "title": {"type": "string",
-                     "description": "Optional: the page's real title, used only when the link is still titled by its address."}},
+                     "description": "Optional: the page's real title, used only when the link is still titled by its address."},
+           "facts": {"type": "array",
+                     "description": "Optional, for read: up to 8 specific facts the page states about things Cicada has "
+                                    "a page for (a tool, a company, a program; never a person). Each becomes a claim "
+                                    "on that page citing the quote, with this link as where to check it, never as "
+                                    "the person's words.",
+                     "items": {"type": "object", "required": ["subject", "predicate", "object", "quote"],
+                               "properties": {
+                                   "subject": {"type": "string", "description": "The page id of the thing the fact is about. A read never makes a page."},
+                                   "predicate": {"type": "string", "description": "A short verb phrase, e.g. 'supports' or 'priced-at'."},
+                                   "object": {"type": "string", "description": "What the page says (at most 300 characters)."},
+                                   "quote": {"type": "string", "description": "The page's words that state it, verbatim (at most 240 characters)."},
+                               }}}},
           ("url", "outcome"), read_only=False, idempotent=True, open_world=True),
     _tool("cicada_record_check",
           "After you look at a source the person's reading queue listed for a pending question, record what it "
@@ -331,8 +371,10 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           ("item_id", "source", "outcome"), read_only=False, idempotent=True, open_world=True),
     _tool("cicada_sources",
           "Return the conversation excerpts a page was built from, word for word (at most three, each cut at "
-          "1,000 characters).",
-          {"entity_id": {"type": "string", "description": "The page id."}}, ("entity_id",), read_only=True),
+          "1,000 characters) — or, given a conversation id Cicada printed (ep_<date>_<n>), the start of that "
+          "conversation and who the person was talking to.",
+          {"entity_id": {"type": "string", "description": "The page id, or an episode id such as "
+                                                          "'ep_2026-10-21_004'."}}, ("entity_id",), read_only=True),
     _tool("cicada_timeline",
           "What changed in the person's memory recently, day by day: what was captured, the pages Cicada "
           "created or updated overnight, pages that faded, facts that reached their stated end, and what "
@@ -408,6 +450,80 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "status": {"type": "string", "enum": ["open", "doing", "done", "dropped"],
                       "description": "Optional: move the item as you note it."}},
           ("item", "note"), read_only=False),
+    # Rulings 45 and 56: a remote app's project waits as a question in the person's inbox.
+    _tool("cicada_create_project",
+          "Start a project only when the person asks you to; give what they said as `reason`. It waits as a question "
+          "in their Cicada inbox, and only their yes starts it. A name a page already holds starts that page, never a "
+          "second one.",
+          {"project": {"type": "string", "maxLength": 120, "description": "The new project's name, as the person "
+                                                                          "said it."},
+           "description": {"type": "string", "maxLength": 600, "description": "Optional: one line on what it is."},
+           "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
+               "episode": {"type": "string"}, "quote": {"type": "string"}}}},
+           "reason": {"type": "string", "maxLength": 300, "description": "What the person said asking for it, in one "
+                                                                         "sentence. Required unless `evidence` cites "
+                                                                         "their words."},
+           "repo": {"type": "string", "description": "Optional: the repository's folder name."}},
+          ("project",), read_only=False),
+    _tool("cicada_link_conversation",
+          "Propose a conversation for one of the person's projects when it is about that project and nothing ties it "
+          "yet, never for a mere mention, or take back one this app proposed (`remove`). It waits on the project's page "
+          "until the person adds it. Give a one-sentence reason. A conversation the person untied stays untied.",
+          {"project": {"type": "string", "description": "The project page (id or name)."},
+           "episode": {"type": "string", "description": "The episode id (ep_…) to tie."},
+           "session": {"type": "string", "description": "Optional: a session id instead."},
+           "remove": {"type": "boolean", "description": "Untie one this app tied."},
+           "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence."}},
+          ("project", "reason"), read_only=False, idempotent=True),
+    _tool("cicada_link_entity",
+          "Propose a page (a person, a tool, a place, a document already in memory) as part of one of the person's "
+          "projects when they say it is, or take back one this app proposed (`remove`). It waits on the project's page "
+          "until the person adds it. Give a one-sentence reason; a page the person said is not part of it stays out.",
+          {"project": {"type": "string", "description": "The project page (id or name)."},
+           "entity": {"type": "string", "description": "The page to tie (id or name)."},
+           "remove": {"type": "boolean", "description": "Take back one this app proposed."},
+           "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence."}},
+          ("project", "entity", "reason"), read_only=False, idempotent=True),
+    _tool("cicada_add_influence",
+          "Record something that fed one of the person's projects — a film, a book, a paper, a tool, a person, a "
+          "link — when they say it did. `url` for a link, else `what` (a name; plain text when no page matches). "
+          "Recorded as this app's, never as the person's own words.",
+          {"project": {"type": "string", "description": "The project page (id or name)."},
+           "what": {"type": "string", "maxLength": 200, "description": "The thing, by name."},
+           "url": {"type": "string", "maxLength": 2048, "description": "Or a link."},
+           "how": {"type": "string", "enum": ["inspired", "reference", "uses", "person"]},
+           "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
+               "episode": {"type": "string"}, "quote": {"type": "string"}}}}},
+          ("project",), read_only=False),
+    # G227 follow-up (coordinator 2026-10-29): a remote app proposes a merge or a split; the person applies or leaves it
+    # in their inbox (never on G198's trust list).
+    _tool("cicada_merge_pages",
+          "Propose merging two pages that are the same thing, when the person says so: `page` would fold into `into` "
+          "(the page that stays). It waits in the person's inbox for one tap; nothing changes until they apply it. "
+          "Give a one-sentence reason.",
+          {"page": {"type": "string", "description": "The page that would go (id or name)."},
+           "into": {"type": "string", "description": "The page that stays (id or name)."},
+           "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence."}},
+          ("page", "into", "reason"), read_only=False),
+    _tool("cicada_split_page",
+          "Propose splitting off what a page says about a DIFFERENT thing with the same name. First `preview: true` "
+          "(numbered sentences, beliefs by id, conversations — only on a connection that may read memory); then name "
+          "what belongs to the other thing. It waits in "
+          "the person's inbox for one tap; nothing changes until they apply it.",
+          {"page": {"type": "string", "description": "The page (id or name)."},
+           "preview": {"type": "boolean", "description": "List what can be picked; nothing changes."},
+           "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence."},
+           "sentences": {"type": "array", "items": {"type": "integer"}},
+           "claims": {"type": "array", "items": {"type": "string"}},
+           "episodes": {"type": "array", "items": {"type": "string"}},
+           "name": {"type": "string", "maxLength": 120}},
+          ("page",), read_only=False),
+    _tool("cicada_undo_join",
+          "Propose taking back the newest merge or split on a page, when the person asks. It waits in their inbox for "
+          "one tap.",
+          {"page": {"type": "string", "description": "The page (id or name)."},
+           "reason": {"type": "string", "maxLength": 300, "description": "The person's words, in one sentence."}},
+          ("page",), read_only=False),
     _tool("cicada_resolve_inbox",
           "Record the person's own answer to one of Cicada's questions: the option_key they chose, defer=true "
           "to ask again later, reject=true when two names are NOT the same, or skip=true when they did not "

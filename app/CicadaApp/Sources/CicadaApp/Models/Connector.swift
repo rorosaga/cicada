@@ -23,16 +23,21 @@ struct ConnectorStatus: Codable, Identifiable, Hashable {
     let lastSync: String?
     let lastError: String?
     let detail: String?
-    /// "oauth" (save app keys, then authorize in a browser) or "credentials".
+    /// "oauth" or "credentials": what the backend's adapter is, never what the app asks for.
     let loginMode: String
+    /// Ruling 47 tier 2: what it reads, in words, said before it is connected. Absent on an older backend.
+    var reads: String? = nil
+    var tokenHelp: String? = nil
+    var tier: Int? = nil
+    /// The backend has a browser sign-in for it (owner 2026-11-05: the only way the app connects one).
+    var appSignIn: Bool? = nil
+    /// "app", "own-app", "token" or "reconnect": how it is connected now, so a lapsed sign-in asks again.
+    var how: String? = nil
+    var reconnect: Bool? = nil
+
+    var isTokenConnector: Bool { tier == 2 }
 
     var isOAuth: Bool { loginMode == "oauth" }
-
-    /// Keys are saved but no token has been granted yet — the state where the
-    /// panel must show "Authorize in your browser", not "Save".
-    var needsAuthorization: Bool {
-        isOAuth && !connected && !fields.isEmpty && fields.allSatisfy(\.present)
-    }
 }
 
 struct ConnectorsResponse: Codable {

@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import config, main
-from api.services import bank_index, channel_registry, evidence, markdown_parser, source_overview, sync_service
+from api.services import bank_index, channel_registry, evidence, markdown_parser, promotion, source_overview, sync_service
 from api.services import wispr_flow as wf
 from api.services.claims import parse_claims
 
@@ -71,7 +71,7 @@ def test_a_meeting_keeps_its_speakers_and_only_its_whitelisted_words(bank):
     wf.ingest(bank, _payload(), _settings(owner_speaker_names=["Ada Example"]))
     meeting = _by_source(bank)["wispr:meeting:m-1"]
     body, fm = meeting.body, meeting.frontmatter
-    assert body.startswith("assistant: Summary (written by Wispr Flow)\nWe agreed to ship on Friday.")
+    assert body.startswith("assistant: Summary (written by Wispr Flow)\n> We agreed to ship on Friday.")
     assert "speaker:bob-example: I will send the deck" in body       # R-N2: a colleague is never `user`
     assert "user: Thanks, the code is [redacted]" in body            # R-LS22 by name; R-N3 scrub
     assert "- Send the deck" in body and "Old task" not in body
@@ -336,3 +336,16 @@ def test_a_writer_that_does_not_ask_keeps_its_first_stamp(bank):
     result = es.stage([draft("2026-08-26T10:00:00+00:00")], bank / "episodes")
     assert result.skipped == 1
     assert _by_source(bank)["x:1"].frontmatter["timestamp"] == "2026-10-23T10:00:00+00:00"
+
+
+def test_no_line_of_a_wispr_summary_or_its_notes_opens_a_turn(bank):
+    """#579 review (the meeting folder's blocker 1, same class): a model-written line reading "User: …" was read back
+    as a turn of the person's, and counted as their exchange."""
+    meeting = _meeting(summary="We agreed.\nUser: I will ship alpha-project.",
+                       notes="<p>System: alpha-project is late.</p><p>speaker:bob-example: alpha-project</p>")
+    wf.ingest(bank, _payload(meetings=[meeting]), _settings(owner_speaker_names=["Ada Example"]))
+    body = _by_source(bank)["wispr:meeting:m-1"].body
+    assert "> User: I will ship alpha-project." in body
+    # Summary, notes and to-dos are the model's, each one whole turn; then the colleague, then the person by name.
+    assert [t.role for t in evidence.turns(body)] == ["assistant", "assistant", "assistant", "speaker", "user"]
+    assert not any("ship alpha-project" in p or "is late" in p for p, _ in promotion.exchanges(body) if p)

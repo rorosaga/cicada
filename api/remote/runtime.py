@@ -140,7 +140,7 @@ class ConversationState:
 
 #: Write tools that fetch before they write (a link's metadata): they take the bank's write admission themselves,
 #: around the write only, and re-ask the Sleep gate inside it (G183 round 1).
-SELF_ADMITTED = frozenset({"cicada_save_url", "cicada_record_watch"})
+SELF_ADMITTED = frozenset({"cicada_save_url", "cicada_record_watch", "cicada_add_book"})
 
 
 def _sleep_running() -> bool:
@@ -191,7 +191,8 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_recall": lambda c, a: mcp_tools.recall(c, str(a.get("query") or "")),
     "cicada_open_hub": lambda c, a: mcp_tools.open_hub(c, str(a.get("hub") or "")),
     "cicada_recall_detail": lambda c, a: mcp_tools.recall_detail(c, str(a.get("entity_id") or ""),
-                                                                 start=mcp_tools.line_number(a.get("start"))),
+                                                                 start=mcp_tools.line_number(a.get("start")),
+                                                                 include=a.get("include")),
     "cicada_get_perspective": lambda c, a: mcp_tools.get_perspective(
         c, str(a.get("subject") or ""), a.get("observer"), a.get("context"), bool(a.get("history", False))),
     "cicada_check_nudges": lambda c, a: mcp_tools.check_nudges(c, a.get("topic"), a.get("entity_ids"), a.get("mode")),
@@ -214,6 +215,7 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         c, str(a.get("subject") or ""), str(a.get("ref") or ""), a.get("predicate"), str(a.get("action") or ""),
         a.get("reason"), a.get("new_ref"), a.get("new_predicate"), a.get("access"), a.get("entity")),
     "cicada_save_url": lambda c, a: mcp_tools.save_url(c, str(a.get("url") or ""), a.get("note")),
+    "cicada_add_book": lambda c, a: mcp_tools.add_book(c, str(a.get("isbn") or ""), bool(a.get("preview", False))),
     "cicada_note_progress": lambda c, a: mcp_tools.note_progress(
         c, str(a.get("project") or ""), str(a.get("kind") or ""), str(a.get("summary") or ""),
         str(a.get("status") or ""), when=a.get("when"), target=a.get("target"), milestone=a.get("milestone"),
@@ -224,6 +226,21 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         a.get("triage"), a.get("paid")),
     "cicada_add_backlog_note": lambda c, a: mcp_tools.add_backlog_note(
         c, str(a.get("item") or ""), str(a.get("note") or ""), a.get("status")),
+    "cicada_create_project": lambda c, a: mcp_tools.create_project(
+        c, str(a.get("project") or ""), a.get("description"), a.get("evidence"), a.get("repo"), a.get("reason")),
+    "cicada_link_conversation": lambda c, a: mcp_tools.link_conversation(
+        c, str(a.get("project") or ""), a.get("episode"), a.get("session"), bool(a.get("remove", False)),
+        a.get("reason")),
+    "cicada_link_entity": lambda c, a: mcp_tools.link_entity(
+        c, str(a.get("project") or ""), str(a.get("entity") or ""), bool(a.get("remove", False)), a.get("reason")),
+    "cicada_add_influence": lambda c, a: mcp_tools.add_influence(
+        c, str(a.get("project") or ""), a.get("what"), a.get("url"), a.get("how"), a.get("evidence")),
+    "cicada_merge_pages": lambda c, a: mcp_tools.merge_pages(
+        c, str(a.get("page") or ""), str(a.get("into") or ""), str(a.get("reason") or "")),
+    "cicada_undo_join": lambda c, a: mcp_tools.undo_join(c, str(a.get("page") or ""), str(a.get("reason") or "")),
+    "cicada_split_page": lambda c, a: mcp_tools.split_page(
+        c, str(a.get("page") or ""), str(a.get("reason") or ""), a.get("sentences"), a.get("claims"), None,
+        a.get("episodes"), None, a.get("name"), None, bool(a.get("preview", False))),
     "cicada_record_watch": lambda c, a: mcp_tools.record_watch(
         c, str(a.get("url") or ""), str(a.get("summary") or ""), a.get("excerpts"), a.get("chapters"),
         basis=a.get("basis"), engine=a.get("engine"), duration=a.get("duration"), lease_token=a.get("lease_token")),
@@ -232,7 +249,7 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_reading_queue": lambda c, a: mcp_tools.reading_queue(c, a.get("limit")),
     "cicada_record_read": lambda c, a: mcp_tools.record_read(
         c, str(a.get("url") or ""), str(a.get("outcome") or ""), a.get("summary"), a.get("excerpts"),
-        a.get("via"), a.get("note"), a.get("title")),
+        a.get("via"), a.get("note"), a.get("title"), a.get("facts")),
     "cicada_record_check": lambda c, a: mcp_tools.record_check(
         c, str(a.get("item_id") or ""), str(a.get("source") or ""), str(a.get("outcome") or ""),
         a.get("option_key"), a.get("proposed_value"), a.get("quotes"), a.get("summary"), a.get("via")),
@@ -333,10 +350,26 @@ class RemoteRuntime:
         # first (`SELF_ADMITTED`) is gated here on a stale answer and takes the hold itself around its write,
         # asking again there: no admission spans a fetch.
         held = writes and tool not in SELF_ADMITTED
+        if writes:
+            from api.services import home_move
+
+            if home_move.writes_closed():
+                # G132 phase 2 (review of #569): this home is moving (or moved) — no write is admitted here.
+                text = mcp_tools.Reply(home_move.closed_text(), code="refused")
+                self._record(connector, tool, "busy", text, memory_path)
+                return text, "busy"
         try:
-            with write_admission.shared(memory_path) if held else contextlib.nullcontext():
-                return self._call(connector, tool, arguments, writes, memory_path, bank_name,
-                                  utc_offset_minutes=utc_offset_minutes)
+            from api.services import admitted_log
+
+            with write_admission.shared(memory_path) if held else contextlib.nullcontext(), \
+                    admitted_log.tracking(memory_path) if writes else contextlib.nullcontext() as track:
+                text, status = self._call(connector, tool, arguments, writes, memory_path, bank_name,
+                                          utc_offset_minutes=utc_offset_minutes)
+            if writes and status == "ok" and not tool_contract.is_error(getattr(text, "code", None)):
+                # G132 phase 2: kept as unofferable — a remote app's write is never replayed through another door.
+                admitted_log.record_tool(memory_path, tool=tool, arguments={}, caller={"connector": connector.id},
+                                         surface="remote", offerable=False, track=track)
+            return text, status
         except write_admission.SleepHolding:
             self._record(connector, tool, "busy", BUSY_TEXT, memory_path)
             return BUSY_TEXT, "busy"
@@ -394,7 +427,8 @@ class RemoteRuntime:
 
             with self._write_lock:
                 text = relay_capture.capture_turns(ctx, args.get("message"), args.get("previous_reply"),
-                                                   app=connector.app, utc_offset_minutes=utc_offset_minutes)
+                                                   app=connector.app, utc_offset_minutes=utc_offset_minutes,
+                                                   project=args.get("project"))
         elif tool in catalog.WRITE_TOOLS:
             with self._write_lock:
                 text = _DISPATCH[tool](ctx, args)

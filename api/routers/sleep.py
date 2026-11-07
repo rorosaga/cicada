@@ -1,4 +1,5 @@
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 
@@ -8,11 +9,13 @@ from api.models.schemas import (
     ScheduleConfig,
     ScheduleResponse,
     SleepCancelResponse,
+    SleepConsolidated,
     SleepCycleDetail,
     SleepDebtResponse,
     SleepDrain,
     SleepEndRunResponse,
     SleepEngineChoice,
+    SleepEngineModelsRefresh,
     SleepEngineResponse,
     SleepHistoryEntry,
     SleepPaused,
@@ -32,9 +35,11 @@ from api.services import (
     episode_copy,
     folder_source,
     git_service,
+    history_index,
     last_cycle,
     reading_hosts,
     sleep_autocontinue,
+    sleep_consolidated,
     sleep_debt,
     sleep_drain,
     sleep_engine_prefs,
@@ -42,6 +47,7 @@ from api.services import (
     sleep_parked,
     sleep_run_detail,
     sleep_run_prefs,
+    sleep_spend,
     sleep_runs,
     sleep_scheduler,
     sync_service,
@@ -101,6 +107,11 @@ async def trigger_sleep(
             message="A sleep cycle is already in progress",
             cycle_id=state.cycle_id,
         )
+    from api.services import home_move
+
+    if home_move.writes_closed():
+        # G132 phase 2: Sleep runs on the home only, and this computer's memory is moving (or moved) away.
+        raise HTTPException(status_code=409, detail=home_move.closed_text())
 
     cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
     record = sleep_paused.get_paused(settings.memory_path) if (body and body.continue_run) else None
@@ -330,6 +341,53 @@ async def sleep_run_detail_route(drain_id: str, request: Request, response: Resp
     return detail
 
 
+def _items_etag(memory_path, key: str) -> str:
+    """The items read git (the commits) and the bank's names (episodes, pages, questions), so all four move the tag."""
+    return sync_service.etag_for(memory_path, "git_head", "entities", "episodes", "inbox", "telemetry",
+                                 extra=f"items|{sleep_consolidated.SHAPE}|{key}")
+
+
+@router.get("/sleep/runs/{drain_id}/items", response_model=SleepConsolidated)
+async def sleep_run_items_route(drain_id: str, request: Request, response: Response,
+                                settings: Settings = Depends(get_settings)):
+    """What a run consolidated, item by item (owner 2026-10-26): the conversations it read, the pages it made and
+    changed, the questions it raised and settled — from its batch commits' own file lists. Not a Store domain: the
+    app keeps it in memory beside the run's detail and revalidates with the ETag."""
+    if not drain_id.replace("_", "").replace("-", "").isalnum():
+        raise HTTPException(status_code=404, detail="Not a run")
+    etag = _items_etag(settings.memory_path, f"run|{drain_id}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    commits = sleep_consolidated.run_commits(settings.memory_path, drain_id)
+    if not commits:
+        raise HTTPException(status_code=404, detail="Not a run")
+    start, end = sleep_consolidated.run_window(settings.memory_path, drain_id)
+    settles = await sleep_consolidated.settle_commits(settings.memory_path, start, end)
+    return await sleep_consolidated.build(settings.memory_path, commits, settles)
+
+
+@router.get("/sleep/history/{commit}/items", response_model=SleepConsolidated)
+async def sleep_cycle_items_route(commit: str, request: Request, response: Response,
+                                  settings: Settings = Depends(get_settings)):
+    """What one plain cycle consolidated — the same items as a run's, from its one commit."""
+    if not re.fullmatch(r"[0-9a-f]{7,40}", commit or ""):
+        raise HTTPException(status_code=404, detail="Not a Sleep cycle commit")
+    etag = _items_etag(settings.memory_path, f"commit|{commit}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    detail = await git_service.get_sleep_cycle_detail(settings.memory_path, commit)
+    if detail is None or detail.kind != "sleep":
+        raise HTTPException(status_code=404, detail="Not a Sleep cycle commit")
+    # The cycle's window: from when it began reading (its commit less its duration) to its commit, plus the grace.
+    try:
+        end_at = datetime.fromisoformat(detail.date)
+        start_at = end_at - timedelta(milliseconds=detail.duration_ms or 0)
+        settles = await sleep_consolidated.settle_commits(settings.memory_path, start_at.isoformat(), end_at.isoformat())
+    except ValueError:
+        settles = []
+    return await sleep_consolidated.build(settings.memory_path, [detail.commit_hash], settles)
+
+
 @router.get("/sleep/queue", response_model=SleepQueueResponse)
 async def sleep_queue(
     origin: str | None = Query(None),
@@ -347,10 +405,17 @@ async def sleep_queue(
     frozen = set(ds.frozen_ids) if ds is not None else set()
     in_batch = set(ds.live.ids) if ds is not None and not ds.batch_counted else set()
     rows: list[SleepQueueItem] = []
+    kept = 0
     for f in bank_index.files(settings.memory_path, "episodes"):
         fm = f.frontmatter
         ep_id = str(fm.get("id", f.stem))
         processed = bool(fm.get("processed", False))
+        # Ruling 62: a save kept for lookup is no row and waits for nothing; the page's one line counts it.
+        if history_index.kind(fm) == "saved" and not fm.get("source_deleted_at"):
+            kept += 1
+            continue
+        if not processed and not history_index.waits_for_model(fm):
+            continue
         if processed and (ds is None or ep_id not in ds.filed_ids):
             continue
         o = str(fm.get("origin") or _derive_origin(fm.get("source")))
@@ -370,7 +435,7 @@ async def sleep_queue(
             batch=ds.live.index if (ds is not None and ep_id in in_batch) else None,
         ))
     rows.sort(key=lambda r: _episode_sort_key({"timestamp": r.timestamp, "id": r.id}))
-    return SleepQueueResponse(total=len(rows), offset=offset, items=rows[offset:offset + limit])
+    return SleepQueueResponse(total=len(rows), offset=offset, items=rows[offset:offset + limit], kept=kept)
 
 
 #: Bumped when a row of `GET /sleep/episodes` gains a field or changes for the same files (folded into its ETag).
@@ -439,6 +504,9 @@ def _run_options_response(settings: Settings) -> SleepRunOptions:
         reserve_pct=opts.reserve_pct,
         reserve_choices=list(sleep_run_prefs.RESERVE_CHOICES),
         scheduled_use_plan=opts.scheduled_use_plan,
+        spend_limit_usd=opts.spend_limit_usd,
+        spend_limit_choices=list(sleep_spend.CHOICES),
+        keep_awake=opts.keep_awake,
     )
 
 
@@ -472,6 +540,14 @@ async def put_run_options(body: SleepRunOptionsUpdate, settings: Settings = Depe
         if body.scheduled_use_plan is None:
             raise HTTPException(status_code=422, detail="scheduledUsePlan must be true or false")
         changes["scheduled_use_plan"] = body.scheduled_use_plan
+    if "spend_limit_usd" in sent:
+        if body.spend_limit_usd is not None and not sleep_spend.valid(body.spend_limit_usd):
+            raise HTTPException(status_code=422, detail=f"spendLimitUsd must be null or above 0, up to {sleep_spend.MAX_USD:g}")
+        changes["spend_limit_usd"] = body.spend_limit_usd
+    if "keep_awake" in sent:
+        if body.keep_awake is None:
+            raise HTTPException(status_code=422, detail="keepAwake must be true or false")
+        changes["keep_awake"] = body.keep_awake
     if changes:
         sleep_run_prefs.write(get_registry(settings), **changes)
     return _run_options_response(settings)
@@ -518,6 +594,17 @@ async def get_sleep_engine(settings: Settings = Depends(get_settings)):
     now, every candidate's live state, and both trigger-source previews
     (ruling 4 made visible, not hidden — see `SleepEnginePreviews`)."""
     return await sleep_engine_prefs.build_response(settings, get_registry(settings))
+
+
+@router.post("/sleep/engine/models/refresh", response_model=SleepEngineResponse)
+async def refresh_sleep_engine_models(body: SleepEngineModelsRefresh, settings: Settings = Depends(get_settings)):
+    """Engine picker v2 (ruling 48 part 11): the person's Refresh — re-read ONE card's model list from its own harness
+    now (`claude --help`, the tool's `models`, the ChatGPT plan's `model/list`, Ollama's tags), then answer what a GET
+    would. Only ever on the person's click: the page itself never probes (ruling 46), and nothing here spends."""
+    reg = get_registry(settings)
+    if not await sleep_engine_prefs.refresh_models(settings, body.id):
+        raise HTTPException(status_code=422, detail="That engine has no model list to refresh.")
+    return await sleep_engine_prefs.build_response(settings, reg)
 
 
 @router.put("/sleep/engine", response_model=SleepEngineResponse)

@@ -212,7 +212,7 @@ def test_check_nudges_renders_decay_as_a_question_with_cause(server, tmp_path, m
     monkeypatch.setattr(server, "_SKIPPED_INBOX_IDS", set())
     out = server.handle_check_nudges(None)
     assert "Still tracking Alpha Project?" in out
-    assert "archive) Archive" in out and "(Recommended)" in out and "keep) Keep active" in out
+    assert "archive) No, archive it" in out and "(Recommended)" in out and "keep) Yes, keep it" in out
     assert 'Cause: “user: alpha-project is mostly the parser.” — from "Parser planning"' in out
     assert 'cicada_resolve_inbox(id="inbox-003", option_key=…)' in out
 

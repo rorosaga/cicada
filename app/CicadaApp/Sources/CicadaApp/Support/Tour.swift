@@ -5,6 +5,10 @@ import Observation
 /// a person card with its signed beliefs, Projects, Sleep.
 enum TourStop: String, CaseIterable, Equatable {
     case search, home, inbox, person, projects, sleep
+
+    /// The stops a tour walks: every one, less Projects while its page is hidden (owner 2026-10-26, `PageSwitches`).
+    static func shown(projectsPage: Bool) -> [TourStop] { allCases.filter { $0 != .projects || projectsPage } }
+    static var shown: [TourStop] { shown(projectsPage: PageSwitches.projectsPage) }
 }
 
 /// Where a coach mark points. `.commandBar` is a toolbar item, outside the page's coordinate space, so it draws its
@@ -136,8 +140,8 @@ final class TourController {
     init(defaults: UserDefaults = .standard) { self.defaults = defaults }
 
     var isActive: Bool { index != nil }
-    var currentStop: TourStop? { index.map { TourStop.allCases[$0] } }
-    var count: Int { TourStop.allCases.count }
+    var currentStop: TourStop? { index.map { TourStop.shown[$0] } }
+    var count: Int { TourStop.shown.count }
     var isLast: Bool { index == count - 1 }
     var demoStarted: Bool { TourMemory.demoStarted(defaults) }
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -74,7 +75,20 @@ async def revoke_device(device_id: str):
         device = await run_in_threadpool(device_tokens.store().revoke, device_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="No such device.") from None
-    return {"device": device.wire()}
+    # G132 phase 3b: it leaves the relay group too (a new epoch; the relay closes its socket). Nothing without a relay.
+    from api.services import sync_net
+
+    await sync_net.on_revoke(device)
+    # The address book it posted for its own Contacts page (`contacts_book`) stays with no one.
+    from api.services import contacts_book
+
+    await run_in_threadpool(contacts_book.forget_device, device_id)
+    return {"device": device.wire(), "text": REVOKE_TEXT}
+
+
+#: G132 phase 3b: what revoking means, in words the Devices page shows beside its confirmation.
+REVOKE_TEXT = ("This device can no longer read or change your memory, and nothing new reaches it. Revoking cannot "
+               "take back the copy it already holds.")
 
 
 # ── G212: pairing a new device with a one-time code ─────────────────────────────
@@ -109,6 +123,14 @@ class PairRequest(BaseModel):
     code: str = Field(..., min_length=1, max_length=40)
     #: The device's own name for itself (its host name, the phone's name) — what the person sees in Devices.
     name: str = Field(..., min_length=1, max_length=200)
+    #: 2026-10-29: what the device asks to be. It may only narrow the code (a phone asks for ``capture``, so a computer's
+    #: code shown by mistake still mints a capture-only phone), never widen it. Omitted: the code's own kind.
+    kind: Literal["capture", "full"] | None = None
+
+
+class BindKeyRequest(BaseModel):
+    #: ``capture`` also narrows the asking device to capture-only (a phone paired before kinds existed). Never widens.
+    narrow: Literal["capture"] | None = None
 
 
 def _pair_url(raw: str | None) -> str | None:
@@ -127,7 +149,7 @@ def _pair_url(raw: str | None) -> str | None:
 
 
 @router.post("/devices/pairing", status_code=201)
-async def create_pairing(req: PairingCreateRequest, settings: Settings = Depends(get_settings)):
+async def create_pairing(req: PairingCreateRequest, request: Request, settings: Settings = Depends(get_settings)):
     """A one-time code. ``qr`` stays exactly ``{v: 1, url, code}`` (the phone app decodes it). With no ``url`` given,
     the backend fills it with this machine's tailnet address for the backend's port when — and only when — the
     person's own ``tailscale serve`` already proves one (``reach.tailnet_backend``: one bounded, read-only ServeConfig
@@ -139,15 +161,25 @@ async def create_pairing(req: PairingCreateRequest, settings: Settings = Depends
         from api.remote import reach
 
         found = await run_in_threadpool(reach.tailnet_backend, settings.port)
-        url = found.url
-        reach_info = {"tailscale": found.tailscale, "url": found.url, "public": found.public,
+        # A backend port that is also funnelled is open to the internet: no address goes in a QR until it is closed.
+        url = None if found.public else found.url
+        reach_info = {"tailscale": found.tailscale, "url": url, "public": found.public,
                       "serveCommand": None if found.url else reach.serve_command(settings.port)}
     try:
         pairing, code = await run_in_threadpool(lambda: device_tokens.store().create_pairing(kind=req.kind))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
+    # Ruling 51f: pairing a device is sharing this memory — the home-network door opens, and the pairing carries what
+    # a phone needs to reach it with no address of its own (``door``; the phone app's later QR v2). ``qr`` is unchanged.
+    from api.services import sync_net
+
+    door = None
+    if pairing.kind == "capture":
+        await sync_net.ensure_door(request.app, settings.memory_path, shared=await run_in_threadpool(
+            sync_net.may_open_door, settings.memory_path))
+        door = await run_in_threadpool(sync_net.pairing_door, pairing.id)
     return {"pairing": pairing.wire(), "code": code, "kind": pairing.kind, "reach": reach_info,
-            "qr": {"v": 1, "url": url, "code": code}}
+            "qr": {"v": 1, "url": url, "code": code}, "door": door}
 
 
 @router.get("/devices/pairing/{pairing_id}")
@@ -172,16 +204,128 @@ async def cancel_pairing(pairing_id: str):
 
 
 @router.post("/pair", status_code=201)
-async def redeem_pairing(req: PairRequest):
+async def redeem_pairing(req: PairRequest, request: Request):
     """Open (``auth._STATIC_OPEN_PATHS``): the code is the credential. Any code that matches nothing waiting is one
-    404, whatever the reason, and ten a minute is the most this door answers."""
+    404, whatever the reason, and ten a minute is the most this door answers.
+
+    2026-10-29: a ``DPoP`` header with a proof of the device's own key for this request (``device_proof``, no ``ath``:
+    there is no token yet) makes the token **key-bound** from birth. A proof that is there but does not pass is a 400
+    that spends nothing — the code still waits — so a phone with a wrong clock can be told so and try again."""
     if not _wrong_codes().take():
         raise HTTPException(status_code=429, detail="Too many codes — wait a minute.", headers={"Retry-After": "60"})
+    from api.services import device_proof
+
+    jkt = None
+    proof = request.headers.get(device_proof.HEADER)
+    if proof:
+        try:
+            jkt = device_proof.verify(proof, method="POST", path=request.url.path)
+        except device_proof.ProofError as exc:
+            raise HTTPException(status_code=400, detail=f"This device's key proof did not pass ({exc.reason}). "
+                                                        "Check its clock and scan again.") from None
     try:
-        device, token = await run_in_threadpool(lambda: device_tokens.store().redeem(req.code, req.name))
+        device, token = await run_in_threadpool(
+            lambda: device_tokens.store().redeem(req.code, req.name, key_thumbprint=jkt, kind=req.kind))
+    except device_tokens.FullDeviceKey:
+        # The code still waits (the redeem rolled back): pair the computer without a key, or the phone as capture.
+        return JSONResponse(status_code=409, content={"code": FULL_DEVICE, "detail": FULL_DEVICE_TEXT})
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     except KeyError:
         raise HTTPException(status_code=404, detail="No pairing waits with that code — it was used, cancelled or "
                                                     "expired. Ask for a new one.") from None
+    # Ruling 51f: a paired device is a memory shared — the home-network door opens for it (a phone's captures).
+    from api.config import get_settings
+    from api.services import sync_net
+
+    await sync_net.ensure_door(request.app, get_settings().memory_path)
     return {"device": device.wire(), "token": token}
+
+
+# ── 2026-10-29: a device binds itself to its key; this machine's reach on the person's overlay ────────────────────
+
+#: A full device (a computer) is never key-bound yet: every one of its clients would have to sign, and they cannot.
+FULL_DEVICE = "full_device"
+FULL_DEVICE_TEXT = ("A computer's token can't be locked to a key yet: its hooks, agents and command line can't sign "
+                    "requests. Nothing changed; it keeps working with its token.")
+
+@router.post("/devices/me/key")
+async def bind_own_key(req: BindKeyRequest, request: Request):
+    """An already-paired device upgrades itself to key-bound (``auth.DEVICE_SELF_ROUTES``: any device token, about the
+    asking device only). The request carries its bearer token and a ``DPoP`` proof of the key, with ``ath``; the
+    server keeps the key's thumbprint and from the next request on the token works only with a proof. Binding the key
+    it already has is ``changed: false``; another key is 409 (a new key is a new pairing). ``narrow: "capture"`` also
+    makes the device capture-only. The master token has no device: 400."""
+    from api.services import auth, device_proof
+
+    device = getattr(request.state, "device", None)
+    if device is None:
+        raise HTTPException(status_code=400, detail="Only a paired device binds its own key.")
+    if device.kind == "full" and req.narrow != "capture":
+        # Review 2026-10-29: a computer's hooks, MCP server and command line share its one token and cannot sign yet,
+        # so locking that token to a key could only break the computer's capture. Refused, nothing changed.
+        return JSONResponse(status_code=409, content={"code": FULL_DEVICE, "detail": FULL_DEVICE_TEXT})
+    jkt = getattr(request.state, "device_jkt", None)
+    if jkt is None:   # not yet bound: the gate checked no proof, so this route does
+        try:
+            jkt = device_proof.verify(request.headers.get(device_proof.HEADER), method="POST",
+                                      path=request.url.path, token=auth.credential(request.headers.get("authorization")))
+        except device_proof.ProofError as exc:
+            raise auth.proof_refusal(exc.reason) from None
+    try:
+        bound, changed = await run_in_threadpool(
+            lambda: device_tokens.store().bind_key(device.id, jkt, narrow_to=req.narrow))
+    except KeyError:
+        raise HTTPException(status_code=401, detail="missing or invalid bearer token") from None
+    except device_tokens.FullDeviceKey:
+        return JSONResponse(status_code=409, content={"code": FULL_DEVICE, "detail": FULL_DEVICE_TEXT})
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    return {"device": bound.wire(), "changed": changed}
+
+
+@router.get("/devices/reach")
+async def device_reach(request: Request, check: bool = False, settings: Settings = Depends(get_settings)):
+    """Settings → Devices' guided reach step (master token: under ``/devices``). Where this machine stands on the
+    person's overlay — ``tailscale`` (missing, not-running, logged-out, stopped, running), ``step`` (one of
+    ``reach.GUIDE_STEPS``), ``command`` (the exact command to copy, when one is the step), ``url`` (the served address
+    a QR carries, ``ready`` only) and ``dnsName``. ``check=true`` also fetches this machine's own ``/healthz`` through
+    that address, the way a phone would (``reach.self_check``), and names where it stopped. Cicada only looks: two
+    bounded read-only CLI reads, and the one fetch on the person's ask. Not a Store domain; no ETag."""
+    from api.remote import reach
+    from api.routers.status import _active_bank_id
+
+    answer = await run_in_threadpool(reach.guide, settings.port)
+    answer["check"] = None
+    if check and answer.get("url"):
+        answer["check"] = await run_in_threadpool(
+            lambda: reach.self_check(answer["url"], version=request.app.version, bank_id=_active_bank_id(settings)))
+    return answer
+
+
+class ReachServeBody(BaseModel):
+    #: ``serve`` (the ``serve`` step's command) or ``stop`` (the ``ready`` step's ``stopCommand``). Never an argv.
+    action: str
+
+
+@router.post("/devices/reach/serve")
+async def device_reach_serve(body: ReachServeBody, request: Request, settings: Settings = Depends(get_settings)):
+    """The person's click (owner 2026-10-29, "Yes, one click"; the dated amendment to G132 (c)): run exactly the
+    command the guide showed — ``tailscale serve --bg --https=8443 <port>`` on the ``serve`` step, or that one
+    mapping's off on ``ready`` — then answer the fresh guide, checked the way a phone would. The argv is built by
+    ``reach.run_serve`` from this backend's own port and the person's own ServeConfig, never from the request; never
+    ``funnel`` or ``up``; 10 s cap. ``{ok, message, ran, reach}``; a step with nothing to run answers ``ok: false``
+    with the sentence and runs nothing. Master token (under ``/devices``)."""
+    from api.remote import reach
+    from api.routers.status import _active_bank_id
+
+    action = str(body.action or "").strip().lower()
+    if action not in reach.SERVE_ACTIONS:
+        raise HTTPException(status_code=422, detail="action must be 'serve' or 'stop'.")
+    result = await run_in_threadpool(reach.run_serve, action, settings.port)
+    answer = dict(result.pop("guide"))
+    answer["check"] = None
+    if result["ok"] and answer.get("url"):
+        answer["check"] = await run_in_threadpool(
+            lambda: reach.self_check(answer["url"], version=request.app.version, bank_id=_active_bank_id(settings)))
+    return {**result, "reach": answer}

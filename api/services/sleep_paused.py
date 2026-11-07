@@ -30,13 +30,14 @@ from api.services import bank_index, sleep_local
 FILE = "run.json"
 
 #: Why a run is paused (a closed set; the wire carries it).
-REASONS = ("user", "plan_window", "plan_weekly", "reserve", "overage", "engine", "restart", "bank_switched", "busy")
+REASONS = ("user", "plan_window", "plan_weekly", "reserve", "overage", "key_limit", "spend", "engine", "restart",
+           "bank_switched", "busy")
 
 #: A scheduled run's pause that no person chose — the process went away (``restart``), the
 #: scheduled engine failed (``engine``) or a write held the bank (``busy``, G183) — is the schedule's own to replace
 #: with a fresh unattended run (TODO ruling 16, final review): otherwise one quit of the app, or one night
 #: the scheduled engine was away, would stop scheduled reading until someone pressed Continue.
-#: A person's Pause, a plan or reserve stop, and every run a person started stay theirs.
+#: A person's Pause, a plan, reserve or spending-limit stop, and every run a person started stay theirs.
 SCHEDULE_REPLACEABLE = ("restart", "engine", "busy")
 #: Ruling 4b (owner, 2026-10-16): a scheduled run on the person's plan (their "Scheduled runs may use my plan" switch,
 #: or the old dotfile pin) that stopped at the plan's limit is the schedule's own to replace too — on a server nobody
@@ -61,13 +62,15 @@ def reason_for(stop) -> str | None:
     if r == "cancelled":
         return "user"
     if r == "reserve":
-        return "reserve"
+        return "spend" if getattr(stop, "limit", None) == "spend" else "reserve"
     if r == "engine":
         return "engine"
     if r == "busy":
         return "busy"   # a write held the bank when a batch would have read it (G183): nothing of it was read
     if r == "plan_limit":
         limit = getattr(stop, "limit", None)
+        if limit == "key_limit":
+            return "key_limit"   # G237: a key's rate or spending limit, never the person's plan
         return "plan_weekly" if limit == "seven_day" else "overage" if limit == "overage" else "plan_window"
     return None
 
@@ -188,8 +191,11 @@ def build(ds, *, phase: str, stop=None, engine_label: str | None = None,
         reason = reason_for(stop) if stop is not None else "restart"
         rec.update({
             "reason": reason or "engine",
-            "engine_kind": ("transient" if getattr(stop, "transient", False) else "needs_fix")
+            # ``offline``: the network left, not the engine (2026-11-03) — the words are about the network.
+            "engine_kind": ("offline" if getattr(stop, "offline", None) else
+                            "transient" if getattr(stop, "transient", False) else "needs_fix")
                            if reason == "engine" else None,
+            "offline_cause": getattr(stop, "offline", None) if reason == "engine" else None,
             "sentence": (getattr(stop, "sentence", "") or None) if stop is not None else None,
             "resets_at": getattr(stop, "resets_at", None) if stop is not None else None,
             "limit": getattr(stop, "limit", None) if stop is not None else None,
@@ -221,6 +227,7 @@ def to_wire(record: dict | None, memory_path: Path | None = None) -> dict | None
         "started_by": record.get("started_by", "user"),
         "reason": record.get("reason"),
         "engine_kind": (record.get("engine_kind") or "needs_fix") if record.get("reason") == "engine" else None,
+        "offline_cause": record.get("offline_cause") if record.get("engine_kind") == "offline" else None,
         "sentence": record.get("sentence"),
         "resets_at": record.get("resets_at"),
         "limit": record.get("limit"),

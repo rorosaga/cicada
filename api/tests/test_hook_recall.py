@@ -290,7 +290,8 @@ def _one_hot(texts, *, is_query=False):
 
 
 @pytest.fixture
-def five(tmp_path):
+def five(tmp_path, monkeypatch):
+    from api.services import page_use
     from api.services.vector_index import SqliteVecIndexer
 
     memory = tmp_path / "memory"
@@ -298,8 +299,12 @@ def five(tmp_path):
         (memory / sub).mkdir(parents=True)
     words = ["One", "Two", "Three", "Four", "Five"]
     for n, word in enumerate(words, 1):
-        _page(memory, f"alpha-{word.lower()}", f"Alpha {word}", "project", aliases=["Alpha"],
-              confidence=1.0 - n / 10, summary=f"Marker k{n} lives here.")
+        # Named "Item …" so "alpha" is each page's alias, not a word several page names share (a common noun, 2026-10-27).
+        _page(memory, f"alpha-{word.lower()}", f"Item {word}", "project", aliases=["Alpha"],
+              summary=f"Marker k{n} lives here.")
+    # The word order: what has come up lately, the one first, never its confidence.
+    monkeypatch.setattr(page_use, "lately_cached",
+                        lambda _m: {f"alpha-{word.lower()}": 1.0 - n / 10 for n, word in enumerate(words, 1)})
     _page(memory, "zeta-page", "Zeta Page", "project", summary="Marker k5 k5 k5.")   # the vectors' favourite
     _index(memory)
     SqliteVecIndexer(memory, embed_fn=_one_hot, model_name=MODEL).index_entities()

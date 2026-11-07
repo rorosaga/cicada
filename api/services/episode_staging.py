@@ -71,7 +71,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
-from api.services import agent_turns, bank_index, episode_ids, episode_scrub, markdown_parser, turn_extras
+from api.services import (agent_turns, bank_index, episode_ids, episode_scrub, evidence, history_index, markdown_parser,
+                          sensitive_flags, turn_extras)
 
 #: Keys of one ``turns`` sidecar entry (R-PB4) — the coordination contract, exactly.
 #: Round 4 C1 adds ``model``/``effort``: written on an agent turn only, only when the
@@ -221,9 +222,17 @@ def draft_from_export(episode: dict) -> EpisodeDraft:
         unsent=list(episode.get("unsent") or []),
         writer="import",
         # An importer may declare whose words the episode holds (a Claude memory is
-        # the assistant's); absent, the per-line markers decide as before.
-        extra={"evidence_kind": episode["evidence_kind"]} if episode.get("evidence_kind") else {},
+        # the assistant's); absent, the per-line markers decide as before. Ruling 45: a provider's own project
+        # grouping rides beside it (``provider_project``), frontmatter only.
+        extra={**({"evidence_kind": episode["evidence_kind"]} if episode.get("evidence_kind") else {}),
+               **({PROVIDER_PROJECT_KEY: dict(episode["provider_project"])}
+                  if isinstance(episode.get("provider_project"), dict) else {})},
     )
+
+
+#: Ruling 45: a provider's own project grouping on an imported conversation (a ChatGPT ``g-p-`` id), outside the body
+#: and its hash; an unchanged conversation that gains it is updated in its frontmatter only, never re-queued.
+PROVIDER_PROJECT_KEY = "provider_project"
 
 
 def content_hash(text: str) -> str:
@@ -261,12 +270,12 @@ def render(draft: EpisodeDraft) -> tuple[str, list[dict], int]:
     """``(body, turns sidecar, replacements)``. Each turn is scrubbed BEFORE
     its offset is taken, so every offset points into the text that is stored."""
     if draft.body is not None:
-        body, n = episode_scrub.scrub(draft.body)
+        body, n = episode_scrub.scrub_for(draft.body, draft.writer)
         return body, [], n
     texts: list[str] = []
     total = 0
     for turn in draft.turns:
-        text, n = episode_scrub.scrub(turn.text)
+        text, n = episode_scrub.scrub_for(turn.text, draft.writer)
         total += n
         texts.append(text)
     body = "\n".join(_line(t, x) for t, x in zip(draft.turns, texts))
@@ -281,7 +290,7 @@ def stamps_for(draft: EpisodeDraft, body: str) -> list[dict]:
     whose ``role: text`` body is this module's line shape byte for byte."""
     if draft.body is not None:
         return []
-    for texts in ([episode_scrub.scrub(t.text)[0] for t in draft.turns], [t.text for t in draft.turns]):
+    for texts in ([episode_scrub.scrub_for(t.text, draft.writer)[0] for t in draft.turns], [t.text for t in draft.turns]):
         if "\n".join(_line(t, x) for t, x in zip(draft.turns, texts)) == body:
             return _stamps(draft.turns, texts)
     return []
@@ -293,7 +302,7 @@ def render_extras(draft: EpisodeDraft, *, raw: bool = False) -> dict:
     pre-rendered body or a draft with no extras (no scrub is run then)."""
     if draft.body is not None or not turn_extras.has_any(draft.turns, draft.unsent):
         return {}
-    texts = [t.text if raw else episode_scrub.scrub(t.text)[0] for t in draft.turns]
+    texts = [t.text if raw else episode_scrub.scrub_for(t.text, draft.writer)[0] for t in draft.turns]
     lengths = [len(_line(t, x)) for t, x in zip(draft.turns, texts)]
     body_length = sum(lengths) + max(len(lengths) - 1, 0)
     return turn_extras.render(draft.turns, lengths, draft.unsent, body_length)
@@ -305,7 +314,7 @@ def _extras_matching(draft: EpisodeDraft, body: str) -> dict:
     if draft.body is not None or not turn_extras.has_any(draft.turns, draft.unsent):
         return {}
     for raw in (False, True):
-        texts = [t.text if raw else episode_scrub.scrub(t.text)[0] for t in draft.turns]
+        texts = [t.text if raw else episode_scrub.scrub_for(t.text, draft.writer)[0] for t in draft.turns]
         if "\n".join(_line(t, x) for t, x in zip(draft.turns, texts)) == body:
             return render_extras(draft, raw=raw)
     return {}
@@ -353,7 +362,7 @@ RELAY_UPGRADES = {"claude": "claude", "chatgpt": "chatgpt"}
 #: How far apart a relayed conversation's start and the export's may be and still be one conversation.
 RELAY_WINDOW_S = 2 * 86400
 #: Writer-owned keys of a relayed episode that describe the relayed body, dropped when an export replaces it.
-_RELAY_BODY_KEYS = ("evidence_kind", "hook_turns", "capture_gap", "capture_flags")
+_RELAY_BODY_KEYS = ("evidence_kind", "hook_turns", "capture_gap", "capture_flags", "tail_turns")
 
 
 def relay_candidates(episodes_dir: Path) -> dict[tuple[str, str], list[IndexEntry]]:
@@ -396,19 +405,49 @@ def relay_for(draft: EpisodeDraft, candidates: dict[tuple[str, str], list[IndexE
     return near[0] if len(near) == 1 else None
 
 
+def stored_meta(values: dict) -> dict:
+    """Writer frontmatter as it is stored: named secret shapes scrubbed from its strings, keys, paths and ids never
+    touched (``episode_scrub.scrub_value``; review of #560). A writer that compares what it would write with what is
+    on disk compares THIS with it, or a scrubbed value reads as changed on every sync."""
+    return episode_scrub.scrub_value(dict(values))[0]
+
+
+def stored_title(title: str | None) -> str:
+    return episode_scrub.scrub_value(title or "", key="title")[0]
+
+
+def _extra(draft: EpisodeDraft) -> dict:
+    """``draft.extra`` as stored (:func:`stored_meta`) — the one way extras reach a file, so no writer's frontmatter
+    (a note's description, a chat's title) keeps a named secret its words lost."""
+    return stored_meta(draft.extra)
+
+
+def _title(draft: EpisodeDraft) -> str:
+    return stored_title(draft.title)
+
+
 def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict], body: str | None = None) -> None:
-    fm.update(draft.extra)
+    fm.update(_extra(draft))
     _apply_extras(fm, _extras_matching(draft, body) if body is not None else {})
     if draft.content_sha:
         fm["content_sha"] = draft.content_sha
-    if draft.queue_for_sleep:
+    if draft.queue_for_sleep or _read_owed(fm, draft):
         fm["processed"] = False
         # G114 R6: `processed_by` is written only beside `processed: true`.
         fm.pop("processed_by", None)
     else:
         fm["processed"] = True
         fm["processed_by"] = draft.processed_by
+        if draft.processed_by == history_index.INDEXED_BY:
+            # Its one read was of the old words: these are a bare save again, found and woken like any other.
+            fm.pop(history_index.WOKEN_KEY, None)
     set_turn_stamps(fm, stamps)
+
+
+def _read_owed(fm: dict, draft: EpisodeDraft) -> bool:
+    """Ruling 62: a lean writer's draft (a tab group, a saved list) says nothing about a read the person's own mention
+    or reason queued: a sync before that read leaves it queued, whatever the sync changed."""
+    return draft.processed_by == history_index.INDEXED_BY and history_index.owes_a_read(fm)
 
 
 def set_turn_stamps(fm: dict, stamps: list[dict]) -> None:
@@ -435,7 +474,7 @@ def write_new(draft: EpisodeDraft, episodes_dir: Path, body: str, digest: str,
         # Ruling 39: the item's own date above, when Cicada received it here — set once, at creation.
         episode_ids.RECEIVED_KEY: normalise_timestamp(draft.received_at) or episode_ids.utc_now_iso(),
         "source": draft.source,
-        "title": draft.title or "Untitled",
+        "title": _title(draft) or "Untitled",
         "processed": False,
         "content_hash": digest,
     }
@@ -465,11 +504,41 @@ def _under_episode_lock(fn):
     return locked
 
 
+#: An edit in place says it is one (owner 2026-11-03: "re-ingested items are updates, not new"; G95): the record Sleep
+#: reads to treat a re-queued episode as a newer revision of what it already filed, never as a new conversation.
+#: ``count`` — the body's edits in place so far; ``at`` — when the latest landed (UTC); ``previous_hash`` — the
+#: ``content_hash`` of the body this edit replaced; ``consolidated_hash`` — the ``content_hash`` of the last body that was
+#: consolidated (processed by Sleep or an agent, never by a parser or the index), kept through later edits until Sleep
+#: reads the episode again, absent while no revision was ever consolidated. The earlier body is in git.
+REVISED_KEY = "revised"
+#: ``processed_by`` values that mean nothing consolidated the body (R-LS10's parser, ``history_index.INDEXED_BY``).
+_NOT_CONSOLIDATED_BY = frozenset({PARSED_ONLY, history_index.INDEXED_BY})
+
+
+def revision_record(fm: dict, *, at: str | None = None) -> dict:
+    """The ``revised`` record an edit in place writes over ``fm`` (the episode's frontmatter BEFORE the edit)."""
+    prior = fm.get(REVISED_KEY) if isinstance(fm.get(REVISED_KEY), dict) else {}
+    try:
+        count = max(0, int(prior.get("count") or 0))
+    except (TypeError, ValueError):
+        count = 0
+    record: dict = {"count": count + 1, "at": at or episode_ids.utc_now_iso()}
+    if fm.get("content_hash"):
+        record["previous_hash"] = str(fm["content_hash"])
+    consolidated = fm.get("processed") is True and fm.get("processed_by") not in _NOT_CONSOLIDATED_BY
+    if consolidated and fm.get("content_hash"):
+        record["consolidated_hash"] = str(fm["content_hash"])
+    elif prior.get("consolidated_hash"):
+        record["consolidated_hash"] = str(prior["consolidated_hash"])
+    return record
+
+
 @_under_episode_lock
 def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, stamps: list[dict]) -> None:
-    """Same file, same id, same original timestamp; new body, re-queued (G20)."""
+    """Same file, same id, same original timestamp; new body, re-queued (G20), marked as a revision (``revised``)."""
     fm = dict(markdown_parser.parse(path).frontmatter)
-    fm["title"] = draft.title or fm.get("title", "Untitled")
+    fm[REVISED_KEY] = revision_record(fm)
+    fm["title"] = _title(draft) or fm.get("title", "Untitled")
     fm["content_hash"] = digest
     fm["source_updated_at"] = draft.source_updated_at
     fm["source_id"] = draft.source_id
@@ -487,9 +556,9 @@ def upgrade_relay(path: Path, draft: EpisodeDraft, body: str, digest: str, stamp
     fm = dict(markdown_parser.parse(path).frontmatter)
     for key in _RELAY_BODY_KEYS:
         fm.pop(key, None)
-    fm["relay"] = {**(fm.get("relay") or {}), "upgraded_at": at, "upgraded_by": draft.source}
+    fm["relay"] = {**(fm.get("relay") or {}), "upgraded_at": at, "upgraded_by": draft.source, "imported_hash": digest}
     fm["source"] = draft.source
-    fm["title"] = draft.title or fm.get("title", "Untitled")
+    fm["title"] = _title(draft) or fm.get("title", "Untitled")
     fm["content_hash"] = digest
     fm["source_id"] = draft.source_id
     fm["source_updated_at"] = draft.source_updated_at
@@ -497,6 +566,102 @@ def upgrade_relay(path: Path, draft: EpisodeDraft, body: str, digest: str, stamp
         fm["origin"] = draft.origin
     _apply_common(fm, draft, stamps, body)
     markdown_parser.write(path, fm, body)
+
+
+def has_relayed_tail(fm: dict | None) -> bool:
+    """Ruling 58: this upgraded episode holds later turns its model relayed after the imported part."""
+    relay = (fm or {}).get("relay")
+    return isinstance(relay, dict) and isinstance(relay.get("tail_at"), int) and bool(relay.get("imported_hash"))
+
+
+def append_relayed(path: Path, fm: dict, body: str, rows: list[dict], *, at: str, project: str | None = None) -> str:
+    """Ruling 58 (owner, 2026-11-04): a chat continued after its one-time import keeps its later turns in the same episode,
+    after the imported part, whose offsets never move. ``rows`` are ``{marker, speaker, text, ts}``, cleaned and scrubbed
+    by the caller. Each person's turn carries its own ``relayed [...]:`` marker, so it reads as the relaying model's words
+    (`evidence._marker`) beside the imported part's ``user:`` lines; no episode-wide ``evidence_kind`` could say both. Any
+    line that would open a turn is quoted. A revision of itself (``revised``), re-queued, so Sleep reads only what grew
+    (`episode_revision`). The caller holds the episode lock. Returns the new ``content_hash``."""
+    fm = dict(fm)
+    relay = dict(fm.get("relay") or {})
+    if not has_relayed_tail(fm):
+        relay["imported_hash"] = str(fm.get("content_hash") or content_hash(body))     # what is here, a removal included
+        relay["tail_at"] = len(body) + 1
+    if project:
+        relay["project"] = project
+    fm[REVISED_KEY] = revision_record(fm)
+    stamps = [dict(e) for e in fm.get("turns") or [] if isinstance(e, dict)] if isinstance(fm.get("turns"), list) else []
+    out = body
+    for row in rows:
+        out += "\n"
+        if row["ts"] and len(stamps) < MAX_TURN_STAMPS:
+            stamps.append({"offset": len(out), "ts": row["ts"], "speaker": row["speaker"]})
+        out += f"{row['marker']}: {evidence.quote_markers(row['text'])}"
+    digest = content_hash(out)
+    fm["relay"] = relay
+    fm["content_hash"] = digest
+    fm["last_turn_at"] = at
+    if isinstance(fm.get("turn_count"), int):
+        fm["turn_count"] += len(rows)
+    fm["processed"] = False
+    fm.pop("processed_by", None)
+    set_turn_stamps(fm, stamps)
+    markdown_parser.write(path, fm, out)
+    return digest
+
+
+def _turn_key(text: str) -> str:
+    """A turn's words, however its door rendered them: the export's and the relay's cleaning differ (code fences, caps)."""
+    return "".join(c for c in (text or "").casefold() if c.isalnum())[:400]
+
+
+def relayed_tail(fm: dict, body: str) -> list[evidence.TurnSpan]:
+    """The later relayed turns of an upgraded episode, with offsets into ``body``."""
+    if not has_relayed_tail(fm):
+        return []
+    return [t for t in evidence.turns(body) if t.start >= fm["relay"]["tail_at"] and t.marker]
+
+
+@_under_episode_lock
+def merge_relayed_tail(path: Path, draft: EpisodeDraft, export_body: str, digest: str, stamps: list[dict]) -> str:
+    """Ruling 58: another import of a chat that went on. The export's body replaces the imported part, and of the later
+    relayed turns only those it does not hold stay after it, unchanged: a turn the export holds is the person's own now,
+    never kept twice. In order, so a repeated "yes" is matched to its own place. Returns the new ``content_hash``."""
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    fm[REVISED_KEY] = revision_record(fm)
+    held = [(t.speaker, _turn_key(t.text)) for t in draft.turns if (t.text or "").strip()]
+    at = 0
+    kept: list[evidence.TurnSpan] = []
+    for turn in relayed_tail(fm, parsed.body):
+        speaker = "assistant" if turn.marker in ("assistant", "ai") else "user"
+        words = _turn_key(parsed.body[turn.content_start:turn.end])
+        found = next((i for i in range(at, len(held)) if held[i] == (speaker, words)), None)
+        if found is None:
+            kept.append(turn)
+        else:
+            at = found + 1
+    old_stamps = {e.get("offset"): e for e in fm.get("turns") or [] if isinstance(e, dict)} \
+        if isinstance(fm.get("turns"), list) else {}
+    out = export_body
+    all_stamps = list(stamps)
+    for turn in kept:
+        out += "\n"
+        if (stamp := old_stamps.get(turn.start)) is not None and len(all_stamps) < MAX_TURN_STAMPS:
+            all_stamps.append({**stamp, "offset": len(out)})
+        out += parsed.body[turn.start:turn.end]
+    relay = {**(fm.get("relay") or {}), "imported_hash": digest, "upgraded_by": draft.source}
+    if kept:
+        relay["tail_at"] = len(export_body) + 1
+    else:
+        relay.pop("tail_at", None)
+    merged = content_hash(out)
+    fm["relay"] = relay
+    fm["title"] = _title(draft) or fm.get("title", "Untitled")
+    fm["content_hash"] = merged
+    fm["source_updated_at"] = draft.source_updated_at
+    _apply_common(fm, draft, all_stamps, export_body)
+    markdown_parser.write(path, fm, out)
+    return merged
 
 
 @_under_episode_lock
@@ -508,7 +673,7 @@ def _refresh(path: Path, draft: EpisodeDraft) -> None:
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
     fm.pop("source_deleted_at", None)
-    fm.update(draft.extra)
+    fm.update(_extra(draft))
     if draft.content_sha:
         fm["content_sha"] = draft.content_sha
     if draft.source_updated_at:
@@ -535,7 +700,7 @@ def _requeue_for_authorship(fm: dict, draft: EpisodeDraft) -> None:
         fm["processed"] = False
         # G114 R6: `processed_by` is written only beside `processed: true`.
         fm.pop("processed_by", None)
-    elif not draft.queue_for_sleep and not fm.get("processed"):
+    elif not draft.queue_for_sleep and not fm.get("processed") and not _read_owed(fm, draft):
         fm["processed"] = True
         fm["processed_by"] = draft.processed_by
 
@@ -556,12 +721,29 @@ def reattribute(path: Path, *, extra: dict, queue_for_sleep: bool) -> bool:
         parsed = markdown_parser.parse(path)
         fm = dict(parsed.frontmatter)
         before = dict(fm)
-        fm.update(extra)
+        fm.update(stored_meta(extra))
         _requeue_for_authorship(fm, EpisodeDraft(queue_for_sleep=queue_for_sleep))
         if fm == before:
             return False
         if "turns" in fm:
             fm["turns"] = fm.pop("turns")  # R-PB4: the sidecar stays the last key
+        markdown_parser.write(path, fm, parsed.body)
+        return True
+
+
+def drop_keys(path: Path, keys: tuple[str, ...]) -> bool:
+    """Frontmatter keys a writer's new record no longer holds — a staged update merges the draft's keys over the stored
+    ones, so a key the record dropped would otherwise outlive it (chats-ux-v2: a sitting re-recorded as the person's
+    own notes keeps no ``correspondent``). Body, hashes and the Sleep queue untouched. Returns whether the file
+    changed. Runs under ``STAGE_LOCK``."""
+    with STAGE_LOCK, episode_ids.episode_lock(Path(path).parent):
+        parsed = markdown_parser.parse(path)
+        fm = dict(parsed.frontmatter)
+        gone = [k for k in keys if k in fm]
+        if not gone:
+            return False
+        for k in gone:
+            fm.pop(k)
         markdown_parser.write(path, fm, parsed.body)
         return True
 
@@ -680,6 +862,28 @@ def _restamp(path: Path, draft: EpisodeDraft) -> None:
     markdown_parser.write(path, fm, parsed.body)
 
 
+#: ROR-15 (owner 2026-11-05): an Apple Note the person pinned in Notes. Sleep's Stage 1 says so in the note's source
+#: note and the model judges what it means; it is no signal of its own and no part of the note's words.
+PINNED_KEY = "pinned"
+
+
+@_under_episode_lock
+def set_pinned(path: Path, pinned: bool) -> bool:
+    """A pin changed in Notes: the one frontmatter key (`PINNED_KEY`), set or removed. The body, ``content_hash``,
+    ``processed``, ``revised`` and every span are untouched, because the words did not move — so a pin never re-queues
+    a note Sleep read, and a note Sleep has not read yet is read the same as before. Returns whether the file changed."""
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    if bool(fm.get(PINNED_KEY)) == pinned:
+        return False
+    if pinned:
+        fm[PINNED_KEY] = True
+    else:
+        fm.pop(PINNED_KEY, None)
+    markdown_parser.write(path, fm, parsed.body)
+    return True
+
+
 @_under_episode_lock
 def _set_extras(path: Path, extras: dict) -> None:
     """Same words, new extras (a reaction, an unsend, a reply's target): frontmatter only — the body, its hash, every
@@ -687,6 +891,16 @@ def _set_extras(path: Path, extras: dict) -> None:
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
     _apply_extras(fm, extras)
+    markdown_parser.write(path, fm, parsed.body)
+
+
+@_under_episode_lock
+def _set_meta(path: Path, values: dict) -> None:
+    """Same words, new writer-owned frontmatter (a provider's project grouping): the body, its hash, every span and
+    the queue are untouched."""
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    fm.update(stored_meta(values))
     markdown_parser.write(path, fm, parsed.body)
 
 
@@ -701,9 +915,9 @@ def _repoint(path: Path, draft: EpisodeDraft, old_sid: str) -> None:
     fm["source_id"] = draft.source_id
     fm["source_updated_at"] = draft.source_updated_at
     if draft.title:
-        fm["title"] = draft.title
+        fm["title"] = _title(draft)
     fm.pop("source_deleted_at", None)
-    fm.update(draft.extra)
+    fm.update(_extra(draft))
     _requeue_for_authorship(fm, draft)
     _apply_extras(fm, _extras_matching(draft, parsed.body))
     markdown_parser.write(path, fm, parsed.body)
@@ -727,6 +941,12 @@ def mark_removed(path: Path, at: str | None) -> bool:
             fm["turns"] = fm.pop("turns")  # R-PB4: the sidecar stays the last key
         markdown_parser.write(path, fm, parsed.body)
         return True
+
+
+def keep_turns_last(fm: dict) -> None:
+    """R-PB4: the sidecar stays the last key, for a writer that just added one (G235's record)."""
+    if "turns" in fm:
+        fm["turns"] = fm.pop("turns")
 
 
 @_under_episode_lock
@@ -803,6 +1023,10 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
     relays: dict[tuple[str, str], list[IndexEntry]] | None = None
     for draft in drafts:
         writer = draft.writer
+        # G235: the person took text out of this conversation; a source sending it again never brings it back.
+        known = index.get(draft.source_id) if draft.source_id else None
+        if known is not None and sensitive_flags.removed_kinds(known.fm):
+            draft = sensitive_flags.reapply_draft(draft, known.fm)
         body, stamps, n = render(draft)
         result.scrubbed += n
         digest = content_hash(body)
@@ -851,7 +1075,10 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                 _mark(result, "created", sid, entry, episodes_dir)
                 _report(progress, "created")
                 continue
-            same_body = entry.fm.get("content_hash") in (digest, legacy)
+            # Ruling 58: what an export is compared with is what an export wrote, never the later turns after it.
+            tail = has_relayed_tail(entry.fm)
+            same_body = entry.fm.get("content_hash") in (digest, legacy) or (
+                tail and entry.fm["relay"]["imported_hash"] in (digest, legacy))
             same_meta = (entry.fm.get("evidence_kind") == draft.extra.get("evidence_kind")
                          and not entry.fm.get("source_deleted_at"))
             redated = draft.redate and _moved(entry.fm.get("timestamp"), draft.timestamp)
@@ -865,7 +1092,25 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     entry.fm["content_sha"] = draft.content_sha
                     result.restamped += 1
                     result.paths.append(_rel(entry.path, episodes_dir))
-                extras = render_extras(draft, raw=entry.fm.get("content_hash") != digest)
+                title = _title(draft)
+                if title and entry.fm.get("title") and entry.fm.get("title") != title:
+                    # ROR-122: the source renamed it and no word moved: the new title shows; nothing is re-queued (the
+                    # title is outside the hash), and what the old one said stays in git.
+                    if write:
+                        _set_meta(entry.path, {"title": title})
+                    entry.fm["title"] = title
+                    if (rel := _rel(entry.path, episodes_dir)) not in result.paths:
+                        result.paths.append(rel)
+                grouping = stored_meta({PROVIDER_PROJECT_KEY: draft.extra.get(PROVIDER_PROJECT_KEY)})[
+                    PROVIDER_PROJECT_KEY]   # as stored, or a scrubbed name rewrites every sync
+                if grouping and entry.fm.get(PROVIDER_PROJECT_KEY) != grouping:
+                    # Ruling 45: the provider's project grouping arrived (or moved) and no word did: frontmatter only.
+                    if write:
+                        _set_meta(entry.path, {PROVIDER_PROJECT_KEY: grouping})
+                    entry.fm[PROVIDER_PROJECT_KEY] = grouping
+                    if (rel := _rel(entry.path, episodes_dir)) not in result.paths:
+                        result.paths.append(rel)
+                extras = render_extras(draft, raw=not tail and entry.fm.get("content_hash") != digest)
                 if extras != turn_extras.stored(entry.fm):
                     # A reaction, an unsend or a reply's target moved and no word did (turn_extras): frontmatter only.
                     if write:
@@ -882,10 +1127,13 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
             if same_body and write:
                 _refresh(entry.path, draft)
             elif not same_body:
-                if write:
+                merged = digest
+                if write and tail:
+                    merged = merge_relayed_tail(entry.path, draft, body, digest, stamps)
+                elif write:
                     update_in_place(entry.path, draft, body, digest, stamps)
                 known_hashes.add(digest)
-                entry.fm["content_hash"] = digest
+                entry.fm["content_hash"] = merged
             if redated:
                 if write:
                     _redate(entry.path, draft, stamps)

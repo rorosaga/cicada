@@ -64,7 +64,7 @@ def test_run_sets_queue_by_origin_from_the_capped_slice_and_ticks_read_by_origin
     (memory / "entities").mkdir(parents=True)
     (memory / "episodes").mkdir(parents=True)
     predicates.install_predicate_map(memory)
-    for i, origin in enumerate(["claude-code", "claude-code", "safari-tab", "telegram"], start=1):
+    for i, origin in enumerate(["claude-code", "claude-code", "imessage", "telegram"], start=1):
         markdown_parser.write(
             memory / "episodes" / f"ep_2026-09-01_{i:03d}.md",
             {"id": f"ep_2026-09-01_{i:03d}", "timestamp": f"2026-09-01T0{i}:00:00Z",
@@ -91,9 +91,9 @@ def test_run_sets_queue_by_origin_from_the_capped_slice_and_ticks_read_by_origin
     asyncio.run(sleep_cycle.run(settings, "cycle-origins"))
     state = sleep_cycle.get_sleep_state()
 
-    assert state.queue_by_origin == {"claude-code": 2, "safari-tab": 1}   # cap 3 of 4, oldest first
-    assert snapshots[-1] == {"claude-code": 2, "safari-tab": 1}
-    assert snapshots[0] in ({"claude-code": 1}, {"safari-tab": 1})
+    assert state.queue_by_origin == {"claude-code": 2, "imessage": 1}   # cap 3 of 4, oldest first
+    assert snapshots[-1] == {"claude-code": 2, "imessage": 1}
+    assert snapshots[0] in ({"claude-code": 1}, {"imessage": 1})
 
 
 def test_sleep_status_and_episodes_carry_the_new_fields(tmp_path, monkeypatch):

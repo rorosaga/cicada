@@ -41,7 +41,9 @@ from typing import Any, Callable
 from loguru import logger
 
 from api.services import agent_stream, engine_errors, engine_schemas, plan_limits
+from api.services.entity_relations import RELATIONS as _RELATIONS
 from api.services.auth import cicada_home
+from api.services.connections import install_hints
 from api.services.connections.base import CliResult
 
 #: ``runner(argv, *, stdin=None, timeout=None, cwd=None, env_overrides=None)
@@ -116,12 +118,16 @@ def system_prompt_for(system_prompt: str | None) -> str:
 #: field-stripping.
 #: Disambiguation answers one pair (``decision``) or, since 2026-10-20, several candidates in one call
 #: (``decisions``, `entity_resolver._llm_judge_batch`): both shapes are declared, neither required — the prompt asks
-#: for the one it needs and the parser reads a missing decision as ``unsure``.
+#: for the one it needs and the parser reads a missing decision as ``unsure``. ``related`` with its ``relation``
+#: (2026-10-29, `entity_relations`): two things, one a part, product, alternative or version of the other.
+_JUDGE_WORDS = ["same", "different", "unsure", "related"]
+_RELATION_WORDS = list(_RELATIONS)
 SCHEMA_BY_STAGE: dict[str, dict] = {
     "disambiguation": {
         "type": "object",
         "properties": {
-            "decision": {"type": "string", "enum": ["same", "different", "unsure"]},
+            "decision": {"type": "string", "enum": _JUDGE_WORDS},
+            "relation": {"type": "string", "enum": _RELATION_WORDS},
             "reason": {"type": "string"},
             "decisions": {
                 "type": "array",
@@ -129,7 +135,8 @@ SCHEMA_BY_STAGE: dict[str, dict] = {
                     "type": "object",
                     "properties": {
                         "entry": {"type": "integer"},
-                        "decision": {"type": "string", "enum": ["same", "different", "unsure"]},
+                        "decision": {"type": "string", "enum": _JUDGE_WORDS},
+                        "relation": {"type": "string", "enum": _RELATION_WORDS},
                         "reason": {"type": "string"},
                     },
                     "required": ["entry", "decision"],
@@ -267,7 +274,7 @@ def model_from_envelope(envelope: dict, requested_model: str) -> str:
             return key
     # Asked by a family alias ("sonnet"): the one key of that family answered it. 2026-10-19: a web lookup's search
     # side-call out-output the main turn and a sonnet lookup was recorded as the side-call's model.
-    if want in _FAMILY_ALIASES:
+    if want in _FAMILY_ALIASES or want.isalpha():   # any bare alias the harness accepts ("fable"), not only these
         family = [key for key, info in per_model.items()
                   if want in re.split(r"[^a-z]+", _bare_model((info or {}).get("canonicalModel") or key))]
         if len(family) == 1:
@@ -318,13 +325,18 @@ def response_shim(envelope: dict, requested_model: str) -> _D:
     # prose around it on a --json-schema call.
     structured = envelope.get("structured_output")
     content = json.dumps(structured, ensure_ascii=False) if structured is not None else envelope.get("result")
+    served = model_from_envelope(envelope, requested_model)
+    # Vision item 4: what an alias resolved to on this run, for the picker's catalogue (ids only, written on change).
+    from api.services import model_catalogue
+
+    model_catalogue.note_resolved("claude-cli", requested_model, served)
 
     return _wrap({
         "choices": [{
             "message": {"role": "assistant", "content": content or ""},
             "finish_reason": envelope.get("stop_reason"),
         }],
-        "model": model_from_envelope(envelope, requested_model),
+        "model": served,
         "usage": {
             "prompt_tokens": raw_input + cache_read + cache_write,
             "completion_tokens": output,
@@ -564,8 +576,7 @@ def parse_envelope(result: CliResult, stream: agent_stream.StreamResult | None =
     """
     if result.rc == 127:
         return _raise(engine_errors.EngineUnavailable(
-            "Claude Code is not installed — install it (npm i -g @anthropic-ai/claude-code) "
-            "and run `claude` once to sign in."
+            install_hints.CLAUDE_INSTALL_SENTENCE
         ))
     stream = stream if stream is not None else agent_stream.parse_stream(result.stdout)
     # No envelope/non-JSON transport failures used to look like a missing or
@@ -661,7 +672,8 @@ _BREAKER_RESETS: dict[str, int] = {}
 #: the opt-in continue-after-reset both need to tell a 5-hour window (back in
 #: hours) from a weekly one (back in days) and from extra usage. Enums only.
 _BREAKER_KIND: dict[str, str] = {}
-LIMIT_KINDS = ("five_hour", "seven_day", "overage", "unknown")
+#: ``key_limit`` (G237): a key's rate or spending limit, never the person's plan; nothing automatic arms on it.
+LIMIT_KINDS = ("five_hour", "seven_day", "overage", "key_limit", "unknown")
 
 
 def limit_kind_of(exc: BaseException | None = None, limit_type: str | None = None) -> str:
@@ -670,6 +682,8 @@ def limit_kind_of(exc: BaseException | None = None, limit_type: str | None = Non
     if isinstance(exc, engine_errors.EngineOverage):
         return "overage"
     lt = (limit_type or getattr(exc, "limit_type", None) or "").lower()
+    if lt == "key_limit":
+        return "key_limit"
     if lt == "five_hour":
         return "five_hour"
     if lt.startswith("seven_day") or lt in ("weekly", "week"):
@@ -876,6 +890,7 @@ def complete(
         # What the call searched for, so the caller can hold it to the pinned query (never logged).
         envelope["_tool_uses"] = [[name, dict(inp)] for name, inp in stream.tool_uses]
         envelope["_tool_results"] = list(stream.tool_results)
+        envelope["_search_results"] = list(stream.search_results)
     return envelope
 
 
@@ -888,8 +903,7 @@ def probe(*, runner: Runner | None = None, binary: str = "claude", timeout: floa
     result = run([binary, "auth", "status", "--json"], stdin=None, timeout=timeout, cwd=None)
     if result.rc == 127:
         return False, (
-            "Claude Code is not installed — install it (npm i -g @anthropic-ai/claude-code) "
-            "and run `claude` once to sign in."
+            install_hints.CLAUDE_INSTALL_SENTENCE
         )
     try:
         info = json.loads((result.stdout or "").strip() or "{}")

@@ -51,6 +51,7 @@ class ReserveGuard:
         self.windows: dict[str, dict] = {}
         self.reached: tuple[str, int | None] | None = None
         self.calls_seen = 0
+        self.sentence = SENTENCE
         self._lock = threading.Lock()
 
     # --- observations ------------------------------------------------------

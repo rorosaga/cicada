@@ -1,114 +1,39 @@
-# Cicada
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/cicada-mascot-dark.png">
+    <img src="docs/brand/cicada-mascot.png" alt="Cicada's bookworm" width="216" height="216" />
+  </picture>
+</p>
+
+<h1 align="center">Cicada</h1>
 
 <p align="center">
-  <strong>A memory system that turns a person's experience into something agents can read, extend, and reason over.</strong>
+  <strong>Memory for you and your agents: what you read, save, decide and talk about, kept as plain markdown you can read.</strong>
 </p>
 
 <p align="center">
-  <img alt="macOS" src="https://img.shields.io/badge/macOS-14%2B-black?style=flat-square&logo=apple" />
-  <img alt="SwiftUI" src="https://img.shields.io/badge/SwiftUI-Companion%20App-0D96F6?style=flat-square&logo=swift" />
-  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-Backend-009688?style=flat-square&logo=fastapi" />
-  <img alt="MCP" src="https://img.shields.io/badge/MCP-14%20tools-7C3AED?style=flat-square" />
-  <img alt="sqlite-vec" src="https://img.shields.io/badge/sqlite--vec-On--device%20index-F59E0B?style=flat-square" />
-  <img alt="Markdown + git" src="https://img.shields.io/badge/Markdown%20%2B%20git-Source%20of%20Truth-111827?style=flat-square&logo=markdown" />
+  <a href="https://github.com/rorosaga/cicada/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/rorosaga/cicada?style=flat-square" /></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/rorosaga/cicada?style=flat-square" /></a>
+  <img alt="macOS 14+, Apple silicon" src="https://img.shields.io/badge/macOS-14%2B%20·%20Apple%20silicon-black?style=flat-square&logo=apple" />
+  <img alt="Linux server supported" src="https://img.shields.io/badge/Linux-headless-informational?style=flat-square&logo=linux&logoColor=white" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/home.png" alt="Cicada's Home page on a demo bank" width="920" />
+  <a href="#install">Install</a> ·
+  <a href="#connect-your-agents">Connect an agent</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#measured">Benchmarks</a> ·
+  <a href="docs/architecture">Docs</a> ·
+  <a href="docs/goals/memory-evolution.md">Backlog</a> ·
+  <a href="https://github.com/rorosaga/cicada/releases">Releases</a> ·
+  <a href="https://github.com/rorosaga/cicada/issues">Issues</a>
 </p>
 
-Cicada captures what you read, save, decide and talk about, consolidates it overnight into a
-versioned knowledge graph of plain markdown files, and exposes that graph to any agent over MCP.
-Agents read it, write to it with provenance, and ask you when they are unsure. You keep a native
-macOS app to see exactly what they believe, why, and since when.
+<p align="center">
+  <img src="docs/screenshots/home.png" alt="Cicada's Home page, on a synthetic demo bank" width="920" />
+</p>
 
-It runs entirely on your machine. The memory bank is a folder of markdown and a git repo. There is
-no database and no cloud service; the only network calls are the ones you configure (a model API,
-your Claude subscription, or a local Ollama).
-
-## Why
-
-Two ideas frame the design.
-
-**The person's life is the environment.** Silver and Sutton's *Welcome to the Era of Experience*
-argues that the next agents will learn from streams of experience grounded in an environment,
-not from snippets of human text. Cicada's reading: a conversation is a snippet, a life is a
-stream, and Cicada is the instrument that turns the stream into something an agent can inhabit.
-Every capture channel is an observation. Every agent write with provenance is an action on a
-shared record. Every time you answer a question, keep or archive something, or overrule a belief,
-that is a reward signal from the environment, and Cicada records it as one.
-
-**Raw experience, a wiki, and skills are three different layers.** Tang et al.'s *WikiSkill*
-shows that separating raw experience from a persistent wiki from executable skills is what makes
-agent skills improve and transfer across models. Cicada already holds the first two: `episodes/`
-is the raw layer, and the entity-plus-claim graph, with its author and session trailers, is the
-wiki. Compiling what the graph knows about how you work into portable skills that load into any
-harness on any plan is the next layer.
-
-The consequence for the code: memory must be **legible to an agent without ceremony**. An agent
-should arrive, be told what Cicada is, read the graph, contribute with provenance, and leave the
-store better than it found it. Markdown, git, typed claims, and the MCP surface all exist for that.
-
-## How it works
-
-The architecture is biologically inspired.
-
-```mermaid
-flowchart LR
-  subgraph Awake["Awake — capture, no processing"]
-    A1[MCP clients]
-    A2[Telegram · bookmarks · RSS · calendars]
-    A3[Chat exports · saved-content connectors]
-    A1 & A2 & A3 --> E[(episodes/)]
-  end
-  subgraph Sleep["Sleep — nightly consolidation"]
-    S1[1 Extract] --> S2[2 Resolve] --> S3[3 Decay + conflicts] --> S4[4 Skills] --> S5[5 Questions + commit]
-  end
-  E --> S1
-  S5 --> G[(entities/ + claims\nmarkdown, wikilinks, git)]
-  S5 --> I[(inbox/\nquestions for you)]
-  G --> V[sqlite-vec index\nderived, disposable]
-  G & I & V --> M[Bookworm MCP\n14 tools]
-  G & I --> App[Companion app\ngraph · inbox · feed · sleep · activity]
-```
-
-- **Awake** is hippocampal encoding: everything is captured as a timestamped episode with no
-  model call at capture time. Capture is file I/O.
-- **Sleep** is cortical consolidation: a five-stage batch that extracts entities and typed
-  claims, resolves them against the existing graph, detects contradictions, distills recurring
-  patterns into skills, and writes questions to your inbox. Each cycle is one git commit whose
-  message names every file it touched, which episode caused it, and which model wrote it.
-- **Temporal decay** is synaptic homeostasis: absence of mention is itself a signal. Entities
-  you stop talking about lose confidence, get a "still relevant?" question, and eventually
-  archive. Mention them again and they come back.
-
-Beliefs live in a **claim layer** with bi-temporal validity, an observer, and a trust level, so an
-agent can reason over the record structurally instead of re-reading prose. Every commit carries
-`Cicada-Author:` (which model or `user`), `Cicada-Session:` (which conversation), and
-`Cicada-Engine:` trailers, so `git blame` on an entity page answers "who believed this, and why".
-
-## Screenshots
-
-All screenshots come from a synthetic demo bank. Nothing in them is real.
-
-Home (above) — what was captured today, what needs you, and what the last Sleep read.
-
-| Graph — every entity, clustered; pick one to see what Cicada knows and where it came from | Projects — a project's timeline: a green band that fills up to today, with every moment clickable |
-|---|---|
-| ![Graph](docs/screenshots/graph.png) | ![Projects](docs/screenshots/projects.png) |
-
-| Inbox — a question Sleep left for you, with the conversation it came from open beside it | Sleep — the study room, what's waiting, and the readout |
-|---|---|
-| ![Inbox](docs/screenshots/inbox.png) | ![Sleep](docs/screenshots/sleep.png) |
-
-Sources — where memory comes from, whether each source is live, and who wrote it:
-
-![Sources](docs/screenshots/sources.png)
-
-The app is the management layer, not the primary interface. The primary interface is whatever
-agent you already talk to.
-
-## Install the app
+## Install
 
 On an Apple silicon Mac with macOS 14 or later:
 
@@ -116,164 +41,241 @@ On an Apple silicon Mac with macOS 14 or later:
 curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash
 ```
 
-That installs the latest release into `~/Applications` and opens it. The app carries its own Python, git and a small
-on-device search model, so nothing else needs installing, and it keeps itself up to date. Downloading the zip from
-[Releases](https://github.com/rorosaga/cicada/releases) works too; until the app is notarized, macOS asks once
-(System Settings → Privacy & Security → Open Anyway). How releases are cut: [`docs/RELEASING.md`](docs/RELEASING.md).
+This installs the latest release into `~/Applications` and opens it. The app carries its own Python, git and a small
+search model, so nothing else is needed, and it updates itself.
 
-## Install on a server (Linux), or with Homebrew
+Cicada reads your conversations into memory with an engine you choose: a signed-in Claude Code or Codex plan, or an API
+key you add in Settings. If you have neither, the app shows the one line that installs one.
 
-A headless Cicada — the backend, Sleep, the `cicada` command and the MCP server, no app — on a Linux machine with
-systemd, as the user who will own the memory:
+**Not notarized yet.** The `curl` line above sets no quarantine flag, so macOS opens the app. If you download the zip
+from [Releases](https://github.com/rorosaga/cicada/releases) instead, macOS blocks it once: System Settings, Privacy &
+Security, then **Open Anyway**. Until the app is signed by Apple, macOS may ask again after an update for permissions you
+gave it (Full Disk Access, Contacts, Calendar). How releases are cut: [`docs/RELEASING.md`](docs/RELEASING.md).
+
+<details>
+<summary><strong>A server (Linux), Homebrew, or from source</strong></summary>
+
+**Linux with systemd, no app.** Run as the user who will own the memory. It needs `git`, `curl` and
+[uv](https://github.com/astral-sh/uv), and says which one is missing.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-server.sh | bash
 ```
 
-It needs `git`, `curl` and [uv](https://github.com/astral-sh/uv), and says exactly which one is missing. It installs
-the latest release into `~/.local/share/cicada`, the memory into `~/cicada/memory`, and a systemd user service bound to
-`127.0.0.1:8000`. Run the same line to update; `… | bash -s -- --uninstall` removes everything but the memory.
-`CICADA_REF=dev` installs a branch instead. Reaching it from your other machines, and giving each its own token:
-[`docs/architecture/headless.md`](docs/architecture/headless.md).
+The service binds to `127.0.0.1` only. Run the same line to update; add `-s -- --uninstall` after `bash` to remove
+everything but the memory. Reaching it from your other machines: [`docs/architecture/headless.md`](docs/architecture/headless.md).
 
-On a Mac (or Linux) with Homebrew — the same backend, CLI and MCP server, without the app:
+**Homebrew** (Mac or Linux): the backend, the `cicada` command and the MCP server, without the app.
 
 ```sh
 brew tap rorosaga/cicada https://github.com/rorosaga/cicada
 brew install rorosaga/cicada/cicada
-cicada-setup          # memory folder, search model, agent hooks, background service
+cicada-setup
 ```
 
-**Not live yet:** both lines arrive with the next release (`main` is still 0.3.1, which has neither file). To try them
-before that, from `dev`:
+**From source.** Needs Python 3.12, [uv](https://github.com/astral-sh/uv) and the Xcode command line tools.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/dev/scripts/install-server.sh | CICADA_REF=dev bash
-git clone -b dev https://github.com/rorosaga/cicada && brew tap rorosaga/cicada "$PWD/cicada" && brew install --HEAD rorosaga/cicada/cicada
+git clone https://github.com/rorosaga/cicada.git && cd cicada
+./install.sh     # venv, memory folder, MCP registration, background service
+make dev         # build the app, install it, launch
+make doctor      # health checks, any time
 ```
 
-## Quick start (from source)
+`install.sh` is idempotent. Read [`CLAUDE.md`](CLAUDE.md) before changing anything. Never `swift run` the app: it has no
+bundle, so its window never takes focus.
 
-Requirements: macOS 14+, Python 3.12, [uv](https://github.com/astral-sh/uv), Xcode command
-line tools. For consolidation you need one of: a Claude subscription with the `claude` CLI, a ChatGPT plan, a
-local [Ollama](https://ollama.com), or an API key for any provider litellm supports (read only when you choose it).
+</details>
 
-```sh
-git clone https://github.com/rorosaga/cicada.git
-cd cicada
-./install.sh          # venv, memory dir, api/.env, MCP registration, launchd backend
-make dev              # build the app, install to ~/Applications, launch
-```
+The first launch opens a short setup: who reads your memory, which agents you use, what to bring in. Or choose *Try the
+demo* to look around first. Settings, then General, then *Run setup again* brings it back.
 
-`install.sh` is idempotent and state-checks every step; re-run it whenever you want. It registers
-the backend as a `launchd` agent that starts on login, and registers the `cicada` MCP server with
-Claude Code. Check health any time with `make doctor`.
+## Connect your agents
 
-### Claude Code: the plugin
+Cicada is the memory; the chat is where you use it. Agents reach it over [MCP](https://modelcontextprotocol.io).
 
-Claude Code connects through the Cicada plugin: the memory tools, the `cicada` skill, and the hooks that save each
-session and add what Cicada remembers. In Claude Code:
+**Claude Code** has a plugin: the memory tools, the `cicada` skill, and hooks that save each session and add what
+Cicada remembers before you ask.
 
 ```
 /plugin install cicada --marketplace rorosaga/cicada
 ```
 
-(or `/plugin marketplace add rorosaga/cicada`, then `/plugin install cicada@cicada`). With the app installed, leave the
-plugin's settings empty. From a source checkout, set its `cicada_repo` setting to the checkout's folder, then re-run
-`./install.sh` once: with the plugin on it leaves Claude Code to the plugin and removes the entries it had registered,
-so nothing runs twice. `make doctor` says which one Claude Code is using.
+Leave the plugin's settings empty if the app is installed. From a source checkout, set `cicada_repo` to the checkout.
 
-First launch opens a four-step sheet — your name, a consolidation engine, one capture channel, and
-your first Sleep cycle — or "try a demo bank first" if you'd rather look around before wiring in
-your own life. Re-open it any time from Settings → General → "Run setup again".
+**Everything else** is on the app's Agents page (⌘9). Each row shows how that agent connects and gives you the setup
+text to paste into it. The catalogue today:
 
-`api/.env` is a source checkout's settings file. The backend reads it from its own folder, whatever directory it
-starts in, after a restart. A variable set in the backend's environment, such as its LaunchAgent plist, wins over the
-file. `GET /status` (its `settings` block) and the backend's startup log list which settings came from the file and
-which the environment replaced with another value; the app's Settings never shows them.
-
-The engine is Auto unless you choose another (Settings → Intelligence, or pin it in `api/.env`):
-
-```sh
-CICADA_LLM_MODE=auto    # the default: your Claude plan if connected, else your ChatGPT plan, else Ollama if
-                        #   running — never an API key by itself (with none of them, Sleep says it has no engine)
-                        # agent: your `claude` CLI on your subscription
-                        # codex: your ChatGPT plan
-                        # local: Ollama, offline, no key
-                        # byok:  an API key you chose — any litellm provider via *_API_KEY (OpenRouter included)
-```
-
-Scheduled runs use your plan too unless you turn that off (Settings → Sleep → *Scheduled runs may use my plan*).
-
-Day-to-day commands:
-
-| Command | What it does |
+| How it connects | Agents |
 |---|---|
-| `make dev` | Rebuild debug, reinstall over `~/Applications/Cicada.app`, relaunch |
-| `make install-app` | Release build, install without relaunch |
-| `make doctor` | Backend, MCP, and environment health checks (including whether search embeddings are failing) |
-| `make embedding-model` | Fetch the on-device search model the release app ships (~130 MB, once; `install.sh` runs it) |
-| `curl -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" localhost:8000/sleep/trigger` | Consolidate: read everything waiting, in batches, each one filed and committed (also the Consolidate button in the app). A bare POST is always a fresh run; `-H 'Content-Type: application/json' -d '{"continue": true}'` resumes a paused one |
-| `api/.venv/bin/python -m pytest api/tests -q` | Backend suite |
-| `cd app/CicadaApp && swift test` | App suite |
+| Hooks that save every turn, plus MCP | Claude Code, Codex, Cursor, Gemini CLI, T3 Code |
+| MCP on this Mac | Claude Desktop, OpenCode, Hermes, OpenClaw, Grok Build, GitHub Copilot, Zed, Devin, Warp, Amp |
+| Through the remote connector | claude.ai and ChatGPT, on the web and the phone |
 
-Never `swift run` the app: it produces a bundle-less executable whose window never becomes key,
-which silently breaks graph clicks and text-field focus.
+A hook is what saves a session, so capture never depends on a model remembering to call a tool. Apps with no hook relay
+their turns through one tool instead. The remote connector is off by default, serves only the memory tools on its own
+port, and goes through an address you open yourself: [`docs/connect-remote-apps.md`](docs/connect-remote-apps.md).
 
-## Talking to it
+## What it is
 
-Once registered, any MCP client sees 14 `cicada_*` tools. The ones you will meet first:
+Cicada captures what you read, save, decide and talk about, turns it overnight into a versioned graph of plain markdown
+files, and shares that graph with any agent you connect. Agents read it, write to it with provenance, and ask you when
+they are unsure. The app shows you what they believe, why, and since when.
 
-- `cicada_recall` / `cicada_recall_detail` — semantic plus structural search over the graph,
-  following wikilinks for depth.
-- `cicada_save_episode` / `cicada_save_url` — capture the current exchange or a link, with a
-  reason if you give one.
-- `cicada_write_claim` — write a typed belief with provenance.
-- `cicada_check_nudges` / `cicada_resolve_inbox` — surface an open question relevant to the
-  conversation and record your answer.
-- `cicada_ask` — a grounded answer over the graph with citations and a gap analysis.
+- **Plain files.** A memory is a folder of markdown with wikilinks, and a git repository. No database, no account.
+- **Provenance on every belief.** Each fact points at the words that support it, who recorded it (you or an agent),
+  and which conversation it came from. `git blame` on a page answers "who thought this, and why".
+- **You decide.** An agent proposes and you dispose. Questions arrive in an inbox you can ignore, and every automatic
+  change can be undone.
+- **Silence is a signal.** What you stop mentioning fades, gets a "still true?" question, and eventually archives.
+  Mention it again and it comes back.
 
-Capture also comes from a Telegram bot (`/save`, `/note`, `/remind`), Safari and Chrome
-bookmarks, RSS feeds, ICS calendars, ChatGPT and Claude exports, and direct connectors for
-Pinterest, Reddit, and X saved items. All of it lands in the same episode queue and goes through
-the same Sleep pipeline.
+<p align="center">
+  <img src="docs/screenshots/sources.png" alt="The Sources page: where memory comes from and whether each source is live" width="920" />
+</p>
 
-## Repository layout
+### What you can bring in
 
+Capture is file I/O with no model call. Your browser and Mac are read by the app and posted as bytes; nothing is
+fetched behind a login.
+
+- **Conversations.** Agent sessions through their hooks, claude.ai and ChatGPT through the connector, and exports from
+  AI providers. Meetings too: a folder of transcripts from a recorder such as Hex becomes one conversation each.
+- **Reading and saving.** Links, articles, papers, bookmarks (Chrome, Safari, Brave, Vivaldi, Comet, Dia), browser tab
+  groups, RSS, and saved lists from YouTube, X, Instagram, LinkedIn, Reddit, Pinterest, TikTok, Spotify and Goodreads.
+- **On your Mac.** Notes (never a locked one), Calendar, Contacts, Messages and WhatsApp for the chats you tick, Telegram
+  by a QR code, watched folders, voice memos, recordings and photos.
+- **Books.** Apple Books, Goodreads, or a scanned ISBN: one page per book, highlights word for word.
+- **Code.** Your GitHub repositories, as pages, linked to the projects you start.
+
+## How it works
+
+Cicada borrows from how a brain handles a day.
+
+```mermaid
+flowchart LR
+  subgraph Awake["Awake: capture, no model"]
+    A1[Agent hooks and MCP]
+    A2[Browsers, Mac apps, saved lists]
+    A3[Meetings and exports]
+    A1 & A2 & A3 --> E[(episodes/)]
+  end
+  subgraph Sleep["Sleep: consolidation"]
+    S1[1 Extract] --> S2[2 Resolve] --> S3[3 Conflicts and decay] --> S4[4 Patterns and skills] --> S5[5 Questions and commit]
+  end
+  E --> S1
+  S5 --> G[(entities/ and claims<br/>markdown, wikilinks, git)]
+  S5 --> I[(inbox/<br/>questions for you)]
+  G --> V[search index<br/>derived, disposable]
+  G & I & V --> M[MCP and CLI]
+  G & I --> App[Companion app]
 ```
-api/         FastAPI backend: routers, services (sleep cycle, claims, decay, connectors), tests
-app/         SwiftUI macOS companion app (d3-force graph in a WKWebView)
-mcp/         the Bookworm MCP server
-memory/      your runtime bank — gitignored, never committed here
-benchmarks/  thesis evaluation tooling
-docs/goals/  the backlog (memory-evolution.md) and the handoff (TODO.md)
-```
 
-`CLAUDE.md` is the engineering manual: architecture, schemas, rulings, and rails. Read it before
-changing anything. `docs/goals/memory-evolution.md` is the backlog, one numbered row per idea with
-its evidence, and `docs/goals/TODO.md` is the execution order plus a handoff written for an agent
-picking the project up cold.
+- **Awake** is fast, episodic capture. Every conversation, note or save is a timestamped episode in `episodes/`.
+- **Sleep** is slow consolidation, in five stages. It extracts entities and typed claims, resolves them against the
+  existing graph, finds contradictions, applies decay, distills recurring patterns into skills, and writes questions to
+  your inbox. Each run is a git commit that names the files it touched, the episode that caused it and the engine that
+  wrote it. It runs on your own plan or key, on a schedule or on a click.
+- **Decay** treats absence as information. A one-off fades by age; something you have talked about many times only fades
+  if live conversation goes quiet.
+- **The claim layer** holds beliefs as typed predicates with bi-temporal validity, an observer and a trust level, so an
+  agent can reason over the record without re-reading prose.
 
-## Status
+<p align="center">
+  <img src="docs/screenshots/sleep.png" alt="The Sleep page: what is waiting, and what the last run read" width="920" />
+</p>
 
-Cicada started as a BSc capstone thesis at IE University and is now a personal project with a
-larger goal: a port between a human's experience and the agents that will act on it. `dev` is
-where work happens, and PRs open against `dev`; `main` holds only releases — a release is a `dev` → `main` PR, and
-merging it publishes the GitHub Release.
+### Engines
 
-What works today: the full Awake/Sleep loop, the claim layer, decay classes, the unified inbox
-with Claude Code-style questions, a sync engine that keeps the app live over SSE, consumption
-tracking per model and plan, entity logos, repo links, and the capture channels listed above. What
-is next is in the backlog; the rows most worth reading are the ones tagged with the two papers
-above.
+Sleep reads conversations with an engine you choose. **Auto** is the default: your Claude plan, else your ChatGPT plan,
+else Cursor, else OpenCode, and it says in words which one runs. You can also pick a plan (Grok too) or an API key from
+any provider LiteLLM supports. A local model runs only if you choose one. Scheduled runs use a plan only while
+*Scheduled runs may use my plan* is on.
 
-## Privacy
+## Measured
 
-The bank is yours and stays on disk. This repository never contains bank content: test fixtures
-use placeholder names, screenshots come from a synthetic demo bank, and the backlog quotes the
-author's own ideas but never anyone else's data. If you find something that breaks that rule, open
-an issue.
+Cicada's retrieval is measured on two public benchmarks with the harness in [`benchmarks/public`](benchmarks/public).
+All figures below use one small model for both answers and grading, one run each, so a gap of a few questions is
+noise. Full tables, methods and the failures: [`docs/research/2026-11-06-memory-before-sleep.md`](docs/research/2026-11-06-memory-before-sleep.md).
+
+**LoCoMo**, 5 long conversations, 200 questions. Answered by `cicada_ask`.
+
+| | Right |
+|---|---|
+| Nothing read by Sleep yet | 138 of 200 |
+| After Sleep | 159 of 200 |
+| Whole conversation in the prompt (control) | 167 of 200 |
+| No memory | 7 of 200 |
+
+**LongMemEval_S**, 100 questions across every category, nothing slept: 80 right. With no memory 16 were right, and
+15 with another person's memory, almost all of them questions where the right answer is "I don't know".
+
+What this does not cover. LoCoMo banks hold 3 to 11 pages. The one larger test, 3,128 conversations, had only 33 pages.
+These are retrieval benchmarks, not a test of a real bank at its full size, and no figure compares Cicada with another
+product. The tool list's token cost, the languages tried (German, Arabic, Japanese, Chinese) and what was dropped are in the note.
+
+## Privacy and where your data lives
+
+- The memory is a folder on your disk, a git repository you can read, edit and delete. Nothing syncs anywhere unless you
+  set it up.
+- There is no Cicada cloud. The network is used for your engine's own calls, update checks (on by default, signed and
+  verified, switch off in Settings), and fetches you start or enable. Three switches control fetching.
+- Secrets live in `~/.cicada/secrets.env` (mode 0600) or the keychain, never in a memory or a log. Locked notes are never read. Numbers you give can be tokenized outside the memory. Text that looks like a secret is
+  held back from every engine and shown to you for review.
+- The backend binds to `127.0.0.1`. The remote connector, which lets claude.ai and ChatGPT reach your memory, is off until
+  you turn it on, uses revocable scoped tokens, and is the only other listener.
+- This repository never contains memory content. Test fixtures use placeholder names and every screenshot here comes from
+  a synthetic demo bank.
+
+The full list of rules is the "rails" section of [`CLAUDE.md`](CLAUDE.md).
+
+## Why
+
+Two papers frame the design.
+
+**The person's life is the environment.** Silver and Sutton's *Welcome to the Era of Experience* (2025) argues that the
+next agents will learn from streams of experience, not snippets of human text. A conversation is a snippet and a life is
+a stream. Cicada is the instrument that turns the stream into something an agent can inhabit: every capture is an
+observation, every agent write with provenance is an action on a shared record, and every answer you give to a question is
+a reward signal from the environment.
+
+**Raw experience, a wiki and skills are three layers.** Tang et al.'s *WikiSkill* (2026) shows that keeping them apart is
+what lets agent skills improve and transfer across models. Cicada holds the first two: `episodes/` is the raw layer and
+the entity-and-claim graph is the wiki. Compiling what the graph knows about how you work into portable skills is the
+third, and it is on the backlog.
+
+So memory has to be legible to an agent without ceremony. Markdown, git, typed claims and MCP all exist for that. Cicada
+started as a BSc capstone thesis at IE University and is now an open project with a larger goal: a port between a person's
+experience and the agents that will act on it.
+
+## Docs
+
+| Area | Read |
+|---|---|
+| Capture, the Sleep cycle, decay | [`capture-and-sleep.md`](docs/architecture/capture-and-sleep.md) |
+| Markdown and git storage, claims, sources, the telemetry rules | [`storage.md`](docs/architecture/storage.md) |
+| The MCP tools, recall, the CLI | [`mcp.md`](docs/architecture/mcp.md) |
+| The companion app | [`app.md`](docs/architecture/app.md) |
+| The HTTP API, the graph and inbox | [`api.md`](docs/architecture/api.md), [`features.md`](docs/architecture/features.md) |
+| Network gates, the remote connector | [`network.md`](docs/architecture/network.md) |
+| Running without the app | [`headless.md`](docs/architecture/headless.md) |
+| Claude.ai and ChatGPT | [`connect-remote-apps.md`](docs/connect-remote-apps.md) |
+| Releases, design rules, research | [`RELEASING.md`](docs/RELEASING.md), [`design`](docs/design/DESIGN_RULES.md), [`research`](docs/research) |
+| The backlog and the rulings | [`memory-evolution.md`](docs/goals/memory-evolution.md), [`TODO.md`](docs/goals/TODO.md) |
+
+## Contributing
+
+Cicada is built in the open and pull requests are welcome. Work happens on `dev`: open pull requests against `dev`, not
+`main`. A release is a pull request from `dev` to `main`, and merging it tags the version and publishes the release.
+
+Before proposing something, read the backlog in [`docs/goals/`](docs/goals/): one numbered row per idea with its evidence,
+and the rulings that are settled. [`CLAUDE.md`](CLAUDE.md) is the engineering manual, including the rails a change must
+not break. A change to an area updates that area's doc in the same pull request. Please keep anything personal out of the
+repository: no real names, titles, links or quoted conversations, in code, tests, docs or a PR body.
+
+To report a bug, use Help, then *Report a Problem…* in the app. It shows you the report before anything is sent.
+Otherwise [open an issue](https://github.com/rorosaga/cicada/issues).
 
 ## License
 
-See [LICENSE](LICENSE).
+[MIT](LICENSE), © 2026 Rodrigo Sagastegui.

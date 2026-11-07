@@ -14,6 +14,8 @@ import time
 from pathlib import Path
 
 import pytest
+
+import _bench
 from fastapi.testclient import TestClient
 
 from api import config, main
@@ -299,9 +301,9 @@ def test_recall_detail_answers_with_the_prose_first_and_every_claim_stays_reacha
     memory = _owner_bank(tmp_path)
     hub_pages.apply(memory, sleep_running=lambda: False)
     ids, _ = _record(memory)
-    started = time.perf_counter()
+    started, cpu = time.perf_counter(), time.process_time()
     first = str(mcp_tools.recall_detail(_ctx(memory), OWNER))
-    assert time.perf_counter() - started < 2.0
+    _bench.within(time.process_time() - cpu, time.perf_counter() - started, 2.0, "recall_detail")
     assert first.startswith("# Owner Example (the owner)") and "## Summary" in first
     assert "source_episodes:" not in first and len(first) <= mcp_tools.RECALL_DETAIL_BUDGET + 400
     assert f'cicada_recall_detail(entity_id="{OWNER}", start=1)' in first
@@ -334,10 +336,11 @@ def test_the_owner_card_opens_fast_and_never_reads_the_ledger(tmp_path, monkeypa
     real = claims_ledger.read_lines
     monkeypatch.setattr(claims_ledger, "read_lines", lambda p: opened.append(p) or real(p))
     client = _client(memory, monkeypatch)
-    started = time.perf_counter()
+    started, cpu = time.perf_counter(), time.process_time()
     response = client.get(f"/entities/{OWNER}")
-    elapsed = time.perf_counter() - started
-    assert response.status_code == 200 and elapsed < 1.5, elapsed
+    elapsed, cpu = time.perf_counter() - started, time.process_time() - cpu
+    assert response.status_code == 200
+    _bench.within(cpu, elapsed, 1.5, "owner card")
     data = response.json()
     assert data["rawOmitted"] and len(response.content) < 200_000   # a hub page: its frontmatter, Source reads /raw
     assert "## Summary" in data["markdownContent"] and opened == []

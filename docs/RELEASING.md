@@ -20,6 +20,8 @@ CI, the release PR check and `make release` all ask it — and any disagreement 
 1. **Check `dev` is ready.** Suites green (`api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider`,
    `cd app/CicadaApp && swift test`), and the last dry run green (below). Optional: `make release-app` builds the
    installable app on this Mac and smoke-tests it in a temp folder; it installs nothing.
+   Run `scripts/check-logo-upstream.py`: a line it prints is a mark to review by eye before it is replaced (the README in
+   `app/assets/logo-set/`).
 2. **Bump the version: `make release VERSION=x.y.z`.** It works in a temporary worktree — your checkout is never
    switched — and bumps `VERSION`, `api/pyproject.toml`, uv.lock's project line and the formula's tag on a `release/vx.y.z` branch off
    `origin/dev`, shows what it will push and asks, then pushes that branch and opens a PR to `dev` titled
@@ -138,8 +140,10 @@ itself each time it opens, so moving or updating the app never breaks them.
 **Updates.** A release app checks GitHub's latest release on launch and every six hours while Settings → General →
 *Install updates automatically* is on (the default). It downloads the new zip, verifies its sha256 and its Ed25519
 signature against the key built into the app, and installs it when you quit (or at once with *Restart to update*):
-the old copy goes to the Trash, the background service is restarted on the new copy. A failed install keeps the old
-app and says why. With the switch off, Cicada never checks on its own; Cicada → Check for Updates… still does.
+the old copy goes to the Trash, the background service is restarted on the new copy. While Sleep is reading, or the
+backend answers too slowly to say, a quit waits for the next quit and the button says what restarting now costs (at most
+the batch in progress, which is read again); a backend silent for two hours with no drain moving counts as hung and no
+longer holds an update. A failed install keeps the old app and says why. With the switch off, Cicada never checks on its own; Cicada → Check for Updates… still does.
 Developer builds never update themselves.
 
 **Search model.** A fresh install searches by meaning with the small model built into the app. Settings → Privacy & data →
@@ -147,12 +151,10 @@ Search model offers the larger one (EmbeddingGemma): about 2 GB, installed into 
 tester's own Hugging Face token (they accept the model's license there first). Each memory keeps the model it was
 built with.
 
-## Before the first release (owner)
+## Dry-run branch
 
-- `VERSION` already says 0.3.0 and nothing is tagged, so the first release needs no bump: `make release-pr`, then merge.
-- `main` trails `dev` but its own commits are old promotion merges, so the release PR merges cleanly.
-- The dry runs so far were pushed to `ci/release-dry-run`; that branch is deleted after use and recreated by the next
-  `git push -f origin HEAD:ci/release-dry-run`.
+The dry runs are pushed to `ci/release-dry-run`; that branch is deleted after use and recreated by the next
+`git push -f origin HEAD:ci/release-dry-run`.
 
 ## The update signing key
 
@@ -164,6 +166,35 @@ backup at `~/.cicada/release/update-signing-key.pem` (mode 0600); the public key
 To rotate it (only if it leaks): generate a new pair, `gh secret set CICADA_UPDATE_SIGNING_KEY <
 new-key.pem`, commit the new public key, and cut a release **signed with the old key** that carries the new public key
 — an installed app only trusts the key it was built with. Then the next release can be signed with the new key.
+
+## Where Report a problem sends (owner 2026-10-26)
+
+Help → Report a Problem… shows the person a redacted report and, in a release that carries a report address, one
+**Send** that copies it and opens a new email to that address. The address is a private email and never lives in this
+public repo: it is the repository **variable** `CICADA_REPORT_EMAIL`, which `release.yml` passes to `bundle.sh`, which
+stamps it into the app's Info.plist as `CicadaReportEmail`. Set or change it with:
+
+```sh
+gh variable set CICADA_REPORT_EMAIL --body "<the address>"
+```
+
+and it applies from the next release. Unset (and in every developer build) the app has no Send: the sheet offers Copy
+and Save and says "Send this to the person who gave you Cicada". There is no fallback to public GitHub issues.
+
+## Cicada's own Telegram app id (ruling 47a, owner 2026-10-28)
+
+Telegram identifies a client app by an `api_id` / `api_hash` pair. Cicada's pair is the owner's, made once at
+my.telegram.org → API development tools, and never lives in this public repo: `CICADA_TELEGRAM_API_ID` is a repository
+**variable** and `CICADA_TELEGRAM_API_HASH` a repository **secret**; `release.yml` passes both to `bundle.sh`, which
+writes them into the bundled backend as `api/data/telegram_app.json` (git-ignored). Set them with:
+
+```sh
+gh variable set CICADA_TELEGRAM_API_ID --body "<the api_id>"
+gh secret set CICADA_TELEGRAM_API_HASH --body "<the api_hash>"
+```
+
+Unset (and in every developer build) the Telegram row asks for the person's own pair from my.telegram.org, kept as
+`CICADA_TELEGRAM_API_ID` / `CICADA_TELEGRAM_API_HASH` in `~/.cicada/secrets.env` — which also wins over the release's.
 
 ## Keeping macOS permissions across updates
 

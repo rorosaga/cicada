@@ -10,7 +10,13 @@ import SwiftUI
 /// Surface: `commandBarFill` (`bgHover` in dark, `bgMenu` in light), `cornerRadius`, the resting
 /// ring, and the strong ring on hover. It is the chrome's one opaque surface; the toolbar's
 /// glass platter is hidden (R-DS16).
+///
+/// ROR-118 round 2 — on Home alone (`quiet`) the bar is the memory-bank selector and nothing else: Home's own field is the
+/// same palette body in the page, so a second "Search your memory" in the titlebar was two searches competing. ⌘K and the
+/// menu item still open the palette over Home; the bar's size and place do not change (the toolbar item is one view in
+/// both forms), and the tour's first stop draws the full bar when it points at it.
 struct CommandBar: View {
+    var quiet = false
     @Environment(AppRouter.self) private var router
     @Environment(BanksViewModel.self) private var banksVM
     @Environment(TourController.self) private var tour
@@ -19,7 +25,10 @@ struct CommandBar: View {
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingXS) {
+            if quiet { Spacer(minLength: 0) }
             BankSwitcher(banksVM: banksVM)
+            if quiet { Spacer(minLength: 0) }
+            if !quiet {
             Button { router.requestPalette() } label: {
                 HStack(spacing: CicadaTheme.spacingSM) {
                     Image(systemName: "magnifyingglass")
@@ -40,6 +49,7 @@ struct CommandBar: View {
             .buttonStyle(.cicadaPlain)
             .help(Copy.findInMemoryHelp)
             .accessibilityLabel("\(Copy.searchYourMemory), ⌘K")
+            }
         }
         // Hover through `.onContinuousHover`, never `.onHover`: on macOS 26 an `.onHover`
         // anywhere above the search Button made AppKit drop the whole principal toolbar item,
@@ -55,8 +65,11 @@ struct CommandBar: View {
         .padding(.leading, CicadaTheme.spacingXS)
         .padding(.trailing, CicadaTheme.scaled(6))
         .frame(width: CicadaTheme.scaled(ShellMetrics.commandBarWidth), height: CicadaTheme.scaled(ShellMetrics.commandBarHeight))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.commandBarFill))
-        .ringed(hovering ? .strong : .resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .background {
+            CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.commandBarFill)
+                .ringed(hovering ? .strong : .resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+                .opacity(quiet ? 0 : 1)
+        }
         // G152 — the tour's first stop: the bar lives in the titlebar, out of the scrim's reach, so it draws the
         // focus ring itself (DR-5's first use) while the coach mark sits under it.
         .overlay {

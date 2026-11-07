@@ -1,15 +1,19 @@
 import CoreGraphics
 import SwiftUI
 
-/// Onboarding v2 (G217, G92, ruling 36 D1/D6; 2026-10-22) — six steps, one verb each, a visible Skip on the working
-/// steps: Welcome · Intelligence · Agents · Sources · Meet your bookworm · Done. *See how* is a sheet over Sources,
+/// Onboarding v2 (G217, G92, ruling 36 D1/D6; 2026-10-22) — seven steps, one verb each, a visible Skip on the working
+/// steps: Welcome · Intelligence · Agents · Permissions · Sources · Saved lists · Meet your bookworm · Done.
+/// *Permissions* (owner 2026-11-03) asks for every macOS permission in one place, before the Sources it unlocks
+/// (`PermissionsStep`); a new stored name, so no saved step moves. *Saved lists* (owner
+/// 2026-10-26, ruling 39's dated line) asks once, pre-ticked, whether the person's own agent keeps their saved lists
+/// current; its answer is the consent (`SavedListsStep`). *See how* is a sheet over Sources,
 /// never a step. *Meet your bookworm* (owner 2026-10-23) explains the menu-bar worm's number before the worm appears:
 /// it comes after Sources, because what Sources brings in is what the number counts, and right before Done, so the
 /// worm lands in the menu bar as setup closes (`MenuBarIntro`).
 /// It replaced the seven-step flow (Import, Agents, Skills, Who reads, Keep it running); `init(stored:)` maps every
 /// name either flow could have stored, so a person who quit mid-way on any build resumes on the nearest step.
 enum OnboardingPage: Int, CaseIterable, Comparable {
-    case welcome, intelligence, agents, sources, menuBar, done
+    case welcome, intelligence, agents, permissions, sources, savedLists, menuBar, done
 
     static let stepCount = allCases.count
     static func < (a: OnboardingPage, b: OnboardingPage) -> Bool { a.rawValue < b.rawValue }
@@ -31,7 +35,9 @@ enum OnboardingPage: Int, CaseIterable, Comparable {
         case .welcome: "welcome"
         case .intelligence: "intelligence"
         case .agents: "agents"
+        case .permissions: "permissions"
         case .sources: "sources"
+        case .savedLists: "savedLists"
         case .menuBar: "menuBar"
         case .done: "done"
         }
@@ -45,7 +51,9 @@ enum OnboardingPage: Int, CaseIterable, Comparable {
         case "welcome": self = .welcome
         case "intelligence", "whoReads": self = .intelligence
         case "agents": self = .agents
+        case "permissions": self = .permissions
         case "sources", "import", "skills": self = .sources
+        case "savedLists": self = .savedLists
         case "menuBar": self = .menuBar
         case "done", "ready", "keepRunning": self = .done
         default: return nil
@@ -57,7 +65,7 @@ enum OnboardingPage: Int, CaseIterable, Comparable {
     var roomMood: BookwormState {
         switch self {
         case .welcome: .awake
-        case .intelligence, .sources: .reading
+        case .intelligence, .permissions, .sources, .savedLists: .reading
         case .agents, .done: .happy
         // No room on this step — the menu-bar worm itself is the picture; its mood is the illustration's.
         case .menuBar: .happy
@@ -82,13 +90,21 @@ enum OnboardingNav {
 
 /// R-OB1 — the frame's geometry (F-02's board: pane 540, column padding 64, topbar 52, foot 36 from the bottom).
 enum OnboardingLayout {
-    static let pane: CGFloat = 540
+    /// The pane is the room whole, floor to wall, edge to edge (ROR-118): 560 pt at 1x is 112 lattice columns at
+    /// 5 pt (`OnboardingRoomLayout`), so the room is never a strip floating in a wide ground.
+    static let pane: CGFloat = 560
+    /// The step's headline sits this far under the topbar on every step, and the foot on the same line at the bottom,
+    /// so nothing moves between steps (ROR-118 round 2).
+    static let stepTop: CGFloat = 44
     static let minColumn: CGFloat = 620
     static let minPane: CGFloat = 240
     static let columnPadding: CGFloat = 64
     static let topbarHeight: CGFloat = 52
-    static let footBottom: CGFloat = 36
+    /// The foot's band (ROR-118 round 3): a hairline over Back, Set up later, Skip and Continue, 88 pt tall, on the window's bottom edge.
+    static let footHeight: CGFloat = 88
     static let cardMaxWidth: CGFloat = 640
+    /// Welcome alone is wider (ROR-118): the room is its picture, 960 pt wide at 6 pt a cell, over a card of the same width.
+    static let welcomeMaxWidth: CGFloat = 960
     static let cardBottom: CGFloat = 48
     static let gutter: CGFloat = 16
     /// The Sources grid's tile: wide enough for its two-line consent caption at 1×, so a 532 pt column holds 3.
@@ -98,14 +114,16 @@ enum OnboardingLayout {
     static let sourceTileHeight: CGFloat = 128
 
     /// The room's pane gives way before the column does, and goes rather than become a sliver: it is art only
-    /// (DR-13), so losing it loses no word.
+    /// (DR-13), so losing it loses no word. Always a whole number of cells wide (`OnboardingRoomLayout`).
     static func paneWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {
-        guard w > 0, scale > 0 else { return 0 }
-        let width = min(pane * scale, w - minColumn * scale)
-        return width < minPane * scale ? 0 : width
+        OnboardingRoomLayout.paneWidth(windowWidth: w, scale: scale)
     }
 
     static func cardWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {
         max(0, min(cardMaxWidth * scale, w - 2 * gutter * scale))
+    }
+
+    static func welcomeWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {
+        max(0, min(welcomeMaxWidth * scale, w - 2 * gutter * scale))
     }
 }

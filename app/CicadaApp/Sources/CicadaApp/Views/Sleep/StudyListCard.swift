@@ -249,6 +249,7 @@ struct StudyListCard: View {
                     .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
             } else {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    columnHeads
                     ForEach(rows) { row in
                         rowView(row)
                         if expandedOrigins.contains(row.origin) {
@@ -263,6 +264,54 @@ struct StudyListCard: View {
                     }
                 }
             }
+        }
+    }
+
+    /// The two right-hand columns' widths, one place: a row, the heads and the list's last row (`SleepWaitingList`) share them.
+    static let ageColumn: CGFloat = 76
+    static let countColumn: CGFloat = 56
+
+    /// The right-hand block of a row: the age and the count are two fixed columns, so a name is never run into its age
+    /// and the counts line up down the list (the head says "Oldest", so a row says "4d", never "just now old").
+    private func rightBlock(_ row: StudyRow) -> some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            Text(row.oldestAge ?? "")
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .lineLimit(1)
+                .frame(width: CicadaTheme.scaled(Self.ageColumn), alignment: .trailing)
+            trailing(row)
+                .frame(minWidth: CicadaTheme.scaled(Self.countColumn), alignment: .trailing)
+        }
+    }
+
+    /// ROR-118 round 2 - the two columns named once, over the first row, in the columns' own widths.
+    private var columnHeads: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            Spacer(minLength: 0)
+            Text(Copy.SleepV5.columnOldest)
+                .frame(width: CicadaTheme.scaled(Self.ageColumn), alignment: .trailing)
+            Text(Copy.SleepV5.columnItems)
+                .frame(minWidth: CicadaTheme.scaled(Self.countColumn), alignment: .trailing)
+        }
+        .font(CicadaTheme.metaFont)
+        .foregroundStyle(CicadaTheme.textSecondary)
+        .padding(.horizontal, CicadaTheme.scaled(10))
+        .padding(.bottom, CicadaTheme.spacingXS)
+        .accessibilityHidden(true)
+    }
+
+    /// One mark footprint down the list (ROR-118 round 2): an app's own icon, or the SF stand-in inside a quiet tile
+    /// of the same size, so the column never mixes a glyph with an icon.
+    @ViewBuilder
+    private func mark(_ origin: String) -> some View {
+        let size = CicadaTheme.scaled(22)
+        if OriginMark.hasRealMark(origin) {
+            OriginMark(origin: origin, size: size)
+        } else {
+            OriginMark(origin: origin, size: size * 0.64)
+                .frame(width: size, height: size)
+                .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBadge))
         }
     }
 
@@ -281,7 +330,7 @@ struct StudyListCard: View {
             HStack(spacing: CicadaTheme.spacingSM) {
                 DisclosureChevron(isOpen: expandedOrigins.contains(row.origin))
 
-                OriginMark(origin: row.origin, size: CicadaTheme.scaled(14))
+                mark(row.origin)
 
                 Text(row.label)
                     .font(CicadaTheme.rowFont)
@@ -292,23 +341,17 @@ struct StudyListCard: View {
                     // chat on hover; the row's own click still discloses its episodes.
                     MessageBubbleStack(size: 18, interactive: false)
                 }
-                if let age = row.oldestAge {
-                    Text("oldest \(age)")
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .lineLimit(1)
-                }
+                Spacer(minLength: CicadaTheme.spacingMD)
 
-                Spacer()
-
-                trailing(row)
+                rightBlock(row)
             }
             .padding(.horizontal, CicadaTheme.scaled(10))
-            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 12))
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .rowHoverFill(hovering: room?.hoveredOrigin == row.origin)
+        // The stronger of the two fills: `bgHover` was barely visible on this ground.
+        .rowHoverFill(hovering: false, selected: room?.hoveredOrigin == row.origin)
         .onHover { inside in room?.hover(origin: row.origin, inside: inside) }
         .help(chatsLine(row) ?? "")
         .accessibilityLabel([Self.rowAccessibilityLabel(row), chatsLine(row)].compactMap { $0 }.joined(separator: ", "))
@@ -367,7 +410,7 @@ struct StudyListCard: View {
 
     private func countText(_ value: String) -> some View {
         Text(value)
-            .font(CicadaTheme.metaFont)
+            .font(CicadaTheme.bodyFont)
             .monospacedDigit()
             .foregroundStyle(CicadaTheme.textSecondary)
     }
