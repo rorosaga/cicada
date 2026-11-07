@@ -112,7 +112,6 @@ text to paste into it. The catalogue today:
 A hook is what saves a session, so capture never depends on a model remembering to call a tool. Apps with no hook relay
 their turns through one tool instead. The remote connector is off by default, serves only the memory tools on its own
 port, and goes through an address you open yourself: [`docs/connect-remote-apps.md`](docs/connect-remote-apps.md).
-Anything that speaks MCP works, as does a plain HTTP API for agents that don't.
 
 ## What it is
 
@@ -146,8 +145,6 @@ fetched behind a login.
 - **Books.** Apple Books, Goodreads, or a scanned ISBN: one page per book, highlights word for word.
 - **Code.** Your GitHub repositories, as pages, linked to the projects you start.
 
-Everything lands in the same queue and goes through the same Sleep.
-
 ## How it works
 
 Cicada borrows from how a brain handles a day.
@@ -180,8 +177,6 @@ flowchart LR
   if live conversation goes quiet.
 - **The claim layer** holds beliefs as typed predicates with bi-temporal validity, an observer and a trust level, so an
   agent can reason over the record without re-reading prose.
-
-Every commit carries `Cicada-Author:`, `Cicada-Session:` and `Cicada-Engine:` trailers.
 
 <p align="center">
   <img src="docs/screenshots/sleep.png" alt="The Sleep page: what is waiting, and what the last run read" width="920" />
@@ -249,10 +244,6 @@ third, and it is on the backlog.
 So memory has to be legible to an agent without ceremony. Markdown, git, typed claims and MCP all exist for that. Cicada
 started as a BSc capstone thesis at IE University and is now an open project with a larger goal: a port between a person's
 experience and the agents that will act on it.
-
-<p align="center">
-  <img src="docs/screenshots/page.png" alt="An entity page: the article, with each belief cited" width="920" />
-</p>
 
 ## Docs
 
