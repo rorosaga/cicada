@@ -4033,4 +4033,13 @@ by relevance (`search_service._page`'s sort key and the per-kind cut's archived 
 confidence should weigh in is a question for G148's benchmark pass to measure before anything
 changes.
 
+**A feed item is an episode and an index row, never a page** (ruling 62, owner 2026-11-04; confirmed 2026-11-07).
+`media_ingestor.write_prepared` writes, for an `origin: rss` item with no note, reason or agent behind it
+(`is_pageless`), only the episode (`media_entity_id` empty, `processed_by: index`) and its `url_index` row (empty
+`media_entity_id`, the poll's `feed` stamp still lands on it). Its Sources row is the episode's (`channel_items._feed_episode_rows`,
+filed under its feed by the stamp, opening in the Reader like a watched day); the overview counts and splits it
+(`pageless_feed_episodes`). A page an older poll made lists as before. A save that arrives with a reason or note for the
+same link makes its page (`existing_hash` treats a page-less row as no page); a bare re-save stays a duplicate. Only feed
+items: a bookmark, tab group or saved link keeps its media page.
+
 ---

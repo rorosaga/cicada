@@ -368,12 +368,14 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
 
     chats: dict[str, dict[str, tuple[float, str]]] = {}
     substack_pages = channel_items.substack_feed_pages(memory_path)
+    pageless_feed = channel_items.pageless_feed_episodes(memory_path)
     for f in bank_index.files(memory_path, "episodes"):
         fm = f.frontmatter
         key = row_key(fm)
         if key is None:
             continue
-        if key == "rss" and str(fm.get("media_entity_id") or "") in substack_pages:
+        if key == "rss" and (str(fm.get("media_entity_id") or "") in substack_pages
+                             or pageless_feed.get(str(fm.get("id") or f.stem)) == channel_items.SUBSTACK_FEEDS):
             key = channel_items.SUBSTACK_FEEDS
         episode_key[str(fm.get("id") or f.stem)] = key
         state = states.setdefault(key, _new_state(key, labels))
