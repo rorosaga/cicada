@@ -119,7 +119,26 @@ LongMemEval_S, nothing slept, haiku, real `claude -p`, 6 tools, one run. Tokens 
 | The bank as files, the earlier 20 (before #705) | 15 | 29,079 / 8,753 | 38,772 / 11,670 | 4.9 |
 | No memory, the earlier 20 | 3 (2 abstention) | 1,119 / 1,046 | 7,457 / 6,970 | |
 
-On the 61, only tools got 3 right and only files 7 (p = .34), so answers don't separate them. Multi-session is 3 v 5 of 13, temporal 9 v 11 of 13. Files take more turns and more cached reads and fewer fresh tokens: cached reads are cheap, so which costs less depends on the client's pricing. **So, on a bank nothing has slept on, tools don't beat plain files on answers.** A slept bank, which is what a person really has, isn't measured in this loop: the next thing to run.
+On the 61, only tools got 3 right and only files 7 (p = .34), so answers don't separate them. Multi-session is 3 v 5 of 13, temporal 9 v 11 of 13. Files take more turns and more cached reads and fewer fresh tokens: cached reads are cheap, so which costs less depends on the client's pricing. **So, on a bank nothing has slept on, tools don't beat plain files on answers.** 
+
+**Slept, and at size.** The same 50 LoCoMo questions, haiku, one run. Slept per conversation, the banks are tiny (3 to 11 pages, 220 to 400 KB). "Large" merges those 5 banks and adds 3,000 public LongMemEval conversations marked as read: 3,128 conversations, 39 MB, 33 pages, 24,873 passages embedded in 12 minutes on 4 cores.
+
+| Agent holds | Bank | Right of 50 | Per question | Per right answer | Turns |
+|---|---|---|---|---|---|
+| Cicada's tools | Tiny | 36 | 25,544 / 17,392 | 35,479 / 24,156 | 2.8 |
+| Cicada's tools | Large | 36 | 26,881 / 18,316 | 37,335 / 25,440 | 2.9 |
+| The bank as files | Tiny | 42 | 34,026 / 16,422 | 40,507 / 19,550 | 5.0 |
+| The bank as files | Large | 40 | 61,104 / 24,038 | 76,380 / 30,048 | 6.4 |
+
+- **Tiny bank:** files beat tools on answers, only files 6, only tools 0 (p = .031). A few reads there come close to the full history, which scores 83.5 on all 200.
+- **Large bank:** only files 6, only tools 2 (p = .29). **Tools hold, answers flat and tokens up 5%. Files keep most of their answers but their tokens with cached reads nearly double,** and fresh ones rise by half. This is the first answer-quality measure Cicada has at anything like a real size.
+- **What files still win on is reading a page whole,** for lists and small details. Ask's slept misses, by no model, of the 38 whose reference has content words: 14 already had them on the prompt, 17 on no page, 7 on a page but not on the prompt.
+- **Limits:** 33 pages against thousands in a real bank; the names asked about are rare among the added conversations; noise between two runs of the same setup was 10 flips of 61. So 3,000 conversations is not yet a full-scale test: page-heavy banks aren't covered.
+
+Tried and dropped, both on reading more of a page:
+
+- When Ask states a gap, its reply names the pages to read whole. 36 → 38 of 50 slept (4 gained, 2 lost). It showed on 49 of 50, since nearly every answer states a gap, so it can't discriminate.
+- Ask reads more of each page (claims 3,000 → 5,000 characters, prose 4,800 → 8,000): slept LoCoMo 159 → 161 of 200 (7 gained, 5 lost), tokens per right answer 12,862 → 14,623. Multi-hop 56 → 58, temporal 88 → 85. Still 7 misses with the words on a page but not on the prompt.
 
 The agent called Ask first on most questions (57 calls on 61), then often went on (44 recall, 38 sources). On the earlier 20, Ask's reply judged alone is 12 right; the final answer 14, with 3 gained and 1 lost. That's too few to call the extra turns wasted, though they cost: 9,218 / 2,846 per question with one tool call, 25,315 / 10,441 with three or more.
 
