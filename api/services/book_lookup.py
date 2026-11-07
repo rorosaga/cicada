@@ -483,6 +483,7 @@ def title_key(title, authors) -> str | None:
 
     from api.services import books
 
+    title, authors = books.lookup_names(title, authors)
     t = books.norm_words(title)
     a = "|".join(sorted(books.author_set(authors)))
     if not t or not a:
@@ -495,6 +496,7 @@ def confident_match(data, title, authors) -> dict:
     from api.services import books
 
     docs = data.get("docs") if isinstance(data, dict) else None
+    title, authors = books.lookup_names(title, authors)
     forms = books.title_forms(title)
     want = books.author_set(authors)
     works: dict[str, list[str]] = {}
@@ -508,7 +510,7 @@ def confident_match(data, title, authors) -> dict:
             continue
         got = books.title_forms(doc.get("title"), doc.get("subtitle"))
         have = books.author_set(doc.get("author_name"))
-        if not (forms & got) or not want or not want <= have:
+        if not (forms & got) or not (want & have):
             continue
         isbns = sorted({i for i in (books.isbn13(x) for x in doc.get("isbn") or []) if i})
         works.setdefault(m.group(1), []).extend(isbns)
@@ -536,12 +538,15 @@ async def match_title(title, authors, *, fetch: FetchFn | None = None, pacer: _P
     miss, or None when the service did not answer. Never called without the person having added the book."""
     from urllib.parse import quote
 
+    from api.services import books
+
     key = title_key(title, authors)
     if key is None:
         return {"found": False, "why": "no_author"}
     fetch = fetch or default_fetch
     pacer = pacer or _shared_pacer()
-    first = _clean(authors[0] if authors else "")
+    title, names = books.lookup_names(title, authors)
+    first = _clean(names[0] if names else "")
     url = (f"{OPEN_LIBRARY}/search.json?title={quote(_clean(title)[:200])}&author={quote(first[:120])}"
            f"&fields={SEARCH_FIELDS}&limit={SEARCH_LIMIT}")
     resp = await _get(fetch, pacer, url)
