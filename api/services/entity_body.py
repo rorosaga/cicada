@@ -349,7 +349,9 @@ def _link_url(line: str) -> str:
     return m.group(1).strip() if m else _normalize_fact(line)
 
 
-def _link_bullet(link: dict) -> str:
+def _link_bullet(link: dict | str) -> str:
+    if isinstance(link, str):  # `sections_to_fields` hands a page's own Links over as its bullet lines
+        return link.strip() if _URL_IN_LINK.search(link) else ""
     url = str(link.get("url", "")).strip()
     if not url:
         return ""
@@ -361,7 +363,7 @@ def _link_bullet(link: dict) -> str:
     return bullet
 
 
-def _merge_links(existing: str, new_links: list[dict]) -> str:
+def _merge_links(existing: str, new_links: list[dict | str]) -> str:
     """Union of link bullets, deduped by URL."""
     items = _bullet_lines(existing)
     seen = {_link_url(it) for it in items}
