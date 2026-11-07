@@ -1631,8 +1631,9 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
      turns) matches words. `ask_sources.question_language` (no model) reads a Spanish question: Spanish function words outnumber English ones,
      an article or "de"/"y" next to a capitalised word counting for neither ("Juan de la Torre", "Los Olivos"), and a
      question opening with an English question word or auxiliary without "¿" is English;
-     `by_meaning` is then true — never for an English question whose words the record lacks, which is how an
-     abstention looks (the first cut turned "what is the name of my hamster?" into a lookup). The meaning leg **leads** only when the words can't (review of #385:
+     `by_meaning` is then true — never, on recall, for an English question whose words the record lacks, which is how an
+     abstention looks (the first cut turned "what is the name of my hamster?" into a lookup; for Ask see "The meaning leg fills the
+     prompt's room" below). The meaning leg **leads** only when the words can't (review of #385:
      the owner's Spanish questions over his own Spanish conversations fell 50 → 43 % when it always led): no word of
      the question is weighed, or most of the `LANGUAGE_PASSAGES` = 3 nearest passages are in another language
      (`text_language`, function words). Over conversations in the question's own language the words lead exactly as
@@ -2225,6 +2226,29 @@ fixed part alone is over: past the one-liners it gives up a project's next and b
 last the projects from the list's end, counted in one line, the first never (R10). Those last steps answer only to the 1,800, never to
 a SessionStart reserve: `compose_note` settles that note whole, so a pointer riding along never costs a project or an agreement. What it stores and how a person turns it
 off: `capture-and-sleep.md`, "The Claude desktop app, on its local connection".
+
+## The meaning leg fills the prompt's room (G148, 2026-11-07)
+
+Ask searches by meaning for every question in any language (`search(any_language=True)`); only its own call does. The words still
+lead. The meaning leg's lines fill what the prompt has left: `ASK_WINDOW_CHARS` less the pages and the words already on it, at most
+3,000 characters, a line for each 500 (`_meaning_budget`). A prompt with no room adds nothing to an English question, so a memory Sleep
+has read barely changes; another language keeps its 2 lines. An English question with no word the record uses now goes by meaning too,
+where it used to find nothing; the prompt says a line counts only when it means what the question asks. Recall stays on the words: in
+its small budget these lines lost 128 → 114 of 200 on slept LoCoMo and 107 → 100 unslept. It costs Ask about 100 ms for the embedding.
+
+Ask, haiku, right answers and tokens per right answer, dev → this:
+
+| Set | Right | Tokens per right answer |
+|---|---|---|
+| LoCoMo unslept, 200 | 123 → 138 (p = .004) | 7,695 → 8,527 |
+| LoCoMo slept, 200 | 159 → 159 | 12,539 → 12,862 |
+| LongMemEval_S unslept, 100 | 77 → 76 | 9,798 → 10,359 |
+| The wrong person's memory, 100 | 15 → 15 | |
+| One conversation translated, 160: German, Arabic, Japanese, Chinese | 94 → 95 | 10,437 → 11,042 |
+
+Unslept multi-hop gained most (34 → 41 of 76). It's a reach problem: before this, 16 of 17 were right with every answer turn on the
+prompt, 4 of 22 with none. LongMemEval_S abstention held at 13 of 14. The gain is in English, since other languages already had a few
+such lines.
 
 ## Recording tools join the list when they're needed (G148, owner 2026-11-06)
 
