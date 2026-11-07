@@ -156,7 +156,7 @@ Before #730 the list was 103,111 characters; #730 cut prose to 73,956 with the s
 | Cursor, OpenCode | Handlers seen, refresh untested | Bundle, source | 0: they keep the whole list |
 | Codex 0.165, Claude desktop | No | Source, bundle | 0: they keep the whole list |
 
-**What a whole list costs when a client loads it:** with `claude -p --tools ""` there's no tool search, so schemas load in full. 50 tools against 6, the same 20 questions: cached reads per turn about 13,500 v 3,000, so about 10,500 tokens a turn for about 48k characters, 4.6 characters a token. The 21,789 characters held back are then about 4,700 tokens a turn. One run. The 50-tool run also scored 16 of 20, which at this size says nothing.
+**What a whole list costs when a client loads it:** with `claude -p --tools ""` there's no tool search, so schemas load in full. 50 tools against 6, the same 20 questions: cached reads per turn about 13,500 v 3,000, so about 10,500 tokens a turn for about 48k characters, 4.6 characters a token. The 21,789 characters held back are then about 4,700 tokens a turn. One run. The token figures don't rest on Ask, whose failure in that harness is corrected above; the 50-tool run's 16 of 20 says nothing about answers.
 
 ## Tried and dropped
 
