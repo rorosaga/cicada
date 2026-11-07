@@ -117,6 +117,11 @@ RULES: dict[str, str] = {
     "owner_unsaid": "Nothing you said names you that: it is not a question about you",
     "no_pair_evidence": "No conversation names the two together",
     "not_started": "It is not one of your projects",
+    "same_value": "The same value, said two ways",
+    "moved_on": "It moved: the latest is current, the earlier ones are kept as past",
+    "own_bookkeeping": "About Cicada's own counters, which Cicada already knows",
+    "already_described": "Sleep already read what it is; nothing was changed",
+    "not_fading": "It is not fading any more; nothing was changed",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
 RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
@@ -124,7 +129,8 @@ RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
                          "multi_valued", "in_passing", "newest_words", "own_settings", "named_account",
-                         "owner_unsaid", "no_pair_evidence", "not_started"})
+                         "owner_unsaid", "no_pair_evidence", "not_started", "same_value", "moved_on",
+                         "own_bookkeeping", "already_described", "not_fading"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
 MAX_REASON_CHARS = 160
@@ -425,6 +431,13 @@ def _shipped_fold(raw: str, canonical: str) -> bool:
                               for k, v in synonyms.items() if isinstance(synonyms, dict))
 
 
+def _confidence(fm: dict) -> float:
+    try:
+        return float(fm.get("confidence"))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _decay_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
     from api.services import decay_policy
     from api.services.claims import MalformedClaimsBlockError, parse_claims
@@ -433,6 +446,13 @@ def _decay_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | N
     if page is None:
         return None, "judgement"
     _path, pfm, body = page
+    from api.services.age_recompute import NUDGE_THRESHOLD
+
+    if str(pfm.get("status") or "") == "active" and _confidence(pfm) >= NUDGE_THRESHOLD:
+        # The question asks whether something fading still matters; a later mention already lifted it back over the
+        # line a decay question needs. Retired, no claim and no confidence touched: it raises again if it fades again.
+        return Decision(item_id, "decay", "not_fading", None, answer="Not fading any more",
+                        guard=_guard(memory_path, _path.stem)), ""
     if _type_of(pfm) not in ONE_OFF_TYPES or _is_owner_page(pfm):
         return None, "judgement"   # the person's projects, skills, people and places stay theirs
     cls, _rate = decay_policy.resolve(pfm)
@@ -532,11 +552,17 @@ def _conflict_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision 
     page = _page(memory_path, str(fm.get("entity_id") or ""))
     if page is None:
         return None, "judgement"
+    if (moved := _moved_rule(memory_path, item_id, fm, predicate, page)) is not None:
+        return moved, ""
     if predicates.cardinality(memory_path, predicate) == "multi":
         # G98: a set, not a contradiction — Stage 3 already kept every value open; the question asks for a winner
         # that does not exist. The resolver's own "informational" dismiss closes nothing.
         return Decision(item_id, "conflict", "multi_valued", {"action": "dismiss"}, answer="Kept every value",
                         guard=_guard(memory_path, page[0].stem)), ""
+    if predicate.startswith("value-of-"):
+        decided = _value_rule(memory_path, item_id, fm, predicate, page)
+        if decided is not None:
+            return decided, ""
     if _is_owner_page(page[1]) or (_type_of(page[1]) == "person"
                                    and predicate in ("is-a", "type", "kind", "name", "description")):
         return None, "person"
@@ -580,6 +606,100 @@ def _conflict_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision 
                     answer=str(newest[0].get("label") or ""), guard=_guard(memory_path, page[0].stem)), ""
 
 
+def _value_rule(memory_path: Path, item_id: str, fm: dict, predicate: str, page) -> Decision | None:
+    """A value conflict that is not a contradiction: the same value said two ways (question audit A8). Closes no value
+    it has not already said again; keeps the fuller wording, or the page's own when it rests on the person's words.
+    Two values from one conversation are NOT assumed compatible (a conversation can change its mind): they stay a
+    question."""
+    from api.services import value_words
+    from api.services.claims import MalformedClaimsBlockError, parse_claims
+
+    try:
+        claims = {c.id: c for c in parse_claims(page[2], strict=True)}
+    except MalformedClaimsBlockError:
+        return None
+    options = [o for o in inbox_questions.normalize_options(fm.get("options"))
+               if str(o.get("key")) not in _GENERIC_KEYS and str(o.get("label") or "").strip()]
+    if len(options) < 2:
+        return None
+    on_page = {str(o.get("key")): claims.get(str(o.get("claim_id") or "")) for o in options}
+    if any(c is not None and c.valid_to is not None for c in on_page.values()):
+        return None
+    labels = [str(o["label"]) for o in options]
+    if not value_words.same_value(labels):
+        return None
+    mine = next((o for o in options if on_page[str(o["key"])] is not None
+                 and persons_words(on_page[str(o["key"])])), None)
+    kept = mine or max(options, key=lambda o: (len(value_words.fold(o["label"])), on_page[str(o["key"])] is not None))
+    return Decision(item_id, "conflict", "same_value", {"action": "resolve", "option_key": str(kept["key"])},
+                    answer=str(kept["label"]), guard=_guard(memory_path, page[0].stem))
+
+
+#: Predicates whose value moves: a part belongs to a new whole when the project moves (question audit A10, owner
+#: 2026-11-06 "the latest stays current, older ones close"). Every other multi-valued predicate keeps every value.
+MOVES = frozenset({"part-of"})
+
+
+def _moved_rule(memory_path: Path, item_id: str, fm: dict, predicate: str, page) -> Decision | None:
+    """Values said on different days for a predicate that moves: the one said last stays current, the earlier ones are
+    written closed (the resolver's pick keeps what only the question held). Values said the same day are a set."""
+    if predicate not in MOVES:
+        return None
+    options = [o for o in inbox_questions.normalize_options(fm.get("options"))
+               if str(o.get("key")) not in _GENERIC_KEYS and str(o.get("label") or "").strip()]
+    if len(options) < 2:
+        return None
+    dated = []
+    for o in options:
+        try:
+            dated.append((date.fromisoformat(str(o.get("observed_at") or "")[:10]), o))
+        except ValueError:
+            return None
+    dated.sort(key=lambda row: row[0])
+    if dated[-1][0] == dated[-2][0]:
+        return None
+    latest = dated[-1][1]
+    return Decision(item_id, "conflict", "moved_on", {"action": "resolve", "option_key": str(latest["key"])},
+                    answer=str(latest["label"]), guard=_guard(memory_path, page[0].stem))
+
+
+#: The words a Stage 1 reading uses when it does not actually know what a name is, or hedges, or leaves an ask open:
+#: then the question is a real one. Read over the item's WHOLE text (its body), not the cut-off classification line.
+_ADMITS_NOT_KNOWING = re.compile(
+    r"(?i)\b(?:does(?: not|n't) (?:say|state|describe|explain|give|specify|identify|name)|(?:is|are|was|were) not "
+    r"(?:stated|named|explained|specified|identified|known)|gives? no|no (?:further |other )?"
+    r"(?:detail|context|description|explanation)|unclear|not clear|not known|unknown|unnamed|its nature|"
+    r"probably|possibly|perhaps|may be|might be|presumably|"
+    r"if (?:rodrigo|he|the user|the person|you) (?:confirms?|wants?|agrees?|asks?)|(?:had|has|have) not answered|"
+    r"awaiting (?:his|an|the) (?:answer|confirmation)|login|password|credential|passcode|api key|secret)\b")
+_NOT_ASKED_ABOUT_TYPE = frozenset({"person", ""})
+_TYPE_QUESTIONS = frozenset({"Insufficient context to classify", "Ambiguous type or role"})
+
+
+def already_described(memory_path: Path, item_id: str, fm: dict, body: str = "") -> Decision | None:
+    """"Who or what is <name>?" asked only because Stage 1 was unsure of a type, on a name it did describe (question
+    audit C1, C3). Retired with nothing written: the description stays in the settled record and the pending store, and
+    what the name is stays where it was. Never a person, a relation, or a question asked on purpose; never one whose
+    own words say it does not know, hedge, or leave an ask to the person (read over the whole text)."""
+    from api.services import role_people
+
+    if (str(fm.get("asks") or "") or fm.get("owner_role") or fm.get("why_asked")
+            or str(fm.get("uncertainty_type") or "") == role_people.UNCERTAINTY):
+        return None
+    if str(fm.get("uncertainty_type") or "") not in _TYPE_QUESTIONS:
+        return None
+    typ, _, words = str(fm.get("suggested_classification") or "").partition("—")
+    typ, words = _type_of({}, typ.strip()), words.strip()
+    page = _page(memory_path, str(fm.get("entity_id") or ""))
+    if page is not None and (_type_of(page[1]) in _NOT_ASKED_ABOUT_TYPE or _is_owner_page(page[1])):
+        return None
+    text = " ".join(part for part in (words, str(body or "").strip()) if part)
+    if typ in _NOT_ASKED_ABOUT_TYPE or not text or _ADMITS_NOT_KNOWING.search(text):
+        return None
+    return Decision(item_id, "clarification", "already_described", None, answer="Sleep already read what it is",
+                    guard=_guard(memory_path, str(fm.get("entity_id") or "")))
+
+
 def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None) -> tuple[Decision | None, str]:
     """The engine-free rule for one open question: ``(decision, "")`` or ``(None, why it stays)``. ``needs_judge``
     means a duplicate pair only the judge can read."""
@@ -604,14 +724,19 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
         from api.services import source_proposals
 
         return source_proposals.settle_rule(memory_path, item_id, fm)
-    if kind in ("conflict", "clarification"):
-        from api.services import web_settle
+    from api.services import web_settle
 
+    if kind in ("conflict", "clarification"):
         if web_settle.own_settings(fm):
             # Owner 2026-10-19: Cicada's own engine, schedule or plan switch is the system's to know — never asked.
             # Retired like a question whose subject is gone: moved to its record, no claim touched, one Sleep commit.
             return Decision(item_id, kind, "own_settings", None, answer="Cicada's own settings",
                             guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
+    if kind == "conflict" and web_settle.own_bookkeeping(str(fm.get("entity_id") or ""), str(fm.get("predicate") or "")):
+        # Owner 2026-11-06: Cicada's own counters (a plan's usage, a count of its bank, its test results) are never asked
+        # and never lead. Retired as `own_settings` is: no claim touched, one Sleep commit, undoable.
+        return Decision(item_id, kind, "own_bookkeeping", None, answer="Cicada's own counters",
+                        guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
     if kind == "followup":
         # Ruling 56 (owner 2026-11-04: "Yeah only projects I started."): one asked before that rule is retired like a
         # question whose subject is gone, moved to its record, no claim touched, one Sleep commit. What it asked stays.
@@ -630,7 +755,12 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
     if kind == "conflict":
         return _conflict_rule(memory_path, item_id, fm)
     if kind == "clarification":
-        return passing_rule(memory_path, item_id, fm)
+        decided, why = passing_rule(memory_path, item_id, fm)
+        if decided is None:
+            described = already_described(memory_path, item_id, fm, markdown_parser.parse(path).body)
+            if described is not None:
+                return described, ""
+        return decided, why
     return None, "needs_person"
 
 
@@ -2428,6 +2558,11 @@ VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
     "owner_unsaid": (frozenset({"merge_suggestion"}), frozenset({None})),
     "no_pair_evidence": (frozenset({"merge_suggestion"}), frozenset({None})),
     "not_started": (frozenset({"followup"}), frozenset({None})),
+    "same_value": (frozenset({"conflict"}), frozenset({"resolve"})),
+    "moved_on": (frozenset({"conflict"}), frozenset({"resolve"})),
+    "own_bookkeeping": (frozenset({"conflict"}), frozenset({None})),
+    "already_described": (frozenset({"clarification"}), frozenset({None})),
+    "not_fading": (frozenset({"decay"}), frozenset({None})),
 }
 #: The rules an engine read: only these may carry the judging model and its engine as the commit's author.
 VETTED_ENGINE_RULES = frozenset({"judged_same", "judged_different", "judged_fold", "judged_conflict",

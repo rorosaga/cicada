@@ -65,15 +65,16 @@ def test_works_at_is_multi_valued_and_the_others_stay_single(tmp_path):
     single = predicates.build_cardinality_fn(memory)
     assert single("works-at") is False
     assert predicates.cardinality(memory, "works-at") == "multi"
-    for p in ("runs-on", "takes-place-in", "part-of"):
-        assert single(p) is True, p
+    assert single("takes-place-in") is True
+    for p in ("runs-on", "part-of"):    # 2026-11-06: several platforms, several wholes
+        assert single(p) is False, p
 
 
 def test_a_stale_bank_map_cannot_make_works_at_single_again(tmp_path):
     memory = _bank(tmp_path, stale=True)
     assert predicates.build_cardinality_fn(memory)("works-at") is False, "the committed seed's multi wins"
-    assert predicates.build_cardinality_fn(memory)("part-of") is True
-    assert predicates.build_cardinality_fn(tmp_path / "no-map")("part-of") is False, \
+    assert predicates.build_cardinality_fn(memory)("takes-place-in") is True
+    assert predicates.build_cardinality_fn(tmp_path / "no-map")("takes-place-in") is False, \
         "a bank with no map still coexists everything — the seed's singles are not imported"
 
 
@@ -164,9 +165,9 @@ def test_an_agents_departure_never_closes_the_persons_own_statement(tmp_path):
 
 def test_a_single_valued_predicate_still_supersedes(tmp_path):
     memory = _bank(tmp_path)
-    old = Claim(id="clm_a", text="x part-of alpha", subject="x", predicate="part-of", object="alpha",
+    old = Claim(id="clm_a", text="x takes-place-in alpha", subject="x", predicate="takes-place-in", object="alpha",
                 valid_from="2026-06-01")
-    new = Claim(id="clm_b", text="x part-of beta", subject="x", predicate="part-of", object="beta",
+    new = Claim(id="clm_b", text="x takes-place-in beta", subject="x", predicate="takes-place-in", object="beta",
                 valid_from="2026-06-02")
     out, _nudges, audit = reconcile_stage3([new], {"x": [old]}, _settings(memory), now_date="2026-06-02")
     assert old.superseded_by == "clm_b" and {"action": "supersede", "closed": "clm_a", "by": "clm_b"} in audit

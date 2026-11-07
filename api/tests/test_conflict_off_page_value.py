@@ -189,11 +189,14 @@ def test_the_picked_value_closes_the_page_value_and_points_at_it(repo):
     assert claims["clm_off"].confidence >= 0.9
 
 
-def test_picking_the_page_value_writes_nothing_for_the_other(repo):
-    """The person said it is not the one: the rival is not written as ever having been true."""
+def test_picking_the_page_value_writes_the_other_closed(repo):
+    """Owner 2026-11-06: the rival a pick leaves behind is kept, closed and dated when said, never current and never
+    the person's own word (question audit, decision 7)."""
     _answer(repo, "a")
     held = _by_object(repo)
-    assert set(held) == {"lisbon"} and held["lisbon"].valid_to is None
+    assert set(held) == {"lisbon", "porto"} and held["lisbon"].valid_to is None
+    rival = held["porto"]
+    assert rival.valid_to is not None and rival.source_trust != "user_stated"
 
 
 def test_an_open_claim_saying_the_same_value_is_that_value(repo):

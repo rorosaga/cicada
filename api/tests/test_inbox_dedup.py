@@ -181,7 +181,7 @@ def test_write_claim_nudges_merges_instead_of_duplicating(tmp_path):
             "id": "rodrigo",
             "action": "conflict_nudge",
             "entity": {"name": "Rodrigo"},
-            "predicate": "part-of",
+            "predicate": "takes-place-in",
             "question": "What is Rodrigo part of now?",
             "allow_other": True,
             "allow_defer": True,
@@ -218,7 +218,7 @@ def test_write_claim_nudges_returns_written_and_merged_counts(tmp_path):
             "id": "rodrigo",
             "action": "conflict_nudge",
             "entity": {"name": "Rodrigo"},
-            "predicate": "part-of",
+            "predicate": "takes-place-in",
             "question": "What is Rodrigo part of now?",
             "allow_other": True,
             "allow_defer": True,
@@ -332,10 +332,11 @@ def test_write_claim_nudges_persists_source_episode_and_skips_multi_valued(tmp_p
             "question": "q?", "allow_other": True, "allow_defer": True, "conflict_context": "c",
             "options": [{"key": "a", "label": "x"}, {"key": "b", "label": "y"}],
             "claim_id": "clm_b", "existing_claim_id": "clm_a", "source_episode": "ep_2026-08-20_001"}
-    single = {**base, "predicate": "part-of"}
+    single = {**base, "predicate": "takes-place-in"}
     multi = {**base, "predicate": "uses"}   # the seed says a tech stack is a set (G98)
     out = inbox_generator.write_claim_nudges([single, multi], memory)
-    assert out == {"written": 1, "merged": 0, "skipped_multi_valued": 1, "skipped_confirmed_folds": 0}
+    assert out == {"written": 1, "merged": 0, "skipped_multi_valued": 1, "skipped_confirmed_folds": 0,
+                   "skipped_bookkeeping": 0}
     [path] = sorted((memory / "inbox").glob("inbox-*.md"))
     fm = markdown_parser.parse(path).frontmatter
-    assert fm["predicate"] == "part-of" and fm["source_episode"] == "ep_2026-08-20_001"
+    assert fm["predicate"] == "takes-place-in" and fm["source_episode"] == "ep_2026-08-20_001"

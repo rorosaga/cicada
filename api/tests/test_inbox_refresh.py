@@ -202,7 +202,7 @@ def test_refresh_skips_deferred_items(tmp_path):
 
     assert result == {
         "bumped": 0, "organic_resolutions": 0, "escalated": 0,
-        "resolved_paths": [], "rewritten_paths": [],
+        "resolved_paths": [], "rewritten_paths": [], "written_paths": [],
     }
     assert path.exists()
 
@@ -220,7 +220,7 @@ def test_refresh_ignores_non_conflict_kinds(tmp_path):
     result = inbox_questions.refresh_open_questions(memory, {}, "2026-08-30")
     assert result == {
         "bumped": 0, "organic_resolutions": 0, "escalated": 0,
-        "resolved_paths": [], "rewritten_paths": [],
+        "resolved_paths": [], "rewritten_paths": [], "written_paths": [],
     }
     assert (inbox / "inbox-001.md").exists()
 

@@ -2195,6 +2195,93 @@ def _hold_offered_value(option: dict, *, fm_item: dict, entity_id: str, name: st
     return held
 
 
+def _write_lost_values(options: list[dict], chosen: dict, winner, claim_list: list, by_id: dict, *, fm_item: dict,
+                       entity_id: str, name: str, predicate: str, settings, today: str) -> bool:
+    """A pick keeps one value; the others the question alone held are not lost (G98, question audit).
+
+    Each is written as a closed claim: dated when it was said, never current, never the person's act (``confirmed``
+    is False), ended where the kept value began (else the day of the answer). A respelling of the kept value is not a
+    different value, so it is not written. True when a claim was added."""
+    from api.services import value_words
+
+    added = False
+    for option in options:
+        if option is chosen or str(option.get("key")) in _NOT_A_VALUE or not str(option.get("claim_id") or ""):
+            continue
+        if value_words.same_value([str(chosen.get("label") or ""), str(option.get("label") or "")]):
+            continue
+        held = _hold_offered_value(option, fm_item=fm_item, entity_id=entity_id, name=name, predicate=predicate,
+                                   claim_list=claim_list, settings=settings, today=today, confirmed=False,
+                                   holds_now=False)
+        if held is None or held.id in by_id or held.valid_to is not None:
+            continue   # already on the page, or already closed: nothing was lost
+        said = str(held.valid_from or "")[:10]
+        began = str(winner.valid_from or "")[:10] if winner is not None else ""
+        # An earlier value ended where the kept one began; a later one the kept value outranks ends on the answer's day.
+        end = began if began and began >= said else said_on(today)
+        if winner is not None:
+            _close_on(held, by=winner, day=end)
+        else:
+            held.valid_to = max(end, said)
+        added = True
+    return added
+
+
+def keep_values_of_closed_question(settings, fm_item: dict) -> list[str]:
+    """A question closed because a later value won (``inbox_questions._refresh_one``) takes its file with it, and a
+    value that only the question held would go with it (G98, question audit). Each such value is written to its page as
+    a closed claim: dated when it was said, never current, never the person's act, ended where the value that won
+    began. A respelling of a value the page has is not written. Returns the pages written (memory-relative); raises
+    when a page cannot be read, so the caller leaves the question."""
+    from api.services import page_lock, value_words
+    from api.services.claims import parse_claims, write_claims
+
+    memory_path = Path(settings.memory_path)
+    entity_id = str(fm_item.get("entity_id") or "")
+    entity_path = memory_path / "entities" / f"{entity_id}.md"
+    options = [o for o in inbox_questions.normalize_options(fm_item.get("options"))
+               if str(o.get("key")) not in _NOT_A_VALUE and str(o.get("claim_id") or "") and str(o.get("label") or "").strip()]
+    if not entity_id or not options or not entity_path.exists():
+        return []
+    token = inbox_actor.set_actor(inbox_actor.Actor(rule="organic_resolution"))
+    try:
+        with page_lock.page_lock(memory_path):
+            entity = markdown_parser.parse(entity_path)
+            claim_list = parse_claims(entity.body, strict=True)   # a block that will not parse raises: nothing written
+            name = str(entity.frontmatter.get("name", entity_id) or entity_id)
+            raw = str(fm_item.get("predicate", "") or "description")
+            predicate = predicates.load_normalizer(memory_path)(raw) or raw
+            on_page = [c for c in claim_list if c.predicate == predicate]
+            winner = max((c for c in on_page if c.valid_to is None), key=lambda c: str(c.valid_from or ""), default=None)
+            today = str(date.today())
+            added = False
+            for option in options:
+                label = str(option["label"])
+                if any(c.id == option["claim_id"] or value_words.same_value([str(c.object or ""), label])
+                       for c in on_page):
+                    continue
+                held = _hold_offered_value(option, fm_item=fm_item, entity_id=entity_id, name=name,
+                                           predicate=predicate, claim_list=claim_list, settings=settings, today=today,
+                                           confirmed=False, holds_now=False)
+                if held is None or held.valid_to is not None:
+                    continue
+                said = str(held.valid_from or "")[:10]
+                began = str(winner.valid_from or "")[:10] if winner is not None else ""
+                end = began if began and began >= said else today
+                if winner is not None:
+                    _close_on(held, by=winner, day=end)
+                else:
+                    held.valid_to = max(end, said)
+                added = True
+            if not added:
+                return []
+            entity.body = write_claims(entity.body, claim_list)
+            markdown_parser.write(entity_path, entity.frontmatter, entity.body)
+    finally:
+        inbox_actor.reset(token)
+    return [f"entities/{entity_id}.md"]
+
+
 def _kept_values_sentence(labels: list[str], predicate: str, name: str, today: str) -> str:
     """The sentence the prose is rewritten from when every answer stands. It names each one."""
     distinct = list({label.strip().casefold(): label.strip() for label in labels if label.strip()}.values())
@@ -2342,15 +2429,23 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
 
     if chosen is not None and option_key not in ("both", "neither"):
         winner = hold(chosen)
+        winner_was_there = winner is not None and winner.id in by_id
+        open_losers = [c for c in option_claims if (winner is None or c.id != winner.id) and c.valid_to is None]
+        actor = inbox_actor.current()
+        if actor is not None and actor.rule == "same_value" and winner_was_there and not open_losers:
+            # The same value said two ways, and the page already holds the one kept: nothing to write, no page line.
+            return _ConflictPlan(entity_id, unlink=True, extra_lines=extra_lines)
         if winner is not None:
             winner.confidence = max(winner.confidence, 0.9)
             # The person's words that picked it, when they came from a conversation (owner, 2026-10-14).
             winner.evidence = [*winner.evidence, *(e for e in _quote_spans(settings.memory_path)
                                                    if e not in winner.evidence)]
+        closed_on_page = False
         for loser in option_claims:
             if winner is not None and loser.id == winner.id:
                 continue
             if loser.valid_to is None:
+                closed_on_page = True
                 if winner is not None:
                     _close_on(loser, by=winner, day=said_on(today))
                 else:
@@ -2366,6 +2461,11 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                 # The manifest is a set of paths, not a per-claim tally.
                 if line not in extra_lines:
                     extra_lines.append(line)
+        if _write_lost_values(options, chosen, winner, claim_list, by_id, fm_item=fm_item, entity_id=entity_id,
+                              name=name, predicate=predicate, settings=settings, today=today):
+            line = f"entities/{entity_id}.md: updated (source: {path.stem}, trigger: inbox/conflict/resolved)"
+            if line not in extra_lines:
+                extra_lines.append(line)
         # The chosen label IS the answer, claim-backed or not. Sleep's reading of the person's words says the day
         # they said it (ruling 29, read on time): the sentence is dated by the words, not by when they were read.
         said = said_on(today)
@@ -2374,6 +2474,8 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
             f"(confirmed by {inbox_actor.confirmed_by()} on {today}"
             + (f", as said on {said}" if said != today else "") + ")."
         )
+        if inbox_actor.is_sleep() and winner_was_there and not closed_on_page:
+            sentence = ""   # no value on the page changed: Sleep adds no line saying so
 
     else:
         if option_key == "both":

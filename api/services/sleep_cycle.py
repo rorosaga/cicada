@@ -729,11 +729,14 @@ async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> No
         from api.services.claim_pipeline import claims_on_demand
 
         today = str(datetime.now().date())
+        from api.services import inbox_service
+
         refresh = inbox_questions.refresh_open_questions(
             memory_path,
             claims_on_demand(memory_path),
             today,
             stale_after_days=settings.inbox_stale_after_days,
+            keep_values=lambda item: inbox_service.keep_values_of_closed_question(settings, item),
         )
         _state.questions_refreshed = refresh["bumped"] + refresh["escalated"]
         _state.organic_resolutions = refresh["organic_resolutions"]
@@ -751,8 +754,10 @@ async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> No
         # `inbox` directory, which would sweep an unrelated dirty file under
         # `inbox/` into this `cicada`-authored commit (mirrors the H2 pattern
         # in `decay_migration._commit_backfill`).
-        touched_paths = sorted(resolved | rewritten)
-        lines = [f"{p}: resolved (trigger: inbox/organic_resolution)" for p in sorted(resolved)]
+        written = set(refresh.get("written_paths") or [])   # a value only the question held, kept closed (G98)
+        touched_paths = sorted(resolved | rewritten | written)
+        lines = [f"{p}: updated (trigger: inbox/organic_resolution)" for p in sorted(written)]
+        lines += [f"{p}: resolved (trigger: inbox/organic_resolution)" for p in sorted(resolved)]
         lines += [
             f"{p}: refreshed (trigger: inbox/stale_refresh)"
             for p in sorted(rewritten - resolved)
@@ -3532,11 +3537,14 @@ async def _run_stages(
         from api.services.claim_pipeline import claims_on_demand
 
         def _refresh_questions():
+            from api.services import inbox_service
+
             return inbox_questions.refresh_open_questions(
                 memory_path,
                 claims_on_demand(memory_path),
                 str(datetime.now().date()),
                 stale_after_days=settings.inbox_stale_after_days,
+                keep_values=lambda item: inbox_service.keep_values_of_closed_question(settings, item),
             )
 
         refresh = await asyncio.to_thread(_refresh_questions)

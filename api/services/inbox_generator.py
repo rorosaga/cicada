@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from api.services import inbox_questions, markdown_parser, predicates, text_fold
+from api.services import inbox_questions, markdown_parser, predicates, text_fold, web_settle
 from api.services.conflict_resolver import apply_changes
 
 # Options with no claim behind them (the synthetic "both"/"neither" rows) always
@@ -284,6 +284,93 @@ def _counterpart(existing: list[dict], option: dict) -> dict | None:
     return other[0] if len(other) == 1 else None
 
 
+def joined_options(existing: list[dict], incoming_all: list[dict], prose: bool) -> dict[int, dict]:
+    """Which incoming answers are an answer the open question already has: ``id(incoming) -> the open answer``.
+
+    The same label (case-insensitive) always joins. A description question's answers are prose, so one that says what an
+    open one says (:func:`near_duplicate`), or is the other side of a contradiction an open answer was raised in
+    (:func:`_counterpart`), joins too. A claim conflict's answers are values: only the exact label joins."""
+    by_label = {str(o.get("label", "")).strip().lower(): o for o in existing}
+    joined: dict[int, dict] = {}
+    for incoming in incoming_all:
+        current = by_label.get(str(incoming["label"]).strip().lower())
+        if current is not None:
+            joined[id(incoming)] = current
+    if prose:
+        real = [o for o in existing if str(o.get("key")) not in _SYNTHETIC_KEYS]
+        for incoming in incoming_all:
+            if id(incoming) in joined or str(incoming.get("key")) in _SYNTHETIC_KEYS:
+                continue
+            near = [o for o in real if _side(o) == _side(incoming)
+                    and near_duplicate(incoming["label"], str(o.get("label", "")))
+                    and o not in joined.values()]
+            if near:
+                joined[id(incoming)] = near[0]
+        anchors = [(inc, joined[id(inc)]) for inc in incoming_all if id(inc) in joined]
+        for incoming in incoming_all:
+            if id(incoming) in joined or str(incoming.get("key")) in _SYNTHETIC_KEYS:
+                continue
+            for anchor_in, anchor_open in anchors:
+                if _side(anchor_in) == _side(incoming):
+                    continue
+                partner = _counterpart(existing, anchor_open)
+                if partner is not None and partner not in joined.values():
+                    joined[id(incoming)] = partner
+                    break
+    return joined
+
+
+#: At most this many open description questions on one page at once (owner 2026-11-06: a new contradiction opens its
+#: own question). Past it a new answer folds into the newest, as before.
+MAX_OPEN_CONTRADICTIONS = 4
+
+
+def find_all_open(memory_path: Path, kind: str, entity_id: str, predicate: str | None = None) -> list[Path]:
+    """Every open item of ``kind`` on the same key, oldest first (:func:`find_open` returns only the first)."""
+    inbox_dir = memory_path / "inbox"
+    if not inbox_dir.exists():
+        return []
+    target = dedup_key(kind, {"entity_id": entity_id, "predicate": predicate, "uncertainty_type": predicate,
+                              "merge_target_hint": predicate})
+    found: list[Path] = []
+    for filepath in sorted(inbox_dir.glob("inbox-*.md")):
+        try:
+            fm = markdown_parser.parse(filepath).frontmatter
+        except Exception:
+            continue
+        if (str(fm.get("kind", "")) == kind and str(fm.get("status", "pending") or "pending") == "pending"
+                and dedup_key(kind, fm) == target):
+            found.append(filepath)
+    return found
+
+
+def fold_into_open(memory_path: Path, kind: str, entity_id: str, predicate: str, new_options: list[dict],
+                   today: str) -> bool:
+    """Fold competing values into the open question for a key, or say there is none to fold into (False).
+
+    A claim conflict has one open question per key, as before. A description conflict is prose: an answer that joins an
+    open question's (:func:`joined_options`) joins it, and one that joins none is a NEW contradiction, which opens its
+    own question (owner 2026-11-06) rather than piling its answers on an unrelated pair — until the page holds
+    :data:`MAX_OPEN_CONTRADICTIONS`, then it folds into the newest."""
+    opens = find_all_open(memory_path, kind, entity_id, predicate)
+    if not opens:
+        return False
+    if predicate != "description" or kind != "conflict":
+        merge_options_into(opens[0], new_options, today)
+        return True
+    incoming = [o for o in inbox_questions.normalize_options(new_options)
+                if str(o.get("label", "")).strip() and str(o.get("key")) not in _SYNTHETIC_KEYS]
+    for path in opens:
+        existing = inbox_questions.normalize_options(markdown_parser.parse(path).frontmatter.get("options"))
+        if incoming and joined_options(existing, incoming, True):
+            merge_options_into(path, new_options, today)
+            return True
+    if incoming and len(opens) < MAX_OPEN_CONTRADICTIONS:
+        return False
+    merge_options_into(opens[-1], new_options, today)
+    return True
+
+
 def merge_options_into(path: Path, new_options: list[dict], today: str) -> bool:
     """Merge competing values into an already-open question (§2.2).
 
@@ -310,33 +397,7 @@ def merge_options_into(path: Path, new_options: list[dict], today: str) -> bool:
     prose = str(fm.get("predicate") or "description") == "description"
 
     incoming_all = [o for o in inbox_questions.normalize_options(new_options) if str(o.get("label", "")).strip()]
-    joined: dict[int, dict] = {}   # id(incoming) -> the open answer it is
-    for incoming in incoming_all:
-        current = by_label.get(str(incoming["label"]).strip().lower())
-        if current is not None:
-            joined[id(incoming)] = current
-    if prose:
-        real = [o for o in existing if str(o.get("key")) not in _SYNTHETIC_KEYS]
-        for incoming in incoming_all:
-            if id(incoming) in joined or str(incoming.get("key")) in _SYNTHETIC_KEYS:
-                continue
-            near = [o for o in real if _side(o) == _side(incoming)
-                    and near_duplicate(incoming["label"], str(o.get("label", "")))
-                    and o not in joined.values()]
-            if near:
-                joined[id(incoming)] = near[0]
-        anchors = [(inc, joined[id(inc)]) for inc in incoming_all if id(inc) in joined]
-        for incoming in incoming_all:
-            if id(incoming) in joined or str(incoming.get("key")) in _SYNTHETIC_KEYS:
-                continue
-            for anchor_in, anchor_open in anchors:
-                if _side(anchor_in) == _side(incoming):
-                    continue
-                partner = _counterpart(existing, anchor_open)
-                if partner is not None and partner not in joined.values():
-                    joined[id(incoming)] = partner
-                    break
-
+    joined = joined_options(existing, incoming_all, prose)
     group = None
     for incoming in incoming_all:
         label = str(incoming.get("label", "")).strip()
@@ -488,9 +549,8 @@ def _generate_sync(
             entity_id = change["id"]
             entity_name = change.get("entity", {}).get("name", entity_id.replace("-", " ").title())
             # G61 phase 2 S0: no hint is stored — it is served at read (fact_sources.served_hint).
-            open_path = find_open(memory_path, "conflict", entity_id, "description")
-            if open_path is not None:
-                merge_options_into(open_path, change.get("options") or [], str(date.today()))
+            if fold_into_open(memory_path, "conflict", entity_id, "description", change.get("options") or [],
+                              str(date.today())):
                 continue
             item_id = f"inbox-{next_num:03d}"
             next_num += 1
@@ -560,7 +620,8 @@ def write_claim_nudges(
     """
     budget = decay_budget if decay_budget is not None else DecayBudget()
     if not nudges:
-        return {"written": 0, "merged": 0, "skipped_multi_valued": 0, "skipped_confirmed_folds": 0}
+        return {"written": 0, "merged": 0, "skipped_multi_valued": 0, "skipped_confirmed_folds": 0,
+                "skipped_bookkeeping": 0}
     inbox_dir = memory_path / "inbox"
     entities_dir = memory_path / "entities"
     inbox_dir.mkdir(parents=True, exist_ok=True)
@@ -568,6 +629,7 @@ def write_claim_nudges(
     written = 0
     merged = 0
     skipped_multi = 0
+    skipped_bookkeeping = 0
     decay_refreshed = 0
     open_decay = _open_decay_items(inbox_dir) if any(
         n.get("action") == "decay_nudge" for n in nudges
@@ -608,9 +670,12 @@ def write_claim_nudges(
             if predicates.cardinality(memory_path, predicate) == "multi":
                 skipped_multi += 1
                 continue
-            open_path = find_open(memory_path, "conflict", entity_id, predicate)
-            if open_path is not None:
-                merge_options_into(open_path, nudge.get("options") or [], str(date.today()))
+            if web_settle.own_bookkeeping(entity_id, predicate):
+                # Owner 2026-11-06: Cicada's own counters are never asked; the page keeps the reading it has.
+                skipped_bookkeeping += 1
+                continue
+            if fold_into_open(memory_path, "conflict", entity_id, predicate, nudge.get("options") or [],
+                              str(date.today())):
                 merged += 1
                 continue
             kind, priority, required = "conflict", 0.8, "choice"
@@ -711,7 +776,7 @@ def write_claim_nudges(
     budget.refreshed += decay_refreshed
     budget.deferred |= {e for e in turned_away if e not in open_decay}
     return {"written": written, "merged": merged, "skipped_multi_valued": skipped_multi,
-            "skipped_confirmed_folds": skipped_confirmed}
+            "skipped_confirmed_folds": skipped_confirmed, "skipped_bookkeeping": skipped_bookkeeping}
 
 
 def _write_graph_edges(memory_path: Path, new_edges: list[dict]) -> None:
