@@ -93,6 +93,18 @@ Slept Ask against full-context: multi-hop 59 v 68 of 76 (10 right only with full
 
 **Unslept multi-hop is a reach problem.** Right when every answer turn reached the prompt: 16 of 17. When only some did: 14 of 37. When none did: 4 of 22. The unslept prompt has room: p50 about 4,900 characters against about 18,800 slept, 54 of 200 under 2,000, and 7 empty, so the model isn't called. Temporal questions, which name their subject, reach far more often (82 of 99 had every turn).
 
+**The fix, #738:** Ask searches by meaning for every question and fills only the room the prompt has left. Haiku, one run each, dev → #738, with tokens per right answer:
+
+| Set | Right | Tokens per right answer |
+|---|---|---|
+| LoCoMo unslept, 200 | 123 → 138 (p = .004) | 7,695 → 8,527 |
+| LoCoMo slept, 200 | 159 → 159 | 12,539 → 12,862 |
+| LongMemEval_S unslept, 100 | 77 → 76 | 9,798 → 10,359 |
+| The wrong person's memory, 100 | 15 → 15 | |
+| One conversation translated, 160 | 94 → 95 | 10,437 → 11,042 |
+
+So the gap to slept on LoCoMo is now 21 questions, was 36. Slept multi-hop depends less on reach: 25 of 29 right with every answer turn on the prompt, 25 of 38 with some, 6 of 9 with none, because pages carry it. The same lines on recall lost (slept 128 → 114), so recall stays on the words.
+
 ## An agent running a loop
 
 20 LongMemEval_S questions, nothing slept, haiku, real `claude -p`, one run, before #705, #715 and #730. Tokens counted with cached reads, then without:
@@ -105,6 +117,10 @@ Slept Ask against full-context: multi-hop 59 v 68 of 76 (10 right only with full
 
 20 questions can't separate tools from files, and plain files aren't worse. This isn't comparable with Supermemory's task set.
 
+Re-run on dev after #715, #730, #734 and #738, the same 20 and the same 6 tools: tools 11 of 20 (3 lost, 1 gained), 22,260 / 9,098 per question, 40,473 / 16,543 per right answer, 4.4 turns. That's noise on answers, and the cost barely moved: these changes don't show in this loop. Recall was called more than Ask in both runs (25 v 20 now), and #738 only helps Ask.
+
+The child `claude -p` named the owner of the plan login in about 1 run of 20 (6 of 20 with all tools), writing a query like "did <owner> buy…" for "did I buy…". Neither the primer nor the bank holds the name, and the memory was a scratch clone, so this looks like the account context Claude Code gives a signed-in session. It may cost a search a word on this loop; no Cicada memory was read.
+
 ## The tool list
 
 Before #730 the list was 103,111 characters; #730 cut prose to 73,956 with the same structure. #734 then holds seven recording tools back until a reply names them, for clients that re-read the list: 73,094 to 51,305.
@@ -112,14 +128,18 @@ Before #730 the list was 103,111 characters; #730 cut prose to 73,956 with the s
 | Client | Re-reads a changed list? | Basis | Tokens saved on each call |
 |---|---|---|---|
 | Claude Code 2.1.319 | Yes | Tested | 125 of 25,526, measured. It defers MCP schemas |
-| VS Code, Gemini CLI | Yes | Source | About 5,450, estimated at 4 characters a token, not measured |
+| VS Code, Gemini CLI | Yes | Source | About 4,700: not measured in those clients; the rate below |
 | Cursor, OpenCode | Handlers seen, refresh untested | Bundle, source | 0: they keep the whole list |
 | Codex 0.165, Claude desktop | No | Source, bundle | 0: they keep the whole list |
+
+**What a whole list costs when a client loads it:** with `claude -p --tools ""` there's no tool search, so schemas load in full. 50 tools against 6, the same 20 questions: cached reads per turn about 13,500 v 3,000, so about 10,500 tokens a turn for about 48k characters, 4.6 characters a token. The 21,789 characters held back are then about 4,700 tokens a turn. One run. The 50-tool run also scored 16 of 20, which at this size says nothing.
 
 ## Tried and dropped
 
 - **Clue searches in Ask** (a model call to widen the search): on current dev, 30 LongMemEval_S questions, no model grading: turns 71 to 79 of 87, questions 28 to 29, prompt 11k to 23k, plus a model call each. #705 had taken the gain.
 - **The hook by vectors:** everyday asks on a real clone score a top passage of p50 .744, p90 .756; real questions p50 about .73. No floor separates them, so it would speak on everything. Reach of 38 on one conversation, Ask / recall / hook: English 25/18/5, German 25/13/0, Arabic 18/13/2, Japanese 25/17/0. **The hook stays word-based and weak outside English.**
+- **Reading a count or a list by examples outside English:** the word shape finds them 60 of 60 in English, 39 in Spanish, 0 elsewhere. Comparing with examples finds 30 to 42 of 60 per language, with 9 to 13 of 90 false alarms. On Ask, German, Arabic, Japanese and Chinese went 95 to 99 of 160, but the answer turn reached the prompt no more often (94 v 93 of 152) and multi-hop stayed flat, so that's noise. **The shape stays English and Spanish.**
+- **The same meaning lines without counting pages:** slept Ask stayed 159 at 9% more tokens.
 - **Lifting Ask's conversation order by recency:** 71 to 66 at weight .3, 71 to 71 at .1 with temporal 19 to 17. Ask keeps its reserved newest slot; recall and search take the lift (#722, #728).
 
 ## Noise, and what a stronger model doesn't fix
