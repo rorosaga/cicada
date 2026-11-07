@@ -125,7 +125,7 @@ final class OnboardingSoundTests: XCTestCase {
             .appendingPathComponent("Sources/CicadaApp")
     }
 
-    /// Only `OnboardingSound.swift` makes a sound, and only `OnboardingView` holds one: no other surface plays one.
+    /// Only `OnboardingSound.swift` and `LampSound.swift` make a sound; only `OnboardingView` holds onboarding's.
     func testOnlyOnboardingMakesASound() throws {
         let files = FileManager.default.enumerator(at: sourcesRoot, includingPropertiesForKeys: nil)?
             .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" } ?? []
@@ -134,9 +134,9 @@ final class OnboardingSoundTests: XCTestCase {
         var holders: [String] = []
         for file in files {
             let text = try String(contentsOf: file, encoding: .utf8)
-            if file.lastPathComponent != "OnboardingSound.swift" {
+            if !["OnboardingSound.swift", "LampSound.swift"].contains(file.lastPathComponent) {
                 for needle in players where text.contains(needle) {
-                    XCTFail("\(file.lastPathComponent) plays a sound (`\(needle)`): sound is allowed only for onboarding's two moments (DESIGN_RULES §9, 2026-10-24)")
+                    XCTFail("\(file.lastPathComponent) plays a sound (`\(needle)`): sound is allowed only for onboarding's two moments and the lamp's click (DESIGN_RULES §9, 2026-10-24, 2026-11-07)")
                 }
             }
             if text.contains("OnboardingSound()") || text.contains(".moment(.") { holders.append(file.lastPathComponent) }
