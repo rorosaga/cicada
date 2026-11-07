@@ -48,9 +48,11 @@ BATCH_FACTS = 60
 CLASSES = ("evergreen", "durable", "active", "volatile")
 #: An engine failure this many calls in a row ends the run (the answers so far are kept).
 MAX_FAILURES_IN_A_ROW = 3
-#: Estimated output tokens a fact's answer takes (``"12":"durable",``), and the fixed prompt's tokens a call carries.
-OUTPUT_TOKENS_PER_FACT = 9
-PROMPT_TOKENS = 330
+#: Estimated output tokens a fact's answer takes, and the fixed tokens a call carries (our prompt plus the plan CLI's own).
+#: Measured 2026-11-07 on the Claude plan at its small model, 224 facts in 4 calls: 9,379 in, 5,525 out. A metered key
+#: carries less per call, so the estimate there is an upper bound.
+OUTPUT_TOKENS_PER_FACT = 25
+PROMPT_TOKENS = 1250
 
 #: The class rule — the same words as Stage 1's FACT CLASS (`entity_extractor`); a test keeps them equal.
 RULE = """\
@@ -86,6 +88,7 @@ class Batch:
     heading: str
     answers: dict = field(default_factory=dict)   # claim id -> class
     attempted: bool = False
+    returned: bool = False        # the call answered (a failed or stopped one left its facts unasked, not unanswered)
 
 
 @dataclass
@@ -219,25 +222,35 @@ def survey(memory_path, settings=None, *, limit: int | None = None, claim_ids=No
     result.calls_estimated = len(result._batches)
     body_chars = sum(len(b.heading) + sum(len(f.text) + 6 for f in b.facts) for b in result._batches)
     result.input_tokens_estimated = result.calls_estimated * PROMPT_TOKENS + body_chars // 4
-    result.output_tokens_estimated = result.to_read * OUTPUT_TOKENS_PER_FACT + result.calls_estimated * 12
+    result.output_tokens_estimated = result.to_read * OUTPUT_TOKENS_PER_FACT
     return result
 
 
 def price(result: Survey, settings) -> None:
-    """Fill the estimated cost at the model's list price (``None`` when it has none). On a plan nothing is billed per call
-    — the figure is then what the same tokens would cost at list, so the load on the plan can be compared."""
-    from api.services import engine_select, pricing
+    """Fill the model the engine would use and the estimated cost at its list price (``None`` when it has none). On a plan
+    nothing is billed per call — the figure is then what the same tokens would cost at list, so the load on the plan can
+    be compared; an engine with no list price shows tokens alone."""
+    from api.services import agent_engine, anthropic_models, engine_select, price_supplement, pricing
 
-    model = str(getattr(settings, "effective_consolidation_model", "") or "")
-    result.model = model or None
+    label = engine_select.engine_label(settings)
+    cost = None
     try:
-        cost = pricing.estimate_cost(model, result.input_tokens_estimated, result.output_tokens_estimated) if model else None
+        if label == "claude-cli":
+            result.model = anthropic_models.resolve(agent_engine.model_for_stage(settings, "fact_class")).model
+            calls = max(1, result.calls_estimated)   # a long-prompt rate is per call, never on the run's total
+            each = price_supplement.claude_cost(result.model, input_tokens=result.input_tokens_estimated // calls,
+                                                output_tokens=result.output_tokens_estimated // calls)
+            cost = None if each is None else each * calls
+        elif label == "litellm":
+            result.model = str(getattr(settings, "effective_consolidation_model", "") or "") or None
+            cost = (pricing.estimate_cost(result.model, result.input_tokens_estimated,
+                                          result.output_tokens_estimated) if result.model else None)
     except Exception:  # noqa: BLE001 — a model with no known price is no figure, not a failure
         cost = None
     result.cost_usd_estimated = None if cost is None else round(float(cost), 4)
-    metered = engine_select.engine_label(settings) in ("litellm",)
     result.cost_basis = (None if cost is None else
-                         "billed per call on the API key" if metered else "list price; a plan is not billed per call")
+                         "billed per call on the API key" if label == "litellm" else
+                         "list price; a plan is not billed per call")
 
 
 def messages(batch: Batch) -> list[dict]:
@@ -290,6 +303,7 @@ async def read(result: Survey, settings) -> Survey:
             result.input_tokens += int(getattr(usage, "prompt_tokens", 0) or 0)
             result.output_tokens += int(getattr(usage, "completion_tokens", 0) or 0)
             batch.answers = parse(response.choices[0].message.content, batch)
+            batch.returned = True
             in_a_row["n"] = 0
         except Exception as exc:  # noqa: BLE001 — sorted: one call's trouble, or the run's
             reason = _page_failure(exc)
@@ -315,7 +329,7 @@ async def read(result: Survey, settings) -> Survey:
         for cls in batch.answers.values():
             result.classes[cls] = result.classes.get(cls, 0) + 1
     result.answered = sum(len(b.answers) for b in result._batches)
-    result.unanswered = sum(len(b.facts) for b in result._batches if b.attempted) - result.answered
+    result.unanswered = sum(len(b.facts) for b in result._batches if b.returned) - result.answered
     return result
 
 

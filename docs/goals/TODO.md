@@ -3746,6 +3746,13 @@ A whole row moves to DONE only after its remaining implementation and required a
     `long_term`), with Catch me up's budget and dedup. (f) **Ages count from when it was said:** the live path no longer
     stamps the read day on a fact that never fades (its clock stays at when it was said), and a one-time reset charges
     existing facts their real age (`api/scripts/reset_fact_clocks.py`; dry run by default; **written, not applied**).
+    **(h) Amended 2026-11-07 (owner: "build a one-time model class pass so identity facts don't fade"):** every fact already
+    in a memory has no class, so on the owner's page 10 of 24 identity-shaped facts fell under 0.2 at the first charge
+    (measured on a clone). `api/scripts/read_fact_classes.py` (`fact_class_pass`) asks the model, with Stage 1's own class
+    rule, for the class of each classless open fact on an evergreen, non-media page: person-started, dry run by default
+    with the estimated cost, 60 facts a call, ONE commit under the model's name, never a fact with a class or the person's
+    word (`class_by: user`); **run before the reset**. Proved on a clone with a sample: 10 → 0 identity facts under 0.2,
+    about $0.017 per 1,000 facts at list. **Not run on any real bank; the owner reviews per item first.**
     (g) **Git size, measured** on a synthetic 8,747-line ledger over 90 days: fading worked out on read writes nothing
     (0.5 MB packed, the base) but every reader would need the formula and the stored value would drift; a nightly pass
     9.8 MB packed (43.8 loose); a weekly pass 1.5 MB (6.3 loose). **Weekly won** for facts on a page that never fades
