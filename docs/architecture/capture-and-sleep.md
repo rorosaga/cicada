@@ -1643,7 +1643,15 @@ outside every bank under `title:<hash>` in the ISBN cache; a match is one exact-
 exactly one work (`book_lookup.confident_match`), then the normal ISBN lookup fills the description. `books.apply_title_matches`
 writes description, year, pages, publisher, subjects and a cover id (never title, authors or ISBNs) and marks `book.title_match`;
 `POST /entities/{id}/book/not-this-book` takes it back for good. `GET /sources/books/backfill-plan` is a counts-only dry run.
-Not built: the one bounded Sleep read of a description (ruling 71 (a)); a tiebreak among duplicate work records (14 of 40
+**Google Books is the second catalogue (2026-11-08, owner "Yes setup Google book").** Open Library stays first: only a title
+Open Library has *answered* and left with no description (no match, or a match whose record holds none) is asked, once, of
+Google Books' public volumes search (`book_lookup.match_google`: `intitle:"<title>" inauthor:"<first author>"`, nothing else, no
+key, no sign-in, the same one-a-second pacer and the same connector gate). The same rule: a volume's exact normalised title and an
+author of the page, holding a description (`google_match`: authors exactly the page's first, then the fuller description, Google's
+order last); cached outside every bank, the answer under `gtitle:<hash>` and the volume's record under `gb:<id>`; a 429 stops
+the run and backs the title off. `books.apply_google_matches` writes the description (`description_source: googlebooks`, the
+boxed paragraph "From Google Books, saved <day>") and the fields the page lacks, marked `book.title_match` (`source: googlebooks`,
+or `google` beside Open Library's own marker); *Not this book* takes it all back. Not built: the one bounded Sleep read of a description (ruling 71 (a)); a tiebreak among duplicate work records (14 of 40
 public titles were held back as ambiguous).
 
 Three doors, one writer. Each door stages episodes through `episode_staging` (scrub, one id rule, both dates, the demo

@@ -243,3 +243,123 @@ def test_confident_match_is_exact_after_normalising():
 
 def test_key_is_the_same_for_the_same_name_in_either_order():
     assert book_lookup.title_key("Essentialism", ["Mckeown, Greg"]) == book_lookup.title_key("Essentialism", ["Greg Mckeown"])
+
+
+# ---- Google Books, the second catalogue (2026-11-08) ----------------------------------------------------------------
+
+def _gvol(vid, title, authors, description="A calm study of machines that wait.", **info):
+    return {"id": vid, "volumeInfo": {"title": title, "authors": authors, "description": description,
+                                      "publishedDate": "2019-05-01", "pageCount": 188, "publisher": "Sample Press",
+                                      "categories": ["Fiction"], **info}}
+
+
+@pytest.fixture
+def google(env, monkeypatch):
+    """The env, with a Google Books volumes search answered from a list (`gitems`, or a status through `gstatus`)."""
+    c, memory, calls, docs = env
+    gitems: list[dict] = []
+    gstatus = [200]
+    inner = book_lookup.default_fetch
+
+    async def fetch(url):
+        if "googleapis.com/books" in url:
+            calls.append(url)
+            if gstatus[0] != 200:
+                return book_lookup.Response(gstatus[0])
+            return book_lookup.Response(200, json.dumps({"items": [] if "q=isbn" in url else gitems}).encode())
+        return await inner(url)
+
+    monkeypatch.setattr(book_lookup, "default_fetch", fetch)
+    return c, memory, calls, docs, gitems, gstatus
+
+
+def _gcalls(calls):
+    return [u for u in calls if "googleapis.com/books" in u and "intitle" in u]
+
+
+def test_google_books_describes_a_book_open_library_could_not_find(google):
+    c, memory, calls, docs, gitems, _ = google
+    gitems += [_gvol("abcDEF123", "Quiet Engines", ["Bea Sample"])]
+    _sync(c, _ab_book("A2", "Quiet Engines", "Bea Sample"))
+    _run(memory)
+    page = _books(memory)["quiet-engines"]
+    book = page.frontmatter["book"]
+    assert book["title_match"]["source"] == "googlebooks" and book["title_match"]["volume"] == "abcDEF123"
+    assert book["description_source"] == "googlebooks" and book["isbns"] == [] and book["pages"] == 188
+    assert "machines that wait" in page.body and "[Google Books](https://books.google.com/books?id=abcDEF123)" in page.body
+    assert len(_gcalls(calls)) == 1
+    q = parse_qs(urlparse(_gcalls(calls)[0]).query)
+    assert q["q"] == ['intitle:"Quiet Engines" inauthor:"Bea Sample"']             # the title and one author, nothing else
+    assert c.get("/entities/quiet-engines/book").json()["matchedByTitle"] is True
+    _run(memory)
+    assert len(_gcalls(calls)) == 1                                                 # cached outside the bank
+
+
+def test_open_library_stays_first_and_a_described_book_is_never_asked_of_google(google):
+    c, memory, calls, docs, gitems, _ = google
+    docs += [_doc("OL9W", "Quiet Engines", ["Bea Sample"])]
+    gitems += [_gvol("abcDEF123", "Quiet Engines", ["Bea Sample"], description="Google's words.")]
+    _sync(c, _ab_book("A2", "Quiet Engines", "Bea Sample"))
+    _run(memory)
+    page = _books(memory)["quiet-engines"]
+    assert "engines that learn to wait" in page.body and page.frontmatter["book"]["description_source"] == "openlibrary"
+    assert _gcalls(calls) == []
+
+
+def test_google_fills_a_description_open_library_matched_without_and_not_this_book_takes_it_all_back(google, monkeypatch):
+    c, memory, calls, docs, gitems, _ = google
+    monkeypatch.delitem(WORK, "description")                                         # Open Library's record holds none
+    docs += [_doc("OL9W", "Quiet Engines", ["Bea Sample"])]
+    gitems += [_gvol("abcDEF123", "Quiet Engines", ["Bea Sample"])]
+    _sync(c, _ab_book("A2", "Quiet Engines", "Bea Sample"))
+    _run(memory)
+    book = _books(memory)["quiet-engines"].frontmatter["book"]
+    assert book["title_match"]["isbn"] == ISBN and book["title_match"]["google"]["volume"] == "abcDEF123"
+    assert book["description_source"] == "googlebooks" and "machines that wait" in _books(memory)["quiet-engines"].body
+    assert c.post("/entities/quiet-engines/book/not-this-book").json() == {"undone": True}
+    page = _books(memory)["quiet-engines"]
+    assert "machines that wait" not in page.body and "title_match" not in page.frontmatter["book"]
+    assert not any(page.frontmatter["book"].get(k) for k in ("pages", "publisher", "published", "subjects", "description_at"))
+    _run(memory)
+    assert "machines that wait" not in _books(memory)["quiet-engines"].body        # never matched again
+
+
+@pytest.mark.parametrize("items,why", [
+    ([_gvol("aaaa1111", "Quiet Engines Revisited", ["Bea Sample"])], "none"),        # not the same title
+    ([_gvol("aaaa1111", "Quiet Engines", ["Someone Else"])], "none"),                # another author
+    ([_gvol("aaaa1111", "Quiet Engines", ["Bea Sample"], description="")], "no_description"),
+])
+def test_google_needs_the_exact_title_an_author_and_a_description(google, items, why):
+    c, memory, calls, docs, gitems, _ = google
+    gitems += items
+    _sync(c, _ab_book("A2", "Quiet Engines", "Bea Sample"))
+    _run(memory)
+    page = _books(memory)["quiet-engines"]
+    assert "title_match" not in page.frontmatter["book"] and "description_at" not in page.frontmatter["book"]
+    entry = book_lookup.cached(book_lookup.google_key("Quiet Engines", ["Bea Sample"]))
+    assert entry["found"] is False and entry["why"] == why
+
+
+def test_google_prefers_the_volume_whose_authors_are_exactly_the_pages_then_the_fuller_description():
+    items = [_gvol("aaaa1111", "Quiet Engines", ["Bea Sample", "Cy Extra"], description="Short."),
+             _gvol("bbbb2222", "Quiet Engines", ["Bea Sample"], description="A longer text."),
+             _gvol("cccc3333", "Quiet Engines", ["Bea Sample"], description="Longest of all, by some margin.")]
+    got = book_lookup.google_match({"items": items}, "Quiet Engines", ["Bea Sample"])["match"]
+    assert got["volume"] == "cccc3333"
+
+
+def test_a_429_stops_the_run_and_nothing_is_written(google):
+    c, memory, calls, docs, gitems, gstatus = google
+    gstatus[0] = 429
+    _sync(c, _ab_book("A2", "Quiet Engines", "Bea Sample"), _ab_book("A3", "Another Book", "Dee Sample"))
+    _run(memory)
+    assert len(_gcalls(calls)) == 1                                                 # the second book was not asked
+    assert "title_match" not in _books(memory)["quiet-engines"].frontmatter["book"]
+
+
+def test_with_fetches_off_google_is_not_asked_either(google, monkeypatch):
+    c, memory, calls, docs, gitems, _ = google
+    monkeypatch.setenv("CICADA_ALLOW_CONNECTOR_FETCH", "off")
+    _sync(c, _ab_book("A2", "Quiet Engines", "Bea Sample"))
+    _run(memory)
+    assert calls == []
