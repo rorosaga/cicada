@@ -78,6 +78,33 @@ def identities(settings) -> frozenset[str]:
         return values
 
 
+def plan_identities() -> frozenset[str]:
+    """The signed-in plan account's identities for a call that is known to be a ``claude -p`` run: the same cached
+    read as :func:`identities`, without the settings gate. Used where the call itself is the proof (``agent_engine``)."""
+    global _cached
+    with _lock:
+        now = time.monotonic()
+        if _cached is not None and now - _cached[0] < TTL_S:
+            return _cached[1]
+        try:
+            values = frozenset(v.lower() for v in reader() if v)
+        except Exception:  # noqa: BLE001 - an unreadable sign-in costs the floor, never the run
+            values = frozenset()
+        _cached = (now, values)
+        return values
+
+
+def call_leaks(request_text: str, outputs: Iterable, ids: frozenset[str] | None = None) -> bool:
+    """True when anything a ``claude -p`` call produced (its reply, each tool input such as a web search's query)
+    says a plan identity form the call's own request did not. The one check at the one door every child run passes
+    through (``agent_engine.complete``), so no caller has to remember it. Nothing about the match is returned."""
+    ids = plan_identities() if ids is None else ids
+    if not ids:
+        return False
+    bad = foreign(ids, request_text)
+    return bool(bad) and any(carries(out, bad) for out in outputs)
+
+
 async def aidentities(settings) -> frozenset[str]:
     """:func:`identities` for async code: the read runs on a worker thread, so a cache miss (``claude auth status``,
     up to 10 s) never stalls the event loop, where a request handler such as the inbox conflict answer may be

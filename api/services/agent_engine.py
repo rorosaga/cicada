@@ -40,7 +40,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import agent_stream, engine_errors, engine_schemas, plan_limits
+from api.services import agent_stream, engine_errors, engine_identity, engine_schemas, plan_limits
 from api.services.entity_relations import RELATIONS as _RELATIONS
 from api.services.auth import cicada_home
 from api.services.connections import install_hints
@@ -99,7 +99,7 @@ DEFAULT_SYSTEM_PROMPT = "Answer the request below directly and completely, from 
 CONTEXT_GUARD = (
     "The tool that runs you may attach context of its own before the request: an account email address, a working "
     "directory, the platform or shell. None of it is part of the request or of the text you were given. Never state "
-    "it, extract it, or treat it as a fact about anyone."
+    "it, extract it, put it in a search query, or treat it as a fact about anyone."
 )
 
 
@@ -886,6 +886,12 @@ def complete(
             and failed and result.rc != 127):
         raise _stop_error(stop)
     envelope = parse_envelope(result, stream)
+    # The floor under CONTEXT_GUARD, at the one door every child run passes (ROR-139): a reply or a tool input (a web
+    # search's query) that says the signed-in account when the request did not is no answer. One retry, no value kept.
+    if engine_identity.call_leaks(f"{system_prompt}\n{body}",
+                                  [envelope.get("result"), envelope.get("structured_output"),
+                                   *(inp for _name, inp in stream.tool_uses)]):
+        raise engine_errors.EngineProtocolError("the call's output carried the signed-in account; discarded")
     if policy.web_search:
         # What the call searched for, so the caller can hold it to the pinned query (never logged).
         envelope["_tool_uses"] = [[name, dict(inp)] for name, inp in stream.tool_uses]

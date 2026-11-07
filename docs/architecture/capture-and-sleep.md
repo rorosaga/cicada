@@ -3566,6 +3566,15 @@ extraction prompt, or the merge's own input. An address or a full name the perso
 rail places its span as before. The account's profile name is not filtered on its own, because it is often the
 owner's own page.
 
+**Every child run is held at the one door (ROR-139, 2026-11-07).** The same account leaked outside Sleep: a scratch
+memory's Ask reply and a web search's query named the signed-in account's owner (reproduced; the CLI's `userEmail`
+block reaches a child run under every pinned flag, and `ANTHROPIC_UNIX_SOCKET` is the only switch that drops it, so
+it cannot be used). `agent_engine.complete` now checks each call's reply and every tool input (a search's query)
+with `engine_identity.call_leaks`, against the request text it sent: a form the request did not say voids the call
+(`EngineProtocolError`, one retry), so no caller needs its own floor and Ask and the settling agent are covered. The
+check is by the address's forms only; a first name alone, or the profile name, is not read, and a query already sent
+cannot be recalled, only its results discarded. `CONTEXT_GUARD` also says never to put it in a search query.
+
 **The engine's own runtime is never a page.** The `claude -p` CLI still tells the model its cwd, platform and shell despite `--system-prompt` (probed 2.1.x; `--exclude-dynamic-system-prompt-sections` is ignored with it), so the extraction prompt says that is not conversation content and Stage 2 drops, with a text-free debug line, any entity named for `$CICADA_HOME` or a path under it (`agent_engine.is_runtime_path`; the scratch dir is one).
 
 **The owner is never a page of a pronoun (G169).** One closed, language-aware list of self-reference spellings
