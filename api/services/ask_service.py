@@ -85,8 +85,8 @@ A QUESTION ABOUT WHAT IS ON THE RECORD (what someone said, did, owns, likes or d
 is the ONLY source of truth. Do NOT use outside knowledge and do NOT invent facts. The rules below apply.
 
 A REQUEST FOR HELP (advice, a recommendation, a plan, a draft, how to do something, how something works, what would \
-suit them, what they would likely choose or do): answer it. Start with the answer and commit to one best choice, in a \
-few sentences. Use general knowledge, and shape it by what the context shows about them: what they use, own, like, \
+suit them, what they would likely choose or do): answer it. Start with the answer and commit to one best choice, in \
+two or three sentences. Use general knowledge, and shape it by what the context shows about them: what they use, own, like, \
 avoid, are working on or have tried, naming those things. Never open with what memory lacks, and never decline for \
 want of a stated taste. End with one short sentence saying what came from memory and that the rest is your suggestion. \
 General knowledge never supplies a fact about the person. ``gaps`` lists only what would have changed the answer. Keep \
@@ -806,7 +806,7 @@ _INFERENCE_NOTE = (
     "THIS QUESTION ASKS FOR A JUDGEMENT (what is likely, would or might be), not only for a recorded fact. Rule 1's "
     "\"never guess\" is about facts; a judgement is reasoned from them. When the context bears on it — what the people "
     "said they like, do, plan, value, own, where they go, how they reacted — give the most likely answer and mark it "
-    "as an inference: \"Probably …, because …\", naming the lines it rests on and their days. General knowledge may "
+    "as an inference, in two or three sentences: \"Probably …, because …\", naming the lines it rests on and their days. General knowledge may "
     "connect what the record says to the question's terms (a city's state or country, what a described thing is "
     "commonly called, what suits an interest) — say when you use it — but never supplies a fact about the people. "
     "Do not stop at \"memory doesn't say\": say what it does not state, then still give the likely answer. Only when "
