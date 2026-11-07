@@ -215,3 +215,31 @@ def test_a_page_made_before_the_doors_field_is_known_by_its_apple_books_block():
 def test_an_identifier_is_not_a_title():
     assert books.id_title("09BBED25F11B9396") and books.id_title("2412.06769v2")
     assert not books.id_title("Essentialism: The Disciplined Pursuit of Less") and not books.id_title("1984")
+
+
+def test_lookup_names_reads_the_same_name_in_catalogue_order():
+    names = books.lookup_names
+    assert names("T", ["Mckeown, Greg"]) == ("T", ["Greg Mckeown"])
+    assert names("T", ["Bostrom, Nick;"]) == ("T", ["Nick Bostrom"])
+    assert names("T", ["A. One & Two, Bee; C. Three and D. Four"])[1] == ["A. One", "Bee Two", "C. Three", "D. Four"]
+    assert names("T", ["King, Martin Luther, Jr."])[1] == ["King, Martin Luther, Jr."]   # not one comma: left alone
+    assert names("Superintelligence_ Paths, Dangers -- Nick Bostrom -- 2014", [])[0] == "Superintelligence: Paths, Dangers"
+    assert names("Plain Title", ["Plain Author"]) == ("Plain Title", ["Plain Author"])
+
+
+def test_confident_match_is_exact_after_normalising():
+    docs = {"docs": [_doc("OL1W", "Essentialism", ["Greg McKeown"])]}
+    assert book_lookup.confident_match(docs, "Essentialism", ["Mckeown, Greg"])["match"]["work_id"] == "OL1W"
+    # any one of several authors; a different person or a near-miss name is still no match
+    two = {"docs": [_doc("OL2W", "Grit", ["Angela Duckworth", "Someone Else"])]}
+    assert book_lookup.confident_match(two, "Grit", ["Duckworth, Angela"])["match"]
+    assert book_lookup.confident_match(docs, "Essentialism", ["Greg McKeon"])["match"] is None
+    # a file name's title is cleaned, then compared exactly
+    named = {"docs": [_doc("OL3W", "Superintelligence", ["Nick Bostrom"], subtitle="Paths, Dangers, Strategies")]}
+    got = book_lookup.confident_match(named, "Superintelligence_ Paths, Dangers, Strategies -- Nick Bostrom -- 2014",
+                                      ["Bostrom, Nick;"])
+    assert got["match"]["work_id"] == "OL3W"
+
+
+def test_key_is_the_same_for_the_same_name_in_either_order():
+    assert book_lookup.title_key("Essentialism", ["Mckeown, Greg"]) == book_lookup.title_key("Essentialism", ["Greg Mckeown"])
