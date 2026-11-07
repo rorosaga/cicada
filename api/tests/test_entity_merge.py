@@ -105,3 +105,20 @@ def test_merge_repoints_related_and_wikilinks_on_third_entity(tmp_path):
     assert "[[rorosaga]]" not in third
     assert "[[user]]" in third
     assert out["repointed_refs"] >= 1
+
+
+def test_merge_carries_a_loser_links_section(tmp_path):
+    """A page folded in with a Links section used to raise AttributeError (a bullet line is not a dict)."""
+    ents = tmp_path / "entities"; ents.mkdir()
+    _write(ents, "alpha", {"name": "Alpha", "type": "company", "status": "active", "confidence": 0.7,
+                           "source_episodes": ["ep_1"]},
+           "## Summary\nAlpha.\n\n## Links\n- [Site](https://alpha.example) — home\n")
+    _write(ents, "beta", {"name": "Beta", "type": "company", "status": "active", "confidence": 0.7,
+                          "source_episodes": ["ep_2"]},
+           "## Summary\nBeta.\n\n## Links\n- [Repo](https://git.example/beta) — code\n- [Site](https://alpha.example)\n")
+
+    merge_entities(tmp_path, loser_id="beta", winner_id="alpha")
+
+    win = (ents / "alpha.md").read_text()
+    assert "[Repo](https://git.example/beta) — code" in win
+    assert win.count("https://alpha.example") == 1        # deduped by URL
