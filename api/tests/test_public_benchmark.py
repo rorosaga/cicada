@@ -400,3 +400,106 @@ def test_a_failed_last_model_call_marks_the_answer_failed(tmp_path):
     assert calls.spent.last_failed
     calls.record("ask", "haiku", 1.0, True, tokens={"input_tokens": 1, "output_tokens": 1})
     assert not calls.spent.last_failed
+
+
+# --- PersonalizationV4 and PersonaMem-v2 (personalization, graded against the reference) --------------------------
+
+def _pv4_sample(path):
+    users = {"126": {"documents": ["Leo: I like quiet mornings.\nAssistant: Noted, quiet it is.",
+                                   "Leo: I stretch before welding.\nAssistant: Good habit."],
+                     "questions": [{"question": f"Q{i}?", "answer": ans, "choices": ["short", ans, "mid one", "", "x"],
+                                    "hard": i == 0} for i, ans in enumerate(["the longest candidate answer here",
+                                                                             "another quite long candidate"])]}}
+    path.write_text(json.dumps({"users": users}))
+
+
+def test_personalizationv4_loader_splits_chats_orders_questions_and_keeps_choices(tmp_path):
+    path = tmp_path / "pv4.json"
+    _pv4_sample(path)
+    [unit] = datasets.personalizationv4_units(path)
+    assert unit["unit_id"] == "pv4-u126" and unit["dataset"] == "personalizationv4" and unit["owner"] is None
+    first, second = unit["sessions"]
+    assert [t["speaker"] for t in first["turns"]] == ["user", "assistant"]
+    assert first["turns"][0]["text"] == "I like quiet mornings." and "Leo" not in first["turns"][0]["text"]
+    assert first["date"] < second["date"] < unit["clock"]
+    assert sorted(q["category"] for q in unit["questions"]) == ["hard", "standard"]
+    assert all(q["answer"] in q["choices"] and not q["abstention"] for q in unit["questions"])
+    # a repeated slice is the same questions
+    assert datasets.personalizationv4_units(path)[0]["questions"] == unit["questions"]
+    with pytest.raises(ValueError):
+        users = json.loads(path.read_text())
+        users["users"]["126"]["documents"][0] = "not a chat"
+        path.write_text(json.dumps(users))
+        datasets.personalizationv4_units(path)
+
+
+def test_personamem_loader_drops_the_system_prompt_and_pairs_the_chats(tmp_path, monkeypatch):
+    cache = tmp_path / "cache"
+    hist = datasets.history_dir(cache)
+    hist.mkdir(parents=True)
+    history = {"metadata": {}, "chat_history": [
+        {"role": "system", "content": "persona profile that must never reach memory"},
+        {"role": "user", "content": "Help me with my email."}, {"role": "assistant", "content": "Here it is."},
+        {"role": "user", "content": "Do I have allergies?"}, {"role": "assistant", "content": "Pollen, you said."}]}
+    (hist / "persona7.json").write_text(json.dumps(history))
+    monkeypatch.setitem(datasets.SOURCES["personamem-v2"], "histories",
+                        {"7": {"path": "x", "sha256": datasets.sha256(hist / "persona7.json")}})
+    rows = [{"persona_id": "7", "user_query": repr({"role": "user", "content": "How do I air out the house?"}),
+             "correct_answer": "Keep the windows shut in spring.", "incorrect_answers": json.dumps(["Open them all.", "Nothing."]),
+             "pref_type": "health_and_medical_conditions",
+             "related_conversation_snippet": json.dumps([{"role": "user", "content": "Do I have allergies?"}])},
+            {"persona_id": "8", "user_query": "{}", "correct_answer": "", "incorrect_answers": "[]", "pref_type": "x",
+             "related_conversation_snippet": ""}]
+    csv_path = tmp_path / "pm2.csv"
+    import csv
+    with csv_path.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+    [unit] = datasets.personamem_units(csv_path, cache)
+    assert unit["unit_id"] == "pm2-p7" and len(unit["sessions"]) == 2
+    assert "persona profile" not in json.dumps(unit["sessions"])
+    [q] = unit["questions"]
+    assert q["question"] == "How do I air out the house?" and q["category"] == "health_and_medical_conditions"
+    assert q["choices"][0] == q["answer"] and len(q["choices"]) == 3
+    from benchmarks.public.unit import evidence_turns
+    assert evidence_turns(unit, q) == ["Do I have allergies?"]
+
+
+def test_leak_check_scores_choice_rules_with_ties_and_chance():
+    sets = [{"qid": "a", "answer": "the longest one", "choices": ["short", "the longest one", "mid", "", "x"]},
+            {"qid": "b", "answer": "tiny", "choices": ["tiny", "big one here", "another big", "x", "yy"]},
+            {"qid": "c", "answer": "same", "choices": ["same", "diff"]}]
+    res = datasets.leak_check(sets)
+    assert res["n"] == 3 and res["longest"] == round(100 * (1 + 0 + 0.5) / 3, 1)
+    assert res["shortest"] == round(100 * (0 + 0 + 0.5) / 3, 1)
+    assert res["chance"] == round(100 * (1 / 4 + 1 / 5 + 1 / 2) / 3, 1)
+    assert datasets.leak_check(sets, seed=3) == datasets.leak_check(sets, seed=3)
+    assert datasets.leak_check(sets, slots=False)["reference_slot"] is None
+
+
+def test_personalizationv4_chat_with_no_reply_keeps_the_persons_words(tmp_path):
+    path = tmp_path / "pv4.json"
+    _pv4_sample(path)
+    users = json.loads(path.read_text())
+    uid = next(iter(users["users"]))
+    users["users"][uid]["documents"][0] = "Leo: A note with no reply."
+    path.write_text(json.dumps(users))
+    [unit] = datasets.personalizationv4_units(path)
+    assert [(t["speaker"], t["text"]) for t in unit["sessions"][0]["turns"]] == [("user", "A note with no reply.")]
+
+
+def test_personalization_judge_reads_the_reference_not_the_choices(tmp_path):
+    prompt = judges.personal_prompt("What would she do?", "Skip the party to rest.", "She rests at home.")
+    assert "Reference answer: Skip the party to rest." in prompt and "Model response: She rests at home." in prompt
+    assert judges.parse_lme("Yes") and not judges.parse_lme("no")
+
+
+def test_report_gain_above_closed_book_counts_only_questions_both_graded():
+    judged = [{"qid": q, "path": p, "correct": c} for q, p, c in [
+        ("1", "ask", True), ("1", "closed-book", False), ("2", "ask", True), ("2", "closed-book", True),
+        ("3", "ask", False), ("3", "closed-book", True), ("4", "ask", True), ("4", "closed-book", None)]]
+    paths = {"ask": {}, "closed-book": {}}
+    g = report.gain_over_closed_book(paths, judged, {})["ask"]
+    assert g == {"n": 3, "right": 2, "closed_book_right": 2, "gain_points": 0.0, "only_this": 1, "only_closed_book": 1}
+    assert report.gain_over_closed_book({"ask": {}}, judged, {}) == {}

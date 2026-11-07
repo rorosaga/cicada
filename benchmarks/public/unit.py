@@ -297,7 +297,7 @@ async def run_unit(job: dict) -> int:
     from api.config import Settings
     from benchmarks.system.runtime import CLOCK_MODULES, Runtime
 
-    from . import judges
+    from . import datasets, judges
 
     unit = json.loads(Path(job["unit_path"]).read_text(encoding="utf-8"))
     bank, out = Path(job["bank"]), Path(job["out_dir"])
@@ -385,7 +385,7 @@ async def run_unit(job: dict) -> int:
     # A failed answer is retried on every run until it succeeds; it is never silently dropped.
     todo = answers_to_do(unit["questions"], paths, answers.rows)
     calls.phase = "answer"
-    if todo and {"ask", "recall", "hook"} & set(paths):
+    if todo and {"ask", "recall", "hook", "agent-recall", "agent-hook"} & set(paths):
         from api.services import search_index
 
         search_index.ensure_fresh(bank, wait=True)   # what the running backend keeps fresh; never a half-built index
@@ -448,7 +448,7 @@ async def run_unit(job: dict) -> int:
                      "model_called": prompt is not None, "context_ms": seen.get("context_ms"),
                      **evidence_shown(unit, q, prompt or "")}
             prompts.add({"key": f"{q['qid']}|{path}", "prompt": prompt})
-        if path in ("recall", "hook"):
+        if path in ("recall", "hook", "agent-recall", "agent-hook"):
             # What an agent holding only this door's words read: the note's own size beside the call's tokens.
             shown = seen.get("door") or ""
             extra = {"door_chars": len(shown), **evidence_shown(unit, q, shown)}
@@ -481,6 +481,8 @@ async def run_unit(job: dict) -> int:
                                            "question's premise is not supported.", hyp, abstention=True)
             else:
                 prompt = judges.mem0_prompt(q["question"], q["answer"], hyp)
+        elif unit["dataset"] in datasets.PERSONAL_DATASETS:
+            prompt = judges.personal_prompt(q["question"], q["answer"], hyp)
         else:
             prompt = judges.lme_prompt(q["category"], q["question"], q["answer"], hyp, abstention=q["abstention"])
         try:
@@ -528,6 +530,13 @@ class SamePrompt(BaseException):
 CLOSED_BOOK_PROMPT = ("Answer the question as well as you can from general knowledge. You have no memory of this "
                       "person or their conversations. Give your best guess in one or two sentences. Reply with JSON: "
                       '{"answer": "<your answer>"}')
+
+
+#: An agent with its own knowledge and one door's words: how a person's agent meets a request that is not a lookup. Same
+#: length as closed-book, so a gain over it is what the memory added.
+AGENT_PROMPT = ("Answer the person as well as you can from general knowledge. WHAT MEMORY HANDED OVER is what your memory "
+                "of this person gave you for this message: use what fits them, ignore what does not. Give your answer in "
+                'one or two sentences. Reply with JSON: {"answer": "<your answer>"}')
 
 
 def door_reach(bank: Path, unit: dict, q: dict) -> dict:
@@ -615,9 +624,10 @@ def make_answerers(bank: Path, settings, transcript: str, *, wrong_bank: str | N
         parsed = json_parse.parse_json_object(resp.choices[0].message.content or "")
         return parsed if isinstance(parsed, dict) else {"answer": resp.choices[0].message.content or ""}
 
-    def over_door(question: str, door: str) -> dict:
+    def over_door(question: str, door: str, system: str | None = None) -> dict:
         """An agent holding only one door's words answers: what that door is worth, and what it costs. Same rules as
-        Ask's answer. A door that says nothing leaves the question, as an agent would have it."""
+        Ask's answer unless ``system`` says otherwise. A door that says nothing leaves the question, as an agent would
+        have it."""
         from api.services import hook_recall, json_parse, mcp_tools
         from api.services.claims import current_day
 
@@ -629,14 +639,16 @@ def make_answerers(bank: Path, settings, transcript: str, *, wrong_bank: str | N
         prompt = (f"QUESTION:\n{question}\n\nCURRENT LOCAL DAY: {current_day().isoformat()}\n"
                   f"WHAT MEMORY HANDED OVER:\n\n{text or '(nothing)'}")
         fn = providers.resolve_llm_fn(settings, stage="answer_control", is_async=False)
-        resp = fn(messages=[{"role": "system", "content": ask_service.ASK_SYSTEM_PROMPT},
+        resp = fn(messages=[{"role": "system", "content": system or ask_service.ASK_SYSTEM_PROMPT},
                             {"role": "user", "content": prompt}], response_format={"type": "json_object"})
         parsed = json_parse.parse_json_object(resp.choices[0].message.content or "")
         out = parsed if isinstance(parsed, dict) else {"answer": resp.choices[0].message.content or ""}
         return {**out, "_bench": {"door": text}}
 
     return {"ask": ask, "full-context": full_context, "closed-book": closed_book, "wrong-bank": wrong,
-            "recall": lambda q, _qid: over_door(q, "recall"), "hook": lambda q, _qid: over_door(q, "hook")}
+            "recall": lambda q, _qid: over_door(q, "recall"), "hook": lambda q, _qid: over_door(q, "hook"),
+            "agent-recall": lambda q, _qid: over_door(q, "recall", AGENT_PROMPT),
+            "agent-hook": lambda q, _qid: over_door(q, "hook", AGENT_PROMPT)}
 
 
 def build_indexes(bank: Path) -> None:
@@ -658,6 +670,12 @@ def evidence_turns(unit: dict, q: dict) -> list[str]:
         wanted = {e.strip() for raw in q.get("evidence") or [] for e in str(raw).replace(",", ";").split(";")
                   if e.strip()}
         return [t["text"] for s in unit["sessions"] for t in s["turns"] if t.get("dia_id") in wanted]
+    from .datasets import PERSONAL_DATASETS
+
+    if unit["dataset"] in PERSONAL_DATASETS:
+        # PersonaMem-v2 gives the conversation turns that show the preference; PersonalizationV4 gives none.
+        wanted = [_norm(e) for e in q.get("evidence_texts") or [] if e.strip()]
+        return [t["text"] for s in unit["sessions"] for t in s["turns"] if _norm(t["text"]) in wanted]
     sids = set(q.get("evidence") or [])
     return [t["text"] for s in unit["sessions"] if s["source_id"].rsplit(":", 1)[-1] in sids
             for t in s["turns"] if t.get("has_answer")]

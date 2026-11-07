@@ -40,6 +40,28 @@ def _pct(hits: int, n: int) -> float | None:
     return round(100.0 * hits / n, 1) if n else None
 
 
+def gain_over_closed_book(paths: dict, judged: list[dict], cfg: dict) -> dict:
+    """Each path's accuracy beside closed-book's, over the questions both have a verdict on: right counts, the points
+    gained, and the questions only one of them got right. A personalization question can be answered by general
+    knowledge and by guessing what the question implies, so the memory's worth is this gain, not the accuracy."""
+    if "closed-book" not in paths:
+        return {}
+    verdicts = {p: {r["qid"]: r["correct"] for r in judged if r["path"] == p and r["correct"] is not None}
+                for p in paths}
+    base = verdicts["closed-book"]
+    out = {}
+    for path in paths:
+        if path == "closed-book":
+            continue
+        both = [q for q in verdicts[path] if q in base]
+        this, closed = sum(verdicts[path][q] for q in both), sum(base[q] for q in both)
+        out[path] = {"n": len(both), "right": this, "closed_book_right": closed,
+                     "gain_points": round(100.0 * (this - closed) / len(both), 1) if both else None,
+                     "only_this": sum(1 for q in both if verdicts[path][q] and not base[q]),
+                     "only_closed_book": sum(1 for q in both if base[q] and not verdicts[path][q])}
+    return out
+
+
 def summarize(run_dir: Path) -> dict:
     cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
     judged, answers, calls, units, expected = [], [], [], [], []
@@ -118,9 +140,10 @@ def summarize(run_dir: Path) -> dict:
     for c in calls:
         by_phase[c["phase"]]["calls"] += 1
         by_phase[c["phase"]]["seconds"] = round(by_phase[c["phase"]]["seconds"] + c["seconds"], 1)
+    gain = gain_over_closed_book(paths, judged, cfg)
     doors = door_stats([row for unit_dir in sorted((run_dir / "units").glob("*")) if (run_dir / "units").is_dir()
                         for row in _rows(unit_dir / "doors.jsonl")])
-    return {"config": cfg, "units": units, "paths": paths, "doors": doors, "calls_by_stage": dict(cost),
+    return {"config": cfg, "units": units, "paths": paths, "gain_over_closed_book": gain, "doors": doors, "calls_by_stage": dict(cost),
             "calls_by_phase": dict(by_phase), "calls_total": len(calls),
             "sleep_wall_seconds": round(sum(u["sleep_seconds"] or 0 for u in units), 1)}
 
@@ -270,12 +293,19 @@ def render(s: dict) -> str:
             f1 = f"  F1 {c['f1']}" if locomo and c.get("f1") is not None else ""
             lines.append(f"    {cat:28} {str(c['accuracy']):>6}%  (n={c['n']}){f1}"
                          + (f"  ungraded {c['ungraded']}" if c["ungraded"] else ""))
+    for path, g in (s.get("gain_over_closed_book") or {}).items():
+        lines.append(f"\n  {path} above closed-book: {g['right']} v {g['closed_book_right']} right of {g['n']} "
+                     f"({g['gain_points']:+} points) · only {path} right {g['only_this']}, only closed-book right "
+                     f"{g['only_closed_book']}")
     if s.get("doors"):
         lines.append(render_doors(s["doors"]))
     lines.append(f"\n  plan calls: {s['calls_total']} · Sleep wall {s['sleep_wall_seconds']} s")
     for phase, c in sorted(s["calls_by_phase"].items()):
         lines.append(f"    {phase:8} {c['calls']:5} calls  {c['seconds']:8.1f} call-seconds")
-    if locomo:
+    if cfg["dataset"] in ("personalizationv4", "personamem-v2"):
+        lines.append("\n  Graded by the judge against the reference answer, not by the nearest choice: not comparable "
+                     "with the papers' accuracy. Read a path by its gain above closed-book.")
+    elif locomo:
         lines.append("\n  Published LoCoMo J (categories 1-4, gpt-4o-mini readers, different judges): Mem0 66.9, "
                      "Mem0g 68.4, full-context 72.9, Zep 75.1 (its re-run), Letta filesystem 74.0. Indicative only.")
     else:
