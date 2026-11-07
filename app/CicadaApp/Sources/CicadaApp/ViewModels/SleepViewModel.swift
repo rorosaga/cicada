@@ -664,6 +664,33 @@ final class SleepViewModel {
     @discardableResult
     func bankTask(_ work: @escaping @MainActor () async -> Void) -> Task<Void, Never> { store.bankTask(work) }
 
+    /// The lamp's two doors (the room's popover and the switch beside the schedule line) share this one state and this
+    /// one write, so they cannot disagree: the value in flight (`nil` when none), a failed write's caption, and the click.
+    var lampWriting: Bool?
+    var lampWriteFailed = false
+    @ObservationIgnored var lampSound = LampSound()
+
+    /// The lamp is on as the page shows it: the value in flight if a write is out, else the schedule the backend has.
+    var lampSwitchOn: Bool { lampWriting ?? ScheduleToggle.isOn(schedule) }
+
+    /// Light or darken the lamp: the ONE rule (`ScheduleToggle`) through `updateSchedule`. On a failed write the
+    /// schedule is still the backend's and the caption shows; the click plays only when the lamp really changed.
+    @discardableResult
+    func setLamp(_ on: Bool) -> Task<Void, Never>? {
+        guard lampWriting == nil else { return nil }
+        let was = ScheduleToggle.isOn(schedule)
+        lampWriting = on
+        lampWriteFailed = false
+        return bankTask { [self] in
+            let landed = await updateSchedule(ScheduleToggle.toggled(on: on, current: schedule))
+            lampWriteFailed = !landed
+            lampWriting = nil
+            if landed, ScheduleToggle.isOn(schedule) != was {
+                lampSound.click(on: ScheduleToggle.isOn(schedule), inDemo: DemoMode.isActive(store.banks.value))
+            }
+        }
+    }
+
     @discardableResult
     func updateSchedule(_ new: ScheduleConfig) async -> Bool {
         // G183(d): the schedule is per bank — the write names the bank it was asked for in: an enclosing binding
