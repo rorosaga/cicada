@@ -1471,3 +1471,41 @@ def test_newest_words_settle_only_a_plain_placement(memory):
         _commit(memory)
         d, why = _decide(memory, "inbox-001")
         assert why == "" and d.rule == "newest_words" and d.request["option_key"] == "b", newest
+
+
+# --------------------------------------------------------------------------- ruling 74: two independent signals join
+
+
+def _two_signal_pair(memory: Path, **tom_fm):
+    _entity(memory, "tomas", type="person", name="Tomás", status="active", source_episodes=["ep_2026-01-01_001"])
+    _entity(memory, "tom", type="person", name="Tom", status="active", aliases=["Tomás"],
+            source_episodes=["ep_2026-01-03_001"], **tom_fm)
+    _item(memory, "inbox-001", kind="merge_suggestion", entity_id="tom", entity_name="Tom",
+          merge_target_hint="tomas", suggested_classification="person", detected="person_duplicate")
+    _commit(memory)
+
+
+def test_two_independent_signals_settle_a_same_person_question_and_it_is_undoable(memory):
+    _two_signal_pair(memory)
+    d, _ = _decide(memory, "inbox-001")
+    assert d.rule == "two_signals" and d.request == {"action": "merge", "merge_target": "tomas"}
+    assert "independent signals" in d.reason and d.rule in inbox_tend.ENGINE_FREE and d.rule in inbox_tend.RULES
+    assert _settle(memory, d)
+    assert not (memory / "entities" / "tom.md").exists()
+    restored, _paths, _lines, _rec = inbox_tend.undo(memory, "inbox-001")
+    assert restored == "inbox-001" and (memory / "entities" / "tom.md").exists()
+    _commit(memory)
+    assert _decide(memory, "inbox-001") == (None, "undone")        # the person took it back: Sleep never settles it again
+
+
+def test_one_signal_or_a_person_who_said_no_is_never_settled(memory):
+    from api.services import merge_rejections
+
+    _entity(memory, "texim", type="person", name="Texim", status="active")
+    _entity(memory, "tikzim", type="person", name="Tikzim", status="active")
+    _item(memory, "inbox-002", kind="merge_suggestion", entity_id="texim", entity_name="Texim",
+          merge_target_hint="tikzim", suggested_classification="person", detected="person_duplicate")
+    _two_signal_pair(memory)
+    assert _decide(memory, "inbox-002") == (None, "person")
+    merge_rejections.add_rejected(memory, "tom", "tomas")
+    assert _decide(memory, "inbox-001") == (None, "person")

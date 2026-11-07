@@ -36,7 +36,8 @@ words are already the question's cause or one option's evidence).
 * everything else — a clarification, a follow-up on a project they started, a proposed edit — stays for the person (move
   1 aside).
 
-Never a question about who a person is, or merging two people, without the person's own words on the record (move 1).
+Never a question about who a person is, or merging two people, without the person's own words on the record (move 1) —
+except two pages that two independent kinds of evidence join (ruling 74, ``two_signals``, ``person_duplicates``).
 
 **3 — Answered already, anywhere in the record** (:func:`read_record_answer`, part 2, 2026-10-17). A clarification,
 a follow-up or a conflict still open after moves 1 and 2 is looked for across the whole bank, not just the batch: the
@@ -116,6 +117,7 @@ RULES: dict[str, str] = {
     "named_account": "You gave this link for them in your own words",
     "owner_unsaid": "Nothing you said names you that: it is not a question about you",
     "no_pair_evidence": "No conversation names the two together",
+    "two_signals": "Two separate kinds of evidence say these are one person",
     "not_started": "It is not one of your projects",
     "same_value": "The same value, said two ways",
     "moved_on": "It moved: the latest is current, the earlier ones are kept as past",
@@ -129,7 +131,7 @@ RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
                          "multi_valued", "in_passing", "newest_words", "own_settings", "named_account",
-                         "owner_unsaid", "no_pair_evidence", "not_started", "same_value", "moved_on",
+                         "owner_unsaid", "no_pair_evidence", "two_signals", "not_started", "same_value", "moved_on",
                          "own_bookkeeping", "already_described", "not_fading"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
@@ -362,7 +364,7 @@ def _merge_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | N
         # Owner 2026-11-04 (`pair_evidence`): a question that should never have been asked is retired, nothing
         # written — the owner's page beside someone with no words of theirs naming themselves so, or two people no
         # conversation names together. Never a merge and never "different": who someone is stays the person's.
-        from api.services import pair_evidence
+        from api.services import pair_evidence, person_duplicates
 
         verdict = pair_evidence.judge(
             memory_path, a_id=str(fm.get("entity_id") or ""), a_name=str(fm.get("entity_name") or ""),
@@ -371,6 +373,18 @@ def _merge_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | N
         if not verdict.ask:
             return Decision(item_id, "merge_suggestion", verdict.reason, None, answer=RETIRED[verdict.reason],
                             guard=_guard(memory_path, str(fm.get("entity_id") or ""), target[0].stem)), ""
+        # Ruling 74 (owner 2026-11-07): two pages joined when two independent kinds of evidence agree and a
+        # conversation naming both is not what raised the pair (`person_duplicates.join_reason`). Everything else
+        # about who someone is stays the person's (move 1).
+        why = ""
+        if (verdict.episode is None and mention is not None
+                and not _is_owner_page(target[1]) and not _is_owner_page(mention_fm)):
+            why = person_duplicates.join_reason(memory_path, mention[0].stem, target[0].stem)
+        if why:
+            name = str(target[1].get("name") or target[0].stem)
+            return Decision(item_id, "merge_suggestion", "two_signals",
+                            {"action": "merge", "merge_target": target[0].stem}, answer=f"Same as {name}",
+                            guard=_guard(memory_path, mention[0].stem, target[0].stem), reason=why), ""
         return None, "person"     # who someone is: only the person's own words settle it (move 1)
     if mention is not None and mention[0] == target[0]:
         return None, "same_page"
@@ -2557,6 +2571,7 @@ VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
     "named_account": (frozenset({"clarification"}), frozenset({"resolve"})),
     "owner_unsaid": (frozenset({"merge_suggestion"}), frozenset({None})),
     "no_pair_evidence": (frozenset({"merge_suggestion"}), frozenset({None})),
+    "two_signals": (frozenset({"merge_suggestion"}), frozenset({"merge"})),
     "not_started": (frozenset({"followup"}), frozenset({None})),
     "same_value": (frozenset({"conflict"}), frozenset({"resolve"})),
     "moved_on": (frozenset({"conflict"}), frozenset({"resolve"})),

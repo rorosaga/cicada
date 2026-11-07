@@ -3,9 +3,9 @@
 A misspelling ("Texim" / "Tikzim"), a nickname with nothing in common with the name ("a nickname"), a first name beside the
 full one ("Dana" / "Dana Example") were one person each and the inbox held no question for two of them, while
 the two it did hold sat among 659. This finds the pairs from the record alone — engine-free, no network, no word lists
-of any language — and the drain asks about the best few (:func:`propose`). A question only (the "Same person?" rail,
-ruling 41, G209): spelling, sound and shared facts are reasons to ask, never proof, and only the person's words join
-two pages. A private name goes to no service: nothing here leaves the bank's files.
+of any language — and the drain asks about the best few (:func:`propose`). A question (the "Same person?" rail,
+ruling 41, G209): spelling, sound and shared facts are reasons to ask, never proof, and the person's words join
+two pages — except two independent kinds of evidence (ruling 74, below). A private name goes to no service: nothing here leaves the bank's files.
 
 Signals (``Pair.signals``, enums), each language-neutral:
 
@@ -22,6 +22,13 @@ Signals (``Pair.signals``, enums), each language-neutral:
 
 ``together`` counts the conversations that name both pages. Being named together is evidence they are two (ruling 65 c):
 it lowers the score; it never raises it.
+
+**Two independent signals join (ruling 74, owner 2026-11-07).** Names that sound alike are one signal at most, never two
+(``INDEPENDENT``: ``sound``/``spelling``/``short_in_full`` are all the one *name* signal). Pages are joined by Sleep only
+when two *different* kinds of evidence agree — the name, one page listing the other's name as its own, the same
+account, a shared rare belief — and the pair is otherwise clean (:func:`join_reason`): never named together, neither
+page titled by a relation, neither page in any other candidate pair, nothing the person called two people. The join
+is the question's own settle (``inbox_tend``, rule ``two_signals``): undoable and listed under "Settled by Sleep".
 """
 from __future__ import annotations
 
@@ -135,6 +142,18 @@ class Page:
     role: bool = False          # titled by its relation to the owner ("Partner"): `role_people` owns that question
 
 
+#: Which kind of evidence each signal is. Three signals are the one name; the rest are each their own.
+INDEPENDENT = {"sound": "name", "spelling": "name", "short_in_full": "name", "alias": "alias",
+               "shared_source": "contact", "shared_facts": "belief"}
+#: The lowest score a pair may be joined at (the ask floor is 0.5).
+JOIN_FLOOR = 0.6
+
+
+def kinds_of(signals) -> list[str]:
+    """The distinct kinds of evidence behind a list of signals (``INDEPENDENT``)."""
+    return list(dict.fromkeys(INDEPENDENT[s] for s in signals if s in INDEPENDENT))
+
+
 @dataclass
 class Pair:
     a: str
@@ -144,6 +163,9 @@ class Pair:
     why: str
     together: int = 0
     asked: bool = False
+    #: Two independent kinds of evidence, never named together, no relation-titled page, and no other page shares a
+    #: candidate pair with either (set by :func:`candidates`).
+    joinable: bool = False
 
     @property
     def confidence(self) -> str:
@@ -292,9 +314,56 @@ def candidates(memory_path: Path, *, floor: float = LIST_FLOOR) -> list[Pair]:
                                            n=f" ({len(rare)})" if len(rare) > 1 else "") for s in signals)
             if together:
                 why += f"; named together in {together} conversation{'s' if together != 1 else ''}"
-            out.append(Pair(pa.id, pb.id, score, list(signals), why, together, pair in open_pairs))
+            joinable = (len(kinds_of(signals)) >= 2 and not together and not (pa.role or pb.role)
+                        and score >= JOIN_FLOOR)
+            out.append(Pair(pa.id, pb.id, score, list(signals), why, together, pair in open_pairs, joinable))
     out.sort(key=lambda p: (-p.score, p.a, p.b))
+    seen: dict[str, int] = {}
+    for p in out:
+        seen[p.a] = seen.get(p.a, 0) + 1
+        seen[p.b] = seen.get(p.b, 0) + 1
+    for p in out:
+        if p.joinable and (seen[p.a] > 1 or seen[p.b] > 1):
+            p.joinable = False       # a page with two candidates could be either: only the person says which
     return out
+
+
+_JOINS: dict[str, tuple[tuple, dict[tuple[str, str], str]]] = {}
+
+
+def _stamp(memory_path: Path) -> tuple:
+    out: list = []
+    for d in ("entities", "inbox"):
+        try:
+            out.append((memory_path / d).stat().st_mtime_ns)
+        except OSError:
+            out.append(0)
+    try:
+        from api.services import merge_rejections
+
+        out.append(tuple(sorted(merge_rejections.kept_apart(memory_path))))
+    except Exception:  # noqa: BLE001 — an unreadable list changes nothing here
+        pass
+    return tuple(out)
+
+
+def joins(memory_path: Path) -> dict[tuple[str, str], str]:
+    """The pairs Sleep may join on two independent signals, ``{(a, b) sorted: reason in words}``. Read again only when
+    a page, a question or a "two people" answer moved."""
+    memory_path = Path(memory_path)
+    key, stamp = str(memory_path.resolve()), _stamp(memory_path)
+    hit = _JOINS.get(key)
+    if hit and hit[0] == stamp:
+        return hit[1]
+    found = {tuple(sorted((p.a, p.b))): "; ".join([f"{len(kinds_of(p.signals))} independent signals", *p.why.split("; ")])
+             for p in candidates(memory_path) if p.joinable}
+    _JOINS[key] = (stamp, found)
+    return found
+
+
+def join_reason(memory_path: Path, a_id: str, b_id: str) -> str:
+    """Why Sleep may join two people pages (two independent signals), or "" when it may not."""
+    return joins(memory_path).get(tuple(sorted((a_id, b_id))), "")
 
 
 @dataclass
