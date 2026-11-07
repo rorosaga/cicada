@@ -19,9 +19,13 @@ for r in runs:
         for l in open(u+'/answers.jsonl'):
             a=json.loads(l)
             if a['path']!=path or a.get('error') or not a.get('answer'):continue
-            q=Q[a['qid']];items.append((r+'|'+a['key'],q,a['answer'],bool(V[a['key']]['correct'])))
+            q=Q[a['qid']]
+            if un['dataset']=='locomo':
+                items.append((r+'|'+a['key'],q,a['answer'],bool(V[a['key']]['correct'])));continue
+            items.append((r+'|'+a['key'],q,a['answer'],bool(V[a['key']]['correct'])))
 def one(it):
-    k,q,ans,st=it;p=J.personal_prompt(q['question'],q['answer'],ans);vs=[]
+    k,q,ans,st=it;vs=[]
+    p=J.mem0_prompt(q['question'],q['answer'],ans) if q.get('category_id') is not None else J.personal_prompt(q['question'],q['answer'],ans)
     for _ in range(N):
         t=''
         for _t in range(3):
@@ -29,7 +33,7 @@ def one(it):
                 t=fn(messages=[{'role':'user','content':p}]).choices[0].message.content or ''
                 if t.strip():break
             except Exception:pass
-        vs.append(J.parse_lme(t) if t.strip() else None)
+        vs.append((J.parse_mem0(t) if q.get('category_id') is not None else J.parse_lme(t)) if t.strip() else None)
     return dict(key=k,stored=st,votes=vs)
 t0=time.time()
 with cf.ThreadPoolExecutor(5) as ex: rows=list(ex.map(one,items))
