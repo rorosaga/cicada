@@ -1538,7 +1538,7 @@ def answer_query(
     source_words: bool = True,
     search_fn: Callable[[Path, str], "ask_sources.Searched"] | None = None,
 ) -> dict:
-    """Synthesize an auditable, gap-aware answer grounded only in retrieved memory.
+    """Synthesize an auditable, gap-aware answer; what it says about the person is grounded in retrieved memory.
 
     ``no_engine``: the engine the caller resolved would call an API model with no key
     (``engine_readiness.key_missing``); ``None`` asks the environment's settings when no ``llm_fn`` is given.
