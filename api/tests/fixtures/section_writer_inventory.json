@@ -265,7 +265,7 @@
     {
       "function": "_write_inbox",
       "method": "write",
-      "frontmatter": "{'kind': 'conflict', 'required_input': 'choice', 'status': 'pending', 'entity_id': 'alpha-project', 'entity_name': 'Alpha Project', 'title': 'What does Alpha Project use now?', 'question': 'What does Alpha Project use now?', 'predicate': 'uses', 'created_date': today, 'claim_id': 'clm_demo_new2', 'options': [{'key': 'a', 'label': 'Tool Example A', 'claim_id': 'clm_demo_old2'}, {'key': 'b', 'label': 'Tool Example B', 'claim_id': 'clm_demo_new2'}, {'key': 'both', 'label': 'Both are true (different contexts)'}]}",
+      "frontmatter": "{'kind': 'conflict', 'required_input': 'choice', 'status': 'pending', 'entity_id': 'alpha-project', 'entity_name': 'Alpha Project', 'title': 'What does Alpha Project use now?', 'question': 'What does Alpha Project use now?', 'predicate': 'uses', 'created_date': today, 'claim_id': 'clm_demo_new2', 'options': [{'key': 'a', 'label': 'Tern', 'claim_id': 'clm_demo_old2'}, {'key': 'b', 'label': 'Marginalia', 'claim_id': 'clm_demo_new2'}, {'key': 'both', 'label': 'Both are true (different contexts)'}]}",
       "disposition": "fresh_frontmatter_untracked"
     },
     {
@@ -277,7 +277,7 @@
     {
       "function": "_write_inbox",
       "method": "write",
-      "frontmatter": "{'kind': 'merge_suggestion', 'required_input': 'merge', 'status': 'pending', 'entity_name': 'Tool Example A (CLI)', 'entity_id': 'tool-example-a-cli', 'merge_target_hint': 'tool-example-a', 'source_episode': merge_source['id'], 'source_episode_timestamp': f\"{merge_source['date']}T09:00:00+00:00\", 'created_date': today}",
+      "frontmatter": "{'kind': 'merge_suggestion', 'required_input': 'merge', 'status': 'pending', 'entity_name': 'Tern (CLI)', 'entity_id': 'tool-example-a-cli', 'merge_target_hint': 'tool-example-a', 'source_episode': merge_source['id'], 'source_episode_timestamp': f\"{merge_source['date']}T09:00:00+00:00\", 'created_date': today}",
       "disposition": "fresh_frontmatter_untracked"
     },
     {
