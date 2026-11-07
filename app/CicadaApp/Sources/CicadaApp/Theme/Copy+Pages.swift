@@ -47,6 +47,10 @@ extension Copy {
         static let sourceUnavailable = "Couldn't read this source."
         /// ROR-129: the person's word that one fact stays, whatever its page does.
         static let keepFact = "Keep this fact"
+        /// ROR-129: the older part of a page — facts not mentioned lately, still on the record.
+        static let olderFacts = "Older"
+        static let olderExplained = "Not mentioned lately. It is still on the record; keep it to stop it fading."
+        static func keepNamed(_ fact: String) -> String { "\(keepFact): \(fact)" }
         static let factKept = "Kept"
         static let sourceMoved = "This line changed since the page was drawn. Its sources are being read again."
         static let fromConversation = "From this conversation"

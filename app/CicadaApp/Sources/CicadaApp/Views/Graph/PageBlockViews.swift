@@ -347,8 +347,9 @@ struct PageOngoing: View {
 struct PageBeliefSentences: View {
     let entityId: String
     let beliefs: [PageBlocks.Citations.Belief]
-    /// Nil: more than these, uncounted (the page's ledger holds the rest).
-    let total: Int?
+    /// The link past the sentences ("3 more in Perspectives"), if there is more than is drawn — decided by the card,
+    /// which counts the older facts too (`PageWords.moreBeliefs`).
+    var more: String? = nil
     var onMore: () -> Void = {}
     @State private var open: CiteKey?
 
@@ -369,12 +370,125 @@ struct PageBeliefSentences: View {
                     belief.refs.map { CiteKey(n: $0, claim: belief.claimId, inferred: belief.inferred) }
                 }, open: $open))
                 .popover(item: $open, arrowEdge: .bottom) { CitationPopover(entityId: entityId, key: $0) }
-                if let more = PageWords.moreBeliefs(shown: beliefs.count, total: total) {
+                if let more {
                     TextButton(title: more, inline: true, flushLeading: true, action: onMore)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+// MARK: Older facts (ROR-129, ruling 74)
+
+/// The facts that have faded, at the end of the article: quiet text in the tertiary ink, newest as the server sent
+/// them, never a fold (DR-81), never closed or hidden — Ask, recall and agents still read them as before. Each sentence
+/// opens a small popover with *Keep this fact* (the person's word that it stays), so the control is reachable even for a
+/// fact with no source marker; a source marker opens the citation popover, which carries the same control.
+struct PageOlderFacts: View {
+    let entityId: String
+    let facts: [PageBlocks.Citations.Belief]
+    /// "N more in Perspectives" past what is drawn, or nil.
+    var more: String? = nil
+    var onMore: () -> Void = {}
+    @State private var open: CiteKey?
+    @State private var keeping: String?
+
+    static let scheme = "cicada", host = "older"
+
+    static func url(_ claimId: String) -> URL? {
+        var parts = URLComponents()
+        parts.scheme = scheme
+        parts.host = host
+        parts.path = "/" + claimId
+        return parts.url
+    }
+
+    private var text: Text {
+        facts.reduce(Text(verbatim: "")) { out, fact in
+            var sentence = AttributedString(PageWords.sentence(fact))
+            sentence.foregroundColor = CicadaTheme.textTertiary
+            sentence.link = Self.url(fact.claimId)
+            let keys = fact.refs.map { CiteKey(n: $0, claim: fact.claimId, inferred: fact.inferred) }
+            return out + Text(sentence) + CitationMarks.text(keys) + Text(verbatim: " ")
+        }
+    }
+
+    var body: some View {
+        if !facts.isEmpty {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                SectionLabel(Copy.Pages.olderFacts)
+                text
+                    .font(CicadaTheme.bodyFont)
+                    .lineSpacing(CicadaTheme.scaled(2))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .environment(\.openURL, OpenURLAction { url in
+                        if url.scheme == Self.scheme, url.host == Self.host {
+                            keeping = String(url.path.dropFirst())
+                            return .handled
+                        }
+                        if let key = CiteKey(url: url) {
+                            open = key
+                            return .handled
+                        }
+                        return .systemAction
+                    })
+                    .modifier(KeepActions(facts: facts) { keeping = $0 })
+                    .popover(item: $open, arrowEdge: .bottom) { CitationPopover(entityId: entityId, key: $0) }
+                    .popover(item: Binding(get: { keeping.map(FactID.init) }, set: { keeping = $0?.id }),
+                             arrowEdge: .bottom) { fact in
+                        KeepFactPopover(entityId: entityId, claimId: fact.id)
+                    }
+                if let more {
+                    TextButton(title: more, inline: true, flushLeading: true, action: onMore)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private struct FactID: Identifiable { let id: String }
+
+    /// VoiceOver reaches each older fact's control without finding a link inside the paragraph.
+    private struct KeepActions: ViewModifier {
+        let facts: [PageBlocks.Citations.Belief]
+        let open: (String) -> Void
+
+        func body(content: Content) -> some View {
+            facts.reduce(AnyView(content)) { view, fact in
+                AnyView(view.accessibilityAction(named: Copy.Pages.keepNamed(fact.text)) { open(fact.claimId) })
+            }
+        }
+    }
+}
+
+/// What a faded sentence opens: it has not been mentioned lately, and the one control — *Keep this fact*.
+private struct KeepFactPopover: View {
+    let entityId: String
+    let claimId: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var kept = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text(Copy.Pages.olderExplained)
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            TextButton(title: kept ? Copy.Pages.factKept : Copy.Pages.keepFact) {
+                guard !kept else { return }
+                kept = true
+                Task {
+                    do {
+                        try await APIClient.shared.keepFact(entityId: entityId, claimId: claimId, keep: true)
+                        dismiss()
+                    } catch { kept = false }
+                }
+            }
+        }
+        .padding(CicadaTheme.spacingMD)
+        .frame(width: CicadaTheme.scaled(260), alignment: .leading)
     }
 }
 
