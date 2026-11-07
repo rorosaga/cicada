@@ -7,6 +7,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/fact_class_pass.py": [
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "dict(parsed.frontmatter or {})",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
   "services/org_sites.py": [
     {
       "function": "_write_page_locked",

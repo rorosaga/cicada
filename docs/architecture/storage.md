@@ -313,6 +313,12 @@ event) is the page's cue to dim it and fold it under "older"; `cicada_get_perspe
 A page that never fades raises no page-level "No recent mentions" item; a fact on it is charged **weekly**, not nightly
 (`FACT_CHARGE_MIN_DAYS`, measured: 1.5 MB against 9.8 MB packed a quarter on a 8.7k-line ledger). The one-time reset by real
 age is `api/scripts/reset_fact_clocks.py` (`fact_clock_reset`; dry run by default; marks a page `fact_clocks_reset`).
+Facts that exist before any class does get theirs from a **one-time class read**, run *before* the reset:
+`api/scripts/read_fact_classes.py` (`fact_class_pass`; dry run by default, with the calls, tokens and estimated cost;
+`--apply` makes them, 60 facts a call, and writes every answer, `active` too, as `class_by: model` in ONE commit under the
+model's name). Only open, non-event facts with no class on an evergreen page that is not media; never one the person set
+or one that has a class, so a second run asks nothing new; an answer outside the four stays classless. Refused while Sleep
+runs and on a metered key unless `--allow-metered`; the commit is the undo.
 
 **Both engines honor it.** `conflict_resolver.resolve_and_prune` skips evergreen entities outright —
 no decay math, no nudge, never auto-archived, so a bookmark can't generate a "still interested?"
