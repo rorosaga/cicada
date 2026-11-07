@@ -297,7 +297,7 @@ async def run_unit(job: dict) -> int:
     from api.config import Settings
     from benchmarks.system.runtime import CLOCK_MODULES, Runtime
 
-    from . import judges
+    from . import datasets, judges
 
     unit = json.loads(Path(job["unit_path"]).read_text(encoding="utf-8"))
     bank, out = Path(job["bank"]), Path(job["out_dir"])
@@ -481,6 +481,8 @@ async def run_unit(job: dict) -> int:
                                            "question's premise is not supported.", hyp, abstention=True)
             else:
                 prompt = judges.mem0_prompt(q["question"], q["answer"], hyp)
+        elif unit["dataset"] in datasets.PERSONAL_DATASETS:
+            prompt = judges.personal_prompt(q["question"], q["answer"], hyp)
         else:
             prompt = judges.lme_prompt(q["category"], q["question"], q["answer"], hyp, abstention=q["abstention"])
         try:
@@ -658,6 +660,12 @@ def evidence_turns(unit: dict, q: dict) -> list[str]:
         wanted = {e.strip() for raw in q.get("evidence") or [] for e in str(raw).replace(",", ";").split(";")
                   if e.strip()}
         return [t["text"] for s in unit["sessions"] for t in s["turns"] if t.get("dia_id") in wanted]
+    from .datasets import PERSONAL_DATASETS
+
+    if unit["dataset"] in PERSONAL_DATASETS:
+        # PersonaMem-v2 gives the conversation turns that show the preference; PersonalizationV4 gives none.
+        wanted = [_norm(e) for e in q.get("evidence_texts") or [] if e.strip()]
+        return [t["text"] for s in unit["sessions"] for t in s["turns"] if _norm(t["text"]) in wanted]
     sids = set(q.get("evidence") or [])
     return [t["text"] for s in unit["sessions"] if s["source_id"].rsplit(":", 1)[-1] in sids
             for t in s["turns"] if t.get("has_answer")]

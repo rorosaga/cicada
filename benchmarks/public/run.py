@@ -287,6 +287,25 @@ def _other_bank(run_dir: Path, cfg: dict, uid: str) -> str | None:
     return None
 
 
+def leaks_cmd(args) -> int:
+    """What the choices alone score, with no model and no memory (a personalization dataset): the longest choice, the
+    shortest, a seeded random pick and the exact chance level. A rule far above chance means the questions leak, and any
+    gain a memory shows must be read above it."""
+    lay = cache_layout(args.cache)
+    for name in datasets.PERSONAL_DATASETS if args.dataset == "all" else [args.dataset]:
+        sets = datasets.choice_sets(name, lay["data"])
+        res = datasets.leak_check(sets, seed=args.seed, slots=name == "personalizationv4")
+        print(f"{name}: {res['n']} questions · longest choice {res['longest']}% (by words {res['longest_words']}%) · "
+              f"shortest {res['shortest']}% · random pick (seed {args.seed}) {res['random']}% · chance {res['chance']}%"
+              + (f" · reference in slot {res['reference_slot']}" if res["reference_slot"] else ""))
+        hard = [q for q in sets if q.get("hard")]
+        if hard:
+            sub = datasets.leak_check(hard, seed=args.seed)
+            print(f"  hard subset: {sub['n']} questions · longest {sub['longest']}% · random {sub['random']}% · "
+                  f"chance {sub['chance']}%")
+    return 0
+
+
 def compare_cmd(args) -> int:
     """Per question, which of two runs (or two paths of one run) got what right. No model call."""
     a_run, b_run = Path(args.a).expanduser().absolute(), Path(args.b or args.a).expanduser().absolute()
@@ -350,6 +369,10 @@ def parser() -> argparse.ArgumentParser:
                                          "(default: yours; a separate signed-in folder works too)")
     r.add_argument("--fake-engine", action="store_true", help=argparse.SUPPRESS)   # offline test of the harness
     r.add_argument("--dataset-file", type=Path, help=argparse.SUPPRESS)          # with --fake-engine only
+    lk = sub.add_parser("leaks", help="what a personalization dataset's choices score with no model (no network)")
+    lk.add_argument("--cache", type=Path, required=True)
+    lk.add_argument("--dataset", choices=(*datasets.PERSONAL_DATASETS, "all"), default="all")
+    lk.add_argument("--seed", type=int, default=0)
     rep = sub.add_parser("report", help="re-aggregate a run folder")
     rep.add_argument("--run", required=True)
     cmp = sub.add_parser("compare", help="per question, which of two runs or paths got what right (no model call)")
@@ -362,7 +385,8 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    return {"prepare": prepare, "run": run, "report": report_cmd, "compare": compare_cmd}[args.cmd](args)
+    return {"prepare": prepare, "run": run, "report": report_cmd, "compare": compare_cmd,
+            "leaks": leaks_cmd}[args.cmd](args)
 
 
 if __name__ == "__main__":

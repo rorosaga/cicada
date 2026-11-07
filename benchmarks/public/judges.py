@@ -132,6 +132,27 @@ def parse_lme(reply: str) -> bool:
 
 
 # --------------------------------------------------------------------------------------------------------------- #
+# Personalization (PersonalizationV4, PersonaMem-v2): this harness's own protocol, not a published one
+# --------------------------------------------------------------------------------------------------------------- #
+
+#: The papers pick the candidate answer nearest the reply (an embedding); that rewards a reply for sounding like the
+#: longest, most detailed candidate. Here the judge reads the reply against the reference answer alone and says whether
+#: it commits to the same personal choice. The prompt is written for this harness; the judge model is named in the report.
+PERSONAL_TEMPLATE = ("I will give you a question about a particular person, a reference answer that fits what that "
+                     "person would most likely do or prefer, and a response from a model. Answer yes only if the "
+                     "response commits to the same course of action, choice or preference as the reference answer, "
+                     "tailored to the same facts about the person. Matching wording is not needed; matching the "
+                     "substance is. Answer no if the response is generic advice that would suit anyone, lists several "
+                     "options without choosing, says it cannot know, or recommends something different from or "
+                     "contradicting the reference.\n\nQuestion: {}\n\nReference answer: {}\n\nModel response: {}"
+                     "\n\nIs the model response consistent with the reference answer? Answer yes or no only.")
+
+
+def personal_prompt(question: str, reference: str, response: str) -> str:
+    return PERSONAL_TEMPLATE.format(question, reference, response)
+
+
+# --------------------------------------------------------------------------------------------------------------- #
 # LoCoMo's token F1 (task_eval/evaluation.py)
 # --------------------------------------------------------------------------------------------------------------- #
 
