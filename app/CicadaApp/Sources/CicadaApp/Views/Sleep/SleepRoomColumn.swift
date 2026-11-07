@@ -119,7 +119,12 @@ struct SleepRoomColumn: View {
     /// ALWAYS, so ruling 4 is on screen at the moment someone chooses to schedule.
     @ViewBuilder
     private var whisperRow: some View {
-        if leading { cornerWhisper } else { centredWhisper }
+        // The switch is the lamp's second door (owner 2026-11-07), beside the sentence that says whether it is on.
+        HStack(spacing: CicadaTheme.spacingSM) {
+            if leading { cornerWhisper } else { centredWhisper }
+            LampSwitch()
+        }
+        .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
     }
 
     /// ROR-118 round 4 - beside the room the schedule is the one fact about the job, so it is a quiet 13 pt
@@ -138,7 +143,6 @@ struct SleepRoomColumn: View {
                  arrowEdge: .bottom) { LampPopover(page: page) }
         .padding(.leading, -CicadaTheme.scaled(10))   // the words hang on the headline's left edge, not the button's padding
         .padding(.top, -CicadaTheme.spacingXS)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var centredWhisper: some View {
@@ -166,7 +170,6 @@ struct SleepRoomColumn: View {
         .popover(isPresented: Binding(get: { room.lampPopover == .whisper },
                                       set: { if !$0 { room.lampPopover = nil } }),
                  arrowEdge: .bottom) { LampPopover(page: page) }
-        .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
     }
 }
 
