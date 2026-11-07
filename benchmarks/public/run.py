@@ -37,7 +37,7 @@ from benchmarks.system.runner import MARKER, REPO, _no_symlinks
 HOME_MARKER = "_bench_home.yaml"
 BANK_MARKER = "_bench.yaml"
 RUN_MARKER = "_bench_run.yaml"
-PATHS = ("ask", "full-context", "closed-book", "wrong-bank", "recall", "hook", "doors")
+PATHS = ("ask", "full-context", "closed-book", "wrong-bank", "recall", "hook", "agent-recall", "agent-hook", "doors")
 #: The run's settings that must match on --resume (anything else would mix two experiments in one table).
 PINNED = ("dataset", "sleep_model", "disambiguation_model", "answer_model", "judge_model", "paths",
           "sleep_schedule", "batch_size", "embedding_model", "units", "only", "per_category", "limit",
@@ -350,7 +350,7 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument("--judge-model", default="sonnet")
     r.add_argument("--paths", default="ask", help="comma list: ask (cicada_ask); controls full-context (the whole "
                    "history), closed-book (no memory), wrong-bank (another unit's memory); recall, hook (an agent holding only "
-                   "that door's words answers); doors (what Ask, recall, the "
+                   "that door's words answers); agent-recall, agent-hook (the same words, with leave to use general knowledge); doors (what Ask, recall, the "
                    "hook and pending hand over per question: no model call, no judge)")
     r.add_argument("--sleep-schedule", choices=("once", "per-session", "none"), default="once",
                    help="none: stage and index only, no Sleep (Ask over the raw conversations' search leg); "

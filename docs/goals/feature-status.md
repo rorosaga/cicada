@@ -9,6 +9,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
+| [G148](memory-evolution.md#g148) | Benchmark: PersonalizationV4 and PersonaMem-v2 pilots, a no-model leak check, grading against the reference answer, and paths where an agent answers with its own knowledge plus one door's words | PR open | branch `catchup/persona-slice` | 2026-11-07 |
 | [G148](memory-evolution.md#g148) | Ask searches by meaning in every language, filling only the room the prompt has: unslept LoCoMo 123 → 138 of 200, slept 159 → 159, the wrong person's memory 15 → 15. Recall stays on the words. | PR #738 | #738 | 2026-11-07 |
 | [G148](memory-evolution.md#g148) | "What's come up lately?" works before Sleep, in any language: the newest conversations and the pages said most lately, on Ask and recall. A turn from the newest 3 days reaches the window on 10→20 of 20 in English, 2-5→15-18 in nine other languages, Arabic 2→6 | PR open | branch `catchup/lately` | 2026-11-06 |
 | [G92](memory-evolution.md#g92) | Onboarding's saved lists: while nothing is on, Skip reads *Not now* and clears the ticks, so a list is never shown ticked that is off (the pre-tick and *Keep them current* as the consent are unchanged) | PR (open) | | 2026-11-06 |

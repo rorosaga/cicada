@@ -478,6 +478,17 @@ def test_leak_check_scores_choice_rules_with_ties_and_chance():
     assert datasets.leak_check(sets, slots=False)["reference_slot"] is None
 
 
+def test_personalizationv4_chat_with_no_reply_keeps_the_persons_words(tmp_path):
+    path = tmp_path / "pv4.json"
+    _pv4_sample(path)
+    users = json.loads(path.read_text())
+    uid = next(iter(users["users"]))
+    users["users"][uid]["documents"][0] = "Leo: A note with no reply."
+    path.write_text(json.dumps(users))
+    [unit] = datasets.personalizationv4_units(path)
+    assert [(t["speaker"], t["text"]) for t in unit["sessions"][0]["turns"]] == [("user", "A note with no reply.")]
+
+
 def test_personalization_judge_reads_the_reference_not_the_choices(tmp_path):
     prompt = judges.personal_prompt("What would she do?", "Skip the party to rest.", "She rests at home.")
     assert "Reference answer: Skip the party to rest." in prompt and "Model response: She rests at home." in prompt

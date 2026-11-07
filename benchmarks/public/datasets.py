@@ -350,11 +350,13 @@ def personalizationv4_units(path: Path) -> list[dict]:
         sessions = []
         for n, doc in enumerate(data[uid]["documents"]):
             m = _PV4_CHAT.match(doc)
-            if not m:
-                raise ValueError(f"PersonalizationV4 user {uid}: chat {n} is not a Leo/Assistant pair")
-            sessions.append({"source_id": f"bench:pv4-u{uid}:chat-{n:03d}", "title": f"Chat {n + 1}",
-                             "turns": [{"speaker": "user", "text": m.group(1)},
-                                       {"speaker": "assistant", "text": m.group(2)}]})
+            if m:
+                turns = [{"speaker": "user", "text": m.group(1)}, {"speaker": "assistant", "text": m.group(2)}]
+            elif doc.lstrip().startswith("Leo:"):   # 2 of 6,000 chats have no reply: the person's words stand alone
+                turns = [{"speaker": "user", "text": doc.lstrip()[len("Leo:"):].strip()}]
+            else:
+                raise ValueError(f"PersonalizationV4 user {uid}: chat {n} is not the person's words")
+            sessions.append({"source_id": f"bench:pv4-u{uid}:chat-{n:03d}", "title": f"Chat {n + 1}", "turns": turns})
         questions = [_personal_question(f"pv4-u{uid}:q{i:03d}", q["question"], q["answer"],
                                         "hard" if q["hard"] else "standard", q["choices"])
                      for i, q in enumerate(data[uid]["questions"])]
