@@ -220,7 +220,7 @@ TOOLS = [
     },
     {
         "name": "cicada_ask",
-        "description": "Ask memory a natural-language question and get an answer that CITES the entities it used and states what it could NOT answer. Grounded only in stored memory: it says 'I don't know' rather than guessing. Prefer this tool for direct factual questions.",
+        "description": "Ask memory a natural-language question and get an answer that CITES the entities it used and states what it could NOT answer. What it says about the person is grounded in stored memory: it says 'I don't know' rather than guessing. A request for advice is answered too, from general knowledge shaped by what memory shows. Prefer this tool for direct factual questions.",
         "inputSchema": {
             "type": "object",
             "properties": {

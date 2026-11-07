@@ -1394,41 +1394,38 @@ owner's page is never a source of links (it links to everyone) nor a linked pers
 synthesis rule 7 says what `also called` and `LINKED PEOPLE` are. `_claim_context` takes an id map (a scan per claim
 was ~1.7 s on a 6,008-claim page). `api/tests/test_ask_hub_context.py` reproduces both at hub scale.
 
-**A request for advice is not a question of fact (G148, 2026-11-06).** Asked for a recommendation, Ask answered as if the
-answer were on the record: "memory has no inventory of your photography gear", though the lines showed the gear. No model call
-tells the shape, and no word list: `question_intent.asks_advice` compares the question with example questions by the search
-model already on this machine, one set of examples for every language. Such a question gets its own note beside the question
-(`_ADVICE_NOTE`): rule 1's "never guess" is about facts, the advice may use general knowledge, tailored to what the lines show,
-saying which lines and that the suggestions are its own, confidence below 0.7. The meaning leg adds up to 6 lines and 3,000
-characters instead of 2 and 800, because a taste is rarely said in the question's words. With no model on the machine it says no,
-and the question goes on as any other.
+**A request for help is not a question of fact (G148, 2026-11-06, reworked 2026-11-07).** Asked for a recommendation, Ask answered as if
+the answer were on the record: "memory has no inventory of your photography gear", though the lines showed the gear. The first fix was a
+note beside the question, sent when `question_intent.asks_advice` read the question as advice. On the personalization pilot it wasn't enough,
+for two reasons: the detector found 3 of 90 PersonalizationV4 questions, and a question without the note was declined (1 right of 21 on
+PersonaMem-v2, closed-book 12); and with the note, "the ONLY source of truth" still headed the prompt, so answers opened on what memory
+lacks and ran to about 1,300 characters.
 
-**"What's come up lately?" names no subject (owner 2026-11-06).** No word of it finds an answer, so on a memory with nothing
-slept it found little or nothing in most languages. `question_intent.asks_lately` reads it the same way as advice, one set of
-examples for every language; `ask_sources.search` then adds the newest conversations (`newest_conversations`: at most 10, 3
-from one day, read or not, never a memory export entry, a feed item, a watched day or a bare save), and the lines are the
-person's first and last turn of each. On Ask and recall the pages said most lately lead (`page_use.top_lately`, the owner's
-left out), which needs Sleep; a conversation waiting for it still shows by its lines. Only such a question builds the bank-wide table, about 3.7 s the first time in a process on a real bank's clone, cached after; every other recall keeps `lately_of`. A question with a subject of its own must
-beat every other kind by `LATELY_MARGIN`, since it spends window; one with no word the record uses only has to be nearest.
-With no model on the machine it says no. The hook doesn't embed, so it doesn't take this path. Measured, no model: 20 held-out
-questions in 11 languages over one public conversation, nothing slept, a turn from the newest 3 days reaches the window on
-10→20 in English; 3→16 Spanish, 2→16 German, 5→15 French, 2→18 Portuguese, 2→17 Japanese, 4→16 Chinese, 4→16 Hindi, 3→16 Korean,
-2→16 Russian; **Arabic only 2→6**, its questions rarely being read as this kind. False alarms: 7 of 2,486 English benchmark
-questions, 0 to 3 of 150 translated per language. Translations by a model, unchecked by a person.
+So the head of `ASK_SYSTEM_PROMPT` now names two kinds of message, and the model decides which by what it asks for, in any language, with no
+detector. **A question about what is on the record** keeps every rule: the context is the only source, never a guess. **A request for help**
+(advice, a recommendation, a plan, a draft, how to do something, what would suit them or what they would likely do) is answered: first the
+answer and one best choice, in two or three sentences, general knowledge shaped by what the context shows about them, closing on what came
+from memory. General knowledge never supplies a fact about the person. The note is gone. `asks_advice` still widens the meaning leg, to up to 6
+lines and 3,000 characters instead of 2 and 800, because a taste is rarely said in the question's words. With no model on the machine it says
+no, and the question goes on as any other. Over 150 questions translated into 11 languages it finds 16 to 26 of 30 requests for advice, and over 2,456 English questions it fires falsely on 12. A question recalling a recommendation already given ("what advice did she give him?") is a question of fact, so its "other" examples hold those. A rule at the end of the prompt, with "the ONLY source of truth" left at its head, reached 3 of 8
+preference questions; this reaches 6 of 8.
 
-Measured on LongMemEval_S, nothing slept, haiku on the answer and the judge, one run each, against the baseline:
+Nothing slept, haiku on answers and judge, one run each, before → after, with tokens per right answer:
 
-| | Preference of 8 | Overall of 100 | Tokens per right answer |
-|---|---|---|---|
-| Before | 1 | 71 | 8,791 |
-| This, by meaning | 4 | 74 | 8,555 |
-| Rule in the system prompt instead of the note | 3 | 72 (every prompt re-read) | 9,067 |
-| Word list instead (English and Spanish only, not kept) | 6 | 76 | 8,362 |
+| Set | Right | Tokens per right answer |
+|---|---|---|
+| PersonaMem-v2, 90 (closed-book 33 and 35) | 18 → 45 (p < .001) | 38,256 → 15,376 |
+| PersonalizationV4, 90 (closed-book 30, recall's words with general knowledge 40) | 28 → 30 | 25,461 → 23,304 |
+| 30 of those PersonaMem questions in German, Arabic, Japanese and Chinese, 120 (closed-book 30) | 10 → 42 (33 gained, 1 lost) | 74,419 → 17,713 |
+| LongMemEval_S, 100 | 76 → 80, preference 3 → 6 of 8 | 10,358 → 10,151 |
+| The wrong person's memory, 100 | 15 → 15, no flips | |
+| LoCoMo slept, 200 | 159 → 159 | 12,861 → 13,046 |
+| One LoCoMo conversation, questions of fact in the same 4 languages, 160 | 95 → 105 | 11,043 → 10,512 |
 
-The detector over 150 questions translated into 11 languages finds 16 to 26 of 30 requests for advice; over 2,456 English
-questions it fires falsely on 12. A question recalling a recommendation already given ("what advice did she give him?") is a
-question of fact, so the "other" examples hold those; without them it fired on 42, most of that shape. The note on such a
-question invites invention, so that is the failure to watch.
+LoCoMo with nothing slept was not re-graded.
+
+**Limits.** The personalization figures come from this harness's own judge, not the papers' protocol. It favours short answers: the same model with no memory scores 4 of 45 at about 1,285 characters and 30 of 90 at about 350. PersonalizationV4 is still only level with no memory and below recall's words with general knowledge; its questions name a person the record doesn't, and its judgement note fires on 69 of 90. Translations are a model's, unchecked. Abstention on LongMemEval_S went 13 → 11 of 14, and the 3 answers judged wrong all plainly say memory lacks it, so that's the judge. The failure to watch is a fact read as a request for help, which would invite invention.
+
 **Ask reads a wider window, on every question (G148, 2026-11-06).** A count needs every conversation holding one, and the window
 was built for one fact: LongMemEval_S multi-session answered 5 of 20. `window_limits` gives every question 8 conversations, 12 lines
 and 6,000 characters instead of 4, 6 and 3,000 (`SEARCH_*`). No shape decides it, since the shapes are word lists. `person_first`: an

@@ -7,7 +7,7 @@ Spanish only: on questions translated into nine other languages they found 0 of 
 recalling a recommendation already given ("what advice did she give him?") is a question of fact, so the "other" examples
 hold those; without them it was 42 false alarms, most of that shape.
 
-A question read as advice gets more lines by meaning and ``ask_service._ADVICE_NOTE``. With no model on this machine it
+A question read as advice gets more lines by meaning; how to answer it the model decides (``ask_service.ASK_SYSTEM_PROMPT``). With no model on this machine it
 says no, and the question goes on with the usual retrieval and no note.
 
 "What has come up lately?" (owner, 2026-11-06) names no subject, so no word finds its answer: :func:`asks_lately` reads

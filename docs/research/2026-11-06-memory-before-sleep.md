@@ -160,6 +160,20 @@ PersonaMem-v2 and PersonalizationV4, 3 users, 30 questions each, nothing slept, 
 - **Recall's words plus the agent's own knowledge is the best here,** +11 points over closed-book on PersonalizationV4 (only it 17, only closed-book 7, p = .064), +1 on PersonaMem-v2. Not significant on either.
 - **The hook says nothing on most of them:** its note's median is 0 characters, so an agent holding only the hook answers as if it had no memory. It's word-based and these share few words with the record. Whether to widen it is open: earlier vector scores gave no floor between everyday asks and real questions (below).
 
+**Ask fixed, 2026-11-07.** Two causes: the detector found 3 of 90 PersonalizationV4 questions and the rest were declined, and even with the note "the ONLY source of truth" headed the prompt, so answers opened on what memory lacks. The head of Ask's prompt now separates a question about the record from a request for help, and the model decides which, in any language. The figures above are before this.
+
+| Before → after, same setup | Right | Tokens per right answer |
+|---|---|---|
+| PersonaMem-v2, 90 (closed-book 33, 35) | 18 → 45 | 38,256 → 15,376 |
+| PersonalizationV4, 90 (closed-book 30) | 28 → 30 | 25,461 → 23,304 |
+| 30 PersonaMem questions in German, Arabic, Japanese, Chinese, 120 (closed-book 30) | 10 → 42 | 74,419 → 17,713 |
+| LongMemEval_S, 100 | 76 → 80 | 10,358 → 10,151 |
+| The wrong person's memory, 100 | 15 → 15 | |
+| LoCoMo slept, 200 | 159 → 159 | 12,861 → 13,046 |
+| One LoCoMo conversation, facts in the same 4 languages, 160 | 95 → 105 | 11,043 → 10,512 |
+
+**Part of the pilot's gap was format.** This judge favours short answers: the same model with no memory scores 4 of 45 at about 1,285 characters in an agent loop and 30 of 90 at about 350 as closed-book. An agent's own long replies score low on it with or without memory (4 of 45 each), and a contract line sending advice to recall changed nothing (1 of 45), so that line was dropped. PersonalizationV4 stays level with no memory and below recall's words with general knowledge (40).
+
 ## Inferred facts, tried
 
 A model's per-page inferences, labelled as inferred and not said, added to Ask's context on the 5 slept LoCoMo banks: 159 → 160 of 200, 5 gained and 4 lost, multi-hop 56 → 57, tokens per right answer 12,862 → 13,781. Flat, and slept multi-hop misses are mostly partial lists, which inference doesn't supply. Dropped; no class of shadow claims built.

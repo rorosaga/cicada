@@ -35,12 +35,15 @@ def test_with_no_model_on_this_machine_it_says_no_and_never_raises():
     assert not question_intent.asks_advice(_Index(None), "Can you recommend a book?")
 
 
-def test_only_a_question_read_as_advice_carries_the_note():
-    """Next to the question it reached 6 of 8; as a rule of the system prompt 3 of 8."""
-    assert "RECOMMENDATION OR ADVICE" not in ask_service.ASK_SYSTEM_PROMPT
+def test_help_or_record_is_the_models_call_in_every_language_never_a_note():
+    """The detector found 3 of 90 PersonalizationV4 questions and the rest were declined. With "the ONLY source of truth"
+    at the head of the prompt a rule further down reached 3 of 8; at the head, for the record alone, 6 of 8."""
+    head = ask_service.ASK_SYSTEM_PROMPT.split("Rules:")[0]
+    assert head.index("ON THE RECORD") < head.index("ONLY source of truth") < head.index("REQUEST FOR HELP")
+    assert "General knowledge never supplies a fact about the person" in head
     asked = ask_service._build_prompt("what should I cook?", [], searched=ask_sources.Searched(episodes=[], weights={}, advice=True))
-    plain = ask_service._build_prompt("what did I cook?", [], searched=ask_sources.Searched(episodes=[], weights={}))
-    assert ask_service._ADVICE_NOTE in asked and ask_service._ADVICE_NOTE not in plain
+    plain = ask_service._build_prompt("what should I cook?", [], searched=ask_sources.Searched(episodes=[], weights={}))
+    assert asked == plain, "being read as advice widens the search; it adds nothing to the prompt"
 
 
 @pytest.fixture
