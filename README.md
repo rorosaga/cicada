@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/cicada-mascot-dark.png">
-    <img src="docs/brand/cicada-mascot.png" alt="Cicada's bookworm" width="216" height="216" />
-  </picture>
+  <img src="docs/brand/cicada-mascot.png" alt="Cicada's bookworm" width="216" height="216" />
 </p>
 
 <h1 align="center">Cicada</h1>
