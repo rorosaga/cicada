@@ -201,13 +201,10 @@ def test_ingest_feed_creates_entities_and_episodes(tmp_path, monkeypatch):
     episodes = list((memory / "episodes").glob("ep_*.md"))
     entities = list((memory / "entities").glob("media-*.md"))
     assert len(episodes) == 3
-    assert len(entities) == 3
-
-    # Frontmatter sanity on one entity.
-    fm = markdown_parser.parse(entities[0]).frontmatter
-    assert fm["type"] == "media"
-    assert fm["status"] == "active"
-    assert "media" in fm and "url" in fm["media"]
+    assert entities == []      # ruling 62: a feed item is an indexed episode, never a page
+    assert all(not markdown_parser.parse(e).frontmatter["media_entity_id"] for e in episodes)
+    idx = media_ingestor.load_url_index(memory)
+    assert len(idx) == 3 and all(not row["media_entity_id"] and row["episode_id"] for row in idx.values())
 
 
 def test_ingest_feed_dedups_on_second_run(tmp_path, monkeypatch):
@@ -1592,3 +1589,22 @@ def test_source_list_is_kept_under_its_etag_and_rebuilt_when_the_bank_moves(tmp_
     feed = RSS_FEED.replace("</channel>", "<item><title>New</title><link>https://new.example.com/n</link></item></channel>")
     assert client.post("/sources/rss", json={"feedXml": feed}).status_code == 200
     assert client.get("/sources?sort=relevance").json()["total"] == 4
+
+
+def test_a_feed_item_the_person_gave_a_reason_for_gets_its_page(tmp_path, monkeypatch):
+    """Ruling 62's way back: the item stays an index row until the person's words (a note or reason) arrive."""
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+    run(media_ingestor.ingest_feed(RSS_FEED, memory, commit=False))
+    idx = media_ingestor.load_url_index(memory)
+    first = next(iter(idx.values()))
+    assert not first["media_entity_id"]
+    item = media_ingestor.RawItem(url=first["url"], origin="saved-link", reason="for the trip")
+    assert media_ingestor.existing_hash(item, idx) is None                       # a reason makes its page
+    bare = media_ingestor.RawItem(url=first["url"], origin="saved-link")
+    assert media_ingestor.existing_hash(bare, idx) is not None                   # a bare re-save is a duplicate
+    assert media_ingestor.is_pageless(media_ingestor.RawItem(url="https://x.example.com/a", origin="rss"))
+    assert not media_ingestor.is_pageless(media_ingestor.RawItem(url="https://x.example.com/a", origin="rss",
+                                                                 note="why"))
