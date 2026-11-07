@@ -101,9 +101,9 @@ def test_wired_agent_cannot_supersede_human_claim(tmp_path):
     memory = _seed_workspace(tmp_path)
     human = Claim(
         id="clm_human_001",
-        text="Rodrigo part of acme",
+        text="Rodrigo takes place in acme",
         subject="rodrigo",
-        predicate="part-of",
+        predicate="takes-place-in",
         object="acme",
         observer="agent",
         context="general",
@@ -115,10 +115,10 @@ def test_wired_agent_cannot_supersede_human_claim(tmp_path):
     body = write_claims("## Summary\nThe user.", [human])
     _write_entity(memory, "rodrigo", {"name": "Rodrigo", "type": "person"}, body)
 
-    # Agent now extracts a CONTRADICTING single-valued belief (part-of is
-    # single-valued in the seeded _predicates.yaml — one primary whole).
+    # Agent now extracts a CONTRADICTING single-valued belief (takes-place-in is
+    # single-valued in the seeded _predicates.yaml — one primary place; part-of became multi-valued, G98)
     extracted = _extracted(
-        [{"source": "Rodrigo", "target": "globex", "label": "part of"}]
+        [{"source": "Rodrigo", "target": "globex", "label": "takes place in"}]
     )
     result = claim_pipeline.run_claim_pipeline(
         extracted, [], memory, _settings(memory), now_date="2026-06-18"
@@ -138,9 +138,9 @@ def test_wired_human_over_human_supersedes(tmp_path):
     memory = _seed_workspace(tmp_path)
     old_human = Claim(
         id="clm_old_human",
-        text="Rodrigo part of acme",
+        text="Rodrigo takes place in acme",
         subject="rodrigo",
-        predicate="part-of",
+        predicate="takes-place-in",
         object="acme",
         observer="agent",
         context="general",
@@ -155,9 +155,9 @@ def test_wired_human_over_human_supersedes(tmp_path):
     # A NEWER human-sourced claim (origin=clarification) legitimately supersedes.
     new_human = Claim(
         id="clm_new_human",
-        text="Rodrigo part of globex",
+        text="Rodrigo takes place in globex",
         subject="rodrigo",
-        predicate="part-of",
+        predicate="takes-place-in",
         object="globex",
         observer="agent",
         context="general",

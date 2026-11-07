@@ -295,8 +295,10 @@ def test_an_undone_settle_stays_the_persons_one_row_question(memory):
     _commit_all(memory)
     report = inbox_tend.Report()
     asyncio.run(inbox_tend.policy_pass(memory, SimpleNamespace(memory_path=memory), report, record_cap=0))
-    assert report.settled == 1 and fact_sources.list_sources(memory, "bob-example")[0]["accepted"]
-    [settled] = list((memory / "inbox" / "settled").glob("inbox-*.md"))
+    assert report.by_kind["clarification"] == {"named_account": 1}   # (a fading question the rules retire is not this one)
+    assert fact_sources.list_sources(memory, "bob-example")[0]["accepted"]
+    [settled] = [p for p in (memory / "inbox" / "settled").glob("inbox-*.md")
+                 if markdown_parser.parse(p).frontmatter.get("kind") == "clarification"]
     restored, paths, _lines, _rec = inbox_tend.undo(memory, settled.stem)
     _commit_all(memory)
     assert fact_sources.list_sources(memory, "bob-example")[0]["proposed"] is True, "the link waits again"
