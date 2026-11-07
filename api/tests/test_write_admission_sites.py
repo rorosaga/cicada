@@ -388,6 +388,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /nudges/{nudge_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
     "POST /clarifications/{clarification_id}": (ADMITTED, "api.services.inbox_service.resolve"),
     "POST /entities/{entity_id}/read": (OUTSIDE, None),
+    "POST /entities/{entity_id}/claims/{claim_id}/keep": (ADMITTED, None),   # ROR-129: "Keep this fact", `_admits(PAGE_BUSY)`; fact_keep commits alone
     "POST /entities/{entity_id}/picture": (ADMITTED, None),
     "POST /entities/{entity_id}/picture/initials": (ADMITTED, None),
     "POST /entities/{entity_id}/picture/pdf": (ADMITTED, None),
