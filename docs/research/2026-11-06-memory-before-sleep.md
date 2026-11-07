@@ -107,19 +107,43 @@ So the gap to slept on LoCoMo is now 21 questions, was 36. Slept multi-hop depen
 
 ## An agent running a loop
 
-20 LongMemEval_S questions, nothing slept, haiku, real `claude -p`, one run, before #705, #715 and #730. Tokens counted with cached reads, then without:
+**Correction, 2026-11-07.** Every figure this section gave before today for Cicada's tools was wrong in kind. Inside that harness `cicada_ask` never ran: its server's home held no sign-in, so each call answered "the engine isn't signed in", and the agent fell back on recall and sources. So 13 of 20 and 11 of 20, 36,286 and 40,473 per right answer, and "the loop leans on recall" all described that fallback. An answer saying its question tool had failed gave it away. The harness now does what the public harness does: `claude` children get the plan's sign-in, the clock is the question's day, and Ask's own model call is counted.
 
-| Agent holds | Right of 20 | Per question | Per right answer | Turns |
+LongMemEval_S, nothing slept, haiku, real `claude -p`, 6 tools, one run. Tokens counted with cached reads, then without; for tools, Ask's own call is included in both:
+
+| Agent holds | Right | Per question | Per right answer | Turns |
 |---|---|---|---|---|
-| Cicada's tools | 13 | 23,586 / 9,187 | 36,286 / 14,133 | 4.5 |
-| The bank as files (Read, Grep, Glob) | 15 | 29,079 / 8,753 | 38,772 / 11,670 | 4.9 |
-| No memory | 3 (2 abstention) | 1,119 / 1,046 | 7,457 / 6,970 | |
+| Cicada's tools, 61 questions | 44 | 22,092 / 13,998 | 30,629 / 19,408 | 3.3 |
+| The bank as files (Read, Grep, Glob), the same 61 | 48 | 28,579 / 9,804 | 36,319 / 12,459 | 5.2 |
+| Cicada's tools, the earlier 20 | 14 | 24,011 / 14,127 | 34,302 / 20,183 | 3.25 |
+| The bank as files, the earlier 20 (before #705) | 15 | 29,079 / 8,753 | 38,772 / 11,670 | 4.9 |
+| No memory, the earlier 20 | 3 (2 abstention) | 1,119 / 1,046 | 7,457 / 6,970 | |
 
-20 questions can't separate tools from files, and plain files aren't worse. This isn't comparable with Supermemory's task set.
+On the 61, only tools got 3 right and only files 7 (p = .34), so answers don't separate them. Multi-session is 3 v 5 of 13, temporal 9 v 11 of 13. Files take more turns and more cached reads and fewer fresh tokens: cached reads are cheap, so which costs less depends on the client's pricing. **So, on a bank nothing has slept on, tools don't beat plain files on answers.** A slept bank, which is what a person really has, isn't measured in this loop: the next thing to run.
 
-Re-run on dev after #715, #730, #734 and #738, the same 20 and the same 6 tools: tools 11 of 20 (3 lost, 1 gained), 22,260 / 9,098 per question, 40,473 / 16,543 per right answer, 4.4 turns. That's noise on answers, and the cost barely moved: these changes don't show in this loop. Recall was called more than Ask in both runs (25 v 20 now), and #738 only helps Ask.
+The agent called Ask first on most questions (57 calls on 61), then often went on (44 recall, 38 sources). On the earlier 20, Ask's reply judged alone is 12 right; the final answer 14, with 3 gained and 1 lost. That's too few to call the extra turns wasted, though they cost: 9,218 / 2,846 per question with one tool call, 25,315 / 10,441 with three or more.
 
 The child `claude -p` named the owner of the plan login in about 1 run of 20 (6 of 20 with all tools), writing a query like "did <owner> buy…" for "did I buy…". Neither the primer nor the bank holds the name, and the memory was a scratch clone, so this looks like the account context Claude Code gives a signed-in session. It may cost a search a word on this loop; no Cicada memory was read.
+
+## Requests that aren't lookups: a personalization pilot
+
+PersonaMem-v2 and PersonalizationV4, 3 users, 30 questions each, nothing slept, one run, haiku on answers and judge. The choices leak: picking the longest scores 45.6 and 60.5 against a chance of 25 and 20, with no model. So the harness grades free text against the reference answer with its own judge prompt, which makes this **not comparable with the papers' accuracy**. Read a path by its gain above closed-book. Many references don't need the memory (closed-book got 13 and 14 of 15 PersonaMem sensitive-information questions in its two runs).
+
+| Of 90, tokens per right answer | PersonaMem-v2 | PersonalizationV4 |
+|---|---|---|
+| Closed-book | 33, 35 (two runs) · 2,665 | 30 · 3,331 |
+| Ask | 18 · 38,257 | 28 · 25,462 |
+| Recall, under Ask's rules | 3 of 88 · 126,938 | 6 · 71,078 |
+| Recall's words, leave to use general knowledge | 36 · 4,932 | 40 · 5,312 |
+| The hook's words, leave to use general knowledge | 34 · 2,943 | 24 · 4,501 |
+
+- **Ask isn't the door for these.** It's built to say what memory lacks, and these want an answer. Its advice note fired on 45 of 60 questions on the two PersonaMem users checked and didn't close the gap.
+- **Recall's words plus the agent's own knowledge is the best here,** +11 points over closed-book on PersonalizationV4 (only it 17, only closed-book 7, p = .064), +1 on PersonaMem-v2. Not significant on either.
+- **The hook says nothing on most of them:** its note's median is 0 characters, so an agent holding only the hook answers as if it had no memory. It's word-based and these share few words with the record. Whether to widen it is open: earlier vector scores gave no floor between everyday asks and real questions (below).
+
+## Inferred facts, tried
+
+A model's per-page inferences, labelled as inferred and not said, added to Ask's context on the 5 slept LoCoMo banks: 159 → 160 of 200, 5 gained and 4 lost, multi-hop 56 → 57, tokens per right answer 12,862 → 13,781. Flat, and slept multi-hop misses are mostly partial lists, which inference doesn't supply. Dropped; no class of shadow claims built.
 
 ## The tool list
 
