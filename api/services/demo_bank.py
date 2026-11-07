@@ -262,6 +262,11 @@ def _roster_day(kind: str, entity_id: str, day: date) -> str:
     return str(day)
 
 
+# Invented names for the two tools the Home question and the conflict card show, so a first look reads like a real
+# memory rather than a placeholder (slugs stay, so every id in the generator and its tests is unchanged).
+_NAMES = {"tool-example-a": "Tern", "tool-example-b": "Marginalia"}
+
+
 def _write_entities(bank_dir: Path, day: date) -> None:
     for kind, ids in (
         ("person", _PEOPLE),
@@ -273,7 +278,7 @@ def _write_entities(bank_dir: Path, day: date) -> None:
         for entity_id in ids:
             when = _roster_day(kind, entity_id, day)
             fm = {
-                "name": entity_id.replace("-", " ").title(),
+                "name": _NAMES.get(entity_id, entity_id.replace("-", " ").title()),
                 "type": kind,
                 "status": "active",
                 "confidence": 0.7,
@@ -405,8 +410,8 @@ def _write_inbox(bank_dir: Path, episodes: list[dict], day: date) -> None:
             "question": "What does Alpha Project use now?",
             "predicate": "uses", "created_date": today, "claim_id": "clm_demo_new2",
             "options": [
-                {"key": "a", "label": "Tool Example A", "claim_id": "clm_demo_old2"},
-                {"key": "b", "label": "Tool Example B", "claim_id": "clm_demo_new2"},
+                {"key": "a", "label": "Tern", "claim_id": "clm_demo_old2"},
+                {"key": "b", "label": "Marginalia", "claim_id": "clm_demo_new2"},
                 {"key": "both", "label": "Both are true (different contexts)"},
             ],
         },
@@ -434,7 +439,7 @@ def _write_inbox(bank_dir: Path, episodes: list[dict], day: date) -> None:
         inbox_dir / "inbox-006.md",
         {
             "kind": "merge_suggestion", "required_input": "merge", "status": "pending",
-            "entity_name": "Tool Example A (CLI)", "entity_id": "tool-example-a-cli",
+            "entity_name": "Tern (CLI)", "entity_id": "tool-example-a-cli",
             "merge_target_hint": "tool-example-a",
             "source_episode": merge_source["id"], "source_episode_timestamp": f"{merge_source['date']}T09:00:00+00:00",
             "created_date": today,
@@ -450,8 +455,8 @@ def _write_inbox(bank_dir: Path, episodes: list[dict], day: date) -> None:
 # so `write_claim`'s `resolve_entity_file` hits its rung-1 exact-slug match —
 # no near-match/ambiguous-subject branch, no incidental new page.
 _CLAIM_SPECS: tuple[tuple[str, str, str, int], ...] = (
-    ("carol-example", "uses", "Tool Example A", 0),
-    ("alpha-project", "depends-on", "Tool Example B", 1),
+    ("carol-example", "uses", "Tern", 0),
+    ("alpha-project", "depends-on", "Marginalia", 1),
     ("dana-example", "works-at", "Globex Example", 2),
     ("beta-project", "part-of", "Alpha Project", 3),
     ("erin-example", "prefers", "Dark Mode", 4),
