@@ -1756,6 +1756,21 @@ actor APIClient {
         return try await get("/graph")
     }
 
+    /// ROR-134: each page's nearest pages by meaning (`GET /graph/meaning`), handed to graph.js as the JSON text it
+    /// arrived as — 9,000 pages is ~2.7 MB, so it is never decoded into Swift values and re-encoded. Not a Store
+    /// domain (no sync ETag, no SSE): read once when the mode is turned on, kept in memory by `GraphViewModel`.
+    func fetchGraphMeaningJSON() async throws -> String {
+        let request = makeRequest("/graph/meaning", method: "GET", json: false)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        guard let text = String(data: data, encoding: .utf8) else { throw APIError.decodingError("graph meaning") }
+        return text
+    }
+
     // MARK: - Memory banks (M6/M7)
 
     /// Bank names are user-supplied slugs; percent-encode as a path component

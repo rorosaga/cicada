@@ -18,6 +18,10 @@ struct GraphFilter: Equatable {
     /// G59: draw cached entity logos on graph nodes. Off by default — see the
     /// perf note in graph.js.
     var showLogos: Bool = false
+    /// ROR-134: lay the graph out by meaning too — pages about the same subject sit nearer, links or not. Off by
+    /// default. Distance only: it draws no edge and implies no link (ruling 56). Like `showLogos` it is paint, not a
+    /// filter (the Legend never says "filtered" for it).
+    var byMeaning: Bool = false
 
     var allTypesSelected: Bool {
         types.count == EntityType.selectableCases.count
@@ -46,6 +50,7 @@ struct GraphFilter: Equatable {
         payload["contexts"] = Array(contexts)
         payload["observers"] = Array(observers)
         payload["showLogos"] = showLogos
+        payload["byMeaning"] = byMeaning
         return payload
     }
 

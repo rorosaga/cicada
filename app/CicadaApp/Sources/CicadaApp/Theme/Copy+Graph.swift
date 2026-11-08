@@ -35,6 +35,9 @@ extension Copy {
         static let showAll = "Show all"
         static let showLogos = "Show logos"
         static let showLogosHelp = "Show entity logos on graph nodes"
+        /// ROR-134 — closeness by meaning. Distance only; the help says it draws nothing.
+        static let byMeaning = "Group by meaning"
+        static let byMeaningHelp = "Pages about the same subject sit nearer each other, with or without a link. It only moves them; it draws no connection."
         /// 2026-10-15 — Obsidian's orphans filter, in plain words: pages and saved links that link to nothing yet.
         static let showUnlinked = "Show unlinked"
         static let showUnlinkedHelp = "Show pages and saved links that are not connected to anything yet"
