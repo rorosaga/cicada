@@ -101,8 +101,13 @@ def call_leaks(request_text: str, outputs: Iterable, ids: frozenset[str] | None 
     ids = plan_identities() if ids is None else ids
     if not ids:
         return False
+    outputs = list(outputs)
     bad = foreign(ids, request_text)
-    return bool(bad) and any(carries(out, bad) for out in outputs)
+    if bad and any(carries(out, bad) for out in outputs):
+        return True
+    # The given name alone (ROR-139, second pass): a model reads "Anna" out of "anna.may77@…" and says only that.
+    given = _foreign_given(ids, request_text)
+    return bool(given) and any(_says_given(out, given) for out in outputs)
 
 
 async def aidentities(settings) -> frozenset[str]:
@@ -137,6 +142,39 @@ def _forms(ids: Iterable[str]) -> frozenset[tuple[str, ...]]:
         if len(words) >= 2:
             forms.add(words)
     return frozenset(forms)
+
+
+def _given_names(ids: Iterable[str]) -> frozenset[str]:
+    """The first word before each address's ``@`` when that part holds two or more words of three letters or more
+    (``anna.may77`` gives ``anna``): what a model says when it reads a first name out of the address. Used only at
+    the child-run door (:func:`call_leaks`), never by the extraction and merge scrubs, which keep the stricter forms."""
+    names: set[str] = set()
+    for value in ids:
+        words = tuple(dict.fromkeys(_WORD.findall((value or "").strip().lower().split("@", 1)[0])))
+        if len(words) >= 2:
+            names.add(words[0])
+    return frozenset(names)
+
+
+def _given_pattern(name: str) -> re.Pattern:
+    return re.compile(rf"(?<![^\W\d_]){re.escape(name)}(?![^\W\d_])", re.IGNORECASE)
+
+
+def _foreign_given(ids: Iterable[str], source_text: str) -> frozenset[str]:
+    """The given names of ``ids`` that ``source_text`` does not itself say (any case, whole word)."""
+    text = source_text or ""
+    return frozenset(n for n in _given_names(ids) if _given_pattern(n).search(text) is None)
+
+
+def _says_given(value, names: frozenset[str]) -> bool:
+    if not names or value is None:
+        return False
+    if isinstance(value, dict):
+        return any(_says_given(v, names) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_says_given(v, names) for v in value)
+    text = str(value)
+    return any(_given_pattern(n).search(text) is not None for n in names)
 
 
 def _pattern(form: tuple[str, ...]) -> re.Pattern:

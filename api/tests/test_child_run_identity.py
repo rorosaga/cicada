@@ -63,3 +63,33 @@ def test_no_account_read_means_no_check():
     engine_identity.reader = lambda: frozenset()
     engine_identity.clear()
     assert _call(_runner("The user is Anna May."))["result"]
+
+
+def test_a_given_name_alone_read_out_of_the_address_voids_the_call():
+    with pytest.raises(engine_errors.EngineProtocolError):
+        _call(_runner("Hi Anna, the capital is Paris."))
+    with pytest.raises(engine_errors.EngineProtocolError):
+        _call(_runner("Paris.", search_query="Anna capital of France"), policy=agent_engine.CallPolicy(web_search=True))
+
+
+def test_a_given_name_the_request_says_is_kept_and_a_longer_word_is_not_it():
+    assert _call(_runner("Anna wrote it."), text="Who wrote the note? Anna did.")["result"]
+    assert _call(_runner("Annabelle wrote it."))["result"]
+
+
+def test_a_child_run_keeps_every_lock_and_the_plan(fake_cli, claude_stream, monkeypatch):
+    """A real subprocess through the one door: no user or project context, no MCP, no tools, no hooks of Cicada's own
+    capture or recall, and no key (so the call stays on the person's plan)."""
+    read_seen = fake_cli("claude", claude_stream("success"),
+                         watch=("CICADA_CAPTURE", "CICADA_RECALL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "leak")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "leak")
+    agent_engine.complete(messages=[{"role": "user", "content": "hello"}], model="haiku")
+    [seen] = read_seen()
+    argv = seen["argv"]
+    assert "--safe-mode" in argv and "--strict-mcp-config" in argv and "--no-session-persistence" in argv
+    assert argv[argv.index("--setting-sources") + 1] == "" and argv[argv.index("--tools") + 1] == ""
+    assert not any(a in argv for a in ("--bare", "--mcp-config", "--add-dir", "--append-system-prompt"))
+    assert any(a.startswith("--system-prompt=") for a in argv)
+    assert seen["env"] == {"CICADA_CAPTURE": "off", "CICADA_RECALL": "off",
+                           "ANTHROPIC_API_KEY": None, "ANTHROPIC_AUTH_TOKEN": None}

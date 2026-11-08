@@ -3572,8 +3572,18 @@ block reaches a child run under every pinned flag, and `ANTHROPIC_UNIX_SOCKET` i
 it cannot be used). `agent_engine.complete` now checks each call's reply and every tool input (a search's query)
 with `engine_identity.call_leaks`, against the request text it sent: a form the request did not say voids the call
 (`EngineProtocolError`, one retry), so no caller needs its own floor and Ask and the settling agent are covered. The
-check is by the address's forms only; a first name alone, or the profile name, is not read, and a query already sent
-cannot be recalled, only its results discarded. `CONTEXT_GUARD` also says never to put it in a search query.
+check is by the address's forms and, at this door only, the **given name alone** (the first word before the `@` when
+the part holds two or more; whole word, any case, kept when the request says it), the shape the leak took on a scratch
+memory (second pass, 2026-11-08); the profile name is not read. A query already sent cannot be recalled, only its
+results discarded: a name could reach a search before the check ran, which is why `CONTEXT_GUARD` says never to put it
+in a query and a web lookup pins its query in the prompt and voids the answer on any other. **What reaches a child run
+(probed on `claude` 2.1.319, 2026-11-08):** under the pinned flags, `--safe-mode`, `--setting-sources ""`,
+`--strict-mcp-config` and `--tools ""` keep out `~/.claude/CLAUDE.md`, rules, auto-memory, hooks, plugins and MCP
+(a child asked to list its context named none); what remains is the CLI's own `userEmail` block, the cwd, platform and
+shell. No variable (`CLAUDE_CODE_USER_EMAIL` included) and no scratch `HOME` removes the email while the plan is
+signed in, and `--bare` would move the call to an API key. `claude -p` is spawned in one place
+(`agent_engine.complete` through `run_cli`), and `test_child_run_identity` fails if a spawn loses any of those flags
+or `CICADA_CAPTURE=off` / `CICADA_RECALL=off`, or gains a key.
 
 **The engine's own runtime is never a page.** The `claude -p` CLI still tells the model its cwd, platform and shell despite `--system-prompt` (probed 2.1.x; `--exclude-dynamic-system-prompt-sections` is ignored with it), so the extraction prompt says that is not conversation content and Stage 2 drops, with a text-free debug line, any entity named for `$CICADA_HOME` or a path under it (`agent_engine.is_runtime_path`; the scratch dir is one).
 
