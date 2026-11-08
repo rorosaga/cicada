@@ -244,6 +244,10 @@ let filters = {
     // colored discs are the primary type signal. Toggled from the Swift
     // filter popover.
     showLogos: false,
+    // ROR-134: lay the graph out by meaning too — pages about the same subject sit nearer, links or not. Off by
+    // default; Swift sends the nearest pairs (`setMeaningPairs`) and the switch (`applyFilters.byMeaning`). Distance
+    // only: it draws no edge and implies no link (ruling 56).
+    byMeaning: false,
 };
 
 // G59: id -> { img, ready }. Fed by `setNodeLogos`, which Swift calls with
@@ -1180,6 +1184,98 @@ const satelliteOf = new Map();        // id -> its unit
 
 // Resolves every visible link's endpoints to the live node objects (draw() reads them, as it read what forceLink
 // left there) and returns one simulation link per unordered pair.
+// ---------- ROR-134: closeness by meaning ----------
+//
+// The backend (`GET /graph/meaning`) precomputes each page's nearest pages from the vectors search already uses; the
+// browser never sees a vector and never compares all pairs. A pair is `[idA, idB, weight 0..1]`. The pull is a spring
+// that only reaches out: it acts beyond MEANING_REST and not at all inside it, so it brings the subject together
+// without crowding (charge and collide keep the spacing) and has no push to ring against. Alpha-scaled like every
+// custom force (G109 rule 1); the release path is untouched. Deterministic: no randomness, same pairs, same order.
+const MEANING_STRENGTH = 0.5;       // x alpha x (0.15 + 0.85 x weight), per tick, on the stretch past the rest length
+const MEANING_REST = 110;           // world units; roughly two node-gaps, so a subject's pages touch as a loose group
+const MEANING_TYPE_RELIEF = 0.25;   // the soft type anchors weaken to this share while meaning leads
+let meaningPairs = [];              // [[idA, idB, weight]] as the backend sent them
+let meaningLinks = [];              // body-to-body pairs both on screen, with node refs: rebuilt by every startSimulation
+// Unlinked pages sit in the halo, placed by the band, not simulated; a pair with one of them turns that page's slot
+// toward its neighbours instead (angle only, so the halo keeps its shape and its depth). unit -> [{ n, k }].
+let meaningHalo = new Map();
+const meaningAngles = new Map();    // unit key -> the angle it drifted to, so a re-layout starts there, not at its hash
+const MEANING_ANGLE_RATE = 0.12;    // x alpha per tick: the share of the way to the neighbours' direction
+const MEANING_ANGLE_SPREAD = 0.14;  // radians of fixed per-unit offset, so pages of one subject fan out a little
+
+function setMeaningPairs(dataStr) {
+    let parsed;
+    try { parsed = typeof dataStr === "string" ? JSON.parse(dataStr) : dataStr; } catch (e) { return; }
+    meaningPairs = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.pairs) ? parsed.pairs : []);
+    if (filters.byMeaning && nodes.length) startSimulation({ reheat: 0.3 });
+}
+
+function buildMeaningLinks() {
+    meaningLinks = [];
+    meaningHalo = new Map();
+    if (!filters.byMeaning) meaningAngles.clear();
+    if (!filters.byMeaning || !meaningPairs.length) return;
+    const linked = new Set();
+    for (const l of simLinks) {
+        linked.add(l.source.id < l.target.id ? l.source.id + "\u0000" + l.target.id : l.target.id + "\u0000" + l.source.id);
+    }
+    for (const [a, b, w] of meaningPairs) {
+        const na = simNodeById.get(a), nb = simNodeById.get(b);
+        if (!na || !nb || na === nb) continue;
+        if (linked.has(a < b ? a + "\u0000" + b : b + "\u0000" + a)) continue;   // a recorded link already holds them
+        const k = 0.15 + 0.85 * (Number(w) || 0);
+        const ua = satelliteOf.get(a), ub = satelliteOf.get(b);
+        if (!ua && !ub) { meaningLinks.push({ a: na, b: nb, k }); continue; }
+        if (ua === ub) continue;
+        for (const [u, other] of [[ua, nb], [ub, na]]) {
+            if (!u) continue;
+            if (!meaningHalo.has(u)) meaningHalo.set(u, []);
+            meaningHalo.get(u).push({ n: other, k });
+        }
+    }
+    for (const u of meaningHalo.keys()) if (meaningAngles.has(u.key)) u.angle = meaningAngles.get(u.key);
+}
+
+// Turns each halo page's slot toward the direction of its meaning-neighbours (body pages by where they are now, other
+// halo pages by their slot). Every target is read before any is applied, so the order of the pages decides nothing;
+// alpha-scaled, so it stops when the layout does.
+function driftHalo(alpha) {
+    if (!meaningHalo.size) return;
+    let cx = 0, cy = 0;
+    for (const n of bodyNodes) { cx += n.x; cy += n.y; }
+    if (bodyNodes.length) { cx /= bodyNodes.length; cy /= bodyNodes.length; }
+    const rate = MEANING_ANGLE_RATE * alpha;
+    const next = [];
+    for (const [u, list] of meaningHalo) {
+        let sx = 0, sy = 0;
+        for (const { n, k } of list) {
+            const other = satelliteOf.get(n.id);
+            const ang = other ? other.angle : Math.atan2(n.y - cy, n.x - cx);
+            sx += k * Math.cos(ang); sy += k * Math.sin(ang);
+        }
+        if (!sx && !sy) continue;
+        const target = Math.atan2(sy, sx) + (unitHash(u.key, 4) - 0.5) * 2 * MEANING_ANGLE_SPREAD;
+        const d = Math.atan2(Math.sin(target - u.angle), Math.cos(target - u.angle));
+        next.push([u, u.angle + d * rate]);
+    }
+    for (const [u, a] of next) { u.angle = a; meaningAngles.set(u.key, a); }
+}
+
+function meaningForce(strength) {
+    return function force(alpha) {
+        if (!meaningLinks.length) return;
+        const k0 = strength * alpha;
+        for (const l of meaningLinks) {
+            const dx = l.b.x - l.a.x, dy = l.b.y - l.a.y;
+            const d = Math.hypot(dx, dy);
+            if (d <= MEANING_REST) continue;
+            const f = ((d - MEANING_REST) / d) * k0 * l.k * 0.5;
+            l.a.vx += dx * f; l.a.vy += dy * f;
+            l.b.vx -= dx * f; l.b.vy -= dy * f;
+        }
+    };
+}
+
 function buildSimLinks() {
     const byId = new Map(visibleNodes.map(n => [n.id, n]));
     simNodeById = byId;
@@ -1338,6 +1434,7 @@ function layoutBand() {
 function bandForce(strength) {
     return function force(alpha) {
         if (!satelliteUnits.length) return;
+        driftHalo(alpha);
         layoutBand();
         const k = strength * alpha;
         for (const u of satelliteUnits) {
@@ -1479,6 +1576,7 @@ function startSimulation({ reheat = 1.0, relax = null, seeded = null } = {}) {
     buildSimLinks();
     assignComponents();
     seedSatellites(seeded);
+    buildMeaningLinks();
     if (relax === null) beginSizeAdapt(reheat);
 
     simulation = d3.forceSimulation(visibleNodes)
@@ -1500,6 +1598,7 @@ function startSimulation({ reheat = 1.0, relax = null, seeded = null } = {}) {
         .force("yType", d3.forceY(d => yAnchor(d)).strength(d => anchorStrength(d)))
         .force("hubGravity", hubGravityForce(0.05))
         .force("band", bandForce(BAND_SPRING))
+        .force("meaning", meaningForce(MEANING_STRENGTH))
         .force("clampSpeed", clampSpeedForce())
         .on("tick", () => { adaptSize(); tickInitialFit(); settleCheck(); scheduleRedraw(); })
         .on("end", () => { simulation.stop(); sizeAdapting = false; releaseHolds(); layoutRelax = null; finishInitialFit(); });
@@ -1545,7 +1644,7 @@ function anchorStrength(d) {
     // hubGravity handles members — while their hub (or a facet's parent) is on screen. One a filter hid used to keep
     // no anchor at all and drift; it falls back to its type's anchor.
     if (simNodeById.has(memberToHub.get(d.id))) return 0;
-    return 0.04;                                            // soft type clustering
+    return meaningLinks.length ? 0.04 * MEANING_TYPE_RELIEF : 0.04;   // soft type clustering (ROR-134: eases while meaning leads)
 }
 
 // G109 (2026-10-14): the layout ends when it is still, not when alpha runs out. d3's own cut-off (alpha < alphaMin)
@@ -2752,6 +2851,9 @@ function applyFilters(payload) {
     // Not set-affecting: no node enters or leaves the visible set, so this
     // must not trigger a rebuild + reheat — just a repaint.
     if ("showLogos" in f) filters.showLogos = Boolean(f.showLogos);
+    // ROR-134: unlike showLogos this moves the layout, so a change relaxes it once (the same 0.3 a filter change uses).
+    const prevByMeaning = filters.byMeaning;
+    if ("byMeaning" in f) filters.byMeaning = Boolean(f.byMeaning);
 
     if (nodes.length === 0) { scheduleRedraw(); return; }
 
@@ -2762,10 +2864,13 @@ function applyFilters(payload) {
         !setsEqual(prevContexts, filters.contexts) ||
         prevMinConfidence !== filters.minConfidence ||
         prevMinDegree !== filters.minDegree;
+    const meaningChanged = prevByMeaning !== filters.byMeaning;
 
     if (setAffectingChanged) {
         rebuildVisible();
         rebuildNeighborsIndex();
+        startSimulation({ reheat: 0.3 });
+    } else if (meaningChanged) {
         startSimulation({ reheat: 0.3 });
     }
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
