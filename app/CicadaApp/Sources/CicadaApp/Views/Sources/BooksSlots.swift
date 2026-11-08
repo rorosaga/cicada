@@ -74,6 +74,7 @@ struct GoogleBooksKeySlot: View {
     let slot: SourceSlot
     @State private var model = GoogleBooksKeyModel.shared
     @State private var key = ""
+    @FocusState private var focused: Bool
     @Environment(Store.self) private var store
 
     var body: some View {
@@ -119,8 +120,9 @@ struct GoogleBooksKeySlot: View {
     private func keyEntry(_ status: GoogleBooksKeyStatus) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(spacing: CicadaTheme.spacingSM) {
-                SecureField(Copy.googleBooksKeyPrompt, text: $key)
-                    .textFieldStyle(.roundedBorder)
+                SecureField("", text: $key)
+                    .focused($focused)
+                    .cicadaField(isFocused: focused, prompt: Copy.googleBooksKeyPrompt, isEmpty: key.isEmpty)   // DR-76
                     .onSubmit { save() }
                     .disabled(model.saving)
                 if model.saving { ProgressView().controlSize(.small) }

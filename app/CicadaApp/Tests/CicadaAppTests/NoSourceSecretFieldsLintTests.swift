@@ -9,7 +9,9 @@ import XCTest
 final class NoSourceSecretFieldsLintTests: XCTestCase {
     /// The short named exceptions: a password the person types for their own account's second step, held in memory for
     /// that call and never saved (Telegram's two-step verification, ruling 47a).
-    private static let exceptions: Set<String> = ["ChatSourceRows.swift"]
+    /// BooksSlots.swift (owner 2026-11-08: "make it being your own key, and an optional source in settings"): Google Books
+    /// runs only with the person's own free key, saved by one field there, the one named departure from ROR-113.
+    private static let exceptions: Set<String> = ["ChatSourceRows.swift", "BooksSlots.swift"]
 
     private func inScope(_ file: URL) -> Bool {
         let path = file.path
