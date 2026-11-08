@@ -237,13 +237,12 @@ def test_a_failed_recovery_is_reported_and_stops_the_sweep(bank, monkeypatch):
 from api.services import write_admission
 
 
-def _flip_when_admitted(bank, state, seen) -> threading.Thread:
-    """Sleep's order once the merge holds admission: the flag first, then the wait; records what Sleep would read."""
+def _flip_when_admitted(bank, state, seen, admitted) -> threading.Thread:
+    """Sleep's order once the merge holds admission: the flag first, then the wait; records what Sleep would read.
+    ``admitted`` is set by the merge's own admitted ``may_write`` check, after it answered: the hold is counted before
+    that check, so flipping on the count alone could shut the window under the check and refuse the merge."""
     def flip():
-        deadline = time.monotonic() + 10
-        while write_admission.holders(bank) == 0:
-            assert time.monotonic() < deadline
-            time.sleep(0.01)
+        assert admitted.wait(10)
         state["writing"] = True
         seen["drained"] = write_admission.wait_for_writers(bank, give_up_after=10)
         seen["head_at_read"] = _head(bank)
@@ -260,13 +259,20 @@ def test_a_window_that_opens_while_an_admitted_merge_waits_for_a_lock_waits_for_
     judge = lambda *a: {"verdict": "same", "confidence": 0.95, "winner": "esa"}   # noqa: E731
     result: dict = {}
     seen: dict = {}
+    admitted = threading.Event()
+
+    def may_write():
+        ok = not write_admission.holding()
+        if ok and write_admission.holders(bank) > 0:   # asked inside the merge's admission: next it waits for the lock
+            admitted.set()
+        return ok
+
     lock = page_lock.page_lock(bank) if held == "page" else git_service.write_lock(bank)
     with lock:
         t = threading.Thread(target=lambda: result.update(_sweep(
-            bank, pairs=[("esa", "esta"), ("bob-example", "carol-example")], judge=judge,
-            may_write=lambda: not write_admission.holding())))
+            bank, pairs=[("esa", "esta"), ("bob-example", "carol-example")], judge=judge, may_write=may_write)))
         t.start()
-        flip = _flip_when_admitted(bank, state, seen)
+        flip = _flip_when_admitted(bank, state, seen, admitted)
         flip.join(0.3)
         assert flip.is_alive(), "Sleep must not read while an admitted merge is mid-transaction"
     t.join(10)

@@ -73,9 +73,13 @@ def test_a_computer_scans_the_qr_and_keeps_a_copy_over_the_relay(two):
     status, done = home.call("POST", f"/devices/pairing/relay/{made['session']['id']}/confirm")
     assert status == 200 and done["session"]["state"] == "done", done
     # The new computer starts again as a copy and makes its first copy over the relay alone.
-    assert _wait(lambda: (new.cicada_home / "replica_of").exists(), 30)
+    # The join keeps its files one after another (the token, the base, then the relay's state): wait for all four, not
+    # for the first to appear, before reading any of them.
+    kept = ("device_token", "replica_of", "sync/relay.json", "sync/relay-state.json")
+    assert _wait(lambda: all((new.cicada_home / name).exists() for name in kept), 30), \
+        [n for n in kept if not (new.cicada_home / n).exists()]
     assert (new.cicada_home / "replica_of").read_text().strip() == "https://home.relay.invalid"
-    for name in ("device_token", "replica_of", "sync/relay.json", "sync/relay-state.json"):
+    for name in kept:
         assert (new.cicada_home / name).stat().st_mode & 0o777 == 0o600, name
 
     def copied():
