@@ -113,6 +113,18 @@ final class GraphViewModel {
 
     func clearPendingLogoPush() { pendingLogoPushJSON = nil }
 
+    /// ROR-134: the nearest-pages JSON for `graph.js::setMeaningPairs`, waiting for `GraphView.updateNSView`.
+    var pendingMeaningPushJSON: String?
+    func clearPendingMeaningPush() { pendingMeaningPushJSON = nil }
+    /// Turning the mode on reads the pairs first and only then flips the filter, so graph.js lays out once with them
+    /// (the push is evaluated before the filter). A failed read leaves the mode off — nothing is shown half-done.
+    func setByMeaning(_ on: Bool) async {
+        guard on else { filter.byMeaning = false; return }
+        guard let json = try? await APIClient.shared.fetchGraphMeaningJSON() else { return }
+        pendingMeaningPushJSON = json
+        filter.byMeaning = true
+    }
+
     /// Fetch (from `LogoStore`'s memory/disk cache, or the API once) the marks
     /// for the busiest logo-bearing nodes and hand them to the canvas.
     ///
@@ -218,6 +230,9 @@ final class GraphViewModel {
             observerSelection = nil
             filter.observers = []
             selectedEntity = nil
+            // ROR-134: the pairs belong to the bank they were read for.
+            filter.byMeaning = false
+            pendingMeaningPushJSON = nil
             // A bank switch invalidates any "go deeper" trail just as much
             // as the selection itself — the entities in it belong to a graph
             // that's no longer loaded.

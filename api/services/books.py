@@ -237,6 +237,29 @@ def author_set(authors) -> frozenset[str]:
     return frozenset(n for n in names if n)
 
 
+_LAST_FIRST = re.compile(r"^([^,]+),\s*([^,]+)$")
+
+
+def lookup_names(title, authors) -> tuple[str, list[str]]:
+    """The title and authors a catalogue lookup compares, written the way a catalogue writes them — never a guess.
+    The same name in another order ("Last, First" is "First Last"), a file name's "Title -- Author -- 2014" cut to
+    its title, and a file name's underscore for a colon undone. Several authors in one string ("A & B", "A; B",
+    "A and B") are several. Anything else is left exactly as it was: the compare after this is still exact."""
+    text = " ".join(str(title or "").split())
+    if " -- " in text:
+        text = text.split(" -- ")[0].strip()
+    text = " ".join(re.sub(r"_\s+", ": ", text).replace("_", " ").split())
+    names: list[str] = []
+    for author in authors or []:
+        for part in _AUTHOR_SPLIT.split(str(author or "")):
+            part = " ".join(part.split())
+            if not part:
+                continue
+            m = _LAST_FIRST.match(part)
+            names.append(f"{m.group(2).strip()} {m.group(1).strip()}" if m else part)
+    return text, names
+
+
 def is_book(fm: dict) -> bool:
     media = (fm or {}).get("media")
     return isinstance(media, dict) and media.get("kind") == KIND

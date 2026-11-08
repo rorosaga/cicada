@@ -72,6 +72,18 @@ OWNER_SURFACES = owner_identity.SELF_REFERENCES
 _OWNER_SLUGS = frozenset(sanitize_id(s) for s in OWNER_SURFACES)
 
 
+def _retire_replaced(frontmatter, body: str, before, after) -> str:
+    """A value this write replaced leaves Key Facts for History (`replaced_facts`, owner 2026-11-07); the claims are
+    already in ``body`` and a failure here costs nothing."""
+    try:
+        from api.services import replaced_facts
+
+        return replaced_facts.retire(frontmatter, body, before, after)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"replaced-fact move skipped for a page: {type(e).__name__}")
+        return body
+
+
 def _owner_page_id(existing_entities: list[dict] | None, memory_path: Path, settings) -> str | None:
     """The bank's ``owner: true`` page (``owner_identity.owner_page_id``)."""
     return owner_identity.owner_page_id(existing_entities, memory_path, settings)
@@ -283,6 +295,7 @@ def land_answered(memory_path: Path, release: Release, settings, *,
             continue
         body = write_claims(parsed.body, claims) if changed else parsed.body
         if changed:
+            body = _retire_replaced(parsed.frontmatter, body, existing_by_subject[subject], claims)
             try:
                 from api.services import conflict_resolver
 
@@ -620,9 +633,10 @@ def run_claim_pipeline(
             parsed = markdown_parser.parse(filepath)
             # strict guard: if the existing block is unparseable, raise (caught
             # below) instead of overwriting claims we could not read.
-            parse_claims(parsed.body, strict=True)
+            before = parse_claims(parsed.body, strict=True)
             new_body = write_claims(parsed.body, claims)
             if new_body != parsed.body:
+                new_body = _retire_replaced(parsed.frontmatter, new_body, before, claims)
                 # Related names each link by the claims as now written, not as Stage 5 read them before this pass.
                 new_body = _fresh_related(subject, parsed.frontmatter, new_body, claims)
             # R-HP8: the conversation a released claim was heard in credits the page.

@@ -3573,6 +3573,25 @@ extraction prompt, or the merge's own input. An address or a full name the perso
 rail places its span as before. The account's profile name is not filtered on its own, because it is often the
 owner's own page.
 
+**Every child run is held at the one door (ROR-139, 2026-11-07).** The same account leaked outside Sleep: a scratch
+memory's Ask reply and a web search's query named the signed-in account's owner (reproduced; the CLI's `userEmail`
+block reaches a child run under every pinned flag, and `ANTHROPIC_UNIX_SOCKET` is the only switch that drops it, so
+it cannot be used). `agent_engine.complete` now checks each call's reply and every tool input (a search's query)
+with `engine_identity.call_leaks`, against the request text it sent: a form the request did not say voids the call
+(`EngineProtocolError`, one retry), so no caller needs its own floor and Ask and the settling agent are covered. The
+check is by the address's forms and, at this door only, the **given name alone** (the first word before the `@` when
+the part holds two or more; whole word, any case, kept when the request says it), the shape the leak took on a scratch
+memory (second pass, 2026-11-08); the profile name is not read. A query already sent cannot be recalled, only its
+results discarded: a name could reach a search before the check ran, which is why `CONTEXT_GUARD` says never to put it
+in a query and a web lookup pins its query in the prompt and voids the answer on any other. **What reaches a child run
+(probed on `claude` 2.1.319, 2026-11-08):** under the pinned flags, `--safe-mode`, `--setting-sources ""`,
+`--strict-mcp-config` and `--tools ""` keep out `~/.claude/CLAUDE.md`, rules, auto-memory, hooks, plugins and MCP
+(a child asked to list its context named none); what remains is the CLI's own `userEmail` block, the cwd, platform and
+shell. No variable (`CLAUDE_CODE_USER_EMAIL` included) and no scratch `HOME` removes the email while the plan is
+signed in, and `--bare` would move the call to an API key. `claude -p` is spawned in one place
+(`agent_engine.complete` through `run_cli`), and `test_child_run_identity` fails if a spawn loses any of those flags
+or `CICADA_CAPTURE=off` / `CICADA_RECALL=off`, or gains a key.
+
 **The engine's own runtime is never a page.** The `claude -p` CLI still tells the model its cwd, platform and shell despite `--system-prompt` (probed 2.1.x; `--exclude-dynamic-system-prompt-sections` is ignored with it), so the extraction prompt says that is not conversation content and Stage 2 drops, with a text-free debug line, any entity named for `$CICADA_HOME` or a path under it (`agent_engine.is_runtime_path`; the scratch dir is one).
 
 **The owner is never a page of a pronoun (G169).** One closed, language-aware list of self-reference spellings
@@ -4030,5 +4049,14 @@ entities (the owner's page among them) skip all decay math. **Confidence does no
 by relevance (`search_service._page`'s sort key and the per-kind cut's archived tier); whether
 confidence should weigh in is a question for G148's benchmark pass to measure before anything
 changes.
+
+**A feed item is an episode and an index row, never a page** (ruling 62, owner 2026-11-04; confirmed 2026-11-07).
+`media_ingestor.write_prepared` writes, for an `origin: rss` item with no note, reason or agent behind it
+(`is_pageless`), only the episode (`media_entity_id` empty, `processed_by: index`) and its `url_index` row (empty
+`media_entity_id`, the poll's `feed` stamp still lands on it). Its Sources row is the episode's (`channel_items._feed_episode_rows`,
+filed under its feed by the stamp, opening in the Reader like a watched day); the overview counts and splits it
+(`pageless_feed_episodes`). A page an older poll made lists as before. A save that arrives with a reason or note for the
+same link makes its page (`existing_hash` treats a page-less row as no page); a bare re-save stays a duplicate. Only feed
+items: a bookmark, tab group or saved link keeps its media page.
 
 ---

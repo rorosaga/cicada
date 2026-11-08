@@ -185,7 +185,7 @@ A contract line sending advice to recall changed nothing in an agent loop (1 of 
 - **No real gap shown.** Taking the majority of the three judgments where each has three, Ask 23, recall's words 17 (only Ask 14, only recall's words 8, p = .29), closed-book 16. That majority leans on the third setup, so it isn't a score either. Ask wasn't changed for this.
 - **Absolute figures here are soft.** The same answers score from 15 to 40 by how the judge is called, and two runs of one setup flip 5 to 10 of 90. Why the harness's call differs wasn't found. The "+11 points" above doesn't stand as a gain.
 - **Length:** cutting Ask's answers to a median of 245 characters took them from 29 to 18 (13 lost, 2 gained, p = .007), so what it cuts carries the answer. The earlier comparison (no memory, 4 of 45 at 1,285 characters v 30 of 90 at 346) changed the questions, the prompt and the judge call together, and can't be read as an effect of length.
-- **Not re-judged:** PersonaMem-v2's 18 → 45 and the translated 10 → 42. Those are 30 gained, 3 lost and 33 gained, 1 lost, mostly declines becoming answers, so the direction is likely to hold; the sizes may not.
+- **Re-judged since** ([2026-11-07](2026-11-07-a-stable-judge-and-slept-locomo.md)): the cause was the system prompt (a plain `claude -p` keeps Claude Code's), and the majority of three reads PersonaMem-v2 16 → 43 and translated 7 → 37. Before that: PersonaMem-v2's 18 → 45 and the translated 10 → 42. Those are 30 gained, 3 lost and 33 gained, 1 lost, mostly declines becoming answers, so the direction is likely to hold; the sizes may not.
 
 ## Inferred facts, tried
 

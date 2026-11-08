@@ -34,7 +34,7 @@ func lampAccessibilityLabel(lampLit: Bool, scheduleText: String, nextRunText: St
 
 /// "When I read" (§7.2). The lamp art never previews: it flips only when
 /// `sleepVM.schedule` changes (P11). The toggle writes through the ONE rule
-/// (`ScheduleToggle`), is disabled while its write is in flight, and on a
+/// (`SleepViewModel.setLamp`, shared with the page's `LampSwitch`), is disabled while its write is in flight, and on a
 /// failed write snaps back to the schedule the backend still has, with a
 /// caption (Z-P18). Rhythm and time stay in Settings → Sleep (G125 (4)).
 /// Nothing here starts or cancels a cycle (R-Z9).
@@ -44,10 +44,6 @@ struct LampPopover: View {
     /// Settings → Intelligence shows here at once.
     @Environment(SleepEngineViewModel.self) private var engineVM
     let page: SleepPageModel
-
-    /// The value in flight, or `nil`.
-    @State private var writing: Bool?
-    @State private var failed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
@@ -62,11 +58,11 @@ struct LampPopover: View {
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Spacer(minLength: CicadaTheme.spacingMD)
                 Toggle(Copy.readOnSchedule, isOn: Binding(
-                    get: { writing ?? ScheduleToggle.isOn(sleepVM.schedule) },
-                    set: { write($0) }))
+                    get: { sleepVM.lampSwitchOn },
+                    set: { sleepVM.setLamp($0) }))
                     .toggleStyle(.switch)
                     .controlSize(.small)
-                    .disabled(writing != nil)
+                    .disabled(sleepVM.lampWriting != nil)
             }
             Text(page.lampLit ? whisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText, lampLit: true)
                               : Copy.lampOffExplainer)
@@ -93,7 +89,7 @@ struct LampPopover: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             keepAwakeRow
-            if failed {
+            if sleepVM.lampWriteFailed {
                 Text(Copy.scheduleWriteFailed)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.danger)
@@ -128,14 +124,20 @@ struct LampPopover: View {
             }
         }
     }
+}
 
-    private func write(_ on: Bool) {
-        writing = on
-        failed = false
-        sleepVM.bankTask {
-            let landed = await sleepVM.updateSchedule(ScheduleToggle.toggled(on: on, current: sleepVM.schedule))
-            failed = !landed
-            writing = nil
-        }
+/// The lamp's second door (owner 2026-11-07): a plain switch beside the page's schedule line. It reads and writes the
+/// same state as the popover's toggle (`SleepViewModel.setLamp`), so the two never disagree, and the room's lamp
+/// relights when the schedule lands, as it does from the popover (P11).
+struct LampSwitch: View {
+    @Environment(SleepViewModel.self) private var sleepVM
+
+    var body: some View {
+        Toggle(Copy.lampSwitch, isOn: Binding(get: { sleepVM.lampSwitchOn }, set: { sleepVM.setLamp($0) }))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .disabled(sleepVM.lampWriting != nil)
+            .help(sleepVM.lampWriteFailed ? Copy.scheduleWriteFailed : Copy.readOnSchedule)
     }
 }

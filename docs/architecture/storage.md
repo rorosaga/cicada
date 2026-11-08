@@ -400,7 +400,11 @@ asked about instead (`value_kept_for_persons_words` in the audit). Two Stage-1 r
 the open value on its slot whose attribute words match (`claims.same_value_attribute`: the same words after filler
 such as "number of", or one set inside the other when the smaller has two or more — "age" never meets "dog age"). A
 value said before the one the page holds (a drain reads conversations in any order) is kept as closed history,
-`superseded_by` the first value said after it (so history never overlaps), never asked about (`superseded_on_arrival`). The value stays in key facts too.
+`superseded_by` the first value said after it (so history never overlaps), never asked about (`superseded_on_arrival`). The value stays in key facts too — **until a later value replaces it** (owner
+2026-11-07, `replaced_facts`): in the write that closes the claim, a Key Facts bullet that says the replaced value (a whole-word
+match, never a bullet that also says the new one, never a page a person wrote or edited) moves whole into History with the old
+claim's dates, so the page shows only the current value and the old one stays dated. Value claims only: Key Facts is prose, and a
+looser match demoted true sentences in a measured copy (a `part-of` name), so a replaced fact of any other kind stays.
 
 **A person holds more than one place at once (2026-10-14).** `works-at` is multi-valued: as a single-valued key, Stage 3
 closed the open place whenever another was mentioned, and one measured owner page held 26 `works-at` claims, 25 closed,

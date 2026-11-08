@@ -233,7 +233,7 @@ def test_poll_feeds_ingests_new_items_via_injected_fetch(tmp_path, monkeypatch):
     episodes = list((memory / "episodes").glob("ep_*.md"))
     entities = list((memory / "entities").glob("media-*.md"))
     assert len(episodes) == 2
-    assert len(entities) == 2
+    assert entities == []      # ruling 62: a feed item is indexed, never a page
 
 
 def test_poll_feeds_only_ingests_new_items_on_second_poll(tmp_path, monkeypatch):
@@ -251,8 +251,8 @@ def test_poll_feeds_only_ingests_new_items_on_second_poll(tmp_path, monkeypatch)
     assert result["new"] == 1
     assert result["per_feed"][0]["duplicates"] == 2
 
-    entities = list((memory / "entities").glob("media-*.md"))
-    assert len(entities) == 3
+    assert list((memory / "entities").glob("media-*.md")) == []
+    assert len(list((memory / "episodes").glob("ep_*.md"))) == 3
 
 
 def test_poll_feeds_polls_multiple_subscriptions(tmp_path, monkeypatch):

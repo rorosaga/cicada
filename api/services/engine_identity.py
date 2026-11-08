@@ -78,6 +78,38 @@ def identities(settings) -> frozenset[str]:
         return values
 
 
+def plan_identities() -> frozenset[str]:
+    """The signed-in plan account's identities for a call that is known to be a ``claude -p`` run: the same cached
+    read as :func:`identities`, without the settings gate. Used where the call itself is the proof (``agent_engine``)."""
+    global _cached
+    with _lock:
+        now = time.monotonic()
+        if _cached is not None and now - _cached[0] < TTL_S:
+            return _cached[1]
+        try:
+            values = frozenset(v.lower() for v in reader() if v)
+        except Exception:  # noqa: BLE001 - an unreadable sign-in costs the floor, never the run
+            values = frozenset()
+        _cached = (now, values)
+        return values
+
+
+def call_leaks(request_text: str, outputs: Iterable, ids: frozenset[str] | None = None) -> bool:
+    """True when anything a ``claude -p`` call produced (its reply, each tool input such as a web search's query)
+    says a plan identity form the call's own request did not. The one check at the one door every child run passes
+    through (``agent_engine.complete``), so no caller has to remember it. Nothing about the match is returned."""
+    ids = plan_identities() if ids is None else ids
+    if not ids:
+        return False
+    outputs = list(outputs)
+    bad = foreign(ids, request_text)
+    if bad and any(carries(out, bad) for out in outputs):
+        return True
+    # The given name alone (ROR-139, second pass): a model reads "Anna" out of "anna.may77@…" and says only that.
+    given = _foreign_given(ids, request_text)
+    return bool(given) and any(_says_given(out, given) for out in outputs)
+
+
 async def aidentities(settings) -> frozenset[str]:
     """:func:`identities` for async code: the read runs on a worker thread, so a cache miss (``claude auth status``,
     up to 10 s) never stalls the event loop, where a request handler such as the inbox conflict answer may be
@@ -110,6 +142,39 @@ def _forms(ids: Iterable[str]) -> frozenset[tuple[str, ...]]:
         if len(words) >= 2:
             forms.add(words)
     return frozenset(forms)
+
+
+def _given_names(ids: Iterable[str]) -> frozenset[str]:
+    """The first word before each address's ``@`` when that part holds two or more words of three letters or more
+    (``anna.may77`` gives ``anna``): what a model says when it reads a first name out of the address. Used only at
+    the child-run door (:func:`call_leaks`), never by the extraction and merge scrubs, which keep the stricter forms."""
+    names: set[str] = set()
+    for value in ids:
+        words = tuple(dict.fromkeys(_WORD.findall((value or "").strip().lower().split("@", 1)[0])))
+        if len(words) >= 2:
+            names.add(words[0])
+    return frozenset(names)
+
+
+def _given_pattern(name: str) -> re.Pattern:
+    return re.compile(rf"(?<![^\W\d_]){re.escape(name)}(?![^\W\d_])", re.IGNORECASE)
+
+
+def _foreign_given(ids: Iterable[str], source_text: str) -> frozenset[str]:
+    """The given names of ``ids`` that ``source_text`` does not itself say (any case, whole word)."""
+    text = source_text or ""
+    return frozenset(n for n in _given_names(ids) if _given_pattern(n).search(text) is None)
+
+
+def _says_given(value, names: frozenset[str]) -> bool:
+    if not names or value is None:
+        return False
+    if isinstance(value, dict):
+        return any(_says_given(v, names) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_says_given(v, names) for v in value)
+    text = str(value)
+    return any(_given_pattern(n).search(text) is not None for n in names)
 
 
 def _pattern(form: tuple[str, ...]) -> re.Pattern:

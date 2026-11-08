@@ -3,7 +3,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import GraphResponse
-from api.services import sync_service
+from api.services import meaning_neighbors, sync_service
 from api.services.graph_builder import build_graph
 
 router = APIRouter()
@@ -83,3 +83,16 @@ async def get_graph(
         include_hubs=include_hubs,
         hubs_only=hubs_only,
     )
+
+
+@router.get("/graph/meaning")
+async def get_graph_meaning(request: Request, response: Response, settings: Settings = Depends(get_settings)):
+    """ROR-134: each page's nearest pages by meaning, for the graph's off-by-default "closeness by meaning" layout.
+
+    Distance only — a pair is never a link, and the app draws no edge from it (ruling 56). Derived from the local
+    vector index; this route is on the local API alone, never the remote connector. ``embedded`` against the entity
+    count tells a client how many pages have a vector at all."""
+    etag = 'W/"meaning-' + "-".join(str(x) for x in meaning_neighbors.signature(settings.memory_path)) + '"'
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    return await run_in_threadpool(meaning_neighbors.neighbors, settings.memory_path)

@@ -194,6 +194,15 @@ struct GraphLegendPanel: View {
                 .help(Copy.Graph.showLogosHelp)
                 .frame(height: CicadaTheme.scaled(32))
                 .padding(.horizontal, CicadaTheme.spacingSM)
+            Toggle(Copy.Graph.byMeaning, isOn: Binding(
+                get: { graphVM.filter.byMeaning },
+                set: { on in Task { await graphVM.setByMeaning(on) } }))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .font(CicadaTheme.font(size: 13))
+                .help(Copy.Graph.byMeaningHelp)
+                .frame(height: CicadaTheme.scaled(32))
+                .padding(.horizontal, CicadaTheme.spacingSM)
             key
         }
         .padding(CicadaTheme.spacingSM)
