@@ -188,6 +188,7 @@ enum SourceGrid {
         "goodreads": ["Amazon", "books"],
         VoiceMemosReader.channel: ["Apple", "audio", "recordings", "dictation"],
         "book-scan": ["ISBN", "phone", "books"],
+        GoogleBooksKeyModel.id: ["Google", "API key", "books", "descriptions"],
         "files": ["bookmarks", "HTML", "zip", "import", "export"],
         "notion": ["pages", "databases"],
         "chat-exports": ["ChatGPT", "OpenAI", "Claude", "Anthropic", "Gemini", "Google"],

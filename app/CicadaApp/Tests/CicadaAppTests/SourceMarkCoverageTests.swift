@@ -11,7 +11,7 @@ final class SourceMarkCoverageTests: XCTestCase {
     static let noBrand: Set<String> = [
         "remote-app", "agent-api", "unknown",
         SourceCatalog.chatExportsOrigin, SourceCatalog.filesOrigin, SourceCatalog.meetingFoldersId, SourceCatalog.tracesId,
-        "folder", "book-scan", "calendar",
+        "folder", "book-scan", "calendar", GoogleBooksKeyModel.id,
         SourceCatalog.hexId,
     ]
 

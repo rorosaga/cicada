@@ -531,6 +531,9 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/goodreads/import": (HELD, "api.services.book_jobs.apply_admitted"),
     "POST /sources/goodreads/waiting/choose": (HELD, "api.services.book_jobs.apply_admitted"),
     "PUT /sources/apple-books/settings": (REGISTRY, None),
+    # 2026-11-08: the person's own Google Books key — `secrets.env` and a small state file in `$CICADA_HOME`, nothing in a bank.
+    "PUT /sources/google-books": (OUTSIDE, None),
+    "DELETE /sources/google-books": (OUTSIDE, None),
     # Ruling 61: covers kept outside every bank, each page's stamp by the same apply; a take-back inside admission.
     "POST /sources/apple-books/covers": (HELD, "api.services.book_jobs.apply_admitted"),
     "POST /entities/{entity_id}/book/not-this-book": (ADMITTED, None),   # ruling 71: takes back what a title match wrote

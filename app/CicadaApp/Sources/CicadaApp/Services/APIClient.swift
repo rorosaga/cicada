@@ -2781,6 +2781,18 @@ actor APIClient {
         let _: AppleBooksSettingsReply = try await put("/sources/apple-books/settings", body: ["enabled": enabled])
     }
 
+    /// 2026-11-08 — `GET|PUT|DELETE /sources/google-books`: the person's own Google Books key. The key is sent once and
+    /// never comes back; a refused key is a 422 whose `detail` is the fix in words.
+    func fetchGoogleBooksKey() async throws -> GoogleBooksKeyStatus { try await get("/sources/google-books") }
+
+    func saveGoogleBooksKey(_ key: String) async throws -> GoogleBooksKeyStatus {
+        try await put("/sources/google-books", body: ["key": key])
+    }
+
+    func removeGoogleBooksKey() async throws -> GoogleBooksKeyStatus {
+        try decoder.decode(GoogleBooksKeyStatus.self, from: try await delete("/sources/google-books"))
+    }
+
     /// `POST /sources/apple-books/sync` — the books that changed since this memory last accepted them.
     func syncAppleBooks(_ payload: AppleBooksSyncPayload) async throws -> AppleBooksSyncResult {
         try await postData("/sources/apple-books/sync", json: try JSONEncoder().encode(payload))

@@ -1645,8 +1645,21 @@ writes description, year, pages, publisher, subjects and a cover id (never title
 `POST /entities/{id}/book/not-this-book` takes it back for good. `GET /sources/books/backfill-plan` is a counts-only dry run.
 **Google Books is the second catalogue (2026-11-08, owner "Yes setup Google book").** Open Library stays first: only a title
 Open Library has *answered* and left with no description (no match, or a match whose record holds none) is asked, once, of
-Google Books' public volumes search (`book_lookup.match_google`: `intitle:"<title>" inauthor:"<first author>"`, nothing else, no
-key, no sign-in, the same one-a-second pacer and the same connector gate). The same rule: a volume's exact normalised title and an
+Google Books' volumes search (`book_lookup.match_google`: `intitle:"<title>" inauthor:"<first author>"`, nothing else, the same
+one-a-second pacer and the same connector gate). **Only with the person's own key (owner 2026-11-08: "Make sure the Google books
+stuff is free, and make it being your own key, and an optional source in settings").** Cicada ships no key and sends no keyless
+request, ever — the ISBN lookup's Google fallback included: `book_lookup.google_enabled()` is false without a saved key, `_get`
+refuses any `www.googleapis.com` request then, and an Open Library 404 alone is the ISBN's verdict. The key is
+`CICADA_GOOGLE_BOOKS_KEY` in `secrets.env` (0600), in `CONNECTOR_SECRET_ENV` (stripped from every engine child), put on the
+request only at the fetch (`_signed`: Google takes `key=`), never in a URL a caller holds, a cache entry, a log or a route's
+answer. **It is an optional source in Sources → Reading** (`google_books_key`, `GET|PUT|DELETE /sources/google-books`; the app
+is one client): off by default, it says what it does and that it is free, links to where a key is made, takes the key in a
+field and removes it in one click. Save makes one read-only request (`volumes?q=isbn:…&fields=totalItems`) and keeps the key
+only if Google accepts it; a refused one is a 422 whose `detail` is the fix. A 429, a 403 or a 400 about the key during a run
+stops the run and is remembered as an enum and a time (`$CICADA_HOME/google-books.json`, never a body) so Settings says the
+exact fix beside the field (`PROBLEM_WORDS`); a later good answer clears it. **Free:** Google's Books docs list no price and no
+billing step for a public search with a key (a key identifies the person's project and its quota); the daily request cap is
+Google's, and a closed quota only stops Cicada's run. The same rule: a volume's exact normalised title and an
 author of the page, holding a description (`google_match`: authors exactly the page's first, then the fuller description, Google's
 order last); cached outside every bank, the answer under `gtitle:<hash>` and the volume's record under `gb:<id>`; a 429 stops
 the run and backs the title off. `books.apply_google_matches` writes the description (`description_source: googlebooks`, the
@@ -1688,7 +1701,7 @@ its `content_hash`, so the queue is derived from the bank — a move or a restor
   /entities/{id}/book-status` answers `ways` (`books.ways_in`: "Apple Books", "Goodreads", "Scanned"; an older page is
   known by its Apple Books and Goodreads ids), which the page's status line shows when there is more than one.
 - **The lookup** (`book_lookup`, home only): Open Library's `/isbn/<isbn>.json`, `/authors/<id>.json` (≤ 3, from the edition,
-  else the work's), `/works/<id>.json` (a description, subjects), and Google Books `volumes?q=isbn:` whenever one still lacks
+  else the work's), `/works/<id>.json` (a description, subjects), and Google Books `volumes?q=isbn:` (only with the person's own key, 2026-11-08) whenever one still lacks
   an author, description, publisher, page count or year (**merged**: Open Library's value kept, Google Books fills the rest;
   alone when Open Library has no edition). **A page is worth opening (G233, 2026-11-05):** the answer carries `description`
   (the source's own words, capped at 700 characters at a sentence end — a blurb, not the publisher's page — never a model's),
