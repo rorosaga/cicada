@@ -32,10 +32,10 @@ ENABLE_URL = "https://console.cloud.google.com/apis/library/books.googleapis.com
 #: What Settings says it does. Provider-neutral except naming the source itself (owner 2026-11-08).
 WHAT_IT_DOES = ("When Open Library has no description for a book you added without an ISBN, Cicada asks Google Books "
                 "once, sending only its title and first author. Read-only; nothing else is sent.")
-#: Only what Google's Books docs show: they name no price or billing step (and no daily number either), the key is the
-#: person's own project's, and a closed quota stops Cicada's run. Nothing here claims a figure Google does not publish.
-FREE_WORDS = ("It costs nothing from Cicada, and Google's Books documentation lists no charge for it. The key is yours, "
-              "with Google's own daily cap on requests; Cicada stops for the day when it is reached.")
+#: Free by construction (owner 2026-11-08: "make sure the Google books stuff is free"): a project with no billing account
+#: cannot be charged, and Google's Books docs name no price. Nothing here claims a daily figure Google does not publish.
+FREE_WORDS = ("Free: make the key in a Google Cloud project with no billing account, and Google cannot charge for it. "
+              "The key is yours, with Google's own daily cap on requests; Cicada stops for the day when it is reached.")
 #: The Books API's quota page for the key's project.
 QUOTA_URL = "https://console.cloud.google.com/apis/api/books.googleapis.com/quotas"
 PROBLEM_WORDS = {
