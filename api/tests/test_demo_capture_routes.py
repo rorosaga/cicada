@@ -118,6 +118,9 @@ HANDLED_ELSEWHERE = {
     ("POST", "/sources/telegram/disconnect"):
         "ruling 47a: logs the Telegram session out and deletes its file outside every bank; takes nothing in",
     ("PUT", "/reading/settings"): "a machine-wide setting (~/.cicada/reading.json); writes no bank",
+    ("PUT", "/sources/google-books"):
+        "2026-11-08: the person's own Google Books key goes to ~/.cicada/secrets.env and a state file in $CICADA_HOME; "
+        "writes no bank (test_google_books_key.py)",
     ("POST", "/sources/saved-why/suggest"):
         "G191 v7: scores the reason bank against a link with the installed search model; reads no bank, writes nothing",
     **{(method, f"/sources/traces/{path}"):

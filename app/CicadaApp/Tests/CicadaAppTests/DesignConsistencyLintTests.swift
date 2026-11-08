@@ -211,7 +211,8 @@ extension DesignConsistencyLintTests {
                 }
                 let bound = chain.contains { $0.contains(".focused(") }
                 // The prompt is drawn by the style in the tertiary ink; a titled field would draw the system's too.
-                if !(chain.last ?? "").contains(#"TextField("","#) {
+                let opener = chain.last ?? ""
+                if !opener.contains(#"TextField("","#) && !opener.contains(#"SecureField("","#) {
                     offenders.append("\(file.lastPathComponent):\(n) titles its field; the prompt goes to cicadaField")
                 }
                 let passes = line.contains("isFocused:")

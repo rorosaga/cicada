@@ -33,6 +33,8 @@ WORKS = {
 @pytest.fixture
 def shelf(client, monkeypatch):
     c, memory, calls = client
+    # Google Books is asked only with the person's own key (2026-11-08); this is a person who saved one.
+    monkeypatch.setenv("CICADA_GOOGLE_BOOKS_KEY", "AIzaTestKeyNotReal0000000000000000000")
 
     async def fetch(url):
         for isbn, (title, authors) in WORKS.items():

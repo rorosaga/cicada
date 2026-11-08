@@ -1685,6 +1685,12 @@
       "disposition": "preserve_frontmatter_guarded"
     },
     {
+      "function": "apply_google_matches",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, 'book': new}",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
       "function": "not_this_book",
       "method": "write",
       "frontmatter": "{**fm, 'book': book}",

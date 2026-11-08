@@ -289,6 +289,8 @@ ROUTES: dict[str, str] = {
     "PUT /memory/decay-tuning": FORWARD,
     "PUT /settings/owner": FORWARD,
     "PUT /sources/connectors/{connector_id}/credentials": REFUSE,   # never sent across: the home's sign-ins
+    "PUT /sources/google-books": REFUSE,      # 2026-11-08: the person's own Google Books key is a secret on the home (lookups run there); never sent across
+    "DELETE /sources/google-books": REFUSE,   # the same key, forgotten on the home
     "PUT /sources/folders/{folder_id}": FORWARD,
     "PUT /sources/messages/settings": FORWARD,
     "PUT /sources/saved-why": FORWARD,
