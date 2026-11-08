@@ -2347,7 +2347,14 @@ drain (`inbox_catchup.Budget`, `NEW_PER_DRAIN` = 3), each in its own `cicada` co
   about, at most 6 open and inside the drain's shared budget (`_catchup_questions_safely`), so the card's one-tap merge, the
   page's own question list and every undo already work. It is the record's own question (no conversation naming both is
   required, `pair_evidence`'s exemption for a lead the record raises), so "Cicada's guess" stays ≤ 0.4 unless one does; the
-  owner's page is never paired. A question only: the person's words join them.
+  owner's page is never paired. Mostly a question only — the person's words join them — **except two independent kinds
+  of evidence (ruling 74, owner 2026-11-07)**: `person_duplicates.joins` marks a pair joinable when the name (sound,
+  spelling, a short name in a full one and one page listing the other's name as an alias count as ONE kind — owner
+  2026-11-08: a listed alias joined two different people), the same account or a shared rare belief agree in at least
+  two different kinds, the pair was never named together, neither page is titled by a relation, neither page is in
+  another candidate pair and the score is ≥ 0.6; `inbox_tend`'s `two_signals` rule then settles that pair's question as a
+  merge (Sleep's commit, listed under "Settled by Sleep", undoable and never re-settled). A conversation that names both
+  pages, or any "two people" answer, keeps the pair a question.
 - **A merge closes the question it answers** (`merge_closes`, owner 2026-11-06): `entity_merge.merge_entities`, the one
   merge primitive behind `cicada_merge_pages`, the app's menu, the CLI, an inbox answer, a placeholder person folded into a
   named one and the dedup sweep, removes every pending `merge_suggestion` whose two ends are exactly the two pages (either

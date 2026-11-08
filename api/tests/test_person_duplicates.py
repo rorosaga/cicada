@@ -72,3 +72,56 @@ def test_propose_writes_one_ordinary_merge_question(bank, monkeypatch):
     assert card["merge_target_hint"] and card["entity_id"] and card["suggested_confidence"] <= 0.4
     again = pd.propose(bank, date(2026, 11, 6), budget=inbox_catchup.Budget(5))
     assert all(w != report.written[0] for w in again.written)           # the pair with a question is not asked twice
+
+
+# --------------------------------------------------------------------------- ruling 74: two independent signals join
+
+
+def test_names_that_sound_alike_are_one_signal_never_two():
+    assert pd.kinds_of(["sound", "short_in_full", "spelling"]) == ["name"]
+    assert pd.kinds_of(["sound", "alias"]) == ["name"]                     # an alias is a name (owner 2026-11-08)
+    assert pd.kinds_of(["alias", "shared_source"]) == ["name", "contact"]
+
+
+def test_the_name_and_an_alias_alone_never_join_but_a_shared_account_does(bank):
+    _page(bank, "tomas", "Tomás", source_episodes=["ep_2026-01-01_001", "ep_2026-01-02_001"])
+    _page(bank, "tom", "Tom", aliases=["Tomás"], source_episodes=["ep_2026-01-03_001"])
+    _page(bank, "noor", "Noor", source_episodes=["ep_2026-04-01_001"],
+          sources=[{"ref": "https://example.com/u/noor-example"}])
+    _page(bank, "nur", "Nur", aliases=["Noor"], source_episodes=["ep_2026-04-02_001"],
+          sources=[{"ref": "https://example.com/u/noor-example"}])
+    bank_index.invalidate()
+    pairs = {tuple(sorted((p.a, p.b))): p for p in pd.candidates(bank)}
+    assert pairs[("texim", "tikzim")].joinable is False                    # the name is all they share
+    assert pairs[("tom", "tomas")].joinable is False                       # an alias is still only the name
+    assert pd.join_reason(bank, "tomas", "tom") == ""
+    assert pairs[("noor", "nur")].joinable is True                         # the name and the same account
+    assert pd.join_reason(bank, "noor", "nur").startswith("2 independent signals")
+    assert pd.join_reason(bank, "texim", "tikzim") == ""
+
+
+def test_named_together_a_relation_titled_page_or_a_second_candidate_never_joins(bank):
+    _page(bank, "tomas", "Tomás", source_episodes=["ep_2026-01-01_001"])
+    _page(bank, "tom", "Tom", aliases=["Tomás"], source_episodes=["ep_2026-01-01_001"])      # one conversation names both
+    _page(bank, "mia", "Mia", aliases=["Mía"], source_episodes=["ep_2026-02-01_001"])
+    _page(bank, "mía", "Mía", source_episodes=["ep_2026-02-02_001"])
+    _page(bank, "mi-a", "Mía Example", source_episodes=["ep_2026-02-03_001"])               # a second page "Mía" could be
+    _page(bank, "partner", "Partner", owner_roles=["partner"], aliases=["Zed"])
+    _page(bank, "zed", "Zed", source_episodes=["ep_2026-03-01_001"])
+    bank_index.invalidate()
+    assert pd.join_reason(bank, "tom", "tomas") == ""
+    assert pd.join_reason(bank, "mia", "mía") == ""
+    assert pd.join_reason(bank, "partner", "zed") == ""
+
+
+def test_a_pair_the_person_called_two_people_never_joins(bank):
+    from api.services import merge_rejections
+
+    _page(bank, "noor", "Noor", source_episodes=["ep_2026-04-01_001"],
+          sources=[{"ref": "https://example.com/u/noor-example"}])
+    _page(bank, "nur", "Nur", aliases=["Noor"], source_episodes=["ep_2026-04-02_001"],
+          sources=[{"ref": "https://example.com/u/noor-example"}])
+    bank_index.invalidate()
+    assert pd.join_reason(bank, "nur", "noor")
+    merge_rejections.add_rejected(bank, "nur", "noor")
+    assert pd.join_reason(bank, "nur", "noor") == ""

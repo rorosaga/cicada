@@ -3783,6 +3783,21 @@ A whole row moves to DONE only after its remaining implementation and required a
     "Dune: Deluxe Edition", two invented titles: none expected to match); 0 of the 17 matches named the wrong work by title and
     author. An import of N books with no ISBN costs about 5 s each (1 search + 3-4 ISBN requests) and no model.
     Revisit on: the owner overruling the confidence rule, or measured wrong matches.
+74. **Sleep joins two people pages when two independent signals agree (owner, 2026-11-07; ROR-136, amends rulings 29 and 41's "a question only").**
+   The owner agreed to Sleep joining pairs he would spot at a glance, and warned: "I remember you mentioned some pairs that
+   I'm pretty sure have nothing to do with each other." (a) The signals are kinds of evidence, counted once each
+   (`person_duplicates.INDEPENDENT`): the **name** (sound, spelling, a short name inside a full one — all one, so two names
+   that merely sound alike never join), one page **listing the other's name** as its own, the same **contact** (an account or
+   link both pages carry), a shared **rare belief**. Two different kinds are needed. (b) The pair must also be clean: never
+   named together in a conversation (ruling 65 c), no conversation naming both raised it, neither page titled by a relation
+   to the owner, neither page in any other candidate pair (a page that could be either waits for the person), score ≥ 0.6,
+   not the owner's page, nothing the person called two people or split. (c) The join is the question's own settle
+   (`inbox_tend`, rule `two_signals`): the same resolver the person's one-tap merge uses, Sleep's commit, listed under
+   "Settled by Sleep", undone with one tap and then never settled again. (d) What does not qualify stays an ordinary
+   question. *Why:* a dry run on a copy of the owner's bank listed 12 candidate pairs; 2 qualify, and the ones he named as
+   surely two people (a given name that sounds like another's, with nothing else in common) are one signal. **Trigger to
+   revisit:** a wrong join the person undoes, measured.
+
 73. **Questions Sleep may assume, and none loses a value (owner, 2026-11-06; G98, ROR-31).** The owner's words on the dry run: "Take the recommendations in dry-run.md for decisions 1 to 8. The four 'part of' items (1830, 1831, 2343, 2346) are moves: the latest stays current, older ones close. Items 1898 and 2267 stay open as questions. Drop the same_conversation rule. … A new contradiction opens its own question, if that stays small. Leave the 37 existing piled-up questions alone and don't touch fading." So: the same value said two ways is one value; a `part-of` said on different days is a move; the value a question alone held is written closed, never as the person's act, whenever the question ends; Sleep adds no page line when no value changed; two values from one conversation are not assumed compatible. Evidence: the dry run (real text, outside the repo): 11 of 11 respellings right, 6 of 9 same-conversation settles wrong. Revisit on: a measured wrong settle from one of these rules. A note: this reverses #672's test that a pick writes nothing for the other value — the other is now written closed.
 
 67. **One book is one page whichever door it came in by; the Mac adds books by number or camera (owner, 2026-11-05; G233, ROR-116).**
