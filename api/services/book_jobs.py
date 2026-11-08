@@ -72,6 +72,8 @@ async def lookup_waiting(memory_path: Path, *, fetch=None) -> dict | None:
     if titles:
         # Ruling 61 (amended 2026-11-06): a book the person added with no ISBN may be found by its title and author.
         report["titles"] = await book_lookup.resolve_titles(titles, fetch=fetch)
+        # 2026-11-08: Open Library first; what it answered and left with no description is asked of Google Books.
+        report["google"] = await book_lookup.resolve_google_titles(titles, fetch=fetch)
     return report
 
 

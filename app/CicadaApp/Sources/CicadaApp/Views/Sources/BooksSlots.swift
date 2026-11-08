@@ -66,6 +66,88 @@ struct AppleBooksSlot: View {
     }
 }
 
+/// 2026-11-08 — Google Books, an optional source that runs only with the person's own key. Off by default; says what it
+/// does and that it costs nothing; a link to where the key is made, a field, Save; once on, a one-click Remove in the
+/// footer. A refused key or a closed quota says its fix in words beside the field. DR-5 (one primary), DR-38 (said
+/// once), DR-59 (the state in one line).
+struct GoogleBooksKeySlot: View {
+    let slot: SourceSlot
+    @State private var model = GoogleBooksKeyModel.shared
+    @State private var key = ""
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        Group {
+            switch slot {
+            case .connect: connectArea
+            case .footer:
+                if model.connected {
+                    SourcePageFooter(actions: [
+                        .disconnect(Copy.googleBooksTitle, message: Copy.googleBooksDisconnectKeeps) {
+                            Task {
+                                await model.remove()
+                                await store.refresh([.sources, .sourcesOverview, .status])
+                            }
+                        },
+                    ])
+                }
+            }
+        }
+        .task { await model.refresh() }
+    }
+
+    @ViewBuilder
+    private var connectArea: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            if let status = model.status {
+                Text(status.whatItDoes + " " + status.freeWords)
+                    .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if status.connected {
+                    SourceConnectLine(text: Copy.googleBooksOn)
+                } else {
+                    keyEntry(status)
+                }
+                if let words = status.problemWords {
+                    Text(words).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func keyEntry(_ status: GoogleBooksKeyStatus) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                SecureField(Copy.googleBooksKeyPrompt, text: $key)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { save() }
+                    .disabled(model.saving)
+                if model.saving { ProgressView().controlSize(.small) }
+                NeutralButton(title: Copy.googleBooksSave, size: .compact,
+                              isDisabled: model.saving || key.trimmingCharacters(in: .whitespaces).isEmpty) { save() }
+            }
+            if let url = URL(string: status.keyUrl), url.scheme == "https" {
+                TextButton(title: Copy.googleBooksMakeKey, inline: true) { NSWorkspace.shared.open(url) }
+            }
+            if let failure = model.failure {
+                Text(failure).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func save() {
+        let candidate = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            if await model.save(candidate) {
+                key = ""
+                await store.refresh([.sources, .sourcesOverview, .status])
+            }
+        }
+    }
+}
+
 /// Ruling 61 — a book's row in a source's list: its cover, whole, in the row's slot, or an empty slot. DR-9 (a ring,
 /// not a border), DR-12 (corners that scale), owner 2026-10-28 (no stand-in). Asked only when its row is drawn.
 struct BookCoverThumb: View {
