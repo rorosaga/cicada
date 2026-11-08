@@ -15,6 +15,9 @@
 * ``GET /sources/books`` — counts for the Reading rows: books by status, and scans waiting for their lookup.
 * ``POST /sources/apple-books/covers`` — the covers the app read from Apple Books' cache (ruling 61, ``book_covers``).
 * ``GET /entities/{id}/book`` — what the page leads with (subtitle, facts line, subjects, the description's source, ways in).
+* ``GET|PUT|DELETE /sources/google-books`` — the person's own Google Books API key, the one way Google Books is asked
+  (2026-11-08): the status never holds the key; a PUT checks the key with one read-only request and saves it only when
+  Google accepts it (422 with the fix in words otherwise); DELETE forgets it.
 * ``GET /sources/books/backfill-plan`` — a counts-only dry run of a description backfill (writes nothing, asks nothing).
 * ``POST /entities/{id}/book/not-this-book`` — takes back a description a title found (ruling 61 amended 2026-11-06).
 * ``GET /entities/{id}/book-status``, ``POST /entities/{id}/book-status/undo`` — the book's status and "Not right".
@@ -37,7 +40,7 @@ from api.config import Settings, get_settings
 from api.routers.capture import refuse_capture_into_demo
 from api.services import apple_books, book_covers, book_jobs, books, episode_staging, folder_source, goodreads_export
 from api.services import choice_covers, goodreads_waiting, idempotency, logo_service, sync_state, telemetry
-from api.services import media_preview, write_admission
+from api.services import google_books_key, media_preview, write_admission
 from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
@@ -105,6 +108,32 @@ async def books_summary(settings: Settings = Depends(get_settings)):
                                                   if (f.frontmatter or {}).get("origin") == books.SCAN_ORIGIN))
     return {**out, "waiting": waiting, "appleBooks": apple_books.load_settings(memory_path)["enabled"],
             "bank": memory_path.name}
+
+
+class GoogleBooksKey(BaseModel):
+    key: str = Field(..., min_length=1, max_length=256)
+
+
+@router.get("/sources/google-books")
+async def get_google_books():
+    """Whether the person's own Google Books key is saved, what it does, that it is free, where to make one, and the
+    last problem (a refused key, a closed quota) with its fix. Never the key."""
+    return await run_in_threadpool(google_books_key.status)
+
+
+@router.put("/sources/google-books")
+async def put_google_books(req: GoogleBooksKey):
+    """The person's Save: one read-only request checks the key; a refused or unreachable one is not saved."""
+    try:
+        return await google_books_key.connect(req.key)
+    except google_books_key.KeyRefused as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.delete("/sources/google-books")
+async def delete_google_books():
+    """One-click remove: the key and the last problem are forgotten; descriptions already taken stay on their pages."""
+    return await run_in_threadpool(google_books_key.disconnect)
 
 
 class AppleBooksSettings(BaseModel):

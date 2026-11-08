@@ -18,6 +18,12 @@ ISBN = "9780000000002"
 OTHER_ISBN = "9781111111113"
 WORK = {"description": {"value": "A quiet novel about engines that learn to wait."}}
 
+@pytest.fixture(autouse=True)
+def _own_google_books_key(monkeypatch):
+    """Google Books is asked only with the person's own key (2026-11-08); these tests are of a person who saved one."""
+    monkeypatch.setenv("CICADA_GOOGLE_BOOKS_KEY", "AIzaTestKeyNotReal0000000000000000000")
+
+
 
 def _doc(key, title, authors, isbns=(ISBN,), subtitle=None, editions=None):
     doc = {"key": f"/works/{key}", "title": title, "subtitle": subtitle, "author_name": authors, "isbn": list(isbns)}

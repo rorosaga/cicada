@@ -250,14 +250,53 @@ def _shared_pacer() -> "_Pacer":
     return _SHARED
 
 
+def google_enabled() -> bool:
+    """Google Books is asked only with the person's own key (2026-11-08): no key, no request, ever."""
+    from api.services import google_books_key
+
+    return google_books_key.key() is not None
+
+
+def _signed(url: str) -> str:
+    """``url`` with the person's Google Books key added, only for Google's host; built here at the fetch so no caller,
+    cache entry or log line ever holds it."""
+    from urllib.parse import urlparse
+
+    if urlparse(url).hostname != "www.googleapis.com":
+        return url
+    from api.services import google_books_key
+
+    k = google_books_key.key()
+    return f"{url}{'&' if '?' in url else '?'}key={k}" if k else url
+
+
+def _note_google(url: str, resp: "Response") -> None:
+    """Remember what Google's answer means for the key (a closed quota, a refused key), or that it works."""
+    from urllib.parse import urlparse
+
+    if urlparse(url).hostname != "www.googleapis.com":
+        return
+    from api.services import google_books_key
+
+    kind = google_books_key.classify(resp.status, resp.body)
+    if kind:
+        google_books_key.note(kind)
+    elif resp.status == 200 and google_books_key.problem():
+        google_books_key.note(None)
+
+
 async def _get(fetch: FetchFn, pacer: "_Pacer", url: str) -> Response:
     """One GET, its redirects followed here — each hop paced like any request (Open Library's ``/isbn/`` answers with
-    a redirect to the edition), at most :data:`REDIRECTS`, only to Open Library or Google Books' own hosts."""
+    a redirect to the edition), at most :data:`REDIRECTS`, only to Open Library or Google Books' own hosts. A Google
+    request carries the person's key and is never sent without one."""
     from urllib.parse import urljoin, urlparse
 
     for _ in range(REDIRECTS + 1):
+        if urlparse(url).hostname == "www.googleapis.com" and not google_enabled():
+            return Response(0)
         await pacer.wait()
-        resp = await fetch(url)
+        resp = await fetch(_signed(url))
+        _note_google(url, resp)
         if resp.status not in _REDIRECT_CODES or not resp.location:
             return resp
         nxt = urljoin(url, resp.location)
@@ -409,11 +448,14 @@ async def lookup(isbn: str, *, fetch: FetchFn | None = None, pacer: _Pacer | Non
                             hit.update(description=desc, description_source="openlibrary",
                                        description_url=f"{OPEN_LIBRARY}/works/{hit['work_id']}")
                         hit["subjects"] = _subjects(data.get("subjects"))
-                if _lacks(hit):
+                if _lacks(hit) and google_enabled():
                     gb = await _get(fetch, pacer, f"{GOOGLE_BOOKS}?q=isbn:{isbn}")
                     _merge(hit, parse_google(_json(gb.body) or {}) if gb.status == 200 else None)
                 return hit
         ol_missing = True   # a 200 that is not an edition
+    if not google_enabled():
+        # No key of the person's own: Open Library's answer is the whole answer (2026-11-08).
+        return {"found": False} if ol_missing else None
     gb = await _get(fetch, pacer, f"{GOOGLE_BOOKS}?q=isbn:{isbn}")
     if gb.status == 200:
         data = _json(gb.body)
@@ -593,17 +635,17 @@ async def resolve_titles(items: list[dict], *, fetch: FetchFn | None = None, max
 
 # ---- Google Books, the second catalogue for a title (ruling 71, 2026-11-08) ---------------------------------------
 # Open Library answers first. When its search found no book, or found one whose record holds no description, ONE Google
-# Books volumes search per title (keyless, public: the title and its first author, nothing else) asks the same question
+# Books volumes search per title (with the person's own key only: the title and its first author, nothing else) asks the same question
 # under the same rule — an exact normalised title and an author of the page, on a volume — and its description is the
 # page's `external`, boxed paragraph. The answer is cached outside every bank under `gtitle:<hash>`, the volume's
-# record under `gb:<id>`. Google's keyless quota is shared: a 429 stops the run and the title waits out the backoff.
+# record under `gb:<id>`. A 429 or a refused key stops the run (and says so in Settings); the title waits out the backoff.
 GOOGLE_TITLE_FIELDS = ("items(id,volumeInfo(title,subtitle,authors,publishedDate,pageCount,publisher,categories,"
                        "description,industryIdentifiers))")
 GOOGLE_LIMIT = 10
 
 
 class QuotaReached(Exception):
-    """Google Books answered 429: no more requests this run."""
+    """Google Books refused the person's key or closed its quota (429, a refused key): no more requests this run."""
 
 
 def google_key(title, authors) -> str | None:
@@ -658,7 +700,9 @@ async def match_google(title, authors, *, fetch: FetchFn | None = None, pacer: _
     q = quote(f'intitle:"{_clean(title)[:200]}" inauthor:"{first[:120]}"')
     url = f"{GOOGLE_BOOKS}?q={q}&printType=books&maxResults={GOOGLE_LIMIT}&fields={quote(GOOGLE_TITLE_FIELDS)}"
     resp = await _get(fetch or default_fetch, pacer or _shared_pacer(), url)
-    if resp.status == 429:
+    from api.services import google_books_key
+
+    if google_books_key.classify(resp.status, resp.body):
         raise QuotaReached()
     if resp.status != 200:
         return None
@@ -678,6 +722,8 @@ async def resolve_google_titles(items: list[dict], *, fetch: FetchFn | None = No
     stays first); one it described is not asked."""
     pacer = pacer or _shared_pacer()
     report = {"asked": 0, "matched": 0, "missing": 0, "failed": 0, "quota": False}
+    if not google_enabled():
+        return {**report, "off": True}   # no key of the person's own: nothing asked, nothing cached, nothing said
     for item in items:
         if report["asked"] >= max_items:
             break
