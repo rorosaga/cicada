@@ -127,7 +127,7 @@ def test_routes_never_return_the_key_and_remove_forgets_it(home, monkeypatch):
     c = TestClient(main.app)
     first = c.get("/sources/google-books").json()
     assert first["connected"] is False and first["keyUrl"].startswith("https://console.cloud.google.com/")
-    assert "costs nothing" in first["freeWords"]
+    assert "costs nothing" in first["freeWords"] and "billing" not in first["freeWords"]
     put = c.put("/sources/google-books", json={"key": KEY})
     assert put.status_code == 200 and put.json()["connected"] is True and KEY not in put.text
     assert KEY not in c.get("/sources/google-books").text

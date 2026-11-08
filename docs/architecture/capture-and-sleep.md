@@ -1657,9 +1657,9 @@ is one client): off by default, it says what it does and that it is free, links 
 field and removes it in one click. Save makes one read-only request (`volumes?q=isbn:…&fields=totalItems`) and keeps the key
 only if Google accepts it; a refused one is a 422 whose `detail` is the fix. A 429, a 403 or a 400 about the key during a run
 stops the run and is remembered as an enum and a time (`$CICADA_HOME/google-books.json`, never a body) so Settings says the
-exact fix beside the field (`PROBLEM_WORDS`); a later good answer clears it. **Free:** Google's Books docs list no price and no
-billing step for a public search with a key (a key identifies the person's project and its quota); the daily request cap is
-Google's, and a closed quota only stops Cicada's run. The same rule: a volume's exact normalised title and an
+exact fix beside the field (`PROBLEM_WORDS`); a later good answer clears it. **Free:** Google's Books docs name no price and no
+billing step for a public search with a key (a key identifies the person's project and its quota) and publish no daily figure, so
+the copy claims none; the cap is Google's, and a closed quota only stops Cicada's run. The same rule: a volume's exact normalised title and an
 author of the page, holding a description (`google_match`: authors exactly the page's first, then the fuller description, Google's
 order last); cached outside every bank, the answer under `gtitle:<hash>` and the volume's record under `gb:<id>`; a 429 stops
 the run and backs the title off. `books.apply_google_matches` writes the description (`description_source: googlebooks`, the
