@@ -2349,8 +2349,9 @@ drain (`inbox_catchup.Budget`, `NEW_PER_DRAIN` = 3), each in its own `cicada` co
   required, `pair_evidence`'s exemption for a lead the record raises), so "Cicada's guess" stays ≤ 0.4 unless one does; the
   owner's page is never paired. Mostly a question only — the person's words join them — **except two independent kinds
   of evidence (ruling 74, owner 2026-11-07)**: `person_duplicates.joins` marks a pair joinable when the name (sound,
-  spelling and a short name in a full one count as ONE signal), an alias, the same account or a shared rare belief agree
-  in at least two different kinds, the pair was never named together, neither page is titled by a relation, neither page is in
+  spelling, a short name in a full one and one page listing the other's name as an alias count as ONE kind — owner
+  2026-11-08: a listed alias joined two different people), the same account or a shared rare belief agree in at least
+  two different kinds, the pair was never named together, neither page is titled by a relation, neither page is in
   another candidate pair and the score is ≥ 0.6; `inbox_tend`'s `two_signals` rule then settles that pair's question as a
   merge (Sleep's commit, listed under "Settled by Sleep", undoable and never re-settled). A conversation that names both
   pages, or any "two people" answer, keeps the pair a question.

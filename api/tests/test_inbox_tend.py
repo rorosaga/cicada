@@ -1477,9 +1477,12 @@ def test_newest_words_settle_only_a_plain_placement(memory):
 
 
 def _two_signal_pair(memory: Path, **tom_fm):
-    _entity(memory, "tomas", type="person", name="Tomás", status="active", source_episodes=["ep_2026-01-01_001"])
+    # The name (an alias counts as the name) and the same account: two kinds (owner 2026-11-08).
+    account = [{"ref": "https://example.com/u/tom-example"}]
+    _entity(memory, "tomas", type="person", name="Tomás", status="active", source_episodes=["ep_2026-01-01_001"],
+            sources=account)
     _entity(memory, "tom", type="person", name="Tom", status="active", aliases=["Tomás"],
-            source_episodes=["ep_2026-01-03_001"], **tom_fm)
+            source_episodes=["ep_2026-01-03_001"], sources=account, **tom_fm)
     _item(memory, "inbox-001", kind="merge_suggestion", entity_id="tom", entity_name="Tom",
           merge_target_hint="tomas", suggested_classification="person", detected="person_duplicate")
     _commit(memory)

@@ -142,8 +142,11 @@ class Page:
     role: bool = False          # titled by its relation to the owner ("Partner"): `role_people` owns that question
 
 
-#: Which kind of evidence each signal is. Three signals are the one name; the rest are each their own.
-INDEPENDENT = {"sound": "name", "spelling": "name", "short_in_full": "name", "alias": "alias",
+#: Which kind of evidence each signal is. The name is ONE kind however it shows — sounding alike, a spelling, a short name
+#: in a full one, or one page listing the other's name as an alias (an alias is a name, and often one Sleep wrote from
+#: the same guess; owner 2026-11-08: "Tom" listed on a "Tomás" page joined two different people). A join needs a kind
+#: beyond the name: the same account, or a rare belief both hold.
+INDEPENDENT = {"sound": "name", "spelling": "name", "short_in_full": "name", "alias": "name",
                "shared_source": "contact", "shared_facts": "belief"}
 #: The lowest score a pair may be joined at (the ask floor is 0.5).
 JOIN_FLOOR = 0.6

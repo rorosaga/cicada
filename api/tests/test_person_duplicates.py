@@ -79,17 +79,24 @@ def test_propose_writes_one_ordinary_merge_question(bank, monkeypatch):
 
 def test_names_that_sound_alike_are_one_signal_never_two():
     assert pd.kinds_of(["sound", "short_in_full", "spelling"]) == ["name"]
-    assert pd.kinds_of(["sound", "alias"]) == ["name", "alias"]
+    assert pd.kinds_of(["sound", "alias"]) == ["name"]                     # an alias is a name (owner 2026-11-08)
+    assert pd.kinds_of(["alias", "shared_source"]) == ["name", "contact"]
 
 
-def test_sounding_alike_alone_never_joins_but_a_listed_name_does(bank):
+def test_the_name_and_an_alias_alone_never_join_but_a_shared_account_does(bank):
     _page(bank, "tomas", "Tomás", source_episodes=["ep_2026-01-01_001", "ep_2026-01-02_001"])
     _page(bank, "tom", "Tom", aliases=["Tomás"], source_episodes=["ep_2026-01-03_001"])
+    _page(bank, "noor", "Noor", source_episodes=["ep_2026-04-01_001"],
+          sources=[{"ref": "https://example.com/u/noor-example"}])
+    _page(bank, "nur", "Nur", aliases=["Noor"], source_episodes=["ep_2026-04-02_001"],
+          sources=[{"ref": "https://example.com/u/noor-example"}])
     bank_index.invalidate()
     pairs = {tuple(sorted((p.a, p.b))): p for p in pd.candidates(bank)}
     assert pairs[("texim", "tikzim")].joinable is False                    # the name is all they share
-    assert pairs[("tom", "tomas")].joinable is True                        # the name and one page's own list
-    assert pd.join_reason(bank, "tomas", "tom").startswith("2 independent signals")
+    assert pairs[("tom", "tomas")].joinable is False                       # an alias is still only the name
+    assert pd.join_reason(bank, "tomas", "tom") == ""
+    assert pairs[("noor", "nur")].joinable is True                         # the name and the same account
+    assert pd.join_reason(bank, "noor", "nur").startswith("2 independent signals")
     assert pd.join_reason(bank, "texim", "tikzim") == ""
 
 
@@ -110,9 +117,11 @@ def test_named_together_a_relation_titled_page_or_a_second_candidate_never_joins
 def test_a_pair_the_person_called_two_people_never_joins(bank):
     from api.services import merge_rejections
 
-    _page(bank, "tomas", "Tomás", source_episodes=["ep_2026-01-01_001"])
-    _page(bank, "tom", "Tom", aliases=["Tomás"], source_episodes=["ep_2026-01-03_001"])
+    _page(bank, "noor", "Noor", source_episodes=["ep_2026-04-01_001"],
+          sources=[{"ref": "https://example.com/u/noor-example"}])
+    _page(bank, "nur", "Nur", aliases=["Noor"], source_episodes=["ep_2026-04-02_001"],
+          sources=[{"ref": "https://example.com/u/noor-example"}])
     bank_index.invalidate()
-    assert pd.join_reason(bank, "tom", "tomas")
-    merge_rejections.add_rejected(bank, "tom", "tomas")
-    assert pd.join_reason(bank, "tom", "tomas") == ""
+    assert pd.join_reason(bank, "nur", "noor")
+    merge_rejections.add_rejected(bank, "nur", "noor")
+    assert pd.join_reason(bank, "nur", "noor") == ""
