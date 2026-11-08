@@ -157,6 +157,16 @@ struct GraphView: NSViewRepresentable {
             }
         }
 
+        // ROR-134: the nearest-pages pairs go in before the filter that turns the mode on, so the layout runs once.
+        if viewModel.isGraphReady, let meaningJSON = viewModel.pendingMeaningPushJSON {
+            webView.evaluateJavaScript("setMeaningPairs(\(meaningJSON))") { _, error in
+                if let error { print("Meaning push error: \(error)") }
+            }
+            DispatchQueue.main.async {
+                self.viewModel.clearPendingMeaningPush()
+            }
+        }
+
         // Handle filter updates (also requires graph.js to be loaded)
         if viewModel.pendingFilterUpdate && viewModel.isGraphReady {
             webView.evaluateJavaScript("applyFilters(\(viewModel.filterJSON))") { _, error in
