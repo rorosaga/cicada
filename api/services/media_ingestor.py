@@ -2527,15 +2527,32 @@ def _primary(idx: dict, h: str) -> str:
     return target if isinstance(target, str) and target in idx else h
 
 
+def is_pageless(item: RawItem) -> bool:
+    """Ruling 62 (owner 2026-11-04): a feed item with no note, reason or agent behind it is indexed — an episode and a
+    ``url_index`` row — and never a page. Its Sources row is the episode's; the person's words about it, or saving it
+    themselves, give it a page the usual way (:func:`existing_hash`)."""
+    return item.origin == "rss" and not _has_reason(item)
+
+
+def _has_reason(item: RawItem) -> bool:
+    """The person's note or reason, or an agent behind the save: the words that make a save worth a page."""
+    return bool(item.note or item.reason or item.session_id)
+
+
 def existing_hash(item: RawItem, idx: dict) -> str | None:
     """The ``url_index`` page row this item already is — by its URL or any of its
-    aliases, an ``alias_of`` row followed to its page — or ``None``."""
+    aliases, an ``alias_of`` row followed to its page — or ``None``. A row that holds no page (a feed item,
+    :func:`is_pageless`) is not a page: a save that carries a reason makes one."""
     for url in (item.url, *item.aliases):
         if not url:
             continue
         h = url_hash(url)
         if h in idx:
-            return _primary(idx, h)
+            primary = _primary(idx, h)
+            held = idx.get(primary)
+            if isinstance(held, dict) and not held.get("media_entity_id") and _has_reason(item):
+                return None
+            return primary
     return None
 
 
@@ -2733,11 +2750,13 @@ def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict, *, appe
         title=item.title or _fallback_title(item.url), description="", site=_site_of(item.url),
         media_type=_classify(item.url, from_bookmark_file=from_bookmark_file))
 
-    entity_id = _media_entity_id(meta, item, memory_path / "entities")
+    pageless = is_pageless(item)
+    entity_id = "" if pageless else _media_entity_id(meta, item, memory_path / "entities")
     episode_id = write_media_episode(
         memory_path / "episodes", item, meta, entity_id
     )
-    write_media_entity(memory_path / "entities", entity_id, item, meta, episode_id)
+    if not pageless:
+        write_media_entity(memory_path / "entities", entity_id, item, meta, episode_id)
 
     idx[h] = {
         "media_entity_id": entity_id,
@@ -2876,7 +2895,8 @@ async def ingest_batch(
             if result.status == "created":
                 async with lock:
                     created += 1
-                    created_paths.append(f"entities/{result.media_entity_id}.md")
+                    if result.media_entity_id:   # a feed item is no page (`is_pageless`)
+                        created_paths.append(f"entities/{result.media_entity_id}.md")
                     created_paths.append(f"episodes/{result.episode_id}.md")
 
         await asyncio.gather(*(worker(it) for it in fresh))

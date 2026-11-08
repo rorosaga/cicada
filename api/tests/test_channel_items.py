@@ -816,3 +816,21 @@ def test_the_mark_and_the_page_read_one_rule():
     assert not feed_registry.is_substack({"url": "https://notsubstack.com/feed"})
     assert channel_items._feed_mark({"url": "https://a.substack.com/feed"}) == "substack"
     assert channel_items._feed_mark({"url": "https://own.example.org/feed"}) is None
+
+
+def test_a_feed_item_with_no_page_lists_by_its_episode_under_its_feed(feed_bank):
+    """Ruling 62: a feed item is an indexed episode, never a page — and it still lists, counts and files under its feed."""
+    a = feed_registry.feed_id("https://a.example.com/rss")
+    url = "https://cdn.example.net/pageless"
+    _episode(feed_bank, "ep_2026-10-20_001", title="No page here", origin="rss", url=url, media_entity_id="",
+             timestamp="2026-10-20T08:00:00+00:00", processed=True, processed_by="index")
+    index = json.loads((feed_bank / "sources" / "url_index.json").read_text())
+    index[media_ingestor.url_hash(url)] = {"media_entity_id": "", "episode_id": "ep_2026-10-20_001", "url": url,
+                                           "title": "No page here", "saved_at": "2026-10-20", "feed": a}
+    _json(feed_bank, "sources/url_index.json", index)
+    bank_index.invalidate()
+    got = channel_items.items(feed_bank, "rss", collection=a, limit=1)
+    assert got["total"] == 8 and got["items"][0]["id"] == "ep_2026-10-20_001"
+    assert got["items"][0]["kind"] == "episode" and got["items"][0]["title"] == "No page here"
+    assert not list((feed_bank / "entities").glob("media-*.md"))
+    assert channel_items.pageless_feed_episodes(feed_bank) == {"ep_2026-10-20_001": "rss"}

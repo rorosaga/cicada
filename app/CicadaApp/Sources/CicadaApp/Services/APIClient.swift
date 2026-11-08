@@ -1756,6 +1756,21 @@ actor APIClient {
         return try await get("/graph")
     }
 
+    /// ROR-134: each page's nearest pages by meaning (`GET /graph/meaning`), handed to graph.js as the JSON text it
+    /// arrived as — 9,000 pages is ~2.7 MB, so it is never decoded into Swift values and re-encoded. Not a Store
+    /// domain (no sync ETag, no SSE): read once when the mode is turned on, kept in memory by `GraphViewModel`.
+    func fetchGraphMeaningJSON() async throws -> String {
+        let request = makeRequest("/graph/meaning", method: "GET", json: false)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        guard let text = String(data: data, encoding: .utf8) else { throw APIError.decodingError("graph meaning") }
+        return text
+    }
+
     // MARK: - Memory banks (M6/M7)
 
     /// Bank names are user-supplied slugs; percent-encode as a path component
@@ -2764,6 +2779,18 @@ actor APIClient {
     /// `PUT /sources/apple-books/settings` — the person's switch; off, a sync is refused.
     func saveAppleBooksSettings(enabled: Bool) async throws {
         let _: AppleBooksSettingsReply = try await put("/sources/apple-books/settings", body: ["enabled": enabled])
+    }
+
+    /// 2026-11-08 — `GET|PUT|DELETE /sources/google-books`: the person's own Google Books key. The key is sent once and
+    /// never comes back; a refused key is a 422 whose `detail` is the fix in words.
+    func fetchGoogleBooksKey() async throws -> GoogleBooksKeyStatus { try await get("/sources/google-books") }
+
+    func saveGoogleBooksKey(_ key: String) async throws -> GoogleBooksKeyStatus {
+        try await put("/sources/google-books", body: ["key": key])
+    }
+
+    func removeGoogleBooksKey() async throws -> GoogleBooksKeyStatus {
+        try decoder.decode(GoogleBooksKeyStatus.self, from: try await delete("/sources/google-books"))
     }
 
     /// `POST /sources/apple-books/sync` — the books that changed since this memory last accepted them.

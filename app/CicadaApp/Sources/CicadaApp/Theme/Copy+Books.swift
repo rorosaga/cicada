@@ -6,6 +6,14 @@ extension Copy {
     static let readingGroup = "Reading"
     static let appleBooksTitle = "Apple Books"
     static let goodreadsTitle = "Goodreads"
+    // 2026-11-08: the person's own Google Books key, an optional source. Google Books is named because it is the source.
+    static let googleBooksTitle = "Google Books"
+    static let googleBooksKeyPrompt = "Paste your key"
+    static let googleBooksSave = "Save"
+    static let googleBooksMakeKey = "Make a key"
+    static let googleBooksSaveFailed = "Couldn't save the key. Try again."
+    static let googleBooksOn = "On · uses your key"
+    static let googleBooksDisconnectKeeps = "Descriptions already added to books stay on their pages."
     static let bookScansTitle = "Book scans"
     // ROR-116: adding a book on the Mac. Typed or pasted, or read from the camera; the status is the person's to choose.
     static let bookAddPrompt = "ISBN"

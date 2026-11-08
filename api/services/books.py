@@ -237,6 +237,29 @@ def author_set(authors) -> frozenset[str]:
     return frozenset(n for n in names if n)
 
 
+_LAST_FIRST = re.compile(r"^([^,]+),\s*([^,]+)$")
+
+
+def lookup_names(title, authors) -> tuple[str, list[str]]:
+    """The title and authors a catalogue lookup compares, written the way a catalogue writes them — never a guess.
+    The same name in another order ("Last, First" is "First Last"), a file name's "Title -- Author -- 2014" cut to
+    its title, and a file name's underscore for a colon undone. Several authors in one string ("A & B", "A; B",
+    "A and B") are several. Anything else is left exactly as it was: the compare after this is still exact."""
+    text = " ".join(str(title or "").split())
+    if " -- " in text:
+        text = text.split(" -- ")[0].strip()
+    text = " ".join(re.sub(r"_\s+", ": ", text).replace("_", " ").split())
+    names: list[str] = []
+    for author in authors or []:
+        for part in _AUTHOR_SPLIT.split(str(author or "")):
+            part = " ".join(part.split())
+            if not part:
+                continue
+            m = _LAST_FIRST.match(part)
+            names.append(f"{m.group(2).strip()} {m.group(1).strip()}" if m else part)
+    return text, names
+
+
 def is_book(fm: dict) -> bool:
     media = (fm or {}).get("media")
     return isinstance(media, dict) and media.get("kind") == KIND
@@ -1090,16 +1113,68 @@ def apply_title_matches(memory_path: Path, today: str) -> list[str]:
         path = Path(f.path)
         parsed = markdown_parser.parse(path)
         new = dict(book)
-        set_fields: list[str] = []
-        for field in ("published", "pages", "publisher", "cover_id"):
-            if hit.get(field) and not new.get(field) and not (field == "cover_id" and new.get("local_cover")):
-                new[field] = hit[field]
-                set_fields.append(field)
-        if not new.get("subjects") and hit.get("subjects"):
-            new["subjects"] = book_lookup.readable_subjects(hit["subjects"])
-            set_fields.append("subjects")
+        set_fields = _take_fields(new, hit)
         # `set` lists exactly what the match wrote, so "not this book" removes those and nothing a door gave.
         new["title_match"] = {"isbn": answer["isbn"], "work_id": answer.get("work_id"), "at": today, "set": set_fields}
+        facts = BookFacts(description=hit.get("description"), description_source=hit.get("description_source"),
+                          description_url=hit.get("description_url"))
+        body, _ = _book_prose(parsed.body, new, facts, today)
+        markdown_parser.write(path, {**parsed.frontmatter, "book": new}, body)
+        paths.append(f"entities/{path.name}")
+    return paths
+
+
+def _take_fields(book: dict, hit: dict) -> list[str]:
+    """What a catalogue's record fills on a book page that lacks it (year, pages, publisher, cover id, subjects), written
+    into ``book``; the names of the fields written. Never a title, an author or an ISBN."""
+    from api.services import book_lookup
+
+    set_fields: list[str] = []
+    for field in ("published", "pages", "publisher", "cover_id"):
+        if hit.get(field) and not book.get(field) and not (field == "cover_id" and book.get("local_cover")):
+            book[field] = hit[field]
+            set_fields.append(field)
+    if not book.get("subjects") and hit.get("subjects"):
+        book["subjects"] = book_lookup.readable_subjects(hit["subjects"])
+        set_fields.append("subjects")
+    return set_fields
+
+
+def apply_google_matches(memory_path: Path, today: str) -> list[str]:
+    """Open Library stays first: a page it left with no description (no match, or a match whose record holds none) takes
+    the description Google Books' title search found, once, with the fields it lacks. The page's ``book.title_match`` is
+    made (``source: googlebooks``) or, when Open Library already matched, gains ``google``; ``set`` lists what Google wrote,
+    so "not this book" takes it all back. Nothing is asked here; title, authors and ISBNs are never changed."""
+    from api.services import book_lookup
+
+    paths: list[str] = []
+    for f in bank_index.files(Path(memory_path), "entities"):
+        fm = f.frontmatter or {}
+        book = fm.get("book") if is_book(fm) and isinstance(fm.get("book"), dict) else None
+        if (not book or book.get("isbns") or book.get("title_match_declined") or book.get("description_at")
+                or book.get("title_from") == "placeholder"
+                or not ({APPLE_ORIGIN, GOODREADS_ORIGIN} & door_set(book))):
+            continue
+        marker = book.get("title_match")
+        if isinstance(marker, dict) and (marker.get("google") or marker.get("source") == "googlebooks"):
+            continue   # Google's answer was already taken (the article may hold the person's words, so no description_at)
+        key = book_lookup.google_key(book.get("title") or fm.get("name"), book.get("authors"))
+        answer = book_lookup.cached(key) if key else None
+        hit = book_lookup.cached(answer["hit"]) if answer and answer.get("found") and answer.get("hit") else None
+        if not (hit and hit.get("found") and hit.get("description")):
+            continue
+        path = Path(f.path)
+        parsed = markdown_parser.parse(path)
+        new = dict(book)
+        set_fields = _take_fields(new, hit)
+        if isinstance(new.get("title_match"), dict):
+            marker = dict(new["title_match"])
+            marker["set"] = [*(marker.get("set") or []), *set_fields]
+            marker["google"] = {"volume": answer["volume"], "at": today}
+        else:
+            marker = {"isbn": None, "work_id": None, "source": "googlebooks", "volume": answer["volume"], "at": today,
+                      "set": set_fields}
+        new["title_match"] = marker
         facts = BookFacts(description=hit.get("description"), description_source=hit.get("description_source"),
                           description_url=hit.get("description_url"))
         body, _ = _book_prose(parsed.body, new, facts, today)
@@ -1353,6 +1428,7 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
         try:
             own += _enrich_from_lookups(memory_path, index, today_s)
             own += apply_title_matches(memory_path, today_s)
+            own += apply_google_matches(memory_path, today_s)
         except Exception as exc:  # noqa: BLE001
             from api.services import tool_contract
 

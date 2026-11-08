@@ -1424,7 +1424,7 @@ Nothing slept, haiku on answers and judge, one run each, before → after, with 
 
 LoCoMo with nothing slept was not re-graded.
 
-**Limits.** The personalization figures come from this harness's own judge, not the papers' protocol, and that judge isn't stable on them: the same stored PersonalizationV4 answers score 15 to 40 of 90 by how it is called (`docs/research/2026-11-06-memory-before-sleep.md`). Read their direction, not their size. They weren't re-judged after this change. Translations are a model's, unchecked. Abstention on LongMemEval_S went 13 → 11 of 14, and the 3 answers judged wrong all plainly say memory lacks it, so that's the judge. The failure to watch is a fact read as a request for help, which would invite invention.
+**Limits.** The personalization figures come from this harness's own judge, not the papers' protocol, and its single reading is noisy (two runs of one call flip 5 to 10 of 90; a plain `claude -p` keeps Claude Code's system prompt and grades far stricter). Figures are the majority of three judgments by the harness's own call; PersonaMem-v2 18 → 45 reads 16 → 43 and translated 10 → 42 reads 7 → 37, PersonalizationV4 shows no gap (`docs/research/2026-11-07-a-stable-judge-and-slept-locomo.md`). Translations are a model's, unchecked. Abstention on LongMemEval_S went 13 → 11 of 14, and the 3 answers judged wrong all plainly say memory lacks it, so that's the judge. The failure to watch is a fact read as a request for help, which would invite invention.
 
 **Ask reads a wider window, on every question (G148, 2026-11-06).** A count needs every conversation holding one, and the window
 was built for one fact: LongMemEval_S multi-session answered 5 of 20. `window_limits` gives every question 8 conversations, 12 lines

@@ -7,12 +7,20 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
+
 from api.services import book_lookup, books, markdown_parser
 from api.services.claims import strip_claims_block
 from test_books import EDITION, PAPERBACK, _NoWait, _books, _run, client  # noqa: F401  (client: a fixture)
 
 BARE = {k: v for k, v in EDITION.items() if k != "authors"}      # an edition that names no author
 BLURB = "A lamplighter learns the orchard keeps its own hours. " * 20   # longer than the cap
+
+@pytest.fixture(autouse=True)
+def _own_google_books_key(monkeypatch):
+    """Google Books is asked only with the person's own key (2026-11-08); these tests are of a person who saved one."""
+    monkeypatch.setenv("CICADA_GOOGLE_BOOKS_KEY", "AIzaTestKeyNotReal0000000000000000000")
+
 
 
 def _fetch(calls, *, edition=BARE, work=None, google=None):

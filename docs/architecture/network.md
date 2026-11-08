@@ -29,7 +29,7 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   `org_sites.wikidata_get`, only for a name that passed the local public test (≤ 20 a run), and the engine's search only
   with the pinned queries; ≤ `web_context_per_run` lookups a run; `storage.md`) — and
   paper details (below) — and **book lookups** (G233, `book_lookup`: a scanned ISBN asked of Open Library's
-  `/isbn/<isbn>.json` and `/authors/<id>.json`, else Google Books' `volumes?q=isbn:`, one request a second, 4 s / ≤ 512
+  `/isbn/<isbn>.json` and `/authors/<id>.json`, else Google Books' `volumes?q=isbn:` (only with the person's own API key, saved in Sources → Reading; `capture-and-sleep.md`, "A title finds the book"), one request a second, 4 s / ≤ 512
   KB, no cookies, `net_guard` on every hop, a User-Agent naming the software and never a person; at most 30 numbers a
   run, every answer cached in `$CICADA_HOME/books/isbn_cache.json`; gated on BOTH callers — the background job after a
   scan and Sleep's tail — so a scan waits while it is off; `capture-and-sleep.md`, "Books"). Goodreads is never

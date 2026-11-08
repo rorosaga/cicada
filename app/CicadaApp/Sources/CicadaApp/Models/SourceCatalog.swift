@@ -266,6 +266,10 @@ enum SourceCatalog {
                            title: Copy.appleBooksTitle, origin: AppleBooksReader.channel,
                            channels: [AppleBooksReader.channel],
                            verb: .connect(Copy.SourceLayout.connect(Copy.appleBooksTitle))),
+        // 2026-11-08: the person's own Google Books key, an optional second catalogue; the backend holds it.
+        SourceCatalogEntry(id: GoogleBooksKeyModel.id, group: .reading, category: .reading,
+                           title: Copy.googleBooksTitle, origin: GoogleBooksKeyModel.id, channels: [],
+                           verb: .connect(Copy.googleBooksMakeKey)),
         SourceCatalogEntry(id: "goodreads", group: .reading, category: .reading, title: Copy.goodreadsTitle,
                            origin: "goodreads", channels: ["goodreads"], verb: .importFile),
         // G233: what the phone scanned. No control here: the scanner is the phone's.
@@ -441,6 +445,7 @@ enum SourceCatalog {
         // G218 — traces read Connected only while the recorder records here; paused, off or on a server they read Off
         // (ruling 36's three words; the detail's own line says "Paused until …").
         if entry.id == tracesId { return (localReaders[tracesId] == true ? .connected : .off, false) }
+        if entry.id == GoogleBooksKeyModel.id { return (localReaders[entry.id] == true ? .connected : .off, false) }
         let mine = channelsOf(entry, in: channels)
         if mine.contains(where: { signInChannels.contains($0.id) && refusesAccount($0) }) {
             return (.needsSignIn, false)

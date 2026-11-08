@@ -35,7 +35,8 @@ enum SourceShelf: String, CaseIterable, Identifiable {
 
     static func of(_ entry: SourceCatalogEntry) -> SourceShelf {
         switch entry.id {
-        case VoiceMemosReader.channel, AppleBooksReader.channel, "goodreads", "book-scan": return .media
+        case VoiceMemosReader.channel, AppleBooksReader.channel, "goodreads", "book-scan",
+             GoogleBooksKeyModel.id: return .media
         case "contacts-local": return .documents
         case SourceCatalog.tracesId, "github", "linear": return .work
         case "files", "rss", SourceCatalog.substackId: return .saved

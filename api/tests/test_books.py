@@ -22,6 +22,12 @@ HARDBACK = "9781111111113"
 OTHER = "9790000000001"
 UNKNOWN = "9782222222224"
 
+@pytest.fixture(autouse=True)
+def _own_google_books_key(monkeypatch):
+    """Google Books is asked only with the person's own key (2026-11-08); these tests are of a person who saved one."""
+    monkeypatch.setenv("CICADA_GOOGLE_BOOKS_KEY", "AIzaTestKeyNotReal0000000000000000000")
+
+
 
 def _check(body12: str) -> str:
     total = sum(int(d) * (3 if i % 2 else 1) for i, d in enumerate(body12))
@@ -149,7 +155,7 @@ def test_a_scan_is_staged_then_resolved_at_the_home_into_a_work_page_with_its_is
     # The User-Agent names no person; Open Library was asked for the edition, its author and its work, and Google Books
     # (the edition has no publisher or description) once.
     assert "@" not in book_lookup.USER_AGENT
-    assert [u.rsplit("/", 1)[-1] for u in calls] == [f"{PAPERBACK}.json", "OL1A.json", "OL7W.json",
+    assert [u.rsplit("/", 1)[-1].split("&key=")[0] for u in calls] == [f"{PAPERBACK}.json", "OL1A.json", "OL7W.json",
                                                       f"volumes?q=isbn:{PAPERBACK}"]
 
 
@@ -633,7 +639,7 @@ def test_the_lookup_paces_the_redirect_hop_and_shares_its_pacer_across_runs(monk
 
     hit = asyncio.run(book_lookup.lookup(PAPERBACK, fetch=fetch))
     assert hit and hit["title"] == "The Lantern Orchard"
-    assert [u.rsplit("/", 1)[-1] for u in calls] == [f"{PAPERBACK}.json", "OL1M.json", "OL1A.json", "OL7W.json",
+    assert [u.rsplit("/", 1)[-1].split("&key=")[0] for u in calls] == [f"{PAPERBACK}.json", "OL1M.json", "OL1A.json", "OL7W.json",
                                                       f"volumes?q=isbn:{PAPERBACK}"]
     assert len(waits) == len(calls)                                    # every request, the redirect hop included
 

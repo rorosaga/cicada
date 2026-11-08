@@ -98,7 +98,8 @@ struct SourcesPageView: View {
                         watchHistory: watchHistory, browsers: browserWatcher, notes: notesWatcher,
                         traces: traceRecorder, reminders: remindersReader)
             .merging([AppleBooksReader.channel: appleBooksReader?.enabled ?? false,
-                      VoiceMemosReader.channel: voiceMemosReader?.enabled ?? false]) { _, new in new }
+                      VoiceMemosReader.channel: voiceMemosReader?.enabled ?? false,
+                      GoogleBooksKeyModel.id: GoogleBooksKeyModel.shared.connected]) { _, new in new }
     }
 
     var body: some View {
@@ -177,6 +178,7 @@ struct SourcesPageView: View {
         .environment(reading)
         .environment(agents)
         .task { await exploreCache.refresh() }
+        .task { await GoogleBooksKeyModel.shared.refresh() }
         .task { await reading.loadSettings() }
         .task { await agents.run() }
         .task { browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value }

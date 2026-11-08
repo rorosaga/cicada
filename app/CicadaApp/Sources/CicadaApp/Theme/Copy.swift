@@ -101,6 +101,8 @@ enum Copy {
     /// The Sleep page's schedule sentence with the lamp off — the one place the page says it (owner 2026-10-16).
     static let lampOffSentence = "The lamp is off — I read when you ask."
     static let lampHint = "Opens the schedule"
+    /// The switch beside the schedule line (owner 2026-11-07): its VoiceOver name.
+    static let lampSwitch = "Lamp"
     static let readOnSchedule = "Read on a schedule"
     static let rhythmAndTime = "Rhythm and time:"
     /// G243 — the lamp popover's keep-awake switch, next to the schedule.

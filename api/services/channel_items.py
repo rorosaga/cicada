@@ -550,13 +550,42 @@ def _feed_rows(memory_path: Path, media: "_Media", channel_id: str = FEED_CHANNE
     followed = _followed(memory_path)
     substack, file = _substack_feeds(followed), _feed_filer(followed)
     rows = []
-    for row in media.by_origins(_catalog_origins(FEED_CHANNEL)):
+    # Ruling 62: a feed item is an episode and an index row, never a page (`media_ingestor.is_pageless`); a page an older
+    # poll made lists as before, and the episode that has one is listed as that page, once.
+    for row in [*media.by_origins(_catalog_origins(FEED_CHANNEL)), *_feed_episode_rows(memory_path, media)]:
         row["_collection"] = file(row.get("_feed"), row.get("_url"))
         # ROR-138: RSS is how a Substack publication is followed, so RSS lists every followed feed's items and the
         # Substack row only its own publications' (the second a view of the first).
         if channel_id == FEED_CHANNEL or row["_collection"] in substack:
             rows.append(row)
     return rows
+
+
+def _feed_episode_rows(memory_path: Path, media: "_Media") -> list[dict]:
+    """The feed items that have no page: one row each, by the episode's own title, filed by the feed the poll stamped on
+    the item's ``url_index`` row (the page's route, :func:`_feed_rows`)."""
+    rows = []
+    for f in _episode_index(memory_path).origins((FEED_CHANNEL,)):
+        fm = f.frontmatter or {}
+        if not _live(fm) or str(fm.get("media_entity_id") or "").strip():
+            continue
+        url = str(fm.get("url") or "").strip()
+        row = _episode_row(fm, f.stem)
+        held = media.by_hash.get(media_ingestor.url_hash(url)) if url else None
+        row["_url"], row["_episode"] = url or None, row["id"]
+        row["_feed"] = held.get("feed") if isinstance(held, dict) else None
+        rows.append(row)
+    return rows
+
+
+def pageless_feed_episodes(memory_path: Path) -> dict[str, str]:
+    """Episode id -> the feed channel its row is on (``rss``, or ``substack-feeds`` for a followed publication's), for
+    the feed items with no page — the Sources overview's split of the two rows."""
+    media = _Media(Path(memory_path))
+    followed = _followed(Path(memory_path))
+    substack, file = _substack_feeds(followed), _feed_filer(followed)
+    return {row["id"]: SUBSTACK_FEEDS if file(row.get("_feed"), row.get("_url")) in substack else FEED_CHANNEL
+            for row in _feed_episode_rows(Path(memory_path), media)}
 
 
 def substack_feed_pages(memory_path: Path) -> set[str]:
