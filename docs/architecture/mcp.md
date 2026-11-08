@@ -114,6 +114,16 @@ so in any language; a passage repeating a quoted turn is dropped; a turn says "t
 an agent holding only recall's words, haiku, one run each: right 47 → 56 (10 gained, 2 lost, p = .04), tokens per right answer 9,220 → 7,421,
 characters p50 2,777 → 2,211.
 
+**What a reply costs (ROR-100 slice 1, 2026-11-08; `benchmarks/perf/reply_tokens.py`, no model call).** Measured on a
+read-only clone of a 9,000-page bank, 40 prompts, tokens by cl100k_base: the SessionStart note 1,816 (the contract is
+982 of it), the UserPromptSubmit injection median 88 / p90 163, `cicada_recall` median 2,024 / p90 2,836,
+`cicada_recall_detail` 273 / 820, `cicada_check_nudges(mode="ask")` 33, `cicada_timeline` ~1,100, and the prompt Ask hands
+its own model 8,875 (the engine's cost, not the agent's). In a recall, conversation excerpts are about a third of the
+tokens, page heads, summaries and key facts another 45%. Cut, with every date and provenance kept: an excerpt's
+conversation label (id, who was on the other side, "not yet read") is given on a conversation's first line only; a saved
+link's address is shown without its share tracking (`saved_lookup.shown_url`, display only); the hints fence is
+compact. Recall median 2,024 → 1,930 (−4.6%), p90 2,836 → 2,771.
+
 **Before Sleep (G207, 2026-10-22).** Recall's "Related conversation excerpts" (under the `sources` scope, R-R22)
 rank-fuse two legs, keeping 3: the vector leg (`_leann_search_episodes`), which step 0 fills right after capture
 (`capture-and-sleep.md`, "After capture"), and a word leg over the FTS passages (`_lexical_search_episodes`:
@@ -2183,7 +2193,7 @@ OWN advertised table (stdio `TOOLS` in `mcp/server.py`, remote `REMOTE_TOOLS`), 
   `relevant_hub`, `hub_members_preview`, `next_tool`, `note`, `state`) are stable; key order, the prose `note` and the
   precision of a number are not. The once-per-process `state` names its cursor's keys as the cursor's:
   `pending_as_of` (was `pending`) and `refresh_with` (was a second `next_tool`). A hit's heading shows confidence to
-  two places.
+  two places. The fence is compact JSON on one line (ROR-100, 2026-11-08; was indented), so whitespace is not stable either.
 - **`cicada_recall_detail`** (A6) leaves Sleep's bookkeeping out of the page it returns (`section_provenance`,
   `layout_version`, `decayed_through`, `learned_on`, `decay_rate`; `decay_class` stays). A part ends before a code fence
   it would cut when it can; a fence longer than a part is cut, and the footer says the cut is inside that block, which
