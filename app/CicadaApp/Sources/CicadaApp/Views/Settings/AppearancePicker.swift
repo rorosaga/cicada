@@ -57,26 +57,33 @@ private struct AppearanceTile: View {
     var body: some View {
         Button(action: choose) {
             VStack(spacing: CicadaTheme.scaled(6)) {
-                AppearanceMiniature(choice: choice, k: AppearanceMiniature.pickerScale)
-                    .frame(width: AppearanceMiniature.width * AppearanceMiniature.pickerScale,
-                           height: AppearanceMiniature.height * AppearanceMiniature.pickerScale)
-                    .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-                    .overlay {
-                        CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                            .strokeBorder(selected ? CicadaTheme.accent
-                                          : CicadaTheme.ring(hovering ? .strong : .resting),
-                                          lineWidth: selected ? 2 : 1)
-                    }
-                    // Round 3 (ROR-118): the chosen tile also wears a check, so selection is not a thin outline alone.
-                    .overlay(alignment: .topTrailing) {
-                        if selected {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(CicadaTheme.font(size: 16, weight: .semibold))
-                                .foregroundStyle(Color.white, CicadaTheme.accent)
-                                .padding(CicadaTheme.scaled(6))
-                                .accessibilityHidden(true)
+                // Item 3 (app-fixes-1109): the miniature takes the width its cell gives it, up to the picker's own size, so
+                // three tiles never outgrow a narrow panel or a large text size (DR-63: a scale, not a transform).
+                GeometryReader { box in
+                    let k = max(0.1, min(AppearanceMiniature.pickerScale, box.size.width / AppearanceMiniature.width))
+                    AppearanceMiniature(choice: choice, k: k)
+                        .frame(width: AppearanceMiniature.width * k, height: AppearanceMiniature.height * k)
+                        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+                        .overlay {
+                            CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                                .strokeBorder(selected ? CicadaTheme.accent
+                                              : CicadaTheme.ring(hovering ? .strong : .resting),
+                                              lineWidth: selected ? 2 : 1)
                         }
-                    }
+                        // Round 3 (ROR-118): the chosen tile also wears a check, so selection is not a thin outline alone.
+                        .overlay(alignment: .topTrailing) {
+                            if selected {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(CicadaTheme.font(size: 16, weight: .semibold))
+                                    .foregroundStyle(Color.white, CicadaTheme.accent)
+                                    .padding(CicadaTheme.scaled(6))
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .aspectRatio(AppearanceMiniature.width / AppearanceMiniature.height, contentMode: .fit)
+                .frame(maxWidth: AppearanceMiniature.width * AppearanceMiniature.pickerScale)
                 Text(choice.label)
                     .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(selected || hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
