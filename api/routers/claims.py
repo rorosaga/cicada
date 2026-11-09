@@ -48,6 +48,20 @@ from api.services.id_utils import resolve_entity_file
 
 router = APIRouter()
 
+#: (bank, page, flags) -> (validity stamp, the response). A big page's claim list is seconds of work and
+#: megabytes of JSON (the owner's: ~1.1 s warm, 7.6 MB, 2026-11-09), rebuilt by every read; this keeps the last one per
+#: page until the entities or episodes it is built from move (or the day turns: validity is read against today). Not an
+#: ETag on the wire: this answers the same body, only sooner. Process-local and disposable.
+_MEMO: dict[tuple, tuple[str, ClaimListResponse]] = {}
+_MEMO_KEPT = 16
+_PROVENANCE_MEMO: dict[tuple, tuple[str, object]] = {}
+
+
+def _remember(table: dict, key: tuple, value: tuple, kept: int) -> None:
+    if key not in table and len(table) >= kept:
+        table.pop(next(iter(table)))   # the oldest; plain insertion order
+    table[key] = value
+
 
 def _claim_to_model(c: Claim, turns: turn_authorship.TurnAuthorship | None) -> ClaimModel:
     """Every claim on the wire goes through ``transclusion_resolver.claim_to_model``
@@ -106,8 +120,25 @@ async def get_entity_claims(
     the hazard ``/origins`` and ``/sources/channels`` were moved off it for.
     """
     return await run_in_threadpool(
-        _build_entity_claims, settings.memory_path, entity_id, include_superseded, include_events, predicate,
+        _claims_response, settings.memory_path, entity_id, include_superseded, include_events, predicate,
     )
+
+
+def _claims_response(memory_path: Path, entity_id: str, include_superseded: bool, include_events: bool,
+                     predicates: list[str] | None) -> ClaimListResponse:
+    page = resolve_entity_file(memory_path, entity_id)
+    if page is None or not page.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    flags = f"{int(include_superseded)}{int(include_events)}|{','.join(sorted(predicates or []))}"
+    key = (str(memory_path), page.stem, flags)
+    stamp = sync_service.etag_for(
+        memory_path, "entities", "episodes", extra=f"claims|{page.stem}|{flags}|{claims.current_day()}")
+    hit = _MEMO.get(key)
+    if hit is None or hit[0] != stamp:
+        built = _build_entity_claims(memory_path, entity_id, include_superseded, include_events, predicates)
+        hit = (stamp, built)
+        _remember(_MEMO, key, hit, _MEMO_KEPT)
+    return hit[1]
 
 
 def _build_entity_claims(memory_path: Path, entity_id: str, include_superseded: bool,
@@ -186,11 +217,19 @@ async def get_entity_provenance(
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
+    # The same stamp is the cache key: the page's account is rebuilt only when what it is made of moved (the owner's
+    # page took ~3.8 s every open, 2026-11-09), and the commit walk is skipped with it.
+    key = (str(memory_path), page.stem)
+    hit = _PROVENANCE_MEMO.get(key)
+    if hit is not None and hit[0] == etag:
+        return hit[1]
     commits, truncated = await git_service.entity_commit_authors(memory_path, page.stem)
-    return await run_in_threadpool(
+    built = await run_in_threadpool(
         provenance.entity_provenance, memory_path, page,
         commit_authors=commits, commits_truncated=truncated,
     )
+    _remember(_PROVENANCE_MEMO, key, (etag, built), _MEMO_KEPT)
+    return built
 
 
 def _timeline_sort_key(c: Claim) -> tuple:

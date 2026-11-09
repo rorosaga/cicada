@@ -164,3 +164,21 @@ def test_malformed_numeric_counters_are_skipped_not_raised(home):
     for shape in bad_shapes:
         with pytest.raises(ValueError):
             tm.UsageEvent.from_json(json.dumps(shape))
+
+
+def test_read_events_reads_only_what_was_appended_and_survives_a_rewrite(home):
+    """The ledger is kept parsed between reads (2026-11-09): an append shows up, a half-written last line waits for
+    its newline, and a ledger rewritten shorter is read again from the top."""
+    path = home / "telemetry" / "events-2026-08.jsonl"
+    tm.record(_ev("2026-08-01T00:00:00.000Z"))
+    assert len(tm.read_events()) == 1
+    tm.record(_ev("2026-08-02T00:00:00.000Z"))
+    assert [e.ts[:10] for e in tm.read_events()] == ["2026-08-01", "2026-08-02"]
+    with open(path, "a") as fh:
+        fh.write(_ev("2026-08-03T00:00:00.000Z").to_json()[:20])   # a writer mid-line
+    assert len(tm.read_events()) == 2
+    with open(path, "a") as fh:
+        fh.write(_ev("2026-08-03T00:00:00.000Z").to_json()[20:] + "\n")
+    assert len(tm.read_events()) == 3
+    path.write_text(_ev("2026-08-09T00:00:00.000Z").to_json() + "\n")
+    assert [e.ts[:10] for e in tm.read_events()] == ["2026-08-09"]

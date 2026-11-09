@@ -75,7 +75,7 @@ def test_recall_hints_carry_the_state_once_per_process(server, bank, monkeypatch
     monkeypatch.setattr(server.mcp_tools, "_leann_search_episodes", lambda *a, **k: [])
     first = server.handle_recall("alpha project")
     assert "`" * 3 + "cicada-hints" in first
-    assert '"state"' in first and '"alpha-project"' in first and '"pending_as_of": 1' in first
+    assert '"state"' in first and '"alpha-project"' in first and '"pending_as_of":1' in first
     second = server.handle_recall("alpha project")
     assert '"state"' not in second, "the cursor rides once per conversation"
 

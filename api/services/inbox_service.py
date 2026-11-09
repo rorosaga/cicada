@@ -196,6 +196,8 @@ def _item_from_file(
                 extra["subject"] = inbox_review.subject_for(entity_id, context)
                 if kind == "normalization":
                     extra["fold"] = inbox_review.fold_for({**fm, "entity_id": entity_id}, context)
+                if kind == "merge_suggestion" and fm.get("merge_target_hint"):
+                    extra["other_subject"] = inbox_review.subject_for(str(fm["merge_target_hint"]), context)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"review context skipped for {filepath.name}: {type(exc).__name__}")
         # G61 phase 2 S2: which rung could answer this, derived at read and

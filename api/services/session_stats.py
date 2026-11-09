@@ -73,15 +73,21 @@ def default_transcript_exists(
 
 
 def _group(memory_path: Path) -> dict[str, dict]:
-    """conversation id -> raw group state (INCLUDING project_dir)."""
-    episodes_dir = memory_path / "episodes"
-    if not episodes_dir.exists():
-        return {}
+    """conversation id -> raw group state (INCLUDING project_dir).
 
+    Built once per state of the episodes and entities folders (``bank_index.derived_over``): the join parses every
+    page's claims, ~1.4 s on a 9,000-page bank, and ``/conversations/recent`` paid it on every request that was not a
+    304 (2026-11-09). Callers read the groups and never change them."""
+    if not (memory_path / "episodes").exists():
+        return {}
+    return bank_index.derived_over(memory_path, ("episodes", "entities"), "conversation_groups", _build_groups)
+
+
+def _build_groups(episode_files, entity_files) -> dict[str, dict]:
     groups: dict[str, dict] = {}
     episode_conversation: dict[str, str] = {}
 
-    for f in bank_index.files(memory_path, "episodes"):
+    for f in episode_files:
         fm = f.frontmatter
         session_id = str(fm.get("session_id") or "").strip()
         source_id = str(fm.get("source_id") or "").strip()
@@ -103,7 +109,7 @@ def _group(memory_path: Path) -> dict[str, dict]:
         )
         group["episodes"].append((str(fm.get("timestamp") or ""), episode_id, fm))
 
-    for f in bank_index.files(memory_path, "entities"):
+    for f in entity_files:
         fm = f.frontmatter
         entity_id = str(fm.get("id") or f.stem)
         entity_conversations: set[str] = set()

@@ -81,6 +81,8 @@ extension Copy {
     static func bookDescriptionSource(_ name: String, saved: String?) -> String {
         saved.map { "From \(name), saved \($0)" } ?? "From \(name)"
     }
+    /// A book with no author (a file the person added themselves has none): a lookup by exact title and author cannot match, said once.
+    static let bookNoAuthor = "No author is recorded for this book, so Cicada did not look it up."
     static let bookFoundByTitle = "Found by its title and author."
     static let bookNotThisBook = "Not this book"
     static func goodreadsPreview(books: Int, finished: Int, reading: Int, want: Int, reviews: Int,

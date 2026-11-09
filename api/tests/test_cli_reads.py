@@ -51,14 +51,14 @@ def test_hints_block_gates_every_named_tool():
 
 
 def test_hints_block_bytes_are_unchanged_for_a_caller_holding_every_tool():
-    # The pre-G180 rendering, spelled out: stdio and remote replies must not move a byte.
+    # The rendering, spelled out: stdio, remote and command line share it (ROR-100: compact JSON, no indent).
     block = mcp_tools._hints_block(["alpha-project"], "projects", ["bob-example"], state={"pending": 1})
     expected = "```cicada-hints\n" + json.dumps({
         "suggested_entities": ["alpha-project"], "relevant_hub": "projects", "hub_members_preview": ["bob-example"],
         "next_tool": "cicada_recall_detail",
         "note": "Call cicada_recall_detail with each suggested_entity id for full pages, or cicada_open_hub with "
                 "relevant_hub for a topic index.",
-        "state": {"pending": 1}}, indent=2) + "\n```"
+        "state": {"pending": 1}}, separators=(",", ":")) + "\n```"
     assert block == expected
 
 
