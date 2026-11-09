@@ -2872,3 +2872,16 @@ page and conversation headers first, alone, and only then starts the search mode
 12 → 6 s, `/graph` 35 → 22 s (under the app's 30 s refresh timeout; it was 45 s before the guard), ten requests 103 → 80
 (guard) → 62 s. The app shows its disk snapshot (`Store.hydrate`) meanwhile; what is left cold is the headers' parse
 (~10 s) and `graph_edges.yaml` (~4 s).
+
+### Reads kept until their inputs move (bank-perf, 2026-11-09)
+
+Process-local, disposable, never a second source of truth: `GET /entities/{id}/claims` and `/provenance` keep the
+last answer per page, valid while `entities/` and `episodes/` (and, for provenance, the git head and the day) stand —
+the same stamp the provenance ETag already used; `session_stats._group` (conversation groups) is kept by
+`bank_index.derived_over` per state of `episodes/` + `entities/`; `git_service.head_memo` keeps a whole-history
+`git log` walk per git head (`top_written_entities`, `consumption_stats._commit_days`); `telemetry.read_events`
+parses each ledger once and then only the bytes appended (a shorter file or changed first bytes re-reads it from the
+top; a line still being written waits for its newline); `state_dictionary.refresh` lists each folder once
+(`shared_scans`). None changes a wire shape. Not done: paging `/claims` (the entity card groups and counts contested
+keys over every claim, so a first-N page would need the card changed too), and the whole-bank payloads (`/graph`
+14.9 MB, `/sleep/episodes` 5.8 MB, `/sources` 4.0 MB — already compressed on the wire).

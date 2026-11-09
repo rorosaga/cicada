@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -275,6 +276,72 @@ def record_read(entity_id: str, *, surface: str, bank: str | None, memory_path=N
         page_reads.count(memory_path, entity_id, surface)
 
 
+#: path -> the ledger file's parsed lines so far. Ledgers are append-only, so a call reads only the bytes added since
+#: the last one (a 27 MB ledger was re-parsed whole by every `/consumption/*` read, ~1 s each, 2026-11-09). A file that
+#: shrank or whose first bytes changed is parsed again from the top. Process-local and disposable; the events are
+#: shared between callers, who only read them.
+_PARSED: dict[str, "_ParsedLedger"] = {}
+_HEAD_BYTES = 256
+
+
+class _ParsedLedger:
+    __slots__ = ("offset", "head", "events")
+
+    def __init__(self) -> None:
+        self.offset = 0
+        self.head = b""
+        self.events: list[tuple[str, UsageEvent]] = []
+
+
+_PARSED_LOCK = threading.Lock()
+
+
+def _parse_lines(raw: bytes, out: list) -> int:
+    """Parse ``raw``'s lines into ``out`` as ``(day, event)``; returns the corrupt-line count."""
+    bad = 0
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        try:
+            # Everything that touches a per-event field — not just the
+            # parse itself — stays inside this boundary: a validated-but-
+            # still-unexpected shape (or a future field access added here)
+            # must be counted+skipped like any other corrupt line, never
+            # propagate out and 500 every /consumption/* endpoint.
+            ev = UsageEvent.from_json(line.decode("utf-8", errors="replace"))
+            out.append((ev.ts[:10], ev))
+        except (ValueError, TypeError):
+            bad += 1
+    return bad
+
+
+def _ledger_events(path: Path) -> list[tuple[str, UsageEvent]]:
+    with _PARSED_LOCK:
+        try:
+            with open(path, "rb") as fh:
+                head = fh.read(_HEAD_BYTES)
+                size = fh.seek(0, os.SEEK_END)
+                slot = _PARSED.get(str(path))
+                if slot is None or size < slot.offset or head[:len(slot.head)] != slot.head:
+                    slot = _ParsedLedger()
+                fh.seek(slot.offset)
+                raw = fh.read()
+        except OSError:
+            return []
+        # Only whole lines are kept: a last line another process is still writing is read again once it ends.
+        whole = raw[: raw.rfind(b"\n") + 1]
+        bad = _parse_lines(whole, slot.events)
+        if bad:
+            logger.warning(f"telemetry: skipped {bad} corrupt line(s) in {path.name}")
+        slot.offset += len(whole)
+        slot.head = head
+        _PARSED[str(path)] = slot
+        tail: list[tuple[str, UsageEvent]] = []
+        if raw[len(whole):].strip():
+            _parse_lines(raw[len(whole):], tail)   # an unterminated last line still counts (a hand-written ledger)
+        return slot.events + tail if tail else list(slot.events)
+
+
 def read_events(start: date | None = None, end: date | None = None) -> list[UsageEvent]:
     out: list[UsageEvent] = []
     if not enabled():
@@ -283,32 +350,18 @@ def read_events(start: date | None = None, end: date | None = None) -> list[Usag
     # `read` kind is filed apart (see ``ledger_file``).
     ledger_dir = telemetry_dir()
     paths = list(ledger_dir.glob(f"{_PREFIX_EVENTS}-*.jsonl")) + list(ledger_dir.glob(f"{_PREFIX_READS}-*.jsonl"))
+    lo = start.isoformat() if start else None
+    hi = end.isoformat() if end else None
     for path in sorted(paths, key=lambda p: (p.stem.split("-", 1)[1], p.name)):
         month = path.stem.split("-", 1)[1]
         if start and month < start.strftime("%Y-%m"):
             continue
         if end and month > end.strftime("%Y-%m"):
             continue
-        bad = 0
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
+        for day, ev in _ledger_events(path):
+            if (lo and day < lo) or (hi and day > hi):
                 continue
-            try:
-                # Everything that touches a per-event field — not just the
-                # parse itself — stays inside this boundary: a validated-but-
-                # still-unexpected shape (or a future field access added here)
-                # must be counted+skipped like any other corrupt line, never
-                # propagate out and 500 every /consumption/* endpoint.
-                ev = UsageEvent.from_json(line)
-                day = ev.ts[:10]
-                keep = not ((start and day < start.isoformat()) or (end and day > end.isoformat()))
-            except (ValueError, TypeError):
-                bad += 1
-                continue
-            if keep:
-                out.append(ev)
-        if bad:
-            logger.warning(f"telemetry: skipped {bad} corrupt line(s) in {path.name}")
+            out.append(ev)
     return out
 
 
