@@ -250,6 +250,10 @@ struct BookPageHead: View {
                     }
                 }
                 BookStatusLine(entityId: entityId, changed: changed)
+                // A title with no author cannot be matched exactly (ruling 71), so it is not guessed: said once, in words.
+                if let card, card.authors.isEmpty, EntityHeaderWords.bookDescription(markdown) == nil {
+                    Text(Copy.bookNoAuthor).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                }
                 if let subjects = card?.subjects, !subjects.isEmpty {
                     Text(subjects.joined(separator: " · ")).font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
