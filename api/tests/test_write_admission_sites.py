@@ -467,6 +467,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/poll-calendars": (CAPTURE, None),
     "POST /sources/sync-notes": (CAPTURE, None),
     "POST /banks": (BANKS, None),
+    "POST /banks/order": (BANKS, None),
     "POST /banks/{name}/activate": (BANKS, None),
     "POST /banks/{name}/duplicate": (BANKS, None),
     "POST /banks/{name}/rename": (BANKS, None),

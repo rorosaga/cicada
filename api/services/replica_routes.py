@@ -76,6 +76,7 @@ ROUTES: dict[str, str] = {
     "POST /banks": REFUSE,
     "POST /banks/demo": REFUSE,
     "POST /banks/leave-demo": REFUSE,
+    "POST /banks/order": REFUSE,
     "POST /banks/{name}/activate": REFUSE,
     "POST /banks/{name}/duplicate": REFUSE,
     "POST /banks/{name}/import": REFUSE,

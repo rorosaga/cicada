@@ -144,8 +144,7 @@ private struct BankDropdownRow: View {
             .foregroundStyle(isCurrent || isHighlighted ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             .padding(.horizontal, CicadaTheme.scaled(8))
             .frame(height: CicadaTheme.scaled(BankDropdown.rowHeight))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(isHighlighted ? CicadaTheme.bgHover : Color.clear))
+            .rowHoverFill(hovering: isHighlighted)
             .overlay(alignment: .top) {
                 // Where a dragged memory will land: a strong ring line above this row.
                 if isDropTarget { Rectangle().fill(CicadaTheme.ring(.strong)).frame(height: 2) }
@@ -194,7 +193,7 @@ private struct BankDropdownAction: View {
             .foregroundStyle(hovering && enabled ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             .padding(.horizontal, CicadaTheme.scaled(8))
             .frame(height: CicadaTheme.scaled(BankDropdown.rowHeight))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering && enabled ? CicadaTheme.bgHover : Color.clear))
+            .rowHoverFill(hovering: hovering && enabled)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
