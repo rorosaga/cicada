@@ -418,6 +418,7 @@ additive, so an older app draws `question` as before. Because those words carry 
 a new day is a new tag, never a 304 holding yesterday's "yesterday" (DR-58). **Question words (2026-11-06):** the same
 read words a conflict's answers and a few stored questions (`inbox_wording`, nothing stored, no sweep; keys, labels as
 stored and claim ids untouched), and `inbox_wording.SHAPE` rides the ETag so every client takes one fresh 200.
+**One wording on every door (bank-inbox, 2026-11-09).** A conflict's `title`, `question` and `body` carry no predicate slug on `GET /inbox`, the MCP list/ask/catch-up and the CLI (`inbox_wording.without_slug`, the app's spoken question where the stored one is the generic template); a clarification stored with no body is served `Came up in: “line” — from "Title" · harness · age` from its cause (`inbox_service._came_up_in`, the line only when the name was found in it); a duplicate pair where one page already lists the other's name among its aliases (a non-person) is spoken as "Join A and B as one thing" with the reason, never a question that reads as answered, and nothing joins until the person answers (`_listed_alias`).
 `present_options(fm, today, claims=, page_name=, untimed=)` is pure and idempotent and is called by all three doors: the
 served list (`inbox_service._item_from_file`; the recommended key, the cause and the verdicts keep the stored options),
 the catch-up (`inbox_catchup.spoken_for`) and the MCP readers (`mcp_tools._agent_question`). A claim-backed side is dated
