@@ -260,7 +260,8 @@ struct ConnectorScopeBlock: View {
     @State private var note: String?
 
     var body: some View {
-        Group {
+        // A stack, not a Group: a Group with nothing in it carries no `.task`, and the block must load to know.
+        VStack(alignment: .leading, spacing: 0) {
             if !suppressed, let status, status.connected, status.chooses == true {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     if ConnectorScopeState.isPending(status) || choosing {
