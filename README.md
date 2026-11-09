@@ -193,18 +193,18 @@ any provider LiteLLM supports. A local model runs only if you choose one. Schedu
 
 Cicada's retrieval is measured on two public benchmarks with the harness in [`benchmarks/public`](benchmarks/public).
 All figures below use one small model for both answers and grading, one run each, so a gap of a few questions is
-noise. Full tables, methods and the failures: [`docs/research/2026-11-06-memory-before-sleep.md`](docs/research/2026-11-06-memory-before-sleep.md).
+noise (163 against 156 before the latest change is 12 gained, 5 lost, p = .14). Full tables, methods and the failures: [`docs/research/2026-11-09-why-full-context-wins-on-locomo.md`](docs/research/2026-11-09-why-full-context-wins-on-locomo.md), [`2026-11-06-memory-before-sleep.md`](docs/research/2026-11-06-memory-before-sleep.md).
 
 **LoCoMo**, 5 long conversations, 200 questions. Answered by `cicada_ask`.
 
 | | Right |
 |---|---|
 | Nothing read by Sleep yet | 138 of 200 |
-| After Sleep | 159 of 200 |
-| Whole conversation in the prompt (control) | 167 of 200 |
+| After Sleep | 163 of 200 |
+| Whole conversation in the prompt (control) | 168 of 200, at three times the tokens |
 | No memory | 7 of 200 |
 
-**LongMemEval_S**, 100 questions across every category, nothing slept: 80 right. With no memory 16 were right, and
+**LongMemEval_S**, 100 questions across every category, nothing slept: 79 right. With no memory 16 were right, and
 15 with another person's memory, almost all of them questions where the right answer is "I don't know".
 
 What this does not cover. LoCoMo banks hold 3 to 11 pages. The one larger test, 3,128 conversations, had only 33 pages.
