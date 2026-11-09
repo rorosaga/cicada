@@ -82,6 +82,14 @@ if [ -d "$BIN_DIR/CicadaApp_CicadaApp.bundle" ]; then
 </plist>
 PLIST
   fi
+  # Xcode 27's build system (SwiftPM's `.build/out/Products/…`) already emits a real bundle, but its
+  # Contents/Resources holds the copied `Resources/` folder itself (Contents/Resources/Resources/logos…), so
+  # `Bundle.cicadaResources` (which looks for "logos", not "Resources/logos") finds nothing and every bundled
+  # picture, sprite and logo is missing (owner 2026-11-09, the first build after the Xcode licence). Flatten it.
+  if [ -d "$RESBUNDLE/Contents/Resources/Resources" ]; then
+    ditto "$RESBUNDLE/Contents/Resources/Resources" "$RESBUNDLE/Contents/Resources"
+    rm -rf "$RESBUNDLE/Contents/Resources/Resources"
+  fi
 fi
 
 # LSMinimumSystemVersion matches Package.swift's .macOS(.v14) floor (G137 R-M7; PlatformFloorTests holds the pair).
