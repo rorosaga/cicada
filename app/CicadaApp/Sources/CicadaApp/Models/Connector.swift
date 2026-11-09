@@ -34,6 +34,14 @@ struct ConnectorStatus: Codable, Identifiable, Hashable {
     /// "app", "own-app", "token" or "reconnect": how it is connected now, so a lapsed sign-in asks again.
     var how: String? = nil
     var reconnect: Bool? = nil
+    /// Choosing what is read (owner 2026-11-09): this connection has containers to pick from; `scope` is
+    /// "pending" (just connected, nothing is read yet), "everything" or "chosen"; the nouns are its own words.
+    var chooses: Bool? = nil
+    var scope: String? = nil
+    var scopeCount: Int? = nil
+    var chooseNoun: String? = nil
+    var chooseEverything: String? = nil
+    var chooseChosen: String? = nil
 
     var isTokenConnector: Bool { tier == 2 }
 
@@ -80,5 +88,49 @@ struct ConnectorSyncResult: Codable {
         seen = try c.decode(Int.self, forKey: .seen)
         error = try c.decodeIfPresent(String.self, forKey: .error)
         resourcesRead = try c.decodeIfPresent(Int.self, forKey: .resourcesRead) ?? 0
+    }
+}
+
+/// One thing the person can let Cicada read: a Notion page or database, a Linear team or project.
+struct ConnectorScopeItem: Codable, Hashable, Identifiable {
+    let id: String
+    let title: String
+    let kind: String
+}
+
+/// What is chosen now (`GET/PUT /sources/connectors/{id}/scope`).
+struct ConnectorScope: Codable, Hashable {
+    let mode: String
+    var items: [ConnectorScopeItem] = []
+    var unchooseWords: String = ""
+
+    init(mode: String, items: [ConnectorScopeItem] = [], unchooseWords: String = "") {
+        self.mode = mode
+        self.items = items
+        self.unchooseWords = unchooseWords
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mode = try c.decode(String.self, forKey: .mode)
+        items = try c.decodeIfPresent([ConnectorScopeItem].self, forKey: .items) ?? []
+        unchooseWords = try c.decodeIfPresent(String.self, forKey: .unchooseWords) ?? ""
+    }
+}
+
+/// What the picker lists (`GET /sources/connectors/{id}/containers?q=`).
+struct ConnectorContainers: Codable, Hashable {
+    let items: [ConnectorScopeItem]
+    var more: Bool = false
+
+    init(items: [ConnectorScopeItem], more: Bool = false) {
+        self.items = items
+        self.more = more
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        items = try c.decodeIfPresent([ConnectorScopeItem].self, forKey: .items) ?? []
+        more = try c.decodeIfPresent(Bool.self, forKey: .more) ?? false
     }
 }
