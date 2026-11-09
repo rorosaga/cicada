@@ -73,6 +73,8 @@ struct ConnectorSetupPanel: View {
     /// for H1, so an abandoned poll never keeps running (or writing into
     /// @State) after the panel leaves the view tree.
     @State private var pollTask: Task<Void, Never>?
+    /// "Change" opened the picker on a connection that already has a choice (a pending one opens it by itself).
+    @State private var choosing = false
 
     /// 3s between checks, for up to 2 minutes — long enough for a real
     /// browser round trip, bounded so a user who never finishes the OAuth
@@ -106,10 +108,30 @@ struct ConnectorSetupPanel: View {
                 }
 
                 if status.connected {
+                    // Right after the sign-in nothing is read until the person chooses (owner 2026-11-09); later the
+                    // choice is one line and a Change.
+                    if ConnectorScopeState.isPending(status) || choosing {
+                        ConnectorScopePicker(status: status,
+                                             onCancel: ConnectorScopeState.isPending(status) ? nil : { choosing = false }) {
+                            choosing = false
+                            await load()
+                            await syncNow()
+                        }
+                    } else if let line = ConnectorScopeState.summaryLine(status) {
+                        HStack(spacing: CicadaTheme.spacingSM) {
+                            Text(line)
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                            TextButton(title: Copy.Connect.chooseChange, inline: true) { choosing = true }
+                                .accessibilityLabel("Change what \(status.label) is read for")
+                        }
+                    }
                     HStack(spacing: CicadaTheme.spacingSM) {
-                        Button("Refresh") { Task { await syncNow() } }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(busy)
+                        if !ConnectorScopeState.isPending(status) {
+                            Button("Refresh") { Task { await syncNow() } }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(busy || choosing)
+                        }
                         Button("Disconnect", role: .destructive) { Task { await disconnect() } }
                             .buttonStyle(.bordered)
                             .disabled(busy)
@@ -256,6 +278,7 @@ struct ConnectorSetupPanel: View {
         defer { busy = false }
         do {
             status = try await APIClient.shared.forgetConnector(connectorId)
+            choosing = false
             message = "Disconnected."
             error = nil
             awaitingAuthorization = false

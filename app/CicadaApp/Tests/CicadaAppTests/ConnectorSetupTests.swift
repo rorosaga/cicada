@@ -285,4 +285,35 @@ final class ConnectorSetupTests: XCTestCase {
         let result = try await api.authorizeConnector("pinterest")
         XCTAssertEqual(result.authorizeUrl, "https://www.pinterest.com/oauth/?x=1")
     }
+
+    // MARK: - Choosing what a sign-in may read (owner 2026-11-09)
+
+    private func choosable(scope: String?, count: Int = 0) -> ConnectorStatus {
+        ConnectorStatus(id: "notion-api", label: "Notion", connected: true, fields: [], lastSync: nil, lastError: nil,
+                        detail: nil, loginMode: "credentials", chooses: true, scope: scope, scopeCount: count,
+                        chooseNoun: "pages and databases")
+    }
+
+    func testAFreshConnectionAsksBeforeAnythingIsReadAndAnOlderOneJustSaysWhatItReads() {
+        XCTAssertTrue(ConnectorScopeState.isPending(choosable(scope: "pending")))
+        XCTAssertFalse(ConnectorScopeState.isPending(choosable(scope: "everything")))
+        XCTAssertEqual(ConnectorScopeState.summaryLine(choosable(scope: "everything")), Copy.Connect.readingEverything)
+        XCTAssertEqual(ConnectorScopeState.summaryLine(choosable(scope: "chosen", count: 3)),
+                       Copy.Connect.readingChosen(3, noun: "pages and databases"))
+    }
+
+    func testAChosenListNeedsAnItemButEverythingNeedsNone() {
+        let item = ConnectorScopeItem(id: "a", title: "Ideas", kind: "database")
+        XCTAssertFalse(ConnectorScopeState.canSave(mode: "chosen", picked: []))
+        XCTAssertTrue(ConnectorScopeState.canSave(mode: "chosen", picked: [item]))
+        XCTAssertTrue(ConnectorScopeState.canSave(mode: "everything", picked: []))
+        XCTAssertEqual(ConnectorScopeState.toggled(ConnectorScopeState.toggled([], item), item), [])
+    }
+
+    func testPickedItemsLeadTheListAndAreNeverDoubled() {
+        let a = ConnectorScopeItem(id: "a", title: "Ideas", kind: "database")
+        let b = ConnectorScopeItem(id: "b", title: "Plans", kind: "page")
+        XCTAssertEqual(ConnectorScopeState.displayed(picked: [b], results: [a, b], query: "").map(\.id), ["b", "a"])
+        XCTAssertEqual(ConnectorScopeState.displayed(picked: [b], results: [a], query: "idea").map(\.id), ["a"])
+    }
 }

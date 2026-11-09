@@ -114,6 +114,8 @@ HANDLED_ELSEWHERE = {
     ("POST", "/intake/sniff"): "stages nothing; a chat export's TARGET bank is checked in intake.resolve_target",
     ("PUT", "/sources/connectors/{connector_id}/credentials"):
         "stores the secret in ~/.cicada/secrets.env; only restamps the bank's sync_state.json, no content",
+    ("PUT", "/sources/connectors/{connector_id}/scope"):
+        "the person's choice of what a sign-in may read, in ~/.cicada/connectors; touches no bank (the sync it precedes is gated)",
     ("POST", "/sources/connectors/{connector_id}/authorize"): "returns a sign-in link, takes nothing in",
     ("POST", "/sources/telegram/disconnect"):
         "ruling 47a: logs the Telegram session out and deletes its file outside every bank; takes nothing in",

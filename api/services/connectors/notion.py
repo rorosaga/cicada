@@ -84,9 +84,22 @@ TITLE_CAP = 300
 PROPERTY_CAP = 2000
 #: Notion's enhanced-Markdown tags that carry no text of their own; their inner text stays.
 _TAG = re.compile(r"</?(?:page|database|data-source|unknown|mention-[a-z-]+|callout|details|summary|columns|column|"
-                  r"table_of_contents|synced_block|empty-block|span|color)\b[^>]*?/?>", re.IGNORECASE)
-
-
+                  r"table_of_contents|synced_block|empty-block|span|color|content|ancestor-path|parent-page|"
+                  r"parent-database|parent-data-source)\b[^>]*?/?>", re.IGNORECASE)
+_BLOCKS = re.compile(r"<(properties|ancestor-path|data-source-state|sqlite-table|templates)\b[^>]*>.*?</\1>",
+                     re.IGNORECASE | re.DOTALL)
+_LINKED = re.compile(r"<(?:mention-page|mention-database|mention-data-source|page|database|data-source)\b"
+                     r"[^>]*?\burl=\"(https?://[^\"]+)\"[^>]*>([^<]*)</(?:mention-page|mention-database|"
+                     r"mention-data-source|page|database|data-source)>", re.IGNORECASE)
+_DATE = re.compile(r"<mention-date\b([^>]*?)/?>(?:\s*</mention-date>)?", re.IGNORECASE)
+_USER = re.compile(r"<mention-user\b[^>]*>([^<]*)</mention-user>", re.IGNORECASE)
+_TABLE = re.compile(r"<table\b[^>]*>(.*?)</table>", re.IGNORECASE | re.DOTALL)
+_SUMMARY = re.compile(r"<summary\b[^>]*>(.*?)</summary>", re.IGNORECASE | re.DOTALL)
+_ATTR = re.compile(r"[ \t]*\{(?:color|toggle|icon|align)=\"[^\"]*\"\}")
+_BREAK = re.compile(r"<(?:p|br|hr)\b[^>]*?/>|</?p\b[^>]*>|<br\s*>", re.IGNORECASE)
+#: What the hosted server puts ahead of a page's body as a plain header, never the person's words.
+_HEAD_KEYS = frozenset({"title", "url", "id", "icon", "cover", "created", "last_edited", "parent", "path", "type",
+                        "created_time", "last_edited_time"})
 def _self():
     return sys.modules[__name__]
 
@@ -98,6 +111,21 @@ how = notion_mcp.how
 needs_reconnect = notion_mcp.needs_reconnect
 revoke = notion_mcp.revoke
 prepare = notion_mcp.prepare
+
+
+#: The picker (`scope.py`, `routers/connectors.py`): what a signed-in connection can be narrowed to.
+CHOOSE_NOUN = "pages and databases"
+CHOOSE_EVERYTHING = "Everything I can open in Notion"
+CHOOSE_CHOSEN = "Only the pages and databases I pick"
+
+
+def can_choose() -> bool:
+    """Only a sign-in has a workspace to choose from; a pasted internal-connection token already sees just what was shared."""
+    return notion_mcp.is_app_token()
+
+
+async def containers(client: tier2.Client, query: str = "") -> dict:
+    return await notion_mcp.containers(client, query)
 
 
 def auth_headers(token: str) -> dict:
@@ -376,11 +404,62 @@ def title_of(page: dict) -> str:
     return "Untitled"
 
 
+def _attr(attrs: str, name: str) -> str:
+    m = re.search(rf"\b{name}=\"([^\"]*)\"", attrs)
+    return m.group(1) if m else ""
+
+
+def _table(m: re.Match) -> str:
+    rows = [[" ".join(re.sub(r"<[^>]+>", "", c).split()) for c in re.findall(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", row,
+                                                                          re.IGNORECASE | re.DOTALL)]
+            for row in re.findall(r"<tr\b[^>]*>(.*?)</tr>", m.group(1), re.IGNORECASE | re.DOTALL)]
+    rows = [r for r in rows if any(r)]
+    if not rows:
+        return ""
+    width = max(len(r) for r in rows)
+    lines = ["| " + " | ".join(r + [""] * (width - len(r))) + " |" for r in rows]
+    lines.insert(1, "|" + " --- |" * width)
+    return "\n\n" + "\n".join(lines) + "\n\n"
+
+
+def strip_head(text: str, title: str = "") -> str:
+    """Drop what the server prints ahead of a body — a ``---`` block or a run of ``key: value`` lines such as
+    ``title: Ideas`` — which is metadata, never the person's words. Only a leading run, and only known keys."""
+    lines = text.split("\n")
+    i = 0
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    if i < len(lines) and lines[i].strip() == "---":
+        end = next((j for j in range(i + 1, min(len(lines), i + 40)) if lines[j].strip() == "---"), None)
+        if end is not None:
+            return "\n".join(lines[end + 1:])
+    j = i
+    while j < len(lines):
+        key, sep, _ = lines[j].partition(":")
+        if sep and key.strip().lower() in _HEAD_KEYS:
+            j += 1
+        else:
+            break
+    return "\n".join(lines[j:]) if j > i else text
+
+
 def page_text(md: dict) -> str:
+    """One page's Markdown, with the server's markup turned into readable text: no ``<p />``, no header lines, links
+    as ``[title](url)``, tables as tables, a toggle's summary as its first line."""
     text = str(md.get("markdown") or md.get("page_markdown") or "")
     if isinstance(md.get("page_markdown"), dict):
         text = str(md["page_markdown"].get("markdown") or "")
+    text = strip_head(_BLOCKS.sub("", text))
+    text = _TABLE.sub(_table, text)
+    text = _LINKED.sub(lambda m: f"[{m.group(2).strip()}]({m.group(1)})" if m.group(2).strip() else m.group(1), text)
+    text = _USER.sub(lambda m: m.group(1).strip(), text)
+    text = _DATE.sub(lambda m: (_attr(m.group(1), "start") + (f" → {_attr(m.group(1), 'end')}"
+                                                              if _attr(m.group(1), "end") else "")), text)
+    text = _SUMMARY.sub(lambda m: "\n" + m.group(1).strip() + "\n", text)
+    text = _BREAK.sub("\n", text)
     text = _TAG.sub("", text)
+    text = _ATTR.sub("", text)
+    text = "\n".join(line.rstrip() for line in text.split("\n"))
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     return notion_export._links(text)
 

@@ -5926,6 +5926,39 @@ class ConnectorStatus(CamelModel):
     app_sign_in: bool = False
     how: Optional[str] = None
     reconnect: bool = False
+    # Choosing what is read (owner 2026-11-09): ``chooses`` — this connection can be narrowed (a sign-in with containers
+    # to pick from); ``scope`` — ``pending`` (just connected: nothing is read until the person chooses), ``everything``
+    # or ``chosen``; ``scope_count`` — how many items are chosen; the nouns are the connector's own words.
+    chooses: bool = False
+    scope: Optional[str] = None
+    scope_count: int = 0
+    choose_noun: Optional[str] = None
+    choose_everything: Optional[str] = None
+    choose_chosen: Optional[str] = None
+
+
+class ConnectorScopeItem(CamelModel):
+    id: str
+    title: str
+    kind: str = "page"
+
+
+class ConnectorScope(CamelModel):
+    """What the person let Cicada read from a connected service (``scope.py``)."""
+
+    mode: str                                   # everything | chosen | pending
+    items: list[ConnectorScopeItem] = []
+    unchoose_words: str = ""
+
+
+class ConnectorScopeBody(CamelModel):
+    mode: str
+    items: list[ConnectorScopeItem] = []
+
+
+class ConnectorContainers(CamelModel):
+    items: list[ConnectorScopeItem] = []
+    more: bool = False
 
 
 class ConnectorsResponse(CamelModel):

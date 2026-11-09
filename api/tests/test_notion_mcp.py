@@ -194,7 +194,8 @@ def test_no_write_tool_can_be_called_and_nothing_is_sent_for_one(bank):
             asyncio.run(session.call(name, {}))
     assert server.messages == []
     assert notion_mcp.ALLOWED_TOOLS == {"notion-search", "notion-fetch", "notion-list-private-pages",
-                                        "notion-list-shared-pages"}
+                                        "notion-list-shared-pages",
+                                        "notion-query-data-sources"}
 
 
 def test_a_sync_reads_through_the_allow_list_only_and_stages_one_episode_per_page(bank):

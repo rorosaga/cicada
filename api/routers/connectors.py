@@ -42,6 +42,9 @@ from pydantic import BaseModel
 from api.config import Settings, get_settings
 from api.models.schemas import (
     ConnectorAuthorizeResponse,
+    ConnectorContainers,
+    ConnectorScope,
+    ConnectorScopeBody,
     ConnectorField,
     ConnectorStatus,
     ConnectorSyncResult,
@@ -49,7 +52,7 @@ from api.models.schemas import (
 )
 from api.services import sync_state
 from api.services.connections import secrets as secret_store
-from api.services.connectors import ADAPTERS, base
+from api.services.connectors import ADAPTERS, base, scope as scope_store
 from api.routers.capture import refuse_capture_into_demo
 
 router = APIRouter(prefix="/sources/connectors")
@@ -71,9 +74,17 @@ def _adapter(connector_id: str):
     return adapter
 
 
+def _chooses(adapter) -> bool:
+    """This connection has containers to pick from (a signed-in Notion or Linear), and is connected."""
+    can = getattr(adapter, "can_choose", None)
+    return bool(can is not None and can() and adapter.is_connected())
+
+
 def _status(connector_id: str, memory_path) -> ConnectorStatus:
     adapter = _adapter(connector_id)
     entry = sync_state.read_sync_state(memory_path).get(connector_id) or {}
+    chooses = _chooses(adapter)
+    scope_now = scope_store.summary(connector_id) if chooses else None
     return ConnectorStatus(
         id=connector_id,
         label=adapter.LABEL,
@@ -89,6 +100,12 @@ def _status(connector_id: str, memory_path) -> ConnectorStatus:
         app_sign_in=bool(getattr(adapter, "app_available", lambda: False)()),
         how=getattr(adapter, "how", lambda: None)(),
         reconnect=bool(getattr(adapter, "needs_reconnect", lambda: False)()),
+        chooses=chooses,
+        scope=scope_now["mode"] if scope_now else None,
+        scope_count=scope_now["count"] if scope_now else 0,
+        choose_noun=getattr(adapter, "CHOOSE_NOUN", None) if chooses else None,
+        choose_everything=getattr(adapter, "CHOOSE_EVERYTHING", None) if chooses else None,
+        choose_chosen=getattr(adapter, "CHOOSE_CHOSEN", None) if chooses else None,
     )
 
 
@@ -292,3 +309,63 @@ async def sync_now(connector_id: str, settings: Settings = Depends(get_settings)
         error=result.get("error"),
         resources_read=int(result.get("resources_read") or 0),
     )
+
+
+# --- choosing what is read (owner 2026-11-09) ----------------------------------------------------------------------
+
+
+def _client(adapter):
+    """The one request client of the picker's listing (the person's own click, so never gated). Tests replace this."""
+    from api.services.connectors import tier2
+
+    return tier2.Client(adapter, tier2.token(adapter), None)
+
+
+def _choosable(connector_id: str):
+    adapter = _adapter(connector_id)
+    if not _chooses(adapter):
+        raise HTTPException(status_code=400, detail=f"{adapter.LABEL} has nothing to choose from; connect it first.")
+    return adapter
+
+
+@router.get("/{connector_id}/scope", response_model=ConnectorScope)
+async def get_scope(connector_id: str):
+    """What is chosen now: ``pending`` right after a sign-in (nothing is read yet), ``everything``, or ``chosen`` with
+    the list. A connection made before choosing existed reads ``everything``."""
+    _choosable(connector_id)
+    now = scope_store.read(connector_id)
+    return ConnectorScope(mode=now["mode"], items=now["items"], unchoose_words=scope_store.UNCHOOSE_WORDS)
+
+
+@router.put("/{connector_id}/scope", response_model=ConnectorScope)
+async def set_scope(connector_id: str, body: ConnectorScopeBody, settings: Settings = Depends(get_settings)):
+    """The person's choice: Everything, or the items they picked. Takes effect at the next sync (the app starts one);
+    what an earlier choice already saved stays (``scope.UNCHOOSE_WORDS``)."""
+    _choosable(connector_id)
+    try:
+        now = scope_store.write(connector_id, body.mode, [i.model_dump() for i in body.items])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    sync_state.record_credentials_changed(settings.memory_path, connector_id)     # the Sources row re-reads
+    logger.info(f"{connector_id}: scope set to {now['mode']} ({len(now['items'])} item(s))")
+    return ConnectorScope(mode=now["mode"], items=now["items"], unchoose_words=scope_store.UNCHOOSE_WORDS)
+
+
+@router.get("/{connector_id}/containers", response_model=ConnectorContainers)
+async def list_containers(connector_id: str, q: str = Query("", max_length=100)):
+    """What the person can pick from, searchable (``q``): Notion's pages and databases, Linear's teams and projects.
+    Reads the service live, with the sign-in; nothing is saved."""
+    from api.services.connectors import tier2
+
+    adapter = _choosable(connector_id)
+    try:
+        if (prepare := getattr(adapter, "prepare", None)) is not None:
+            await prepare()
+        found = await adapter.containers(_client(adapter), q)
+    except tier2.Refused as exc:
+        raise HTTPException(status_code=409, detail=exc.words)
+    except Exception as exc:  # noqa: BLE001 — words, never the exception's message
+        words, _kind = base.describe_failure(exc, adapter.LABEL)
+        logger.warning(f"{connector_id}: listing containers failed: {type(exc).__name__}")
+        raise HTTPException(status_code=502, detail=words)
+    return ConnectorContainers(items=found.get("items") or [], more=bool(found.get("more")))

@@ -2372,6 +2372,21 @@ actor APIClient {
         try await post("/sources/connectors/\(id)/sync")
     }
 
+    /// Choosing what a sign-in may read (owner 2026-11-09). The choice lives behind the backend; the app is a client.
+    func connectorScope(_ id: String) async throws -> ConnectorScope {
+        try await get("/sources/connectors/\(id)/scope")
+    }
+
+    func connectorContainers(_ id: String, query: String) async throws -> ConnectorContainers {
+        let q = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return try await get("/sources/connectors/\(id)/containers?q=\(q)")
+    }
+
+    func setConnectorScope(_ id: String, mode: String, items: [ConnectorScopeItem]) async throws -> ConnectorScope {
+        let rows = items.map { ["id": $0.id, "title": $0.title, "kind": $0.kind] }
+        return try await put("/sources/connectors/\(id)/scope", body: ["mode": mode, "items": rows])
+    }
+
     // MARK: - Consumption (G51)
     //
     // Plain (non-conditional) fetches for a range the Store's default

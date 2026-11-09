@@ -66,8 +66,9 @@ def test_every_connector_module_is_registered_in_adapters():
     }
     # tier2: the ruling-47 framework; github_auth: GitHub's sign-in by a code (G230), the github adapter's own.
     # notion_mcp: Notion's sign-in and MCP reader, the notion adapter's own.
+    # scope: what a sign-in may read (the person's choice), shared by the adapters that have containers.
     # linear_mcp: Linear's sign-in and read-only MCP session, the linear adapter's own (ROR-115).
-    non_adapter_modules = {"base", "tier2", "github_auth", "notion_mcp", "linear_mcp"}
+    non_adapter_modules = {"base", "tier2", "github_auth", "notion_mcp", "linear_mcp", "scope"}
     expected_adapter_modules = module_names - non_adapter_modules
 
     registered_modules = {

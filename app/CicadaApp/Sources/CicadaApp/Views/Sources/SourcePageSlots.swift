@@ -603,7 +603,13 @@ struct ConnectorSlot: View {
                         showPanel = true
                     }, ways: ways)
                 } else {
-                    SourceConnectArea(line: channel.lastError, lineIsAttention: channel.lastError != nil, ways: ways)
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                        SourceConnectArea(line: channel.lastError, lineIsAttention: channel.lastError != nil, ways: ways)
+                        // Choosing what is read (owner 2026-11-09): the picker for a sign-in with containers.
+                        ConnectorScopeBlock(connectorId: channel.id,
+                                            refreshID: "\(channel.connected)-\(channel.lastSync ?? "")",
+                                            suppressed: showPanel)
+                    }
                 }
             case .footer:
                 if channel.connected {
