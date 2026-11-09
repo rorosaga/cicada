@@ -476,7 +476,7 @@ async def _read_page(session: Session, run: _Run, rid: str, listed_edited: str, 
     page, md, raw = _page_from(rid, data, listed_edited)
     title = page["properties"]["title"]["title"][0]["plain_text"]
     body = _CONTENT.search(raw).group(1) if _CONTENT.search(raw) else raw
-    sources = list(dict.fromkeys(m.replace("-", "").lower() for m in _COLLECTION.findall(raw)))
+    sources = list({m.replace("-", "").lower(): m.lower() for m in _COLLECTION.findall(raw)}.values())   # as spelled
     is_db = kind == "database" or (not _CONTENT.search(raw) and bool(sources))
     kids: list[str] = []
     if run.chosen:
