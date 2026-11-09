@@ -98,6 +98,24 @@ final class BanksViewModel {
         }
     }
 
+    /// Arrange the memories (drag, or ⌥-arrow): the roster re-orders at once and the server keeps the order; a refusal
+    /// puts the old order back and says so (an optimistic write with rollback, like every other).
+    func reorder(_ names: [String]) async {
+        guard let roster = store.banks.value, names != roster.banks.map(\.name) else { return }
+        let byName = Dictionary(uniqueKeysWithValues: roster.banks.map { ($0.name, $0) })
+        let reordered = names.compactMap { byName[$0] }
+        guard reordered.count == roster.banks.count else { return }
+        errorMessage = nil
+        store.banks.value = BanksResponse(banks: reordered, active: roster.active)
+        do {
+            try await APIClient.shared.orderBanks(names: names)
+            await load()
+        } catch {
+            store.banks.value = roster
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// "Save as…" — duplicate the given bank under a new name, then reload.
     @discardableResult
     func duplicate(from name: String, newName: String) async -> Bool {
