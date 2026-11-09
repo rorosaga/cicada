@@ -59,6 +59,9 @@ final class CatchupSession {
     private let turn: Turn
     private let record: Record
     private var recording: Task<Void, Never>?
+    /// *Answer* on Home (item 1): the chat opens on the lead question itself, with what its card is about, not on the
+    /// generic greeting.
+    private let leadsWithContext: Bool
 
     /// The upcoming questions a reply may move to (`catchup_chat.MAX_UPCOMING`).
     static let upcomingOffered = 8
@@ -66,7 +69,9 @@ final class CatchupSession {
     init(queue: [String], bank: String = "", items: @escaping () -> [InboxItem],
          hold: @escaping (InboxItem, QuestionResolution) -> Bool, heldId: @escaping () -> String?,
          release: @escaping () -> InboxItem?, turn: @escaping Turn, record: @escaping Record,
-         holdAll: (([(item: InboxItem, resolution: QuestionResolution)]) -> Bool)? = nil) {
+         holdAll: (([(item: InboxItem, resolution: QuestionResolution)]) -> Bool)? = nil,
+         leadsWithContext: Bool = false) {
+        self.leadsWithContext = leadsWithContext
         self.queue = queue
         self.bank = bank
         self.total = queue.count
@@ -80,7 +85,8 @@ final class CatchupSession {
     }
 
     /// The app's own session: the Store's questions, the Inbox's hold, the backend's turn and record.
-    static func live(queue: [String], store: Store, inbox: InboxViewModel) -> CatchupSession {
+    static func live(queue: [String], store: Store, inbox: InboxViewModel,
+                    leadsWithContext: Bool = false) -> CatchupSession {
         CatchupSession(
             queue: queue, bank: store.bank, items: { store.visibleInbox },
             hold: { item, resolution in inbox.answer(item, resolution) },
@@ -88,7 +94,7 @@ final class CatchupSession {
             release: { inbox.undo(reopen: false) },
             turn: { try await APIClient.shared.catchupTurn(itemId: $0, message: $1, history: $2, upcoming: $3) },
             record: { try await APIClient.shared.catchupRecord(sessionId: $0, lines: $1) },
-            holdAll: { inbox.answerAll($0) })
+            holdAll: { inbox.answerAll($0) }, leadsWithContext: leadsWithContext)
     }
 
     var mood: Mood {
@@ -116,7 +122,7 @@ final class CatchupSession {
 
     func start() {
         guard lines.isEmpty else { return }
-        say(Copy.Catchup.opening, itemId: nil)
+        if !leadsWithContext { say(Copy.Catchup.opening, itemId: nil) }
         advance(preferred: nil, alreadyAsked: false)
     }
 
@@ -143,12 +149,13 @@ final class CatchupSession {
         currentChain = item.isChain ? item.chain : nil
         asked += 1
         stored = .asking
-        if !(alreadyAsked && preferred == next) { ask(item) }
+        if !(alreadyAsked && preferred == next) { ask(item, withContext: leadsWithContext && asked == 1) }
     }
 
-    private func ask(_ item: InboxItem) {
+    private func ask(_ item: InboxItem, withContext: Bool = false) {
         let reason = item.askReason.map { " " + $0 } ?? ""
-        say(item.askText + reason, itemId: item.id)
+        let context = withContext ? CatchupContext.summary(for: item).map { "\n\n" + $0 } : nil
+        say(item.askText + reason + (context ?? ""), itemId: item.id)
     }
 
     private func say(_ text: String, itemId: String?) {
