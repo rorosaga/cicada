@@ -1860,6 +1860,11 @@ actor APIClient {
     /// back to the locally-mirrored `sanitizeBankSlug` when the roster decode is
     /// unusable.
     @discardableResult
+    /// `POST /banks/order` `{names}` — the switcher's order, kept by the server (drag to reorder).
+    func orderBanks(names: [String]) async throws {
+        let _: BanksResponse = try await post("/banks/order", body: ["names": names])
+    }
+
     func renameBank(name: String, newName: String) async throws -> String {
         let expectedSlug = sanitizeBankSlug(newName)
         let resp: BanksResponse = try await post(

@@ -30,6 +30,8 @@ extension Copy {
     static let memorySwitched = "Memory switched — try that again"
     static let noMemoryBanks = "No memory banks yet"
     static let newMemoryBankItem = "New memory bank…"
+    /// The dropdown's pinned add row (app-fixes-1109).
+    static let newMemoryItem = "New memory…"
     static let saveMemoryBankAsItem = "Save as…"
     static let renameMemoryBankItem = "Rename…"
     static let newMemoryBankTitle = "New memory bank"

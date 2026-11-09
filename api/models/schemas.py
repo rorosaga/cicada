@@ -4425,6 +4425,12 @@ class BankRenameRequest(CamelModel):
     new_name: str
 
 
+class BankOrderRequest(CamelModel):
+    """The memory switcher's order: every bank's name, first to last (app-fixes-1109)."""
+
+    names: list[str]
+
+
 # --- Chat-history import (M7) ---
 
 

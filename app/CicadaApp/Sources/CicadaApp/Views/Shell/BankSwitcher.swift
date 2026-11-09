@@ -15,6 +15,7 @@ struct BankSwitcher: View {
     let banksVM: BanksViewModel
 
     @State private var isHovered = false
+    @State private var showDropdown = false
     @State private var showCreateSheet = false
     @State private var showDuplicateSheet = false
     @State private var showRenameSheet = false
@@ -22,58 +23,7 @@ struct BankSwitcher: View {
     @State private var renameTarget: MemoryBank?
 
     var body: some View {
-        Menu {
-            // Two `Section`s, not a `Divider()`: the native menu draws the same separator
-            // between them (the mock's "Manage memory banks" group), and the shell's files
-            // carry no divider (DR-11, ShellElevationLintTests).
-            Section {
-                // G181 phase 3 — the memories listed live on the server this app uses: "on <host>", one quiet line.
-                if let host = DeviceOrigin.bankHost(ServerConnection.current) {
-                    Text(host)
-                }
-                if banksVM.banks.isEmpty {
-                    Text(Copy.noMemoryBanks)
-                } else {
-                    ForEach(banksVM.banks) { bank in
-                        Button {
-                            switchTo(bank.name)
-                        } label: {
-                            // A leading checkmark marks the active bank.
-                            if bank.name == banksVM.activeName {
-                                Label(bankLabel(bank), systemImage: "checkmark")
-                            } else {
-                                Text(bankLabel(bank))
-                            }
-                        }
-                    }
-                }
-            }
-
-            Section {
-                Button {
-                    showCreateSheet = true
-                } label: {
-                    Label(Copy.newMemoryBankItem, systemImage: "plus")
-                }
-
-                Button {
-                    showDuplicateSheet = true
-                } label: {
-                    Label(Copy.saveMemoryBankAsItem, systemImage: "square.on.square")
-                }
-                .disabled(banksVM.activeName == nil)
-
-                Button {
-                    // Rename the currently-active bank. Capture it now so the sheet
-                    // has a stable target even if the roster reloads underneath.
-                    renameTarget = banksVM.activeBank
-                    showRenameSheet = true
-                } label: {
-                    Label(Copy.renameMemoryBankItem, systemImage: "pencil")
-                }
-                .disabled(banksVM.activeName == nil)
-            }
-        } label: {
+        Button { showDropdown.toggle() } label: {
             // Decision 11 (R-HO17) — the bank's name and its chevron; no stack glyph.
             HStack(spacing: CicadaTheme.scaled(5)) {
                 Text(displayName)
@@ -91,9 +41,21 @@ struct BankSwitcher: View {
             .background(CicadaTheme.shape(CicadaTheme.cornerRadius - CicadaTheme.radiusXS)
                 .fill(isHovered ? CicadaTheme.bgSelected : Color.clear))
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .buttonStyle(.cicadaPlain)
         .fixedSize()
+        // The dropdown (app-fixes-1109): a popover under the name, with its own rows, gauge and order.
+        .popover(isPresented: $showDropdown, arrowEdge: .bottom) {
+            BankDropdown(banksVM: banksVM, host: DeviceOrigin.bankHost(ServerConnection.current),
+                         choose: { name in showDropdown = false; switchTo(name) },
+                         create: { showDropdown = false; showCreateSheet = true },
+                         saveAs: { showDropdown = false; showDuplicateSheet = true },
+                         rename: {
+                             // Capture the active bank now so the sheet has a stable target.
+                             renameTarget = banksVM.activeBank
+                             showDropdown = false
+                             showRenameSheet = true
+                         })
+        }
         // G183(d) — while the server has not answered a switch the selector keeps the current name, disabled at
         // DR-41's 45 % with the target in `.help`: quiet, no spinner and no animation (a palette switch is a
         // keyboard action, DR-60).

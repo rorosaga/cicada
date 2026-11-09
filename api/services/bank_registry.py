@@ -616,7 +616,8 @@ def list_banks(root: Path) -> dict[str, Any]:
     registry = load_registry(root)
     active = registry.get("active", DEFAULT_BANK)
     banks: list[dict[str, Any]] = []
-    for name, record in (registry.get("banks", {}) or {}).items():
+    for name in ordered_names(registry):
+        record = (registry.get("banks", {}) or {})[name]
         path = bank_dir(root, name)
         banks.append(
             {
@@ -638,6 +639,29 @@ def list_banks(root: Path) -> dict[str, Any]:
             }
         )
     return {"banks": banks, "active": active}
+
+
+def ordered_names(registry: dict[str, Any]) -> list[str]:
+    """The banks in the order the person arranged them (the registry's ``order`` list), a bank not in it after them in
+    registry order: a new one lands last, a trashed or renamed name left in the list is ignored (app-fixes-1109)."""
+    banks = registry.get("banks", {}) or {}
+    first = [n for n in (registry.get("order") or []) if n in banks]
+    seen = set(first)
+    return first + [n for n in banks if n not in seen]
+
+
+def reorder_banks(root: Path, names: list[str]) -> None:
+    """Keep the person's order of the memory switcher. Unknown names are ignored, a bank left out keeps its place
+    after the named ones; the registry is the one store, so every client and a restart see the same order."""
+    root = Path(root)
+    registry = _ensure_registry(root)
+    banks = registry.get("banks", {}) or {}
+    wanted: list[str] = []
+    for name in names:
+        if name in banks and name not in wanted:
+            wanted.append(name)
+    registry["order"] = wanted + [n for n in ordered_names(registry) if n not in wanted]
+    save_registry(root, registry)
 
 
 def create_bank(root: Path, name: str, description: str = "", *, seed_owner: bool = True) -> str:
@@ -914,6 +938,8 @@ def rename_bank(root: Path, name: str, new_name: str) -> str:
     banks[new_slug] = banks.pop(name)
     if registry.get("active") == name:
         registry["active"] = new_slug
+    if isinstance(registry.get("order"), list):   # a rename keeps the bank's place in the person's order
+        registry["order"] = [new_slug if n == name else n for n in registry["order"]]
     save_registry(root, registry)
     return new_slug
 

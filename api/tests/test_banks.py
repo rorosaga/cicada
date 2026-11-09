@@ -433,3 +433,21 @@ def test_a_live_index_journal_is_derived_and_never_copied():
     """It comes and goes while an index commits: a copy that listed one and then lost it answered 500."""
     for db in ("search_index.db", "vector_index.db"):
         assert {db, f"{db}-wal", f"{db}-shm", f"{db}-journal"} <= set(bank_registry.DERIVED_ARTIFACTS)
+
+
+# --- the switcher's order (app-fixes-1109) ---------------------------------
+
+
+def test_the_persons_order_is_kept_and_follows_a_rename(tmp_path):
+    for name in ("Alpha", "Beta", "Gamma"):
+        bank_registry.create_bank(tmp_path, name)
+    names = lambda: [b["name"] for b in bank_registry.list_banks(tmp_path)["banks"]]  # noqa: E731
+    before = names()
+    assert {"alpha", "beta", "gamma"} <= set(before)
+    bank_registry.reorder_banks(tmp_path, ["gamma", "ghost", "alpha"])        # an unknown name is ignored
+    after = names()
+    assert after[:2] == ["gamma", "alpha"] and set(after) == set(before)       # a bank left out keeps its place after
+    bank_registry.rename_bank(tmp_path, "gamma", "Delta")
+    assert names()[:2] == ["delta", "alpha"]                                   # a rename keeps its place
+    bank_registry.create_bank(tmp_path, "Epsilon")
+    assert names()[-1] == "epsilon"                                            # a new bank lands last

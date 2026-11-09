@@ -325,7 +325,7 @@ with the 56 pt rail, remembered per viewer (`cicada.shell.labelledSidebar`). Rel
 nothing stored, or a value no build knows, opens Home, and a stored Graph stays on Graph; `AppTab` raw values are the
 persisted identity and `AppTab.restored(from:)` maps retired ones. **The titlebar is a SwiftUI toolbar** with the
 title hidden (AppKit keeps the drag area in every gap): the sidebar toggle after the traffic lights; the **command
-bar** centred — the memory-bank selector (`BankSwitcher`, moved from the Graph page; the only switcher view in the
+bar** centred — the memory-bank selector (`BankSwitcher`, moved from the Graph page; the only switcher view in the **The selector is a dropdown, not a system menu (app-fixes-1109, owner 2026-11-09; `BankDropdown`):** a popover under the name — one row per memory with a check on the current one, its name and a small gauge (entities plus conversations against the largest memory, `BankOrder.fill`; the counts on hover and spoken), drag a row onto another or ⌥↑/⌥↓ to reorder (a drop settles on `CicadaMotion.settle`, a key never animates), the list scrolling past 7 rows, *New memory…* pinned under it with *Save as…* and *Rename…*; ↑ ↓ Return Esc. The order is the server's (`POST /banks/order`, kept as `order` in `banks.yaml`, a rename keeps a place, a new memory lands last; `BanksViewModel.reorder` is optimistic with rollback). DR-9, DR-12, DR-40, DR-60, DR-63.
 app, `SingleBankSwitcherTests` — the palette's "Switch to <bank>" row and the intake card's switch act on the same
 `BanksViewModel` in the same window) and "Search your memory ⌘K", which opens the find palette through
 `AppRouter.requestPalette()`; and the visible page's `?` at the right (`HelpContent.page`), one per window. macOS 26's

@@ -25,6 +25,7 @@ from api.models.schemas import (
     BankImportResponse,
     BankInfo,
     BankListResponse,
+    BankOrderRequest,
     BankRenameRequest,
     BankTrashResponse,
 )
@@ -99,6 +100,20 @@ async def create_bank(
     except ValueError as e:
         raise HTTPException(409, str(e))
     logger.info(f"Created bank '{slug}'")
+    data = bank_registry.list_banks(settings.memory_root)
+    return BankListResponse(
+        banks=[BankInfo(**b) for b in data["banks"]],
+        active=data["active"],
+    )
+
+
+@router.post("/banks/order", response_model=BankListResponse)
+async def order_banks(
+    req: BankOrderRequest,
+    settings: Settings = Depends(get_settings),
+) -> BankListResponse:
+    """Arrange the memory switcher (drag to reorder). Only the order changes: no bank is switched, moved or written."""
+    await run_in_threadpool(bank_registry.reorder_banks, settings.memory_root, req.names)
     data = bank_registry.list_banks(settings.memory_root)
     return BankListResponse(
         banks=[BankInfo(**b) for b in data["banks"]],
