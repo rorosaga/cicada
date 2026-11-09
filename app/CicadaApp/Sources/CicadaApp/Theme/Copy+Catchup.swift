@@ -56,6 +56,11 @@ extension Copy {
         static let notQuiteHelp = "Nothing is noted; say it again in your own words"
         /// Two names the person joined with no question to carry it: said, never dropped in silence.
         static func cannotJoin(_ a: String, _ b: String) -> String { "I couldn't join \(a) and \(b) from here." }
+        /// What each page of a possible duplicate says, side by side (`CatchupContext`).
+        static func contextBoth(_ a: String, _ aSays: String, _ b: String, _ bSays: String) -> String {
+            "\(a): \(aSays)\n\(b): \(bSays)"
+        }
+        static func contextOne(_ name: String, _ says: String) -> String { "\(name): \(says)" }
         static let opening = "A few quick ones, the things you use most first."
         static let skipped = "Let's leave that one."
         static let done = "That's everything for now. Thanks for catching me up."

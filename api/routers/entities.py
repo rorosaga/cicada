@@ -4,7 +4,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from starlette.concurrency import run_in_threadpool
 
@@ -355,10 +355,14 @@ async def get_entity_logo(
 
 
 _PREVIEW_SEMAPHORE = asyncio.Semaphore(4)
+# A page the person opened asks for its own cover through its own two slots, so it never waits behind the first-time
+# fetches of every list row drawn at once (4 slots x a 4 s fetch budget each is the queue a late row sits in).
+_PREVIEW_OPEN_SEMAPHORE = asyncio.Semaphore(2)
 
 
 @router.get("/entities/{entity_id}/preview")
-async def get_entity_preview(entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
+async def get_entity_preview(entity_id: str, request: Request, opened: bool = Query(False, alias="open"),
+                             settings: Settings = Depends(get_settings)):
     """A media page's own picture — the saved page's image, a provider's thumbnail, a YouTube still or a saved PDF's
     first page (`media_preview`) — served from Cicada's store outside the bank. The first request fetches it once
     (under the picture-fetch gate, the ToS rail and `net_guard`); every later one is the stored copy, so a dead link
@@ -367,7 +371,7 @@ async def get_entity_preview(entity_id: str, request: Request, settings: Setting
     memory_path = settings.memory_path
     if not (memory_path / "entities" / f"{entity_id}.md").is_file():
         raise HTTPException(404, f"Entity {entity_id} not found")
-    async with _PREVIEW_SEMAPHORE:
+    async with (_PREVIEW_OPEN_SEMAPHORE if opened else _PREVIEW_SEMAPHORE):
         path = await media_preview.ensure_preview(memory_path, entity_id)
     if path is None or not path.is_file():
         raise HTTPException(404, "no preview for this entity")
@@ -594,7 +598,10 @@ def _build_media_block(frontmatter: dict, body: str, *, entity_id: str | None = 
     url = media.get("url")
     media_type = media.get("media_type")
     is_file = media.get("kind") == "file"      # an added recording, video or photo has no link (`media_pages`)
-    if not media_type or not (url or is_file):
+    # A book added with no ISBN (an Apple Books or Goodreads entry) has no catalogue link either: its page still needs
+    # the block, or the app never learns it is a book and draws no head, cover or description (app-fixes-1109).
+    is_book = media.get("kind") == "book"
+    if not media_type or not (url or is_file or is_book):
         return None
 
     description = None

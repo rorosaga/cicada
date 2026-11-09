@@ -76,12 +76,21 @@ struct SettingsGeneralView: View {
                     // "Actual size" (only while the size is not 100%) sits in the free space to the slider's left,
                     // so it never moves the slider under the pointer.
                     HStack(spacing: CicadaTheme.spacingSM) {
+                        // Item 3 (app-fixes-1109): the reset sits in the row's flow, its place kept at 100% (hidden, never
+                        // removed), so the slider never moves under the pointer and nothing overlaps it; the slider
+                        // gives way to a narrow panel (DR-63) instead of running out of it.
+                        NeutralButton(title: Copy.actualSize, size: .compact) { CicadaTheme.resetZoom() }
+                            .fixedSize()
+                            .opacity(CicadaTheme.uiScale != 1.0 ? 1 : 0)
+                            .allowsHitTesting(CicadaTheme.uiScale != 1.0)
+                            .accessibilityHidden(CicadaTheme.uiScale == 1.0)
                         Text("A")
                             .font(CicadaTheme.font(size: 13, weight: .semibold))
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .accessibilityHidden(true)
                         Slider(value: scale, in: ThemeStore.scaleRange, step: ThemeStore.scaleStep)
-                            .frame(width: CicadaTheme.scaled(220))
+                            .frame(minWidth: CicadaTheme.scaled(80), idealWidth: CicadaTheme.scaled(220),
+                                   maxWidth: CicadaTheme.scaled(220))
                         Text("A")
                             .font(CicadaTheme.font(size: 20, weight: .semibold))
                             .foregroundStyle(CicadaTheme.textPrimary)
@@ -90,13 +99,6 @@ struct SettingsGeneralView: View {
                             .font(CicadaTheme.font(size: 15, weight: .medium).monospacedDigit())
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .frame(width: CicadaTheme.scaled(52), alignment: .trailing)
-                    }
-                    .overlay(alignment: .leading) {
-                        if CicadaTheme.uiScale != 1.0 {
-                            NeutralButton(title: Copy.actualSize, size: .compact) { CicadaTheme.resetZoom() }
-                                .fixedSize()
-                                .alignmentGuide(.leading) { $0[.trailing] + CicadaTheme.spacingMD }
-                        }
                     }
                 }
             }

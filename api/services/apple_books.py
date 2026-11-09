@@ -103,6 +103,34 @@ def _clean(text, limit: int = 300) -> str:
     return " ".join(_PRIVATE_USE.sub("", str(text or "")).split())[:limit]
 
 
+#: What Apple Books writes where it knows no author (observed: the literal ``UnknownAuthor`` on a file the person added
+#: themselves). Never an author's name.
+_NO_AUTHOR = frozenset({"unknownauthor", "unknown author", "unknown", "author unknown", "n/a", "none"})
+#: Apple Books cuts a file-name title at this many characters (observed: ``Batman-Year-One-The-Deluxe-Editi``).
+FILE_TITLE_CUT = 32
+_FILE_EXT = re.compile(r"\.(epub|pdf|cbz|cbr|mobi|azw3?|txt)$", re.IGNORECASE)
+
+
+def clean_author(raw) -> str:
+    """The author, or "" when Apple Books has none (a placeholder is no author)."""
+    text = _clean(raw)
+    return "" if text.lower() in _NO_AUTHOR else text
+
+
+def clean_title(raw) -> str:
+    """A title as a person reads it. A file the person added themselves has no store metadata: Apple Books gives its
+    file name (dashes or underscores, no spaces, cut at ``FILE_TITLE_CUT`` characters). That becomes words, and a cut
+    final word is dropped rather than kept as a fragment. Anything with spaces is a real title and is left alone."""
+    text = _clean(raw)
+    if not text or re.search(r"\s", text) or len(re.findall(r"[-_]", text)) < 2:
+        return text
+    cut = len(text) >= FILE_TITLE_CUT
+    words = [w for w in re.split(r"[-_]+", _FILE_EXT.sub("", text)) if w]
+    if cut and len(words) > 2:
+        words = words[:-1]
+    return " ".join(words) or text
+
+
 def _block(text: str) -> str:
     """A highlight as a quote block: every line opens with ``> ``, so nothing in a book's words can open a turn."""
     lines = [ln.rstrip() for ln in str(text or "").replace("\r", "").split("\n")]
@@ -135,10 +163,10 @@ def status_of(book: dict) -> tuple[str, datetime | None, bool]:
 
 def draft_for(book: dict, *, now: datetime) -> EpisodeDraft | None:
     asset = _clean(book.get("assetId"), 128)
-    title = _clean(book.get("title"))
+    title = clean_title(book.get("title"))
     if not asset or not title or book.get("isHidden"):
         return None
-    author = _clean(book.get("author"))
+    author = clean_author(book.get("author"))
     status, on, dated = status_of(book)
     notes = []
     for a in book.get("annotations") or []:

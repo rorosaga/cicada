@@ -179,8 +179,8 @@ struct HomeView: View {
 
     // MARK: Catch me up (ruling 48 (8))
 
-    private func startCatchup(_ queue: [String]) {
-        search.catchup = CatchupSession.live(queue: queue, store: store, inbox: inboxVM)
+    private func startCatchup(_ queue: [String], leadsWithContext: Bool = false) {
+        search.catchup = CatchupSession.live(queue: queue, store: store, inbox: inboxVM, leadsWithContext: leadsWithContext)
     }
 
     private func closeCatchup() {
@@ -213,7 +213,9 @@ struct HomeView: View {
             if mode == .blocks {
                 NeedsYouSection(empty: empty.needsYouEmpty, selectedTab: $selectedTab,
                                 answerIsPrimary: !gettingStartedVisible,
-                                openPage: { open(.entity(id: $0)) }, startCatchup: { startCatchup($0) })
+                                openPage: { open(.entity(id: $0)) },
+                                startCatchup: { startCatchup($0) },
+                                startAnswer: { startCatchup($0, leadsWithContext: true) })
             }
         case .readingSites:
             ReadingSitesSection()
