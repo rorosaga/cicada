@@ -400,6 +400,13 @@ def _pair(fm: dict, today: str, name: str, page_fm: dict | None, other_fm: dict 
                       f"{other} is in your chats; {said} came up elsewhere. A shared first name is not enough, so "
                       "I only join them on your word.")
     question = _ask(f"Are {name} and {other} the same {noun}")
+    if noun != "person" and (held := _listed_alias(page_fm, other_fm, name, other)) is not None:
+        # One page already lists the other's name as another name: said as a proposal the person takes with one tap,
+        # never as a question that reads as already answered. Nothing joins until they answer (ruling 74 stands).
+        holder, alias = held
+        return Spoken(_ask(f"Join {name} and {other} as one {noun}"),
+                      f"{holder} already goes by “{alias}”, so they look like one {noun}. "
+                      "Say yes to join them; nothing is joined until you do.")
     mine, theirs = _only_a_relation(page_fm), _only_a_relation(other_fm)
     if noun == "person" and bool(mine) != bool(theirs):
         # One side is a person known only by what they are to the owner: ask that in plain words (owner 2026-11-06,
@@ -415,6 +422,16 @@ def _pair(fm: dict, today: str, name: str, page_fm: dict | None, other_fm: dict 
         reason = (f"{_opening(name)} came up {when}, and it may be {other}; I'd rather ask than join them by mistake."
                   if when else "I'd rather ask than join them by mistake.")
     return Spoken(question, reason)
+
+
+def _listed_alias(page_fm: dict | None, other_fm: dict | None, name: str, other: str) -> tuple[str, str] | None:
+    """``(the page that lists it, the name it lists)`` when one of two pages already lists the other's name among its
+    aliases (compared as the same words, case and spacing aside), else None."""
+    for holder_fm, holder, who in ((page_fm, name, other), (other_fm, other, name)):
+        listed = (holder_fm or {}).get("aliases")
+        if isinstance(listed, list) and _fold(who) in {_fold(a) for a in listed if isinstance(a, str)}:
+            return holder, who
+    return None
 
 
 def _fold(text) -> str:
@@ -639,6 +656,25 @@ _THIRD = {"do": "does", "are": "is"}
 
 #: ``predicates._GENERIC_QUESTION`` as stored: "Which is true about <name> (<predicate>)?" — a slug in a question.
 _GENERIC = re.compile(r"^Which is true about .+ \([\w-]+\)\?$")
+
+
+#: A stored conflict body names the predicate the same way: "Conflicting beliefs about <name> (value-of-<noun>): …".
+_SLUG_IN_PROSE = re.compile(r"about (?P<name>[^\n]+?) \(value-of-(?P<slug>[\w-]+)\)")
+
+
+def without_slug(text, question: str | None = None) -> str:
+    """A stored conflict's words with no predicate slug in them. The app says a conflict through :func:`spoken`; the
+    MCP, CLI and agent-API readers use this, so every door says it the same way. A stored generic question becomes
+    ``question`` (the spoken one) when given; a slug inside prose becomes the noun it names ("about <name>'s team
+    size")."""
+    text = str(text or "")
+    if "value-of-" not in text:
+        return text
+    if question and _GENERIC.match(text.strip()):
+        return question
+    return _SLUG_IN_PROSE.sub(
+        lambda m: f"about {_possessive(m.group('name'))} {m.group('slug').replace('-', ' ').replace('_', ' ').strip()}",
+        text)
 
 
 def _slug_noun(predicate: str) -> str:

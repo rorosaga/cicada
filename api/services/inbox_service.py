@@ -269,6 +269,17 @@ def _item_from_file(
 
             families[filepath.stem] = question_order.family(fm, informational=bool(extra.get("informational")))
     findings = _check_findings(fm)
+    title = str(fm.get("title", "") or fm.get("entity_name", "") or "")
+    if kind == "conflict":
+        # One wording on every door: no predicate slug in a conflict's title, question or body (the app reads the
+        # spoken question; the CLI and agents read these).
+        from api.services import inbox_wording
+
+        spoken_q = extra.get("spoken_question")
+        title, question = inbox_wording.without_slug(title, spoken_q), inbox_wording.without_slug(question, spoken_q)
+        item_body = inbox_wording.without_slug(item_body)
+    elif kind == "clarification" and not (item_body or "").strip():
+        item_body = _came_up_in(extra.get("cause"), now)
     return InboxItem(
         checks=findings, last_checked_at=findings[0].at if findings else None,
         id=filepath.stem,
@@ -278,7 +289,7 @@ def _item_from_file(
         priority=float(fm.get("priority", 0.0) or 0.0),
         entity_id=entity_id,
         entity_name=str(fm.get("entity_name", "") or ""),
-        title=str(fm.get("title", "") or fm.get("entity_name", "") or ""),
+        title=title,
         body=item_body,
         options=options,
         created_date=str(fm.get("created_date", "") or ""),
@@ -306,6 +317,20 @@ def _item_from_file(
         claim_id=_opt_str(fm.get("claim_id")),
         **extra,
     )
+
+
+def _came_up_in(cause, today: str) -> str:
+    """Where a name came up, for a clarification that stored no body: the conversation's title and age, and the line
+    when the name was found in it (``inbox_context.cause_line`` — the one phrasing every door uses). Derived at
+    read from the record; nothing is stored."""
+    from api.services import inbox_context
+
+    wire = cause.model_dump() if hasattr(cause, "model_dump") else dict(cause or {})
+    if wire.get("tier", "none") == "none":
+        return ""
+    if not wire.get("mention_offsets"):
+        wire["excerpt"] = ""   # the name was not found in the text: a quote of something else would mislead
+    return "Came up in: " + inbox_context.cause_line(wire, today)
 
 
 #: Kinds Cicada asks in plain words (`inbox_wording`); the rest (a removal, a page edit, an agent's request…) are the

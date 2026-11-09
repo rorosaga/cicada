@@ -6130,6 +6130,13 @@ def _agent_question(
                     page_name=_name, untimed=ctx.untimed())
             except Exception:  # noqa: BLE001 — the stored options still read
                 pass
+            if "value-of-" in f"{fm.get('title')} {fm.get('question')}":
+                # No predicate slug in a conflict's words on this door either: the spoken question, as the app says it.
+                said = _spoken(memory_path, fm, today)
+                spoken_q = said.question if said is not None else None
+                for key in ("title", "question"):
+                    if fm.get(key):
+                        fm[key] = inbox_wording.without_slug(fm[key], spoken_q)
         return fm, cause, rec
     except Exception:
         return fm, None, None
@@ -6538,6 +6545,7 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
 
         kind = str(fm.get("kind", fm.get("type", "")) or "")
         ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
+        body = _readable_body(kind, body, cause, today, raw_excerpts=ctx.raw_excerpts)
         if fm.get("question"):
             # The question's own words are data; the check and resolve lines are Cicada's directions (own).
             results.append([
@@ -6665,6 +6673,21 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
         segments.append(("own", "\n\n"))
         segments.extend(block)
     return Reply.framed(segments)
+
+
+def _readable_body(kind: str, body: str, cause: dict | None, today: str, *, raw_excerpts: bool = True) -> str:
+    """The stored body as every door says it: a conflict's with no predicate slug, a clarification's empty one filled
+    with where the name came up (``inbox_service._came_up_in``, derived at read). Never raises."""
+    try:
+        from api.services import inbox_service, inbox_wording
+
+        if kind == "conflict":
+            return inbox_wording.without_slug(body)
+        if kind == "clarification" and not (body or "").strip() and cause is not None:
+            return inbox_service._came_up_in({**cause, "excerpt": cause.get("excerpt") if raw_excerpts else ""}, today)
+    except Exception:  # noqa: BLE001 — the stored body still reads
+        pass
+    return body
 
 
 def _spoken(memory_path: Path, fm: dict, today: str):
