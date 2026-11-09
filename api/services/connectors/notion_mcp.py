@@ -16,8 +16,14 @@ refused before a byte is sent (:class:`WriteToolRefused`, a test).
 **Differences from the REST path** (``notion.py``), said in the Sources row and ``network.md``: the grant acts as the
 person, so it sees every page they can open, not only what they shared with a connection; search has no cursor, so pages
 come from the sidebar lists, one search for the pages the person created, and the links inside each fetched page;
-a fetched page is the server's Markdown with its properties as JSON (a database row arrives as a page whose properties
-are lines, without its database's title); a page unshared or deleted is not detected (kept as it was).
+a fetched page is the server's Markdown with its properties as JSON, which :func:`notion.page_text` turns into readable
+text (no ``<p />``, no header lines); a page unshared or deleted is not detected (kept as it was).
+
+**Choosing what is read** (``scope.py``). A new sign-in reads nothing until the person picks Everything or specific pages
+and databases. A chosen page brings the sub-pages printed inside it (its child blocks, never a page it merely mentions);
+a chosen database brings its rows. A database is not an episode: each row is one, with the database's title and its
+properties, through the same ``drafts_for`` as a page (so a row is classed exactly as a page is). Rows come from the
+server's rows query (the first :data:`ROWS_PER_DATABASE`, it has no cursor) and from the child blocks the database prints.
 
 **Tokens.** Access and refresh tokens, the registered client id and the expiry live in ``secrets.env`` (0600) under
 :data:`SECRET_NAMES`; the access token takes the old ``CICADA_NOTION_TOKEN`` slot, so a pasted token keeps working
@@ -40,19 +46,21 @@ from urllib.parse import urlencode, urlparse
 from loguru import logger
 
 from api.services.connections import secrets
-from api.services.connectors import base, tier2
+from api.services.connectors import base, scope, tier2
 
 ORIGIN = "https://mcp.notion.com"
 MCP_URL = ORIGIN + "/mcp"
 METADATA_URL = ORIGIN + "/.well-known/oauth-authorization-server"
 REVOKE_FALLBACK = ORIGIN + "/token"
 HOST = "mcp.notion.com"
+CHANNEL_ID = "notion-api"
 CALLBACK_PATH = "/sources/connectors/notion-api/callback"
 CLIENT_NAME = "Cicada"
 PROTOCOL_VERSION = "2025-06-18"
 
 #: Every tool this module may ever call: reads only. The hosted server's create/update/move/delete tools are not here.
-ALLOWED_TOOLS = frozenset({"notion-search", "notion-fetch", "notion-list-private-pages", "notion-list-shared-pages"})
+ALLOWED_TOOLS = frozenset({"notion-search", "notion-fetch", "notion-list-private-pages", "notion-list-shared-pages",
+                           "notion-query-data-sources"})
 _RPC_METHODS = frozenset({"initialize", "notifications/initialized", "tools/call"})
 
 TOKEN_ENV = "CICADA_NOTION_TOKEN"
@@ -65,8 +73,11 @@ SECRET_NAMES = (TOKEN_ENV, REFRESH_ENV, EXPIRES_ENV, CLIENT_ENV, HOW_ENV)
 
 REFRESH_MARGIN_S = 300
 STATE_TTL_S = 600
-MAX_CALLS_PER_SYNC = 150
-MAX_FETCH_PER_SYNC = 40
+MAX_CALLS_PER_SYNC = 220
+MAX_FETCH_PER_SYNC = 60
+ROWS_PER_DATABASE = 100
+#: Bumped when what a stored page looks like changes; a cursor of another format reads every page once more.
+FORMAT = 2
 MAX_QUEUE = 2000
 LIST_LIMIT = 100
 
@@ -180,6 +191,7 @@ def _save_grant(payload: dict, client_id: str) -> None:
 
 async def exchange_code(code: str, *, state: str = "", http_fn=None, base_url: str = "") -> None:
     pending = _pending.pop(state, None)
+    fresh = not (secrets.load_secrets().get(TOKEN_ENV) or "").strip()
     if pending is None or pending["expires"] < time.time():
         raise base.ConnectorError("The Notion sign-in expired. Start again.")
     resp = await _send("POST", pending["token_url"], data={
@@ -188,6 +200,8 @@ async def exchange_code(code: str, *, state: str = "", http_fn=None, base_url: s
     if resp.status >= 400 or not isinstance(resp.body, dict):
         raise base.ConnectorError(NOT_REACHED)
     _save_grant(resp.body, pending["client_id"])
+    if fresh:
+        scope.mark_pending(CHANNEL_ID)      # a new connection reads nothing until the person chooses (`scope.py`)
 
 
 def how() -> str | None:
@@ -323,6 +337,12 @@ _HEX = re.compile(r"[0-9a-f]{32}")
 _LINK = re.compile(r"https://(?:www\.)?notion\.(?:so|site)/[^\s\"'<>)\]]+")
 _CONTENT = re.compile(r"<content>\s*(.*?)\s*</content>", re.DOTALL)
 _PROPS = re.compile(r"<properties>\s*(\{.*?\})\s*</properties>", re.DOTALL)
+#: A child block the server prints inside a page: a sub-page or a database (never a mention of some other page).
+_CHILD = re.compile(r"<(?:page|database)\b[^>]*?\burl=\"([^\"]+)\"", re.IGNORECASE)
+#: A database's data source, however the server spells the tag.
+_COLLECTION = re.compile(r"collection://([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})", re.IGNORECASE)
+_DB_TYPES = frozenset({"database", "data_source", "data-source", "collection"})
+DS = "ds:"          # a queue/tree key for a data source (a database's table of rows), never a page
 
 
 def hex_id(raw) -> str | None:
@@ -331,7 +351,7 @@ def hex_id(raw) -> str | None:
 
 
 def _entries(data: dict) -> list[dict]:
-    for key in ("results", "pages", "items", "entries"):
+    for key in ("results", "pages", "items", "entries", "rows"):
         if isinstance(data.get(key), list):
             return [r for r in data[key] if isinstance(r, dict)]
     return []
@@ -344,21 +364,25 @@ def _edited(row: dict) -> str:
     return ""
 
 
+def _is_database(row: dict) -> bool:
+    return str(row.get("type") or row.get("object") or "").lower() in _DB_TYPES
+
+
 def _page_from(row_id: str, data: dict, listed_edited: str) -> tuple[dict, dict, str]:
-    """(the page as the REST shape ``notion.drafts_for`` reads, its Markdown, its child links' text)."""
+    """(the page as the REST shape ``notion.drafts_for`` reads, its Markdown, the fetched text)."""
     from api.services.connectors import notion
 
     meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
     text = str(data.get("text") or data.get("markdown") or data.get("content") or "")
     title = str(data.get("title") or meta.get("title") or "").strip()
-    body = (_CONTENT.search(text).group(1) if _CONTENT.search(text) else text).strip()
+    body = notion.strip_head((_CONTENT.search(text).group(1) if _CONTENT.search(text) else text).strip(), title).strip()
     lines = []
     if m := _PROPS.search(text):
         try:
             props = json.loads(m.group(1))
         except ValueError:
             props = {}
-        for key, value in props.items():
+        for key, value in (props.items() if isinstance(props, dict) else []):
             if key.strip().lower() in ("title", "name") and not title:
                 title = str(value or "").strip()
             elif value not in (None, "", []):
@@ -372,74 +396,233 @@ def _page_from(row_id: str, data: dict, listed_edited: str) -> tuple[dict, dict,
     return page, {"markdown": markdown, "truncated": bool(data.get("truncated"))}, text
 
 
-async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.Batch:
-    from api.services.connectors import notion
+def _title_of(row: dict) -> str:
+    for key in ("title", "name"):
+        value = row.get(key)
+        if isinstance(value, list):
+            value = "".join(str((r or {}).get("plain_text") or "") for r in value if isinstance(r, dict))
+        if isinstance(value, str) and value.strip():
+            return " ".join(value.split())[:200]
+    return "Untitled"
 
+
+async def containers(client: tier2.Client, query: str = "") -> dict:
+    """What the picker lists, right after the sign-in and whenever the sheet is opened: pages and databases the person can
+    open, from the sidebar lists, or a search when they type. Reads only. ``{"items": [{id, title, kind}], "more"}``."""
     session = Session(client)
-    known: dict = dict(cursor.get("known") or {})
-    queue: list[str] = [i for i in (cursor.get("queue") or []) if i not in known]
-    listed: dict[str, str] = {}
-    unreadable = 0
-    # Roots: the sidebar lists (cursor-paged), then the pages the person created.
-    for tool in ("notion-list-private-pages", "notion-list-shared-pages"):
+    rows: list[dict] = []
+    query = " ".join(str(query or "").split())[:100]
+    tools = [("notion-search", {"query": query})] if query else [
+        ("notion-list-private-pages", {"limit": LIST_LIMIT}), ("notion-list-shared-pages", {"limit": LIST_LIMIT})]
+    for tool, args in tools:
         try:
-            data = await session.call(tool, {"limit": LIST_LIMIT})
+            rows.extend(_entries(await session.call(tool, args)))
         except (tier2.Refused, WriteToolRefused):
             raise
         except base.ConnectorError:
             continue
-        for row in _entries(data):
-            if (rid := hex_id(row.get("id") or row.get("url"))) and row.get("type") != "database":
-                listed[rid] = _edited(row)
+    items, seen = [], set()
+    for row in rows:
+        rid = hex_id(row.get("id") or row.get("url"))
+        if not rid or rid in seen:
+            continue
+        seen.add(rid)
+        items.append({"id": rid, "title": _title_of(row), "kind": "database" if _is_database(row) else "page"})
+    return {"items": items[:LIST_LIMIT], "more": len(items) > LIST_LIMIT}
+
+
+def _row_ids(data: dict) -> list[str]:
+    """The pages of a data-source query: each row's own id or page address, whichever key the server uses."""
+    out: list[str] = []
+    for row in _entries(data):
+        lowered = {str(k).lower(): v for k, v in row.items()}
+        for key in ("url", "id", "page_id", "page_url", "notion_url"):
+            if (rid := hex_id(lowered.get(key))) is not None:
+                if rid not in out:
+                    out.append(rid)
+                break
+    return out
+
+
+class _Run:
+    """One sync's working state: what is known, what waits, what the cursor will keep."""
+
+    def __init__(self, cursor: dict, sel: dict):
+        self.sel = sel
+        self.sig = scope.signature(sel)
+        fresh_format = cursor.get("fmt") == FORMAT
+        self.known: dict = dict(cursor.get("known") or {}) if fresh_format else {}
+        self.queue: list[str] = [i for i in (cursor.get("queue") or []) if i not in self.known]
+        self.tree: dict = {k: list(v) for k, v in (cursor.get("tree") or {}).items()}
+        self.titles: dict = dict(cursor.get("titles") or {})        # a row's / data source's database title
+        self.checked: dict = dict(cursor.get("checked") or {})
+        self.batch = tier2.Batch()
+        self.fetched = 0
+        self.unreadable = 0
+        self.rows_capped = 0
+
+    @property
+    def chosen(self) -> bool:
+        return self.sel["mode"] == scope.CHOSEN
+
+
+async def _read_page(session: Session, run: _Run, rid: str, listed_edited: str, mine: set, kind: str) -> list[str]:
+    """Fetch one page or database. A page is staged (a row with its database's title); a database is not an episode, it
+    leads to its rows. Returns the keys it leads to: sub-pages, and data sources to query."""
+    from api.services.connectors import notion
+
+    data = await session.call("notion-fetch", {"id": rid})
+    run.fetched += 1
+    page, md, raw = _page_from(rid, data, listed_edited)
+    title = page["properties"]["title"]["title"][0]["plain_text"]
+    body = _CONTENT.search(raw).group(1) if _CONTENT.search(raw) else raw
+    sources = list(dict.fromkeys(m.replace("-", "").lower() for m in _COLLECTION.findall(raw)))
+    is_db = kind == "database" or (not _CONTENT.search(raw) and bool(sources))
+    kids: list[str] = []
+    if run.chosen:
+        scan = _CHILD.findall(body)
+    else:
+        scan = _LINK.findall(raw)
+    for link in scan:
+        child = hex_id(link)
+        if child and child != rid and child not in kids:
+            kids.append(child)
+            if is_db:
+                run.titles.setdefault(child, title)         # a row of this database, by the table's name
+    for cid in sources:
+        key = DS + cid
+        run.titles.setdefault(key, title)
+        kids.append(key)
+    edited = page["last_edited_time"] if (data.get("page_last_edited_at") or listed_edited) else ""
+    if not is_db and not (edited and run.known.get(rid) == edited):
+        run.batch.drafts.extend(notion.drafts_for(page, md, db_title=run.titles.get(rid), mine=rid in mine))
+        run.batch.replaced.append(notion.SOURCE_PREFIX + rid)
+        run.batch.seen += 1
+    run.known[rid] = edited
+    return kids
+
+
+async def _read_rows(session: Session, run: _Run, key: str) -> list[str]:
+    """A data source's rows (up to :data:`ROWS_PER_DATABASE`; the server's rows mode has no cursor)."""
+    cid = key[len(DS):]
+    data = await session.call("notion-query-data-sources", {
+        "mode": "rows", "data_source_url": f"collection://{cid}", "limit": ROWS_PER_DATABASE})
+    ids = _row_ids(data)
+    if data.get("has_more") or len(ids) >= ROWS_PER_DATABASE:
+        run.rows_capped += 1
+    title = run.titles.get(key) or ""
+    for rid in ids:
+        if title:
+            run.titles.setdefault(rid, title)
+    return ids
+
+
+async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.Batch:
+    session = Session(client)
+    run = _Run(cursor, scope.read(CHANNEL_ID))
     mine: set[str] = set()
     try:
         data = await session.call("notion-search", {"query": "", "filters": {"created_by_user_ids": ["me"]}})
         for row in _entries(data):
             if rid := hex_id(row.get("id") or row.get("url")):
                 mine.add(rid)
-                listed.setdefault(rid, _edited(row))
     except (tier2.Refused, WriteToolRefused):
         raise
     except base.ConnectorError:
         pass        # a plan that does not take the filter: nothing is credited to the person on a guess
-    for rid, edited in listed.items():
-        if rid in queue or (known.get(rid) and edited and known[rid] == edited):
-            continue
-        queue.insert(0, rid)
-    batch = tier2.Batch()
-    fetched = 0
-    while queue and fetched < MAX_FETCH_PER_SYNC:
-        rid = queue.pop(0)
-        fetched += 1
+    listed: dict[str, str] = {}
+    kinds: dict[str, str] = {}
+    if run.chosen:
+        roots = []
+        for item in run.sel["items"]:
+            roots.append(item["id"])
+            kinds[item["id"]] = item.get("kind") or "page"
+        todo = _chosen_order(roots, run)
+    else:
+        # Roots: the sidebar lists (databases included), then the pages the person created.
+        for tool in ("notion-list-private-pages", "notion-list-shared-pages"):
+            try:
+                data = await session.call(tool, {"limit": LIST_LIMIT})
+            except (tier2.Refused, WriteToolRefused):
+                raise
+            except base.ConnectorError:
+                continue
+            for row in _entries(data):
+                if rid := hex_id(row.get("id") or row.get("url")):
+                    listed[rid] = _edited(row)
+                    if _is_database(row):
+                        kinds[rid] = "database"
+        for rid in mine:
+            listed.setdefault(rid, "")
+        todo = list(run.queue)
+        for rid, edited in listed.items():
+            if rid in todo or (run.known.get(rid) and edited and run.known[rid] == edited):
+                continue
+            todo.insert(0, rid)
+    seen_keys = set(todo)
+    while todo and run.fetched < MAX_FETCH_PER_SYNC:
+        key = todo.pop(0)
         try:
-            data = await session.call("notion-fetch", {"id": rid})
-        except tier2.Refused:
+            if key.startswith(DS):
+                kids = await _read_rows(session, run, key)
+                run.fetched += 1
+            else:
+                kids = await _read_page(session, run, key, listed.get(key, ""), mine, kinds.get(key, "page"))
+        except (tier2.Refused, WriteToolRefused):
             raise
-        except WriteToolRefused:
-            raise
-        except base.ConnectorError:
-            unreadable += 1
-            known.setdefault(rid, "")
+        except base.ConnectorError as exc:
+            if "request limit" in str(exc):
+                todo.insert(0, key)
+                break
+            run.unreadable += 1
+            run.known.setdefault(key, "")
             continue
-        page, md, raw = _page_from(rid, data, listed.get(rid, ""))
-        batch.drafts.extend(notion.drafts_for(page, md, db_title=None, mine=rid in mine))
-        batch.replaced.append(notion.SOURCE_PREFIX + rid)
-        batch.seen += 1
-        known[rid] = page["last_edited_time"] if data.get("page_last_edited_at") or listed.get(rid) else ""
-        for link in _LINK.findall(raw):
-            child = hex_id(link)
-            if child and child != rid and child not in known and child not in queue and len(queue) < MAX_QUEUE:
-                queue.append(child)
-    words = []
-    if queue:
-        words.append(f"Reading your Notion pages: {len(known)} so far; the next sync carries on.")
-    elif not known and not batch.seen:
-        words.append("Notion listed no pages to read.")
-    if mine == set() and batch.seen:
-        words.append(notion.UNKNOWN_AUTHOR_WORDS)
-    if unreadable:
-        words.append(f"{unreadable} page(s) could not be read.")
-    batch.cursor = {"known": known, "queue": queue}
-    batch.words = " ".join(words) or None
-    return batch
+        run.checked[key] = time.time()
+        if run.chosen:
+            run.tree[key] = kids
+        for kid in kids:
+            fresh = (kid.startswith(DS) or kid not in run.known) and kid not in seen_keys and len(todo) < MAX_QUEUE
+            if fresh or (run.chosen and kid not in seen_keys and kid not in run.tree):
+                seen_keys.add(kid)
+                todo.append(kid)
+    run.queue = [] if run.chosen else todo
+    return _finish(run, todo, bool(mine))
 
+
+def _chosen_order(roots: list[str], run: _Run) -> list[str]:
+    """Everything reachable from the chosen roots, never-read first, then the longest-unchecked: a big tree is read over
+    several syncs and re-checked in turn, never starved."""
+    order, seen, queue = [], set(), list(roots)
+    while queue:
+        node = queue.pop(0)
+        if node in seen:
+            continue
+        seen.add(node)
+        order.append(node)
+        queue.extend(run.tree.get(node, []))
+    return sorted(order, key=lambda n: run.checked.get(n, 0.0))
+
+
+def _finish(run: _Run, todo: list[str], credited: bool) -> tier2.Batch:
+    from api.services.connectors import notion
+
+    words = []
+    if run.chosen:
+        waiting = [n for n in todo if n not in run.checked]
+        if waiting:
+            words.append(f"Reading what you chose: {len(run.known)} so far; the next sync carries on.")
+    elif run.queue:
+        words.append(f"Reading your Notion pages: {len(run.known)} so far; the next sync carries on.")
+    elif not run.known and not run.batch.seen:
+        words.append("Notion listed no pages to read.")
+    if run.rows_capped:
+        words.append(f"{run.rows_capped} database(s) hold more than {ROWS_PER_DATABASE} rows; the newest "
+                     f"{ROWS_PER_DATABASE} are read.")
+    if not credited and run.batch.seen:
+        words.append(notion.UNKNOWN_AUTHOR_WORDS)
+    if run.unreadable:
+        words.append(f"{run.unreadable} page(s) could not be read.")
+    run.batch.cursor = {"fmt": FORMAT, "sig": run.sig, "known": run.known, "queue": run.queue, "tree": run.tree,
+                        "titles": run.titles, "checked": run.checked}
+    run.batch.words = " ".join(words) or None
+    return run.batch

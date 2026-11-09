@@ -53,7 +53,7 @@ from typing import Any, Awaitable, Callable
 from loguru import logger
 
 from api.services import episode_staging
-from api.services.connectors import base
+from api.services.connectors import base, scope
 
 TIER = 2
 #: How often the scheduled sync runs (the backend's scheduler, ``api/main.py``).
@@ -294,6 +294,7 @@ def forget(adapter: ModuleType) -> None:
     from api.services.auth import cicada_home
 
     base.forget(adapter.SECRET_NAMES)
+    scope.clear(adapter.CHANNEL_ID)     # the choice belongs to the sign-in, so it goes with it
     for path in (cicada_home() / "connectors").glob(f"{adapter.CHANNEL_ID}-*.json"):
         try:
             path.unlink()
@@ -366,6 +367,10 @@ async def run(adapter: ModuleType, memory_path: Path, *, http_fn: Transport | No
         return _empty("skipped", "not connected")
     if demo_guard.is_demo(memory_path):
         return _empty("skipped", "the demo memory is open")
+    if scope.is_pending(channel):
+        # Just connected and not yet chosen: nothing is read until the person picks (`scope.py`).
+        sync_state.record_skip(memory_path, channel, scope.CHOOSE_WORDS)
+        return _empty("skipped", "waiting for you to choose what to read")
     if scheduled:
         if http_fn is None and not base.network_allowed(allow_fetch):
             sync_state.record_skip(memory_path, channel, GATE_CLOSED)
